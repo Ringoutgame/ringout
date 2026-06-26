@@ -384,10 +384,10 @@ $('actBtn').onclick=()=>{if(phase!=='aim')return;const who=online?myPlayer:(mode
 // ════ INPUT (slingshot: drag back, fling forward) ════
 function localPt(e){const r=cv.getBoundingClientRect();const sc=LOGICAL/(r.width||dispS);return{x:(e.clientX-r.left)*sc,y:(e.clientY-r.top)*sc};}
 function whoCanAim(){if(phase!=='aim')return -1;if(online)return aimSet[myPlayer]?-1:myPlayer;if(mode==='bot')return aimSet[0]?-1:0;return aimSet[curAimer]?-1:curAimer;}
-function pickOwnBall(who,p){let best=-1,bd=1e9;balls.forEach((b,i)=>{if(b.alive&&b.owner===who){const d=Math.hypot(p.x-b.x,p.y-b.y);if(d<bd){bd=d;best=i;}}});return bd<=BR*2.8?best:-1;}
+function pickOwnBall(who,p){let best=-1,bd=1e9;balls.forEach((b,i)=>{if(b.alive&&b.owner===who){const d=Math.hypot(p.x-b.x,p.y-b.y);if(d<bd){bd=d;best=i;}}});const reach=fmt==='double'?BR*2.8:BR*5;return bd<=reach?best:-1;}
 cv.addEventListener('pointerdown',e=>{const who=whoCanAim();if(who<0)return;const p=localPt(e);
   const idx=pickOwnBall(who,p);if(idx<0)return;
-  cv.setPointerCapture(e.pointerId);dragging=true;dragShooter=idx;dragOwner=who;dragStart={x:balls[idx].x,y:balls[idx].y};dragCur=p;SFX.charge.start();});
+  try{cv.setPointerCapture(e.pointerId);}catch(_){}dragging=true;dragShooter=idx;dragOwner=who;dragStart={x:balls[idx].x,y:balls[idx].y};dragCur=p;SFX.charge.start();});
 cv.addEventListener('pointermove',e=>{if(!dragging)return;dragCur=localPt(e);
   let dx=dragCur.x-dragStart.x,dy=dragCur.y-dragStart.y;const mp=maxPull(),len=Math.hypot(dx,dy);
   SFX.charge.update(Math.min(1,len/mp));});
