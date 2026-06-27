@@ -25,7 +25,6 @@ body{background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,
 .pills{display:flex;background:#0c1420;border-radius:999px;padding:3px;gap:2px}
 .pills button{border:0;background:transparent;color:var(--muted);font:inherit;font-size:11px;font-weight:700;padding:8px 0;border-radius:999px;cursor:pointer;flex:1;transition:.15s}
 .pills button.on{background:#1a2840;color:var(--text)}
-.pills button.on.ice{background:linear-gradient(135deg,#bfe9ff,#5fb4e6);color:#06202e}
 .start{width:100%;max-width:300px;margin-top:8px;border:0;border-radius:14px;padding:15px;font:inherit;font-size:15px;font-weight:900;letter-spacing:.07em;cursor:pointer;color:#060a0e;background:linear-gradient(135deg,var(--gold),#ff9f00);box-shadow:0 4px 24px rgba(255,201,64,.4);transition:transform .1s}
 .start:active{transform:scale(.97)}
 .rules{width:100%;max-width:300px;margin-top:14px;background:#0c1420;border-radius:12px;padding:13px 15px}
@@ -107,18 +106,13 @@ header{width:100%;max-width:460px;display:flex;align-items:center;justify-conten
     <div class="pills" id="fmtGrp"><button id="fSingle" class="on">Einzel 1v1</button><button id="fDouble">Doppel 2v2</button></div>
   </div>
   <div class="sect">
-    <div class="lbl">Arena</div>
-    <div class="pills" id="arenaGrp"><button id="aNormal" class="on">Normal</button><button id="aIce">❄ Eis</button></div>
-  </div>
-  <div class="sect">
     <div class="lbl">Runden bis Sieg</div>
     <div class="pills" id="winGrp"><button id="w3" class="on">3</button><button id="w5">5</button></div>
   </div>
   <button class="start" id="startBtn">▶ Spielen</button>
   <div class="rules">
     <p><b>Steuerung:</b> Tippe deine Kugel, zieh <b>nach hinten</b> (anspannen), lass los — sie schnippt nach vorne.<br><br>
-    <b>Doppel 2v2:</b> Du hast 2 Kugeln. Pro Runde wählst du verdeckt <b>eine</b> davon. Beide gegnerischen Kugeln raus = Sieg.<br><br>
-    <b>Eis:</b> rutschiger Boden — längere Slides, härtere Overshoots. Mehr Risiko, mehr Drama.</p>
+    <b>Doppel 2v2:</b> Du hast 2 Kugeln. Pro Runde wählst du verdeckt <b>eine</b> davon. Beide gegnerischen Kugeln raus = Sieg.</p>
   </div>
 </div>
 
@@ -206,7 +200,7 @@ const $=id=>document.getElementById(id);
 const cv=$('cv'),ctx=cv.getContext('2d');
 
 let mode='bot',diff='easy',winTarget=3,soundOn=true;
-let arena='normal',fmt='single';   // NEU: Arena (normal/ice), Format (single/double)
+let fmt='single';   // Format (single/double)
 // ── ONLINE-State ──
 let online=false, roomCode='', myPlayer=0, gen=0, runningGen=-1, turnNo=-1;
 let turnUnsub=null, genUnsub=null, presUnsub=null, gameStarted=false;
@@ -214,14 +208,12 @@ let turnUnsub=null, genUnsub=null, presUnsub=null, gameStarted=false;
 function setOn(grp,id){document.querySelectorAll('#'+grp+' button').forEach(b=>b.classList.remove('on'));$(id).classList.add('on');}
 $('mBot').onclick=()=>{mode='bot';setOn('modeGrp','mBot');$('diffSec').style.display='';$('fmtSec').style.display='';};
 $('mPvp').onclick=()=>{mode='pvp';setOn('modeGrp','mPvp');$('diffSec').style.display='none';$('fmtSec').style.display='';};
-$('mOnline').onclick=()=>{mode='online';setOn('modeGrp','mOnline');$('diffSec').style.display='none';$('fmtSec').style.display='none';};
+$('mOnline').onclick=()=>{mode='online';setOn('modeGrp','mOnline');$('diffSec').style.display='none';$('fmtSec').style.display='';};
 $('dE').onclick=()=>{diff='easy';setOn('diffGrp','dE');};
 $('dM').onclick=()=>{diff='medium';setOn('diffGrp','dM');};
 $('dH').onclick=()=>{diff='hard';setOn('diffGrp','dH');};
 $('fSingle').onclick=()=>{fmt='single';setOn('fmtGrp','fSingle');};
 $('fDouble').onclick=()=>{fmt='double';setOn('fmtGrp','fDouble');};
-$('aNormal').onclick=()=>{arena='normal';setOn('arenaGrp','aNormal');$('aIce').classList.remove('ice');};
-$('aIce').onclick=()=>{arena='ice';setOn('arenaGrp','aIce');$('aIce').classList.add('ice');};
 $('w3').onclick=()=>{winTarget=3;setOn('winGrp','w3');};
 $('w5').onclick=()=>{winTarget=5;setOn('winGrp','w5');};
 $('startBtn').onclick=()=>{if(mode==='online'){openOnline();return;}online=false;showGame();newGame();};
@@ -305,11 +297,10 @@ let particles=[],outBall=-1;
 let bgPulse=0,bgPulseRGB='255,201,64';
 
 const MAXPULL_FRAC=0.40, LAUNCH=0.034, FRICTION=0.992, FEND=0.992, SLOWV=0.35, REST=0.25, STOPV=0.10;
-const ICE_FRICTION=0.995, ICE_FEND=0.993;          // NEU: Eis-Arena (rutschiger; rechnerisch validiert)
 const REVEAL_MS=600, RESULT_MS=950;
 const RESULT_SLOWMUL=0.7, RESULT_FR=0.99;
-function curFR(){return arena==='ice'?ICE_FRICTION:FRICTION;}
-function curFE(){return arena==='ice'?ICE_FEND:FEND;}
+function curFR(){return FRICTION;}
+function curFE(){return FEND;}
 function maxPull(){return R0*MAXPULL_FRAC;}
 function setPhase(p){phase=p;phaseStart=performance.now();}
 
@@ -354,7 +345,7 @@ function updateHud(){
 }
 function setPhaseText(){const p=$('phase');
   if(online){
-    if(phase==='aim')p.innerHTML = aimSet[myPlayer] ? '⏳ Warte auf Gegner…' : 'Zieh <span class="me'+myPlayer+'">deine Kugel zurück</span> & lass los';
+    if(phase==='aim')p.innerHTML = aimSet[myPlayer] ? '⏳ Warte auf Gegner…' : (fmt==='double'?'Wähle <span class="me'+myPlayer+'">eine Kugel</span> & zieh zurück':'Zieh <span class="me'+myPlayer+'">deine Kugel zurück</span> & lass los');
     else if(phase==='reveal')p.textContent='Beide aufgedeckt…';
     else if(phase==='sim')p.textContent='💥';
     else p.textContent='';
@@ -382,7 +373,7 @@ $('actBtn').onclick=()=>{if(phase!=='aim')return;const who=online?myPlayer:(mode
   const own=aliveBalls(who);const idx=own.length?balls.indexOf(own[0]):-1;commit(who,idx,0,0);};
 
 // ════ INPUT (slingshot: drag back, fling forward) ════
-function localPt(e){const r=cv.getBoundingClientRect();const sc=LOGICAL/(r.width||dispS);return{x:(e.clientX-r.left)*sc,y:(e.clientY-r.top)*sc};}
+function localPt(e){const r=cv.getBoundingClientRect();const sc=LOGICAL/(r.width||dispS);let x=(e.clientX-r.left)*sc,y=(e.clientY-r.top)*sc;if(online&&myPlayer===1){x=2*cx-x;y=2*cy-y;}return{x:x,y:y};}
 function whoCanAim(){if(phase!=='aim')return -1;if(online)return aimSet[myPlayer]?-1:myPlayer;if(mode==='bot')return aimSet[0]?-1:0;return aimSet[curAimer]?-1:curAimer;}
 function pickOwnBall(who,p){let best=-1,bd=1e9;balls.forEach((b,i)=>{if(b.alive&&b.owner===who){const d=Math.hypot(p.x-b.x,p.y-b.y);if(d<bd){bd=d;best=i;}}});const reach=fmt==='double'?BR*2.8:BR*5;return bd<=reach?best:-1;}
 cv.addEventListener('pointerdown',e=>{const who=whoCanAim();if(who<0)return;const p=localPt(e);
@@ -400,7 +391,7 @@ cv.addEventListener('pointercancel',()=>{if(dragging){SFX.charge.stop();}draggin
 
 function commit(who,shooterIdx,fx,fy){
   commitIdx[who]=shooterIdx;commitAim[who]={dx:fx,dy:fy};aimSet[who]=true;updateHud();
-  if(online){onlineSendCommit(fx,fy);setPhaseText();
+  if(online){onlineSendCommit(shooterIdx,fx,fy);setPhaseText();
     if(aimSet[0]&&aimSet[1]&&phase==='aim'){if(turnUnsub){turnUnsub();turnUnsub=null;}beginReveal();}
     return;}
   if(mode==='bot'){const bm=botMove();commitIdx[1]=bm.idx;commitAim[1]={dx:bm.dx,dy:bm.dy};aimSet[1]=true;beginReveal();}
@@ -634,11 +625,10 @@ function createRoom(){
       let code='';
       for(let t=0;t<6;t++){ code=rrand(4); const s=await window.FB.get(window.FB.ref(window.FB.db,'rooms/'+code)); if(!s.exists())break; }
       roomCode=code; myPlayer=0; online=true; gen=0; runningGen=-1; gameStarted=false;
-      fmt='single';
-      await window.FB.set(rRef(), {config:{arena:arena,winTarget:winTarget,fmt:'single'}, gen:0, p:{0:true}, created:Date.now()});
+      await window.FB.set(rRef(), {config:{winTarget:winTarget,fmt:fmt}, gen:0, p:{0:true}, created:Date.now()});
       window.FB.onDisconnect(rRef('p/0')).remove();
       $('onCreate').style.display='none';$('onJoinRow').style.display='none';$('onWait').style.display='';
-      $('onCode').textContent=code; setStatus('Schick den Code an deinen Kumpel.');
+      $('onCode').textContent=code; setStatus((fmt==='double'?'2v2 · ':'1v1 · ')+'Schick den Code an deinen Kumpel.');
       attachRoomListeners();
     }catch(e){ setStatus('Fehler: '+(e.message||e)); online=false; } })();
   });
@@ -655,7 +645,7 @@ function joinRoom(){
       const d=s.val();
       if(d.p && d.p[1]){ setStatus('Raum ist schon voll.'); return; }
       roomCode=code; myPlayer=1; online=true; runningGen=-1; gameStarted=false;
-      const cfg=d.config||{}; arena=cfg.arena||'normal'; winTarget=cfg.winTarget||3; fmt='single'; gen=d.gen||0;
+      const cfg=d.config||{}; winTarget=cfg.winTarget||3; fmt=cfg.fmt||'single'; gen=d.gen||0;
       await window.FB.update(rRef('p'), {1:true});
       window.FB.onDisconnect(rRef('p/1')).remove();
       setStatus('Verbunden! Spiel startet…');
@@ -689,13 +679,14 @@ function onlineArmTurn(){
 function onlineTurnValue(val){
   if(!val)return; const opp=1-myPlayer;
   if(val[opp] && !aimSet[opp]){
-    const c=val[opp], idx=balls.findIndex(b=>b.alive&&b.owner===opp);
+    const c=val[opp];
+    let idx=(c.idx!=null && balls[c.idx] && balls[c.idx].alive && balls[c.idx].owner===opp) ? c.idx : balls.findIndex(b=>b.alive&&b.owner===opp);
     commitIdx[opp]=idx; commitAim[opp]={dx:c.dx,dy:c.dy}; aimSet[opp]=true; updateHud(); setPhaseText();
   }
   if(aimSet[0]&&aimSet[1]&&phase==='aim'){ if(turnUnsub){turnUnsub();turnUnsub=null;} beginReveal(); }
 }
-function onlineSendCommit(fx,fy){
-  try{ window.FB.set(window.FB.ref(window.FB.db,'rooms/'+roomCode+'/g/'+gen+'/t/'+turnNo+'/'+myPlayer), {dx:fx,dy:fy}); }catch(e){}
+function onlineSendCommit(idx,fx,fy){
+  try{ window.FB.set(window.FB.ref(window.FB.db,'rooms/'+roomCode+'/g/'+gen+'/t/'+turnNo+'/'+myPlayer), {idx:idx,dx:fx,dy:fy}); }catch(e){}
 }
 function onlineRematch(){ try{ window.FB.set(rRef('gen'), runningGen+1); }catch(e){} }
 function leaveOnline(){
@@ -712,20 +703,11 @@ function spawn(x,y,n,cols,speed,sizeMul){for(let i=0;i<n;i++){const a=Math.rando
 function updParticles(){for(const p of particles){p.x+=p.vx;p.y+=p.vy;p.vx*=0.9;p.vy*=0.9;p.life-=p.dec;}if(particles.length)particles=particles.filter(p=>p.life>0);if(bgPulse>0.001)bgPulse*=0.90;else bgPulse=0;}
 
 // ════ RENDER ════
-function drawFrost(){ctx.save();ctx.beginPath();ctx.arc(cx,cy,R,0,7);ctx.clip();
-  let seed=7;const rnd=()=>{seed=(seed*9301+49297)%233280;return seed/233280;};
-  ctx.lineCap='round';
-  for(let i=0;i<9;i++){const a=rnd()*Math.PI*2,r0=R*(0.05+rnd()*0.2);let x=cx+Math.cos(a)*r0,y=cy+Math.sin(a)*r0;
-    ctx.beginPath();ctx.moveTo(x,y);let ang=a;const segs=3+Math.floor(rnd()*3);
-    for(let sg=0;sg<segs;sg++){ang+=(rnd()-0.5)*0.9;const len=R*(0.12+rnd()*0.16);x+=Math.cos(ang)*len;y+=Math.sin(ang)*len;ctx.lineTo(x,y);}
-    ctx.lineWidth=1+rnd()*0.8;ctx.strokeStyle='rgba(255,255,255,'+(0.10+rnd()*0.12).toFixed(2)+')';ctx.stroke();}
-  for(let i=0;i<14;i++){const a=rnd()*Math.PI*2,rr=rnd()*R*0.92,x=cx+Math.cos(a)*rr,y=cy+Math.sin(a)*rr;
-    ctx.beginPath();ctx.arc(x,y,0.8+rnd()*1.4,0,7);ctx.fillStyle='rgba(255,255,255,'+(0.25+rnd()*0.4).toFixed(2)+')';ctx.fill();}
-  ctx.restore();}
 function draw(){
-  const tnow=performance.now()/1000, puls=0.5+0.5*Math.sin(tnow*1.6), ice=arena==='ice';
+  const tnow=performance.now()/1000, puls=0.5+0.5*Math.sin(tnow*1.6);
   ctx.clearRect(0,0,W,H);
   ctx.fillStyle='#05080e';ctx.fillRect(0,0,W,H);
+  ctx.save(); if(online&&myPlayer===1){ctx.translate(cx,cy);ctx.rotate(Math.PI);ctx.translate(-cx,-cy);}
   const eg=(px,py,rad,r,g,b,a)=>{const G=ctx.createRadialGradient(px,py,0,px,py,rad);G.addColorStop(0,'rgba('+r+','+g+','+b+','+a+')');G.addColorStop(1,'rgba('+r+','+g+','+b+',0)');ctx.fillStyle=G;ctx.fillRect(0,0,W,H);};
   const eb=0.5+0.5*Math.sin(tnow*1.1);
   eg(cx+Math.cos(tnow*0.45)*W*0.52,    cy+Math.sin(tnow*0.38)*H*0.52,    R*1.35,   0,170,225, 0.17+eb*0.08);
@@ -734,15 +716,12 @@ function draw(){
   if(bgPulse>0.01){const F=ctx.createRadialGradient(cx,cy,R*0.3,cx,cy,Math.max(W,H));F.addColorStop(0,'rgba('+bgPulseRGB+','+(bgPulse*0.55).toFixed(3)+')');F.addColorStop(1,'rgba('+bgPulseRGB+',0)');ctx.fillStyle=F;ctx.fillRect(0,0,W,H);}
   // arena floor
   const g=ctx.createRadialGradient(cx-R*0.22,cy-R*0.26,R*0.08,cx,cy,R*1.05);
-  if(ice){g.addColorStop(0,'#e6f5ff');g.addColorStop(.5,'#a6d6f0');g.addColorStop(1,'#3f7ea8');}
-  else{g.addColorStop(0,'#24547e');g.addColorStop(.55,'#173b5b');g.addColorStop(1,'#0d2336');}
+  g.addColorStop(0,'#24547e');g.addColorStop(.55,'#173b5b');g.addColorStop(1,'#0d2336');
   ctx.beginPath();ctx.arc(cx,cy,R,0,7);ctx.fillStyle=g;ctx.fill();
-  if(ice)drawFrost();
   const rim=ctx.createRadialGradient(cx,cy,R*0.7,cx,cy,R);
-  if(ice){rim.addColorStop(0,'rgba(90,150,210,0)');rim.addColorStop(1,'rgba(120,170,220,.22)');}
-  else{rim.addColorStop(0,'rgba(255,92,60,0)');rim.addColorStop(1,'rgba(255,92,60,.18)');}
+  rim.addColorStop(0,'rgba(255,92,60,0)');rim.addColorStop(1,'rgba(255,92,60,.18)');
   ctx.beginPath();ctx.arc(cx,cy,R,0,7);ctx.fillStyle=rim;ctx.fill();
-  ctx.strokeStyle=ice?'rgba(255,255,255,.20)':'rgba(140,190,230,.15)';ctx.lineWidth=1;
+  ctx.strokeStyle='rgba(140,190,230,.15)';ctx.lineWidth=1;
   [0.66,0.4].forEach(f=>{ctx.beginPath();ctx.arc(cx,cy,R*f,0,7);ctx.stroke();});
   ctx.save();ctx.beginPath();ctx.arc(cx,cy,R,0,7);ctx.lineWidth=Math.max(2.5,R*0.022);
   ctx.strokeStyle='rgba(255,201,64,'+(0.6+puls*0.28)+')';ctx.shadowColor='rgba(255,201,64,.85)';ctx.shadowBlur=R*(0.05+puls*0.05);ctx.stroke();ctx.restore();
@@ -767,15 +746,14 @@ function draw(){
     drawSling(balls[dragShooter],cdx,cdy);}
 
   for(const b of balls)if(b.alive)drawBall(b);
+  ctx.restore();
 }
 function drawBall(b){
-  const ice=arena==='ice';
   const col=b.owner===0?'#00d4ff':'#ff4d4d',hl=b.owner===0?'#90f0ff':'#ffaaaa';
   const sp=Math.hypot(b.vx,b.vy);
   if(sp>1.2){ctx.beginPath();ctx.moveTo(b.x,b.y);ctx.lineTo(b.x-b.vx*2.2,b.y-b.vy*2.2);ctx.lineWidth=BR*1.4;ctx.lineCap='round';ctx.strokeStyle=(b.owner===0?'rgba(0,212,255,':'rgba(255,77,77,')+Math.min(.4,sp*0.04)+')';ctx.stroke();}
   const edge=R-Math.hypot(b.x-cx,b.y-cy);
   if(edge<R*0.26){ctx.beginPath();ctx.arc(b.x,b.y,BR*1.8,0,7);ctx.fillStyle=(b.owner===0?'rgba(0,212,255,':'rgba(255,77,77,')+(0.14*(1-edge/(R*0.26))+0.03)+')';ctx.fill();}
-  if(ice){ctx.beginPath();ctx.arc(b.x,b.y,BR+Math.max(1.2,BR*0.10),0,7);ctx.fillStyle='rgba(6,16,28,.55)';ctx.fill();}
   const rg=ctx.createRadialGradient(b.x-BR*0.32,b.y-BR*0.36,BR*0.08,b.x,b.y,BR);
   rg.addColorStop(0,'#ffffff');rg.addColorStop(.25,hl);rg.addColorStop(.75,col);rg.addColorStop(1,col);
   ctx.beginPath();ctx.arc(b.x,b.y,BR,0,7);ctx.fillStyle=rg;ctx.shadowColor=col;ctx.shadowBlur=BR*0.85;ctx.fill();ctx.shadowBlur=0;
