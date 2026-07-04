@@ -281,11 +281,49 @@ These rules apply specifically to AI-assisted work on this project and complemen
 - Never delete, disable, or fundamentally alter an existing feature without explicit approval from the project owner.
 - If a change risks breaking or removing existing behavior, state this clearly before proceeding and wait for confirmation.
 
-### Planning Before Implementation
+### Planning Workflow
 
-- For any non-trivial change (architectural refactors, new systems, changes affecting multiple files), present a clear plan first.
-- Describe what will change, what will stay the same, and what the risks are.
-- Begin implementation only after explicit approval.
+This workflow is the **permanent default** before implementing any non-trivial feature, fix, or refactor. Execute every step before writing a single line of code.
+
+#### Step 1 — Analyze the request
+
+- Read the request carefully and identify the core intent.
+- Check `PROJECT.md`, `TODO.md`, and relevant source files to understand the current state of the affected systems.
+- Determine whether the task is **small** (isolated change, one or two touch-points, no risk to existing behavior) or **large** (affects multiple systems, changes shared state, modifies architecture, or could break existing features).
+
+#### Step 2 — Explain the planned approach
+
+- State in plain language what will be built and how.
+- Reference the existing systems that will be reused or extended.
+- If multiple valid approaches exist, name them briefly and recommend one with a reason.
+- Keep this concise — a paragraph or a short bullet list is enough.
+
+#### Step 3 — Identify risks and edge cases
+
+- Name anything that could go wrong: physics desync, state-machine conflicts, Firebase schema drift, rendering performance, mobile compatibility, or interactions with bot AI.
+- Note any existing behavior that is adjacent to the change and could be accidentally broken.
+- If a risk cannot be mitigated cleanly, say so and propose a fallback.
+
+#### Step 4 — List files that will likely change
+
+- Name every file (or section within `index.html`) that is expected to be modified.
+- Flag any file that is touched only for a minor reason — these are candidates for scope reduction.
+- If a change requires touching more than three major systems, reconsider whether the task should be broken into smaller steps.
+
+#### Step 5 — Confirm or proceed
+
+- **Large or risky change:** present the plan and wait for explicit confirmation before writing any code.
+  A change is large or risky if it: refactors a core system, modifies the physics constants, changes the game-loop phase sequence, affects the Firebase lockstep protocol, touches the bot AI evaluation, or modifies behavior that is listed under "Things That Should Never Be Changed" in the project analysis.
+- **Small, isolated change:** state the plan briefly (Steps 1–4 condensed to a few lines) and proceed immediately without waiting.
+  A change is small if it: adds a UI element, fixes a single function, updates documentation, adjusts a non-physics constant, or affects only one clearly bounded section of the code.
+
+---
+
+### Architecture and Reuse Rules
+
+- **Always prefer maintainable architecture over quick fixes.** A solution that requires a workaround today will require a larger workaround tomorrow. If the clean solution takes longer, explain the trade-off and take it anyway unless the project owner explicitly decides otherwise.
+- **Never duplicate code when an existing system can be reused.** Before writing new logic, check whether the physics stepper, bot candidate generator, particle spawner, toast system, or any other existing function already solves the problem. Extend what exists; do not copy it.
+- **If reuse requires a small refactor, do it.** Extracting a shared helper as part of a feature is not scope creep — it is good engineering. Note it in the plan and in the commit.
 
 ### Change Philosophy
 
@@ -309,3 +347,108 @@ These rules apply specifically to AI-assisted work on this project and complemen
 
 - When encountering technical debt, suboptimal patterns, or optimization opportunities, call them out explicitly — even if they are outside the current task scope.
 - Flag them as low-priority observations so the project owner can decide whether to address them now or add them to `TODO.md`.
+
+---
+
+### Feature Completion Workflow
+
+This workflow is the **permanent default** for every completed feature, fix, or refactor. Execute every step in order without skipping.
+
+#### Step 1 — Test the implementation
+
+- Open `index.html` in a browser and exercise the changed behavior directly.
+- Cover the happy path, at least one edge case, and any interaction with existing features that could be affected.
+- For online changes: verify both host and guest flows in separate tabs.
+- For bot changes: test all three difficulty levels.
+- Do not proceed to Step 2 if the feature does not behave correctly.
+
+#### Step 2 — Fix any obvious issues
+
+- If testing reveals bugs, fix them before continuing.
+- A bug that is noticed and left unfixed is not acceptable — log it in `TODO.md` with a P0 or P1 priority if it cannot be fixed immediately, and note it clearly in the commit message.
+- Never move to documentation or git steps while a known error exists in the changed code.
+
+#### Step 3 — Update `TODO.md`
+
+- Mark completed tasks as done and move their descriptions to `CHANGELOG.md`.
+- Add any newly discovered tasks with the correct priority (P0–P3).
+- Remove tasks that are no longer relevant.
+- Update the `Zuletzt aktualisiert` date at the top of the file.
+
+#### Step 4 — Update `CHANGELOG.md`
+
+- Add an entry under `## [Unreleased]` with today's date and a concise description of every user-visible or developer-visible change.
+- Group entries by type: `feat`, `fix`, `perf`, `refactor`, `docs`.
+- Be specific: state *what* changed and *why*, not just *that* something changed.
+- Example entry:
+  ```
+  - fix: clamp online move data (dx, dy, sp) before applying — prevents velocity injection by cheating clients (2026-07-04)
+  ```
+
+#### Step 5 — Update `PROJECT.md` if the architecture changed
+
+- Update `PROJECT.md` whenever a new system was added, a file was restructured, a technical constant changed, or a known limitation was resolved.
+- Update the `Zuletzt aktualisiert` date at the top of the file.
+- Skip this step only for pure bug fixes that leave the architecture unchanged.
+
+#### Step 6 — Explain what changed
+
+- Before committing, write a plain-language summary (2–5 sentences) addressed to the project owner explaining:
+  - What was built or fixed.
+  - Why it matters.
+  - Any trade-offs or remaining limitations.
+- This summary is for the human, not the commit history.
+
+#### Step 7 — Stage all modified files
+
+- Stage every file that was changed as part of this feature: source files, documentation, and assets.
+- Do not stage unrelated changes. If unrelated edits exist, stash or revert them first.
+- Review `git status` and `git diff --staged` before committing to confirm only the intended changes are included.
+
+#### Step 8 — Create a meaningful Git commit
+
+- Use the conventional commit format:
+  ```
+  <type>: <short imperative summary>
+
+  <optional body — what and why, not how>
+  ```
+- Valid types: `feat`, `fix`, `perf`, `refactor`, `docs`, `test`, `chore`.
+- The subject line must be ≤ 72 characters.
+- The body should explain *why* the change was made if it is not obvious from the subject.
+- Never use vague messages like `update`, `fix stuff`, or `changes`.
+
+#### Step 9 — Push to GitHub
+
+- Push to the `main` branch (or the active feature branch) after the commit succeeds.
+- Only push if:
+  - All tests from Step 1 passed.
+  - No known errors remain in the changed code (Step 2).
+  - Documentation is synchronized (Steps 3–5).
+- If any of those conditions are not met, do not push. State explicitly why the push was skipped.
+- Command: `git push origin main` (or the current branch).
+
+---
+
+### Push Policy
+
+- **Never push code that has known errors.** If a bug was found and not yet fixed, the commit stays local until it is resolved.
+- **Never push with documentation out of sync.** `TODO.md`, `CHANGELOG.md`, and `PROJECT.md` must reflect the state of the code at the time of the push.
+- **Never force-push to `main`** without explicit approval from the project owner.
+- If the push fails (e.g., remote has diverged), pull and rebase, resolve any conflicts, then push again. Do not use `--force` unless instructed.
+
+---
+
+### Workflow Quick Reference
+
+```
+1. Test           → browser test, all modes affected
+2. Fix            → no known errors before continuing
+3. TODO.md        → mark done, add new tasks, update date
+4. CHANGELOG.md   → entry under [Unreleased] with date
+5. PROJECT.md     → update only if architecture changed
+6. Explain        → 2–5 sentence summary for the owner
+7. Stage          → review git diff --staged before commit
+8. Commit         → conventional format, ≤72 char subject
+9. Push           → only if steps 1–2 passed and docs synced
+```
