@@ -7,6 +7,7 @@ Alle abgeschlossenen Änderungen am Projekt, neueste zuerst.
 ## [Unreleased]
 
 ### Dokumentation
+- `CLAUDE.md`: Planning Workflow Schritt 5 ersetzt — vor jedem Task (ohne Größen-Ausnahme) ein Briefing aus 5–10 Sätzen (warum jetzt, was kann brechen, wie sieht Erfolg aus, kommerzieller 100 000-Spieler-Test), danach explizite Freigabe abwarten; Freigabe gilt nur pro Task (2026-07-05)
 - `CLAUDE.md`: Feature Completion Workflow auf 11 Schritte erweitert — automatische Ausführung nach jedem Task, Push-Verifikation (Branch synchron mit origin), Abschlusskriterium „nothing to commit, working tree clean" und exakter Abschlusssatz (2026-07-05)
 - `CLAUDE.md` um Abschnitt „AI-Assisted Development Rules" erweitert (2026-06-30)
 - `README.md` als Schnellübersicht erstellt (2026-06-30)

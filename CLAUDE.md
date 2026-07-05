@@ -310,12 +310,20 @@ This workflow is the **permanent default** before implementing any non-trivial f
 - Flag any file that is touched only for a minor reason — these are candidates for scope reduction.
 - If a change requires touching more than three major systems, reconsider whether the task should be broken into smaller steps.
 
-#### Step 5 — Confirm or proceed
+#### Step 5 — Task briefing and approval
 
-- **Large or risky change:** present the plan and wait for explicit confirmation before writing any code.
-  A change is large or risky if it: refactors a core system, modifies the physics constants, changes the game-loop phase sequence, affects the Firebase lockstep protocol, touches the bot AI evaluation, or modifies behavior that is listed under "Things That Should Never Be Changed" in the project analysis.
-- **Small, isolated change:** state the plan briefly (Steps 1–4 condensed to a few lines) and proceed immediately without waiting.
-  A change is small if it: adds a UI element, fixes a single function, updates documentation, adjusts a non-physics constant, or affects only one clearly bounded section of the code.
+Before writing any code — for **every** task, regardless of size — present a briefing of **5–10 sentences** that answers, in plain language:
+
+1. **Why now:** why this task is the right next step (its place in the roadmap, what it unblocks, what it protects).
+2. **What could break:** the concrete failure modes and the adjacent behavior at risk.
+3. **What success looks like:** the observable outcome and the Definition of Done that will be verified.
+4. **The commercial test:** would this still be the chosen task if RingOut were a commercial game with 100 000 live players? If the answer is no, say so honestly and name what a commercial team would do instead — the owner decides whether to proceed anyway.
+
+Then **wait for explicit approval before writing a single line of code.** There are no exceptions for small tasks.
+
+- The small/large classification from Step 1 still applies, but it now only controls the *depth* of the briefing (small = condensed but complete; large = full detail with the risk table from Steps 3–4), not whether to wait.
+- Approval applies to one task only. It does not carry over to the next task, even within the same milestone.
+- Pure documentation-only changes explicitly requested by the owner (e.g., "update CLAUDE.md with…") are the only exemption — they are executed directly.
 
 ---
 
