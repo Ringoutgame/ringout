@@ -7,6 +7,7 @@ Alle abgeschlossenen Änderungen am Projekt, neueste zuerst.
 ## [Unreleased]
 
 ### Fixes
+- fix: validate room data before joining online rooms — new pure `validateRoom()` rejects invalid/manipulated rooms instead of silently defaulting: `winTarget` strictly 3|5, `fmt` strictly single|double, `gen` safe integer 0–10 000, presence map checked (host must be present, room not full; Firebase array form supported). Validation runs before any state mutation in `joinRoom()` (2026-07-06)
 - fix: clamp online move data (dx, dy, sp) before applying — prevents velocity injection by cheating clients. Deterministic, idempotent `sanitizeMove()` applied at both lockstep ends (sender in `commit()`, receiver in `onlineTurnValue()`): move vector magnitude clamped to `maxPull()`, spin to [−1, +1], ball index validated against ownership with fallback (2026-07-05)
 
 ### Dokumentation

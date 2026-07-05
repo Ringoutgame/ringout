@@ -1,6 +1,6 @@
 # PROJECT.md — RingOut
 
-**Zuletzt aktualisiert:** 2026-07-05
+**Zuletzt aktualisiert:** 2026-07-06
 
 ---
 
@@ -64,6 +64,7 @@ RingOut ist ein kompetitives, physikbasiertes Browser-Spiel für 1–2 Spieler. 
 - Firebase Realtime Database, Raumcode (4 Zeichen, alphanumerisch)
 - Lockstep: beide Spieler committen ihre Züge; Physik läuft lokal identisch
 - Zug-Validierung: `sanitizeMove()` klemmt deterministisch und idempotent an **beiden** Lockstep-Enden (Sender in `commit()`, Empfänger in `onlineTurnValue()`) — Vektorlänge ≤ `maxPull()`, Drall ∈ [−1, +1], Kugel-Index gegen Besitz validiert. Verhindert Velocity-Injection durch manipulierte Clients.
+- Raum-Validierung beim Beitritt: pure Funktion `validateRoom()` prüft vor jeder State-Mutation `config.winTarget` (3|5), `config.fmt` (single|double), `gen` (Safe Integer, 0–10 000) und die Präsenz-Map `p` (Host anwesend, Raum nicht voll; Firebase-Array-Form unterstützt). Ungültige Räume werden abgelehnt — keine stillen Defaults.
 - Disconnect-Handling via `onDisconnect().remove()`
 - Rematch durch Generationszähler (`gen` in Firebase)
 

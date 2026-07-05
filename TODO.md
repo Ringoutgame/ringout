@@ -1,6 +1,6 @@
 # TODO.md — RingOut
 
-**Zuletzt aktualisiert:** 2026-07-05
+**Zuletzt aktualisiert:** 2026-07-06
 
 Offene Aufgaben nach Priorität. Abgeschlossene Aufgaben werden nach `CHANGELOG.md` verschoben.
 
@@ -9,7 +9,7 @@ Offene Aufgaben nach Priorität. Abgeschlossene Aufgaben werden nach `CHANGELOG.
 ## P0 — Kritisch (Sicherheit / Stabilität)
 
 - [x] ~~**Online-Züge validieren (M1-T1)**~~ → erledigt, siehe CHANGELOG (2026-07-05)
-- [ ] **Raum-Konfiguration beim Beitritt validieren (M1-T2):** `winTarget` nur 3/5, `fmt` nur single/double; ungültige Räume ablehnen statt still übernehmen.
+- [x] ~~**Raum-Konfiguration beim Beitritt validieren (M1-T2)**~~ → erledigt, siehe CHANGELOG (2026-07-06)
 - [ ] **Client-Versionscheck für Online-Räume (M1-T3):** `GAME_VERSION` im Raum speichern, Beitritt bei Mismatch ablehnen — verhindert Lockstep-Desync zwischen unterschiedlichen Client-Versionen.
 - [ ] **Firebase-Konfiguration absichern (M1-T4):** API-Key und Datenbank-URL aus dem Quellcode entfernen. Entweder Build-System mit `.env`-Variablen einrichten oder Firebase App Check aktivieren, um unbefugten Zugriff zu verhindern.
 - [ ] **Firebase Datenbankregeln härten (M1-T4):** Schreibzugriff auf `/rooms/` einschränken (nur valide Strukturen, Write-Once für Züge, Raumschlüssel-Format erzwingen).

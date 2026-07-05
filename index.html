@@ -697,6 +697,22 @@ function createRoom(){
   });
 }
 
+// Pure validator for a room snapshot the joiner is about to trust. No globals,
+// no state, no silent defaults: invalid or missing fields reject the join.
+// Note: Firebase may deliver p:{0:true} as the array [true] — both forms pass.
+const GEN_MAX=10000;   // gen grows +1 per rematch; anything above is manipulation
+function validateRoom(d){
+  if(!d||typeof d!=='object')return{ok:false,reason:'Raumdaten ungültig.'};
+  const cfg=d.config;
+  if(!cfg||typeof cfg!=='object'||(cfg.winTarget!==3&&cfg.winTarget!==5)||(cfg.fmt!=='single'&&cfg.fmt!=='double'))
+    return{ok:false,reason:'Raum-Konfiguration ungültig.'};
+  if(!Number.isSafeInteger(d.gen)||d.gen<0||d.gen>GEN_MAX)
+    return{ok:false,reason:'Raum-Konfiguration ungültig.'};
+  const p=d.p;
+  if(!p||typeof p!=='object'||p[0]!==true)return{ok:false,reason:'Raum ist verwaist.'};
+  if(p[1])return{ok:false,reason:'Raum ist schon voll.'};
+  return{ok:true,winTarget:cfg.winTarget,fmt:cfg.fmt,gen:d.gen};
+}
 function joinRoom(){
   const code=($('onInput').value||'').toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,4);
   if(code.length<4){ setStatus('Bitte 4-stelligen Code eingeben.'); return; }
@@ -705,10 +721,10 @@ function joinRoom(){
       setStatus('Trete bei…');
       const s=await window.FB.get(window.FB.ref(window.FB.db,'rooms/'+code));
       if(!s.exists()){ setStatus('Raum nicht gefunden.'); return; }
-      const d=s.val();
-      if(d.p && d.p[1]){ setStatus('Raum ist schon voll.'); return; }
+      const v=validateRoom(s.val());
+      if(!v.ok){ setStatus(v.reason); return; }
       roomCode=code; myPlayer=1; online=true; runningGen=-1; gameStarted=false;
-      const cfg=d.config||{}; winTarget=cfg.winTarget||3; fmt=cfg.fmt||'single'; gen=d.gen||0;
+      winTarget=v.winTarget; fmt=v.fmt; gen=v.gen;
       await window.FB.update(rRef('p'), {1:true});
       window.FB.onDisconnect(rRef('p/1')).remove();
       setStatus('Verbunden! Spiel startet…');
