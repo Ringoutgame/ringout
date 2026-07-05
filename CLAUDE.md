@@ -352,7 +352,9 @@ This workflow is the **permanent default** before implementing any non-trivial f
 
 ### Feature Completion Workflow
 
-This workflow is the **permanent default** for every completed feature, fix, or refactor. Execute every step in order without skipping.
+This workflow is the **permanent default** for every successfully completed task, feature, fix, or refactor. Execute every step in order without skipping — **automatically, without waiting for an instruction from the project owner.** Completing the implementation is not the end of the task; the task ends only when the repository is clean and pushed (see Step 11).
+
+If any step fails: explain the issue, fix it if possible, and continue the workflow until the repository is clean. Stop and ask only when a fix requires a decision that belongs to the project owner (e.g., removing a feature, changing protected behavior, force-pushing).
 
 #### Step 1 — Test the implementation
 
@@ -428,6 +430,26 @@ This workflow is the **permanent default** for every completed feature, fix, or 
 - If any of those conditions are not met, do not push. State explicitly why the push was skipped.
 - Command: `git push origin main` (or the current branch).
 
+#### Step 10 — Verify the push succeeded
+
+- Confirm the push actually reached GitHub — do not assume success from the absence of an error.
+- Check that the local branch is in sync with the remote (e.g., `git status` reports the branch is up to date with `origin/main`, or compare `git rev-parse HEAD` with the remote head).
+- If the push was rejected (remote diverged): pull and rebase, resolve conflicts, push again, and re-verify. Never use `--force` without explicit approval.
+
+#### Step 11 — Final verification: clean working tree
+
+- Run `git status`.
+- A task is only considered **finished** when `git status` returns:
+  ```
+  nothing to commit, working tree clean
+  ```
+  and the branch is up to date with the remote.
+- If uncommitted or untracked files remain that belong to the task, return to Step 7 and include them.
+- If unrelated stray files remain, tell the project owner what they are instead of silently committing or deleting them.
+- Only when the tree is clean and the push is verified, report completion with exactly:
+  > **Everything has been saved successfully to GitHub. You can safely close VS Code.**
+- Never output this sentence if any step above failed, was skipped, or is unverified.
+
 ---
 
 ### Push Policy
@@ -447,8 +469,16 @@ This workflow is the **permanent default** for every completed feature, fix, or 
 3. TODO.md        → mark done, add new tasks, update date
 4. CHANGELOG.md   → entry under [Unreleased] with date
 5. PROJECT.md     → update only if architecture changed
+   (also ROADMAP.md and other docs if direction changed)
 6. Explain        → 2–5 sentence summary for the owner
 7. Stage          → review git diff --staged before commit
 8. Commit         → conventional format, ≤72 char subject
 9. Push           → only if steps 1–2 passed and docs synced
+10. Verify push   → branch up to date with origin
+11. git status    → must be "nothing to commit, working
+                    tree clean" → only then report:
+                    "Everything has been saved successfully
+                    to GitHub. You can safely close VS Code."
 ```
+
+The workflow runs automatically after every completed task — the project owner never needs to ask for it.
