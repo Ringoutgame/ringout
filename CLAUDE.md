@@ -262,6 +262,16 @@ Every change should move RingOut closer to being a high-quality, competitive, an
 
 These rules apply specifically to AI-assisted work on this project and complement all standards above.
 
+### Language Policy
+
+- **English** is used for: code, comments in code, commit messages, technical documentation, file contents, architecture notes, and internal reasoning.
+- **German** is mandatory for every explanation addressed to the project owner:
+  - the pre-implementation task briefing (Planning Workflow Step 5),
+  - the completion summary after every finished task (Feature Completion Workflow Step 6),
+  - status updates, findings, trade-off explanations, questions, and recommendations.
+- Existing German-language project files (`PROJECT.md`, `TODO.md`, `ROADMAP.md`, `CHANGELOG.md`, README) keep their current language — do not translate them.
+- Exception: the exact completion sentence in Feature Completion Workflow Step 11 remains verbatim in English ("Everything has been saved successfully to GitHub. You can safely close VS Code.") unless the project owner decides to change it.
+
 ### Context Before Action
 
 - Before starting any task, read `PROJECT.md`, `TODO.md`, `ROADMAP.md`, and `CHANGELOG.md` to understand the current project state, open tasks, and long-term direction.
