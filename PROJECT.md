@@ -64,7 +64,8 @@ RingOut ist ein kompetitives, physikbasiertes Browser-Spiel für 1–2 Spieler. 
 - Firebase Realtime Database, Raumcode (4 Zeichen, alphanumerisch)
 - Lockstep: beide Spieler committen ihre Züge; Physik läuft lokal identisch
 - Zug-Validierung: `sanitizeMove()` klemmt deterministisch und idempotent an **beiden** Lockstep-Enden (Sender in `commit()`, Empfänger in `onlineTurnValue()`) — Vektorlänge ≤ `maxPull()`, Drall ∈ [−1, +1], Kugel-Index gegen Besitz validiert. Verhindert Velocity-Injection durch manipulierte Clients.
-- Raum-Validierung beim Beitritt: pure Funktion `validateRoom()` prüft vor jeder State-Mutation `config.winTarget` (3|5), `config.fmt` (single|double), `gen` (Safe Integer, 0–10 000) und die Präsenz-Map `p` (Host anwesend, Raum nicht voll; Firebase-Array-Form unterstützt). Ungültige Räume werden abgelehnt — keine stillen Defaults.
+- Raum-Validierung beim Beitritt: pure Funktion `validateRoom()` prüft vor jeder State-Mutation `v` (Protokollversion), `config.winTarget` (3|5), `config.fmt` (single|double), `gen` (Safe Integer, 0–10 000) und die Präsenz-Map `p` (Host anwesend, Raum nicht voll; Firebase-Array-Form unterstützt). Ungültige Räume werden abgelehnt — keine stillen Defaults.
+- Protokollversion: `ONLINE_PROTOCOL_VERSION` (Integer, aktuell 1) wird von `createRoom()` atomar als `v` in den Raum geschrieben; Beitritt nur bei exakter Übereinstimmung. **Bump-Regel:** +1 ausschließlich bei Änderungen an Online-Protokoll, Raum-Schema, Lockstep, Physik, Move-Daten oder simulationsrelevanter Logik — reine UI-/Grafik-/Menü-/Textänderungen bumpen nicht, damit sie Online-Matches nicht unnötig blockieren.
 - Disconnect-Handling via `onDisconnect().remove()`
 - Rematch durch Generationszähler (`gen` in Firebase)
 

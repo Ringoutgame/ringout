@@ -6,6 +6,9 @@ Alle abgeschlossenen Änderungen am Projekt, neueste zuerst.
 
 ## [Unreleased]
 
+### Features
+- feat: add online protocol version check — `ONLINE_PROTOCOL_VERSION` (Integer, Start 1) wird von `createRoom()` atomar in den Raum geschrieben; `validateRoom()` lehnt fehlende oder abweichende Versionen strikt ab („Versionen stimmen nicht überein — bitte beide Seite neu laden."). Bump-Regel: nur bei Änderungen an Online-Protokoll, Raum-Schema, Lockstep, Physik oder Move-Daten — reine UI-/Grafik-/Textänderungen bumpen nicht (2026-07-06)
+
 ### Fixes
 - fix: validate room data before joining online rooms — new pure `validateRoom()` rejects invalid/manipulated rooms instead of silently defaulting: `winTarget` strictly 3|5, `fmt` strictly single|double, `gen` safe integer 0–10 000, presence map checked (host must be present, room not full; Firebase array form supported). Validation runs before any state mutation in `joinRoom()` (2026-07-06)
 - fix: clamp online move data (dx, dy, sp) before applying — prevents velocity injection by cheating clients. Deterministic, idempotent `sanitizeMove()` applied at both lockstep ends (sender in `commit()`, receiver in `onlineTurnValue()`): move vector magnitude clamped to `maxPull()`, spin to [−1, +1], ball index validated against ownership with fallback (2026-07-05)

@@ -688,7 +688,7 @@ function createRoom(){
       let code='';
       for(let t=0;t<6;t++){ code=rrand(4); const s=await window.FB.get(window.FB.ref(window.FB.db,'rooms/'+code)); if(!s.exists())break; }
       roomCode=code; myPlayer=0; online=true; gen=0; runningGen=-1; gameStarted=false;
-      await window.FB.set(rRef(), {config:{winTarget:winTarget,fmt:fmt}, gen:0, p:{0:true}, created:Date.now()});
+      await window.FB.set(rRef(), {v:ONLINE_PROTOCOL_VERSION, config:{winTarget:winTarget,fmt:fmt}, gen:0, p:{0:true}, created:Date.now()});
       window.FB.onDisconnect(rRef('p/0')).remove();
       $('onCreate').style.display='none';$('onJoinRow').style.display='none';$('onWait').style.display='';
       $('onCode').textContent=code; setStatus((fmt==='double'?'2v2 · ':'1v1 · ')+'Schick den Code an deinen Kumpel.');
@@ -697,12 +697,17 @@ function createRoom(){
   });
 }
 
+// Bump ONLY when online protocol, room schema, lockstep, physics, move data,
+// or other simulation-relevant logic changes. Pure UI/graphics/menu/text
+// changes must NOT bump this — they may not block online matches.
+const ONLINE_PROTOCOL_VERSION=1;
 // Pure validator for a room snapshot the joiner is about to trust. No globals,
 // no state, no silent defaults: invalid or missing fields reject the join.
 // Note: Firebase may deliver p:{0:true} as the array [true] — both forms pass.
 const GEN_MAX=10000;   // gen grows +1 per rematch; anything above is manipulation
 function validateRoom(d){
   if(!d||typeof d!=='object')return{ok:false,reason:'Raumdaten ungültig.'};
+  if(d.v!==ONLINE_PROTOCOL_VERSION)return{ok:false,reason:'Versionen stimmen nicht überein — bitte beide Seite neu laden.'};
   const cfg=d.config;
   if(!cfg||typeof cfg!=='object'||(cfg.winTarget!==3&&cfg.winTarget!==5)||(cfg.fmt!=='single'&&cfg.fmt!=='double'))
     return{ok:false,reason:'Raum-Konfiguration ungültig.'};

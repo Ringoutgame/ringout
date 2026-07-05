@@ -10,7 +10,7 @@ Offene Aufgaben nach Priorität. Abgeschlossene Aufgaben werden nach `CHANGELOG.
 
 - [x] ~~**Online-Züge validieren (M1-T1)**~~ → erledigt, siehe CHANGELOG (2026-07-05)
 - [x] ~~**Raum-Konfiguration beim Beitritt validieren (M1-T2)**~~ → erledigt, siehe CHANGELOG (2026-07-06)
-- [ ] **Client-Versionscheck für Online-Räume (M1-T3):** `GAME_VERSION` im Raum speichern, Beitritt bei Mismatch ablehnen — verhindert Lockstep-Desync zwischen unterschiedlichen Client-Versionen.
+- [x] ~~**Client-Versionscheck für Online-Räume (M1-T3)**~~ → erledigt als `ONLINE_PROTOCOL_VERSION`, siehe CHANGELOG (2026-07-06)
 - [ ] **Firebase-Konfiguration absichern (M1-T4):** API-Key und Datenbank-URL aus dem Quellcode entfernen. Entweder Build-System mit `.env`-Variablen einrichten oder Firebase App Check aktivieren, um unbefugten Zugriff zu verhindern.
 - [ ] **Firebase Datenbankregeln härten (M1-T4):** Schreibzugriff auf `/rooms/` einschränken (nur valide Strukturen, Write-Once für Züge, Raumschlüssel-Format erzwingen).
 - [ ] **Manueller Browser-Smoke für M1-T1:** Bot- und PvP-Runde spielen, optional Online-Zwei-Tab — automatisierter Browser-Test wurde vom Owner ohne Zusatzinstallation ausgeführt (Logik-Tests grün), interaktiver Check steht aus.
