@@ -272,7 +272,26 @@ These rules apply specifically to AI-assisted work on this project and complemen
 - Existing German-language project files (`PROJECT.md`, `TODO.md`, `ROADMAP.md`, `CHANGELOG.md`, README) keep their current language — do not translate them.
 - Exception: the exact completion sentence in Feature Completion Workflow Step 11 remains verbatim in English ("Everything has been saved successfully to GitHub. You can safely close VS Code.") unless the project owner decides to change it.
 
-### Context Before Action
+### Communication Style
+
+Owner communication is **compact and decision-oriented by default.** No long texts, no repetition, no unprompted deep technical detail.
+
+- **During implementation:** short status lines only (e.g., "Code analysiert.", "Implementierung läuft.", "Tests werden ausgeführt.", "Dokumentation wird aktualisiert.", "Commit und Push werden vorbereitet.").
+- **Task briefing (Planning Workflow Step 5) — exactly these points, each brief:**
+  1. **Ziel** — what the task delivers
+  2. **Warum jetzt** — place in the roadmap
+  3. **Was wird geändert** — files/sections touched
+  4. **Risiken** — what could break
+  5. **Tests** — how success is verified
+  6. **Empfehlung** — recommendation, including a one-line answer to the 100k-player commercial test
+- **Completion summary (Feature Completion Workflow Step 6) — exactly these points, each brief:**
+  1. Was wurde geändert?
+  2. Welche Dateien wurden geändert?
+  3. Welche Tests wurden durchgeführt?
+  4. Doku / Commit / Push erfolgreich?
+  5. Bekannte Restrisiken?
+  6. Nächster empfohlener Schritt?
+- Detailed technical analysis **only when the owner explicitly asks for it.**
 
 - Before starting any task, read `PROJECT.md`, `TODO.md`, `ROADMAP.md`, and `CHANGELOG.md` to understand the current project state, open tasks, and long-term direction.
 - Never rely solely on memory or prior context — always verify the current state of relevant files before making changes.
@@ -322,16 +341,11 @@ This workflow is the **permanent default** before implementing any non-trivial f
 
 #### Step 5 — Task briefing and approval
 
-Before writing any code — for **every** task, regardless of size — present a briefing of **5–10 sentences** that answers, in plain language:
-
-1. **Why now:** why this task is the right next step (its place in the roadmap, what it unblocks, what it protects).
-2. **What could break:** the concrete failure modes and the adjacent behavior at risk.
-3. **What success looks like:** the observable outcome and the Definition of Done that will be verified.
-4. **The commercial test:** would this still be the chosen task if RingOut were a commercial game with 100 000 live players? If the answer is no, say so honestly and name what a commercial team would do instead — the owner decides whether to proceed anyway.
+Before writing any code — for **every** task, regardless of size — present a **compact briefing** in the format defined under "Communication Style" (Ziel · Warum jetzt · Was wird geändert · Risiken · Tests · Empfehlung incl. the 100k-player commercial test).
 
 Then **wait for explicit approval before writing a single line of code.** There are no exceptions for small tasks.
 
-- The small/large classification from Step 1 still applies, but it now only controls the *depth* of the briefing (small = condensed but complete; large = full detail with the risk table from Steps 3–4), not whether to wait.
+- The small/large classification from Step 1 still applies, but it now only controls the *depth* of the briefing points, not whether to wait. Detailed analysis (risk tables, full plans) only when the owner explicitly asks.
 - Approval applies to one task only. It does not carry over to the next task, even within the same milestone.
 - Pure documentation-only changes explicitly requested by the owner (e.g., "update CLAUDE.md with…") are the only exemption — they are executed directly.
 
@@ -413,11 +427,8 @@ If any step fails: explain the issue, fix it if possible, and continue the workf
 
 #### Step 6 — Explain what changed
 
-- Before committing, write a plain-language summary (2–5 sentences) addressed to the project owner explaining:
-  - What was built or fixed.
-  - Why it matters.
-  - Any trade-offs or remaining limitations.
-- This summary is for the human, not the commit history.
+- Before committing, give the owner the **compact completion summary** in the format defined under "Communication Style" (Was geändert · Dateien · Tests · Doku/Commit/Push · Restrisiken · Nächster Schritt).
+- This summary is for the human, not the commit history. No long explanations unless explicitly requested.
 
 #### Step 7 — Stage all modified files
 
