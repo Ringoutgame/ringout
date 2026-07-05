@@ -6,6 +6,9 @@ Alle abgeschlossenen Änderungen am Projekt, neueste zuerst.
 
 ## [Unreleased]
 
+### Fixes
+- fix: clamp online move data (dx, dy, sp) before applying — prevents velocity injection by cheating clients. Deterministic, idempotent `sanitizeMove()` applied at both lockstep ends (sender in `commit()`, receiver in `onlineTurnValue()`): move vector magnitude clamped to `maxPull()`, spin to [−1, +1], ball index validated against ownership with fallback (2026-07-05)
+
 ### Dokumentation
 - `CLAUDE.md`: Sprachregel ergänzt — alle Erklärungen an den Projekt-Owner (Briefings, Abschluss-Zusammenfassungen, Statusmeldungen) immer auf Deutsch; Code, Commits, technische Doku und Dateiinhalte bleiben Englisch (2026-07-05)
 - `CLAUDE.md`: Planning Workflow Schritt 5 ersetzt — vor jedem Task (ohne Größen-Ausnahme) ein Briefing aus 5–10 Sätzen (warum jetzt, was kann brechen, wie sieht Erfolg aus, kommerzieller 100 000-Spieler-Test), danach explizite Freigabe abwarten; Freigabe gilt nur pro Task (2026-07-05)

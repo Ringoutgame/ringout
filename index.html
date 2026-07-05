@@ -438,9 +438,23 @@ window.addEventListener('pointercancel',e=>{
   if(e.pointerId===spinPid){spinPid=-1;return;}
   if(e.pointerId===aimPid){SFX.charge.stop();dragging=false;aimPid=-1;spinPid=-1;dragShooter=-1;dragOwner=-1;}});
 
+// Deterministic + idempotent move sanitizer. Applied at BOTH lockstep ends
+// (sender in commit(), receiver in onlineTurnValue()) so both clients always
+// simulate identical values, no matter what travels over the wire.
+function sanitizeMove(who,idx,dx,dy,sp){
+  dx=Number.isFinite(dx)?dx:0;
+  dy=Number.isFinite(dy)?dy:0;
+  const mp=maxPull(),len=Math.hypot(dx,dy);
+  if(len>mp*(1+1e-9)){dx*=mp/len;dy*=mp/len;}   // magnitude clamp keeps direction; epsilon makes re-application exact
+  sp=Number.isFinite(sp)?Math.max(-1,Math.min(1,sp)):0;
+  if(!(Number.isInteger(idx)&&balls[idx]&&balls[idx].alive&&balls[idx].owner===who))
+    idx=balls.findIndex(b=>b.alive&&b.owner===who);
+  return{idx,dx,dy,sp};
+}
 function commit(who,shooterIdx,fx,fy,spin){
-  commitIdx[who]=shooterIdx;commitAim[who]={dx:fx,dy:fy};commitSpin[who]=spin||0;aimSet[who]=true;updateHud();
-  if(online){onlineSendCommit(shooterIdx,fx,fy,spin||0);setPhaseText();
+  const m=sanitizeMove(who,shooterIdx,fx,fy,spin||0);
+  commitIdx[who]=m.idx;commitAim[who]={dx:m.dx,dy:m.dy};commitSpin[who]=m.sp;aimSet[who]=true;updateHud();
+  if(online){onlineSendCommit(m.idx,m.dx,m.dy,m.sp);setPhaseText();
     if(aimSet[0]&&aimSet[1]&&phase==='aim'){if(turnUnsub){turnUnsub();turnUnsub=null;}beginReveal();}
     return;}
   if(mode==='bot'){const bm=botMove();commitIdx[1]=bm.idx;commitAim[1]={dx:bm.dx,dy:bm.dy};commitSpin[1]=0;aimSet[1]=true;beginReveal();}
@@ -729,8 +743,8 @@ function onlineTurnValue(val){
   if(!val)return; const opp=1-myPlayer;
   if(val[opp] && !aimSet[opp]){
     const c=val[opp];
-    let idx=(c.idx!=null && balls[c.idx] && balls[c.idx].alive && balls[c.idx].owner===opp) ? c.idx : balls.findIndex(b=>b.alive&&b.owner===opp);
-    commitIdx[opp]=idx; commitAim[opp]={dx:c.dx,dy:c.dy}; commitSpin[opp]=c.sp||0; aimSet[opp]=true; updateHud(); setPhaseText();
+    const m=sanitizeMove(opp,c.idx,c.dx,c.dy,c.sp);
+    commitIdx[opp]=m.idx; commitAim[opp]={dx:m.dx,dy:m.dy}; commitSpin[opp]=m.sp; aimSet[opp]=true; updateHud(); setPhaseText();
   }
   if(aimSet[0]&&aimSet[1]&&phase==='aim'){ if(turnUnsub){turnUnsub();turnUnsub=null;} beginReveal(); }
 }

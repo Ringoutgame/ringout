@@ -1,6 +1,6 @@
 # PROJECT.md — RingOut
 
-**Zuletzt aktualisiert:** 2026-06-30
+**Zuletzt aktualisiert:** 2026-07-05
 
 ---
 
@@ -63,6 +63,7 @@ RingOut ist ein kompetitives, physikbasiertes Browser-Spiel für 1–2 Spieler. 
 ### Online-Multiplayer
 - Firebase Realtime Database, Raumcode (4 Zeichen, alphanumerisch)
 - Lockstep: beide Spieler committen ihre Züge; Physik läuft lokal identisch
+- Zug-Validierung: `sanitizeMove()` klemmt deterministisch und idempotent an **beiden** Lockstep-Enden (Sender in `commit()`, Empfänger in `onlineTurnValue()`) — Vektorlänge ≤ `maxPull()`, Drall ∈ [−1, +1], Kugel-Index gegen Besitz validiert. Verhindert Velocity-Injection durch manipulierte Clients.
 - Disconnect-Handling via `onDisconnect().remove()`
 - Rematch durch Generationszähler (`gen` in Firebase)
 
