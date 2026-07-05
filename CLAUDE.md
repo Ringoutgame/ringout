@@ -292,6 +292,13 @@ Owner communication is **compact and decision-oriented by default.** No long tex
   5. Bekannte Restrisiken?
   6. Nächster empfohlener Schritt?
 - Detailed technical analysis **only when the owner explicitly asks for it.**
+- **Long answers start with a summary.** If a reply will exceed ~15–20 lines, it must begin with a 2–4 line summary in this format, followed by details as needed:
+  ```
+  Kurz gesagt:
+  - …
+  - …
+  ```
+  The summary states the recommendation/outcome so the owner can decide without reading the full text. Short replies need no extra summary.
 
 - Before starting any task, read `PROJECT.md`, `TODO.md`, `ROADMAP.md`, and `CHANGELOG.md` to understand the current project state, open tasks, and long-term direction.
 - Never rely solely on memory or prior context — always verify the current state of relevant files before making changes.
