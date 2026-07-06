@@ -6,7 +6,7 @@
       "$code": {
         ".read": true,
         ".write": "!data.exists() && newData.exists()",
-        ".validate": "$code.matches(/^[A-HJKMNP-Z2-9]{4}$/) && newData.hasChildren(['v','config','gen','p','created']) && newData.child('gen').val() === 0 && newData.child('p/0').val() === true && !newData.child('p/1').exists() && !newData.child('g').exists()",
+        ".validate": "data.exists() || ($code.matches(/^[A-HJKMNP-Z2-9]{4}$/) && newData.hasChildren(['v','config','gen','p','created']) && newData.child('gen').val() === 0 && newData.child('p/0').val() === true && !newData.child('p/1').exists() && !newData.child('g').exists())",
         "v": { ".validate": "newData.val() === 1" },
         "created": { ".validate": "newData.val() === now" },
         "config": {

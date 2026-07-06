@@ -11,7 +11,7 @@ Offene Aufgaben nach Priorität. Abgeschlossene Aufgaben werden nach `CHANGELOG.
 - [x] ~~**Online-Züge validieren (M1-T1)**~~ → erledigt, siehe CHANGELOG (2026-07-05)
 - [x] ~~**Raum-Konfiguration beim Beitritt validieren (M1-T2)**~~ → erledigt, siehe CHANGELOG (2026-07-06)
 - [x] ~~**Client-Versionscheck für Online-Räume (M1-T3)**~~ → erledigt als `ONLINE_PROTOCOL_VERSION`, siehe CHANGELOG (2026-07-06)
-- [ ] **Firebase Datenbankregeln härten (M1-T4) — implementiert, Publish/Verifikation ausstehend:** `firebase.rules.json` erstellt (siehe CHANGELOG, 2026-07-06). Abschluss erst nach: (1) manuellem Publish in der Firebase Console (nach Backup der alten Rules), (2) bestandener REST-Verifikation gegen die Live-DB, (3) bestandenem manuellem Zwei-Tab-Test.
+- [x] ~~**Firebase Datenbankregeln härten (M1-T4)**~~ → erledigt: `firebase.rules.json` publiziert, REST-Verifikation (29/29, inkl. Gen-Match) und manueller Zwei-Tab-Test bestanden, siehe CHANGELOG (2026-07-06)
 - [ ] **Firebase App Check aktivieren (nachgelagert):** Braucht registrierte http(s)-Origin (reCAPTCHA) — erst nach Hosting/Build (M4-T2) sinnvoll; per `file://` geöffnete Clients könnten sich sonst nicht attestieren.
 - [ ] **API-Key aus Quellcode ziehen (nachgelagert, M4-T2):** `.env` + Build-System; aktuell öffentlich (durch Rules + späteren App Check abgesichert).
 - [ ] **Room-TTL / Cleanup (nachgelagert):** Neue Rules blockieren Client-Deletes; Test-/Alträume bleiben liegen. TTL via Cloud Function später.
