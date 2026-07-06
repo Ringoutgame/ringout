@@ -1,0 +1,49 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "rooms": {
+      "$code": {
+        ".read": true,
+        ".write": "!data.exists() && newData.exists()",
+        ".validate": "$code.matches(/^[A-HJKMNP-Z2-9]{4}$/) && newData.hasChildren(['v','config','gen','p','created']) && newData.child('gen').val() === 0 && newData.child('p/0').val() === true && !newData.child('p/1').exists() && !newData.child('g').exists()",
+        "v": { ".validate": "newData.val() === 1" },
+        "created": { ".validate": "newData.val() === now" },
+        "config": {
+          ".validate": "newData.hasChildren(['winTarget','fmt'])",
+          "winTarget": { ".validate": "newData.val() === 3 || newData.val() === 5" },
+          "fmt": { ".validate": "newData.val() === 'single' || newData.val() === 'double'" },
+          "$other": { ".validate": false }
+        },
+        "gen": {
+          ".write": "data.parent().exists() && newData.exists()",
+          ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 10000 && (!data.exists() || newData.val() === data.val() + 1 || newData.val() === data.val())"
+        },
+        "p": {
+          "$i": {
+            ".write": "($i === '0' && !newData.exists()) || $i === '1'",
+            ".validate": "($i === '0' || $i === '1') && newData.val() === true && ($i === '0' || (now - root.child('rooms').child($code).child('created').val()) < 7200000)"
+          }
+        },
+        "g": {
+          "$gen": {
+            "t": {
+              "$turn": {
+                "$pl": {
+                  ".write": "!data.exists() && newData.exists() && $gen === root.child('rooms').child($code).child('gen').val() + ''",
+                  ".validate": "($pl === '0' || $pl === '1') && $turn.matches(/^[0-9]{1,4}$/) && newData.hasChildren(['idx','dx','dy','sp'])",
+                  "idx": { ".validate": "newData.val() === 0 || newData.val() === 1 || newData.val() === 2 || newData.val() === 3" },
+                  "dx": { ".validate": "newData.isNumber() && newData.val() >= -195 && newData.val() <= 195" },
+                  "dy": { ".validate": "newData.isNumber() && newData.val() >= -195 && newData.val() <= 195" },
+                  "sp": { ".validate": "newData.isNumber() && newData.val() >= -1 && newData.val() <= 1" },
+                  "$other": { ".validate": false }
+                }
+              }
+            }
+          }
+        },
+        "$other": { ".validate": false }
+      }
+    }
+  }
+}

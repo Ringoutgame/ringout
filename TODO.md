@@ -11,9 +11,11 @@ Offene Aufgaben nach Priorität. Abgeschlossene Aufgaben werden nach `CHANGELOG.
 - [x] ~~**Online-Züge validieren (M1-T1)**~~ → erledigt, siehe CHANGELOG (2026-07-05)
 - [x] ~~**Raum-Konfiguration beim Beitritt validieren (M1-T2)**~~ → erledigt, siehe CHANGELOG (2026-07-06)
 - [x] ~~**Client-Versionscheck für Online-Räume (M1-T3)**~~ → erledigt als `ONLINE_PROTOCOL_VERSION`, siehe CHANGELOG (2026-07-06)
-- [ ] **Firebase-Konfiguration absichern (M1-T4):** API-Key und Datenbank-URL aus dem Quellcode entfernen. Entweder Build-System mit `.env`-Variablen einrichten oder Firebase App Check aktivieren, um unbefugten Zugriff zu verhindern.
-- [ ] **Firebase Datenbankregeln härten (M1-T4):** Schreibzugriff auf `/rooms/` einschränken (nur valide Strukturen, Write-Once für Züge, Raumschlüssel-Format erzwingen).
-- [ ] **Manueller Browser-Smoke für M1-T1:** Bot- und PvP-Runde spielen, optional Online-Zwei-Tab — automatisierter Browser-Test wurde vom Owner ohne Zusatzinstallation ausgeführt (Logik-Tests grün), interaktiver Check steht aus.
+- [ ] **Firebase Datenbankregeln härten (M1-T4) — implementiert, Publish/Verifikation ausstehend:** `firebase.rules.json` erstellt (siehe CHANGELOG, 2026-07-06). Abschluss erst nach: (1) manuellem Publish in der Firebase Console (nach Backup der alten Rules), (2) bestandener REST-Verifikation gegen die Live-DB, (3) bestandenem manuellem Zwei-Tab-Test.
+- [ ] **Firebase App Check aktivieren (nachgelagert):** Braucht registrierte http(s)-Origin (reCAPTCHA) — erst nach Hosting/Build (M4-T2) sinnvoll; per `file://` geöffnete Clients könnten sich sonst nicht attestieren.
+- [ ] **API-Key aus Quellcode ziehen (nachgelagert, M4-T2):** `.env` + Build-System; aktuell öffentlich (durch Rules + späteren App Check abgesichert).
+- [ ] **Room-TTL / Cleanup (nachgelagert):** Neue Rules blockieren Client-Deletes; Test-/Alträume bleiben liegen. TTL via Cloud Function später.
+- [ ] **Manueller Browser-Smoke M1 (T1–T4):** Bot-/PvP-Runde + Online-Zwei-Tab (Create, Join, Commit, Rematch, Disconnect) nach Rules-Publish. Automatisierte Logik-/REST-Tests grün, interaktiver Check steht aus.
 
 ---
 

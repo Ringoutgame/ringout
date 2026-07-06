@@ -199,7 +199,7 @@ header{width:100%;max-width:460px;display:flex;align-items:center;justify-conten
 
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js";
-  import { getDatabase, ref, set, get, update, remove, onValue, onDisconnect } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-database.js";
+  import { getDatabase, ref, set, get, update, remove, onValue, onDisconnect, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-database.js";
   const firebaseConfig = {
     apiKey: "AIzaSyDVQNTYoJ3bAUbv4gmcJvjuSVE6vKylZM0",
     authDomain: "ringout-87fbb.firebaseapp.com",
@@ -212,7 +212,7 @@ header{width:100%;max-width:460px;display:flex;align-items:center;justify-conten
   try{
     const app = initializeApp(firebaseConfig);
     const db = getDatabase(app);
-    window.FB = { db, ref, set, get, update, remove, onValue, onDisconnect };
+    window.FB = { db, ref, set, get, update, remove, onValue, onDisconnect, serverTimestamp };
     window.__FB_READY = true;
   }catch(e){ window.__FB_ERR = String(e && e.message || e); }
   window.dispatchEvent(new Event('fb-ready'));
@@ -688,7 +688,7 @@ function createRoom(){
       let code='';
       for(let t=0;t<6;t++){ code=rrand(4); const s=await window.FB.get(window.FB.ref(window.FB.db,'rooms/'+code)); if(!s.exists())break; }
       roomCode=code; myPlayer=0; online=true; gen=0; runningGen=-1; gameStarted=false;
-      await window.FB.set(rRef(), {v:ONLINE_PROTOCOL_VERSION, config:{winTarget:winTarget,fmt:fmt}, gen:0, p:{0:true}, created:Date.now()});
+      await window.FB.set(rRef(), {v:ONLINE_PROTOCOL_VERSION, config:{winTarget:winTarget,fmt:fmt}, gen:0, p:{0:true}, created:window.FB.serverTimestamp()});
       window.FB.onDisconnect(rRef('p/0')).remove();
       $('onCreate').style.display='none';$('onJoinRow').style.display='none';$('onWait').style.display='';
       $('onCode').textContent=code; setStatus((fmt==='double'?'2v2 · ':'1v1 · ')+'Schick den Code an deinen Kumpel.');
