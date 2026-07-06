@@ -21,6 +21,8 @@ Offene Aufgaben nach Priorität. Abgeschlossene Aufgaben werden nach `CHANGELOG.
 
 ## P1 — Hoch (Codequalität / Architektur)
 
+- [ ] **M2-T1b — Ice-Feel-Physik-Tuning (freigegeben, ausstehend):** Auslauf minimal früher abbremsen (Kandidat: `FEND` von 0.992 leicht senken, ggf. `STOPV` leicht anheben; schnelle Gleitphase unverändert). **Zwingend:** `ONLINE_PROTOCOL_VERSION` 1→2 **und** `firebase.rules.json` `v===2` neu publizieren (sonst Desync/blockierte Online-Räume). Deterministik-relevant.
+
 - [ ] **Build-System einrichten:** Vite initialisieren, `index.html` als Einstiegspunkt. Ermöglicht ES-Module, Env-Variablen und Tree-Shaking.
 - [ ] **Code aufteilen:** Spiellogik aus `index.html` in separate Module extrahieren:
   - `src/core/gameLoop.js` – Haupt-Loop, Phase-Management

@@ -72,11 +72,12 @@ RingOut ist ein kompetitives, physikbasiertes Browser-Spiel für 1–2 Spieler. 
 - Rematch durch Generationszähler (`gen` in Firebase)
 
 ### Rendering
-- Goldene Arena: radiale Gradienten, konzentrische Ringe, Kompassrose, Innenmedaillon
-- Kristallrand mit animiertem Goldglühen (3 Lagen, Puls)
+- Eis-Metall-Arena: kühler Silber-/Stahlblau-Radialgradient, metallisches Streiflicht, frostiges Innenleuchten, kühle konzentrische Ringe, Kompassrose, silbriges Innenmedaillon
+- Kristallrand mit animiertem Eisglühen (3 Lagen, Puls) + pseudo-3D-Randwand (gestuftes Band aussen dunkel → innen hell) für Tiefe
+- Schlagschatten-Ellipse unter der Plattform → Arena wirkt schwebend; kühl-dunkler Stahlblau-Tiefenverlauf als Hintergrund (kein heller Himmel)
 - 4 animierte Fackelhalter außerhalb der Arena
 - Optional: externes Bild `arena.jpg` statt Vektor-Arena (aktuell auskommentiert)
-- Kugeln: 3D-Sphären-Gradient, Rim-Light, Bewegungsspur, Randwarnung
+- Kugeln: 3D-Sphären-Gradient, Rim-Light, Bewegungsspur, Randwarnung, weicherer/klar definierter Bodenschatten (Kern + weicher Rand)
 - Slingshot-Vorschau: gestrichelte Linie, Drall-Trajektorie (70 Schritte), Kraftanzeige in %
 - Enthüllungspfeile nach dem Commit
 
