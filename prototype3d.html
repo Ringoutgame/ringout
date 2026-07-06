@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>RingOut — 3D Prototyp (Visual Spike)</title>
+<style>
+  html,body{margin:0;padding:0;height:100%;overflow:hidden;background:#0a1420}
+  #c{width:100%;height:100%;display:block;touch-action:none}
+  .chip{position:fixed;left:50%;transform:translateX(-50%);background:rgba(8,14,22,.72);color:#dfe9f4;
+    font:600 12px system-ui,-apple-system,"Segoe UI",sans-serif;border:1px solid rgba(120,160,200,.25);
+    border-radius:999px;padding:8px 16px;letter-spacing:.04em;backdrop-filter:blur(6px);pointer-events:none;z-index:10}
+  #title{top:14px}
+  #hint{bottom:14px}
+  #err{position:fixed;inset:0;display:none;place-items:center;background:#0a1420;color:#ffb0b0;
+    font:600 14px system-ui;padding:24px;text-align:center;z-index:20}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="chip" id="title">RingOut · 3D-Arena-Prototyp</div>
+<div class="chip" id="hint">Ziehen = Kamera drehen · Scrollen/Pinch = Zoom</div>
+<div id="err"></div>
+
+<!-- Three.js ausschliesslich in diesem Prototyp. Das Hauptspiel (index.html) bleibt unberuehrt. -->
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+
+const fail = m => { const e = document.getElementById('err'); e.style.display = 'grid'; e.textContent = m; };
+try {
+
+// ── Renderer / Szene / Kamera ─────────────────────────────────────────────
+const canvas = document.getElementById('c');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.0;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+const scene = new THREE.Scene();
+scene.fog = new THREE.Fog(0xdfd9c6, 42, 135);   // warmer Dunst -> Ferne verschmilzt mit dem Sonnenhorizont
+
+const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 400);
+camera.position.set(0, 19, 21);
+
+// Kamera spielbar halten: kein Pan, Zoom begrenzt, Tilt geklemmt (nie unter den Horizont)
+const controls = new OrbitControls(camera, canvas);
+controls.enableDamping = true;
+controls.dampingFactor = 0.06;
+controls.enablePan = false;
+controls.minDistance = 17;
+controls.maxDistance = 36;
+controls.minPolarAngle = 0.12;   // fast top-down erlaubt
+controls.maxPolarAngle = 1.15;   // ~66 Grad — Arena bleibt immer klar lesbar
+controls.target.set(0, 0.6, 0);
+
+// PBR-Reflexionen fuer Glanz (Kugeln, Gold, Kristalle)
+const pmrem = new THREE.PMREMGenerator(renderer);
+scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+scene.environmentIntensity = 0.30;   // Env-Licht stark zuruecknehmen -> Sonne dominiert klar
+
+// ── Licht: harte Sonnenrichtung, kuehle Gegenseite ───────────────────────
+scene.add(new THREE.HemisphereLight(0xcfe2f5, 0x7d8fa2, 0.22));
+const sun = new THREE.DirectionalLight(0xffe2b0, 4.2);
+sun.position.set(-18, 26, 10);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.camera.left = -14; sun.shadow.camera.right = 14;
+sun.shadow.camera.top = 14; sun.shadow.camera.bottom = -14;
+sun.shadow.camera.far = 80;
+sun.shadow.bias = -0.0004;
+scene.add(sun);
+const fill = new THREE.DirectionalLight(0x8fb4d8, 0.26);   // kuehles Gegenlicht: Schattenseite bleibt lesbar, aber deutlich dunkler
+fill.position.set(16, 8, -14);
+scene.add(fill);
+
+// ── Canvas-Textur-Helfer (prozedural, keine externen Assets) ─────────────
+function canvasTex(size, painter, colorSpace = THREE.SRGBColorSpace) {
+  const c = document.createElement('canvas'); c.width = c.height = size;
+  painter(c.getContext('2d'), size);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = colorSpace; t.anisotropy = 8;
+  return t;
+}
+
+// Marmor-Deckplatte: elfenbein-kuehle Basis (kein Porzellan-Weiss), Steinsegmente,
+// kraeftigere Adern, feine Risse, Korn-Speckle, Gold-Kompassrose
+const marbleTex = canvasTex(2048, (g, S) => {
+  const c = S / 2;
+  const bg = g.createRadialGradient(c, c, 0, c, c, c);
+  bg.addColorStop(0, '#e6e8e4'); bg.addColorStop(.5, '#d8dcd9'); bg.addColorStop(.82, '#c2c9cc'); bg.addColorStop(1, '#aab3b9');
+  g.fillStyle = bg; g.fillRect(0, 0, S, S);
+  for (let i = 0; i < 34; i++) {                       // Tonflecken (warm-grau + blau-grau gemischt)
+    const x = Math.random() * S, y = Math.random() * S, r = 120 + Math.random() * 380;
+    const warm = Math.random() < .4;
+    const b = g.createRadialGradient(x, y, 0, x, y, r);
+    b.addColorStop(0, warm ? `rgba(206,198,184,${(.06 + Math.random() * .09).toFixed(3)})`
+                           : `rgba(178,192,206,${(.06 + Math.random() * .1).toFixed(3)})`);
+    b.addColorStop(1, 'rgba(195,205,215,0)');
+    g.fillStyle = b; g.beginPath(); g.arc(x, y, r, 0, 7); g.fill();
+  }
+  for (let i = 0; i < 85; i++) {                       // Marmoradern (deutlicher)
+    let x = Math.random() * S, y = Math.random() * S;
+    g.beginPath(); g.moveTo(x, y);
+    for (let k = 0; k < 5; k++) {
+      const nx = x + (Math.random() - .5) * 560, ny = y + (Math.random() - .5) * 560;
+      g.quadraticCurveTo(x + (Math.random() - .5) * 220, y + (Math.random() - .5) * 220, nx, ny);
+      x = nx; y = ny;
+    }
+    g.lineWidth = .8 + Math.random() * 3;
+    g.strokeStyle = `rgba(118,132,150,${(.1 + Math.random() * .16).toFixed(3)})`;
+    g.stroke();
+  }
+  for (let i = 0; i < 16; i++) {                       // feine dunkle Risse (gezackt, scharf)
+    let x = Math.random() * S, y = Math.random() * S;
+    g.beginPath(); g.moveTo(x, y);
+    for (let k = 0; k < 8; k++) { x += (Math.random() - .5) * 130; y += (Math.random() - .5) * 130; g.lineTo(x, y); }
+    g.lineWidth = .6 + Math.random() * .9;
+    g.strokeStyle = `rgba(64,74,88,${(.18 + Math.random() * .16).toFixed(3)})`;
+    g.stroke();
+  }
+  g.fillStyle = 'rgba(90,102,116,.14)';                // Korn-Speckle
+  for (let i = 0; i < 3200; i++) { g.fillRect(Math.random() * S, Math.random() * S, 1.4, 1.4); }
+  // Steinsegment-Fugen: konzentrisch + radial im Aussenband
+  g.strokeStyle = 'rgba(96,108,122,.30)'; g.lineWidth = 3;
+  for (const f of [.42, .66, .88]) { g.beginPath(); g.arc(c, c, c * f, 0, 7); g.stroke(); }
+  for (let i = 0; i < 16; i++) {
+    const a = i * Math.PI / 8;
+    g.beginPath(); g.moveTo(c + Math.cos(a) * c * .66, c + Math.sin(a) * c * .66);
+    g.lineTo(c + Math.cos(a) * c * .985, c + Math.sin(a) * c * .985); g.stroke();
+  }
+  g.strokeStyle = 'rgba(170,140,84,.35)';              // Gold-Kompassrose (dezent, wie eingelassen)
+  for (let i = 0; i < 8; i++) {
+    const a = i * Math.PI / 4, main = i % 2 === 0;
+    g.lineWidth = main ? 3.4 : 1.8; g.globalAlpha = main ? .32 : .18;
+    g.beginPath(); g.moveTo(c, c);
+    g.lineTo(c + Math.cos(a) * c * (main ? .78 : .56), c + Math.sin(a) * c * (main ? .78 : .56)); g.stroke();
+  }
+  g.globalAlpha = 1;
+});
+// Bump-Map (Graustufen): Adern/Risse/Fugen als Relief -> Oberflaeche wirkt rau statt Plastik
+const marbleBump = canvasTex(1024, (g, S) => {
+  g.fillStyle = '#808080'; g.fillRect(0, 0, S, S);
+  for (let i = 0; i < 70; i++) {
+    let x = Math.random() * S, y = Math.random() * S;
+    g.beginPath(); g.moveTo(x, y);
+    for (let k = 0; k < 5; k++) { const nx = x + (Math.random() - .5) * 300, ny = y + (Math.random() - .5) * 300;
+      g.quadraticCurveTo(x + (Math.random() - .5) * 120, y + (Math.random() - .5) * 120, nx, ny); x = nx; y = ny; }
+    g.lineWidth = 1 + Math.random() * 2; g.strokeStyle = `rgba(55,55,55,${(.2 + Math.random() * .3).toFixed(2)})`; g.stroke();
+  }
+  g.fillStyle = 'rgba(110,110,110,.5)';
+  for (let i = 0; i < 4000; i++) g.fillRect(Math.random() * S, Math.random() * S, 1.6, 1.6);
+  const c = S / 2; g.strokeStyle = 'rgba(40,40,40,.6)'; g.lineWidth = 2;
+  for (const f of [.42, .66, .88]) { g.beginPath(); g.arc(c, c, c * f, 0, 7); g.stroke(); }
+}, THREE.NoColorSpace);
+
+// Stein-Textur fuer die Wandringe: Bloecke mit heller Oberkante/dunkler Unterkante,
+// Ton-Streuung pro Block, Risse — weniger Lowpoly, mehr Mauerwerk
+const stoneTex = canvasTex(1024, (g, S) => {
+  g.fillStyle = '#8c9aa8'; g.fillRect(0, 0, S, S);
+  const rows = 4, rh = S / rows;
+  for (let r = 0; r < rows; r++) {
+    const off = (r % 2) * (S / 12);
+    for (let x = -1; x < 7; x++) {
+      const bx = x * (S / 6) + off, by = r * rh, bw = S / 6 - 8, bh = rh - 8;
+      const tone = 138 + Math.random() * 44;
+      const sh = g.createLinearGradient(bx, by, bx, by + rh);
+      sh.addColorStop(0, `rgb(${tone + 26},${tone + 32},${tone + 40})`);
+      sh.addColorStop(.5, `rgb(${tone},${tone + 7},${tone + 15})`);
+      sh.addColorStop(1, `rgb(${tone - 26},${tone - 20},${tone - 12})`);
+      g.fillStyle = sh; g.fillRect(bx + 4, by + 4, bw, bh);
+      g.fillStyle = 'rgba(255,255,255,.16)'; g.fillRect(bx + 4, by + 4, bw, 5);           // Kantenlicht oben
+      g.fillStyle = 'rgba(20,28,38,.28)'; g.fillRect(bx + 4, by + 4 + bh - 5, bw, 5);     // Schattenkante unten
+      for (let n = 0; n < 26; n++) {                                                       // Korn
+        g.fillStyle = `rgba(60,72,86,${(.05 + Math.random() * .1).toFixed(2)})`;
+        g.fillRect(bx + 6 + Math.random() * bw, by + 6 + Math.random() * bh, 2, 2);
+      }
+    }
+  }
+  g.strokeStyle = 'rgba(38,48,60,.7)'; g.lineWidth = 7;    // Fugen
+  for (let r = 0; r <= rows; r++) { g.beginPath(); g.moveTo(0, r * rh); g.lineTo(S, r * rh); g.stroke(); }
+  for (let i = 0; i < 10; i++) {                            // Risse
+    let x = Math.random() * S, y = Math.random() * S;
+    g.beginPath(); g.moveTo(x, y);
+    for (let k = 0; k < 6; k++) { x += (Math.random() - .5) * 90; y += Math.random() * 60; g.lineTo(x, y); }
+    g.lineWidth = 1.2; g.strokeStyle = 'rgba(40,50,62,.4)'; g.stroke();
+  }
+});
+stoneTex.wrapS = THREE.RepeatWrapping; stoneTex.repeat.set(6, 1);
+const stoneTex2 = stoneTex.clone(); stoneTex2.repeat.set(8, 1);
+
+// Weicher Wolken-Blob als Sprite-Textur
+const cloudTex = canvasTex(256, (g, S) => {
+  const c = S / 2, r = g.createRadialGradient(c, c, 0, c, c, c);
+  r.addColorStop(0, 'rgba(255,255,255,.95)'); r.addColorStop(.55, 'rgba(252,254,255,.5)'); r.addColorStop(1, 'rgba(250,253,255,0)');
+  g.fillStyle = r; g.fillRect(0, 0, S, S);
+});
+
+// Additiver Glow fuer Kristalle
+const glowTex = canvasTex(128, (g, S) => {
+  const c = S / 2, r = g.createRadialGradient(c, c, 0, c, c, c);
+  r.addColorStop(0, 'rgba(185,235,255,1)'); r.addColorStop(.4, 'rgba(120,200,255,.55)'); r.addColorStop(1, 'rgba(80,160,255,0)');
+  g.fillStyle = r; g.fillRect(0, 0, S, S);
+});
+
+// ── Himmel: tiefes Blau oben -> warmer Horizont (Sonnenstimmung) ─────────
+const skyTex = canvasTex(1024, (g, S) => {
+  const gr = g.createLinearGradient(0, 0, 0, S);
+  gr.addColorStop(0, '#3a72b8'); gr.addColorStop(.36, '#7fb0dd'); gr.addColorStop(.54, '#bdd8ea');
+  gr.addColorStop(.68, '#ecdfc8'); gr.addColorStop(.80, '#f6e3bd'); gr.addColorStop(1, '#fbeccb');
+  g.fillStyle = gr; g.fillRect(0, 0, S, S);
+});
+const sky = new THREE.Mesh(
+  new THREE.SphereGeometry(190, 32, 20),
+  new THREE.MeshBasicMaterial({ map: skyTex, side: THREE.BackSide, fog: false })
+);
+scene.add(sky);
+const sunSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xffedbf, blending: THREE.AdditiveBlending, fog: false, depthWrite: false }));
+sunSprite.scale.set(95, 95, 1); sunSprite.position.set(-120, 95, 60); scene.add(sunSprite);
+const sunHalo = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0xfff8e6, blending: THREE.AdditiveBlending, fog: false, depthWrite: false, opacity: .5 }));
+sunHalo.scale.set(170, 170, 1); sunHalo.position.copy(sunSprite.position); scene.add(sunHalo);
+
+// ── Wolkenmeer: dichte Schicht unter der Arena + ferne Horizontbaenke ────
+// Sonnenseite (x<0) warm getoent, Schattenseite kuehl -> plastische Wolken
+const clouds = new THREE.Group();
+function addCloud(x, y, z, sc, op) {
+  const warm = x < 0 ? 1 : 0;
+  const col = new THREE.Color().setRGB(1, .97 - warm * 0 + 0, .96).lerp(new THREE.Color(1, .93, .82), warm * (.4 + Math.random() * .4));
+  if (x >= 0) col.lerp(new THREE.Color(.82, .88, .96), .35);
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: cloudTex, color: col, transparent: true, opacity: op, depthWrite: false }));
+  s.position.set(x, y, z); s.scale.set(sc, sc * (.36 + Math.random() * .14), 1);
+  clouds.add(s);
+}
+for (let i = 0; i < 170; i++) {                       // dichtes Wolkenmeer direkt unter der Arena
+  const a = Math.random() * Math.PI * 2, d = 9 + Math.pow(Math.random(), .6) * 85;
+  addCloud(Math.cos(a) * d, -6.0 - Math.random() * 5.5 + d * .015, Math.sin(a) * d,
+           11 + Math.random() * 28, .6 + Math.random() * .4);
+}
+for (let i = 0; i < 60; i++) {                        // ferne Horizontbaenke (gross, hell)
+  const a = Math.random() * Math.PI * 2, d = 90 + Math.random() * 60;
+  addCloud(Math.cos(a) * d, -3 + Math.random() * 12, Math.sin(a) * d,
+           28 + Math.random() * 44, .4 + Math.random() * .3);
+}
+for (let i = 0; i < 16; i++) {                        // Nebelschwaden dicht an der Plattform-Unterseite
+  const a = Math.random() * Math.PI * 2, d = 7 + Math.random() * 6;
+  addCloud(Math.cos(a) * d, -5.0 - Math.random() * 2.6, Math.sin(a) * d,
+           7 + Math.random() * 9, .26 + Math.random() * .2);
+}
+scene.add(clouds);
+
+// ── Ferne schwebende Wolkeninseln: verkaufen "Welt ueber den Wolken" + Tiefe ──
+const rockMatFar = new THREE.MeshStandardMaterial({ color: 0x6b7883, roughness: .95, flatShading: true });
+function crag(geo, amp) {   // deterministische Vertex-Zerklueftung -> kantiger Fels statt glattem Zylinder
+  const p = geo.attributes.position;
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+    const r = Math.hypot(x, z); if (r < .25) continue;
+    const n = Math.sin(x * 12.9898 + z * 78.233 + y * 37.719) * 43758.5453;
+    const f = 1 + ((n - Math.floor(n)) - .5) * amp;
+    p.setX(i, x * f); p.setZ(i, z * f);
+    p.setY(i, y + (n - Math.floor(n) - .5) * amp * 2);
+  }
+  geo.computeVertexNormals(); return geo;
+}
+for (let i = 0; i < 3; i++) {
+  const a = i * 2.1 + .7, d = 62 + i * 14;
+  const isl = new THREE.Group();
+  const body = new THREE.Mesh(crag(new THREE.CylinderGeometry(4.5, 1.8, 3.2, 22, 3), .2), rockMatFar);
+  isl.add(body);
+  const cap = new THREE.Mesh(new THREE.CylinderGeometry(4.7, 4.7, .5, 22),
+    new THREE.MeshStandardMaterial({ color: 0xd8dee0, roughness: .7 }));
+  cap.position.y = 1.75; isl.add(cap);
+  isl.position.set(Math.cos(a) * d, -1 + i * 2.6, Math.sin(a) * d);
+  scene.add(isl);
+  for (let k = 0; k < 4; k++)
+    addCloud(isl.position.x + (Math.random() - .5) * 11, isl.position.y - 2.2 - Math.random() * 2,
+             isl.position.z + (Math.random() - .5) * 11, 10 + Math.random() * 8, .5);
+}
+
+// ── Schwebende Plattform ─────────────────────────────────────────────────
+const platform = new THREE.Group(); scene.add(platform);
+const R_PLAY = 8.4;                         // spielbare Flaeche (Rauswurf-Grenze)
+// Eis-Metall/Marmor statt Porzellan: Bump-Relief, kaum Clearcoat, hoehere Rauheit
+const marbleMat = new THREE.MeshPhysicalMaterial({
+  map: marbleTex, bumpMap: marbleBump, bumpScale: 1.4,
+  roughness: .56, metalness: .08, clearcoat: .05, clearcoatRoughness: .6
+});
+const stoneMat  = new THREE.MeshStandardMaterial({ map: stoneTex,  roughness: .82, metalness: .05 });
+const stoneMat2 = new THREE.MeshStandardMaterial({ map: stoneTex2, roughness: .85, metalness: .05, color: 0xaab5c0 });
+const goldMat   = new THREE.MeshStandardMaterial({ color: 0xa9853f, roughness: .45, metalness: 1 });   // gedecktes Alt-Gold, wie eingelassen
+
+function slab(rTop, rBot, h, y, mat) {
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(rTop, rBot, h, 112), mat);
+  m.position.y = y; m.castShadow = true; m.receiveShadow = true; platform.add(m); return m;
+}
+slab(10.1, 10.1, 1.15, -0.575, marbleMat);         // Deckplatte (rau, mit Relief)
+slab(10.45, 10.45, 0.55, -1.35, stoneMat2);        // Zierkranz (leicht breiter)
+slab(9.55, 9.55, 1.5, -2.35, stoneMat);            // mittlerer Ring
+// Massiver Fels-Unterbau: zerklueftete, facettierte Geometrie statt glatter Kegel
+const rockMat  = new THREE.MeshStandardMaterial({ color: 0x66727e, roughness: .95, flatShading: true });
+const rockMat2 = new THREE.MeshStandardMaterial({ color: 0x4d5a66, roughness: .97, flatShading: true });
+{
+  const r1 = new THREE.Mesh(crag(new THREE.CylinderGeometry(8.6, 6.2, 2.3, 44, 3), .11), rockMat);
+  r1.position.y = -4.2; r1.castShadow = r1.receiveShadow = true; platform.add(r1);
+  const r2 = new THREE.Mesh(crag(new THREE.CylinderGeometry(6.1, 2.2, 3.4, 36, 4), .18), rockMat2);
+  r2.position.y = -6.9; r2.castShadow = true; platform.add(r2);
+  for (let i = 0; i < 9; i++) {                     // haengende Felsbrocken unter der Basis
+    const a = Math.random() * Math.PI * 2, d = 2 + Math.random() * 5.5, s = .35 + Math.random() * .8;
+    const rk = new THREE.Mesh(crag(new THREE.DodecahedronGeometry(s, 0), .3), rockMat2);
+    rk.position.set(Math.cos(a) * d, -8.0 - Math.random() * 1.6, Math.sin(a) * d);
+    rk.rotation.set(Math.random() * 3, Math.random() * 3, Math.random() * 3);
+    platform.add(rk);
+  }
+}
+// frei schwebende Brocken unterhalb (driften langsam mit)
+const floaters = [];
+for (let i = 0; i < 4; i++) {
+  const rk = new THREE.Mesh(crag(new THREE.DodecahedronGeometry(.5 + Math.random() * .55, 0), .35), rockMat2);
+  const a = Math.random() * Math.PI * 2, d = 6.5 + Math.random() * 4.5;
+  rk.position.set(Math.cos(a) * d, -9.5 - Math.random() * 2, Math.sin(a) * d);
+  rk.rotation.set(Math.random() * 3, Math.random() * 3, 0);
+  rk.userData = { y0: rk.position.y, ph: Math.random() * 6 };
+  scene.add(rk); floaters.push(rk);
+}
+
+// Kantengewicht: abgerundete Deckleiste + Gold-Trennringe zwischen den Stufen
+function lipRing(r, tube, y, mat) {
+  const m = new THREE.Mesh(new THREE.TorusGeometry(r, tube, 14, 140), mat);
+  m.rotation.x = Math.PI / 2; m.position.y = y; m.castShadow = true; m.receiveShadow = true; platform.add(m); return m;
+}
+lipRing(10.1, .14, 0, stoneMat2);                   // weiche Oberkante der Deckplatte
+lipRing(10.45, .10, -1.08, goldMat);                // Goldband ueber dem Zierkranz
+lipRing(9.55, .09, -1.62, goldMat);                 // Goldband unter dem Zierkranz
+
+// 16 Stuetzpfeiler um den mittleren Ring -> Silhouette bekommt Struktur statt glatter Zylinder
+for (let i = 0; i < 16; i++) {
+  const a = i * Math.PI / 8, px = Math.cos(a) * 9.72, pz = Math.sin(a) * 9.72;
+  const but = new THREE.Mesh(new THREE.BoxGeometry(.55, 1.75, .42), stoneMat2);
+  but.position.set(px, -2.35, pz); but.rotation.y = -a;
+  but.castShadow = but.receiveShadow = true; platform.add(but);
+}
+
+// Gold-Inlays: Ringlinien auf der Deckplatte + leuchtende Spielfeld-Grenze
+// Inlay-Look: duenne Ringe, minimal versenkt (y knapp ueber 0) statt aufgesetzter Brettspiel-Linien
+function flatRing(r, tube, mat, y = 0.002) {
+  const m = new THREE.Mesh(new THREE.TorusGeometry(r, tube, 12, 160), mat);
+  m.rotation.x = Math.PI / 2; m.position.y = y; m.receiveShadow = true; platform.add(m); return m;
+}
+flatRing(R_PLAY * .34, .026, goldMat);
+flatRing(R_PLAY * .56, .026, goldMat);
+flatRing(R_PLAY * .78, .026, goldMat);
+flatRing(.5, .032, goldMat);
+flatRing(9.35, .05, goldMat);                       // Zierring auf dem Randweg
+const boundary = flatRing(R_PLAY, .06, new THREE.MeshStandardMaterial({
+  color: 0xdff4ff, emissive: 0x9fdcff, emissiveIntensity: 1.3, roughness: .3, metalness: .2
+}), 0.008);
+
+// 8 Sockel mit Eiskristallen auf dem Randweg
+// Sattes Kristall-Blau statt Weiss-Ueberstrahlung: wenig Emissive, Farbe traegt
+const crystalMat = new THREE.MeshPhysicalMaterial({
+  color: 0x4aa8e8, emissive: 0x1f6fc0, emissiveIntensity: .3,
+  roughness: .08, metalness: 0, transmission: .7, thickness: 1.4, ior: 1.45
+});
+const crystals = [];
+for (let i = 0; i < 8; i++) {
+  const a = i * Math.PI / 4 + Math.PI / 8, px = Math.cos(a) * 9.35, pz = Math.sin(a) * 9.35;
+  // zweistufiger Steinsockel mit Goldband
+  const base = new THREE.Mesh(new THREE.BoxGeometry(1.25, .3, 1.25), stoneMat2);
+  base.position.set(px, .15, pz); base.rotation.y = -a; base.castShadow = base.receiveShadow = true; platform.add(base);
+  const cap = new THREE.Mesh(new THREE.BoxGeometry(.92, .34, .92), stoneMat2);
+  cap.position.set(px, .47, pz); cap.rotation.y = -a; cap.castShadow = cap.receiveShadow = true; platform.add(cap);
+  const band = new THREE.Mesh(new THREE.BoxGeometry(.98, .07, .98), goldMat);
+  band.position.set(px, .315, pz); band.rotation.y = -a; platform.add(band);
+  // Kristall: hoch gestreckter Oktaeder, langsam drehend
+  const cry = new THREE.Mesh(new THREE.OctahedronGeometry(.4), crystalMat);
+  cry.scale.set(.8, 1.5, .8); cry.position.set(px, 1.2, pz); cry.castShadow = true; platform.add(cry);
+  crystals.push(cry);
+  // Glow stark reduziert: klein, dezent, blaeulich
+  const gl = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color: 0x9fd4ff, blending: THREE.AdditiveBlending, depthWrite: false, opacity: .35 }));
+  gl.scale.set(1.6, 1.6, 1); gl.position.set(px, 1.2, pz); platform.add(gl);
+}
+
+// ── Zwei glaenzende Spielkugeln ──────────────────────────────────────────
+// Hochwertig statt toy-like: etwas rauerer Lack, breitere/weichere Reflexe, tiefere Farben
+function ball(color, z) {
+  const m = new THREE.Mesh(
+    new THREE.SphereGeometry(.62, 48, 32),
+    new THREE.MeshPhysicalMaterial({
+      color, roughness: .16, metalness: .06,
+      clearcoat: .8, clearcoatRoughness: .18, envMapIntensity: .9
+    })
+  );
+  m.position.set(0, .62, z); m.castShadow = true; platform.add(m); return m;
+}
+const ballBlue = ball(0x0a86c8, R_PLAY * .57);
+const ballRed  = ball(0xc42410, -R_PLAY * .57);
+
+// ── Loop: sanftes Schweben + Wolkendrift ─────────────────────────────────
+const clock = new THREE.Clock();
+function tick() {
+  const t = clock.getElapsedTime();
+  platform.position.y = Math.sin(t * .55) * .18;            // Arena schwebt
+  clouds.rotation.y = t * .006;                              // Wolken driften
+  boundary.material.emissiveIntensity = 1.1 + Math.sin(t * 1.9) * .35;    // Grenze pulsiert (dezent)
+  for (let i = 0; i < crystals.length; i++) crystals[i].rotation.y = t * .4 + i;   // Kristalle drehen langsam
+  for (const rk of floaters) { rk.position.y = rk.userData.y0 + Math.sin(t * .5 + rk.userData.ph) * .45; rk.rotation.y = t * .12 + rk.userData.ph; }
+  controls.update();
+  renderer.render(scene, camera);
+  requestAnimationFrame(tick);
+}
+tick();
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+} catch (e) {
+  fail('3D-Prototyp konnte nicht starten: ' + (e && e.message || e) +
+    ' — WebGL-Unterstuetzung und Internetverbindung (CDN) pruefen.');
+}
+</script>
+</body>
+</html>

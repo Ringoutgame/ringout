@@ -38,6 +38,9 @@ Offene Aufgaben nach Priorität. Abgeschlossene Aufgaben werden nach `CHANGELOG.
 
 ## P2 — Mittel (Spieler-Erfahrung)
 
+- [ ] **3D-Prototyp zum Premium-Look weiterentwickeln:** `prototype3d.html` (Three.js-Visual-Spike, technisch erfolgreich) braucht für den Referenz-Look echte Assets — hochwertige Marmor-/Stein-Texturen (PBR-Maps), volumetrischere Wolken, ggf. HDRI-Environment. Erst danach Go/No-Go-Entscheidung zur Integration ins Hauptspiel (Render-Adapter, Input-Raycasting; Physik/Lockstep bleiben 2D-`LOGICAL`).
+- [ ] **Entscheidung Pseudo-3D-Stand in `index.html`:** Der M2-T2-Arbeitsstand (Kamera + Pseudo-3D, unkommittet im Working Tree) ist funktional und getestet, aber optisch nicht final. Owner-Entscheidung: als Zwischenstand committen, verwerfen oder bis zur 3D-Entscheidung halten.
+
 - [ ] **Bot-KI auf Web Worker auslagern:** Verhindert UI-Ruckeln bei Hard-Bot-Berechnung (bis zu 650 × N Simulations-Schritte synchron im UI-Thread).
 - [ ] **Einstellungen in localStorage speichern:** Zuletzt gewählter Modus, Schwierigkeitsgrad, Lautstärke und Format sollen nach Seiten-Reload erhalten bleiben.
 - [ ] **Fehlerbehandlung Online-Modus verbessern:** Verbindungsabbrüche während einer Runde führen aktuell nur zu einem Toast ohne Rückkehr zum Menü. Reconnect-Logik oder sauberer Abbruch implementieren.

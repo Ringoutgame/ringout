@@ -71,10 +71,11 @@ RingOut ist ein kompetitives, physikbasiertes Browser-Spiel für 1–2 Spieler. 
 - Disconnect-Handling via `onDisconnect().remove()`
 - Rematch durch Generationszähler (`gen` in Firebase)
 
-### Rendering
-- Eis-Metall-Arena: kühler Silber-/Stahlblau-Radialgradient, metallisches Streiflicht, frostiges Innenleuchten, kühle konzentrische Ringe, Kompassrose, silbriges Innenmedaillon
-- Kristallrand mit animiertem Eisglühen (3 Lagen, Puls) + pseudo-3D-Randwand (gestuftes Band aussen dunkel → innen hell) für Tiefe
-- Schlagschatten-Ellipse unter der Plattform → Arena wirkt schwebend; kühl-dunkler Stahlblau-Tiefenverlauf als Hintergrund (kein heller Himmel)
+### Rendering (Pseudo-3D mit Kamera)
+- **Kameramodell (rein lokal, nie synchronisiert):** orthografische Projektion — Ebene um `camYaw` rotiert, y mit `cos(camPitch)` gestaucht, Höhe hebt um `h·sin(camPitch)`. Yaw frei (Drag auf leerer Fläche), Pitch geklemmt 0–0.61 rad. Input über exakte Inverse (`camUnproj`) → Zielen unter jedem Winkel fair. Alter Online-P2-Spiegel = Kamera-Default Yaw=π.
+- **Render-Pipeline:** Himmel (gebackene Textur, Parallaxe) → Plattform (Schlagschatten auf Wolken, zweistufige Zylinder-Wand, gebackene Marmor-Bodentextur unter Kameratransform, Eisglow-Rand, exakte Grenz-Ellipse, 8 Kristall-Sockel) → Ebenen-Overlays unter einer Kameratransform (Partikel, Auswahl, Kugel-Schatten/Trail/Randwarnung, Drall-Vorschau) → Screen-Space (Pfeile, Sling, Kugel-Billboards tiefensortiert).
+- **Texturen einmalig gebacken** (`bakeSky`, `bakeFloor`) → pro Frame nur `drawImage`; zugleich der geplante Rendering-Perf-Cache.
+- Kugeln: Billboards (immer rund), satter Sphären-Gradient, glossy Spitzlicht + Nebenreflex, Boden-Gegenlicht, Rim-Light, aufrechtes Label
 - 4 animierte Fackelhalter außerhalb der Arena
 - Optional: externes Bild `arena.jpg` statt Vektor-Arena (aktuell auskommentiert)
 - Kugeln: 3D-Sphären-Gradient, Rim-Light, Bewegungsspur, Randwarnung, weicherer/klar definierter Bodenschatten (Kern + weicher Rand)
@@ -109,13 +110,21 @@ RingOut ist ein kompetitives, physikbasiertes Browser-Spiel für 1–2 Spieler. 
 
 ```
 Ringout/
-  index.html     # Gesamte Spiellogik, UI, CSS, JS (~1 088 Zeilen)
-  CLAUDE.md      # Contributor-Richtlinien und Coding Standards
-  PROJECT.md     # Dieses Dokument – aktueller Projektstand
-  ROADMAP.md     # Langfristige Ziele und geplante Features
-  TODO.md        # Offene Aufgaben nach Priorität
-  CHANGELOG.md   # Abgeschlossene Änderungen mit Datum
+  index.html         # Gesamte Spiellogik, UI, CSS, JS
+  prototype3d.html   # Isolierter Three.js-Visual-Spike (KEINE Integration, keine Spiel-Logik)
+  firebase.rules.json# Server-seitige RTDB-Regeln (publiziert)
+  CLAUDE.md          # Contributor-Richtlinien und Coding Standards
+  PROJECT.md         # Dieses Dokument – aktueller Projektstand
+  ROADMAP.md         # Langfristige Ziele und geplante Features
+  TODO.md            # Offene Aufgaben nach Priorität
+  CHANGELOG.md       # Abgeschlossene Änderungen mit Datum
 ```
+
+### 3D-Visual-Spike (`prototype3d.html`)
+- **Ziel:** Prototyp einer echten 3D-Arena (WebGL) als Vorstufe für einen möglichen Premium-Look nach Referenzbildern.
+- **Status:** Technisch erfolgreich (PBR-Materialien, Schatten, Orbit-Kamera mit geklemmtem Tilt, Wolkenmeer, Fels-Unterbau; 3 Polish-Pässe). **Visuell noch nicht final** — prozedurale Canvas-Texturen erreichen den Referenz-Look nicht.
+- **Risiken/Offen:** Premium-Look braucht echte Assets (PBR-Marmor/Stein-Texturen, volumetrischere Wolken, ggf. HDRI); Mobile-Performance ungemessen; benötigt Internet (three@0.170.0 via CDN, nur in dieser Datei).
+- **Abgrenzung:** Keine Integration ins Hauptspiel. `index.html`, Physik, Lockstep, Online, Replay, Firebase vollständig unberührt. Eine spätere Integration liefe als reiner Render-Adapter über der unveränderten 2D-`LOGICAL`-Physik.
 
 ---
 
