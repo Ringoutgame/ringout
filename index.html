@@ -53,9 +53,18 @@ header{width:100%;max-width:460px;display:flex;align-items:center;justify-conten
 .rinfo{font-size:8px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;text-align:center}
 
 .arena-wrap{width:100%;max-width:460px;flex:1 1 0;min-height:0;display:flex;align-items:center;justify-content:center;position:relative}
+/* 3D-Render-Adapter (?r3d=1): WebGL-Canvas fuellt den Viewport HINTER der gesamten UI */
+#cv{position:relative;z-index:1}
+#cv3d{position:fixed;inset:0;z-index:-1;pointer-events:none}
+#vig3d{position:fixed;inset:0;pointer-events:none;z-index:0;
+  background:radial-gradient(ellipse at 50% 42%,rgba(0,0,0,0) 52%,rgba(10,16,26,.16) 78%,rgba(6,10,18,.38) 100%)}
 #cv{width:100%;height:100%;display:block;touch-action:none}
 
 .phase{width:100%;max-width:460px;text-align:center;font-size:12px;font-weight:800;letter-spacing:.04em;min-height:34px;display:flex;align-items:center;justify-content:center;flex-shrink:0;padding:4px}
+/* 3D-Modus: Hinweistext als dunkler Chip -> lesbar ueber hellem Himmel/Arena, nie verdeckt */
+body.r3d .phase{position:relative;z-index:2}
+body.r3d .phase:not(:empty){background:rgba(8,14,22,.72);border:1px solid rgba(120,160,200,.25);
+  border-radius:999px;padding:7px 16px;width:auto;max-width:92%;margin:0 auto;backdrop-filter:blur(6px)}
 .phase .me0{color:var(--p1)}.phase .me1{color:var(--p2)}
 
 .botbar{width:100%;max-width:460px;display:flex;gap:6px;margin-top:2px;flex-shrink:0}
@@ -197,6 +206,13 @@ header{width:100%;max-width:460px;display:flex;align-items:center;justify-conten
   <button class="wbtn" id="onBack" style="width:auto;padding:10px 22px;margin-top:18px">↩ Zurück</button>
 </div>
 
+<!-- Importmap fuer den optionalen 3D-Modus (?r3d=1). Laedt selbst nichts;
+     three.js wird ausschliesslich per dynamischem import() bei gesetztem Flag geholt. -->
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+               "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/" } }
+</script>
+
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js";
   import { getDatabase, ref, set, get, update, remove, onValue, onDisconnect, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-database.js";
@@ -223,6 +239,50 @@ header{width:100%;max-width:460px;display:flex;align-items:center;justify-conten
 (()=>{
 const $=id=>document.getElementById(id);
 const cv=$('cv'),ctx=cv.getContext('2d');
+
+// ── 3D-Render-Adapter (M4-T2): NUR mit ?r3d=1 aktiv; liest Spielzustand, schreibt NIE ──
+const R3D_WANTED=new URLSearchParams(location.search).get('r3d')==='1';
+const R3D_ORBIT=R3D_WANTED&&new URLSearchParams(location.search).get('orbit')==='1';   // reiner Ansichts-Testmodus
+let r3dActive=false,r3d=null,r3dOrbit=false;   // r3dActive erst true, wenn three+HDRI+GLB erfolgreich geladen
+// Spieler-Kamera-Gesten (nur 3D): 1 Finger ausserhalb der Aim-Zone = drehen, 2 Finger = Pinch-Zoom
+let camPid=-1,cam2Pid=-1,camLX=0,camLY=0,cam2LX=0,cam2LY=0,camTapT=0,camTapX=0,camTapY=0;
+
+// Pure Projektions-Mathematik fuer die feste geneigte Kamera (Node-testbar, three-frei).
+// Konventionen identisch zu three.js: lookAt (up=(0,1,0)), perspektivische Projektion, NDC-y nach oben.
+// Welt = LOGICAL-Ebene y=0 (worldX = logicalX, worldZ = logicalY).
+// p = {ex,ey,ez, tx,ty,tz, fov(Grad, vertikal), vw,vh (Viewport-px), ox,oy,os (Overlay-Rect: left/top/size in px)}
+function r3dCamMath(p){
+  const f=1/Math.tan(p.fov*Math.PI/360), aspect=p.vw/p.vh;
+  let fx=p.tx-p.ex,fy=p.ty-p.ey,fz=p.tz-p.ez;
+  const fl=Math.hypot(fx,fy,fz); fx/=fl;fy/=fl;fz/=fl;               // forward
+  let rx=-fz,ry=0,rz=fx; const rl=Math.hypot(rx,ry,rz); rx/=rl;rz/=rl; // right = normalize(cross(f, up))
+  const ux=ry*fz-rz*fy, uy=rz*fx-rx*fz, uz=rx*fy-ry*fx;               // upv = cross(right, f)... (r x f)
+  // p.shx/p.shy: Screen-Shift in px (Principal Point -> Wrap-Zentrum); p.py: Hoehe der
+  // Spielebene (Schwebe-Bob). Beide werden zur Laufzeit gelesen -> pro Frame aktualisierbar.
+  function w2s(lx,ly,h){
+    const py=p.py||0;
+    const project=(wx,wy,wz)=>{
+      const dx=wx-p.ex,dy=wy-p.ey,dz=wz-p.ez;
+      const cxm=dx*rx+dy*ry+dz*rz, cym=dx*ux+dy*uy+dz*uz, czm=dx*fx+dy*fy+dz*fz; // Kameraachsen (z = Blickrichtung)
+      const xn=(f/aspect)*cxm/czm, yn=f*cym/czm;
+      const sx=(xn+1)/2*p.vw+(p.shx||0), sy=(1-yn)/2*p.vh+(p.shy||0);
+      return { x:(sx-p.ox)/p.os*1000, y:(sy-p.oy)/p.os*1000 };
+    };
+    const a=project(lx,py+(h||0),ly), b=project(lx+32,py+(h||0),ly);
+    return { x:a.x, y:a.y, s:Math.hypot(b.x-a.x,b.y-a.y)/32 };        // s = lokaler Massstab (32 = BR)
+  }
+  function s2w(clientX,clientY){
+    const py=p.py||0;
+    const xn=2*(clientX-(p.shx||0))/p.vw-1, yn=1-2*(clientY-(p.shy||0))/p.vh;
+    const ddx=xn*aspect/f, ddy=yn/f;                                   // Strahl im Kameraraum (z=+1 Blickrichtung)
+    const dx=rx*ddx+ux*ddy+fx, dy=ry*ddx+uy*ddy+fy, dz=rz*ddx+uz*ddy+fz;
+    const t=(py-p.ey)/dy;                                              // Schnitt mit Spielebene y=py (Bob)
+    return { x:p.ex+t*dx, y:p.ez+t*dz };
+  }
+  return { w2s, s2w };
+}
+// Overlay-Projektion: Identitaet im 2D-Modus (bit-identisches Verhalten), Projektion im 3D-Modus.
+function OP(lx,ly,h){ return r3dActive ? r3d.w2s(lx,ly,h||0) : {x:lx,y:ly,s:1}; }
 
 let mode='bot',diff='easy',winTarget=3,soundOn=true;
 let fmt='single';   // Format (single/double)
@@ -306,6 +366,7 @@ function resize(){
   dispS=s;
   cv.width=Math.round(s*DPR);cv.height=Math.round(s*DPR);cv.style.width=s+'px';cv.style.height=s+'px';
   const k=(s*DPR)/LOGICAL;ctx.setTransform(k,0,0,k,0,0);   // logisch -> Geraete-Pixel (voll scharf)
+  if(r3dActive&&r3d)r3d.resize(s);                          // 3D-Layer deckungsgleich mitfuehren
 }
 window.addEventListener('resize',resize);   // R0 ist konstant -> R bleibt unveraendert
 
@@ -398,22 +459,50 @@ let toastT;function toast(m){const t=$('toast');t.textContent=m;t.classList.add(
 function openCover(pi){const c=$('cover');$('coverWho').textContent=pi===0?'Spieler 1':'Spieler 2';$('coverWho').className='who c'+pi;c.classList.add('show');}
 $('coverBtn').onclick=()=>{$('cover').classList.remove('show');setPhaseText();updateHud();};
 
-$('actBtn').onclick=()=>{if(phase!=='aim')return;const who=online?myPlayer:(mode==='bot'?0:curAimer);if(aimSet[who])return;
+$('actBtn').onclick=()=>{if(r3dOrbit)return;if(phase!=='aim')return;const who=online?myPlayer:(mode==='bot'?0:curAimer);if(aimSet[who])return;
   const own=aliveBalls(who);const idx=own.length?balls.indexOf(own[0]):-1;commit(who,idx,0,0);};
 
 // ════ INPUT (slingshot: drag back, fling forward) ════
-function localPt(e){const r=cv.getBoundingClientRect();const sc=LOGICAL/(r.width||dispS);let x=(e.clientX-r.left)*sc,y=(e.clientY-r.top)*sc;if(online&&myPlayer===1){x=2*cx-x;y=2*cy-y;}return{x:x,y:y};}
-function whoCanAim(){if(phase!=='aim')return -1;if(online)return aimSet[myPlayer]?-1:myPlayer;if(mode==='bot')return aimSet[0]?-1:0;return aimSet[curAimer]?-1:curAimer;}
+function localPt(e){
+  if(r3dActive)return r3d.s2w(e.clientX,e.clientY);   // 3D: Ray-Ebene-Schnitt -> LOGICAL (P2 steckt in der Kamera)
+  const r=cv.getBoundingClientRect();const sc=LOGICAL/(r.width||dispS);let x=(e.clientX-r.left)*sc,y=(e.clientY-r.top)*sc;if(online&&myPlayer===1){x=2*cx-x;y=2*cy-y;}return{x:x,y:y};}
+function whoCanAim(){if(r3dOrbit)return -1;if(phase!=='aim')return -1;if(online)return aimSet[myPlayer]?-1:myPlayer;if(mode==='bot')return aimSet[0]?-1:0;return aimSet[curAimer]?-1:curAimer;}
 function pickOwnBall(who,p){let best=-1,bd=1e9;balls.forEach((b,i)=>{if(b.alive&&b.owner===who){const d=Math.hypot(p.x-b.x,p.y-b.y);if(d<bd){bd=d;best=i;}}});const reach=fmt==='double'?BR*2.8:BR*5;return bd<=reach?best:-1;}
-cv.addEventListener('pointerdown',e=>{const who=whoCanAim();if(who<0)return;const p=localPt(e);
-  if(aimPid<0){                                   // 1. Finger: eigene Kugel greifen + zuruekziehen
-    const idx=pickOwnBall(who,p);if(idx<0)return;
+function startAim(who,idx,p,e){try{cv.setPointerCapture(e.pointerId);}catch(_){}
+  aimPid=e.pointerId;dragging=true;dragShooter=idx;dragOwner=who;
+  dragStart={x:balls[idx].x,y:balls[idx].y};dragCur=p;dragPull={x:0,y:0};dragSpin=0;SFX.charge.start();}
+cv.addEventListener('pointerdown',e=>{
+  if(!r3dActive){                                   // ── 2D: Originalverhalten, unveraendert ──
+    const who=whoCanAim();if(who<0)return;const p=localPt(e);
+    if(aimPid<0){                                   // 1. Finger: eigene Kugel greifen + zuruekziehen
+      const idx=pickOwnBall(who,p);if(idx<0)return;
+      startAim(who,idx,p,e);
+    }else if(spinPid<0&&e.pointerId!==aimPid){      // 2. Finger: NUR Drall (kein Ladeton, greift keine Kugel)
+      try{cv.setPointerCapture(e.pointerId);}catch(_){}
+      spinPid=e.pointerId;spinStartX=p.x;
+    }
+    return;
+  }
+  // ── 3D: Aim-Zone (Kugelnaehe) hat Vorrang; sonst Kamera. Nie beides gleichzeitig. ──
+  const who=whoCanAim();
+  if(who>=0&&aimPid<0&&camPid<0){                   // Aim nur, wenn KEIN Kamera-Drag aktiv
+    const p=localPt(e);const idx=pickOwnBall(who,p);
+    if(idx>=0){startAim(who,idx,p,e);return;}
+  }
+  if(aimPid>=0&&spinPid<0&&e.pointerId!==aimPid){   // 2. Finger WAEHREND Zielen: Drall (Kamera gesperrt)
     try{cv.setPointerCapture(e.pointerId);}catch(_){}
-    aimPid=e.pointerId;dragging=true;dragShooter=idx;dragOwner=who;
-    dragStart={x:balls[idx].x,y:balls[idx].y};dragCur=p;dragPull={x:0,y:0};dragSpin=0;SFX.charge.start();
-  }else if(spinPid<0&&e.pointerId!==aimPid){        // 2. Finger: NUR Drall (kein Ladeton, greift keine Kugel)
+    spinPid=e.pointerId;spinStartX=e.clientX;return;// Drall in Screen-px: kamerafest, rechts = +Drall
+  }
+  if(r3dOrbit||aimPid>=0)return;
+  if(camPid<0){                                     // Kamera-Drag starten (Doppeltipp = Reset)
+    const now=performance.now();
+    if(now-camTapT<300&&Math.hypot(e.clientX-camTapX,e.clientY-camTapY)<24){r3d.cam.reset();camTapT=0;return;}
+    camTapT=now;camTapX=e.clientX;camTapY=e.clientY;
     try{cv.setPointerCapture(e.pointerId);}catch(_){}
-    spinPid=e.pointerId;spinStartX=p.x;
+    camPid=e.pointerId;camLX=e.clientX;camLY=e.clientY;
+  }else if(cam2Pid<0&&e.pointerId!==camPid){        // 2. Finger auf Kamera: Pinch-Zoom
+    try{cv.setPointerCapture(e.pointerId);}catch(_){}
+    cam2Pid=e.pointerId;cam2LX=e.clientX;cam2LY=e.clientY;
   }});
 // move/up/cancel auf window: Zug bleibt erhalten, auch wenn der Finger das Canvas verlaesst
 window.addEventListener('pointermove',e=>{
@@ -421,10 +510,26 @@ window.addEventListener('pointermove',e=>{
     let dx=p.x-dragStart.x,dy=p.y-dragStart.y;const mp=maxPull(),len=Math.hypot(dx,dy);
     dragPull={x:dx,y:dy};                                  // live: folgt dem Finger in JEDE Richtung (kein Ratschen)
     SFX.charge.update(Math.min(1,len/mp));
-  }else if(e.pointerId===spinPid){const p=localPt(e);        // rechts wischen = +Drall, links = -Drall
-    dragSpin=Math.max(-1,Math.min(1,(p.x-spinStartX)/SPIN_INPUT));
+  }else if(e.pointerId===spinPid){                          // rechts wischen = +Drall, links = -Drall
+    if(r3dActive){const r=cv.getBoundingClientRect();const sc2=LOGICAL/(r.width||dispS);
+      dragSpin=Math.max(-1,Math.min(1,(e.clientX-spinStartX)*sc2/SPIN_INPUT));
+    }else{const p=localPt(e);
+      dragSpin=Math.max(-1,Math.min(1,(p.x-spinStartX)/SPIN_INPUT));}
+  }else if(r3dActive&&e.pointerId===camPid){                // Kamera: 1 Finger drehen / mit 2. Finger Pinch
+    if(cam2Pid>=0){
+      const d0=Math.hypot(camLX-cam2LX,camLY-cam2LY),d1=Math.hypot(e.clientX-cam2LX,e.clientY-cam2LY);
+      if(d0>1&&d1>1)r3d.cam.zoom(d0/d1);
+    }else r3d.cam.rotate(e.clientX-camLX,e.clientY-camLY);
+    camLX=e.clientX;camLY=e.clientY;
+  }else if(r3dActive&&e.pointerId===cam2Pid){
+    const d0=Math.hypot(camLX-cam2LX,camLY-cam2LY),d1=Math.hypot(camLX-e.clientX,camLY-e.clientY);
+    if(d0>1&&d1>1)r3d.cam.zoom(d0/d1);
+    cam2LX=e.clientX;cam2LY=e.clientY;
   }});
 window.addEventListener('pointerup',e=>{
+  if(r3dActive&&e.pointerId===camPid){               // Kamera-Finger los (2. Finger uebernimmt ggf.)
+    if(cam2Pid>=0){camPid=cam2Pid;camLX=cam2LX;camLY=cam2LY;cam2Pid=-1;}else camPid=-1;return;}
+  if(r3dActive&&e.pointerId===cam2Pid){cam2Pid=-1;return;}
   if(e.pointerId===spinPid){spinPid=-1;return;}      // Drall-Finger los: Wert bleibt gelatcht, KEIN Schuss
   if(e.pointerId!==aimPid)return;
   const who=dragOwner,sh=dragShooter;
@@ -435,8 +540,12 @@ window.addEventListener('pointerup',e=>{
   if(pl<BR*0.4){fx=0;fy=0;spin=0;}else{spin=dragSpin;}   // dragSpin ist bereits -1..+1
   commit(who,sh,fx,fy,spin);});
 window.addEventListener('pointercancel',e=>{
+  if(r3dActive&&e.pointerId===camPid){camPid=-1;cam2Pid=-1;return;}
+  if(r3dActive&&e.pointerId===cam2Pid){cam2Pid=-1;return;}
   if(e.pointerId===spinPid){spinPid=-1;return;}
   if(e.pointerId===aimPid){SFX.charge.stop();dragging=false;aimPid=-1;spinPid=-1;dragShooter=-1;dragOwner=-1;}});
+// Desktop-Zoom im 3D-Modus (Mausrad); 2D unveraendert
+cv.addEventListener('wheel',e=>{if(r3dActive&&!r3dOrbit&&r3d){e.preventDefault();r3d.cam.zoom(e.deltaY>0?1.08:1/1.08);}},{passive:false});
 
 // Deterministic + idempotent move sanitizer. Applied at BOTH lockstep ends
 // (sender in commit(), receiver in onlineTurnValue()) so both clients always
@@ -922,43 +1031,46 @@ arenaImg.onerror=()=>{arenaImgReady=false;};
 function draw(){
   const tnow=performance.now()/1000, puls=.5+.5*Math.sin(tnow*1.6);
   ctx.clearRect(0,0,W,H);
-  ctx.fillStyle='#050a12';ctx.fillRect(0,0,W,H);
-  ctx.save(); if(online&&myPlayer===1){ctx.translate(cx,cy);ctx.rotate(Math.PI);ctx.translate(-cx,-cy);}
+  if(!r3dActive){ctx.fillStyle='#050a12';ctx.fillRect(0,0,W,H);}   // 3D-Modus: Overlay bleibt transparent
+  ctx.save(); if(online&&myPlayer===1&&!r3dActive){ctx.translate(cx,cy);ctx.rotate(Math.PI);ctx.translate(-cx,-cy);}   // 3D: P2 steckt in der Kamera
 
-  // Kuehler dunkler Tiefen-Verlauf (Stahlblau) — dezent, kein heller Himmel
-  {const og=ctx.createRadialGradient(cx,cy,R*.72,cx,cy,Math.max(W,H)*.82);
-  og.addColorStop(0,'rgba(10,20,32,0)');og.addColorStop(.35,'rgba(7,14,24,.72)');og.addColorStop(1,'rgba(2,6,12,.97)');
-  ctx.fillStyle=og;ctx.fillRect(0,0,W,H);}
+  if(!r3dActive){
+    // Kuehler dunkler Tiefen-Verlauf (Stahlblau) — dezent, kein heller Himmel
+    const og=ctx.createRadialGradient(cx,cy,R*.72,cx,cy,Math.max(W,H)*.82);
+    og.addColorStop(0,'rgba(10,20,32,0)');og.addColorStop(.35,'rgba(7,14,24,.72)');og.addColorStop(1,'rgba(2,6,12,.97)');
+    ctx.fillStyle=og;ctx.fillRect(0,0,W,H);
+  }
 
   // bgPulse Treffer-Flash
   if(bgPulse>0.01){const F=ctx.createRadialGradient(cx,cy,R*.3,cx,cy,Math.max(W,H));
     F.addColorStop(0,'rgba('+bgPulseRGB+','+(bgPulse*.40).toFixed(3)+')');F.addColorStop(1,'rgba('+bgPulseRGB+',0)');
     ctx.fillStyle=F;ctx.fillRect(0,0,W,H);}
 
-  // Schlagschatten unter der Plattform -> Arena wirkt schwebend
-  if(!arenaImgReady){
-    const sh=ctx.createRadialGradient(cx,cy+R*.34,0,cx,cy+R*.34,R*1.12);
-    sh.addColorStop(0,'rgba(0,0,0,.55)');sh.addColorStop(.55,'rgba(0,0,0,.28)');sh.addColorStop(1,'rgba(0,0,0,0)');
-    ctx.save();ctx.translate(cx,cy+R*.30);ctx.scale(1,.34);ctx.translate(-cx,-(cy+R*.30));
-    ctx.fillStyle=sh;ctx.beginPath();ctx.arc(cx,cy+R*.34,R*1.12,0,Math.PI*2);ctx.fill();ctx.restore();
+  if(!r3dActive){                                   // Boden/Rand/Schatten kommen im 3D-Modus aus dem 3D-Layer
+    // Schlagschatten unter der Plattform -> Arena wirkt schwebend
+    if(!arenaImgReady){
+      const sh=ctx.createRadialGradient(cx,cy+R*.34,0,cx,cy+R*.34,R*1.12);
+      sh.addColorStop(0,'rgba(0,0,0,.55)');sh.addColorStop(.55,'rgba(0,0,0,.28)');sh.addColorStop(1,'rgba(0,0,0,0)');
+      ctx.save();ctx.translate(cx,cy+R*.30);ctx.scale(1,.34);ctx.translate(-cx,-(cy+R*.30));
+      ctx.fillStyle=sh;ctx.beginPath();ctx.arc(cx,cy+R*.34,R*1.12,0,Math.PI*2);ctx.fill();ctx.restore();
+    }
+    if(arenaImgReady){
+      const side=2*R/RING_FRAC;                     // skaliert mit R -> Arena schrumpft jede Runde mit
+      ctx.drawImage(arenaImg, cx-side/2, cy-side/2, side, side);
+    } else {
+      drawArenaFloor();
+      drawCrystalRim(tnow);
+    }
   }
 
-  if(arenaImgReady){
-    const side=2*R/RING_FRAC;                       // skaliert mit R -> Arena schrumpft jede Runde mit
-    ctx.drawImage(arenaImg, cx-side/2, cy-side/2, side, side);
-  } else {
-    drawArenaFloor();
-    drawCrystalRim(tnow);
-  }
-
-  // particles UNDER balls
-  for(const p of particles){ctx.globalAlpha=Math.max(0,p.life);ctx.beginPath();ctx.arc(p.x,p.y,p.size,0,7);ctx.fillStyle=p.col;ctx.fill();}
+  // particles UNDER balls (3D: auf die Bodenebene projiziert)
+  for(const p of particles){const q=OP(p.x,p.y,0);ctx.globalAlpha=Math.max(0,p.life);ctx.beginPath();ctx.arc(q.x,q.y,p.size*q.s,0,7);ctx.fillStyle=p.col;ctx.fill();}
   ctx.globalAlpha=1;
 
   // selection highlight (Doppel: zeig die waehlbaren eigenen Kugeln)
   if(fmt==='double'&&!dragging){const aimer=whoCanAim();
     if(aimer>=0){const col=aimer===0?'rgba(0,212,255,':'rgba(255,77,77,';const a=0.35+0.35*puls;
-      for(const b of balls){if(b.alive&&b.owner===aimer){ctx.beginPath();ctx.arc(b.x,b.y,BR*1.5,0,7);ctx.lineWidth=Math.max(1.5,BR*0.16);ctx.setLineDash([BR*0.5,BR*0.4]);ctx.strokeStyle=col+a.toFixed(2)+')';ctx.stroke();ctx.setLineDash([]);}}}}
+      for(const b of balls){if(b.alive&&b.owner===aimer){const q=OP(b.x,b.y,0);ctx.beginPath();ctx.arc(q.x,q.y,BR*1.5*q.s,0,7);ctx.lineWidth=Math.max(1.5,BR*0.16*q.s);ctx.setLineDash([BR*0.5*q.s,BR*0.4*q.s]);ctx.strokeStyle=col+a.toFixed(2)+')';ctx.stroke();ctx.setLineDash([]);}}}}
 
   // reveal arrows (forward launch dir je committeter Kugel)
   if(phase==='reveal'){for(let p=0;p<2;p++){const idx=commitIdx[p];if(idx>=0&&balls[idx]&&balls[idx].alive)drawArrow(balls[idx],commitAim[p]);}}
@@ -981,89 +1093,99 @@ function drawBall(b){
   const glowRGB=isBlue?'0,190,255':'255,40,0';
   const lbl    =b.owner===0?'1':(mode==='bot'?'B':'2');
 
-  // ── 1. Bodenschatten (Ellipse schräg unterhalb) — definierter Kern + weicher Rand ──
-  const shg=ctx.createRadialGradient(b.x+BR*.22,b.y+BR*.60,0,b.x+BR*.22,b.y+BR*.60,BR*1.15);
-  shg.addColorStop(0,'rgba(0,0,0,.72)');shg.addColorStop(.55,'rgba(0,0,0,.34)');shg.addColorStop(1,'rgba(0,0,0,0)');
-  ctx.fillStyle=shg;ctx.beginPath();ctx.ellipse(b.x+BR*.22,b.y+BR*.60,BR*1.05,BR*.46,0,0,Math.PI*2);ctx.fill();
+  // ── 1. Bodenschatten (nur 2D; im 3D-Modus wirft die Kugel echte Schatten) ──
+  if(!r3dActive){
+    const shg=ctx.createRadialGradient(b.x+BR*.22,b.y+BR*.60,0,b.x+BR*.22,b.y+BR*.60,BR*1.15);
+    shg.addColorStop(0,'rgba(0,0,0,.72)');shg.addColorStop(.55,'rgba(0,0,0,.34)');shg.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.fillStyle=shg;ctx.beginPath();ctx.ellipse(b.x+BR*.22,b.y+BR*.60,BR*1.05,BR*.46,0,0,Math.PI*2);ctx.fill();
+  }
 
-  // ── Bewegungs-Trail ──
+  // ── Bewegungs-Trail (3D: auf Bodenebene projiziert) ──
   const sp=Math.hypot(b.vx,b.vy);
-  if(sp>1.2){ctx.beginPath();ctx.moveTo(b.x,b.y);ctx.lineTo(b.x-b.vx*2.2,b.y-b.vy*2.2);
-    ctx.lineWidth=BR*1.4;ctx.lineCap='round';
+  if(sp>1.2){const q0=OP(b.x,b.y,0),q1=OP(b.x-b.vx*2.2,b.y-b.vy*2.2,0);
+    ctx.beginPath();ctx.moveTo(q0.x,q0.y);ctx.lineTo(q1.x,q1.y);
+    ctx.lineWidth=BR*1.4*q0.s;ctx.lineCap='round';
     ctx.strokeStyle='rgba('+glowRGB+','+Math.min(.38,sp*.033)+')';ctx.stroke();}
 
   // ── Rand-Warnung ──
   const edge=R-Math.hypot(b.x-cx,b.y-cy);
-  if(edge<R*.26){ctx.beginPath();ctx.arc(b.x,b.y,BR*2.2,0,7);
+  if(edge<R*.26){const q=OP(b.x,b.y,0);ctx.beginPath();ctx.arc(q.x,q.y,BR*2.2*q.s,0,7);
     ctx.fillStyle='rgba('+glowRGB+','+(0.13*(1-edge/(R*.26))+0.02)+')';ctx.fill();}
 
-  // ── 2. Großer äußerer Glow ──
-  const og=ctx.createRadialGradient(b.x,b.y,BR*.4,b.x,b.y,BR*3.0);
-  og.addColorStop(0,'rgba('+glowRGB+',.50)');
-  og.addColorStop(.35,'rgba('+glowRGB+',.22)');
-  og.addColorStop(1,'rgba('+glowRGB+',0)');
-  ctx.fillStyle=og;ctx.beginPath();ctx.arc(b.x,b.y,BR*3.0,0,Math.PI*2);ctx.fill();
+  if(!r3dActive){                                   // Glow/Koerper/Rim nur 2D; 3D rendert die Kugel selbst
+    // ── 2. Großer äußerer Glow ──
+    const og=ctx.createRadialGradient(b.x,b.y,BR*.4,b.x,b.y,BR*3.0);
+    og.addColorStop(0,'rgba('+glowRGB+',.50)');
+    og.addColorStop(.35,'rgba('+glowRGB+',.22)');
+    og.addColorStop(1,'rgba('+glowRGB+',0)');
+    ctx.fillStyle=og;ctx.beginPath();ctx.arc(b.x,b.y,BR*3.0,0,Math.PI*2);ctx.fill();
 
-  // ── 3. Kugel-Körper: 3D-Sphären-Gradient ──
-  // Glanzpunkt oben-links → Hauptfarbe → dunkel unten-rechts
-  const rg=ctx.createRadialGradient(
-    b.x-BR*.38, b.y-BR*.40, BR*.05,
-    b.x+BR*.14, b.y+BR*.14, BR*1.06
-  );
-  rg.addColorStop(0,   '#ffffff');
-  rg.addColorStop(.10, colLt);
-  rg.addColorStop(.42, col);
-  rg.addColorStop(.80, colDk);
-  rg.addColorStop(1,   'rgba(0,0,0,.85)');
-  ctx.beginPath();ctx.arc(b.x,b.y,BR,0,Math.PI*2);
-  ctx.fillStyle=rg;
-  ctx.shadowColor=col;ctx.shadowBlur=BR*1.4;
-  ctx.fill();ctx.shadowBlur=0;
+    // ── 3. Kugel-Körper: 3D-Sphären-Gradient ──
+    // Glanzpunkt oben-links → Hauptfarbe → dunkel unten-rechts
+    const rg=ctx.createRadialGradient(
+      b.x-BR*.38, b.y-BR*.40, BR*.05,
+      b.x+BR*.14, b.y+BR*.14, BR*1.06
+    );
+    rg.addColorStop(0,   '#ffffff');
+    rg.addColorStop(.10, colLt);
+    rg.addColorStop(.42, col);
+    rg.addColorStop(.80, colDk);
+    rg.addColorStop(1,   'rgba(0,0,0,.85)');
+    ctx.beginPath();ctx.arc(b.x,b.y,BR,0,Math.PI*2);
+    ctx.fillStyle=rg;
+    ctx.shadowColor=col;ctx.shadowBlur=BR*1.4;
+    ctx.fill();ctx.shadowBlur=0;
 
-  // ── 4. Rim-Light (leuchtender Rand-Ring) ──
-  ctx.beginPath();ctx.arc(b.x,b.y,BR-.8,0,Math.PI*2);
-  ctx.lineWidth=Math.max(1.5,BR*.09);
-  ctx.strokeStyle=colLt;ctx.globalAlpha=.50;ctx.stroke();ctx.globalAlpha=1;
+    // ── 4. Rim-Light (leuchtender Rand-Ring) ──
+    ctx.beginPath();ctx.arc(b.x,b.y,BR-.8,0,Math.PI*2);
+    ctx.lineWidth=Math.max(1.5,BR*.09);
+    ctx.strokeStyle=colLt;ctx.globalAlpha=.50;ctx.stroke();ctx.globalAlpha=1;
+  }
 
-  // ── 5. Weißes Label ──
-  ctx.fillStyle='#ffffff';
-  ctx.font='900 '+(BR*1.05)+'px system-ui';
-  ctx.textAlign='center';ctx.textBaseline='middle';
-  ctx.shadowColor='rgba(0,0,0,.95)';ctx.shadowBlur=BR*.55;
-  if(online&&myPlayer===1){
-    ctx.save();ctx.translate(b.x,b.y+BR*.06);ctx.rotate(Math.PI);ctx.fillText(lbl,0,0);ctx.restore();
-  }else ctx.fillText(lbl,b.x,b.y+BR*.06);
-  ctx.shadowBlur=0;
+  // ── 5. Weißes Label — NUR 2D. In 3D traegt Farbe/HUD die Erkennung (saubere Murmeln). ──
+  if(!r3dActive){
+    ctx.fillStyle='#ffffff';
+    ctx.font='900 '+(BR*1.05)+'px system-ui';
+    ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.shadowColor='rgba(0,0,0,.95)';ctx.shadowBlur=BR*.55;
+    if(online&&myPlayer===1){
+      ctx.save();ctx.translate(b.x,b.y+BR*.06);ctx.rotate(Math.PI);ctx.fillText(lbl,0,0);ctx.restore();
+    }else ctx.fillText(lbl,b.x,b.y+BR*.06);
+    ctx.shadowBlur=0;
+  }
 }
 function drawSpinPreview(b,fx,fy,spin){
   let x=b.x,y=b.y,vx=fx*LAUNCH,vy=fy*LAUNCH,sp=spin;
-  ctx.beginPath();ctx.moveTo(x,y);
+  const q0=OP(x,y,0);
+  ctx.beginPath();ctx.moveTo(q0.x,q0.y);
   for(let i=0;i<70;i++){
     for(let st=0;st<2;st++){x+=vx;y+=vy;const v=Math.sqrt(vx*vx+vy*vy);const f=v<SLOWV?FEND:FRICTION;vx*=f;vy*=f;if(sp&&v>0.01){const sx=-vy/v,sy=vx/v,sa=SPIN_K*sp*v;vx+=sx*sa;vy+=sy*sa;}sp*=SPIN_DECAY;}
-    ctx.lineTo(x,y);
+    const q=OP(x,y,0);ctx.lineTo(q.x,q.y);
     if(Math.sqrt((x-cx)*(x-cx)+(y-cy)*(y-cy))>R)break;
   }
-  ctx.strokeStyle='rgba(255,255,255,.35)';ctx.lineWidth=BR*0.22;ctx.setLineDash([BR*0.45,BR*0.5]);ctx.lineCap='round';ctx.stroke();ctx.setLineDash([]);
+  ctx.strokeStyle='rgba(255,255,255,.35)';ctx.lineWidth=BR*0.22*q0.s;ctx.setLineDash([BR*0.45*q0.s,BR*0.5*q0.s]);ctx.lineCap='round';ctx.stroke();ctx.setLineDash([]);
 }
 function drawSling(b,cdx,cdy){
   const col=b.owner===0?'#00d4ff':'#ff4d4d';const len=Math.hypot(cdx,cdy),mp=maxPull(),pwr=Math.min(1,len/mp);
-  ctx.beginPath();ctx.moveTo(b.x,b.y);ctx.lineTo(b.x+cdx,b.y+cdy);ctx.lineWidth=BR*0.3;ctx.lineCap='round';
-  ctx.strokeStyle='rgba(255,255,255,.25)';ctx.setLineDash([BR*0.5,BR*0.4]);ctx.stroke();ctx.setLineDash([]);
-  const fx=-cdx,fy=-cdy,ex=b.x+fx*1.6,ey=b.y+fy*1.6;
-  ctx.beginPath();ctx.moveTo(b.x,b.y);ctx.lineTo(ex,ey);ctx.lineWidth=BR*0.42;ctx.lineCap='round';
+  const p0=OP(b.x,b.y,0),p1=OP(b.x+cdx,b.y+cdy,0),p2=OP(b.x-cdx*1.6,b.y-cdy*1.6,0);
+  ctx.beginPath();ctx.moveTo(p0.x,p0.y);ctx.lineTo(p1.x,p1.y);ctx.lineWidth=BR*0.3*p0.s;ctx.lineCap='round';
+  ctx.strokeStyle='rgba(255,255,255,.25)';ctx.setLineDash([BR*0.5*p0.s,BR*0.4*p0.s]);ctx.stroke();ctx.setLineDash([]);
+  ctx.beginPath();ctx.moveTo(p0.x,p0.y);ctx.lineTo(p2.x,p2.y);ctx.lineWidth=BR*0.42*p0.s;ctx.lineCap='round';
   ctx.strokeStyle=pwr>0.82?'#ff5c5c':col;ctx.globalAlpha=.9;ctx.stroke();ctx.globalAlpha=1;
-  if(len>BR*0.4){const a=Math.atan2(fy,fx),h=BR*0.8;ctx.beginPath();ctx.moveTo(ex,ey);
-    ctx.lineTo(ex-Math.cos(a-0.5)*h,ey-Math.sin(a-0.5)*h);ctx.lineTo(ex-Math.cos(a+0.5)*h,ey-Math.sin(a+0.5)*h);
+  if(len>BR*0.4){const a=Math.atan2(p2.y-p0.y,p2.x-p0.x),h=BR*0.8*p0.s;ctx.beginPath();ctx.moveTo(p2.x,p2.y);
+    ctx.lineTo(p2.x-Math.cos(a-0.5)*h,p2.y-Math.sin(a-0.5)*h);ctx.lineTo(p2.x-Math.cos(a+0.5)*h,p2.y-Math.sin(a+0.5)*h);
     ctx.closePath();ctx.fillStyle=pwr>0.82?'#ff5c5c':col;ctx.fill();}
-  ctx.fillStyle='rgba(255,255,255,.6)';ctx.font='700 '+(BR*0.5)+'px system-ui';ctx.textAlign='center';
-  if(online&&myPlayer===1){ctx.save();ctx.translate(b.x,b.y-BR*1.6);ctx.rotate(Math.PI);ctx.fillText(Math.round(pwr*100)+'%',0,0);ctx.restore();}
-  else ctx.fillText(Math.round(pwr*100)+'%',b.x,b.y-BR*1.6);
+  const qt=OP(b.x,b.y-BR*1.6,BR);
+  ctx.fillStyle='rgba(255,255,255,.6)';ctx.font='700 '+(BR*0.5*qt.s)+'px system-ui';ctx.textAlign='center';
+  if(online&&myPlayer===1&&!r3dActive){ctx.save();ctx.translate(qt.x,qt.y);ctx.rotate(Math.PI);ctx.fillText(Math.round(pwr*100)+'%',0,0);ctx.restore();}
+  else ctx.fillText(Math.round(pwr*100)+'%',qt.x,qt.y);
 }
 function drawArrow(b,a){const len=Math.hypot(a.dx,a.dy);if(len<BR*0.3)return;
-  const col=b.owner===0?'#00d4ff':'#ff4d4d',ex=b.x+a.dx*1.6,ey=b.y+a.dy*1.6;
-  ctx.beginPath();ctx.moveTo(b.x,b.y);ctx.lineTo(ex,ey);ctx.lineWidth=BR*0.42;ctx.lineCap='round';ctx.strokeStyle=col;ctx.globalAlpha=.9;ctx.stroke();ctx.globalAlpha=1;
-  const ang=Math.atan2(a.dy,a.dx),h=BR*0.8;ctx.beginPath();ctx.moveTo(ex,ey);
-  ctx.lineTo(ex-Math.cos(ang-0.5)*h,ey-Math.sin(ang-0.5)*h);ctx.lineTo(ex-Math.cos(ang+0.5)*h,ey-Math.sin(ang+0.5)*h);
+  const col=b.owner===0?'#00d4ff':'#ff4d4d';
+  const p0=OP(b.x,b.y,0),p1=OP(b.x+a.dx*1.6,b.y+a.dy*1.6,0);
+  ctx.beginPath();ctx.moveTo(p0.x,p0.y);ctx.lineTo(p1.x,p1.y);ctx.lineWidth=BR*0.42*p0.s;ctx.lineCap='round';ctx.strokeStyle=col;ctx.globalAlpha=.9;ctx.stroke();ctx.globalAlpha=1;
+  const ang=Math.atan2(p1.y-p0.y,p1.x-p0.x),h=BR*0.8*p0.s;ctx.beginPath();ctx.moveTo(p1.x,p1.y);
+  ctx.lineTo(p1.x-Math.cos(ang-0.5)*h,p1.y-Math.sin(ang-0.5)*h);ctx.lineTo(p1.x-Math.cos(ang+0.5)*h,p1.y-Math.sin(ang+0.5)*h);
   ctx.closePath();ctx.fillStyle=col;ctx.fill();}
 
 // ════ REPLAY ════
@@ -1121,14 +1243,272 @@ $('repS1').onclick=()=>{repSpeed=1;updateRepBtns();};
 $('repS2').onclick=()=>{repSpeed=0.5;updateRepBtns();};
 $('repS3').onclick=()=>{repSpeed=0.25;updateRepBtns();};
 
+// ==== 3D-RENDER-ADAPTER (?r3d=1) - feste geneigte Kamera im Prototyp-Look ====
+// Liest pro Frame balls[]/R/phase/outBall und spiegelt sie in eine three.js-Szene in
+// LOGICAL-Einheiten (worldX=lx, worldZ=ly, Ebene y=0). Schreibt NIEMALS Spielzustand.
+// Kamera: fest, ~35 Grad geneigt wie prototype3d.html; Online-P2 sieht von der Gegenseite.
+// Input: s2w (Ray-Ebene-Schnitt) - nur im 3D-Modus, 2D bleibt byte-identisch.
+// Jeder Fehler (CDN, WebGL, HDRI, GLB) => r3dActive bleibt false => unveraendertes 2D.
+async function initR3D(){
+  let c3=null,vig=null;
+  try{
+    const THREE=await import('three');
+    const {GLTFLoader}=await import('three/addons/loaders/GLTFLoader.js');
+    const {RGBELoader}=await import('three/addons/loaders/RGBELoader.js');
+    c3=document.createElement('canvas');c3.id='cv3d';document.body.appendChild(c3);
+    vig=document.createElement('div');vig.id='vig3d';document.body.appendChild(vig);
+    const renderer=new THREE.WebGLRenderer({canvas:c3,antialias:true});
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,2));
+    renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+    renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.05;
+    renderer.outputColorSpace=THREE.SRGBColorSpace;
+    const scene=new THREE.Scene();
+    scene.fog=new THREE.Fog(0xdfd9c6,2600,8000);            // warmer Dunst wie im Prototyp (x57.7)
+    const camera=new THREE.PerspectiveCamera(45,1,10,20000);
+    // Licht: tiefe warme Sonne + kuehles Gegenlicht (Prototyp-Setup, LOGICAL-Skala)
+    scene.add(new THREE.HemisphereLight(0xcfe2f5,0x7d8fa2,0.22));
+    const sun=new THREE.DirectionalLight(0xffd9a0,2.7);   // Prototyp-Werte: weicher, goldener
+    sun.position.set(cx-1730,750,cy+404);sun.target.position.set(cx,0,cy);scene.add(sun.target);
+    sun.castShadow=true;sun.shadow.mapSize.set(2048,2048);
+    sun.shadow.camera.left=-620;sun.shadow.camera.right=620;   // enger = schaerfere Schatten, weniger Last
+    sun.shadow.camera.top=620;sun.shadow.camera.bottom=-620;sun.shadow.camera.far=6000;
+    sun.shadow.bias=-0.0004;scene.add(sun);
+    const fill=new THREE.DirectionalLight(0x8fb4d8,0.26);fill.position.set(cx+920,460,cy-810);scene.add(fill);
+    // HDRI: Himmel + IBL (Kette; Totalausfall -> Fallback 2D). Perspektivkamera zeigt den Horizont.
+    const hdr=await new Promise((res,rej)=>{const l=new RGBELoader();
+      l.load('assets/hdri/kloofendal_48d_partly_cloudy_puresky_2k.hdr',res,undefined,
+        ()=>l.load('assets/hdri/qwantani_puresky_2k.hdr',res,undefined,rej));});
+    hdr.mapping=THREE.EquirectangularReflectionMapping;
+    scene.environment=hdr;scene.environmentIntensity=1.0;scene.background=hdr;
+    // Wolkenmeer-Sprites unter der Arena (Prototyp-Baender, x57.7 skaliert)
+    const puff=document.createElement('canvas');puff.width=puff.height=256;
+    {const g=puff.getContext('2d');
+     for(let i=0;i<9;i++){const x=128+(Math.random()-.5)*140,y=148+(Math.random()-.5)*66,r=30+Math.random()*42,a=.5+Math.random()*.45;
+       const cl=g.createRadialGradient(x,y-r*.25,0,x,y,r);
+       cl.addColorStop(0,'rgba(255,255,255,'+a.toFixed(2)+')');cl.addColorStop(.6,'rgba(250,252,255,'+(a*.45).toFixed(2)+')');cl.addColorStop(1,'rgba(246,250,255,0)');
+       g.fillStyle=cl;g.beginPath();g.arc(x,y,r,0,7);g.fill();}}
+    const puffTex=new THREE.CanvasTexture(puff);puffTex.colorSpace=THREE.SRGBColorSpace;
+    const cloudG=new THREE.Group();scene.add(cloudG);   // driftet langsam (Prototyp-Leben)
+    function addCloud(d,yMin,yMax,szMin,szMax,opMin,opMax){
+      const a=Math.random()*Math.PI*2,dist=d[0]+Math.random()*(d[1]-d[0]);
+      const x=cx+Math.cos(a)*dist,z=cy+Math.sin(a)*dist,warm=x<cx;
+      const col=new THREE.Color(1,.97,.95).lerp(new THREE.Color(1,.88,.72),warm?(.5+Math.random()*.4):0);
+      if(!warm)col.lerp(new THREE.Color(.8,.86,.95),.4);
+      const s=new THREE.Sprite(new THREE.SpriteMaterial({map:puffTex,color:col,transparent:true,
+        opacity:opMin+Math.random()*(opMax-opMin),depthWrite:false}));
+      s.position.set(x,yMin+Math.random()*(yMax-yMin),z);
+      const sz=szMin+Math.random()*(szMax-szMin);s.scale.set(sz,sz*(.36+Math.random()*.14),1);
+      cloudG.add(s);
+    }
+    for(let i=0;i<90;i++)addCloud([700,3300],-830,-520,400,1160,.3,.55);   // tiefes Meer unter der Arena
+    for(let i=0;i<55;i++)addCloud([3200,5800],-870,-580,690,1620,.25,.45); // mittlere Distanz
+    for(let i=0;i<30;i++)addCloud([4900,6650],-870,-630,810,1620,.2,.35);  // Band 2b: Zwischenschicht
+    for(let i=0;i<20;i++)addCloud([6900,9800],-350,0,1040,2300,.14,.24);   // ferner Dunst-Saum
+    // Ferne schwebende Insel (Prototyp): zerklueftetes Fels-Vertex-Jitter, rein dekorativ
+    function crag(geo,amp){const P=geo.attributes.position;
+      for(let i=0;i<P.count;i++){const x=P.getX(i),y=P.getY(i),z=P.getZ(i);
+        if(Math.hypot(x,z)<15)continue;
+        const n=Math.sin(x*.129898+z*.78233+y*.37719)*43758.5453,fr=n-Math.floor(n);
+        const fq=1+(fr-.5)*amp;P.setX(i,x*fq);P.setZ(i,z*fq);P.setY(i,y+(fr-.5)*amp*120);}
+      geo.computeVertexNormals();return geo;}
+    const island=new THREE.Group();
+    {const rockM=new THREE.MeshStandardMaterial({color:0x6b7883,roughness:.95,flatShading:true});
+     const body=new THREE.Mesh(crag(new THREE.CylinderGeometry(260,104,185,22,3),.2),rockM);island.add(body);
+     const cap=new THREE.Mesh(new THREE.CylinderGeometry(271,271,29,22),
+       new THREE.MeshStandardMaterial({color:0xd8dee0,roughness:.7}));cap.position.y=101;island.add(cap);
+     island.position.set(cx+Math.cos(2.4)*6060,-404,cy+Math.sin(2.4)*6060);scene.add(island);
+     for(let k=0;k<3;k++)addCloud([5800,6300],-560,-440,520,930,.3,.42);}
+    // Akzeptiertes Arena-GLB (Pflicht im MVP; Fehler -> Fallback 2D)
+    const glb=await new Promise((res,rej)=>new GLTFLoader().load('assets/arena_platform.glb',res,undefined,rej));
+    // Gameplay-Lesbarkeit: Kristalle + obere Sockel von der Randebene ENTFERNEN (wirken wie
+    // Hindernisse/Fangpunkte). Nur hier im Spiel-Renderer — Asset & prototype3d bleiben unberuehrt.
+    const kill=[];
+    glb.scene.traverse(o=>{if(o.isMesh){o.castShadow=o.receiveShadow=true;
+      if(/^(Ped|Crystal)/.test(o.name))kill.push(o);}});
+    for(const o of kill)o.parent.remove(o);
+    const platform=new THREE.Group();platform.add(glb.scene);
+    platform.position.set(cx,0,cy);scene.add(platform);
+    // KANTEN-WAHRHEIT: Simulationsgrenze R muss auf der SICHTBAREN Aussenkante liegen.
+    // GLB: Randweg-Aussenkante = 10.1 Units -> scale = R/10.1. Kugel stirbt exakt dort,
+    // wo die Plattform sichtbar endet, und faellt ueber die echte Kante.
+    const GLB_R=10.1;
+    const goldM=new THREE.MeshStandardMaterial({color:0xc9a052,metalness:1,roughness:.35,envMapIntensity:1.1});
+    let mainBMat=null;   // Referenz fuer den ruhigen Grenz-Puls
+    const bGroup=new THREE.Group();bGroup.position.set(cx,0,cy);scene.add(bGroup);
+    {const WALK_Y=.165;                                   // Oberkante Randweg im GLB
+     const zone=new THREE.Mesh(new THREE.RingGeometry(9.55,10.05,128),   // Warnzone AUF dem Randweg
+       new THREE.MeshBasicMaterial({color:0x9fb2c2,transparent:true,opacity:.3,depthWrite:false}));
+     zone.rotation.x=-Math.PI/2;zone.position.y=WALK_Y+.004;zone.renderOrder=1;bGroup.add(zone);
+     const main=new THREE.Mesh(new THREE.TorusGeometry(GLB_R,.075,12,176),   // Leuchtring = exakte Out-Kante
+       new THREE.MeshStandardMaterial({color:0xdff4ff,emissive:0x9fdcff,emissiveIntensity:1.3,roughness:.3,metalness:.2}));
+     main.rotation.x=Math.PI/2;main.position.y=WALK_Y+.006;bGroup.add(main);mainBMat=main.material;
+     const g=new THREE.Mesh(new THREE.TorusGeometry(9.5,.02,10,160),goldM);  // innerer Gold-Rahmen der Warnzone
+     g.rotation.x=Math.PI/2;g.position.y=WALK_Y+.005;bGroup.add(g);}
+    // langsamer Gold-Ring unter der Spitze (Prototyp), rein dekorativ
+    const ringG=new THREE.Group();
+    {const r1=new THREE.Mesh(new THREE.TorusGeometry(358,5.2,10,96),goldM);
+     r1.rotation.x=Math.PI/2;ringG.add(r1);ringG.position.set(cx,-646,cy);scene.add(ringG);}
+    // Kugeln: Radius exakt BR (Physik-Wahrheit), Material aus dem akzeptierten Prototyp
+    // Polierte Murmeln: satter/dunkler Grundton, klarer Lack, kraeftige Reflexe -> liest sich
+    // deutlich gegen den hellen Marmor, ohne Plastik-Look
+    const ballMat=[
+      new THREE.MeshPhysicalMaterial({color:0x0a6db8,roughness:.07,metalness:.05,
+        clearcoat:1.0,clearcoatRoughness:.07,envMapIntensity:1.15,specularIntensity:1.0}),
+      new THREE.MeshPhysicalMaterial({color:0xa81e0e,roughness:.07,metalness:.05,
+        clearcoat:1.0,clearcoatRoughness:.07,envMapIntensity:1.15,specularIntensity:1.0})];
+    const ballMeshes=[],fallT=[],decals=[],fallV=[],prevP=[];
+    // Kontaktschatten-Decal (Prototyp): erdet die Kugeln zusaetzlich zum echten Schatten
+    const cCan=document.createElement('canvas');cCan.width=cCan.height=128;
+    {const g=cCan.getContext('2d');const rg=g.createRadialGradient(64,64,0,64,64,64);
+     rg.addColorStop(0,'rgba(8,14,22,.55)');rg.addColorStop(.6,'rgba(10,16,24,.22)');rg.addColorStop(1,'rgba(12,18,26,0)');
+     g.fillStyle=rg;g.fillRect(0,0,128,128);}
+    const contactTex=new THREE.CanvasTexture(cCan);
+    const t0=performance.now();
+    // Spieler-Kamera: frei drehbar (Yaw), geklemmt kippbar (Polar), zoombar — Basisrichtung wie Prototyp (0,19,27)
+    // Gesten setzen ZIELWERTE (T); sync() daempft weich dorthin -> ruhiges, fluessiges Gefuehl
+    const POLAR0=Math.atan2(27,19);
+    let camYaw=0,camPolar=POLAR0,camDistF=1;
+    let camYawT=0,camPolarT=POLAR0,camDistFT=1;
+    let camP=null,math=null,curSide=0,orbitCtl=null,geo=null;
+    function updateCam(){                            // leichtgewichtig: nur Auge/Mathe (kein Resize)
+      const dist=geo.baseDist*camDistF;
+      const side=curSide,yawW=(side===1?0:Math.PI)+camYaw;
+      const spol=Math.sin(camPolar),cpol=Math.cos(camPolar);
+      camP={ex:cx+dist*spol*Math.sin(yawW),ey:35+dist*cpol,ez:cy+dist*spol*Math.cos(yawW),tx:cx,ty:35,tz:cy,
+            fov:45,vw:geo.vw,vh:geo.vh,ox:geo.ox,oy:geo.oy,os:geo.os,shx:geo.shx,shy:geo.shy,py:camP?camP.py:0};
+      math=r3dCamMath(camP);
+      if(!r3dOrbit){camera.position.set(camP.ex,camP.ey,camP.ez);camera.up.set(0,1,0);
+        camera.lookAt(camP.tx,camP.ty,camP.tz);}
+    }
+    function frame(){                                // voll: Viewport/Rect/Renderer (Resize, Seitenwechsel)
+      const vw=innerWidth,vh=innerHeight,aspect=vw/vh;
+      const tanV=Math.tan(45*Math.PI/360), need=530;         // sichtbarer Plattform-Aussenradius + knapper Rand
+      const baseDist=Math.max(need/(tanV*aspect),need/tanV)*1.10;
+      curSide=(online&&myPlayer===1)?-1:1;
+      const rect=cv.getBoundingClientRect();
+      geo={vw,vh,baseDist,ox:rect.left,oy:rect.top,os:rect.width||1,
+           shx:rect.left+rect.width/2-vw/2,shy:rect.top+rect.height/2-vh/2};   // Principal Point -> Wrap-Zentrum
+      camera.fov=45;camera.aspect=aspect;camera.near=10;camera.far=20000;
+      camera.setViewOffset(vw,vh,-geo.shx,-geo.shy,vw,vh);   // identischer Shift wie in r3dCamMath
+      camera.updateProjectionMatrix();
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,2));
+      renderer.setSize(vw,vh,false);
+      updateCam();
+    }
+    function sync(){                                  // NUR lesen: balls, R, phase, outBall, online, myPlayer
+      const nowS=(performance.now()-t0)/1000;
+      const side=(online&&myPlayer===1)?-1:1;
+      if(!r3dOrbit&&side!==curSide)frame();
+      // Kamera-Damping: weich zu den Zielwerten (ruhiges, fluessiges Gefuehl)
+      if(Math.abs(camYaw-camYawT)+Math.abs(camPolar-camPolarT)+Math.abs(camDistF-camDistFT)>1e-4){
+        camYaw+=(camYawT-camYaw)*.18;camPolar+=(camPolarT-camPolar)*.18;camDistF+=(camDistFT-camDistF)*.18;
+        updateCam();
+      }
+      const bob=Math.sin(nowS*.45)*5;                 // Schwebe-Bob (ruhiger); Mapping folgt exakt via camP.py
+      camP.py=bob;
+      if(r3dOrbit&&orbitCtl){orbitCtl.update();       // Orbit-Testmodus: Mathe folgt der Live-Kamera
+        camP.ex=camera.position.x;camP.ey=camera.position.y;camP.ez=camera.position.z;
+        camP.tx=orbitCtl.target.x;camP.ty=orbitCtl.target.y;camP.tz=orbitCtl.target.z;
+        math=r3dCamMath(camP);}
+      const sc=R/GLB_R;
+      platform.scale.setScalar(sc);platform.position.y=bob;
+      bGroup.scale.setScalar(sc);bGroup.position.y=bob;
+      ringG.rotation.y=nowS*.07;ringG.position.y=-646+bob;
+      cloudG.rotation.y=nowS*.006;                    // Wolken driften
+      island.position.y=-404+Math.sin(nowS*.3+2.3)*35;
+      if(mainBMat)mainBMat.emissiveIntensity=1.3+Math.sin(nowS*1.6)*.12;   // ruhiger Grenz-Puls
+      for(let i=0;i<balls.length;i++){
+        let m=ballMeshes[i],d=decals[i];
+        if(!m){m=new THREE.Mesh(new THREE.SphereGeometry(BR,40,26),ballMat[0]);
+          m.castShadow=true;ballMeshes[i]=m;scene.add(m);
+          d=new THREE.Mesh(new THREE.CircleGeometry(BR*1.5,24),
+            new THREE.MeshBasicMaterial({map:contactTex,transparent:true,depthWrite:false,opacity:.85}));
+          d.rotation.x=-Math.PI/2;d.renderOrder=1;decals[i]=d;scene.add(d);}
+        const b=balls[i];
+        m.material=ballMat[b.owner];
+        // Kosmetischer Fall ueber die Kante (rein visuell, Zustand wird nie geschrieben):
+        // Schwung der letzten Bewegung traegt die Kugel ueber die Kante hinaus (weich abklingend),
+        // dann Gravity + rollende Rotation, bis sie in den Wolken verschwindet.
+        const out=(!b.alive)||((phase==='result'||phase==='over')&&i===outBall);
+        if(out){
+          if(fallT[i]==null){fallT[i]=nowS;
+            let fvx=b.vx,fvy=b.vy;                     // echte letzte Geschwindigkeit (nur lesend) …
+            if(Math.hypot(fvx,fvy)<.05&&prevP[i]){fvx=b.x-prevP[i].x;fvy=b.y-prevP[i].y;}   // … sonst Render-Delta
+            fallV[i]={x:b.x,y:b.y,vx:fvx,vy:fvy};}
+          const t=nowS-fallT[i],drop=1500*t*t,f=fallV[i];
+          if(drop>1700){m.visible=false;d.visible=false;continue;}
+          const drift=60*t/(1+1.2*t);                  // Schwung laeuft weiter, klingt weich ab
+          const px=b.alive?b.x:f.x+f.vx*drift, pz=b.alive?b.y:f.y+f.vy*drift;   // Out-Ball driftet live (resultDrift)
+          const rrF=Math.hypot(px-cx,pz-cy)/sc;
+          const liftF=rrF>8.55?Math.min(1,(rrF-8.55)/.3)*.165*sc:0;
+          m.visible=true;m.position.set(px,bob+liftF+BR-drop,pz);
+          m.rotation.set((f.vy*60*t)/BR,0,-(f.vx*60*t)/BR);   // rollt sichtbar beim Fallen
+          d.visible=drop<300;
+          if(d.visible){d.material.opacity=Math.max(0,.85*(1-drop/300));d.position.set(px,bob+liftF+.6,pz);}
+        }else{
+          fallT[i]=null;m.rotation.set(0,0,0);
+          // Kosmetische Auffahrt auf die Randweg-Stufe (GLB: Stufe bei 8.7, Hoehe 0.165)
+          const rrG=Math.hypot(b.x-cx,b.y-cy)/sc;
+          const lift=rrG>8.55?Math.min(1,(rrG-8.55)/.3)*.165*sc:0;
+          m.visible=true;m.position.set(b.x,bob+lift+BR,b.y);
+          d.visible=true;d.material.opacity=.85;d.position.set(b.x,bob+lift+.6,b.y);
+          if(!prevP[i])prevP[i]={x:b.x,y:b.y};else{prevP[i].x=b.x;prevP[i].y=b.y;}
+        }
+      }
+      for(let i=balls.length;i<ballMeshes.length;i++){
+        if(ballMeshes[i])ballMeshes[i].visible=false;
+        if(decals[i])decals[i].visible=false;
+      }
+    }
+    r3d={
+      resize(){frame();},
+      w2s(lx,ly,h){return math.w2s(lx,ly,h);},
+      s2w(px,py){return math.s2w(px,py);},
+      cam:{ // Spieler-Kamera (nur ?r3d=1): Gesten setzen Ziele, sync() daempft -> Mapping bleibt exakt
+        rotate(dx,dy){camYawT+=dx*.005;camPolarT=Math.min(1.15,Math.max(.3,camPolarT-dy*.004));},
+        zoom(f){camDistFT=Math.min(1.5,Math.max(.75,camDistFT*f));},
+        reset(){camYawT=0;camPolarT=POLAR0;camDistFT=1;}
+      },
+      render(){sync();renderer.render(scene,camera);}
+    };
+    frame();
+    // Optionaler Orbit-Testmodus (?r3d=1&orbit=1): NUR Ansicht, Zielen komplett deaktiviert
+    if(R3D_ORBIT){
+      const {OrbitControls}=await import('three/addons/controls/OrbitControls.js');
+      orbitCtl=new OrbitControls(camera,cv);
+      orbitCtl.enableDamping=true;orbitCtl.dampingFactor=.06;orbitCtl.enablePan=false;
+      orbitCtl.minDistance=1150;orbitCtl.maxDistance=2600;
+      orbitCtl.minPolarAngle=.12;orbitCtl.maxPolarAngle=1.15;
+      orbitCtl.target.set(cx,35,cy);
+      r3dOrbit=true;toast('Orbit-Testmodus — nur Ansicht.');
+    }
+    document.body.classList.add('r3d');   // 3D-scoped UI-Styles (u. a. lesbarer Hinweistext)
+    r3dActive=true;resize();
+    // Einmaliger Paritaets-Selbstcheck: eigene Projektion vs. three.js (nur Warnung, kein Eingriff)
+    {const v=new THREE.Vector3(cx+200,0,cy-150).project(camera);
+     const sx=(v.x+1)/2*camP.vw,sy=(1-v.y)/2*camP.vh;
+     const o=math.w2s(cx+200,cy-150,0);
+     const px=camP.ox+o.x/1000*camP.os,py=camP.oy+o.y/1000*camP.os;
+     if(Math.hypot(sx-px,sy-py)>1)console.warn('r3d: Projektions-Paritaet abweichend',Math.hypot(sx-px,sy-py));}
+  }catch(e){
+    r3dActive=false;r3d=null;
+    try{if(c3)c3.remove();}catch(_){}
+    try{if(vig)vig.remove();}catch(_){}
+    try{document.body.classList.remove('r3d');}catch(_){}
+    toast('3D nicht verfügbar – 2D-Modus aktiv.');
+  }
+}
+if(R3D_WANTED)initR3D();
+
 // ════ MAIN LOOP ════
 function loop(now){
-  if(replaying){ repTick(); requestAnimationFrame(loop); return; }
+  if(replaying){ repTick(); if(r3dActive)r3d.render(); requestAnimationFrame(loop); return; }
   if(phase==='reveal'&&now-phaseStart>REVEAL_MS)applyLaunch();
   else if(phase==='sim')stepSim();
   else if(phase==='result'){resultDrift();if(now-phaseStart>RESULT_MS)afterResult();}
   if(phase==='reveal'||phase==='sim'||phase==='result')recordFrame();
   updParticles();draw();
+  if(r3dActive)r3d.render();
   requestAnimationFrame(loop);
 }
 

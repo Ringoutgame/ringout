@@ -120,6 +120,13 @@ Ringout/
   CHANGELOG.md       # Abgeschlossene Änderungen mit Datum
 ```
 
+### 3D-Render-Adapter im Hauptspiel (`?r3d=1`) — abgeschlossen (M4-T2)
+- **Aktivierung:** nur mit URL-Flag `?r3d=1`; ohne Flag läuft exakt der unveränderte 2D-Pfad (Standard). Jeder Fehler (CDN/three, WebGL, HDRI, GLB) → sauberer Fallback auf 2D mit Toast. `?r3d=1&orbit=1` = Showcase (Zielen deaktiviert).
+- **Architektur:** three.js (CDN-Importmap, dynamischer Import nur bei Flag) rendert Vollbild hinter der UI; das 2D-Canvas bleibt transparentes Overlay + Input-Fläche. Szene in LOGICAL-Einheiten; Renderer **liest** Spielzustand (`balls`, `R`, `phase`, `outBall`), schreibt nie.
+- **Kamera:** feste geneigte Basis (Prototyp-Richtung 0,19,27), Spieler-steuerbar mit Damping: Drag außerhalb der Aim-Zone dreht (Yaw frei, Polar 0.3–1.15), Pinch/Mausrad zoomt (0.75–1.5×), Doppeltipp = Reset; Online-P2 blickt von der Gegenseite. Aim-Zone (Greifradius um eigene Kugel) hat immer Vorrang; während Zielen keine Kamera, während Kamera kein Aim.
+- **Mapping:** pure Funktionen `r3dCamMath` (`w2s` Projektion / `s2w` Ray-Ebene-Schnitt) inkl. Principal-Point-Shift (Arena über dem Spielbereich) und Schwebe-Bob (`py`); Node-Suite `tools/test_r3d_mapping.js` (30 Fälle, Round-Trip <1e-6, P2-Spiegelung, freie Kamera); `localPt`-2D-Zweig byte-identisch.
+- **Ringout-Wahrheit:** GLB-Skalierung `R/10.1` legt die Simulationsgrenze exakt auf die sichtbare Randweg-Außenkante (Leuchtring + Warnzone + Goldrahmen dort); Kristalle/obere Sockel werden im Spiel-Renderer beim Laden entfernt (Lesbarkeit; Asset/Prototyp unverändert); Kugeln = polierte Murmeln ohne Labels; kosmetische Fall-Animation (Schwung-Drift über die Kante, Gravity, Roll-Rotation, verschwindet in den Wolken — rein lesend).
+
 ### Golden-Physik-Suite (Sicherheitsnetz vor der 3D-Integration)
 - `tools/test_physics_golden.js` + `tools/golden_physics.json`: 13 deterministische Referenzfälle über die **echten** Simulationsfunktionen (`stepSim`, `simExchange`, `simSnap`, per Extraktion aus `index.html`), bit-exakter Vergleich inkl. Frame-30-Checkpoints. Läuft via `node tools/test_physics_golden.js`; `--selftest` beweist Empfindlichkeit (FRICTION+1e-7 → 13/13 rot). **Regel:** Vor und nach jedem Eingriff in `index.html` (insb. 3D-Render-Adapter) muss die Suite grün sein; `--update` ausschließlich bei beabsichtigten Physikänderungen zusammen mit `ONLINE_PROTOCOL_VERSION`-Bump.
 
