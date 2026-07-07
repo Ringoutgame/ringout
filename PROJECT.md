@@ -20,7 +20,7 @@ RingOut ist ein kompetitives, physikbasiertes Browser-Spiel für 1–2 Spieler. 
 | Audio | Web Audio API (prozedural, kein Asset-Loading) |
 | Netzwerk | Firebase Realtime Database (Lockstep) |
 | Build-System | keines – direktes Öffnen im Browser |
-| Tests | keine |
+| Tests | Golden-Physik-Regressionssuite (`tools/test_physics_golden.js`, 13 bit-exakte Fälle) + Logik-Suiten (sanitize/validateRoom/lockstep) |
 | TypeScript | nein |
 | UI-Sprache | Deutsch |
 
@@ -119,6 +119,9 @@ Ringout/
   TODO.md            # Offene Aufgaben nach Priorität
   CHANGELOG.md       # Abgeschlossene Änderungen mit Datum
 ```
+
+### Golden-Physik-Suite (Sicherheitsnetz vor der 3D-Integration)
+- `tools/test_physics_golden.js` + `tools/golden_physics.json`: 13 deterministische Referenzfälle über die **echten** Simulationsfunktionen (`stepSim`, `simExchange`, `simSnap`, per Extraktion aus `index.html`), bit-exakter Vergleich inkl. Frame-30-Checkpoints. Läuft via `node tools/test_physics_golden.js`; `--selftest` beweist Empfindlichkeit (FRICTION+1e-7 → 13/13 rot). **Regel:** Vor und nach jedem Eingriff in `index.html` (insb. 3D-Render-Adapter) muss die Suite grün sein; `--update` ausschließlich bei beabsichtigten Physikänderungen zusammen mit `ONLINE_PROTOCOL_VERSION`-Bump.
 
 ### 3D-Visual-Prototyp (`prototype3d.html`) — Stand AKZEPTIERT
 - **Pipeline:** `tools/build_arena_platform.py` generiert headless (Blender 4.4, `D:\Blender\blender.exe`) das eigenständige `assets/arena_platform.glb` (36 MB, alle PBR-Maps eingebettet). CC0-Quellen: ambientCG (Marble012, Rock030), Poly Haven (stone_brick_wall_001, 2 Puresky-HDRIs). Roh-Texturen/`.blend` nicht im Repo (`.gitignore`) — regenerierbar per Skript + Spec-Downloads (`BLENDER_ASSET_SPEC.md`).

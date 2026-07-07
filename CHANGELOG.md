@@ -6,6 +6,9 @@ Alle abgeschlossenen Änderungen am Projekt, neueste zuerst.
 
 ## [Unreleased]
 
+### Tests
+- test: Golden-Physik-Regressionssuite (M4-T1) — `tools/test_physics_golden.js` extrahiert die echten Simulationsfunktionen (`stepSim`, `simExchange`, `simSnap` + Konstanten) aus `index.html` und vergleicht 13 deterministische Referenzfälle bit-exakt gegen `tools/golden_physics.json` (inkl. Frame-30-Checkpoints, Ring-Out-Toleranz, Decisive-Ball-Logik, Spin/Magnus, Langsamfahrt-Regime, 2v2-Pile-ups, geschrumpfte Arena). Empfindlichkeit bewiesen: FRICTION+1e-7 lässt 13/13 Fälle fehlschlagen. Sicherheitsnetz vor der 3D-Render-Integration; `--update` nur für beabsichtigte Physikänderungen (dann mit Protocol-Bump) (2026-07-07)
+
 ### Tooling
 - chore: Performance-Monitor für den 3D-Arena-Prototyp — FPS (500-ms-Mittel), Min-FPS über 10 s, GLB-/HDRI-Ladezeit; nur über URL-Parameter `?perf=1` sichtbar, ohne Flag komplett inert; keine Design-/Asset-Änderung. **Mobile-Performance-Test bestanden:** Handy 60 FPS (Min 60), GLB ~1 964 ms, HDRI ~957 ms; PC >150 FPS (2026-07-07)
 
