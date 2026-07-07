@@ -125,6 +125,7 @@ Ringout/
 - **Look:** helle Marmor-Tempelplattform im Golden-Hour-HDRI-Himmel, versenkte Gold-Inlays, Kristall-Sockel mit Marmor-Fassung, gestufter Unterbau mit Pfeilern, ruhiges Wolkenmeer; bewusst keine Partikel-Effekte (Gameplay-Klarheit).
 - **Gameplay-Sizing:** Spielfläche +44 % via `PLAY_SCALE = 1.2` (Einzeiler-Tuning), Kugeln r 0,58; dreiteilige Grenze (Randzone + Leuchtring + Goldrahmen); Kamera-Tilt geklemmt (~62°) für faire Lesbarkeit; ausgelegt auf 4–5 Spieler (Playtest mit echter Physik steht aus).
 - **Fallbacks:** Ohne Server/Internet (file://) läuft die prozedurale Arena; HDRI-Kette kloofendal → qwantani → prozedural. Lokaler Test: `python -m http.server 8000`.
+- **Performance (gemessen, bestanden):** Handy 60 FPS (Min 60 über 10 s), GLB-Ladezeit ~1,96 s, HDRI ~0,96 s; PC >150 FPS. Eingebauter Monitor nur über `?perf=1` (FPS, Min-FPS, Ladezeiten) — ohne Flag inert.
 - **Abgrenzung:** Keine Integration ins Hauptspiel. `index.html`, Physik, Lockstep, Online, Replay, Firebase vollständig unberührt. Spätere Integration = reiner Render-Adapter über der unveränderten 2D-`LOGICAL`-Physik.
 
 ---

@@ -17,6 +17,11 @@
   /* cineastische Vignette ueber dem Canvas */
   #vig{position:fixed;inset:0;pointer-events:none;z-index:5;
     background:radial-gradient(ellipse at 50% 42%,rgba(0,0,0,0) 52%,rgba(10,16,26,.18) 78%,rgba(6,10,18,.42) 100%)}
+  /* Performance-Monitor: NUR sichtbar mit ?perf=1 in der URL */
+  #perf{display:none;position:fixed;top:14px;right:14px;left:auto;transform:none;
+    background:rgba(8,14,22,.78);color:#c8f0c8;font:600 12px/1.6 Consolas,monospace;
+    border:1px solid rgba(120,160,200,.25);border-radius:10px;padding:8px 12px;
+    text-align:right;pointer-events:none;z-index:11;white-space:pre}
 </style>
 </head>
 <body>
@@ -24,6 +29,7 @@
 <div class="chip" id="title">RingOut · 3D-Arena-Prototyp</div>
 <div class="chip" id="hint">Ziehen = Kamera drehen · Scrollen/Pinch = Zoom</div>
 <div id="vig"></div>
+<div id="perf"></div>
 <div id="err"></div>
 
 <!-- Three.js ausschliesslich in diesem Prototyp. Das Hauptspiel (index.html) bleibt unberuehrt. -->
@@ -44,6 +50,14 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
 
 const fail = m => { const e = document.getElementById('err'); e.style.display = 'grid'; e.textContent = m; };
+
+// ── Performance-Monitor (nur mit ?perf=1 aktiv; sonst komplett inert) ──
+const PERF = new URLSearchParams(location.search).get('perf') === '1';
+const perfT0 = performance.now();
+let perfGlbMs = -1, perfHdrMs = -1;
+const perfEl = document.getElementById('perf');
+if (PERF) perfEl.style.display = 'block';
+
 try {
 
 // ── Renderer / Szene / Kamera ─────────────────────────────────────────────
@@ -82,6 +96,7 @@ scene.environmentIntensity = 0.30;   // Env-Licht stark zuruecknehmen -> Sonne d
 // Echtes HDRI (Poly Haven, CC0) als Himmel + Image-Based-Lighting.
 // Kette: Golden-Hour (cineastisch) -> Tag-Puresky -> prozeduraler Fallback (z. B. file://).
 function applyHDR(hdr) {
+  if (perfHdrMs < 0) perfHdrMs = Math.round(performance.now() - perfT0);
   hdr.mapping = THREE.EquirectangularReflectionMapping;
   scene.environment = hdr; scene.environmentIntensity = 1.0;
   scene.background = hdr; scene.backgroundIntensity = 1.0;
@@ -549,6 +564,7 @@ const ballRed  = ball(0xc42410, -R_PLAY * PLAY_SCALE * .57);
 const gltfLoader = new GLTFLoader();
 function tryReplace(url, targetGroup) {
   gltfLoader.load(url, g => {
+    if (url.includes('arena_platform')) perfGlbMs = Math.round(performance.now() - perfT0);
     g.scene.traverse(o => { if (o.isMesh) { o.castShadow = o.receiveShadow = true; } });
     targetGroup.clear(); targetGroup.add(g.scene);
   }, undefined, () => { /* Asset fehlt -> prozeduraler Fallback bleibt */ });
@@ -570,7 +586,24 @@ const ringG1 = new THREE.Group();
 
 // ── Loop: sanftes Schweben + Wolkendrift ─────────────────────────────────
 const clock = new THREE.Clock();
+// FPS-Messung: 500-ms-Fenster, Min-FPS ueber die letzten 10 s (20 Samples)
+let pfFrames = 0, pfLast = performance.now();
+const pfRing = [];
+function perfTick() {
+  pfFrames++;
+  const now = performance.now(), dt = now - pfLast;
+  if (dt < 500) return;
+  const fps = Math.round(pfFrames * 1000 / dt);
+  pfFrames = 0; pfLast = now;
+  pfRing.push(fps); if (pfRing.length > 20) pfRing.shift();
+  perfEl.textContent =
+    'FPS  ' + fps + '\n' +
+    'Min  ' + Math.min(...pfRing) + ' (10s)\n' +
+    'GLB  ' + (perfGlbMs < 0 ? '…' : perfGlbMs + ' ms') + '\n' +
+    'HDRI ' + (perfHdrMs < 0 ? '…' : perfHdrMs + ' ms');
+}
 function tick() {
+  if (PERF) perfTick();
   const t = clock.getElapsedTime();
   platform.position.y = Math.sin(t * .45) * .12;            // Arena schwebt (ruhig)
   clouds.rotation.y = t * .006;                              // Wolken driften

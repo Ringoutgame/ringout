@@ -39,7 +39,7 @@ Offene Aufgaben nach Priorität. Abgeschlossene Aufgaben werden nach `CHANGELOG.
 ## P2 — Mittel (Spieler-Erfahrung)
 
 - [x] ~~**3D-Prototyp zum Premium-Look weiterentwickeln**~~ → erledigt und **visuell akzeptiert** (PBR/HDRI/Blender-GLB-Pipeline), siehe CHANGELOG (2026-07-07)
-- [ ] **3D-Prototyp: Mobile-Performance messen:** FPS auf Ziel-Smartphone (GLB 36 MB, Transmission-Kristalle = erste Spar-Kandidaten).
+- [x] ~~**3D-Prototyp: Mobile-Performance messen**~~ → **bestanden**: Handy 60 FPS (Min 60), GLB ~1,96 s, HDRI ~0,96 s; PC >150 FPS. Monitor via `?perf=1` (2026-07-07)
 - [ ] **Go/No-Go Integration 3D ins Hauptspiel:** Render-Adapter über 2D-`LOGICAL`-Physik + Input-Raycasting; Entscheidung nach Mobile-Test und 4–5-Spieler-Konzept.
 - [ ] **4–5-Spieler-Playtest mit echter Physik:** `PLAY_SCALE`/Kugelgröße final tunen (aktuell geometrisch ausgelegt, spielerisch ungetestet).
 - [ ] **Entscheidung Pseudo-3D-Stand in `index.html`:** Der M2-T2-Arbeitsstand (Kamera + Pseudo-3D, unkommittet im Working Tree) ist funktional und getestet, aber optisch nicht final. Owner-Entscheidung: als Zwischenstand committen, verwerfen oder bis zur 3D-Entscheidung halten.
