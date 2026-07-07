@@ -1,0 +1,9 @@
+# Blender-Backups
+*.blend1
+*.blend2
+
+# Roh-Texturquellen (CC0, re-downloadbar; bereits im GLB eingebettet)
+assets/textures/
+
+# Blender-Master (regenerierbar via tools/build_arena_platform.py)
+assets/*.blend

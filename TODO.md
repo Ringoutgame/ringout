@@ -1,6 +1,6 @@
 # TODO.md — RingOut
 
-**Zuletzt aktualisiert:** 2026-07-06
+**Zuletzt aktualisiert:** 2026-07-07
 
 Offene Aufgaben nach Priorität. Abgeschlossene Aufgaben werden nach `CHANGELOG.md` verschoben.
 
@@ -38,7 +38,10 @@ Offene Aufgaben nach Priorität. Abgeschlossene Aufgaben werden nach `CHANGELOG.
 
 ## P2 — Mittel (Spieler-Erfahrung)
 
-- [ ] **3D-Prototyp zum Premium-Look weiterentwickeln:** `prototype3d.html` (Three.js-Visual-Spike, technisch erfolgreich) braucht für den Referenz-Look echte Assets — hochwertige Marmor-/Stein-Texturen (PBR-Maps), volumetrischere Wolken, ggf. HDRI-Environment. Erst danach Go/No-Go-Entscheidung zur Integration ins Hauptspiel (Render-Adapter, Input-Raycasting; Physik/Lockstep bleiben 2D-`LOGICAL`).
+- [x] ~~**3D-Prototyp zum Premium-Look weiterentwickeln**~~ → erledigt und **visuell akzeptiert** (PBR/HDRI/Blender-GLB-Pipeline), siehe CHANGELOG (2026-07-07)
+- [ ] **3D-Prototyp: Mobile-Performance messen:** FPS auf Ziel-Smartphone (GLB 36 MB, Transmission-Kristalle = erste Spar-Kandidaten).
+- [ ] **Go/No-Go Integration 3D ins Hauptspiel:** Render-Adapter über 2D-`LOGICAL`-Physik + Input-Raycasting; Entscheidung nach Mobile-Test und 4–5-Spieler-Konzept.
+- [ ] **4–5-Spieler-Playtest mit echter Physik:** `PLAY_SCALE`/Kugelgröße final tunen (aktuell geometrisch ausgelegt, spielerisch ungetestet).
 - [ ] **Entscheidung Pseudo-3D-Stand in `index.html`:** Der M2-T2-Arbeitsstand (Kamera + Pseudo-3D, unkommittet im Working Tree) ist funktional und getestet, aber optisch nicht final. Owner-Entscheidung: als Zwischenstand committen, verwerfen oder bis zur 3D-Entscheidung halten.
 
 - [ ] **Bot-KI auf Web Worker auslagern:** Verhindert UI-Ruckeln bei Hard-Bot-Berechnung (bis zu 650 × N Simulations-Schritte synchron im UI-Thread).

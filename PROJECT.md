@@ -1,6 +1,6 @@
 # PROJECT.md — RingOut
 
-**Zuletzt aktualisiert:** 2026-07-06
+**Zuletzt aktualisiert:** 2026-07-07
 
 ---
 
@@ -120,11 +120,12 @@ Ringout/
   CHANGELOG.md       # Abgeschlossene Änderungen mit Datum
 ```
 
-### 3D-Visual-Spike (`prototype3d.html`)
-- **Ziel:** Prototyp einer echten 3D-Arena (WebGL) als Vorstufe für einen möglichen Premium-Look nach Referenzbildern.
-- **Status:** Technisch erfolgreich (PBR-Materialien, Schatten, Orbit-Kamera mit geklemmtem Tilt, Wolkenmeer, Fels-Unterbau; 3 Polish-Pässe). **Visuell noch nicht final** — prozedurale Canvas-Texturen erreichen den Referenz-Look nicht.
-- **Risiken/Offen:** Premium-Look braucht echte Assets (PBR-Marmor/Stein-Texturen, volumetrischere Wolken, ggf. HDRI); Mobile-Performance ungemessen; benötigt Internet (three@0.170.0 via CDN, nur in dieser Datei).
-- **Abgrenzung:** Keine Integration ins Hauptspiel. `index.html`, Physik, Lockstep, Online, Replay, Firebase vollständig unberührt. Eine spätere Integration liefe als reiner Render-Adapter über der unveränderten 2D-`LOGICAL`-Physik.
+### 3D-Visual-Prototyp (`prototype3d.html`) — Stand AKZEPTIERT
+- **Pipeline:** `tools/build_arena_platform.py` generiert headless (Blender 4.4, `D:\Blender\blender.exe`) das eigenständige `assets/arena_platform.glb` (36 MB, alle PBR-Maps eingebettet). CC0-Quellen: ambientCG (Marble012, Rock030), Poly Haven (stone_brick_wall_001, 2 Puresky-HDRIs). Roh-Texturen/`.blend` nicht im Repo (`.gitignore`) — regenerierbar per Skript + Spec-Downloads (`BLENDER_ASSET_SPEC.md`).
+- **Look:** helle Marmor-Tempelplattform im Golden-Hour-HDRI-Himmel, versenkte Gold-Inlays, Kristall-Sockel mit Marmor-Fassung, gestufter Unterbau mit Pfeilern, ruhiges Wolkenmeer; bewusst keine Partikel-Effekte (Gameplay-Klarheit).
+- **Gameplay-Sizing:** Spielfläche +44 % via `PLAY_SCALE = 1.2` (Einzeiler-Tuning), Kugeln r 0,58; dreiteilige Grenze (Randzone + Leuchtring + Goldrahmen); Kamera-Tilt geklemmt (~62°) für faire Lesbarkeit; ausgelegt auf 4–5 Spieler (Playtest mit echter Physik steht aus).
+- **Fallbacks:** Ohne Server/Internet (file://) läuft die prozedurale Arena; HDRI-Kette kloofendal → qwantani → prozedural. Lokaler Test: `python -m http.server 8000`.
+- **Abgrenzung:** Keine Integration ins Hauptspiel. `index.html`, Physik, Lockstep, Online, Replay, Firebase vollständig unberührt. Spätere Integration = reiner Render-Adapter über der unveränderten 2D-`LOGICAL`-Physik.
 
 ---
 
