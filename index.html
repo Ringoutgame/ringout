@@ -55,7 +55,9 @@ header{width:100%;max-width:460px;display:flex;align-items:center;justify-conten
 .arena-wrap{width:100%;max-width:460px;flex:1 1 0;min-height:0;display:flex;align-items:center;justify-content:center;position:relative}
 /* 3D-Render-Adapter (?r3d=1): WebGL-Canvas fuellt den Viewport HINTER der gesamten UI */
 #cv{position:relative;z-index:1}
-#cv3d{position:fixed;inset:0;z-index:-1;pointer-events:none}
+/* width/height 100% ist Pflicht: setSize(...,false) setzt nur die Backing-Aufloesung (xDPR);
+   ohne CSS-Groesse rendert das Canvas auf Geraeten mit DPR>1 groesser als der Viewport (Crop). */
+#cv3d{position:fixed;inset:0;width:100%;height:100%;z-index:-1;pointer-events:none}
 #vig3d{position:fixed;inset:0;pointer-events:none;z-index:0;
   background:radial-gradient(ellipse at 50% 42%,rgba(0,0,0,0) 52%,rgba(10,16,26,.16) 78%,rgba(6,10,18,.38) 100%)}
 #cv{width:100%;height:100%;display:block;touch-action:none}
@@ -246,6 +248,27 @@ const R3D_ORBIT=R3D_WANTED&&new URLSearchParams(location.search).get('orbit')===
 let r3dActive=false,r3d=null,r3dOrbit=false;   // r3dActive erst true, wenn three+HDRI+GLB erfolgreich geladen
 // Spieler-Kamera-Gesten (nur 3D): 1 Finger ausserhalb der Aim-Zone = drehen, 2 Finger = Pinch-Zoom
 let camPid=-1,cam2Pid=-1,camLX=0,camLY=0,cam2LX=0,cam2LY=0,camTapT=0,camTapX=0,camTapY=0;
+
+// ── Performance-Monitor: NUR mit ?perf=1 aktiv; sonst komplett inert (kein DOM, kein Overhead) ──
+const PERF=new URLSearchParams(location.search).get('perf')==='1';
+let perfGlbMs=-1,perfHdrMs=-1,pfFrames=0,pfLast=0;const pfRing=[];let perfEl=null;
+if(PERF){
+  perfEl=document.createElement('div');
+  perfEl.style.cssText='position:fixed;top:14px;right:14px;background:rgba(8,14,22,.78);color:#c8f0c8;'+
+    'font:600 12px/1.6 Consolas,monospace;border:1px solid rgba(120,160,200,.25);border-radius:10px;'+
+    'padding:8px 12px;text-align:right;pointer-events:none;z-index:60;white-space:pre';
+  document.body.appendChild(perfEl);
+}
+// FPS-Messung: 500-ms-Fenster, Min-FPS ueber die letzten 10 s (20 Samples)
+function perfTick(now){
+  pfFrames++;
+  if(!pfLast){pfLast=now;return;}
+  const dt=now-pfLast;if(dt<500)return;
+  const fps=Math.round(pfFrames*1000/dt);pfFrames=0;pfLast=now;
+  pfRing.push(fps);if(pfRing.length>20)pfRing.shift();
+  perfEl.textContent='FPS  '+fps+'\nMin  '+Math.min(...pfRing)+' (10s)'+
+    (R3D_WANTED?'\nGLB  '+(perfGlbMs<0?'…':perfGlbMs+' ms')+'\nHDRI '+(perfHdrMs<0?'…':perfHdrMs+' ms'):'');
+}
 
 // Pure Projektions-Mathematik fuer die feste geneigte Kamera (Node-testbar, three-frei).
 // Konventionen identisch zu three.js: lookAt (up=(0,1,0)), perspektivische Projektion, NDC-y nach oben.
@@ -1275,9 +1298,11 @@ async function initR3D(){
     sun.shadow.bias=-0.0004;scene.add(sun);
     const fill=new THREE.DirectionalLight(0x8fb4d8,0.26);fill.position.set(cx+920,460,cy-810);scene.add(fill);
     // HDRI: Himmel + IBL (Kette; Totalausfall -> Fallback 2D). Perspektivkamera zeigt den Horizont.
+    const hdrT0=performance.now();
     const hdr=await new Promise((res,rej)=>{const l=new RGBELoader();
       l.load('assets/hdri/kloofendal_48d_partly_cloudy_puresky_2k.hdr',res,undefined,
         ()=>l.load('assets/hdri/qwantani_puresky_2k.hdr',res,undefined,rej));});
+    perfHdrMs=Math.round(performance.now()-hdrT0);
     hdr.mapping=THREE.EquirectangularReflectionMapping;
     scene.environment=hdr;scene.environmentIntensity=1.0;scene.background=hdr;
     // Wolkenmeer-Sprites unter der Arena (Prototyp-Baender, x57.7 skaliert)
@@ -1319,7 +1344,9 @@ async function initR3D(){
      island.position.set(cx+Math.cos(2.4)*6060,-404,cy+Math.sin(2.4)*6060);scene.add(island);
      for(let k=0;k<3;k++)addCloud([5800,6300],-560,-440,520,930,.3,.42);}
     // Akzeptiertes Arena-GLB (Pflicht im MVP; Fehler -> Fallback 2D)
+    const glbT0=performance.now();
     const glb=await new Promise((res,rej)=>new GLTFLoader().load('assets/arena_platform.glb',res,undefined,rej));
+    perfGlbMs=Math.round(performance.now()-glbT0);
     // Gameplay-Lesbarkeit: Kristalle + obere Sockel von der Randebene ENTFERNEN (wirken wie
     // Hindernisse/Fangpunkte). Nur hier im Spiel-Renderer — Asset & prototype3d bleiben unberuehrt.
     const kill=[];
@@ -1502,6 +1529,7 @@ if(R3D_WANTED)initR3D();
 
 // ════ MAIN LOOP ════
 function loop(now){
+  if(PERF)perfTick(now);
   if(replaying){ repTick(); if(r3dActive)r3d.render(); requestAnimationFrame(loop); return; }
   if(phase==='reveal'&&now-phaseStart>REVEAL_MS)applyLaunch();
   else if(phase==='sim')stepSim();

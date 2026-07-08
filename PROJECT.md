@@ -1,6 +1,6 @@
 # PROJECT.md — RingOut
 
-**Zuletzt aktualisiert:** 2026-07-07
+**Zuletzt aktualisiert:** 2026-07-08
 
 ---
 
@@ -124,7 +124,8 @@ Ringout/
 - **Aktivierung:** nur mit URL-Flag `?r3d=1`; ohne Flag läuft exakt der unveränderte 2D-Pfad (Standard). Jeder Fehler (CDN/three, WebGL, HDRI, GLB) → sauberer Fallback auf 2D mit Toast. `?r3d=1&orbit=1` = Showcase (Zielen deaktiviert).
 - **Architektur:** three.js (CDN-Importmap, dynamischer Import nur bei Flag) rendert Vollbild hinter der UI; das 2D-Canvas bleibt transparentes Overlay + Input-Fläche. Szene in LOGICAL-Einheiten; Renderer **liest** Spielzustand (`balls`, `R`, `phase`, `outBall`), schreibt nie.
 - **Kamera:** feste geneigte Basis (Prototyp-Richtung 0,19,27), Spieler-steuerbar mit Damping: Drag außerhalb der Aim-Zone dreht (Yaw frei, Polar 0.3–1.15), Pinch/Mausrad zoomt (0.75–1.5×), Doppeltipp = Reset; Online-P2 blickt von der Gegenseite. Aim-Zone (Greifradius um eigene Kugel) hat immer Vorrang; während Zielen keine Kamera, während Kamera kein Aim.
-- **Mapping:** pure Funktionen `r3dCamMath` (`w2s` Projektion / `s2w` Ray-Ebene-Schnitt) inkl. Principal-Point-Shift (Arena über dem Spielbereich) und Schwebe-Bob (`py`); Node-Suite `tools/test_r3d_mapping.js` (30 Fälle, Round-Trip <1e-6, P2-Spiegelung, freie Kamera); `localPt`-2D-Zweig byte-identisch.
+- **Mapping:** pure Funktionen `r3dCamMath` (`w2s` Projektion / `s2w` Ray-Ebene-Schnitt) inkl. Principal-Point-Shift (Arena über dem Spielbereich) und Schwebe-Bob (`py`); Node-Suite `tools/test_r3d_mapping.js` (31 Fälle, Round-Trip <1e-6, P2-Spiegelung, freie Kamera, `#cv3d`-CSS-Check); `localPt`-2D-Zweig byte-identisch.
+- **Mobile (M4-T2b, bestanden):** `#cv3d` braucht zwingend `width:100%;height:100%` im CSS — `renderer.setSize(…, false)` setzt nur die Backing-Auflösung (×DPR); ohne CSS-Größe rendert das Canvas auf DPR>1-Geräten größer als der Viewport (Arena abgeschnitten). Statischer Regressions-Check in der Mapping-Suite. Performance-Monitor `?perf=1` jetzt auch im Hauptspiel (FPS, Min-FPS 10 s, bei `?r3d=1` GLB-/HDRI-Ladezeit; ohne Flag inert). Gemessen (Handy, Portrait): 60 FPS (Min 60), GLB ~1 555 ms, HDRI ~118 ms.
 - **Ringout-Wahrheit:** GLB-Skalierung `R/10.1` legt die Simulationsgrenze exakt auf die sichtbare Randweg-Außenkante (Leuchtring + Warnzone + Goldrahmen dort); Kristalle/obere Sockel werden im Spiel-Renderer beim Laden entfernt (Lesbarkeit; Asset/Prototyp unverändert); Kugeln = polierte Murmeln ohne Labels; kosmetische Fall-Animation (Schwung-Drift über die Kante, Gravity, Roll-Rotation, verschwindet in den Wolken — rein lesend).
 
 ### Golden-Physik-Suite (Sicherheitsnetz vor der 3D-Integration)

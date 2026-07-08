@@ -6,6 +6,12 @@ Alle abgeschlossenen Änderungen am Projekt, neueste zuerst.
 
 ## [Unreleased]
 
+### Fixes
+- fix: Mobile-Portrait-Framing-Bug im 3D-Modus (`?r3d=1`) behoben (M4-T2b, akzeptiert) — `#cv3d` hatte keine CSS-Größe; `renderer.setSize(…, false)` setzt nur die Backing-Auflösung (Viewport × DPR), wodurch das Canvas auf Geräten mit DPR > 1 (Handys) in intrinsischer Größe größer als der Bildschirm renderte → Arena nur als Ausschnitt sichtbar, Zielen verschoben. Fix: `width:100%;height:100%` in der `#cv3d`-CSS-Regel; Desktop (DPR 1) pixelidentisch. Kamera-Mathematik war korrekt (Portrait-Fit für 360×800/390×844/412×915 numerisch verifiziert). Mapping-Suite um statischen Regressions-Check erweitert (31 Fälle). Sichtprüfung Handy bestanden: Arena vollständig sichtbar, 60 FPS (Min 60), GLB ~1 555 ms, HDRI ~118 ms (2026-07-08)
+
+### Tooling
+- chore: Performance-Monitor `?perf=1` im Hauptspiel (M4-T2b) — FPS (500-ms-Mittel), Min-FPS über 10 s, bei `?r3d=1` zusätzlich GLB-/HDRI-Ladezeit; ohne Flag komplett inert (kein DOM-Element, kein Overhead). Portiert vom Prototyp-Monitor (2026-07-08)
+
 ### Features
 - feat: 3D-Render-Adapter fürs Hauptspiel hinter `?r3d=1` (M4-T2, akzeptiert) — three.js-Layer im Prototyp-Look (GLB-Arena, HDRI-Himmel, Wolkenmeer, ferne Insel, Vignette) als Vollbild hinter der UI; **2D bleibt Standard/Fallback** (ohne Flag unverändert, jeder Lade-/WebGL-Fehler fällt sauber auf 2D zurück). Feste geneigte Basiskamera mit **bewegbarer Spieler-Kamera** (Drag außerhalb der Aim-Zone = drehen, Pinch/Mausrad = Zoom, Doppeltipp = Reset, Damping; Aim-Zone hat Vorrang, während Zielen keine Kamera und umgekehrt); `?r3d=1&orbit=1` = reiner Showcase-Modus mit deaktiviertem Zielen. Input via Raycasting/`s2w` (Ray-Ebene-Schnitt), Overlays punktweise per `w2s` projiziert — beides über pure, Node-getestete Mathematik (`tools/test_r3d_mapping.js`, 30 Fälle: Round-Trip <1e-6, P2-Spiegelung, Shift/Bob, freie Kamera; `localPt`-2D byte-identisch). **Ringout-Kante = sichtbare Außenkante** (Skalierung `R/10.1` auf die GLB-Randweg-Kante, Leuchtring/Warnzone/Goldrahmen dort); Kristalle/Sockel im Spiel-Renderer entfernt (Gameplay-Lesbarkeit, Asset unverändert); Kugeln als polierte Murmeln ohne Labels (Erkennung über Farbe/HUD); kosmetische Fall-Animation: Kugel driftet mit letztem Schwung über die Kante, fällt mit Gravity, rollt und verschwindet in den Wolken (rein lesend). Renderer schreibt nie Spielzustand; keine Physik-/Größen-/Protokoll-/Firebase-Änderung (2026-07-07)
 

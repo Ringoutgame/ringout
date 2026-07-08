@@ -128,5 +128,14 @@ for (const [vw, vh] of [[800, 600], [390, 780], [1400, 900]]) {   // Landscape, 
   t('localPt 3D-Zweig gated', HTML.includes("if(r3dActive)return r3d.s2w(e.clientX,e.clientY);"));
 }
 
+// 8) #cv3d braucht explizite CSS-Groesse: setSize(...,false) setzt nur die Backing-Aufloesung
+//    (xDPR); ohne width/height:100% rendert das Canvas auf DPR>1-Geraeten (Handys) groesser
+//    als der Viewport -> Arena erscheint abgeschnitten (Mobile-Portrait-Framing-Bug).
+{
+  const cssM = HTML.match(/#cv3d\{[^}]*\}/);
+  t('#cv3d CSS hat width:100% und height:100%',
+    !!cssM && cssM[0].includes('width:100%') && cssM[0].includes('height:100%'));
+}
+
 console.log(`\nr3d-Mapping: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
