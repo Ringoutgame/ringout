@@ -1064,10 +1064,11 @@ function createRoom(){
 // Bump ONLY when online protocol, room schema, lockstep, physics, move data,
 // or other simulation-relevant logic changes. Pure UI/graphics/menu/text
 // changes must NOT bump this — they may not block online matches.
-// TODO(M8-T3b): Bump fuer Online-FFA (Raum-Schema state/seats, Moves Seats 0-4)
-// zusammen mit firebase.rules.json-Publish; Nummer erst beim Cutover festlegen
-// (haengt von der Reihenfolge mit M5-T2 ab).
-const ONLINE_PROTOCOL_VERSION=1;
+// v2 (M8-T3b): Online-FFA room schema — fmt 'ffa', state lobby/playing,
+// seats 2-5, p/0..p/4, moves for seats 0-4 with idx up to 4. Goes live
+// together with the matching firebase.rules.json publish (cutover).
+// A later physics-tuning pass (M5-T2) would bump to v3.
+const ONLINE_PROTOCOL_VERSION=2;
 const FFA_MAX_SEATS=5;   // Online-FFA: Seats 0-4 (Host=0), Farben aus PCOLS
 // Pure validator for a room snapshot the joiner is about to trust. No globals,
 // no state, no silent defaults: invalid or missing fields reject the join.

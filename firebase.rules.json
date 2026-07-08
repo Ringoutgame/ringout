@@ -6,23 +6,31 @@
       "$code": {
         ".read": true,
         ".write": "!data.exists() && newData.exists()",
-        ".validate": "data.exists() || ($code.matches(/^[A-HJKMNP-Z2-9]{4}$/) && newData.hasChildren(['v','config','gen','p','created']) && newData.child('gen').val() === 0 && newData.child('p/0').val() === true && !newData.child('p/1').exists() && !newData.child('g').exists())",
-        "v": { ".validate": "newData.val() === 1" },
+        ".validate": "data.exists() || ($code.matches(/^[A-HJKMNP-Z2-9]{4}$/) && newData.hasChildren(['v','config','gen','p','created']) && newData.child('gen').val() === 0 && newData.child('p/0').val() === true && !newData.child('p/1').exists() && !newData.child('p/2').exists() && !newData.child('p/3').exists() && !newData.child('p/4').exists() && !newData.child('g').exists() && !newData.child('seats').exists() && ((newData.child('config/fmt').val() === 'ffa' && newData.child('state').val() === 'lobby') || (newData.child('config/fmt').val() !== 'ffa' && !newData.child('state').exists())))",
+        "v": { ".validate": "newData.val() === 2" },
         "created": { ".validate": "newData.val() === now" },
         "config": {
           ".validate": "newData.hasChildren(['winTarget','fmt'])",
           "winTarget": { ".validate": "newData.val() === 3 || newData.val() === 5" },
-          "fmt": { ".validate": "newData.val() === 'single' || newData.val() === 'double'" },
+          "fmt": { ".validate": "newData.val() === 'single' || newData.val() === 'double' || newData.val() === 'ffa'" },
           "$other": { ".validate": false }
         },
         "gen": {
           ".write": "data.parent().exists() && newData.exists()",
           ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 10000 && (!data.exists() || newData.val() === data.val() + 1 || newData.val() === data.val())"
         },
+        "state": {
+          ".write": "data.parent().exists() && newData.exists()",
+          ".validate": "newData.parent().child('config/fmt').val() === 'ffa' && ((newData.val() === 'lobby' && !data.exists()) || (newData.val() === 'playing' && data.val() === 'lobby' && newData.parent().child('p/1').val() === true))"
+        },
+        "seats": {
+          ".write": "data.parent().exists() && !data.exists() && newData.exists()",
+          ".validate": "newData.parent().child('config/fmt').val() === 'ffa' && newData.parent().child('state').val() === 'playing' && newData.isNumber() && newData.val() >= 2 && newData.val() <= 5"
+        },
         "p": {
           "$i": {
-            ".write": "($i === '0' && !newData.exists()) || $i === '1'",
-            ".validate": "($i === '0' || $i === '1') && newData.val() === true && ($i === '0' || (now - root.child('rooms').child($code).child('created').val()) < 7200000)"
+            ".write": "($i === '0' && !newData.exists()) || ($i === '1' && (root.child('rooms').child($code).child('config/fmt').val() !== 'ffa' || !data.exists() || !newData.exists())) || (($i === '2' || $i === '3' || $i === '4') && root.child('rooms').child($code).child('config/fmt').val() === 'ffa' && (!data.exists() || !newData.exists()))",
+            ".validate": "($i === '0' || $i === '1' || (($i === '2' || $i === '3' || $i === '4') && newData.parent().parent().child('config/fmt').val() === 'ffa')) && newData.val() === true && ($i === '0' || (now - root.child('rooms').child($code).child('created').val()) < 7200000) && ($i === '0' || newData.parent().parent().child('config/fmt').val() !== 'ffa' || newData.parent().parent().child('state').val() === 'lobby')"
           }
         },
         "g": {
@@ -31,8 +39,8 @@
               "$turn": {
                 "$pl": {
                   ".write": "!data.exists() && newData.exists() && $gen === root.child('rooms').child($code).child('gen').val() + ''",
-                  ".validate": "($pl === '0' || $pl === '1') && $turn.matches(/^[0-9]{1,4}$/) && newData.hasChildren(['idx','dx','dy','sp'])",
-                  "idx": { ".validate": "newData.val() === 0 || newData.val() === 1 || newData.val() === 2 || newData.val() === 3" },
+                  ".validate": "($pl === '0' || $pl === '1' || (($pl === '2' || $pl === '3' || $pl === '4') && root.child('rooms').child($code).child('config/fmt').val() === 'ffa')) && $turn.matches(/^[0-9]{1,4}$/) && newData.hasChildren(['idx','dx','dy','sp'])",
+                  "idx": { ".validate": "newData.val() === 0 || newData.val() === 1 || newData.val() === 2 || newData.val() === 3 || (newData.val() === 4 && root.child('rooms').child($code).child('config/fmt').val() === 'ffa')" },
                   "dx": { ".validate": "newData.isNumber() && newData.val() >= -195 && newData.val() <= 195" },
                   "dy": { ".validate": "newData.isNumber() && newData.val() >= -195 && newData.val() <= 195" },
                   "sp": { ".validate": "newData.isNumber() && newData.val() >= -1 && newData.val() <= 1" },
