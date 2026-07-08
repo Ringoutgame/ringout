@@ -43,7 +43,8 @@ Offene Aufgaben nach Priorität. Abgeschlossene Aufgaben werden nach `CHANGELOG.
 - [x] ~~**Golden-Physik-Tests (M4-T1)**~~ → erledigt: 13 bit-exakte Referenzfälle in `tools/`, Selftest bestanden, siehe CHANGELOG (2026-07-07)
 - [x] ~~**3D-Integration Schritt 1 (M4-T2)**~~ → **abgeschlossen & akzeptiert**: 3D-Render-Adapter hinter `?r3d=1` (bewegbare Kamera, Raycasting-Input, projizierte Overlays, Kante=Out-Grenze, Fall-Animation), 2D bleibt Standard/Fallback, siehe CHANGELOG (2026-07-07)
 - [x] ~~**3D-Mobile-Test (M4-T2b)**~~ → **bestanden**: `?perf=1`-Monitor ins Hauptspiel portiert, Mobile-Portrait-Framing-Bug (`#cv3d` ohne CSS-Größe auf DPR>1) behoben; Handy 60 FPS (Min 60), GLB ~1 555 ms, HDRI ~118 ms, siehe CHANGELOG (2026-07-08)
-- [ ] **3D-Folgethemen (gesammelt):** Sound-Pass (Ringout-Fall etc.), Entscheidung 3D als Default, Sizing-Task (+Fläche/Kugeln, Physik + Protocol-Bump), 4–5-Spieler-Konzept.
+- [x] ~~**Sound-Pass (M4-T3)**~~ → **abgeschlossen & akzeptiert**: Murmel-Kollision (Modal-Synthese), Roll-Sound, Strain-Charge, Wind-Ringout, Spam-Schutz, Mobile-Unlock + dezente 3D-Kontakt-FX und luxury-minimal Aim-Overlay, siehe CHANGELOG (2026-07-08)
+- [ ] **3D-Folgethemen (gesammelt):** Entscheidung 3D als Default, Sizing-Task (+Fläche/Kugeln, Physik + Protocol-Bump), 4–5-Spieler-Konzept.
 - [ ] **4–5-Spieler-Playtest mit echter Physik:** `PLAY_SCALE`/Kugelgröße final tunen (aktuell geometrisch ausgelegt, spielerisch ungetestet).
 - [ ] **Entscheidung Pseudo-3D-Stand in `index.html`:** Der M2-T2-Arbeitsstand (Kamera + Pseudo-3D, unkommittet im Working Tree) ist funktional und getestet, aber optisch nicht final. Owner-Entscheidung: als Zwischenstand committen, verwerfen oder bis zur 3D-Entscheidung halten.
 

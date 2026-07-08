@@ -44,8 +44,9 @@ function buildEnv(frictionOverride) {
     let aimSet=[false,false], commitIdx=[-1,-1], commitAim=[{dx:0,dy:0},{dx:0,dy:0}], commitSpin=[0,0];
     let curAimer=0, bgPulse=0, bgPulseRGB='';
     let online=false, myPlayer=0, mode='bot', fmt='single';
-    const SFX={hit(){},ringout(){},launch(){},round(){},win(){},charge:{start(){},stop(){},update(){}}};
+    const SFX={hit(){},drop(){},ringout(){},launch(){},round(){},win(){},rollUpdate(){},unlock(){},charge:{start(){},stop(){},update(){}}};
     function spawn(){} function popBall(){} function winnerRGB(){return '';}
+    let r3dActive=false; function fx3Hit(){} function fx3Dust(){}
     function setPhase(p){phase=p;}
     function updateHud(){} function setPhaseText(){} function onlineArmTurn(){} function openCover(){}
     ${stepSimSrc}

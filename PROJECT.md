@@ -91,9 +91,12 @@ RingOut ist ein kompetitives, physikbasiertes Browser-Spiel für 1–2 Spieler. 
 - Wiedergabe mit Pause / Vor / Zurück (30-Frame-Sprünge), Geschwindigkeit 1× / ½× / ¼×
 - Seek-Balken
 
-### Sound (prozedural, Web Audio API)
-- Ladeton (kontinuierlich, wächst mit Zugstärke)
-- Abschuss, Treffer, Ring-Out, Rundensieg, Matchgewinn
+### Sound (prozedural, Web Audio API — M4-T3)
+- **Murmel-Kollision via Modal-Synthese:** Kontakt-Transient + inharmonische Teiltöne + tiefer Körper; Aufprallstärke koppelt Lautstärke/Helligkeit/Tonhöhe, leichte Zufalls-Verstimmung pro Hit
+- **Roll-Sound:** eine wiederverwendete Loop-Rausch-Voice pro Ball (Lowpass + Gain folgen der Geschwindigkeit, pro Frame nur `setTargetAtTime`, keine Allokationen); nur in Phase `sim`, still bei Stillstand/Mute/Replay
+- Laden/Ziehen als dezentes tiefes „Strain"-Rauschen (bewusst kein Ton-Sweep), Abschuss, Ringout (Kanten-Kontakt + Wind, ohne Gliss), Wind-Drop (nicht-entscheidender Fall), Rundensieg, Matchgewinn
+- **Spam-Schutz:** 70 ms Cooldown pro Kugelpaar, 30 ms global, max. 8 Hit-Voices, Minimal-Stärke stumm; geteiltes 1-s-Rausch-Buffer für alle Effekte
+- **Mobile-Unlock:** AudioContext lazy + `resume()`, zusätzlich Unlock am Start-Button und beim ersten `pointerdown`
 
 ---
 
@@ -126,6 +129,7 @@ Ringout/
 - **Kamera:** feste geneigte Basis (Prototyp-Richtung 0,19,27), Spieler-steuerbar mit Damping: Drag außerhalb der Aim-Zone dreht (Yaw frei, Polar 0.3–1.15), Pinch/Mausrad zoomt (0.75–1.5×), Doppeltipp = Reset; Online-P2 blickt von der Gegenseite. Aim-Zone (Greifradius um eigene Kugel) hat immer Vorrang; während Zielen keine Kamera, während Kamera kein Aim.
 - **Mapping:** pure Funktionen `r3dCamMath` (`w2s` Projektion / `s2w` Ray-Ebene-Schnitt) inkl. Principal-Point-Shift (Arena über dem Spielbereich) und Schwebe-Bob (`py`); Node-Suite `tools/test_r3d_mapping.js` (31 Fälle, Round-Trip <1e-6, P2-Spiegelung, freie Kamera, `#cv3d`-CSS-Check); `localPt`-2D-Zweig byte-identisch.
 - **Mobile (M4-T2b, bestanden):** `#cv3d` braucht zwingend `width:100%;height:100%` im CSS — `renderer.setSize(…, false)` setzt nur die Backing-Auflösung (×DPR); ohne CSS-Größe rendert das Canvas auf DPR>1-Geräten größer als der Viewport (Arena abgeschnitten). Statischer Regressions-Check in der Mapping-Suite. Performance-Monitor `?perf=1` jetzt auch im Hauptspiel (FPS, Min-FPS 10 s, bei `?r3d=1` GLB-/HDRI-Ladezeit; ohne Flag inert). Gemessen (Handy, Portrait): 60 FPS (Min 60), GLB ~1 555 ms, HDRI ~118 ms.
+- **FX & Aim-Overlay (M4-T3, akzeptiert):** Im 3D-Modus keine 2D-Konfetti/Farb-Flashes — stattdessen dezente Kontakt-FX (`fx3`: Licht-Glint + perspektivisch auf die Bodenebene projizierter Impuls-Ring bei Kollisionen, Staub-Puffs beim Ringout/Fall). Aim-Overlay „luxury minimal": nur der eigene Aim sichtbar (keine Reveal-/Gegner-Pfeile), dünner Anthrazit-Strahl mit feiner Chevron-Spitze und hellem Saum, freistehende Prozentzahl mit Doppel-Pass-Halo — kein Chip, kein Power-Ring. 2D ohne Flag pixel-identisch.
 - **Ringout-Wahrheit:** GLB-Skalierung `R/10.1` legt die Simulationsgrenze exakt auf die sichtbare Randweg-Außenkante (Leuchtring + Warnzone + Goldrahmen dort); Kristalle/obere Sockel werden im Spiel-Renderer beim Laden entfernt (Lesbarkeit; Asset/Prototyp unverändert); Kugeln = polierte Murmeln ohne Labels; kosmetische Fall-Animation (Schwung-Drift über die Kante, Gravity, Roll-Rotation, verschwindet in den Wolken — rein lesend).
 
 ### Golden-Physik-Suite (Sicherheitsnetz vor der 3D-Integration)

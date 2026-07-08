@@ -324,7 +324,7 @@ $('fSingle').onclick=()=>{fmt='single';setOn('fmtGrp','fSingle');};
 $('fDouble').onclick=()=>{fmt='double';setOn('fmtGrp','fDouble');};
 $('w3').onclick=()=>{winTarget=3;setOn('winGrp','w3');};
 $('w5').onclick=()=>{winTarget=5;setOn('winGrp','w5');};
-$('startBtn').onclick=()=>{if(mode==='online'){openOnline();return;}online=false;showGame();newGame();};
+$('startBtn').onclick=()=>{SFX.unlock();if(mode==='online'){openOnline();return;}online=false;showGame();newGame();};
 $('menuBtn').onclick=()=>{leaveOnline();showMenu();};
 $('ovMenuBtn').onclick=()=>{$('ov').classList.remove('show');leaveOnline();showMenu();};
 $('sndBtn').onclick=()=>{soundOn=!soundOn;$('sndBtn').textContent=soundOn?'🔊':'🔇';if(!soundOn)SFX.charge.stop();};
@@ -339,26 +339,56 @@ function showGame(){$('menu').style.display='none';$('game').style.display='flex
 
 // ════ SOUND ════
 const SFX=(()=>{
-  let c=null;
+  let c=null,noiseBuf=null;
   function ac(){if(!c)c=new(window.AudioContext||window.webkitAudioContext)();if(c.state==='suspended')c.resume();return c;}
   function go(f){if(soundOn)try{f(ac());}catch(e){}}
-  function osc(c,type,f0,g0,d,f1){const g=c.createGain();g.gain.setValueAtTime(g0,c.currentTime);g.gain.exponentialRampToValueAtTime(.001,c.currentTime+d);g.connect(c.destination);const o=c.createOscillator();o.type=type;o.frequency.setValueAtTime(f0,c.currentTime);if(f1)o.frequency.exponentialRampToValueAtTime(f1,c.currentTime+d);o.connect(g);o.start();o.stop(c.currentTime+d);}
-  let chOsc=null,chGain=null,chFilt=null;
+  // 1s geteiltes Rausch-Buffer: einmal erzeugt, von Hit-Transient/Roll/Wind wiederverwendet
+  function noise(cc){if(!noiseBuf){noiseBuf=cc.createBuffer(1,cc.sampleRate,cc.sampleRate);const d=noiseBuf.getChannelData(0);for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1;}return noiseBuf;}
+  // Charge = dezentes "Strain"-Bett: tief gefiltertes Rauschen, das mit der Zugkraft nur leicht
+  // lauter/heller wird. Bewusst kein Ton/Pitch-Sweep (klang wie Sirene) — lieber zu dezent als nervig.
+  let chSrc=null,chGain=null,chFilt=null;
   const charge={
-    start(){charge.stop();if(!soundOn)return;const cc=ac();   // FIX: erst aufraeumen -> nie zwei Lade-Toene gleichzeitig (Stuck-Sound-Bug)
+    start(){charge.stop();if(!soundOn)return;const cc=ac();   // FIX: erst aufraeumen -> nie zwei Lade-Sounds gleichzeitig (Stuck-Sound-Bug)
       chGain=cc.createGain();chGain.gain.setValueAtTime(.0001,cc.currentTime);chGain.connect(cc.destination);
-      chFilt=cc.createBiquadFilter();chFilt.type='lowpass';chFilt.frequency.setValueAtTime(600,cc.currentTime);chFilt.Q.value=4;chFilt.connect(chGain);
-      chOsc=cc.createOscillator();chOsc.type='triangle';chOsc.frequency.setValueAtTime(150,cc.currentTime);chOsc.connect(chFilt);chOsc.start();},
-    update(pwr){if(!chOsc)return;const cc=ac(),t=cc.currentTime;
-      chOsc.frequency.setTargetAtTime(150+pwr*210,t,.05);
-      chFilt.frequency.setTargetAtTime(500+pwr*1500,t,.05);
-      chGain.gain.setTargetAtTime(.010+pwr*.04,t,.05);},
-    stop(){const o=chOsc,gn=chGain;chOsc=null;chGain=null;chFilt=null;if(!o)return;   // refs sofort loesen -> reentrancy-sicher
+      chFilt=cc.createBiquadFilter();chFilt.type='lowpass';chFilt.frequency.setValueAtTime(200,cc.currentTime);chFilt.Q.value=.6;chFilt.connect(chGain);
+      chSrc=cc.createBufferSource();chSrc.buffer=noise(cc);chSrc.loop=true;chSrc.playbackRate.value=.5;chSrc.connect(chFilt);chSrc.start();},
+    update(pwr){if(!chSrc)return;const cc=ac(),t=cc.currentTime;
+      chFilt.frequency.setTargetAtTime(180+pwr*520,t,.08);
+      chGain.gain.setTargetAtTime(.004+pwr*.016,t,.08);},
+    stop(){const o=chSrc,gn=chGain;chSrc=null;chGain=null;chFilt=null;if(!o)return;   // refs sofort loesen -> reentrancy-sicher
       try{const cc=ac();if(gn)gn.gain.setTargetAtTime(.0001,cc.currentTime,.05);}catch(e){}
       setTimeout(()=>{try{o.stop();}catch(e){}},170);}
   };
+  // Spam-Schutz: Cooldown pro Kugelpaar (70ms) + global (30ms), max. 8 gleichzeitige Hit-Voices
+  const hitLast={};let hitAny=0,hitVoices=0;
+  // Roll-Voices: eine dauerhafte, wiederverwendete Voice pro Ball-Slot (Loop-Rauschen -> Lowpass -> Gain).
+  // Pro Frame nur setTargetAtTime-Updates, keine Allokationen; bei Stillstand/Mute laeuft der Gain auf 0.
+  const rolls=[];
+  function rollVoice(cc){const g=cc.createGain();g.gain.value=0;g.connect(cc.destination);
+    const f=cc.createBiquadFilter();f.type='lowpass';f.frequency.value=300;f.Q.value=.7;f.connect(g);
+    const s=cc.createBufferSource();s.buffer=noise(cc);s.loop=true;s.playbackRate.value=.85+rolls.length*.09;s.connect(f);s.start();
+    return{g,f};}
   return{
     charge,
+    // Erzwingt Context-Erzeugung/-Resume aus einer User-Geste (Mobile-Autoplay-Unlock)
+    unlock(){if(soundOn)try{ac();}catch(e){}},
+    // Pro Frame aus loop(): koppelt Roll-Lautstaerke/-Helligkeit an die Ballgeschwindigkeit
+    rollUpdate(bs,active){
+      if(!c||c.state!=='running')return;
+      const t=c.currentTime,on=active&&soundOn&&bs;
+      const n=on?bs.length:0,m=Math.max(n,rolls.length);
+      for(let i=0;i<m;i++){
+        let sp=0;
+        if(i<n&&bs[i].alive)sp=Math.hypot(bs[i].vx,bs[i].vy);
+        if(sp>SLOWV&&i>=rolls.length)rolls.push(rollVoice(c));
+        if(i>=rolls.length)continue;
+        const v=rolls[i];
+        if(sp>SLOWV){const k=Math.min(1,sp/6);
+          v.g.gain.setTargetAtTime(.006+.05*k*k,t,.06);
+          v.f.frequency.setTargetAtTime(280+2100*k,t,.08);
+        }else v.g.gain.setTargetAtTime(0,t,.05);
+      }
+    },
     launch(pwr){go(c=>{const t=c.currentTime;
       const lp=c.createBiquadFilter();lp.type='lowpass';lp.frequency.setValueAtTime(820,t);lp.frequency.exponentialRampToValueAtTime(300,t+.3);lp.connect(c.destination);
       const f0=230+pwr*85;
@@ -366,15 +396,48 @@ const SFX=(()=>{
       const o=c.createOscillator();o.type='sine';o.frequency.setValueAtTime(f0,t);o.frequency.exponentialRampToValueAtTime(115,t+.28);o.connect(g);o.start();o.stop(t+.38);
       const g2=c.createGain();g2.gain.setValueAtTime(.0001,t);g2.gain.linearRampToValueAtTime(.018,t+.028);g2.gain.exponentialRampToValueAtTime(.0005,t+.36);g2.connect(lp);
       const o2=c.createOscillator();o2.type='sine';o2.frequency.setValueAtTime(f0*0.5,t);o2.frequency.exponentialRampToValueAtTime(65,t+.28);o2.connect(g2);o2.start();o2.stop(t+.38);});},
-    hit(power){go(c=>{const g=c.createGain();g.gain.setValueAtTime(Math.min(.7,.22+power*.5),c.currentTime);g.gain.exponentialRampToValueAtTime(.001,c.currentTime+.18);g.connect(c.destination);const b=c.createBuffer(1,c.sampleRate*.18,c.sampleRate),d=b.getChannelData(0);for(let i=0;i<d.length;i++)d[i]=(Math.random()*2-1)*Math.exp(-i/(c.sampleRate*.025));const n=c.createBufferSource();n.buffer=b;n.connect(g);n.start();osc(c,'square',120,.3,.13,55);});},
-    ringout(){go(c=>{
-      const g=c.createGain();g.gain.setValueAtTime(.5,c.currentTime);g.gain.exponentialRampToValueAtTime(.001,c.currentTime+.45);g.connect(c.destination);
-      const b=c.createBuffer(1,c.sampleRate*.45,c.sampleRate),d=b.getChannelData(0);for(let i=0;i<d.length;i++)d[i]=(Math.random()*2-1)*Math.exp(-i/(c.sampleRate*.18));const n=c.createBufferSource();n.buffer=b;n.connect(g);n.start();
-      osc(c,'sawtooth',520,.3,.5,70);});},
+    // Murmel-Klick via Modal-Synthese: 20ms-Kontakt-Transient + inharmonische Teiltoene + tiefer Koerper.
+    // Aufprallstaerke koppelt Lautstaerke (nichtlinear), Helligkeit (hohe Moden) und Tonhoehe;
+    // leichte Zufalls-Verstimmung pro Hit, damit Serien nicht maschinell klingen.
+    hit(power,pk){
+      if(power<.05)return;
+      const now=performance.now();
+      if(now-hitAny<30||hitVoices>=8)return;
+      if(pk!==undefined){if(now-(hitLast[pk]||0)<70)return;hitLast[pk]=now;}
+      hitAny=now;
+      go(c=>{
+        hitVoices++;setTimeout(()=>hitVoices--,230);
+        const t=c.currentTime,p=Math.min(1,power),amp=.10+.42*Math.pow(p,1.4),det=.94+Math.random()*.12;
+        const f0=(1500+900*p)*det;
+        const hp=c.createBiquadFilter();hp.type='highpass';hp.frequency.value=2500;hp.connect(c.destination);
+        const ng=c.createGain();ng.gain.setValueAtTime(amp*.7,t);ng.gain.exponentialRampToValueAtTime(.001,t+.02);ng.connect(hp);
+        const n=c.createBufferSource();n.buffer=noise(c);n.loop=true;n.connect(ng);n.start(t);n.stop(t+.025);
+        for(const[r,w,dur]of[[1,1,.06],[1.83,.4+.6*p,.045],[2.71,.2+.8*p,.035],[4.16,p,.028]]){
+          if(w<.03)continue;
+          const g=c.createGain();g.gain.setValueAtTime(amp*w*.5,t);g.gain.exponentialRampToValueAtTime(.0008,t+dur+p*.05);g.connect(c.destination);
+          const o=c.createOscillator();o.type='sine';o.frequency.value=f0*r;o.connect(g);o.start(t);o.stop(t+dur+p*.06);}
+        const bg=c.createGain();bg.gain.setValueAtTime(amp*.8,t);bg.gain.exponentialRampToValueAtTime(.001,t+.09);bg.connect(c.destination);
+        const bo=c.createOscillator();bo.type='sine';bo.frequency.setValueAtTime(190*det,t);bo.frequency.exponentialRampToValueAtTime(95,t+.08);bo.connect(bg);bo.start(t);bo.stop(t+.1);
+      });},
+    // Entscheidender Ringout: kurzer Kanten-Kontakt + leiser Wind, zeitlich passend zur
+    // Fall-Animation (~0.9s, RESULT_MS=950). Bewusst KEIN Gliss-Ton (klang wie "Plopp").
+    ringout(){go(c=>{const t=c.currentTime;
+      const hg=c.createGain();hg.gain.setValueAtTime(.26,t);hg.gain.exponentialRampToValueAtTime(.001,t+.12);hg.connect(c.destination);
+      const hn=c.createBufferSource();hn.buffer=noise(c);hn.loop=true;hn.connect(hg);hn.start(t);hn.stop(t+.13);
+      const bp=c.createBiquadFilter();bp.type='bandpass';bp.frequency.setValueAtTime(950,t);bp.frequency.exponentialRampToValueAtTime(200,t+.85);bp.Q.value=1.1;bp.connect(c.destination);
+      const wg=c.createGain();wg.gain.setValueAtTime(.0001,t);wg.gain.linearRampToValueAtTime(.20,t+.12);wg.gain.exponentialRampToValueAtTime(.001,t+.9);wg.connect(bp);
+      const wn=c.createBufferSource();wn.buffer=noise(c);wn.loop=true;wn.connect(wg);wn.start(t);wn.stop(t+.95);});},
+    // Nicht-entscheidender Fall aus der Arena: nur ein kurzer, leiser Wind-Drop
+    drop(){go(c=>{const t=c.currentTime;
+      const bp=c.createBiquadFilter();bp.type='bandpass';bp.frequency.setValueAtTime(800,t);bp.frequency.exponentialRampToValueAtTime(240,t+.4);bp.Q.value=1.1;bp.connect(c.destination);
+      const wg=c.createGain();wg.gain.setValueAtTime(.0001,t);wg.gain.linearRampToValueAtTime(.11,t+.07);wg.gain.exponentialRampToValueAtTime(.001,t+.45);wg.connect(bp);
+      const wn=c.createBufferSource();wn.buffer=noise(c);wn.loop=true;wn.connect(wg);wn.start(t);wn.stop(t+.5);});},
     round(pi){go(c=>{const a=pi===0?[523,784,1047]:[440,659,880];a.forEach((f,i)=>{const d=i*.07,g=c.createGain();g.gain.setValueAtTime(0,c.currentTime+d);g.gain.linearRampToValueAtTime(.25,c.currentTime+d+.03);g.gain.exponentialRampToValueAtTime(.001,c.currentTime+d+.4);g.connect(c.destination);const o=c.createOscillator();o.type='sine';o.frequency.value=f;o.connect(g);o.start(c.currentTime+d);o.stop(c.currentTime+d+.4);});});},
     win(){go(c=>{[523,659,784,1047,1318].forEach((f,i)=>{const d=i*.09,g=c.createGain();g.gain.setValueAtTime(0,c.currentTime+d);g.gain.linearRampToValueAtTime(.22,c.currentTime+d+.04);g.gain.exponentialRampToValueAtTime(.001,c.currentTime+d+.6);g.connect(c.destination);const o=c.createOscillator();o.type='sine';o.frequency.value=f;o.connect(g);o.start(c.currentTime+d);o.stop(c.currentTime+d+.6);});});}
   };
 })();
+// Mobile-Autoplay: der erste Touch/Klick irgendwo entsperrt den AudioContext aus der Geste heraus
+window.addEventListener('pointerdown',()=>SFX.unlock(),{once:true});
 
 // ════ GEOMETRY ════
 // FUNDAMENT FUER ONLINE-LOCKSTEP: Die Sim muss auf jedem Geraet IDENTISCH rechnen.
@@ -431,7 +494,7 @@ function placeBalls(){
     balls.push(mkBall(cx,cy+off,0),mkBall(cx,cy-off,1));}
 }
 
-function newGame(){resize();R=R0;score=[0,0];roundNo=1;particles=[];recFrames=[];
+function newGame(){resize();R=R0;score=[0,0];roundNo=1;particles=[];fx3=[];recFrames=[];
   if(online){
     $('card0').querySelector('.pn').textContent = (myPlayer===0)?'DU':'GEGNER';
     $('n1').textContent = (myPlayer===1)?'DU':'GEGNER';
@@ -731,11 +794,11 @@ function applyLaunch(){
   for(let p=0;p<2;p++){const idx=commitIdx[p];if(idx>=0&&balls[idx]&&balls[idx].alive){balls[idx].vx=commitAim[p].dx*LAUNCH;balls[idx].vy=commitAim[p].dy*LAUNCH;balls[idx].spin=commitSpin[p]||0;}}
   const maxp=Math.max(Math.hypot(commitAim[0].dx,commitAim[0].dy),Math.hypot(commitAim[1].dx,commitAim[1].dy))/maxPull();
   SFX.launch(maxp);
-  for(let p=0;p<2;p++){const idx=commitIdx[p];if(idx<0||!balls[idx])continue;const sp=Math.hypot(commitAim[p].dx,commitAim[p].dy);if(sp>BR)spawn(balls[idx].x,balls[idx].y,5,balls[idx].owner===0?['#00d4ff']:['#ff4d4d'],sp*0.02,0.6);}
+  for(let p=0;p<2;p++){const idx=commitIdx[p];if(idx<0||!balls[idx])continue;const sp=Math.hypot(commitAim[p].dx,commitAim[p].dy);if(sp>BR&&!r3dActive)spawn(balls[idx].x,balls[idx].y,5,balls[idx].owner===0?['#00d4ff']:['#ff4d4d'],sp*0.02,0.6);}
   setPhase('sim');setPhaseText();
 }
 function winnerRGB(loserOwner){return (1-loserOwner)===0?'0,212,255':'255,77,77';}
-function popBall(b){spawn(b.x,b.y,26,b.owner===0?['#00d4ff','#ffffff']:['#ff4d4d','#ffffff'],Math.max(5,Math.hypot(b.vx,b.vy))*0.9,1.1);}
+function popBall(b){if(r3dActive)fx3Dust(b.x,b.y,b.vx,b.vy);else spawn(b.x,b.y,26,b.owner===0?['#00d4ff','#ffffff']:['#ff4d4d','#ffffff'],Math.max(5,Math.hypot(b.vx,b.vy))*0.9,1.1);}
 
 function stepSim(){
   const FR=curFR(),FE=curFE();
@@ -748,9 +811,10 @@ function stepSim(){
           a.x-=nx*ov/2;a.y-=ny*ov/2;b.x+=nx*ov/2;b.y+=ny*ov/2;
           const rvx=b.vx-a.vx,rvy=b.vy-a.vy,vn=rvx*nx+rvy*ny;
           if(vn<0){const imp=-(1+REST)*vn/2;a.vx-=imp*nx;a.vy-=imp*ny;b.vx+=imp*nx;b.vy+=imp*ny;
-            const mag=Math.min(1,Math.abs(vn)/5);SFX.hit(mag);
+            const mag=Math.min(1,Math.abs(vn)/5);SFX.hit(mag,i*8+j);
             const mx=(a.x+b.x)/2,my=(a.y+b.y)/2;
-            spawn(mx,my,14+Math.floor(mag*16),['#00d4ff','#ff4d4d','#ffffff','#ffc940'],Math.abs(vn)*0.7+2,1);
+            if(r3dActive)fx3Hit(mx,my,mag);
+            else spawn(mx,my,14+Math.floor(mag*16),['#00d4ff','#ff4d4d','#ffffff','#ffc940'],Math.abs(vn)*0.7+2,1);
             bgPulse=Math.max(bgPulse,mag*0.5);bgPulseRGB='255,235,180';}
         }
       }
@@ -767,12 +831,13 @@ function stepSim(){
         for(const i of crossed){const o=balls[i].owner;if(left(o)<=0){const dd=Math.sqrt((balls[i].x-cx)*(balls[i].x-cx)+(balls[i].y-cy)*(balls[i].y-cy));if(dd>dmax){dmax=dd;decisive=i;}}}
         for(const i of crossed){if(i===decisive)continue;balls[i].alive=false;popBall(balls[i]);}
         const lb=balls[decisive];
-        spawn(lb.x,lb.y,40,lb.owner===0?['#00d4ff','#ffffff']:['#ff4d4d','#ffffff'],Math.max(6,Math.hypot(lb.vx,lb.vy))*1.1,1.4);
+        if(r3dActive)fx3Dust(lb.x,lb.y,lb.vx,lb.vy);
+        else spawn(lb.x,lb.y,40,lb.owner===0?['#00d4ff','#ffffff']:['#ff4d4d','#ffffff'],Math.max(6,Math.hypot(lb.vx,lb.vy))*1.1,1.4);
         SFX.ringout();bgPulse=1;bgPulseRGB=winnerRGB(lb.owner);
         outBall=decisive;setPhase('result');return;
       }else{
         for(const i of crossed){balls[i].alive=false;popBall(balls[i]);}
-        SFX.hit(0.6);bgPulse=Math.max(bgPulse,0.4);bgPulseRGB=balls[crossed[0]].owner===0?'0,212,255':'255,77,77';
+        SFX.drop();bgPulse=Math.max(bgPulse,0.4);bgPulseRGB=balls[crossed[0]].owner===0?'0,212,255':'255,77,77';
       }
     }
   }
@@ -916,7 +981,36 @@ function leaveOnline(){
 // ════ PARTICLES ════
 function spawn(x,y,n,cols,speed,sizeMul){for(let i=0;i<n;i++){const a=Math.random()*Math.PI*2,sp=speed*(0.25+Math.random()*0.85);
   particles.push({x,y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,life:1,dec:0.02+Math.random()*0.03,size:BR*0.22*sizeMul*(0.5+Math.random()*0.9),col:cols[Math.floor(Math.random()*cols.length)]});}}
-function updParticles(){for(const p of particles){p.x+=p.vx;p.y+=p.vy;p.vx*=0.9;p.vy*=0.9;p.life-=p.dec;}if(particles.length)particles=particles.filter(p=>p.life>0);if(bgPulse>0.001)bgPulse*=0.90;else bgPulse=0;}
+function updParticles(){for(const p of particles){p.x+=p.vx;p.y+=p.vy;p.vx*=0.9;p.vy*=0.9;p.life-=p.dec;}if(particles.length)particles=particles.filter(p=>p.life>0);
+  if(fx3.length){for(const f of fx3){if(f.t===2){f.x+=f.vx;f.y+=f.vy;f.vx*=0.92;f.vy*=0.92;}f.life-=f.dec;}fx3=fx3.filter(f=>f.life>0);}
+  if(bgPulse>0.001)bgPulse*=0.90;else bgPulse=0;}
+
+// ── 3D-Kontakt-FX (nur r3dActive): dezente Licht-Glints, feine Impuls-Ringe und Staub
+//    statt der 2D-Konfetti-Partikel — lieber fast unsichtbar als aufgemalt. ──
+let fx3=[];
+function fx3Hit(x,y,mag){fx3.push({t:0,x,y,life:1,dec:.10,mag});fx3.push({t:1,x,y,life:1,dec:.065,mag});}
+function fx3Dust(x,y,vx,vy){for(let i=0;i<5;i++){const a=Math.random()*Math.PI*2,s=0.4+Math.random()*0.9;
+  fx3.push({t:2,x,y,vx:vx*.35+Math.cos(a)*s,vy:vy*.35+Math.sin(a)*s,life:1,dec:.022+Math.random()*.012,mag:.7+Math.random()*.5});}}
+function drawFx3(){
+  for(const f of fx3){const k=1-f.life;
+    if(f.t===0){                       // Glint: kleiner Lichtpunkt + feines Kreuz auf Kontakt-Hoehe
+      const q=OP(f.x,f.y,BR*.9),r=BR*q.s*(.55+.5*f.mag)*(.6+.4*f.life),a=f.life*(.30+.35*f.mag);
+      const g=ctx.createRadialGradient(q.x,q.y,0,q.x,q.y,r);
+      g.addColorStop(0,'rgba(255,252,240,'+a.toFixed(3)+')');g.addColorStop(1,'rgba(255,252,240,0)');
+      ctx.fillStyle=g;ctx.beginPath();ctx.arc(q.x,q.y,r,0,7);ctx.fill();
+      ctx.strokeStyle='rgba(255,252,240,'+(a*.8).toFixed(3)+')';ctx.lineWidth=Math.max(.7,BR*.05*q.s);
+      ctx.beginPath();ctx.moveTo(q.x-r*1.5,q.y);ctx.lineTo(q.x+r*1.5,q.y);ctx.moveTo(q.x,q.y-r*1.5);ctx.lineTo(q.x,q.y+r*1.5);ctx.stroke();
+    }else if(f.t===1){                 // Impuls-Ring: duenner Ring auf der Bodenebene, korrekt projiziert
+      const wr=BR*(0.8+1.7*k)*(0.7+.5*f.mag),a=f.life*.20*(.5+.5*f.mag),q0=OP(f.x,f.y,0);
+      ctx.strokeStyle='rgba(255,246,225,'+a.toFixed(3)+')';ctx.lineWidth=Math.max(.7,BR*.06*q0.s*f.life);
+      ctx.beginPath();for(let i=0;i<=12;i++){const an=i*Math.PI/6,q=OP(f.x+Math.cos(an)*wr,f.y+Math.sin(an)*wr,0);i?ctx.lineTo(q.x,q.y):ctx.moveTo(q.x,q.y);}ctx.stroke();
+    }else{                             // Staub: weicher, warm-grauer Puff nahe der Bodenebene
+      const q=OP(f.x,f.y,BR*.3),r=BR*q.s*f.mag*(.6+1.1*k),a=f.life*f.life*.13;
+      const g=ctx.createRadialGradient(q.x,q.y,0,q.x,q.y,r);
+      g.addColorStop(0,'rgba(232,226,212,'+a.toFixed(3)+')');g.addColorStop(1,'rgba(232,226,212,0)');
+      ctx.fillStyle=g;ctx.beginPath();ctx.arc(q.x,q.y,r,0,7);ctx.fill();}
+  }
+}
 
 // ════ ARENA GEO (einmalig vorberechnet für Netz-Bodentextur) ════
 let meshPts=[],meshEdges=[];
@@ -1064,8 +1158,8 @@ function draw(){
     ctx.fillStyle=og;ctx.fillRect(0,0,W,H);
   }
 
-  // bgPulse Treffer-Flash
-  if(bgPulse>0.01){const F=ctx.createRadialGradient(cx,cy,R*.3,cx,cy,Math.max(W,H));
+  // bgPulse Treffer-Flash (nur 2D — im 3D-Modus wirkt der Farb-Wash aufgemalt)
+  if(!r3dActive&&bgPulse>0.01){const F=ctx.createRadialGradient(cx,cy,R*.3,cx,cy,Math.max(W,H));
     F.addColorStop(0,'rgba('+bgPulseRGB+','+(bgPulse*.40).toFixed(3)+')');F.addColorStop(1,'rgba('+bgPulseRGB+',0)');
     ctx.fillStyle=F;ctx.fillRect(0,0,W,H);}
 
@@ -1089,14 +1183,16 @@ function draw(){
   // particles UNDER balls (3D: auf die Bodenebene projiziert)
   for(const p of particles){const q=OP(p.x,p.y,0);ctx.globalAlpha=Math.max(0,p.life);ctx.beginPath();ctx.arc(q.x,q.y,p.size*q.s,0,7);ctx.fillStyle=p.col;ctx.fill();}
   ctx.globalAlpha=1;
+  if(r3dActive&&fx3.length)drawFx3();
 
   // selection highlight (Doppel: zeig die waehlbaren eigenen Kugeln)
   if(fmt==='double'&&!dragging){const aimer=whoCanAim();
     if(aimer>=0){const col=aimer===0?'rgba(0,212,255,':'rgba(255,77,77,';const a=0.35+0.35*puls;
       for(const b of balls){if(b.alive&&b.owner===aimer){const q=OP(b.x,b.y,0);ctx.beginPath();ctx.arc(q.x,q.y,BR*1.5*q.s,0,7);ctx.lineWidth=Math.max(1.5,BR*0.16*q.s);ctx.setLineDash([BR*0.5*q.s,BR*0.4*q.s]);ctx.strokeStyle=col+a.toFixed(2)+')';ctx.stroke();ctx.setLineDash([]);}}}}
 
-  // reveal arrows (forward launch dir je committeter Kugel)
-  if(phase==='reveal'){for(let p=0;p<2;p++){const idx=commitIdx[p];if(idx>=0&&balls[idx]&&balls[idx].alive)drawArrow(balls[idx],commitAim[p]);}}
+  // reveal arrows (forward launch dir je committeter Kugel) — nur 2D:
+  // im 3D-Modus bleibt das Bild ruhig, es gibt keine Fremd-/Reveal-Pfeile
+  if(phase==='reveal'&&!r3dActive){for(let p=0;p<2;p++){const idx=commitIdx[p];if(idx>=0&&balls[idx]&&balls[idx].alive)drawArrow(balls[idx],commitAim[p]);}}
 
   // live slingshot preview
   if(dragging&&dragShooter>=0){const mp=maxPull();let px=dragPull.x,py=dragPull.y;const pl=Math.sqrt(px*px+py*py);
@@ -1186,11 +1282,44 @@ function drawSpinPreview(b,fx,fy,spin){
     const q=OP(x,y,0);ctx.lineTo(q.x,q.y);
     if(Math.sqrt((x-cx)*(x-cx)+(y-cy)*(y-cy))>R)break;
   }
-  ctx.strokeStyle='rgba(255,255,255,.35)';ctx.lineWidth=BR*0.22*q0.s;ctx.setLineDash([BR*0.45*q0.s,BR*0.5*q0.s]);ctx.lineCap='round';ctx.stroke();ctx.setLineDash([]);
+  if(r3dActive){ctx.strokeStyle='rgba(240,234,220,.28)';ctx.lineWidth=Math.max(1,BR*0.14*q0.s);ctx.setLineDash([BR*0.3*q0.s,BR*0.5*q0.s]);}
+  else{ctx.strokeStyle='rgba(255,255,255,.35)';ctx.lineWidth=BR*0.22*q0.s;ctx.setLineDash([BR*0.45*q0.s,BR*0.5*q0.s]);}
+  ctx.lineCap='round';ctx.stroke();ctx.setLineDash([]);
 }
 function drawSling(b,cdx,cdy){
   const col=b.owner===0?'#00d4ff':'#ff4d4d';const len=Math.hypot(cdx,cdy),mp=maxPull(),pwr=Math.min(1,len/mp);
   const p0=OP(b.x,b.y,0),p1=OP(b.x+cdx,b.y+cdy,0),p2=OP(b.x-cdx*1.6,b.y-cdy*1.6,0);
+  if(r3dActive){
+    // Luxury-minimal: nur ein duenner Anthrazit-Strahl mit feiner Spitze und eine
+    // freistehende, leichte Prozentzahl. Kein Ring, keine Zug-Linie, kein Chip —
+    // visuelle Ruhe auf dem hellen Marmor; nur der eigene Aim-Hinweis ist sichtbar.
+    if(len>BR*0.25){
+      const w=Math.max(1.4,BR*0.09*p0.s);
+      ctx.save();ctx.lineCap='round';ctx.lineJoin='round';
+      ctx.shadowColor='rgba(255,255,255,.5)';ctx.shadowBlur=w*1.6;          // feiner heller Saum -> lesbar auf Marmor
+      const g=ctx.createLinearGradient(p0.x,p0.y,p2.x,p2.y);
+      g.addColorStop(0,'rgba(22,26,32,0)');g.addColorStop(.3,'rgba(22,26,32,.68)');g.addColorStop(1,'rgba(22,26,32,.92)');
+      ctx.beginPath();ctx.moveTo(p0.x,p0.y);ctx.lineTo(p2.x,p2.y);
+      ctx.lineWidth=w;ctx.strokeStyle=g;ctx.stroke();
+      const a=Math.atan2(p2.y-p0.y,p2.x-p0.x),h=BR*0.42*p0.s;
+      ctx.beginPath();ctx.moveTo(p2.x-Math.cos(a-0.42)*h,p2.y-Math.sin(a-0.42)*h);ctx.lineTo(p2.x,p2.y);
+      ctx.lineTo(p2.x-Math.cos(a+0.42)*h,p2.y-Math.sin(a+0.42)*h);
+      ctx.lineWidth=w*1.15;ctx.strokeStyle='rgba(22,26,32,.92)';ctx.stroke(); // feine, praezise Spitze
+      ctx.restore();
+    }
+    // freistehende Prozentzahl — editorial, kraeftiges Anthrazit; weicher Halo + zweiter
+    // scharfer Pass halten sie auf Marmor lesbar, auch wenn der Strahl darunter liegt
+    const qt=OP(b.x,b.y-BR*2.7,BR),txt=Math.round(pwr*100)+'%';
+    ctx.save();
+    ctx.font='400 '+Math.max(14,BR*0.72*qt.s)+'px system-ui';
+    ctx.letterSpacing=Math.max(1,BR*0.06*qt.s)+'px';
+    ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.shadowColor='rgba(255,255,255,.85)';ctx.shadowBlur=Math.max(3,BR*0.26*qt.s);
+    ctx.fillStyle='rgba(18,21,26,.95)';ctx.fillText(txt,qt.x,qt.y);
+    ctx.shadowBlur=0;ctx.fillText(txt,qt.x,qt.y);
+    ctx.restore();
+    return;
+  }
   ctx.beginPath();ctx.moveTo(p0.x,p0.y);ctx.lineTo(p1.x,p1.y);ctx.lineWidth=BR*0.3*p0.s;ctx.lineCap='round';
   ctx.strokeStyle='rgba(255,255,255,.25)';ctx.setLineDash([BR*0.5*p0.s,BR*0.4*p0.s]);ctx.stroke();ctx.setLineDash([]);
   ctx.beginPath();ctx.moveTo(p0.x,p0.y);ctx.lineTo(p2.x,p2.y);ctx.lineWidth=BR*0.42*p0.s;ctx.lineCap='round';
@@ -1228,7 +1357,7 @@ function renderRepFrame(i){
   R=f.R; score=[f.s[0],f.s[1]]; roundNo=f.rn; phase=f.ph;
   commitIdx=[f.ci[0],f.ci[1]];
   commitAim=[{dx:f.ca[0].dx,dy:f.ca[0].dy},{dx:f.ca[1].dx,dy:f.ca[1].dy}];
-  particles=[]; bgPulse=0; dragging=false;
+  particles=[]; fx3=[]; bgPulse=0; dragging=false;
   $('sc0').textContent=f.s[0];$('sc1').textContent=f.s[1];$('rinfo').textContent='Runde '+f.rn;
   draw();
 }
@@ -1530,10 +1659,11 @@ if(R3D_WANTED)initR3D();
 // ════ MAIN LOOP ════
 function loop(now){
   if(PERF)perfTick(now);
-  if(replaying){ repTick(); if(r3dActive)r3d.render(); requestAnimationFrame(loop); return; }
+  if(replaying){ SFX.rollUpdate(null,false); repTick(); if(r3dActive)r3d.render(); requestAnimationFrame(loop); return; }
   if(phase==='reveal'&&now-phaseStart>REVEAL_MS)applyLaunch();
   else if(phase==='sim')stepSim();
   else if(phase==='result'){resultDrift();if(now-phaseStart>RESULT_MS)afterResult();}
+  SFX.rollUpdate(balls,phase==='sim');
   if(phase==='reveal'||phase==='sim'||phase==='result')recordFrame();
   updParticles();draw();
   if(r3dActive)r3d.render();
