@@ -1,6 +1,6 @@
 # TODO.md — RingOut
 
-**Zuletzt aktualisiert:** 2026-07-08
+**Zuletzt aktualisiert:** 2026-07-09
 
 Offene Aufgaben nach Priorität. Abgeschlossene Aufgaben werden nach `CHANGELOG.md` verschoben.
 
@@ -49,7 +49,8 @@ Offene Aufgaben nach Priorität. Abgeschlossene Aufgaben werden nach `CHANGELOG.
 - [x] ~~**Sound-Pass (M4-T3)**~~ → **abgeschlossen & akzeptiert**: Murmel-Kollision (Modal-Synthese), Roll-Sound, Strain-Charge, Wind-Ringout, Spam-Schutz, Mobile-Unlock + dezente 3D-Kontakt-FX und luxury-minimal Aim-Overlay, siehe CHANGELOG (2026-07-08)
 - [x] ~~**3D als Default (M4-T4)**~~ → **abgeschlossen & akzeptiert**: 3D lädt standardmäßig, `?r2d=1` erzwingt 2D, `?r3d=1` kompatibel, Fallback unverändert, siehe CHANGELOG (2026-07-08)
 - [x] ~~**Lokaler FFA-Kern 2–5 Spieler (M8-T2)**~~ → **abgeschlossen & akzeptiert (2026-07-08)**: Hotseat-Modus „👥 FFA" mit Last-Man-Standing, zentraler Spielerfarben-Tabelle `PCOLS` (Slots 0–4) und Chip-HUD; dient als technische Basis/Testharness für den Online-FFA. Golden 13/13 bit-exakt, FFA-Suite 18/18; kein Online-FFA, keine Firebase-Änderung, kein Protocol-Bump. Siehe CHANGELOG.
-- [ ] **Online-FFA 2–5 Spieler (M8-T3+):** Lobby + Raum-Schema (Seats/State), N-Spieler-Lockstep, Disconnect/Leave, Sichten pro Seat — braucht Protocol-Bump + Firebase-Rules-Änderung (je separate Freigabe); Task-Aufteilung siehe M8-T1-Briefing. Erst nach privatem Playtest und M5-T2.
+- [ ] **Online-FFA 2–5 Spieler (M8-T3+):** Restschritte — **T3b:** Rules-Erweiterung + Protocol-Bump + Publish (separate Freigabe), **T3c:** Aktivierung (claimSeat/Lobby-Listener/Host-Start live), **T3d:** Disconnect-Matrix, **T3e:** Abnahme. Erst nach privatem Playtest; Bump-Reihenfolge mit M5-T2 vorher festlegen.
+  - [x] ~~**M8-T3a Client-Vorbereitung**~~ → **abgeschlossen & akzeptiert (2026-07-09)**: validateRoom (ffa-Schema vorbereitet, single/double identisch), versteckte Lobby-UI + Roster-Renderer, Seat-Claiming mit Retry (unbenutzt), `allAliveCommitted()`-Reveal, Seat-Schleifen statt `opp=1-myPlayer`. Online-FFA bewusst deaktiviert (4 Blocker); Firebase/Rules/Protocol unverändert; Online 1v1/2v2 zwei-Tab-geprüft. Siehe CHANGELOG.
 - [ ] **3D-Folgethemen (gesammelt):** Sizing-Task (+Fläche/Kugeln, Physik + Protocol-Bump), 4–5-Spieler-Konzept; three.js später selbst hosten statt CDN (→ Build-System-Task); optionaler FPS-Wächter mit `?r2d=1`-Hinweis auf schwachen Geräten.
 - [ ] **4–5-Spieler-Playtest mit echter Physik:** `PLAY_SCALE`/Kugelgröße final tunen (aktuell geometrisch ausgelegt, spielerisch ungetestet — seit M8-T2 lokal im FFA-Modus testbar).
 - [ ] **Entscheidung Pseudo-3D-Stand in `index.html`:** Der M2-T2-Arbeitsstand (Kamera + Pseudo-3D, unkommittet im Working Tree) ist funktional und getestet, aber optisch nicht final. Owner-Entscheidung: als Zwischenstand committen, verwerfen oder bis zur 3D-Entscheidung halten.

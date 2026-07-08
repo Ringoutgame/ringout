@@ -1,6 +1,6 @@
 # PROJECT.md — RingOut
 
-**Zuletzt aktualisiert:** 2026-07-08
+**Zuletzt aktualisiert:** 2026-07-09
 
 ---
 
@@ -72,6 +72,7 @@ RingOut ist ein kompetitives, physikbasiertes Browser-Spiel für 1–5 Spieler. 
 ### Online-Multiplayer
 - Firebase Realtime Database, Raumcode (4 Zeichen, alphanumerisch)
 - Lockstep: beide Spieler committen ihre Züge; Physik läuft lokal identisch
+- **Online-FFA-Client-Vorbereitung (M8-T3a, akzeptiert 2026-07-09):** Online-FFA ist **bewusst deaktiviert** (vier Blocker, Toast „Online-FFA kommt im nächsten Schritt."), aber clientseitig vorbereitet: `validateRoom` kennt das ffa-Schema (`state:'lobby'`, Seats 0–4, `freeSeat`; single/double verhaltensidentisch), versteckte Lobby-UI (`renderLobby`: PCOLS-Kugeln, n/5, Host-Start ab 2), Seat-Claiming `pickFreeSeat`/`claimSeat` (Write-once-Race-Retry, noch unbenutzt), Reveal über `allAliveCommitted()` (Eliminierte zählen nicht), Presence-/Turn-Listener als Seat-Schleifen. Aktivierung erst nach Rules-Erweiterung + Protocol-Bump (M8-T3b/c, separate Freigaben). Firebase/Rules/Protocol unverändert.
 - **Online 2v2 (M6-T1, manuell verifiziert 2026-07-08):** Doppel-Format läuft über denselben Lockstep — Move trägt `idx` seit M1, Rules erlauben idx 0–3 und `config.fmt` `'double'`. Zwei-Tab-Test bestanden (Create/Join, je 2 Kugeln, verdeckte Kugelwahl, Reveal, synchrone Simulation, Ringout, Rundensieg, 3D-Default). Keine Codeänderung, kein Protocol-Bump, keine Firebase-Änderung nötig.
 - Zug-Validierung: `sanitizeMove()` klemmt deterministisch und idempotent an **beiden** Lockstep-Enden (Sender in `commit()`, Empfänger in `onlineTurnValue()`) — Vektorlänge ≤ `maxPull()`, Drall ∈ [−1, +1], Kugel-Index gegen Besitz validiert. Verhindert Velocity-Injection durch manipulierte Clients.
 - Raum-Validierung beim Beitritt: pure Funktion `validateRoom()` prüft vor jeder State-Mutation `v` (Protokollversion), `config.winTarget` (3|5), `config.fmt` (single|double), `gen` (Safe Integer, 0–10 000) und die Präsenz-Map `p` (Host anwesend, Raum nicht voll; Firebase-Array-Form unterstützt). Ungültige Räume werden abgelehnt — keine stillen Defaults.
