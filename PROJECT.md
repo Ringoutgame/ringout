@@ -123,8 +123,8 @@ Ringout/
   CHANGELOG.md       # Abgeschlossene Änderungen mit Datum
 ```
 
-### 3D-Render-Adapter im Hauptspiel (`?r3d=1`) — abgeschlossen (M4-T2)
-- **Aktivierung:** nur mit URL-Flag `?r3d=1`; ohne Flag läuft exakt der unveränderte 2D-Pfad (Standard). Jeder Fehler (CDN/three, WebGL, HDRI, GLB) → sauberer Fallback auf 2D mit Toast. `?r3d=1&orbit=1` = Showcase (Zielen deaktiviert).
+### 3D-Render-Adapter im Hauptspiel — Standard-Renderer (M4-T2, seit M4-T4 Default)
+- **Aktivierung:** 3D ist Standard (seit M4-T4); `?r2d=1` erzwingt den unveränderten 2D-Pfad, `?r3d=1` bleibt kompatibel (nicht mehr nötig). Jeder Fehler (CDN/three, WebGL, HDRI, GLB) → sauberer Fallback auf 2D mit Toast. `?orbit=1` = Showcase (Zielen deaktiviert). Kein Protocol-Bump, keine Firebase-/Physikänderung — der Renderer bleibt rein lesend.
 - **Architektur:** three.js (CDN-Importmap, dynamischer Import nur bei Flag) rendert Vollbild hinter der UI; das 2D-Canvas bleibt transparentes Overlay + Input-Fläche. Szene in LOGICAL-Einheiten; Renderer **liest** Spielzustand (`balls`, `R`, `phase`, `outBall`), schreibt nie.
 - **Kamera:** feste geneigte Basis (Prototyp-Richtung 0,19,27), Spieler-steuerbar mit Damping: Drag außerhalb der Aim-Zone dreht (Yaw frei, Polar 0.3–1.15), Pinch/Mausrad zoomt (0.75–1.5×), Doppeltipp = Reset; Online-P2 blickt von der Gegenseite. Aim-Zone (Greifradius um eigene Kugel) hat immer Vorrang; während Zielen keine Kamera, während Kamera kein Aim.
 - **Mapping:** pure Funktionen `r3dCamMath` (`w2s` Projektion / `s2w` Ray-Ebene-Schnitt) inkl. Principal-Point-Shift (Arena über dem Spielbereich) und Schwebe-Bob (`py`); Node-Suite `tools/test_r3d_mapping.js` (31 Fälle, Round-Trip <1e-6, P2-Spiegelung, freie Kamera, `#cv3d`-CSS-Check); `localPt`-2D-Zweig byte-identisch.

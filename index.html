@@ -53,7 +53,7 @@ header{width:100%;max-width:460px;display:flex;align-items:center;justify-conten
 .rinfo{font-size:8px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;text-align:center}
 
 .arena-wrap{width:100%;max-width:460px;flex:1 1 0;min-height:0;display:flex;align-items:center;justify-content:center;position:relative}
-/* 3D-Render-Adapter (?r3d=1): WebGL-Canvas fuellt den Viewport HINTER der gesamten UI */
+/* 3D-Render-Adapter (Standard-Modus): WebGL-Canvas fuellt den Viewport HINTER der gesamten UI */
 #cv{position:relative;z-index:1}
 /* width/height 100% ist Pflicht: setSize(...,false) setzt nur die Backing-Aufloesung (xDPR);
    ohne CSS-Groesse rendert das Canvas auf Geraeten mit DPR>1 groesser als der Viewport (Crop). */
@@ -208,8 +208,8 @@ body.r3d .phase:not(:empty){background:rgba(8,14,22,.72);border:1px solid rgba(1
   <button class="wbtn" id="onBack" style="width:auto;padding:10px 22px;margin-top:18px">↩ Zurück</button>
 </div>
 
-<!-- Importmap fuer den optionalen 3D-Modus (?r3d=1). Laedt selbst nichts;
-     three.js wird ausschliesslich per dynamischem import() bei gesetztem Flag geholt. -->
+<!-- Importmap fuer den 3D-Modus (Standard; ?r2d=1 erzwingt 2D). Laedt selbst nichts;
+     three.js wird ausschliesslich per dynamischem import() geholt, wenn 3D gewuenscht ist. -->
 <script type="importmap">
 { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/" } }
@@ -242,8 +242,8 @@ body.r3d .phase:not(:empty){background:rgba(8,14,22,.72);border:1px solid rgba(1
 const $=id=>document.getElementById(id);
 const cv=$('cv'),ctx=cv.getContext('2d');
 
-// ── 3D-Render-Adapter (M4-T2): NUR mit ?r3d=1 aktiv; liest Spielzustand, schreibt NIE ──
-const R3D_WANTED=new URLSearchParams(location.search).get('r3d')==='1';
+// ── 3D-Render-Adapter (M4-T2/M4-T4): Standard-Renderer; ?r2d=1 erzwingt 2D, ?r3d=1 bleibt kompatibel ──
+const R3D_WANTED=new URLSearchParams(location.search).get('r2d')!=='1';
 const R3D_ORBIT=R3D_WANTED&&new URLSearchParams(location.search).get('orbit')==='1';   // reiner Ansichts-Testmodus
 let r3dActive=false,r3d=null,r3dOrbit=false;   // r3dActive erst true, wenn three+HDRI+GLB erfolgreich geladen
 // Spieler-Kamera-Gesten (nur 3D): 1 Finger ausserhalb der Aim-Zone = drehen, 2 Finger = Pinch-Zoom
@@ -1395,7 +1395,7 @@ $('repS1').onclick=()=>{repSpeed=1;updateRepBtns();};
 $('repS2').onclick=()=>{repSpeed=0.5;updateRepBtns();};
 $('repS3').onclick=()=>{repSpeed=0.25;updateRepBtns();};
 
-// ==== 3D-RENDER-ADAPTER (?r3d=1) - feste geneigte Kamera im Prototyp-Look ====
+// ==== 3D-RENDER-ADAPTER (Standard; ?r2d=1 erzwingt 2D) - feste geneigte Kamera im Prototyp-Look ====
 // Liest pro Frame balls[]/R/phase/outBall und spiegelt sie in eine three.js-Szene in
 // LOGICAL-Einheiten (worldX=lx, worldZ=ly, Ebene y=0). Schreibt NIEMALS Spielzustand.
 // Kamera: fest, ~35 Grad geneigt wie prototype3d.html; Online-P2 sieht von der Gegenseite.
