@@ -6,6 +6,9 @@ Alle abgeschlossenen Änderungen am Projekt, neueste zuerst.
 
 ## [Unreleased]
 
+### Fixes
+- fix: Online-Leave-/Disconnect-UX verbessert (M7-T1a, akzeptiert) — Vorbereitung auf den privaten Playtest: (1) Gegner-Disconnect zeigt beim verbleibenden Spieler jetzt ein Overlay „Gegner hat den Raum verlassen." mit ↩-Menü-Rückweg (Rematch/Replay ausgeblendet, 🔌 statt 🏆) statt nur eines 2,2-s-Toasts — kein Hängenbleiben in der Sackgasse; `gameOver()` stellt das normale Sieg-Overlay wieder her. (2) ☰-Button fragt bei laufendem Online-Match jetzt per Bestätigungs-Overlay „Online-Match verlassen?" (Abbrechen/Match verlassen) nach, statt still den Raum zu verlassen; „Match verlassen" nimmt denselben sauberen Leave-Pfad wie ein Disconnect (`leaveOnline()`: Presence-Remove → Gegner-Overlay), „Abbrechen" berührt Firebase nicht. Alle Exit-Pfade (Tab schließen, ☰, End-Overlay-Menü) laufen einheitlich über Presence-Remove. Kein Protocol-Bump, keine Firebase-Änderung, keine Physik-/Sound-/Grafikänderung; 3D und `?r2d=1` verifiziert (2026-07-08)
+
 ### Features
 - feat: Offline-Physics-Tuning-Harness (M5-T1, akzeptiert) — URL-Flag `?tune=br:28,fend:0.9895,stopv:0.12` (validiert & geklemmt: br 20–40 ‰, fend 0.980–0.992, stopv 0.05–0.20) für lokale Sizing-/Ice-Feel-Playtests mit sichtbarem TUNE-Badge; wirkt über `curFE()`/neuen `curST()`-Wrapper/BR-Override. Online hart blockiert bei aktivem Tune (`openOnline`/`createRoom`/`joinRoom` → Toast „Tuning aktiv — Online deaktiviert") — getunte Werte erreichen Lockstep/Firebase nie. Default ohne Flag bit-identisch (Golden 13/13 ohne `--update`, nur `curST`-Stub in der Test-Env). Neu `tools/tune_compare.js`: 5 Szenarien Ist- vs. Tune-Werte über die echte extrahierte Sim (Frames, Weg, Auslauf nach SLOWV, Ringout). Keine finalen Physikwerte, kein Protocol-Bump, keine Firebase-Änderung (2026-07-08)
 

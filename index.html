@@ -180,6 +180,15 @@ body.r3d .phase:not(:empty){background:rgba(8,14,22,.72);border:1px solid rgba(1
   </div>
 </div>
 
+<div class="ov" id="leaveOv">
+  <div class="wb">
+    <div class="wt">Online-Match verlassen?</div>
+    <div class="ws">Dein Gegner kann dann nicht weiterspielen.</div>
+    <button class="wbtn primary" id="leaveCancel">Abbrechen</button>
+    <button class="wbtn" id="leaveGo">Match verlassen</button>
+  </div>
+</div>
+
 <div id="replay">
   <div class="repbar">
     <button id="repBack" class="repbtn">⏮</button>
@@ -329,7 +338,12 @@ $('fDouble').onclick=()=>{fmt='double';setOn('fmtGrp','fDouble');};
 $('w3').onclick=()=>{winTarget=3;setOn('winGrp','w3');};
 $('w5').onclick=()=>{winTarget=5;setOn('winGrp','w5');};
 $('startBtn').onclick=()=>{SFX.unlock();if(mode==='online'){openOnline();return;}online=false;showGame();newGame();};
-$('menuBtn').onclick=()=>{leaveOnline();showMenu();};
+// During a running online match the header menu must never leave silently:
+// confirm first, then take the same clean leave path as a disconnect
+// (leaveOnline() removes own presence -> opponent gets the onOppLeft overlay).
+$('menuBtn').onclick=()=>{if(online&&gameStarted){$('leaveOv').classList.add('show');return;}leaveOnline();showMenu();};
+$('leaveCancel').onclick=()=>$('leaveOv').classList.remove('show');
+$('leaveGo').onclick=()=>{$('leaveOv').classList.remove('show');$('ov').classList.remove('show');leaveOnline();showMenu();};
 $('ovMenuBtn').onclick=()=>{$('ov').classList.remove('show');leaveOnline();showMenu();};
 $('sndBtn').onclick=()=>{soundOn=!soundOn;$('sndBtn').textContent=soundOn?'🔊':'🔇';if(!soundOn)SFX.charge.stop();};
 $('resetBtn').onclick=()=>{if(online){toast('Im Online-Modus nicht verfügbar.');return;}newGame();};
@@ -913,6 +927,8 @@ function gameOver(winner){setPhase('over');setPhaseText();
   $('wt').textContent=wn+' gewinnt!';
   $('wt').className='wt w'+winner;
   $('ws').textContent=score[0]+' : '+score[1]+(mode==='bot'&&winner===1?' · Rematch?':'');
+  document.querySelector('#ov .trophy').textContent='🏆';
+  $('rematchBtn').style.display='';$('replayBtn').style.display='';
   SFX.win();setTimeout(()=>$('ov').classList.add('show'),500);}
 
 // ════ ONLINE (Firebase Realtime DB · Lockstep) ════
@@ -1003,7 +1019,16 @@ function attachRoomListeners(){
 }
 function maybeStart(){ if(gameStarted)return; gameStarted=true; $('online').classList.remove('show'); showGame(); startOnlineGame(); }
 function startOnlineGame(){ replaying=false;repPlaying=false;$('replay').classList.remove('show'); runningGen=gen; turnNo=-1; if(turnUnsub){turnUnsub();turnUnsub=null;} $('ov').classList.remove('show'); newGame(); }
-function onOppLeft(){ toast('Gegner hat den Raum verlassen.'); }
+// Opponent presence lost: reuse the end overlay as a clear way back to the
+// menu — rematch/replay are pointless without a peer, so only "Menü" remains.
+function onOppLeft(){
+  toast('Gegner hat den Raum verlassen.');
+  $('wt').textContent='Gegner hat den Raum verlassen.';$('wt').className='wt';
+  $('ws').textContent='Das Match kann nicht fortgesetzt werden.';
+  document.querySelector('#ov .trophy').textContent='🔌';
+  $('rematchBtn').style.display='none';$('replayBtn').style.display='none';
+  $('ov').classList.add('show');
+}
 
 function onlineArmTurn(){
   turnNo++;

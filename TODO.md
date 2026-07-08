@@ -53,7 +53,8 @@ Offene Aufgaben nach Priorität. Abgeschlossene Aufgaben werden nach `CHANGELOG.
 
 - [ ] **Bot-KI auf Web Worker auslagern:** Verhindert UI-Ruckeln bei Hard-Bot-Berechnung (bis zu 650 × N Simulations-Schritte synchron im UI-Thread).
 - [ ] **Einstellungen in localStorage speichern:** Zuletzt gewählter Modus, Schwierigkeitsgrad, Lautstärke und Format sollen nach Seiten-Reload erhalten bleiben.
-- [ ] **Fehlerbehandlung Online-Modus verbessern:** Verbindungsabbrüche während einer Runde führen aktuell nur zu einem Toast ohne Rückkehr zum Menü. Reconnect-Logik oder sauberer Abbruch implementieren.
+- [x] ~~**Fehlerbehandlung Online-Modus: sauberer Abbruch (M7-T1a)**~~ → **erledigt & akzeptiert (2026-07-08)**: Gegner-Disconnect zeigt Overlay mit ↩-Menü-Rückweg; ☰ fragt im Online-Match per Bestätigung nach und nutzt denselben Leave-Pfad. Kein Protocol-Bump, keine Firebase-Änderung, keine Physik-/Sound-/Grafikänderung. Siehe CHANGELOG.
+- [ ] **Online-Reconnect-Logik (Rest von „Fehlerbehandlung Online-Modus"):** Wiedereinstieg in ein laufendes Match nach kurzem Verbindungsabbruch — aktuell endet das Match für beide sauber (Overlay), aber ohne Fortsetzungsmöglichkeit.
 - [ ] **Replay-Buffer-Limit überprüfen:** Aktuell werden bei langen Matches ältere Frames gelöscht (`recFrames.shift()`). Das Replay ist dann unvollständig. Entweder Limit erhöhen oder Nutzer informieren.
 
 ---
