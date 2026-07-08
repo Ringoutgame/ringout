@@ -72,6 +72,7 @@ RingOut ist ein kompetitives, physikbasiertes Browser-Spiel für 1–2 Spieler. 
 - Disconnect-Handling via `onDisconnect().remove()`
 - **Leave-/Disconnect-UX (M7-T1a, 2026-07-08):** Gegner-Weggang (Tab zu, ☰-Leave, End-Overlay-Menü) zeigt dem verbleibenden Spieler ein Overlay „Gegner hat den Raum verlassen." mit ↩-Menü-Rückweg; ☰ verlässt ein laufendes Online-Match nur nach Bestätigungs-Overlay („Abbrechen"/„Match verlassen") und nimmt denselben Leave-Pfad wie ein Disconnect (Presence-Remove). Kein stiller Exit, kein Protocol-Bump, keine Firebase-Änderung.
 - Rematch durch Generationszähler (`gen` in Firebase)
+- **Live-URL-Smoke (M7-T1, manuell verifiziert 2026-07-08):** Produktions-Smoke über https://ringoutgame.github.io/ringout/ bestanden — 3D-Default, Online über echte Geräte/Netze, 1v1, 2v2, Rematch, Leave/Disconnect-Flow, `?r2d=1`-Fallback. **RingOut ist bereit für einen kleinen privaten Playtest.** Einschränkung: nur private Tester, noch kein öffentlicher Launch (kein Auth/App Check, keine Room-TTL, API-Key nur durch Rules begrenzt).
 - **Rematch/Disconnect-Smoke (M6-T1b, manuell verifiziert 2026-07-08):** Rematch in 1v1 und 2v2 beidseitig synchron (Format bleibt erhalten, Score/Runde resetten sauber), Gast- und Host-Disconnect mit korrektem Verhalten des verbleibenden Spielers, neuer Raum danach ohne Alt-Zustand. Keine Codeänderung, kein Protocol-Bump, keine Firebase-Änderung.
 
 ### Rendering (Pseudo-3D mit Kamera)
