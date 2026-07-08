@@ -71,6 +71,7 @@ RingOut ist ein kompetitives, physikbasiertes Browser-Spiel für 1–2 Spieler. 
 - **Ehrliche Sicherheitsgrenze:** Ohne Authentifizierung schützen die Rules **nicht** vor Sabotage durch jemanden, der den Raumcode kennt (Gastslot belegen, strukturell gültige Züge schreiben, `gen`+1 auslösen). Sie verhindern nur ungültige Struktur/Werte, Überschreiben committeter Daten, Room-Overwrite und Enumeration. Identitätsschutz erfordert Auth + App Check (nachgelagert, siehe TODO).
 - Disconnect-Handling via `onDisconnect().remove()`
 - Rematch durch Generationszähler (`gen` in Firebase)
+- **Rematch/Disconnect-Smoke (M6-T1b, manuell verifiziert 2026-07-08):** Rematch in 1v1 und 2v2 beidseitig synchron (Format bleibt erhalten, Score/Runde resetten sauber), Gast- und Host-Disconnect mit korrektem Verhalten des verbleibenden Spielers, neuer Raum danach ohne Alt-Zustand. Keine Codeänderung, kein Protocol-Bump, keine Firebase-Änderung.
 
 ### Rendering (Pseudo-3D mit Kamera)
 - **Kameramodell (rein lokal, nie synchronisiert):** orthografische Projektion — Ebene um `camYaw` rotiert, y mit `cos(camPitch)` gestaucht, Höhe hebt um `h·sin(camPitch)`. Yaw frei (Drag auf leerer Fläche), Pitch geklemmt 0–0.61 rad. Input über exakte Inverse (`camUnproj`) → Zielen unter jedem Winkel fair. Alter Online-P2-Spiegel = Kamera-Default Yaw=π.
