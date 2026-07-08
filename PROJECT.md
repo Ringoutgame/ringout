@@ -6,7 +6,7 @@
 
 ## Was ist RingOut?
 
-RingOut ist ein kompetitives, physikbasiertes Browser-Spiel für 1–2 Spieler. Jede Runde ziehen Spieler ihre Kugel wie eine Steinschleuder zurück und lassen sie los – wer den Gegner aus dem goldenen Rundring schleudert, gewinnt die Runde. Das Konzept ähnelt Sumo, gespielt mit Kugeln.
+RingOut ist ein kompetitives, physikbasiertes Browser-Spiel für 1–5 Spieler. Jede Runde ziehen Spieler ihre Kugel wie eine Steinschleuder zurück und lassen sie los – wer den Gegner aus dem goldenen Rundring schleudert, gewinnt die Runde. Das Konzept ähnelt Sumo, gespielt mit Kugeln.
 
 ---
 
@@ -32,6 +32,7 @@ RingOut ist ein kompetitives, physikbasiertes Browser-Spiel für 1–2 Spieler. 
 |---|---|
 | vs Bot | Spieler gegen KI (Schwierigkeiten: Leicht / Mittel / Schwer) |
 | 2 Spieler | Lokales Pass-and-Play mit Sichtschutz-Bildschirm |
+| FFA lokal | 2–5 Spieler Hotseat (M8-T2), jeder 1 Kugel, Last-Man-Standing pro Runde |
 | Online 1v1 | Echtzeit-Mehrspieler via Firebase (4-stelliger Raumcode) |
 
 ---
@@ -42,6 +43,8 @@ RingOut ist ein kompetitives, physikbasiertes Browser-Spiel für 1–2 Spieler. 
 |---|---|
 | Einzel 1v1 | 1 Kugel je Spieler |
 | Doppel 2v2 | 2 Kugeln je Spieler; jede Runde wird verdeckt eine gewählt |
+
+(FFA lokal hat immer 1 Kugel je Spieler; die Format-Auswahl ist dort ausgeblendet.)
 
 ---
 
@@ -59,6 +62,12 @@ RingOut ist ein kompetitives, physikbasiertes Browser-Spiel für 1–2 Spieler. 
 - **Mittel:** Heuristisch – Angriff oder Rückzug zur Mitte; leichtes Rauschen
 - **Schwer (1v1):** Minimax-ähnlich via `simExchange` (650 Schritte), bewertet beste Gegner-Antwort
 - **Schwer (2v2):** Minimax via `simSnap` (420 Schritte) + `bestRespN`
+
+### Lokaler FFA-Kern (M8-T2, akzeptiert 2026-07-08)
+- 2–5 Spieler Hotseat: jeder 1 Kugel, gleichmäßig im Kreis platziert; verdecktes Zielen reihum über den Cover-Screen, dann gleichzeitiger Schuss.
+- **Last-Man-Standing:** Rundenende in `stepSim` verallgemeinert auf „≤1 Spieler mit lebenden Kugeln" (für 2 Spieler bit-identisch, Golden-verifiziert); Eliminierte bleiben draußen und werden beim Zielen übersprungen; `roundWinner` deterministisch (Überlebender; Gleichzeitig-Out-Tiebreak: am wenigsten weit draußen gewinnt). Matchsieg bei `winTarget` Rundensiegen (Default 3).
+- **Zentrale Spielerfarben `PCOLS`** (Slots 0–4: Blau/Rot/Grün/Gelb/Schwarz; 0/1 unverändert, Schwarz mit silbernem Rim/Glow): eine Quelle für 2D-Kugeln, Partikel, Slingshot/Pfeile, HUD, Cover, 3D-Materialien. Kompaktes FFA-HUD als Chip-Leiste.
+- **Zweck:** technische Basis/Testharness für den späteren Online-FFA (M8-T3+, noch offen). Online-FFA ist NICHT implementiert; Firebase-Rules und `ONLINE_PROTOCOL_VERSION` unverändert. Testabdeckung: FFA-Logik-Suite 18/18 (Scratchpad-Harness auf echtem `stepSim`/`afterResult`).
 
 ### Online-Multiplayer
 - Firebase Realtime Database, Raumcode (4 Zeichen, alphanumerisch)

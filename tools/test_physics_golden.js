@@ -29,6 +29,8 @@ const simExchangeSrc = grab(/function simExchange\(pA,pB,aA,aB\)\{[\s\S]*?\n\}/,
 const simSnapSrc = grab(/function simSnap\(a,horizon\)\{[\s\S]*?\n\}/, 'simSnap');
 const constSrc1 = grab(/const MAXPULL_FRAC=[^\n]*/, 'physics constants');
 const constSrc2 = grab(/const SPIN_K=[^\n]*/, 'spin constants');
+// stepSim references the central player color table (cosmetic only, results unaffected)
+const pcolsSrc = grab(/const PCOLS=[^\n]*/, 'player colors (PCOLS)');
 
 // Rebuild the exact runtime environment; all side-effect surfaces are inert stubs.
 function buildEnv(frictionOverride) {
@@ -36,6 +38,7 @@ function buildEnv(frictionOverride) {
     const LOGICAL=1000; const cx=500, cy=500, R0=LOGICAL*0.485, BR=LOGICAL*0.032; let R=R0;
     ${constSrc1}
     ${constSrc2}
+    ${pcolsSrc}
     ${frictionOverride ? 'const __FR=' + frictionOverride + ';' : ''}
     function curFR(){return ${frictionOverride ? '__FR' : 'FRICTION'};}
     function curFE(){return ${frictionOverride ? '__FR' : 'FEND'};}

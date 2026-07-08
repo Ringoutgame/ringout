@@ -44,6 +44,12 @@ header{width:100%;max-width:460px;display:flex;align-items:center;justify-conten
 .pcard{background:#0f1520;border-radius:10px;padding:6px 9px;border:2px solid transparent;transition:.2s}
 .pcard.act0{border-color:var(--p1);box-shadow:0 0 16px rgba(0,212,255,.22)}
 .pcard.act1{border-color:var(--p2);box-shadow:0 0 16px rgba(255,77,77,.22)}
+.ffabar{display:none;flex:1;justify-content:center;align-items:center;gap:7px;flex-wrap:wrap}
+.fchip{display:flex;align-items:center;gap:5px;background:#101725;border:1px solid #232f44;border-radius:8px;padding:5px 9px;font-weight:800;font-size:13px;color:#dfe7f5}
+.fchip i{width:10px;height:10px;border-radius:50%;background:var(--fc);box-shadow:0 0 6px var(--fc)}
+.fchip.act{border-color:var(--fc)}
+.fchip.out{opacity:.35}.fchip.out i{box-shadow:none}
+.frnd{color:var(--muted);font-size:11px;font-weight:700;margin-right:2px}
 .pcard .pn{font-size:10px;font-weight:800;letter-spacing:.05em}
 .pcard:first-child .pn{color:var(--p1)}.pcard:last-child{text-align:right}.pcard:last-child .pn{color:var(--p2)}
 .pcard .pw{font-size:8px;color:var(--muted);margin-top:2px}
@@ -85,7 +91,6 @@ body.r3d .phase:not(:empty){background:rgba(8,14,22,.72);border:1px solid rgba(1
 .cover{position:fixed;inset:0;background:rgba(4,7,12,.97);backdrop-filter:blur(8px);display:none;flex-direction:column;align-items:center;justify-content:center;z-index:120;padding:24px;text-align:center}
 .cover.show{display:flex}
 .cover .who{font-size:24px;font-weight:900;letter-spacing:.06em;text-transform:uppercase;margin-bottom:8px}
-.cover .who.c0{color:var(--p1)}.cover .who.c1{color:var(--p2)}
 .cover .ctxt{font-size:12px;color:var(--muted);margin-bottom:24px;max-width:260px;line-height:1.6}
 .cover .cbtn{border:0;border-radius:12px;padding:14px 28px;font:inherit;font-size:15px;font-weight:800;cursor:pointer;background:linear-gradient(135deg,var(--gold),#ff9f00);color:#060a0e}
 
@@ -96,6 +101,7 @@ body.r3d .phase:not(:empty){background:rgba(8,14,22,.72);border:1px solid rgba(1
 .trophy{font-size:46px;margin-bottom:4px}
 .wt{font-size:18px;font-weight:900;letter-spacing:.06em;text-transform:uppercase;margin-bottom:6px}
 .wt.w0{color:var(--p1)}.wt.w1{color:var(--p2)}
+.wt.w2{color:#39e07a}.wt.w3{color:#ffc940}.wt.w4{color:#aab4c8}
 .ws{color:var(--muted);font-size:11px;margin-bottom:16px}
 .wbtn{width:100%;font-size:14px;padding:12px;border-radius:11px;background:#1a2840;color:var(--text);border:0;font:inherit;font-weight:800;cursor:pointer;margin-bottom:7px}
 .wbtn.primary{background:linear-gradient(135deg,var(--gold),#ff9f00);color:#060a0e}
@@ -119,7 +125,11 @@ body.r3d .phase:not(:empty){background:rgba(8,14,22,.72);border:1px solid rgba(1
   <div class="logo"><h1>Ring<em>Out</em></h1><div class="sub">Zieh zurück · lass los · schieb ihn raus</div></div>
   <div class="sect">
     <div class="lbl">Modus</div>
-    <div class="pills" id="modeGrp"><button id="mBot" class="on">vs Bot</button><button id="mPvp">2 Spieler</button><button id="mOnline">🌐 Online</button></div>
+    <div class="pills" id="modeGrp"><button id="mBot" class="on">vs Bot</button><button id="mPvp">2 Spieler</button><button id="mFfa">👥 FFA</button><button id="mOnline">🌐 Online</button></div>
+  </div>
+  <div class="sect" id="ffaSec" style="display:none">
+    <div class="lbl">Spieler (FFA lokal)</div>
+    <div class="pills" id="ffaGrp"><button id="np2">2</button><button id="np3" class="on">3</button><button id="np4">4</button><button id="np5">5</button></div>
   </div>
   <div class="sect" id="diffSec">
     <div class="lbl">Bot-Stärke</div>
@@ -136,7 +146,8 @@ body.r3d .phase:not(:empty){background:rgba(8,14,22,.72);border:1px solid rgba(1
   <button class="start" id="startBtn">▶ Spielen</button>
   <div class="rules">
     <p><b>Steuerung:</b> Tippe deine Kugel, zieh <b>nach hinten</b> (anspannen), lass los — sie schnippt nach vorne.<br><br>
-    <b>Doppel 2v2:</b> Du hast 2 Kugeln. Pro Runde wählst du verdeckt <b>eine</b> davon. Beide gegnerischen Kugeln raus = Sieg.</p>
+    <b>Doppel 2v2:</b> Du hast 2 Kugeln. Pro Runde wählst du verdeckt <b>eine</b> davon. Beide gegnerischen Kugeln raus = Sieg.<br><br>
+    <b>FFA lokal:</b> 2–5 Spieler am selben Gerät, jeder eine Kugel. Alle zielen verdeckt nacheinander, dann wird gleichzeitig geschossen. Wer als Letzter übrig bleibt, gewinnt die Runde.</p>
   </div>
 </div>
 
@@ -152,6 +163,7 @@ body.r3d .phase:not(:empty){background:rgba(8,14,22,.72);border:1px solid rgba(1
       <div class="rinfo" id="rinfo">Runde 1</div>
     </div>
     <div class="pcard" id="card1"><div class="pn" id="n1">BOT</div><div class="pw" id="ready1">zielt…</div></div>
+    <div class="ffabar" id="ffaBar"></div>
   </div>
   <div class="arena-wrap"><canvas id="cv"></canvas></div>
   <div class="phase" id="phase"></div>
@@ -322,14 +334,16 @@ function OP(lx,ly,h){ return r3dActive ? r3d.w2s(lx,ly,h||0) : {x:lx,y:ly,s:1}; 
 
 let mode='bot',diff='easy',winTarget=3,soundOn=true;
 let fmt='single';   // Format (single/double)
+let ffaN=3;         // FFA lokal: Spieleranzahl 2-5 (nur mode==='ffa')
 // ── ONLINE-State ──
 let online=false, roomCode='', myPlayer=0, gen=0, runningGen=-1, turnNo=-1;
 let turnUnsub=null, genUnsub=null, presUnsub=null, gameStarted=false;
 
 function setOn(grp,id){document.querySelectorAll('#'+grp+' button').forEach(b=>b.classList.remove('on'));$(id).classList.add('on');}
-$('mBot').onclick=()=>{mode='bot';setOn('modeGrp','mBot');$('diffSec').style.display='';$('fmtSec').style.display='';};
-$('mPvp').onclick=()=>{mode='pvp';setOn('modeGrp','mPvp');$('diffSec').style.display='none';$('fmtSec').style.display='';};
-$('mOnline').onclick=()=>{mode='online';setOn('modeGrp','mOnline');$('diffSec').style.display='none';$('fmtSec').style.display='';};
+$('mBot').onclick=()=>{mode='bot';setOn('modeGrp','mBot');$('diffSec').style.display='';$('fmtSec').style.display='';$('ffaSec').style.display='none';};
+$('mPvp').onclick=()=>{mode='pvp';setOn('modeGrp','mPvp');$('diffSec').style.display='none';$('fmtSec').style.display='';$('ffaSec').style.display='none';};
+$('mFfa').onclick=()=>{mode='ffa';setOn('modeGrp','mFfa');$('diffSec').style.display='none';$('fmtSec').style.display='none';$('ffaSec').style.display='';};
+$('mOnline').onclick=()=>{mode='online';setOn('modeGrp','mOnline');$('diffSec').style.display='none';$('fmtSec').style.display='';$('ffaSec').style.display='none';};
 $('dE').onclick=()=>{diff='easy';setOn('diffGrp','dE');};
 $('dM').onclick=()=>{diff='medium';setOn('diffGrp','dM');};
 $('dH').onclick=()=>{diff='hard';setOn('diffGrp','dH');};
@@ -337,6 +351,7 @@ $('fSingle').onclick=()=>{fmt='single';setOn('fmtGrp','fSingle');};
 $('fDouble').onclick=()=>{fmt='double';setOn('fmtGrp','fDouble');};
 $('w3').onclick=()=>{winTarget=3;setOn('winGrp','w3');};
 $('w5').onclick=()=>{winTarget=5;setOn('winGrp','w5');};
+[['np2',2],['np3',3],['np4',4],['np5',5]].forEach(([id,n])=>{$(id).onclick=()=>{ffaN=n;setOn('ffaGrp',id);};});
 $('startBtn').onclick=()=>{SFX.unlock();if(mode==='online'){openOnline();return;}online=false;showGame();newGame();};
 // During a running online match the header menu must never leave silently:
 // confirm first, then take the same clean leave path as a disconnect
@@ -495,7 +510,12 @@ let curAimer=0;
 let dragging=false,dragShooter=-1,dragOwner=-1,dragStart={x:0,y:0},dragCur={x:0,y:0},dragPull={x:0,y:0},dragSpin=0;
 let aimPid=-1,spinPid=-1,spinStartX=0;   // aimPid=Ziel-Finger (zieht Kugel), spinPid=getrennter Drall-Finger
 let particles=[],outBall=-1;
+let roundWinner=-1;   // von stepSim beim Rundenende gesetzt (FFA: Ueberlebender; 1v1/2v2: 1-loser)
 let bgPulse=0,bgPulseRGB='255,201,64';
+// Zentrale Spielerfarben (Slot 0-4: Blau, Rot, Gruen, Gelb, Schwarz). ui=HUD/Effekte,
+// rgb=Pulse, c/lt/dk/gl=2D-Kugelkoerper, m3=3D-Material. Slots 0/1 exakt die bisherigen
+// Werte. MUSS eine Zeile bleiben: tools/test_physics_golden.js extrahiert sie per Regex.
+const PCOLS=[{ui:'#00d4ff',rgb:'0,212,255',c:'#00c8ff',lt:'#80eeff',dk:'#00304a',gl:'0,190,255',m3:0x0a6db8},{ui:'#ff4d4d',rgb:'255,77,77',c:'#ff2200',lt:'#ff8855',dk:'#550008',gl:'255,40,0',m3:0xa81e0e},{ui:'#39e07a',rgb:'57,224,122',c:'#1fca5f',lt:'#8af5b4',dk:'#043d1c',gl:'40,220,110',m3:0x0e7c3a},{ui:'#ffc940',rgb:'255,201,64',c:'#ffb400',lt:'#ffe28a',dk:'#4d3300',gl:'255,190,40',m3:0xc9971c},{ui:'#aab4c8',rgb:'170,180,200',c:'#20242e',lt:'#9fb0c8',dk:'#05070c',gl:'150,165,190',m3:0x14161c}];
 
 const MAXPULL_FRAC=0.40, LAUNCH=0.034, FRICTION=0.992, FEND=0.992, SLOWV=0.35, REST=0.25, STOPV=0.10;
 const SPIN_K=0.004, SPIN_DECAY=0.985, SPIN_SCALE=R0*0.18, SPIN_INPUT=R0*0.45;   // SPIN_INPUT: horizontale Wischweite des 2. Fingers fuer vollen Drall (+/-1)
@@ -531,35 +551,54 @@ function setPhase(p){phase=p;phaseStart=performance.now();}
 function mkBall(x,y,owner){return{x,y,vx:0,vy:0,sx:x,sy:y,owner,alive:true,spin:0};}
 function aliveBalls(owner){return balls.filter(b=>b.alive&&b.owner===owner);}
 function aliveCount(owner){let n=0;for(const b of balls)if(b.alive&&b.owner===owner)n++;return n;}
-function teamCap(){return fmt==='double'?2:1;}
+function np(){return mode==='ffa'?ffaN:2;}   // Spieleranzahl der Partie (Bestandsmodi: immer 2)
+function teamCap(){return mode!=='ffa'&&fmt==='double'?2:1;}
 
 function placeBalls(){
   balls=[];
-  if(fmt==='double'){const ox=R*0.30,oy=R*0.55;
+  if(mode==='ffa'){                                  // FFA: je 1 Kugel, gleichmaessig im Kreis, Spieler 1 unten
+    const rr=R*0.57;
+    for(let i=0;i<ffaN;i++){const a=Math.PI/2+i*2*Math.PI/ffaN;balls.push(mkBall(cx+Math.cos(a)*rr,cy+Math.sin(a)*rr,i));}
+  }else if(fmt==='double'){const ox=R*0.30,oy=R*0.55;
     balls.push(mkBall(cx-ox,cy+oy,0),mkBall(cx+ox,cy+oy,0));
     balls.push(mkBall(cx-ox,cy-oy,1),mkBall(cx+ox,cy-oy,1));
   }else{const off=R*0.57;
     balls.push(mkBall(cx,cy+off,0),mkBall(cx,cy-off,1));}
 }
 
-function newGame(){resize();R=R0;score=[0,0];roundNo=1;particles=[];fx3=[];recFrames=[];
+function newGame(){resize();R=R0;score=[];for(let p=0;p<np();p++)score.push(0);roundNo=1;particles=[];fx3=[];recFrames=[];
+  const ffa=mode==='ffa';                            // FFA: kompakte Chip-Leiste statt der 2 Spielerkarten
+  $('card0').style.display=ffa?'none':'';$('card1').style.display=ffa?'none':'';
+  document.querySelector('.scorebox').style.display=ffa?'none':'';
+  $('ffaBar').style.display=ffa?'flex':'none';
   if(online){
     $('card0').querySelector('.pn').textContent = (myPlayer===0)?'DU':'GEGNER';
     $('n1').textContent = (myPlayer===1)?'DU':'GEGNER';
-  } else {
+  } else if(!ffa){
     $('card0').querySelector('.pn').textContent='SPIELER 1';
     $('n1').textContent=mode==='bot'?'BOT':'SPIELER 2';
   }
   startRound();}
-function startRound(){placeBalls();aimSet=[false,false];commitIdx=[-1,-1];commitAim=[{dx:0,dy:0},{dx:0,dy:0}];commitSpin=[0,0];
+function resetCommits(){aimSet=[];commitIdx=[];commitAim=[];commitSpin=[];
+  for(let p=0;p<np();p++){aimSet.push(false);commitIdx.push(-1);commitAim.push({dx:0,dy:0});commitSpin.push(0);}}
+function startRound(){placeBalls();resetCommits();roundWinner=-1;
   dragging=false;dragShooter=-1;dragOwner=-1;outBall=-1;setPhase('aim');updateHud();
   if(online){curAimer=myPlayer;onlineArmTurn();}
-  else if(mode==='pvp'){curAimer=0;openCover(0);}else curAimer=0;
+  else if(mode==='pvp'||mode==='ffa'){curAimer=0;openCover(0);}else curAimer=0;
   setPhaseText();}
 
 function ballDots(owner){const n=aliveCount(owner),cap=teamCap();return '●'.repeat(n)+'○'.repeat(Math.max(0,cap-n));}
 function readyText(p){const base=aimSet[p]?'✓ bereit':'zielt…';return fmt==='double'?ballDots(p)+' '+base:base;}
+function renderFfaBar(){
+  let h='<span class="frnd">R'+roundNo+'</span>';
+  for(let p=0;p<ffaN;p++){
+    const dead=!aliveCount(p),act=phase==='aim'&&curAimer===p&&!aimSet[p]&&!dead;
+    h+='<span class="fchip'+(dead?' out':'')+(act?' act':'')+'" style="--fc:'+PCOLS[p].ui+'"><i></i>'+(score[p]||0)+'</span>';
+  }
+  $('ffaBar').innerHTML=h;
+}
 function updateHud(){
+  if(mode==='ffa'){renderFfaBar();return;}
   $('sc0').textContent=score[0];$('sc1').textContent=score[1];
   $('rinfo').textContent='Runde '+roundNo;
   $('ready0').textContent=readyText(0);
@@ -571,6 +610,13 @@ function setPhaseText(){const p=$('phase');
   if(online){
     if(phase==='aim')p.innerHTML = aimSet[myPlayer] ? '⏳ Warte auf Gegner…' : (fmt==='double'?'Wähle <span class="me'+myPlayer+'">eine Kugel</span> & zieh zurück':'Zieh <span class="me'+myPlayer+'">deine Kugel zurück</span> & lass los');
     else if(phase==='reveal')p.textContent='Beide aufgedeckt…';
+    else if(phase==='sim')p.textContent='💥';
+    else p.textContent='';
+    return;
+  }
+  if(mode==='ffa'){
+    if(phase==='aim')p.innerHTML='<span style="color:'+PCOLS[curAimer].ui+'">Spieler '+(curAimer+1)+'</span> zielt – verdeckt';
+    else if(phase==='reveal')p.textContent='Alle aufgedeckt…';
     else if(phase==='sim')p.textContent='💥';
     else p.textContent='';
     return;
@@ -590,7 +636,7 @@ function setPhaseText(){const p=$('phase');
 
 let toastT;function toast(m){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove('show'),2200);}
 
-function openCover(pi){const c=$('cover');$('coverWho').textContent=pi===0?'Spieler 1':'Spieler 2';$('coverWho').className='who c'+pi;c.classList.add('show');}
+function openCover(pi){const c=$('cover');$('coverWho').textContent='Spieler '+(pi+1);$('coverWho').className='who';$('coverWho').style.color=PCOLS[pi].ui;c.classList.add('show');}
 $('coverBtn').onclick=()=>{$('cover').classList.remove('show');setPhaseText();updateHud();};
 
 $('actBtn').onclick=()=>{if(r3dOrbit)return;if(phase!=='aim')return;const who=online?myPlayer:(mode==='bot'?0:curAimer);if(aimSet[who])return;
@@ -601,7 +647,7 @@ function localPt(e){
   if(r3dActive)return r3d.s2w(e.clientX,e.clientY);   // 3D: Ray-Ebene-Schnitt -> LOGICAL (P2 steckt in der Kamera)
   const r=cv.getBoundingClientRect();const sc=LOGICAL/(r.width||dispS);let x=(e.clientX-r.left)*sc,y=(e.clientY-r.top)*sc;if(online&&myPlayer===1){x=2*cx-x;y=2*cy-y;}return{x:x,y:y};}
 function whoCanAim(){if(r3dOrbit)return -1;if(phase!=='aim')return -1;if(online)return aimSet[myPlayer]?-1:myPlayer;if(mode==='bot')return aimSet[0]?-1:0;return aimSet[curAimer]?-1:curAimer;}
-function pickOwnBall(who,p){let best=-1,bd=1e9;balls.forEach((b,i)=>{if(b.alive&&b.owner===who){const d=Math.hypot(p.x-b.x,p.y-b.y);if(d<bd){bd=d;best=i;}}});const reach=fmt==='double'?BR*2.8:BR*5;return bd<=reach?best:-1;}
+function pickOwnBall(who,p){let best=-1,bd=1e9;balls.forEach((b,i)=>{if(b.alive&&b.owner===who){const d=Math.hypot(p.x-b.x,p.y-b.y);if(d<bd){bd=d;best=i;}}});const reach=teamCap()===2?BR*2.8:BR*5;return bd<=reach?best:-1;}
 // 3D: Screen-space-Trefferzone — projizierter Kugelmittelpunkt + grosszuegiger Touch-Radius
 // (mind. 52 CSS-px). Die Welt-Pruefung am Ray-Bodenpunkt verfehlt die sichtbare Kugel bei
 // flacher Kamera/Zoom, weil die Silhouette ueber ihrem Bodenpunkt liegt. Naechste Kugel gewinnt.
@@ -718,7 +764,10 @@ function commit(who,shooterIdx,fx,fy,spin){
     if(aimSet[0]&&aimSet[1]&&phase==='aim'){if(turnUnsub){turnUnsub();turnUnsub=null;}beginReveal();}
     return;}
   if(mode==='bot'){const bm=botMove();commitIdx[1]=bm.idx;commitAim[1]={dx:bm.dx,dy:bm.dy};commitSpin[1]=0;aimSet[1]=true;beginReveal();}
-  else{if(who===0){curAimer=1;openCover(1);setPhaseText();updateHud();}else beginReveal();}
+  else{ // pvp/ffa: naechster lebender Spieler ohne Commit zielt verdeckt, sonst Reveal
+    let nx=-1;for(let p=who+1;p<np();p++){if(!aimSet[p]&&aliveCount(p)>0){nx=p;break;}}
+    if(nx>=0){curAimer=nx;openCover(nx);setPhaseText();updateHud();}else beginReveal();
+  }
 }
 
 // ════ BOT ════
@@ -856,14 +905,15 @@ function bot2v2(){const a=snap(),me=1,opp=0,mine=aliveIdx(a,me);if(!mine.length)
 // ════ REVEAL → SIM ════
 function beginReveal(){setPhase('reveal');setPhaseText();updateHud();}
 function applyLaunch(){
-  for(let p=0;p<2;p++){const idx=commitIdx[p];if(idx>=0&&balls[idx]&&balls[idx].alive){balls[idx].vx=commitAim[p].dx*LAUNCH;balls[idx].vy=commitAim[p].dy*LAUNCH;balls[idx].spin=commitSpin[p]||0;}}
-  const maxp=Math.max(Math.hypot(commitAim[0].dx,commitAim[0].dy),Math.hypot(commitAim[1].dx,commitAim[1].dy))/maxPull();
-  SFX.launch(maxp);
-  for(let p=0;p<2;p++){const idx=commitIdx[p];if(idx<0||!balls[idx])continue;const sp=Math.hypot(commitAim[p].dx,commitAim[p].dy);if(sp>BR&&!r3dActive)spawn(balls[idx].x,balls[idx].y,5,balls[idx].owner===0?['#00d4ff']:['#ff4d4d'],sp*0.02,0.6);}
+  let maxp=0;
+  for(let p=0;p<commitIdx.length;p++){const idx=commitIdx[p];if(idx>=0&&balls[idx]&&balls[idx].alive){balls[idx].vx=commitAim[p].dx*LAUNCH;balls[idx].vy=commitAim[p].dy*LAUNCH;balls[idx].spin=commitSpin[p]||0;}
+    maxp=Math.max(maxp,Math.hypot(commitAim[p].dx,commitAim[p].dy));}
+  SFX.launch(maxp/maxPull());
+  for(let p=0;p<commitIdx.length;p++){const idx=commitIdx[p];if(idx<0||!balls[idx])continue;const sp=Math.hypot(commitAim[p].dx,commitAim[p].dy);if(sp>BR&&!r3dActive)spawn(balls[idx].x,balls[idx].y,5,[PCOLS[balls[idx].owner].ui],sp*0.02,0.6);}
   setPhase('sim');setPhaseText();
 }
-function winnerRGB(loserOwner){return (1-loserOwner)===0?'0,212,255':'255,77,77';}
-function popBall(b){if(r3dActive)fx3Dust(b.x,b.y,b.vx,b.vy);else spawn(b.x,b.y,26,b.owner===0?['#00d4ff','#ffffff']:['#ff4d4d','#ffffff'],Math.max(5,Math.hypot(b.vx,b.vy))*0.9,1.1);}
+function winnerRGB(loserOwner){const w=roundWinner>=0?roundWinner:1-loserOwner;return PCOLS[w].rgb;}
+function popBall(b){if(r3dActive)fx3Dust(b.x,b.y,b.vx,b.vy);else spawn(b.x,b.y,26,[PCOLS[b.owner].ui,'#ffffff'],Math.max(5,Math.hypot(b.vx,b.vy))*0.9,1.1);}
 
 function stepSim(){
   const FR=curFR(),FE=curFE();
@@ -890,43 +940,57 @@ function stepSim(){
     if(crossed.length){
       const willDie=new Set(crossed);
       const left=o=>{let n=0;for(let k=0;k<balls.length;k++){const b=balls[k];if(b.alive&&!willDie.has(k)&&b.owner===o)n++;}return n;};
-      const roundOver=left(0)<=0||left(1)<=0;
+      // Rundenende, wenn hoechstens noch EIN Spieler lebende Kugeln haette
+      // (2 Spieler: identisch zu left(0)<=0||left(1)<=0; FFA: Last-Man-Standing).
+      const survivors=new Set();
+      for(let k=0;k<balls.length;k++){const b=balls[k];if(b.alive&&!willDie.has(k))survivors.add(b.owner);}
+      const roundOver=survivors.size<=1;
       if(roundOver){
         let decisive=-1,dmax=-1;
         for(const i of crossed){const o=balls[i].owner;if(left(o)<=0){const dd=Math.sqrt((balls[i].x-cx)*(balls[i].x-cx)+(balls[i].y-cy)*(balls[i].y-cy));if(dd>dmax){dmax=dd;decisive=i;}}}
+        // Rundensieger deterministisch: der Ueberlebende; sind ALLE Verbliebenen im selben
+        // Sub-Step raus, gewinnt der Besitzer der am wenigsten weit draussen liegenden Kugel
+        // (nicht der Verlierer-Besitzer). Fuer 2 Spieler immer identisch zu 1-loser.
+        roundWinner=-1;
+        for(let k=0;k<balls.length;k++){const b=balls[k];if(b.alive&&!willDie.has(k)){roundWinner=b.owner;break;}}
+        if(roundWinner<0){let md=Infinity;for(const i of crossed){if(balls[i].owner===balls[decisive].owner)continue;const dd=Math.sqrt((balls[i].x-cx)*(balls[i].x-cx)+(balls[i].y-cy)*(balls[i].y-cy));if(dd<md){md=dd;roundWinner=balls[i].owner;}}}
+        if(roundWinner<0)roundWinner=1-balls[decisive].owner;
         for(const i of crossed){if(i===decisive)continue;balls[i].alive=false;popBall(balls[i]);}
         const lb=balls[decisive];
         if(r3dActive)fx3Dust(lb.x,lb.y,lb.vx,lb.vy);
-        else spawn(lb.x,lb.y,40,lb.owner===0?['#00d4ff','#ffffff']:['#ff4d4d','#ffffff'],Math.max(6,Math.hypot(lb.vx,lb.vy))*1.1,1.4);
+        else spawn(lb.x,lb.y,40,[PCOLS[lb.owner].ui,'#ffffff'],Math.max(6,Math.hypot(lb.vx,lb.vy))*1.1,1.4);
         SFX.ringout();bgPulse=1;bgPulseRGB=winnerRGB(lb.owner);
         outBall=decisive;setPhase('result');return;
       }else{
         for(const i of crossed){balls[i].alive=false;popBall(balls[i]);}
-        SFX.drop();bgPulse=Math.max(bgPulse,0.4);bgPulseRGB=balls[crossed[0]].owner===0?'0,212,255':'255,77,77';
+        SFX.drop();bgPulse=Math.max(bgPulse,0.4);bgPulseRGB=PCOLS[balls[crossed[0]].owner].rgb;
       }
     }
   }
   let moving=false;for(const b of balls){if(b.alive&&Math.sqrt(b.vx*b.vx+b.vy*b.vy)>curST()){moving=true;break;}}
   if(!moving){
-    aimSet=[false,false];commitIdx=[-1,-1];commitAim=[{dx:0,dy:0},{dx:0,dy:0}];commitSpin=[0,0];
+    const n=mode==='ffa'?ffaN:2;   // bewusst inline (kein np()): stepSim laeuft auch im Golden-Harness
+    aimSet=[];commitIdx=[];commitAim=[];commitSpin=[];
+    for(let p=0;p<n;p++){aimSet.push(false);commitIdx.push(-1);commitAim.push({dx:0,dy:0});commitSpin.push(0);}
     setPhase('aim');updateHud();setPhaseText();
     if(online){curAimer=myPlayer;onlineArmTurn();}
     else if(mode==='pvp'){curAimer=0;openCover(0);}
+    else if(mode==='ffa'){for(let p=0;p<ffaN;p++)if(aliveCount(p)>0){curAimer=p;openCover(p);break;}}
   }
 }
 function resultDrift(){if(outBall<0)return;const b=balls[outBall];b.x+=b.vx*RESULT_SLOWMUL;b.y+=b.vy*RESULT_SLOWMUL;b.vx*=RESULT_FR;b.vy*=RESULT_FR;}
+function pName(p){return online?(p===myPlayer?'DU':'GEGNER'):(mode==='bot'&&p===1?'Bot':'Spieler '+(p+1));}
 function afterResult(){
-  const loser=balls[outBall].owner,winner=1-loser;score[winner]++;SFX.round(winner);
-  const who=online?(winner===myPlayer?'DU':'GEGNER'):(winner===0?'Spieler 1':(mode==='bot'?'Bot':'Spieler 2'));
+  const loser=balls[outBall].owner,winner=roundWinner>=0?roundWinner:1-loser;
+  roundWinner=-1;score[winner]++;SFX.round(winner);
   if(score[winner]>=winTarget){gameOver(winner);return;}
-  toast('🟢 '+who+' holt die Runde');roundNo++;
+  toast('🟢 '+pName(winner)+' holt die Runde');roundNo++;
   R=Math.max(R0*0.80,R-R0*0.030);startRound();
 }
 function gameOver(winner){setPhase('over');setPhaseText();
-  const wn=online?(winner===myPlayer?'DU':'GEGNER'):(winner===0?'Spieler 1':(mode==='bot'?'Bot':'Spieler 2'));
-  $('wt').textContent=wn+' gewinnt!';
+  $('wt').textContent=pName(winner)+' gewinnt!';
   $('wt').className='wt w'+winner;
-  $('ws').textContent=score[0]+' : '+score[1]+(mode==='bot'&&winner===1?' · Rematch?':'');
+  $('ws').textContent=score.join(' : ')+(mode==='bot'&&winner===1?' · Rematch?':'');
   document.querySelector('#ov .trophy').textContent='🏆';
   $('rematchBtn').style.display='';$('replayBtn').style.display='';
   SFX.win();setTimeout(()=>$('ov').classList.add('show'),500);}
@@ -1265,13 +1329,13 @@ function draw(){
   if(r3dActive&&fx3.length)drawFx3();
 
   // selection highlight (Doppel: zeig die waehlbaren eigenen Kugeln)
-  if(fmt==='double'&&!dragging){const aimer=whoCanAim();
-    if(aimer>=0){const col=aimer===0?'rgba(0,212,255,':'rgba(255,77,77,';const a=0.35+0.35*puls;
+  if(fmt==='double'&&mode!=='ffa'&&!dragging){const aimer=whoCanAim();
+    if(aimer>=0){const col='rgba('+PCOLS[aimer].rgb+',';const a=0.35+0.35*puls;
       for(const b of balls){if(b.alive&&b.owner===aimer){const q=OP(b.x,b.y,0);ctx.beginPath();ctx.arc(q.x,q.y,BR*1.5*q.s,0,7);ctx.lineWidth=Math.max(1.5,BR*0.16*q.s);ctx.setLineDash([BR*0.5*q.s,BR*0.4*q.s]);ctx.strokeStyle=col+a.toFixed(2)+')';ctx.stroke();ctx.setLineDash([]);}}}}
 
   // reveal arrows (forward launch dir je committeter Kugel) — nur 2D:
   // im 3D-Modus bleibt das Bild ruhig, es gibt keine Fremd-/Reveal-Pfeile
-  if(phase==='reveal'&&!r3dActive){for(let p=0;p<2;p++){const idx=commitIdx[p];if(idx>=0&&balls[idx]&&balls[idx].alive)drawArrow(balls[idx],commitAim[p]);}}
+  if(phase==='reveal'&&!r3dActive){for(let p=0;p<commitIdx.length;p++){const idx=commitIdx[p];if(idx>=0&&balls[idx]&&balls[idx].alive)drawArrow(balls[idx],commitAim[p]);}}
 
   // live slingshot preview
   if(dragging&&dragShooter>=0){const mp=maxPull();let px=dragPull.x,py=dragPull.y;const pl=Math.sqrt(px*px+py*py);
@@ -1284,12 +1348,9 @@ function draw(){
   ctx.restore();
 }
 function drawBall(b){
-  const isBlue=b.owner===0;
-  const col    =isBlue?'#00c8ff':'#ff2200';
-  const colLt  =isBlue?'#80eeff':'#ff8855';
-  const colDk  =isBlue?'#00304a':'#550008';
-  const glowRGB=isBlue?'0,190,255':'255,40,0';
-  const lbl    =b.owner===0?'1':(mode==='bot'?'B':'2');
+  const pc=PCOLS[b.owner];
+  const col=pc.c, colLt=pc.lt, colDk=pc.dk, glowRGB=pc.gl;
+  const lbl=(mode==='bot'&&b.owner===1)?'B':String(b.owner+1);
 
   // ── 1. Bodenschatten (nur 2D; im 3D-Modus wirft die Kugel echte Schatten) ──
   if(!r3dActive){
@@ -1366,7 +1427,7 @@ function drawSpinPreview(b,fx,fy,spin){
   ctx.lineCap='round';ctx.stroke();ctx.setLineDash([]);
 }
 function drawSling(b,cdx,cdy){
-  const col=b.owner===0?'#00d4ff':'#ff4d4d';const len=Math.hypot(cdx,cdy),mp=maxPull(),pwr=Math.min(1,len/mp);
+  const col=PCOLS[b.owner].ui;const len=Math.hypot(cdx,cdy),mp=maxPull(),pwr=Math.min(1,len/mp);
   const p0=OP(b.x,b.y,0),p1=OP(b.x+cdx,b.y+cdy,0),p2=OP(b.x-cdx*1.6,b.y-cdy*1.6,0);
   if(r3dActive){
     // Luxury-minimal: nur ein duenner Anthrazit-Strahl mit feiner Spitze und eine
@@ -1414,7 +1475,7 @@ function drawSling(b,cdx,cdy){
   else ctx.fillText(Math.round(pwr*100)+'%',qt.x,qt.y);
 }
 function drawArrow(b,a){const len=Math.hypot(a.dx,a.dy);if(len<BR*0.3)return;
-  const col=b.owner===0?'#00d4ff':'#ff4d4d';
+  const col=PCOLS[b.owner].ui;
   const p0=OP(b.x,b.y,0),p1=OP(b.x+a.dx*1.6,b.y+a.dy*1.6,0);
   ctx.beginPath();ctx.moveTo(p0.x,p0.y);ctx.lineTo(p1.x,p1.y);ctx.lineWidth=BR*0.42*p0.s;ctx.lineCap='round';ctx.strokeStyle=col;ctx.globalAlpha=.9;ctx.stroke();ctx.globalAlpha=1;
   const ang=Math.atan2(p1.y-p0.y,p1.x-p0.x),h=BR*0.8*p0.s;ctx.beginPath();ctx.moveTo(p1.x,p1.y);
@@ -1427,19 +1488,20 @@ function recordFrame(){
   if(recFrames.length>6000)recFrames.shift();
   recFrames.push({
     b:balls.map(b=>({x:b.x,y:b.y,vx:b.vx,vy:b.vy,o:b.owner,a:b.alive})),
-    R:R, s:[score[0],score[1]], rn:roundNo, ph:phase,
-    ci:[commitIdx[0],commitIdx[1]],
-    ca:[{dx:commitAim[0].dx,dy:commitAim[0].dy},{dx:commitAim[1].dx,dy:commitAim[1].dy}]
+    R:R, s:score.slice(), rn:roundNo, ph:phase,
+    ci:commitIdx.slice(),
+    ca:commitAim.map(a=>({dx:a.dx,dy:a.dy}))
   });
 }
 function renderRepFrame(i){
   const f=recFrames[i]; if(!f)return;
   balls=f.b.map(o=>({x:o.x,y:o.y,vx:o.vx,vy:o.vy,sx:o.x,sy:o.y,owner:o.o,alive:o.a}));
-  R=f.R; score=[f.s[0],f.s[1]]; roundNo=f.rn; phase=f.ph;
-  commitIdx=[f.ci[0],f.ci[1]];
-  commitAim=[{dx:f.ca[0].dx,dy:f.ca[0].dy},{dx:f.ca[1].dx,dy:f.ca[1].dy}];
+  R=f.R; score=f.s.slice(); roundNo=f.rn; phase=f.ph;
+  commitIdx=f.ci.slice();
+  commitAim=f.ca.map(a=>({dx:a.dx,dy:a.dy}));
   particles=[]; fx3=[]; bgPulse=0; dragging=false;
-  $('sc0').textContent=f.s[0];$('sc1').textContent=f.s[1];$('rinfo').textContent='Runde '+f.rn;
+  if(mode==='ffa')renderFfaBar();
+  else{$('sc0').textContent=f.s[0];$('sc1').textContent=f.s[1];$('rinfo').textContent='Runde '+f.rn;}
   draw();
 }
 function updateRepBtns(){
@@ -1588,11 +1650,9 @@ async function initR3D(){
     // Kugeln: Radius exakt BR (Physik-Wahrheit), Material aus dem akzeptierten Prototyp
     // Polierte Murmeln: satter/dunkler Grundton, klarer Lack, kraeftige Reflexe -> liest sich
     // deutlich gegen den hellen Marmor, ohne Plastik-Look
-    const ballMat=[
-      new THREE.MeshPhysicalMaterial({color:0x0a6db8,roughness:.07,metalness:.05,
-        clearcoat:1.0,clearcoatRoughness:.07,envMapIntensity:1.15,specularIntensity:1.0}),
-      new THREE.MeshPhysicalMaterial({color:0xa81e0e,roughness:.07,metalness:.05,
-        clearcoat:1.0,clearcoatRoughness:.07,envMapIntensity:1.15,specularIntensity:1.0})];
+    // 5 Materialien aus der zentralen Farbtabelle (Slots 0/1 = bisherige Werte)
+    const ballMat=PCOLS.map(pc=>new THREE.MeshPhysicalMaterial({color:pc.m3,roughness:.07,metalness:.05,
+      clearcoat:1.0,clearcoatRoughness:.07,envMapIntensity:1.15,specularIntensity:1.0}));
     const ballMeshes=[],fallT=[],decals=[],fallV=[],prevP=[];
     // Kontaktschatten-Decal (Prototyp): erdet die Kugeln zusaetzlich zum echten Schatten
     const cCan=document.createElement('canvas');cCan.width=cCan.height=128;
