@@ -21,7 +21,8 @@ Offene Aufgaben nach Priorität. Abgeschlossene Aufgaben werden nach `CHANGELOG.
 
 ## P1 — Hoch (Codequalität / Architektur)
 
-- [ ] **M2-T1b — Ice-Feel-Physik-Tuning (freigegeben, ausstehend):** Auslauf minimal früher abbremsen (Kandidat: `FEND` von 0.992 leicht senken, ggf. `STOPV` leicht anheben; schnelle Gleitphase unverändert). **Zwingend:** `ONLINE_PROTOCOL_VERSION` 1→2 **und** `firebase.rules.json` `v===2` neu publizieren (sonst Desync/blockierte Online-Räume). Deterministik-relevant.
+- [x] ~~**Offline-Tuning-Harness (M5-T1)**~~ → **abgeschlossen & akzeptiert**: `?tune=br/fend/stopv` nur lokal (Online hart blockiert), `tools/tune_compare.js`, Default bit-identisch; inkl. 3D-Aim-Fix (Screen-Space-Zone, viewport-großes Overlay), siehe CHANGELOG (2026-07-08)
+- [ ] **M5-T2 — Physics-Tuning-Pass (Sizing + Ice-Feel, gebündelt; ersetzt M2-T1b):** Zielwerte per `?tune=`-Playtest fixieren (BR/FEND/STOPV), dann in **einem** Commit: Konstanten einbauen, Goldens `--update`, `ONLINE_PROTOCOL_VERSION` 1→2, `firebase.rules.json` `v===2` publizieren, Online-Zwei-Tab-Test. Kandidaten: `FEND` 0.992→0.989–0.990, `STOPV` 0.10→0.12, `BR` 0.032→0.028–0.029; `R0`/`MAXPULL_FRAC`/`FRICTION`/`REST` unverändert.
 
 - [ ] **Build-System einrichten:** Vite initialisieren, `index.html` als Einstiegspunkt. Ermöglicht ES-Module, Env-Variablen und Tree-Shaking.
 - [ ] **Code aufteilen:** Spiellogik aus `index.html` in separate Module extrahieren:

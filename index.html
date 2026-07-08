@@ -61,6 +61,10 @@ header{width:100%;max-width:460px;display:flex;align-items:center;justify-conten
 #vig3d{position:fixed;inset:0;pointer-events:none;z-index:0;
   background:radial-gradient(ellipse at 50% 42%,rgba(0,0,0,0) 52%,rgba(10,16,26,.16) 78%,rgba(6,10,18,.38) 100%)}
 #cv{width:100%;height:100%;display:block;touch-action:none}
+/* 3D-Modus: Overlay-Canvas deckt den ganzen Viewport — Aim-Pfeil/Prozent wuerden sonst am
+   Rand des Wrap-Quadrats abgeschnitten. UI-Elemente liegen darueber (Buttons haben Vorrang). */
+body.r3d #cv{position:fixed;inset:0}
+body.r3d header,body.r3d .status,body.r3d .botbar{position:relative;z-index:2}
 
 .phase{width:100%;max-width:460px;text-align:center;font-size:12px;font-weight:800;letter-spacing:.04em;min-height:34px;display:flex;align-items:center;justify-content:center;flex-shrink:0;padding:4px}
 /* 3D-Modus: Hinweistext als dunkler Chip -> lesbar ueber hellem Himmel/Arena, nie verdeckt */
@@ -449,10 +453,18 @@ function resize(){
   const wrap=cv.parentElement,rect=wrap.getBoundingClientRect();
   const s=Math.min(rect.width,rect.height)||320;
   DPR=Math.min(window.devicePixelRatio||1,2);
-  dispS=s;
+  if(r3dActive&&r3d){                                       // 3D: Overlay = ganzer Viewport (kein Rand-Clipping)
+    const vw=innerWidth||s,vh=innerHeight||s;
+    dispS=vw;
+    cv.width=Math.round(vw*DPR);cv.height=Math.round(vh*DPR);cv.style.width=vw+'px';cv.style.height=vh+'px';
+    const k=(vw*DPR)/LOGICAL;ctx.setTransform(k,0,0,k,0,0);
+    W=LOGICAL;H=LOGICAL*vh/vw;                              // logische Overlay-Hoehe folgt dem Seitenverhaeltnis
+    r3d.resize(s);
+    return;
+  }
+  dispS=s;W=LOGICAL;H=LOGICAL;
   cv.width=Math.round(s*DPR);cv.height=Math.round(s*DPR);cv.style.width=s+'px';cv.style.height=s+'px';
   const k=(s*DPR)/LOGICAL;ctx.setTransform(k,0,0,k,0,0);   // logisch -> Geraete-Pixel (voll scharf)
-  if(r3dActive&&r3d)r3d.resize(s);                          // 3D-Layer deckungsgleich mitfuehren
 }
 window.addEventListener('resize',resize);   // R0 ist konstant -> R bleibt unveraendert
 
@@ -475,8 +487,30 @@ const MAXPULL_FRAC=0.40, LAUNCH=0.034, FRICTION=0.992, FEND=0.992, SLOWV=0.35, R
 const SPIN_K=0.004, SPIN_DECAY=0.985, SPIN_SCALE=R0*0.18, SPIN_INPUT=R0*0.45;   // SPIN_INPUT: horizontale Wischweite des 2. Fingers fuer vollen Drall (+/-1)
 const REVEAL_MS=600, RESULT_MS=950;
 const RESULT_SLOWMUL=0.7, RESULT_FR=0.99;
+// ── Offline-Tuning-Harness (M5-T1, ?tune=br:28,fend:0.9895,stopv:0.12): NUR lokal/Bot.
+//    Werte werden validiert und geklemmt; bei aktivem TUNE ist Online hart blockiert
+//    (openOnline/createRoom/joinRoom). Ohne Flag ist jeder Pfad bit-identisch zum Default. ──
+const TUNE=(()=>{
+  const q=new URLSearchParams(location.search).get('tune');if(!q)return null;
+  const t={};
+  for(const kv of q.split(',')){
+    const[k,v]=kv.split(':'),n=parseFloat(v);if(!isFinite(n))continue;
+    if(k==='br'&&n>=20&&n<=40)t.br=n;
+    else if(k==='fend'&&n>=0.980&&n<=0.992)t.fend=n;
+    else if(k==='stopv'&&n>=0.05&&n<=0.20)t.stopv=n;
+  }
+  return(t.br!=null||t.fend!=null||t.stopv!=null)?t:null;
+})();
+if(TUNE){
+  if(TUNE.br!=null)BR=LOGICAL*TUNE.br/1000;
+  const b=document.createElement('div');
+  b.textContent='TUNE: '+Object.entries(TUNE).map(([k,v])=>k.toUpperCase()+' '+v).join(' · ');
+  b.style.cssText='position:fixed;top:8px;left:50%;transform:translateX(-50%);z-index:9999;background:rgba(120,58,4,.88);color:#ffd9a0;font:700 10px/1.7 system-ui;padding:2px 12px;border-radius:12px;letter-spacing:.08em;pointer-events:none';
+  document.body.appendChild(b);
+}
 function curFR(){return FRICTION;}
-function curFE(){return FEND;}
+function curFE(){return TUNE&&TUNE.fend!=null?TUNE.fend:FEND;}
+function curST(){return TUNE&&TUNE.stopv!=null?TUNE.stopv:STOPV;}
 function maxPull(){return R0*MAXPULL_FRAC;}
 function setPhase(p){phase=p;phaseStart=performance.now();}
 
@@ -554,9 +588,25 @@ function localPt(e){
   const r=cv.getBoundingClientRect();const sc=LOGICAL/(r.width||dispS);let x=(e.clientX-r.left)*sc,y=(e.clientY-r.top)*sc;if(online&&myPlayer===1){x=2*cx-x;y=2*cy-y;}return{x:x,y:y};}
 function whoCanAim(){if(r3dOrbit)return -1;if(phase!=='aim')return -1;if(online)return aimSet[myPlayer]?-1:myPlayer;if(mode==='bot')return aimSet[0]?-1:0;return aimSet[curAimer]?-1:curAimer;}
 function pickOwnBall(who,p){let best=-1,bd=1e9;balls.forEach((b,i)=>{if(b.alive&&b.owner===who){const d=Math.hypot(p.x-b.x,p.y-b.y);if(d<bd){bd=d;best=i;}}});const reach=fmt==='double'?BR*2.8:BR*5;return bd<=reach?best:-1;}
+// 3D: Screen-space-Trefferzone — projizierter Kugelmittelpunkt + grosszuegiger Touch-Radius
+// (mind. 52 CSS-px). Die Welt-Pruefung am Ray-Bodenpunkt verfehlt die sichtbare Kugel bei
+// flacher Kamera/Zoom, weil die Silhouette ueber ihrem Bodenpunkt liegt. Naechste Kugel gewinnt.
+function pickOwnBall3D(who,e){
+  const r=cv.getBoundingClientRect(),sc=LOGICAL/(r.width||dispS);
+  const px=(e.clientX-r.left)*sc,py=(e.clientY-r.top)*sc,minR=52*sc;
+  let best=-1,bd=1e9;
+  balls.forEach((b,i)=>{if(b.alive&&b.owner===who){
+    const q=OP(b.x,b.y,BR);
+    const d=Math.hypot(px-q.x,py-q.y)-Math.max(BR*1.4*q.s,minR);   // Abstand minus erlaubte Zone
+    if(d<bd){bd=d;best=i;}}});
+  return bd<=0?best:-1;
+}
 function startAim(who,idx,p,e){try{cv.setPointerCapture(e.pointerId);}catch(_){}
   aimPid=e.pointerId;dragging=true;dragShooter=idx;dragOwner=who;
-  dragStart={x:balls[idx].x,y:balls[idx].y};dragCur=p;dragPull={x:0,y:0};dragSpin=0;SFX.charge.start();}
+  // 3D: Zug relativ zum Griffpunkt (der Ray-Bodenpunkt liegt hinter der sichtbaren Kugel —
+  // sonst entsteht beim Antippen ein Phantom-Offset). 2D unveraendert: relativ zum Kugelmittelpunkt.
+  dragStart=r3dActive?{x:p.x,y:p.y}:{x:balls[idx].x,y:balls[idx].y};
+  dragCur=p;dragPull={x:0,y:0};dragSpin=0;SFX.charge.start();}
 cv.addEventListener('pointerdown',e=>{
   if(!r3dActive){                                   // ── 2D: Originalverhalten, unveraendert ──
     const who=whoCanAim();if(who<0)return;const p=localPt(e);
@@ -572,8 +622,8 @@ cv.addEventListener('pointerdown',e=>{
   // ── 3D: Aim-Zone (Kugelnaehe) hat Vorrang; sonst Kamera. Nie beides gleichzeitig. ──
   const who=whoCanAim();
   if(who>=0&&aimPid<0&&camPid<0){                   // Aim nur, wenn KEIN Kamera-Drag aktiv
-    const p=localPt(e);const idx=pickOwnBall(who,p);
-    if(idx>=0){startAim(who,idx,p,e);return;}
+    const idx=pickOwnBall3D(who,e);
+    if(idx>=0){startAim(who,idx,localPt(e),e);return;}
   }
   if(aimPid>=0&&spinPid<0&&e.pointerId!==aimPid){   // 2. Finger WAEHREND Zielen: Drall (Kamera gesperrt)
     try{cv.setPointerCapture(e.pointerId);}catch(_){}
@@ -597,7 +647,8 @@ window.addEventListener('pointermove',e=>{
     dragPull={x:dx,y:dy};                                  // live: folgt dem Finger in JEDE Richtung (kein Ratschen)
     SFX.charge.update(Math.min(1,len/mp));
   }else if(e.pointerId===spinPid){                          // rechts wischen = +Drall, links = -Drall
-    if(r3dActive){const r=cv.getBoundingClientRect();const sc2=LOGICAL/(r.width||dispS);
+    if(r3dActive){const wr=cv.parentElement.getBoundingClientRect();       // Empfindlichkeit wie bisher am Wrap-Quadrat
+      const sc2=LOGICAL/(Math.min(wr.width,wr.height)||dispS);
       dragSpin=Math.max(-1,Math.min(1,(e.clientX-spinStartX)*sc2/SPIN_INPUT));
     }else{const p=localPt(e);
       dragSpin=Math.max(-1,Math.min(1,(p.x-spinStartX)/SPIN_INPUT));}
@@ -696,7 +747,7 @@ function simExchange(pA,pB,aA,aB){
     if(Math.hypot(A.x-cx,A.y-cy)>R+BR*0.1)outA=true;
     if(Math.hypot(B.x-cx,B.y-cy)>R+BR*0.1)outB=true;
     if(outA||outB)break;
-    if(Math.hypot(A.vx,A.vy)<STOPV&&Math.hypot(B.vx,B.vy)<STOPV)break;
+    if(Math.hypot(A.vx,A.vy)<curST()&&Math.hypot(B.vx,B.vy)<curST())break;
   }
   return{A,B,outA,outB};
 }
@@ -763,7 +814,7 @@ function simSnap(a,horizon){const FR=curFR(),FE=curFE();
           const rvx=B.vx-A.vx,rvy=B.vy-A.vy,vn=rvx*nx+rvy*ny;if(vn<0){const im=-(1+REST)*vn/2;A.vx-=im*nx;A.vy-=im*ny;B.vx+=im*nx;B.vy+=im*ny;}}}}
       for(const b of a){if(b.alive&&Math.hypot(b.x-cx,b.y-cy)>R+BR*0.1){b.alive=false;b.vx=0;b.vy=0;}}
     }
-    let mv=false;for(const b of a){if(b.alive&&Math.hypot(b.vx,b.vy)>STOPV){mv=true;break;}}
+    let mv=false;for(const b of a){if(b.alive&&Math.hypot(b.vx,b.vy)>curST()){mv=true;break;}}
     if(!mv)break;
     if(!a.some(b=>b.alive&&b.owner===0)||!a.some(b=>b.alive&&b.owner===1))break;
   }}
@@ -841,7 +892,7 @@ function stepSim(){
       }
     }
   }
-  let moving=false;for(const b of balls){if(b.alive&&Math.sqrt(b.vx*b.vx+b.vy*b.vy)>STOPV){moving=true;break;}}
+  let moving=false;for(const b of balls){if(b.alive&&Math.sqrt(b.vx*b.vx+b.vy*b.vy)>curST()){moving=true;break;}}
   if(!moving){
     aimSet=[false,false];commitIdx=[-1,-1];commitAim=[{dx:0,dy:0},{dx:0,dy:0}];commitSpin=[0,0];
     setPhase('aim');updateHud();setPhaseText();
@@ -872,6 +923,7 @@ function rRef(p){return window.FB.ref(window.FB.db,'rooms/'+roomCode+(p?'/'+p:''
 function setStatus(t){const e=$('onStatus');if(e)e.textContent=t;}
 
 function openOnline(){
+  if(TUNE){toast('Tuning aktiv — Online deaktiviert');return;}
   $('online').classList.add('show');
   $('onCreate').style.display='';$('onJoinRow').style.display='flex';$('onWait').style.display='none';
   $('onCode').textContent='';$('onInput').value='';setStatus('');
@@ -879,6 +931,7 @@ function openOnline(){
 }
 
 function createRoom(){
+  if(TUNE){toast('Tuning aktiv — Online deaktiviert');return;}
   whenFB(()=>{ if(!fbReady()){setStatus('⚠ Keine Verbindung zu Firebase.');return;}
     (async()=>{ try{
       setStatus('Erstelle Raum…');
@@ -916,6 +969,7 @@ function validateRoom(d){
   return{ok:true,winTarget:cfg.winTarget,fmt:cfg.fmt,gen:d.gen};
 }
 function joinRoom(){
+  if(TUNE){toast('Tuning aktiv — Online deaktiviert');return;}
   const code=($('onInput').value||'').toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,4);
   if(code.length<4){ setStatus('Bitte 4-stelligen Code eingeben.'); return; }
   whenFB(()=>{ if(!fbReady()){setStatus('⚠ Keine Verbindung zu Firebase.');return;}
@@ -1310,13 +1364,15 @@ function drawSling(b,cdx,cdy){
     // freistehende Prozentzahl — editorial, kraeftiges Anthrazit; weicher Halo + zweiter
     // scharfer Pass halten sie auf Marmor lesbar, auch wenn der Strahl darunter liegt
     const qt=OP(b.x,b.y-BR*2.7,BR),txt=Math.round(pwr*100)+'%';
+    const fs=Math.max(14,BR*0.72*qt.s);
+    const qx=Math.min(W-fs*1.6,Math.max(fs*1.6,qt.x)),qy=Math.min(H-fs,Math.max(fs,qt.y));   // bleibt im Overlay sichtbar
     ctx.save();
-    ctx.font='400 '+Math.max(14,BR*0.72*qt.s)+'px system-ui';
+    ctx.font='400 '+fs+'px system-ui';
     ctx.letterSpacing=Math.max(1,BR*0.06*qt.s)+'px';
     ctx.textAlign='center';ctx.textBaseline='middle';
     ctx.shadowColor='rgba(255,255,255,.85)';ctx.shadowBlur=Math.max(3,BR*0.26*qt.s);
-    ctx.fillStyle='rgba(18,21,26,.95)';ctx.fillText(txt,qt.x,qt.y);
-    ctx.shadowBlur=0;ctx.fillText(txt,qt.x,qt.y);
+    ctx.fillStyle='rgba(18,21,26,.95)';ctx.fillText(txt,qx,qy);
+    ctx.shadowBlur=0;ctx.fillText(txt,qx,qy);
     ctx.restore();
     return;
   }
@@ -1541,9 +1597,9 @@ async function initR3D(){
       const tanV=Math.tan(45*Math.PI/360), need=530;         // sichtbarer Plattform-Aussenradius + knapper Rand
       const baseDist=Math.max(need/(tanV*aspect),need/tanV)*1.10;
       curSide=(online&&myPlayer===1)?-1:1;
-      const rect=cv.getBoundingClientRect();
+      const rect=cv.getBoundingClientRect(),wr=cv.parentElement.getBoundingClientRect();
       geo={vw,vh,baseDist,ox:rect.left,oy:rect.top,os:rect.width||1,
-           shx:rect.left+rect.width/2-vw/2,shy:rect.top+rect.height/2-vh/2};   // Principal Point -> Wrap-Zentrum
+           shx:wr.left+wr.width/2-vw/2,shy:wr.top+wr.height/2-vh/2};   // Principal Point -> Wrap-Zentrum (cv ist jetzt Viewport-gross)
       camera.fov=45;camera.aspect=aspect;camera.near=10;camera.far=20000;
       camera.setViewOffset(vw,vh,-geo.shx,-geo.shy,vw,vh);   // identischer Shift wie in r3dCamMath
       camera.updateProjectionMatrix();

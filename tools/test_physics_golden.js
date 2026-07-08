@@ -39,6 +39,7 @@ function buildEnv(frictionOverride) {
     ${frictionOverride ? 'const __FR=' + frictionOverride + ';' : ''}
     function curFR(){return ${frictionOverride ? '__FR' : 'FRICTION'};}
     function curFE(){return ${frictionOverride ? '__FR' : 'FEND'};}
+    function curST(){return STOPV;}
     function maxPull(){return R0*MAXPULL_FRAC;}
     let balls=[], phase='sim', outBall=-1;
     let aimSet=[false,false], commitIdx=[-1,-1], commitAim=[{dx:0,dy:0},{dx:0,dy:0}], commitSpin=[0,0];
