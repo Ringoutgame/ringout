@@ -15,7 +15,8 @@ Offene Aufgaben nach Priorität. Abgeschlossene Aufgaben werden nach `CHANGELOG.
 - [ ] **Firebase App Check aktivieren (nachgelagert):** Braucht registrierte http(s)-Origin (reCAPTCHA) — erst nach Hosting/Build (M4-T2) sinnvoll; per `file://` geöffnete Clients könnten sich sonst nicht attestieren.
 - [ ] **API-Key aus Quellcode ziehen (nachgelagert, M4-T2):** `.env` + Build-System; aktuell öffentlich (durch Rules + späteren App Check abgesichert).
 - [ ] **Room-TTL / Cleanup (nachgelagert):** Neue Rules blockieren Client-Deletes; Test-/Alträume bleiben liegen. TTL via Cloud Function später.
-- [ ] **Manueller Browser-Smoke M1 (T1–T4):** Bot-/PvP-Runde + Online-Zwei-Tab (Create, Join, Commit, Rematch, Disconnect) nach Rules-Publish. Automatisierte Logik-/REST-Tests grün, interaktiver Check steht aus.
+- [ ] **Manueller Browser-Smoke M1 (T1–T4):** Bot-/PvP-Runde + Online-Zwei-Tab (Create, Join, Commit, Rematch, Disconnect) nach Rules-Publish. Automatisierte Logik-/REST-Tests grün; Online-Kernfluss inzwischen via M6-T1 (2v2) manuell bestätigt, Rematch/Disconnect-Check steht noch aus.
+- [x] ~~**Online 2v2 verifizieren (M6-T1)**~~ → **manuell bestätigt (2026-07-08)**: Feature war bereits seit M1 vollständig implementiert (Lockstep-Move mit `idx`, Rules idx 0–3, `fmt:'double'` in Raum-Config). Zwei-Tab-Test bestanden: Create/Join, je 2 Kugeln, Kugelwahl, Reveal, synchrone Simulation, Ringout, Rundensieg, 3D-Default. Keine Codeänderung, kein Protocol-Bump, keine Firebase-Änderung.
 
 ---
 
