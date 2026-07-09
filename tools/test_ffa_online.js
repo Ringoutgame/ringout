@@ -7,26 +7,27 @@
 //   (5) start gate: >=2 players, no seat gaps (no auto-compacting in v1),
 //   (6) host start writes state='playing' THEN seats=n (sequential order).
 //   node test_ffa_online.js
-const fs = require('fs');
-const html = fs.readFileSync(require('path').join(__dirname, '..', 'index.html'), 'utf8');
-const grab = (re, name) => {
-  const m = html.match(re);
-  if (!m) { console.error('FAIL: cannot extract ' + name); process.exit(1); }
-  return m[0];
-};
-const verSrc = grab(/const ONLINE_PROTOCOL_VERSION=[^\n]*/, 'ONLINE_PROTOCOL_VERSION');
-const seatsSrc = grab(/const FFA_MAX_SEATS=[^\n]*/, 'FFA_MAX_SEATS');
-const genSrc = grab(/const GEN_MAX=[^\n]*/, 'GEN_MAX');
-const vrSrc = grab(/function validateRoom\(d\)\{[\s\S]*?\n\}/, 'validateRoom');
-const pfsSrc = grab(/function pickFreeSeat\(p,max\)\{[^\n]*/, 'pickFreeSeat');
-const aacSrc = grab(/function allAliveCommitted\(\)\{[^\n]*/, 'allAliveCommitted');
-const scSrc = grab(/function seatCount\(p\)\{[^\n]*/, 'seatCount');
-const sgSrc = grab(/function seatsContiguous\(p,n\)\{[^\n]*/, 'seatsContiguous');
-const sfmSrc = grab(/function startFfaMatch\(\)\{[\s\S]*?\n\}/, 'startFfaMatch');
+const { loadIndexHtml, grab } = require('./extract');
+const html = loadIndexHtml();
+const verSrc = grab(html, /const ONLINE_PROTOCOL_VERSION=[^\n]*/, 'ONLINE_PROTOCOL_VERSION');
+const seatsSrc = grab(html, /const FFA_MAX_SEATS=[^\n]*/, 'FFA_MAX_SEATS');
+const genSrc = grab(html, /const GEN_MAX=[^\n]*/, 'GEN_MAX');
+const vrSrc = grab(html, /function validateRoom\(d\)\{[\s\S]*?\n\}/, 'validateRoom');
+const pfsSrc = grab(html, /function pickFreeSeat\(p,max\)\{[^\n]*/, 'pickFreeSeat');
+const aacSrc = grab(html, /function allAliveCommitted\(\)\{[^\n]*/, 'allAliveCommitted');
+const scSrc = grab(html, /function seatCount\(p\)\{[^\n]*/, 'seatCount');
+const sgSrc = grab(html, /function seatsContiguous\(p,n\)\{[^\n]*/, 'seatsContiguous');
+const sfmSrc = grab(html, /function startFfaMatch\(\)\{[\s\S]*?\n\}/, 'startFfaMatch');
 
-const VER = new Function(`${verSrc};return ONLINE_PROTOCOL_VERSION;`)();   // fixtures follow the real protocol version
+// Each snippet on its own line: an extracted const may end in a // comment,
+// which only a line break (absent on Linux/LF) terminates — never chain with ';'.
+const VER = new Function(`${verSrc}\nreturn ONLINE_PROTOCOL_VERSION;`)();   // fixtures follow the real protocol version
 const env = new Function(`
-  ${verSrc}; ${seatsSrc}; ${genSrc}; ${vrSrc}; ${pfsSrc}
+  ${verSrc}
+  ${seatsSrc}
+  ${genSrc}
+  ${vrSrc}
+  ${pfsSrc}
   let mode='ffa', ffaN=3, balls=[], aimSet=[];
   function np(){return mode==='ffa'?ffaN:2;}
   function aliveCount(o){let n=0;for(const b of balls)if(b.alive&&b.owner===o)n++;return n;}

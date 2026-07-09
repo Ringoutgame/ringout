@@ -1,12 +1,13 @@
 // M1-T2 verification: tests the REAL validateRoom extracted from index.html.
-const fs = require('fs');
-const html = fs.readFileSync(require('path').join(__dirname, '..', 'index.html'), 'utf8');
-const constM = html.match(/const GEN_MAX=[^\n]*/);
-const verM = html.match(/const ONLINE_PROTOCOL_VERSION=[^\n]*/);
-const fnM = html.match(/function validateRoom\(d\)\{[\s\S]*?\n\}/);
-if (!constM || !verM || !fnM) { console.error('FAIL: validateRoom/GEN_MAX/ONLINE_PROTOCOL_VERSION not found'); process.exit(1); }
-const validateRoom = new Function(verM[0] + ';' + constM[0] + ';' + fnM[0] + ';return validateRoom;')();
-const VER = new Function(verM[0] + ';return ONLINE_PROTOCOL_VERSION;')();   // fixtures follow the real protocol version
+const { loadIndexHtml, grab } = require('./extract');
+const html = loadIndexHtml();
+const genSrc = grab(html, /const GEN_MAX=[^\n]*/, 'GEN_MAX');
+const verSrc = grab(html, /const ONLINE_PROTOCOL_VERSION=[^\n]*/, 'ONLINE_PROTOCOL_VERSION');
+const vrSrc = grab(html, /function validateRoom\(d\)\{[\s\S]*?\n\}/, 'validateRoom');
+// Join snippets with newlines, never ';': an extracted line may end in a
+// // comment, which only a real line break (absent on Linux/LF) terminates.
+const validateRoom = new Function([verSrc, genSrc, vrSrc, 'return validateRoom;'].join('\n'))();
+const VER = new Function([verSrc, 'return ONLINE_PROTOCOL_VERSION;'].join('\n'))();   // fixtures follow the real protocol version
 
 let pass = 0, fail = 0;
 const t = (name, cond) => { cond ? pass++ : (fail++, console.error('FAIL: ' + name)); };
