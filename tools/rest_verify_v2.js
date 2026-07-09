@@ -2,8 +2,9 @@
 // AFTER the v2 rules have been published (supersedes rest_verify.js/M1-T4).
 // Covers the full old single/double regression plus the new ffa schema.
 // ALLOW = expect HTTP 200. DENY = expect HTTP 401/403 (Permission denied).
-// Note: rooms cannot be deleted by clients — test rooms persist until they
-// are removed manually in the Firebase console (known TTL backlog item).
+// Room cleanup (v1): a whole room may be deleted ONLY when no seat is present.
+// The cleanup section + the final test-room purge below therefore pass ONLY
+// AFTER the cleanup delete-rule has been published (run this after publish).
 //
 // SAFETY: this script writes to the LIVE database. It refuses to run unless
 // --live is passed explicitly, so it can never fire from an automated runner.
@@ -106,8 +107,28 @@ async function freshCode(){ for(let i=0;i<8;i++){ const c=rc(); const g=await ge
   await expect('DENY','seats=1',                                await put(`rooms/${RS}/seats`, 1));
   await expect('ALLOW','seats=2',                               await put(`rooms/${RS}/seats`, 2));
 
+  // ── room cleanup delete (v1): whole-room delete allowed ONLY when empty ──
+  // NOTE: passes only AFTER the cleanup delete-rule is published.
+  const RC = await freshCode();
+  console.log(`\n=== room cleanup delete  [room ${RC}] ===`);
+  await expect('ALLOW','create room RC',                        await put(`rooms/${RC}`, room()));
+  await expect('ALLOW','guest joins p/1',                       await put(`rooms/${RC}/p/1`, true));
+  await expect('DENY','room delete blocked, host+guest present',await del(`rooms/${RC}`));
+  await expect('ALLOW','host leaves p/0',                       await del(`rooms/${RC}/p/0`));
+  await expect('DENY','room delete blocked, p/1 still present',  await del(`rooms/${RC}`));
+  await expect('ALLOW','last guest leaves p/1',                 await del(`rooms/${RC}/p/1`));
+  await expect('ALLOW','room delete when empty (cleanup)',      await del(`rooms/${RC}`));
+  await expect('ALLOW','room gone after cleanup',               await get(`rooms/${RC}`).then(r=>({status:r.text==='null'?200:500,text:r.text})));
+
+  // ── purge persistent test rooms: drop any presence, then delete the room ──
+  console.log('\n=== cleanup: purge test rooms (needs cleanup rule live) ===');
+  for(const c of [RA,RF,RS]){
+    for(let s=0;s<5;s++) await del(`rooms/${c}/p/${s}`);
+    await expect('ALLOW',`delete test room ${c}`,               await del(`rooms/${c}`));
+  }
+
   console.log(`\n==================== RESULT: ${pass} passed, ${fail} failed ====================`);
   if(fail) console.log('FAILED:', fails.join(' | '));
-  console.log(`Persistent test rooms left in DB (deletes blocked by rules): ${RA}, ${RF}, ${RS}`);
+  console.log('Test rooms purged after run (cleanup rule): none should remain.');
   process.exit(fail?1:0);
 })().catch(e=>{ console.error('SUITE ERROR:', e); process.exit(2); });

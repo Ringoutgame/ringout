@@ -1304,7 +1304,10 @@ function leaveOnline(){
   if(!online && !roomCode)return;
   try{ if(turnUnsub)turnUnsub(); }catch(e){} try{ if(genUnsub)genUnsub(); }catch(e){} try{ if(presUnsub)presUnsub(); }catch(e){} try{ if(seatsUnsub)seatsUnsub(); }catch(e){}
   turnUnsub=genUnsub=presUnsub=seatsUnsub=null;
-  try{ if(window.FB && roomCode) window.FB.remove(rRef('p/'+myPlayer)); }catch(e){}
+  // Eigene Presence entfernen, dann best-effort den ganzen Raum abräumen: die
+  // Cleanup-Rule erlaubt den Room-Delete nur, wenn kein Seat mehr präsent ist —
+  // sonst wird er still verworfen (laufendes Match anderer bleibt unberührt).
+  try{ if(window.FB && roomCode){ window.FB.remove(rRef('p/'+myPlayer)); window.FB.remove(rRef()).catch(()=>{}); } }catch(e){}
   online=false; gameStarted=false; roomCode=''; lobbyP={}; seatLeft=[]; seatGone=[];
   mode=menuMode; ffaN=ffaNMenu;   // Online-FFA stellt mode/ffaN um — Menue-Auswahl wiederherstellen
 }

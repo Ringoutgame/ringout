@@ -1,6 +1,6 @@
 # TODO.md — RingOut
 
-**Zuletzt aktualisiert:** 2026-07-09 (CI-Pipeline)
+**Zuletzt aktualisiert:** 2026-07-09 (Room-Cleanup v1)
 
 Offene Aufgaben nach Priorität. Abgeschlossene Aufgaben werden nach `CHANGELOG.md` verschoben.
 
@@ -14,7 +14,8 @@ Offene Aufgaben nach Priorität. Abgeschlossene Aufgaben werden nach `CHANGELOG.
 - [x] ~~**Firebase Datenbankregeln härten (M1-T4)**~~ → erledigt: `firebase.rules.json` publiziert, REST-Verifikation (29/29, inkl. Gen-Match) und manueller Zwei-Tab-Test bestanden, siehe CHANGELOG (2026-07-06)
 - [ ] **Firebase App Check aktivieren (nachgelagert):** Braucht registrierte http(s)-Origin (reCAPTCHA) — erst nach Hosting/Build (M4-T2) sinnvoll; per `file://` geöffnete Clients könnten sich sonst nicht attestieren.
 - [ ] **API-Key aus Quellcode ziehen (nachgelagert, M4-T2):** `.env` + Build-System; aktuell öffentlich (durch Rules + späteren App Check abgesichert).
-- [ ] **Room-TTL / Cleanup (nachgelagert):** Neue Rules blockieren Client-Deletes; Test-/Alträume bleiben liegen. TTL via Cloud Function später.
+- [x] ~~**Room-Cleanup v1**~~ → **abgeschlossen & live-verifiziert (2026-07-09)**: `firebase.rules.json` erlaubt additiv das Löschen leerer Räume (kein Seat `p/0…p/4` präsent), `leaveOnline()` räumt den Raum best-effort ab; kein Protocol-Bump. Live-REST-Verify 67/67 nach Publish, Rules-Suite 70/70. Siehe CHANGELOG.
+- [ ] **Room-TTL für Crash-Orphans (nachgelagert):** Cleanup v1 räumt nur bei sauberem Leave; Crash/Tab-Close des letzten Spielers kann leere Hüllen hinterlassen (kein Move-Wachstum). Vollautomatischer Sweep braucht Cloud Function/Blaze — verschoben. Alte REST-Testräume (7SNX, DDKU, 5CZ4) sind jetzt löschbar und können manuell oder per `--live`-Purge entfernt werden.
 - [x] ~~**Manueller Browser-Smoke M1 (T1–T4)**~~ → **abgeschlossen (2026-07-08)**: Online-Kernfluss via M6-T1 (2v2-Zwei-Tab) bestätigt, Rematch/Disconnect via M6-T1b (1v1 + 2v2: Rematch beidseitig, Format/Score-Reset sauber, Gast- und Host-Disconnect, neuer Raum danach ohne Alt-Zustand); Bot-/PvP-Runden durch die M4/M5-Abnahmen abgedeckt. Keine Codeänderung, kein Protocol-Bump, keine Firebase-Änderung.
 - [x] ~~**Live-URL-Smoke / Playtest-Readiness (M7-T1)**~~ → **bestanden (2026-07-08)**: https://ringoutgame.github.io/ringout/ — 3D-Default, Online über echte Geräte/Netze, 1v1, 2v2, Rematch, Leave/Disconnect-Flow, `?r2d=1`. **Bereit für kleinen privaten Playtest**; nur private Tester, noch kein öffentlicher Launch (Auth/App Check, Room-TTL, API-Key-Härtung stehen aus, siehe nachgelagerte P0-Punkte).
 - [x] ~~**Online 2v2 verifizieren (M6-T1)**~~ → **manuell bestätigt (2026-07-08)**: Feature war bereits seit M1 vollständig implementiert (Lockstep-Move mit `idx`, Rules idx 0–3, `fmt:'double'` in Raum-Config). Zwei-Tab-Test bestanden: Create/Join, je 2 Kugeln, Kugelwahl, Reveal, synchrone Simulation, Ringout, Rundensieg, 3D-Default. Keine Codeänderung, kein Protocol-Bump, keine Firebase-Änderung.

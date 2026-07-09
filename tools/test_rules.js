@@ -166,5 +166,18 @@ deny('ffa: move idx 5', ffaMatch, 'rooms/KX7P/g/0/t/0/0', { idx: 5, dx: 0, dy: 0
 deny('ffa: move write-once', db1({ p: { 0: true, 1: true }, state: 'playing', seats: 2, g: { 0: { t: { 0: { 4: MOVE } } } } }, 'ffa'), 'rooms/KX7P/g/0/t/0/4', MOVE);
 deny('ffa: move dx out of bounds', ffaMatch, 'rooms/KX7P/g/0/t/0/4', { idx: 4, dx: -196, dy: 0, sp: 0 });
 
+// ── (7) room cleanup delete (v1): whole room removable ONLY when no seat present ──
+allow('cleanup: delete empty single room', db1({ p: {} }), 'rooms/KX7P', null);
+allow('cleanup: delete empty ffa room', db1({ p: {} }, 'ffa'), 'rooms/KX7P', null);
+allow('cleanup: delete playing room after all left', db1({ p: {}, state: 'playing', seats: 2 }, 'ffa'), 'rooms/KX7P', null);
+deny('cleanup: delete blocked, p/0 present', db1({ p: { 0: true } }), 'rooms/KX7P', null);
+deny('cleanup: delete blocked, p/1 present', db1({ p: { 0: false, 1: true } }), 'rooms/KX7P', null);
+deny('cleanup: delete blocked, p/2 present', db1({ p: { 2: true } }, 'ffa'), 'rooms/KX7P', null);
+deny('cleanup: delete blocked, p/3 present', db1({ p: { 3: true } }, 'ffa'), 'rooms/KX7P', null);
+deny('cleanup: delete blocked, p/4 present', db1({ p: { 4: true } }, 'ffa'), 'rooms/KX7P', null);
+deny('cleanup: delete blocked, playing with seats present', db1({ p: { 0: true, 1: true }, state: 'playing', seats: 2 }, 'ffa'), 'rooms/KX7P', null);
+deny('cleanup: still cannot overwrite existing room', db1(), 'rooms/KX7P', mkRoom('single'));
+deny('cleanup: still cannot delete non-existent room', { rooms: {} }, 'rooms/KX7P', null);
+
 console.log('\nRules-Suite (lokal, echte firebase.rules.json): ' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

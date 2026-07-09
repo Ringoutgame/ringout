@@ -68,7 +68,12 @@ function makeDB() {
   function checkWrite(parts, val) {  // minimal mirror of the published v2 rules
     if (parts[0] !== 'rooms') throw new Error('PERMISSION_DENIED');
     const room = data.rooms[parts[1]];
-    if (parts.length === 2) { if (room && val != null) throw new Error('PERMISSION_DENIED: room exists'); return; }
+    if (parts.length === 2) {
+      if (val != null) { if (room) throw new Error('PERMISSION_DENIED: room exists'); return; }
+      // cleanup delete (v1): whole room removable ONLY when no seat is present
+      if (room && [0, 1, 2, 3, 4].some(s => room.p && room.p[s] === true)) throw new Error('PERMISSION_DENIED: room not empty');
+      return;
+    }
     if (!room) throw new Error('PERMISSION_DENIED: no room');
     const fmt = room.config && room.config.fmt, key = parts[2];
     if (key === 'p') {

@@ -5,7 +5,7 @@
     "rooms": {
       "$code": {
         ".read": true,
-        ".write": "!data.exists() && newData.exists()",
+        ".write": "(!data.exists() && newData.exists()) || (data.exists() && !newData.exists() && data.child('p/0').val() !== true && data.child('p/1').val() !== true && data.child('p/2').val() !== true && data.child('p/3').val() !== true && data.child('p/4').val() !== true)",
         ".validate": "data.exists() || ($code.matches(/^[A-HJKMNP-Z2-9]{4}$/) && newData.hasChildren(['v','config','gen','p','created']) && newData.child('gen').val() === 0 && newData.child('p/0').val() === true && !newData.child('p/1').exists() && !newData.child('p/2').exists() && !newData.child('p/3').exists() && !newData.child('p/4').exists() && !newData.child('g').exists() && !newData.child('seats').exists() && ((newData.child('config/fmt').val() === 'ffa' && newData.child('state').val() === 'lobby') || (newData.child('config/fmt').val() !== 'ffa' && !newData.child('state').exists())))",
         "v": { ".validate": "newData.val() === 2" },
         "created": { ".validate": "newData.val() === now" },
