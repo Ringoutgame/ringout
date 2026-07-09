@@ -21,6 +21,7 @@ RingOut ist ein kompetitives, physikbasiertes Browser-Spiel für 1–5 Spieler. 
 | Netzwerk | Firebase Realtime Database (Lockstep) |
 | Build-System | keines – direktes Öffnen im Browser |
 | Tests | Vollständige lokale Batterie unter `tools/` — zentraler Runner `tools/run_all_tests.js` fasst 10 Offline-Suiten zusammen: Syntax, Golden-Physik (13 bit-exakt), r3d-Mapping (48), Sanitize (19), ValidateRoom (40), Lockstep (24), FFA-Kern (18), FFA-Online-Prep (40), FFA-Online-Flow (46), Rules (59). Live-REST-Verify (`tools/rest_verify_v2.js`) bleibt manuell (`--live`-Pflichtflag). |
+| CI | GitHub Actions (`.github/workflows/tests.yml`) führt bei `push`/`pull_request`/`workflow_dispatch` automatisch `node tools/run_all_tests.js` aus (Node 20, kein `npm install`). Reiner Sicherheitscheck — kein Build, kein Deployment, kein Firebase-Zugriff; Live-REST-Verify läuft nie in CI. |
 | TypeScript | nein |
 | UI-Sprache | Deutsch |
 
@@ -177,7 +178,7 @@ Ringout/
 
 - Firebase API-Key liegt im Klartext im Quellcode (kein Build-System für Env-Variablen)
 - Gesamter Code in einer einzigen HTML-Datei – kein Modul-Split
-- Kein CI: die lokale Test-Batterie (`tools/run_all_tests.js`) läuft manuell; ein GitHub-Actions-Workflow ist als Folge-Task offen
+- CI prüft nur die Offline-Suiten (`tools/run_all_tests.js`); die Live-REST-Verifikation (`tools/rest_verify_v2.js`, `--live`) läuft weiterhin bewusst manuell und nie in CI
 - Synchrone Bot-Simulation im UI-Thread (Hard-Bot kann auf schwachen Geräten kurz stocken)
 - Kein PWA-Manifest / kein Offline-Support
 - UI ausschließlich auf Deutsch – keine Lokalisierung vorhanden

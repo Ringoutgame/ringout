@@ -1,0 +1,27 @@
+# Runs the local offline test battery on every push / PR as a safety check.
+# This is a check only — no build, no deploy, no Firebase access.
+# The live REST verification (tools/rest_verify_v2.js, --live) stays manual
+# and deliberately never runs in CI (it writes to the live database).
+name: tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # No dependencies to install: every suite uses only Node built-ins
+      # (fs, path, os, child_process). There is no package.json / lockfile.
+      - name: Run local test suite
+        run: node tools/run_all_tests.js
