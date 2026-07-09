@@ -1,6 +1,6 @@
 # PROJECT.md — RingOut
 
-**Zuletzt aktualisiert:** 2026-07-09
+**Zuletzt aktualisiert:** 2026-07-10
 
 ---
 
@@ -29,12 +29,17 @@ RingOut ist ein kompetitives, physikbasiertes Browser-Spiel für 1–5 Spieler. 
 
 ## Spielmodi
 
-| Modus | Beschreibung |
-|---|---|
-| vs Bot | Spieler gegen KI (Schwierigkeiten: Leicht / Mittel / Schwer) |
-| 2 Spieler | Lokales Pass-and-Play mit Sichtschutz-Bildschirm |
-| FFA lokal | 2–5 Spieler Hotseat (M8-T2), jeder 1 Kugel, Last-Man-Standing pro Runde |
-| Online 1v1 | Echtzeit-Mehrspieler via Firebase (4-stelliger Raumcode) |
+| Modus | Sichtbar im Menü | Beschreibung |
+|---|---|---|
+| ONLINE FFA | ✅ Flaggschiff (Default-Auswahl) | 2–5 Spieler via Firebase, Raum erstellen/Code teilen, Host startet ab 2 |
+| ONLINE VERSUS | ✅ | **2 echte Spieler** via Firebase; CTA öffnet Format-Modal: 1v1 DUEL (`fmt='single'`, 1 Kugel/Spieler) oder 2v2 DUO DUEL (`fmt='double'`, 2 Kugeln/Spieler). Bewusst nicht „Team Battle" — reserviert für einen echten 4-Spieler-Modus |
+| BOT TRAINING | ✅ | Spieler gegen Hard-Bot; CTA öffnet Format-Modal: 1v1 VS BOT oder 2v2 DUO VS BOT (`botMove()` routet fmt-abhängig auf `bot1v1`/`bot2v2`) |
+| 2 Spieler (Hotseat) | ❌ nur `?dev=1` | Lokales Pass-and-Play mit Sichtschutz-Bildschirm — als Testbasis erhalten |
+| FFA lokal | ❌ nur `?dev=1` | 2–5 Spieler Hotseat (M8-T2) inkl. Spieleranzahl-Auswahl — Testbasis für Online-FFA |
+
+**Premium-Hauptmenü (Playtest-UX-Redesign, 2026-07-09/10):** Menü nach Owner-Referenzbild — Titel mit Gold-Ornament, drei Modus-Karten mit SVG-Icons und Gold-Active-State, eine CTA mit modusabhängigem Label. **Hero = die echte 3D-Szene:** `initR3D()` läuft seit jeher beim Seitenladen und `loop()` rendert immer — das Menü ist im 3D-Modus transparent (`body.r3d #menu`, nur Lese-Verläufe), sodass HDRI-Himmel, Marmor-Plattform, Wolken und Goldring live sichtbar sind. Eigener Menü-Framing-Zweig in `frame()` (`menuVisible`-Flag: Plattform-Zentrum ~37 % Bildhöhe, `baseDist×0.87`; Gameplay-Framing/`r3dCamMath` unverändert). **Kugel-Preview je Modus über den echten Spawner:** Kartenwahl setzt `mode/fmt/ffaN` (wie früher die Menü-Pills) + `placeBalls()` — FFA 5 Kugeln, 2v2 2 blaue vs. 2 rote, Bot 1v1; CTA setzt die finalen Werte erneut. Ein Fake-Canvas-Hero wurde nach Owner-Review verworfen; `?r2d=1`/3D-Fehler → ruhiger Verlaufs-Hintergrund ohne Fake-Arena. Alle Legacy-Modi sind **nicht gelöscht**, sondern im `#devPanel` hinter `?dev=1` (inkl. Runden-bis-Sieg- und Format-Auswahl); Regeln-Textbox vom Home entfernt.
+
+**v1-Localization (2026-07-09):** ⚙-Settings-Modal im Hauptmenü mit Sprachwahl **EN (Default) / DE / TR**, persistiert in `localStorage` (`ringout_lang`), Live-Umschaltung via `applyLang()`. Zentrales `I18N`-Dictionary + `T(key)`. Abgedeckt: Hauptmenü, Settings, Online-Dialog-Grundtexte + Statusmeldungen, Leave-Bestätigung, End-Overlay-Buttons. **Bewusst Deutsch (testgebunden/v2):** validateRoom-Reasons, renderLobby-Hints, startFfaMatch-/Leave-Toasts, onLobbyClosed, onOppLeft (von Suiten hart asserted) sowie alle In-Game-Texte. Flow-Suite-Env enthält einen `T`-Identitäts-Stub.
 
 ---
 
@@ -59,10 +64,11 @@ RingOut ist ein kompetitives, physikbasiertes Browser-Spiel für 1–5 Spieler. 
 - Deterministische logische Spielfeldgröße (`LOGICAL = 1000`) für Netzwerk-Lockstep
 
 ### Bot-KI
-- **Leicht:** Zufallswinkel ±60°, Zufallskraft
-- **Mittel:** Heuristisch – Angriff oder Rückzug zur Mitte; leichtes Rauschen
-- **Schwer (1v1):** Minimax-ähnlich via `simExchange` (650 Schritte), bewertet beste Gegner-Antwort
-- **Schwer (2v2):** Minimax via `simSnap` (420 Schritte) + `bestRespN`
+- **Leicht:** Zufallswinkel ±60°, Zufallskraft *(nur `?dev=1`)*
+- **Mittel:** Heuristisch – Angriff oder Rückzug zur Mitte; leichtes Rauschen *(nur `?dev=1`)*
+- **Schwer (1v1):** Minimax-ähnlich via `simExchange` (650 Schritte), bewertet beste Gegner-Antwort. Verstärkt 2026-07-09: feinere Winkel-Kandidaten (±0.08 zusätzlich, 30 statt 22 Kandidaten) und enge Auswahl-Toleranz (0.2 statt 0.6 — spielt fast immer den besten gefundenen Zug). Kein Cheat, keine Physikänderung.
+- **Schwer (2v2):** Minimax via `simSnap` (420 Schritte) + `bestRespN` (unverändert)
+- Spieler-Menü ist hard-only („Training gegen Bot"); alle drei Stufen bleiben im Code und sind über `?dev=1` testbar.
 
 ### Lokaler FFA-Kern (M8-T2, akzeptiert 2026-07-08)
 - 2–5 Spieler Hotseat: jeder 1 Kugel, gleichmäßig im Kreis platziert; verdecktes Zielen reihum über den Cover-Screen, dann gleichzeitiger Schuss.
@@ -182,4 +188,4 @@ Ringout/
 - CI prüft nur die Offline-Suiten (`tools/run_all_tests.js`); die Live-REST-Verifikation (`tools/rest_verify_v2.js`, `--live`) läuft weiterhin bewusst manuell und nie in CI
 - Synchrone Bot-Simulation im UI-Thread (Hard-Bot kann auf schwachen Geräten kurz stocken)
 - Kein PWA-Manifest / kein Offline-Support
-- UI ausschließlich auf Deutsch – keine Lokalisierung vorhanden
+- Lokalisierung nur v1 (Hauptmenü/Online-Dialog EN/DE/TR): In-Game-Texte und testgebundene Status-/Fehlertexte sind weiterhin nur Deutsch

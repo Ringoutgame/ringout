@@ -13,23 +13,62 @@
 html,body{height:100%;overflow:hidden}
 body{background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",sans-serif;display:flex;flex-direction:column;align-items:center;height:100dvh;user-select:none;-webkit-user-select:none}
 
-/* ── MENU ── */
-#menu{display:flex;flex-direction:column;align-items:center;justify-content:center;width:100%;height:100%;padding:20px;position:relative;overflow:auto}
-#menu::before{content:"";position:absolute;inset:0;background:radial-gradient(ellipse at 50% 32%,rgba(0,212,255,.08),transparent 60%),radial-gradient(ellipse at 75% 78%,rgba(255,77,77,.06),transparent 55%);pointer-events:none}
-.logo{text-align:center;margin-bottom:22px}
-.logo h1{font-size:clamp(40px,12vw,60px);font-weight:900;letter-spacing:.14em;text-transform:uppercase;background:linear-gradient(135deg,#fff 30%,var(--gold));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
-.logo h1 em{font-style:normal;-webkit-text-fill-color:var(--gold)}
-.logo .sub{font-size:10px;letter-spacing:.3em;color:var(--muted);text-transform:uppercase;margin-top:8px}
-.sect{width:100%;max-width:300px;margin-bottom:12px}
+/* ── MENU (Premium-Redesign nach Referenzbild: Navy-Sky, grosse Arena-Preview,
+      3 Modus-Karten, goldene CTA, Info-Chip — ruhig, luxurioes, mobile-first) ── */
+#menu{display:flex;flex-direction:column;width:100%;height:100%;padding:16px 18px;position:relative;overflow:auto;
+  background:radial-gradient(ellipse 100% 42% at 50% 40%,rgba(255,196,110,.10),transparent 70%),
+    linear-gradient(180deg,#0c1524 0%,#152238 30%,#2c3c58 58%,#526176 82%,#76839a 100%)}
+#menuInner{margin:auto;display:flex;flex-direction:column;align-items:center;width:100%}
+.mtop{position:absolute;top:14px;left:16px;right:16px;display:flex;justify-content:space-between;z-index:3}
+.mico{width:40px;height:40px;border-radius:50%;border:1px solid rgba(150,172,210,.3);background:rgba(9,15,26,.6);color:#d5deec;font-size:15px;cursor:pointer;backdrop-filter:blur(6px)}
+.mico:active{background:rgba(26,40,64,.75)}
+.logo{text-align:center;margin-bottom:6px}
+.logo h1{font-size:clamp(40px,11.5vw,56px);font-weight:900;letter-spacing:.18em;margin-right:-.18em;text-transform:uppercase;color:#f4f7fc;text-shadow:0 2px 18px rgba(0,0,0,.35)}
+.logo h1 em{font-style:normal;color:var(--gold);text-shadow:0 2px 18px rgba(255,180,40,.25)}
+.orn{width:172px;height:1px;margin:12px auto 0;background:linear-gradient(90deg,transparent,rgba(255,201,64,.9),transparent);position:relative}
+.orn::after{content:"";position:absolute;left:50%;top:-5.5px;width:11px;height:11px;transform:translateX(-50%);border-radius:50%;border:1px solid var(--gold);background:radial-gradient(circle,#ffd97a 0,#ffd97a 2.5px,transparent 3px);box-shadow:0 0 12px rgba(255,201,64,.7)}
+.logo .sub{font-size:9px;letter-spacing:.34em;margin-right:-.34em;color:#93a2bd;text-transform:uppercase;margin-top:12px}
+/* Hero-Fenster: reiner Platzhalter im Layout — die ECHTE 3D-Arena (#cv3d, fixed hinter
+   der UI) ist durch das transparente Menue sichtbar. Kein gezeichneter Ersatz mehr. */
+#menuHero{width:100%;max-width:420px;height:clamp(190px,32vh,270px);flex:0 0 auto;margin:2px 0 8px}
+body:not(.r3d) #menuHero{height:clamp(50px,9vh,110px)}   /* 2D-Fallback: kein Arena-Fenster noetig */
+/* 3D aktiv: Menue transparent ueber der echten Szene — nur dezente Lese-Verlaeufe oben/unten */
+body.r3d #menu{z-index:2;background:linear-gradient(180deg,rgba(6,10,18,.55) 0%,rgba(6,10,18,.22) 16%,rgba(6,10,18,0) 30%,rgba(6,10,18,0) 55%,rgba(7,11,19,.35) 74%,rgba(7,11,19,.62) 100%)}
+.mcards{display:flex;gap:11px;width:100%;max-width:400px;align-items:stretch;margin-top:4px}
+.mcard{flex:1;position:relative;display:flex;flex-direction:column;align-items:center;gap:9px;padding:18px 6px 14px;border-radius:18px;cursor:pointer;font:inherit;border:1px solid rgba(122,142,180,.32);background:linear-gradient(180deg,#182136 0%,#0e1524 100%);box-shadow:0 14px 30px rgba(5,9,18,.45);transition:transform .18s,border-color .18s,box-shadow .18s}
+.mcard.on{border-color:rgba(255,201,64,.9);background:linear-gradient(180deg,#1e2740 0%,#131b2e 100%);box-shadow:0 0 0 1px rgba(255,201,64,.4),0 14px 44px rgba(255,178,40,.30),inset 0 0 26px rgba(255,201,64,.06);transform:translateY(-7px) scale(1.035)}
+.mcard .chip{position:absolute;top:-10px;left:50%;transform:translateX(-50%);font-size:7px;font-weight:900;letter-spacing:.18em;padding:3.5px 10px;border-radius:999px;color:#241800;background:linear-gradient(180deg,#ffd97a,#f0a92e);box-shadow:0 2px 12px rgba(255,180,40,.55),inset 0 1px 0 rgba(255,255,255,.5);display:none}
+.mcard.on .chip{display:block}
+.mcard .mic{width:50px;height:50px;border-radius:50%;display:flex;align-items:center;justify-content:center;border:1px solid rgba(255,201,64,.35);background:radial-gradient(circle at 35% 28%,#2a3a5c,#0f1830 72%);color:#cbb27a;box-shadow:inset 0 0 10px rgba(0,0,0,.5)}
+.mcard.on .mic{border-color:rgba(255,201,64,.85);color:var(--gold);box-shadow:0 0 16px rgba(255,201,64,.3),inset 0 0 10px rgba(0,0,0,.4)}
+.mcard .mic svg{width:23px;height:23px}
+.mcard .mt{font-size:clamp(9.5px,2.8vw,11px);font-weight:900;letter-spacing:.1em;color:#eef2f9;white-space:nowrap}
+.mcard.on .mt{color:#ffd97a}
+.mcard .ms{font-size:7.5px;font-weight:800;letter-spacing:.16em;line-height:2;text-align:center;color:#7688a6}
+.mcard.on .ms{color:#c9b787}
+.mcta{width:100%;max-width:400px;margin-top:18px;position:relative;border:0;border-radius:17px;padding:19px 44px;font:inherit;font-size:clamp(14px,4.2vw,16px);font-weight:900;letter-spacing:.16em;cursor:pointer;color:#2b1c00;text-shadow:0 1px 0 rgba(255,235,180,.5);background:linear-gradient(180deg,#ffe197 0%,#f7ba3e 52%,#dd961e 100%);box-shadow:0 10px 36px rgba(255,185,50,.38),inset 0 1.5px 0 rgba(255,255,255,.65),inset 0 -3px 8px rgba(150,85,0,.38);transition:transform .1s}
+.mcta:active{transform:scale(.97)}
+.mcta::after{content:"›";position:absolute;right:22px;top:50%;transform:translateY(-54%);font-size:24px;font-weight:800}
+.mfoot{margin-top:12px;font-size:8.5px;font-weight:800;letter-spacing:.26em;margin-right:-.26em;color:#dfe7f3;background:rgba(7,12,22,.5);border:1px solid rgba(150,170,210,.22);padding:8px 18px;border-radius:999px;backdrop-filter:blur(4px)}
+/* Versus-/Bot-Modal: grosse Touch-Auswahlkarten im Glass/Navy/Gold-Stil des Menues */
+.vswb{width:330px;max-width:90vw;background:linear-gradient(180deg,rgba(17,24,40,.96),rgba(10,15,26,.97));border:1px solid rgba(255,201,64,.25);backdrop-filter:blur(8px)}
+.vopt{width:100%;display:flex;flex-direction:column;gap:6px;align-items:center;padding:19px 14px;margin-bottom:10px;border-radius:16px;cursor:pointer;font:inherit;border:1px solid rgba(255,201,64,.28);background:linear-gradient(180deg,rgba(32,42,66,.92),rgba(15,21,36,.96));box-shadow:0 10px 26px rgba(5,9,18,.45);transition:transform .12s,border-color .12s,box-shadow .12s}
+.vopt:hover{border-color:rgba(255,201,64,.6);box-shadow:0 10px 30px rgba(255,178,40,.16)}
+.vopt:active{transform:scale(.97)}
+.vopt-t{font-size:15px;font-weight:900;letter-spacing:.12em;color:#ffd97a}
+.vopt-s{font-size:8.5px;font-weight:800;letter-spacing:.2em;color:#8b99b4}
+/* Dev-/Test-Panel (?dev=1): Legacy-Menue (Hotseat, FFA lokal, Bot-Stufen, Format, Runden) */
+#devPanel{width:100%;max-width:400px;margin-top:22px;padding:14px;border-radius:14px;background:rgba(8,13,22,.6);border:1px dashed rgba(150,170,210,.3)}
+.sect{width:100%;max-width:320px;margin-bottom:12px}
 .lbl{font-size:9px;font-weight:800;letter-spacing:.14em;color:var(--muted);text-transform:uppercase;margin-bottom:7px}
 .pills{display:flex;background:#0c1420;border-radius:999px;padding:3px;gap:2px}
 .pills button{border:0;background:transparent;color:var(--muted);font:inherit;font-size:11px;font-weight:700;padding:8px 0;border-radius:999px;cursor:pointer;flex:1;transition:.15s}
 .pills button.on{background:#1a2840;color:var(--text)}
-.start{width:100%;max-width:300px;margin-top:8px;border:0;border-radius:14px;padding:15px;font:inherit;font-size:15px;font-weight:900;letter-spacing:.07em;cursor:pointer;color:#060a0e;background:linear-gradient(135deg,var(--gold),#ff9f00);box-shadow:0 4px 24px rgba(255,201,64,.4);transition:transform .1s}
+#modeGrp{flex-direction:column;border-radius:14px;padding:4px;gap:3px}
+#modeGrp button{padding:11px;border-radius:10px;font-size:12px;letter-spacing:.03em}
+#modeGrp button.on{box-shadow:inset 0 0 0 1px #2a3850}
+.start{width:100%;max-width:320px;margin-top:8px;border:0;border-radius:14px;padding:15px;font:inherit;font-size:15px;font-weight:900;letter-spacing:.07em;cursor:pointer;color:#060a0e;background:linear-gradient(135deg,var(--gold),#ff9f00);box-shadow:0 3px 18px rgba(255,201,64,.28);transition:transform .1s}
 .start:active{transform:scale(.97)}
-.rules{width:100%;max-width:300px;margin-top:14px;background:#0c1420;border-radius:12px;padding:13px 15px}
-.rules p{font-size:10.5px;color:var(--muted);line-height:1.8}
-.rules b{color:var(--text)}
 
 /* ── GAME ── */
 #game{display:none;flex-direction:column;align-items:center;width:100%;height:100%;padding:6px 10px}
@@ -92,7 +131,8 @@ body.r3d .phase:not(:empty){background:rgba(8,14,22,.72);border:1px solid rgba(1
 .cover.show{display:flex}
 .cover .who{font-size:24px;font-weight:900;letter-spacing:.06em;text-transform:uppercase;margin-bottom:8px}
 .cover .ctxt{font-size:12px;color:var(--muted);margin-bottom:24px;max-width:260px;line-height:1.6}
-.cover .cbtn{border:0;border-radius:12px;padding:14px 28px;font:inherit;font-size:15px;font-weight:800;cursor:pointer;background:linear-gradient(135deg,var(--gold),#ff9f00);color:#060a0e}
+/* Gold-Bevel wie die Menue-CTA — Online-Dialog passt optisch zum Premium-Menue */
+.cover .cbtn{border:0;border-radius:14px;padding:14px 28px;font:inherit;font-size:15px;font-weight:900;letter-spacing:.08em;cursor:pointer;color:#2b1c00;background:linear-gradient(180deg,#ffe197 0%,#f7ba3e 52%,#dd961e 100%);box-shadow:0 8px 28px rgba(255,185,50,.3),inset 0 1.5px 0 rgba(255,255,255,.6),inset 0 -3px 8px rgba(150,85,0,.35)}
 
 .ov{position:fixed;inset:0;background:rgba(4,7,12,.92);backdrop-filter:blur(6px);display:none;place-items:center;z-index:100}
 .ov.show{display:grid}
@@ -106,7 +146,8 @@ body.r3d .phase:not(:empty){background:rgba(8,14,22,.72);border:1px solid rgba(1
 .wbtn{width:100%;font-size:14px;padding:12px;border-radius:11px;background:#1a2840;color:var(--text);border:0;font:inherit;font-weight:800;cursor:pointer;margin-bottom:7px}
 .wbtn.primary{background:linear-gradient(135deg,var(--gold),#ff9f00);color:#060a0e}
 @media(prefers-reduced-motion:reduce){.wb{animation:none}}
-#onInput{width:120px;text-transform:uppercase;text-align:center;font:inherit;font-size:22px;font-weight:800;letter-spacing:.22em;padding:11px 8px;border-radius:10px;border:1px solid #1a2840;background:#0c1420;color:var(--text);user-select:text;-webkit-user-select:text;touch-action:auto}
+#onInput{width:130px;text-transform:uppercase;text-align:center;font:inherit;font-size:22px;font-weight:800;letter-spacing:.22em;padding:11px 8px;border-radius:12px;border:1px solid rgba(255,201,64,.3);background:#0c1420;color:var(--text);user-select:text;-webkit-user-select:text;touch-action:auto}
+#onInput::placeholder{font-size:11px;letter-spacing:.18em;color:#5d6d88;transform:translateY(-2px)}
 #onStatus{font-size:11px;color:var(--muted);margin-top:14px;min-height:16px;max-width:280px;text-align:center;line-height:1.5}
 #replay{position:fixed;left:0;right:0;bottom:0;z-index:60;display:none;padding:9px 11px;background:linear-gradient(0deg,rgba(5,8,14,.97),rgba(5,8,14,.55));backdrop-filter:blur(4px)}
 #replay.show{display:block}
@@ -122,34 +163,69 @@ body.r3d .phase:not(:empty){background:rgba(8,14,22,.72);border:1px solid rgba(1
 <body>
 
 <div id="menu">
-  <div class="logo"><h1>Ring<em>Out</em></h1><div class="sub">Zieh zurück · lass los · schieb ihn raus</div></div>
-  <div class="sect">
-    <div class="lbl">Modus</div>
-    <div class="pills" id="modeGrp"><button id="mBot" class="on">vs Bot</button><button id="mPvp">2 Spieler</button><button id="mFfa">👥 FFA</button><button id="mOnline">🌐 Online</button></div>
+ <div id="menuInner">
+  <div class="mtop">
+    <button class="mico" id="menuSnd">🔊</button>
+    <button class="mico" id="menuSet">⚙</button>
   </div>
-  <div class="sect" id="ffaSec" style="display:none">
-    <div class="lbl">Spieler (FFA lokal)</div>
-    <div class="pills" id="ffaGrp"><button id="np2">2</button><button id="np3" class="on">3</button><button id="np4">4</button><button id="np5">5</button></div>
-    <div class="pills" style="margin-top:8px"><button id="ffaOnline">🌐 Online-FFA</button></div>
+  <div class="logo">
+    <h1>Ring<em>Out</em></h1>
+    <div class="orn"></div>
+    <div class="sub">Zieh zurück · lass los · schieb ihn raus</div>
   </div>
-  <div class="sect" id="diffSec">
-    <div class="lbl">Bot-Stärke</div>
-    <div class="pills" id="diffGrp"><button id="dE" class="on">Leicht</button><button id="dM">Mittel</button><button id="dH">Schwer</button></div>
+  <!-- Hero-Fenster: Platzhalter — die echte 3D-Arena rendert dahinter (#cv3d);
+       die Kugeln darauf zeigen den gewaehlten Modus (FFA 5 / 2v2 Teams / Bot 1v1) -->
+  <div id="menuHero"></div>
+  <div class="mcards">
+    <button class="mcard on" id="cardFfa">
+      <span class="chip">ACTIVE</span>
+      <span class="mic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="12" r="8"/><ellipse cx="12" cy="12" rx="3.4" ry="8"/><path d="M4.6 12h14.8"/></svg></span>
+      <span class="mt">ONLINE FFA</span>
+      <span class="ms">2–5 PLAYERS</span>
+    </button>
+    <button class="mcard" id="card2v2">
+      <span class="chip">ACTIVE</span>
+      <span class="mic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="9" cy="8.6" r="3"/><path d="M3.4 19c0-3.1 2.6-4.8 5.6-4.8s5.6 1.7 5.6 4.8"/><circle cx="16.6" cy="9.4" r="2.4"/><path d="M16 14.4c2.6.3 4.7 1.9 4.7 4.4"/></svg></span>
+      <span class="mt">ONLINE VERSUS</span>
+      <span class="ms">1v1 OR 2v2<br>2 PLAYERS</span>
+    </button>
+    <button class="mcard" id="cardBot">
+      <span class="chip">ACTIVE</span>
+      <span class="mic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="6" y="8.5" width="12" height="8.5" rx="2.6"/><circle cx="10" cy="12.6" r="1" fill="currentColor" stroke="none"/><circle cx="14" cy="12.6" r="1" fill="currentColor" stroke="none"/><path d="M12 8.5V6"/><circle cx="12" cy="4.8" r="1.1"/></svg></span>
+      <span class="mt">BOT TRAINING</span>
+      <span class="ms">VS AI<br>SOLO PRACTICE</span>
+    </button>
   </div>
-  <div class="sect" id="fmtSec">
-    <div class="lbl">Format</div>
-    <div class="pills" id="fmtGrp"><button id="fSingle" class="on">Einzel 1v1</button><button id="fDouble">Doppel 2v2</button></div>
+  <button class="mcta" id="ctaBtn">PLAY ONLINE FFA</button>
+  <div class="mfoot" id="ctaInfo">2–5 PLAYERS · HOST STARTS</div>
+
+  <!-- Dev-/Test-Panel (?dev=1): Legacy-Modi bleiben als Test-/Regressionsbasis vollstaendig
+       erhalten (Hotseat-2-Spieler, FFA lokal inkl. Spieleranzahl, Bot-Stufen, Format, Runden). -->
+  <div id="devPanel" style="display:none">
+    <div class="sect">
+      <div class="lbl">Dev · Modus</div>
+      <div class="pills" id="modeGrp"><button id="mBot" class="on">🤖 Training gegen Bot</button><button id="mPvp">2 Spieler</button><button id="mFfa">👥 FFA</button><button id="mOnline">🌐 Online 1v1 · 2v2</button></div>
+    </div>
+    <div class="sect" id="ffaSec" style="display:none">
+      <div class="lbl">Spieler (FFA lokal)</div>
+      <div class="pills" id="ffaGrp"><button id="np2">2</button><button id="np3" class="on">3</button><button id="np4">4</button><button id="np5">5</button></div>
+      <div class="pills" style="margin-top:8px"><button id="ffaOnline">🌐 Online-FFA</button></div>
+    </div>
+    <div class="sect" id="diffSec">
+      <div class="lbl">Bot-Stärke</div>
+      <div class="pills" id="diffGrp"><button id="dE">Leicht</button><button id="dM">Mittel</button><button id="dH" class="on">Schwer</button></div>
+    </div>
+    <div class="sect" id="fmtSec">
+      <div class="lbl">Format</div>
+      <div class="pills" id="fmtGrp"><button id="fSingle" class="on">Einzel 1v1</button><button id="fDouble">Doppel 2v2</button></div>
+    </div>
+    <div class="sect">
+      <div class="lbl">Runden bis Sieg</div>
+      <div class="pills" id="winGrp"><button id="w3" class="on">3</button><button id="w5">5</button></div>
+    </div>
+    <button class="start" id="startBtn">▶ Spielen (Dev)</button>
   </div>
-  <div class="sect">
-    <div class="lbl">Runden bis Sieg</div>
-    <div class="pills" id="winGrp"><button id="w3" class="on">3</button><button id="w5">5</button></div>
-  </div>
-  <button class="start" id="startBtn">▶ Spielen</button>
-  <div class="rules">
-    <p><b>Steuerung:</b> Tippe deine Kugel, zieh <b>nach hinten</b> (anspannen), lass los — sie schnippt nach vorne.<br><br>
-    <b>Doppel 2v2:</b> Du hast 2 Kugeln. Pro Runde wählst du verdeckt <b>eine</b> davon. Beide gegnerischen Kugeln raus = Sieg.<br><br>
-    <b>FFA lokal:</b> 2–5 Spieler am selben Gerät, jeder eine Kugel. Alle zielen verdeckt nacheinander, dann wird gleichzeitig geschossen. Wer als Letzter übrig bleibt, gewinnt die Runde.</p>
-  </div>
+ </div>
 </div>
 
 <div id="game">
@@ -195,10 +271,55 @@ body.r3d .phase:not(:empty){background:rgba(8,14,22,.72);border:1px solid rgba(1
 
 <div class="ov" id="leaveOv">
   <div class="wb">
-    <div class="wt">Online-Match verlassen?</div>
-    <div class="ws">Dein Gegner kann dann nicht weiterspielen.</div>
+    <div class="wt" id="leaveT">Online-Match verlassen?</div>
+    <div class="ws" id="leaveS">Dein Gegner kann dann nicht weiterspielen.</div>
     <button class="wbtn primary" id="leaveCancel">Abbrechen</button>
     <button class="wbtn" id="leaveGo">Match verlassen</button>
+  </div>
+</div>
+
+<!-- Versus-Modal: Format-Auswahl fuer Online Versus — 2 ECHTE Spieler, 1v1 (1 Kugel) oder
+     2v2 Duo (2 Kugeln pro Spieler). Bewusst NICHT "Team Battle" (kein 4-Spieler-Modus). -->
+<div class="ov" id="vsOv">
+  <div class="wb vswb">
+    <div class="wt" id="vsTitle">ONLINE VERSUS</div>
+    <button class="vopt" id="vs1v1">
+      <span class="vopt-t" id="vs1v1T">1v1 DUEL</span>
+      <span class="vopt-s" id="vs1v1S">2 PLAYERS · 1 BALL EACH</span>
+    </button>
+    <button class="vopt" id="vs2v2">
+      <span class="vopt-t" id="vs2v2T">2v2 DUO DUEL</span>
+      <span class="vopt-s" id="vs2v2S">2 PLAYERS · 2 BALLS EACH</span>
+    </button>
+    <button class="wbtn" id="vsBack">↩ Back</button>
+  </div>
+</div>
+
+<!-- Bot-Modal: 1v1 vs Bot oder 2v2 Duo vs Bot (bot2v2-Heuristik existiert & ist validiert) -->
+<div class="ov" id="botOv">
+  <div class="wb vswb">
+    <div class="wt" id="botTitle">BOT TRAINING</div>
+    <button class="vopt" id="bot1v1">
+      <span class="vopt-t" id="bot1v1T">1v1 VS BOT</span>
+      <span class="vopt-s" id="bot1v1S">1 BALL EACH</span>
+    </button>
+    <button class="vopt" id="bot2v2">
+      <span class="vopt-t" id="bot2v2T">2v2 DUO VS BOT</span>
+      <span class="vopt-s" id="bot2v2S">2 BALLS EACH</span>
+    </button>
+    <button class="wbtn" id="botBack">↩ Back</button>
+  </div>
+</div>
+
+<!-- Settings-Modal (⚙ im Hauptmenue): v1-Localization EN/DE/TR, in localStorage persistiert -->
+<div class="ov" id="setOv">
+  <div class="wb">
+    <div class="wt" id="setTitle">SETTINGS</div>
+    <div class="lbl" id="setLangLbl" style="text-align:left;margin-top:6px">Language</div>
+    <div class="pills" id="langGrp" style="margin-bottom:16px">
+      <button id="langEn">English</button><button id="langDe">Deutsch</button><button id="langTr">Türkçe</button>
+    </div>
+    <button class="wbtn primary" id="setClose">OK</button>
   </div>
 </div>
 
@@ -219,16 +340,16 @@ body.r3d .phase:not(:empty){background:rgba(8,14,22,.72);border:1px solid rgba(1
 
 <div class="cover" id="online">
   <div class="who" id="onTitle" style="color:var(--gold)">ONLINE 1v1</div>
-  <div class="ctxt">Spiel gegen einen Freund. Einer erstellt einen Raum, der andere tritt mit dem Code bei.</div>
+  <div class="ctxt" id="onCtxt">Spiel gegen einen Freund. Einer erstellt einen Raum, der andere tritt mit dem Code bei.</div>
   <button class="cbtn" id="onCreate">Raum erstellen</button>
   <div id="onWait" style="display:none;margin-top:16px;text-align:center">
-    <div style="font-size:10px;color:var(--muted);letter-spacing:.18em">DEIN CODE</div>
+    <div id="onCodeLbl" style="font-size:10px;color:var(--muted);letter-spacing:.18em">DEIN CODE</div>
     <div id="onCode" style="font-size:42px;font-weight:900;letter-spacing:.28em;color:var(--gold);margin:6px 0"></div>
-    <div style="font-size:11px;color:var(--muted)">Warte auf Mitspieler…</div>
+    <div id="onWaitTxt" style="font-size:11px;color:var(--muted)">Warte auf Mitspieler…</div>
   </div>
   <!-- FFA-Lobby (live seit M8-T3c; gefuettert vom Presence-Listener) -->
   <div id="onLobby" style="display:none;margin-top:16px;text-align:center">
-    <div style="font-size:10px;color:var(--muted);letter-spacing:.18em">LOBBY <span id="lobbyCount"></span></div>
+    <div style="font-size:10px;color:var(--muted);letter-spacing:.18em"><span id="lobbyLbl">LOBBY</span> <span id="lobbyCount"></span></div>
     <div id="lobbySeats" style="display:flex;gap:10px;justify-content:center;margin:12px 0"></div>
     <button class="cbtn" id="lobbyStart" style="display:none">▶ Start</button>
     <div id="lobbyHint" style="font-size:11px;color:var(--muted)">Warte auf Host…</div>
@@ -279,6 +400,7 @@ const cv=$('cv'),ctx=cv.getContext('2d');
 const R3D_WANTED=new URLSearchParams(location.search).get('r2d')!=='1';
 const R3D_ORBIT=R3D_WANTED&&new URLSearchParams(location.search).get('orbit')==='1';   // reiner Ansichts-Testmodus
 let r3dActive=false,r3d=null,r3dOrbit=false;   // r3dActive erst true, wenn three+HDRI+GLB erfolgreich geladen
+let menuVisible=true;   // Hauptmenue sichtbar? -> frame() nutzt das Menue-Framing statt des Gameplay-Framings
 // Spieler-Kamera-Gesten (nur 3D): 1 Finger ausserhalb der Aim-Zone = drehen, 2 Finger = Pinch-Zoom
 let camPid=-1,cam2Pid=-1,camLX=0,camLY=0,cam2LX=0,cam2LY=0,camTapT=0,camTapX=0,camTapY=0;
 
@@ -340,7 +462,7 @@ function r3dCamMath(p){
 // Overlay-Projektion: Identitaet im 2D-Modus (bit-identisches Verhalten), Projektion im 3D-Modus.
 function OP(lx,ly,h){ return r3dActive ? r3d.w2s(lx,ly,h||0) : {x:lx,y:ly,s:1}; }
 
-let mode='bot',diff='easy',winTarget=3,soundOn=true;
+let mode='bot',diff='hard',winTarget=3,soundOn=true;   // Bot ist hard-only im Spieler-Menue (?dev=1 zeigt Leicht/Mittel)
 let menuMode='bot'; // im Menue gewaehlter Modus — ein Online-Join kann mode temporaer umstellen
 let fmt='single';   // Format (single/double/ffa)
 let ffaN=3;         // FFA: Spieleranzahl 2-5 (lokal aus dem Menue; online = seats aus Firebase)
@@ -363,6 +485,10 @@ function viewAngle(){
 }
 
 function setOn(grp,id){document.querySelectorAll('#'+grp+' button').forEach(b=>b.classList.remove('on'));$(id).classList.add('on');}
+// Dev-/Testpfad (?dev=1): zeigt das Legacy-Panel mit allen versteckten Modi
+// (Hotseat-2-Spieler, FFA lokal inkl. Spieleranzahl, Bot-Stufen, Format, Runden).
+const DEV_MENU=new URLSearchParams(location.search).get('dev')==='1';
+if(DEV_MENU)$('devPanel').style.display='';
 $('mBot').onclick=()=>{mode=menuMode='bot';setOn('modeGrp','mBot');$('diffSec').style.display='';$('fmtSec').style.display='';$('ffaSec').style.display='none';};
 $('mPvp').onclick=()=>{mode=menuMode='pvp';setOn('modeGrp','mPvp');$('diffSec').style.display='none';$('fmtSec').style.display='';$('ffaSec').style.display='none';};
 $('mFfa').onclick=()=>{mode=menuMode='ffa';setOn('modeGrp','mFfa');$('diffSec').style.display='none';$('fmtSec').style.display='none';$('ffaSec').style.display='';};
@@ -378,6 +504,143 @@ $('w5').onclick=()=>{winTarget=5;setOn('winGrp','w5');};
 // Online-FFA (live seit M8-T3c): Button oeffnet den Online-Dialog im FFA-Kontext
 // (mode==='ffa') — createRoom baut daraus den ffa-Raum mit state:'lobby'.
 $('ffaOnline').onclick=()=>{SFX.unlock();openOnline();};
+// ── Premium-Hauptmenue: 3 Karten (FFA-first), Hero-Preview, eine CTA ──
+// Karten setzen NUR die Menue-Auswahl; mode/fmt werden erst beim CTA-Tap gesetzt.
+// FFA setzt menuMode bewusst NICHT — onBack stellt mode=menuMode wieder her
+// (leaveOnline early-returnt, wenn nie ein Raum betreten wurde, daher dort explizit).
+let menuSel='ffa';
+const MENU_SEL={
+  ffa:{card:'cardFfa',cta:'ctaFfa',info:'infoFfa'},
+  vs:{card:'card2v2',cta:'ctaVs',info:'infoVs'},   // Online Versus: 2 ECHTE Spieler, Format 1v1/2v2 im Modal
+  bot:{card:'cardBot',cta:'ctaBot',info:'infoBot'}
+};
+function selectMenuMode(m){
+  menuSel=m;
+  for(const k of Object.keys(MENU_SEL))$(MENU_SEL[k].card).classList.toggle('on',k===m);
+  $('ctaBtn').textContent=T(MENU_SEL[m].cta);
+  $('ctaInfo').textContent=T(MENU_SEL[m].info);
+  updateMenuPreview();
+}
+// ── v1-Localization (EN default, DE, TR) — nur Player-facing UI: Hauptmenue, Settings,
+//    Online-Dialog-Grundtexte, Leave-/End-Overlay-Buttons. BEWUSST Deutsch bleiben:
+//    testgebundene Texte in extrahierten Funktionen (validateRoom-Reasons, renderLobby-
+//    Hints, startFfaMatch-/Leave-Toasts, onLobbyClosed, onOppLeft) und In-Game-Texte. ──
+const I18N={
+en:{tagline:'PULL BACK · RELEASE · KNOCK THEM OUT',chip:'ACTIVE',
+  ffaT:'ONLINE FFA',ffaS:'2–5 PLAYERS',vsT:'ONLINE VERSUS',vsS:'1v1 OR 2v2<br>2 PLAYERS',
+  botT:'BOT TRAINING',botS:'VS AI<br>SOLO PRACTICE',
+  ctaFfa:'PLAY ONLINE FFA',ctaVs:'PLAY ONLINE VERSUS',ctaBot:'START BOT TRAINING',
+  infoFfa:'2–5 PLAYERS · HOST STARTS',infoVs:'2 PLAYERS · 1v1 OR 2v2 DUO',infoBot:'VS AI · SOLO PRACTICE',
+  vs1v1T:'1v1 DUEL',vs1v1S:'2 PLAYERS · 1 BALL EACH',vs2v2T:'2v2 DUO DUEL',vs2v2S:'2 PLAYERS · 2 BALLS EACH',
+  bot1v1T:'1v1 VS BOT',bot1v1S:'1 BALL EACH',bot2v2T:'2v2 DUO VS BOT',bot2v2S:'2 BALLS EACH',comingSoon:'COMING SOON',
+  setTitle:'SETTINGS',setLang:'Language',
+  dlgFfa:'Create a room and share the code with 1–4 friends — as host you start once everyone is in.',
+  dlg1v1:'Play against a friend. One creates a room, the other joins with the code.',
+  createRoom:'Create room',join:'Join Code',enterCode:'ENTER CODE',back:'↩ Back',yourCode:'YOUR CODE',waitMate:'Waiting for opponent…',lobby:'LOBBY',lobbyGo:'▶ Start',
+  leaveT:'Leave online match?',leaveS:'Your opponent can’t continue without you.',leaveNo:'Cancel',leaveYes:'Leave match',
+  rematch:'🔄 Rematch',replayB:'🎬 Watch replay',menuB:'↩ Menu',
+  creating:'Creating room…',ffaShare:'FFA · Share the code with 1–4 friends.',shareCode:'Share the code with your friend.',
+  code4:'Please enter the 4-letter code.',joining:'Joining…',noRoom:'Room not found.',roomFull:'Room is already full.',
+  connWait:'Connected! Waiting for the host…',connStart:'Connected! Game starting…',
+  noFb:'⚠ No connection to Firebase. Check internet & config.',err:'Error: ',noOnlineReset:'Not available in online mode.'},
+de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'AKTIV',
+  ffaT:'ONLINE FFA',ffaS:'2–5 SPIELER',vsT:'ONLINE VERSUS',vsS:'1v1 ODER 2v2<br>2 SPIELER',
+  botT:'BOT-TRAINING',botS:'GEGEN KI<br>SOLO-TRAINING',
+  ctaFfa:'ONLINE FFA SPIELEN',ctaVs:'ONLINE VERSUS SPIELEN',ctaBot:'BOT-TRAINING STARTEN',
+  infoFfa:'2–5 SPIELER · HOST STARTET',infoVs:'2 SPIELER · 1v1 ODER 2v2 DUO',infoBot:'GEGEN KI · SOLO-TRAINING',
+  vs1v1T:'1v1 DUELL',vs1v1S:'2 SPIELER · 1 KUGEL PRO SPIELER',vs2v2T:'2v2 DUO-DUELL',vs2v2S:'2 SPIELER · 2 KUGELN PRO SPIELER',
+  bot1v1T:'1v1 GEGEN BOT',bot1v1S:'1 KUGEL PRO SEITE',bot2v2T:'2v2 DUO GEGEN BOT',bot2v2S:'2 KUGELN PRO SEITE',comingSoon:'BALD VERFÜGBAR',
+  setTitle:'EINSTELLUNGEN',setLang:'Sprache',
+  dlgFfa:'Erstelle einen Raum und teile den Code mit 1–4 Freunden — als Host startest du, sobald alle da sind.',
+  dlg1v1:'Spiel gegen einen Freund. Einer erstellt einen Raum, der andere tritt mit dem Code bei.',
+  createRoom:'Raum erstellen',join:'Beitreten',enterCode:'CODE EINGEBEN',back:'↩ Zurück',yourCode:'DEIN CODE',waitMate:'Warte auf Gegner…',lobby:'LOBBY',lobbyGo:'▶ Start',
+  leaveT:'Online-Match verlassen?',leaveS:'Dein Gegner kann dann nicht weiterspielen.',leaveNo:'Abbrechen',leaveYes:'Match verlassen',
+  rematch:'🔄 Rematch',replayB:'🎬 Replay ansehen',menuB:'↩ Menü',
+  creating:'Erstelle Raum…',ffaShare:'FFA · Schick den Code an 1–4 Freunde.',shareCode:'Schick den Code an deinen Kumpel.',
+  code4:'Bitte 4-stelligen Code eingeben.',joining:'Trete bei…',noRoom:'Raum nicht gefunden.',roomFull:'Raum ist schon voll.',
+  connWait:'Verbunden! Warte auf den Host…',connStart:'Verbunden! Spiel startet…',
+  noFb:'⚠ Keine Verbindung zu Firebase. Internet & Config prüfen.',err:'Fehler: ',noOnlineReset:'Im Online-Modus nicht verfügbar.'},
+tr:{tagline:'GERİ ÇEK · BIRAK · DIŞARI İT',chip:'AKTİF',
+  ffaT:'ONLINE FFA',ffaS:'2–5 OYUNCU',vsT:'ONLINE VERSUS',vsS:'1v1 VEYA 2v2<br>2 OYUNCU',
+  botT:'BOT ANTRENMANI',botS:'YAPAY ZEKÂYA KARŞI<br>SOLO ANTRENMAN',
+  ctaFfa:'ONLINE FFA OYNA',ctaVs:'ONLINE VERSUS OYNA',ctaBot:'BOT ANTRENMANI BAŞLAT',
+  infoFfa:'2–5 OYUNCU · HOST BAŞLATIR',infoVs:'2 OYUNCU · 1v1 VEYA 2v2 DUO',infoBot:'YAPAY ZEKÂYA KARŞI · SOLO ANTRENMAN',
+  vs1v1T:'1v1 DÜELLO',vs1v1S:'2 OYUNCU · HERKESE 1 TOP',vs2v2T:'2v2 DUO DÜELLO',vs2v2S:'2 OYUNCU · HERKESE 2 TOP',
+  bot1v1T:'BOTA KARŞI 1v1',bot1v1S:'HERKESE 1 TOP',bot2v2T:'BOTA KARŞI 2v2 DUO',bot2v2S:'HERKESE 2 TOP',comingSoon:'ÇOK YAKINDA',
+  setTitle:'AYARLAR',setLang:'Dil',
+  dlgFfa:'Bir oda kur ve kodu 1–4 arkadaşınla paylaş — herkes gelince host olarak sen başlatırsın.',
+  dlg1v1:'Bir arkadaşına karşı oyna. Biri oda kurar, diğeri kodla katılır.',
+  createRoom:'Oda kur',join:'Katıl',enterCode:'KOD GİR',back:'↩ Geri',yourCode:'KODUN',waitMate:'Rakip bekleniyor…',lobby:'LOBİ',lobbyGo:'▶ Başlat',
+  leaveT:'Online maçtan çıkılsın mı?',leaveS:'Rakibin sensiz devam edemez.',leaveNo:'İptal',leaveYes:'Maçtan çık',
+  rematch:'🔄 Rövanş',replayB:'🎬 Tekrarı izle',menuB:'↩ Menü',
+  creating:'Oda kuruluyor…',ffaShare:'FFA · Kodu 1–4 arkadaşına gönder.',shareCode:'Kodu arkadaşına gönder.',
+  code4:'Lütfen 4 haneli kodu gir.',joining:'Katılınıyor…',noRoom:'Oda bulunamadı.',roomFull:'Oda zaten dolu.',
+  connWait:'Bağlandı! Host bekleniyor…',connStart:'Bağlandı! Oyun başlıyor…',
+  noFb:'⚠ Firebase bağlantısı yok. İnterneti ve yapılandırmayı kontrol et.',err:'Hata: ',noOnlineReset:'Online modda kullanılamaz.'}
+};
+let LANG=(()=>{try{const l=localStorage.getItem('ringout_lang');return I18N[l]?l:'en';}catch(e){return 'en';}})();
+function T(k){return (I18N[LANG]&&I18N[LANG][k])||I18N.en[k]||k;}
+function applyLang(){
+  document.documentElement.lang=LANG;
+  document.querySelector('.logo .sub').textContent=T('tagline');
+  document.querySelectorAll('.mcard .chip').forEach(e=>{e.textContent=T('chip');});
+  document.querySelector('#cardFfa .mt').textContent=T('ffaT');
+  document.querySelector('#cardFfa .ms').innerHTML=T('ffaS');
+  document.querySelector('#card2v2 .mt').textContent=T('vsT');
+  document.querySelector('#card2v2 .ms').innerHTML=T('vsS');
+  document.querySelector('#cardBot .mt').textContent=T('botT');
+  document.querySelector('#cardBot .ms').innerHTML=T('botS');
+  $('vsTitle').textContent=T('vsT');$('vsBack').textContent=T('back');
+  $('vs1v1T').textContent=T('vs1v1T');$('vs1v1S').textContent=T('vs1v1S');
+  $('vs2v2T').textContent=T('vs2v2T');$('vs2v2S').textContent=T('vs2v2S');
+  $('botTitle').textContent=T('botT');$('botBack').textContent=T('back');
+  $('bot1v1T').textContent=T('bot1v1T');$('bot1v1S').textContent=T('bot1v1S');
+  $('bot2v2T').textContent=T('bot2v2T');$('bot2v2S').textContent=T('bot2v2S');
+  $('onInput').placeholder=T('enterCode');
+  $('setTitle').textContent=T('setTitle');$('setLangLbl').textContent=T('setLang');
+  setOn('langGrp',{en:'langEn',de:'langDe',tr:'langTr'}[LANG]);
+  $('onCreate').textContent=T('createRoom');$('onJoin').textContent=T('join');$('onBack').textContent=T('back');
+  $('onCodeLbl').textContent=T('yourCode');$('onWaitTxt').textContent=T('waitMate');
+  $('lobbyLbl').textContent=T('lobby');$('lobbyStart').textContent=T('lobbyGo');
+  $('leaveT').textContent=T('leaveT');$('leaveS').textContent=T('leaveS');
+  $('leaveCancel').textContent=T('leaveNo');$('leaveGo').textContent=T('leaveYes');
+  $('rematchBtn').textContent=T('rematch');$('replayBtn').textContent=T('replayB');$('ovMenuBtn').textContent=T('menuB');
+  selectMenuMode(menuSel);
+}
+$('menuSet').onclick=()=>$('setOv').classList.add('show');
+$('setClose').onclick=()=>$('setOv').classList.remove('show');
+for(const[id,lg]of[['langEn','en'],['langDe','de'],['langTr','tr']])
+  $(id).onclick=()=>{LANG=lg;try{localStorage.setItem('ringout_lang',lg);}catch(e){}applyLang();};
+$('cardFfa').onclick=()=>selectMenuMode('ffa');
+$('card2v2').onclick=()=>selectMenuMode('vs');
+$('cardBot').onclick=()=>selectMenuMode('bot');
+$('ctaBtn').onclick=()=>{
+  SFX.unlock();
+  if(menuSel==='bot'){$('botOv').classList.add('show');return;}       // Format-Auswahl: 1v1 / 2v2 Duo vs Bot
+  if(TUNE){toast('Tuning aktiv — Online deaktiviert');return;}
+  if(menuSel==='ffa'){mode='ffa';openOnline();return;}                // createRoom liest mode==='ffa' -> ffa-Raum (state:'lobby')
+  $('vsOv').classList.add('show');                                    // Online Versus: Format-Auswahl 1v1 / 2v2 Duo
+};
+// Versus-Modal: setzt fmt wie frueher die Format-Pills, dann der bestehende Online-Flow
+$('vs1v1').onclick=()=>{$('vsOv').classList.remove('show');mode=menuMode='online';fmt='single';openOnline();};
+$('vs2v2').onclick=()=>{$('vsOv').classList.remove('show');mode=menuMode='online';fmt='double';openOnline();};
+$('vsBack').onclick=()=>$('vsOv').classList.remove('show');
+// Bot-Modal: 1v1 oder 2v2 Duo gegen den Hard-Bot (botMove routet fmt-abhaengig auf bot1v1/bot2v2)
+$('bot1v1').onclick=()=>{$('botOv').classList.remove('show');mode=menuMode='bot';fmt='single';online=false;showGame();newGame();};
+$('bot2v2').onclick=()=>{$('botOv').classList.remove('show');mode=menuMode='bot';fmt='double';online=false;showGame();newGame();};
+$('botBack').onclick=()=>$('botOv').classList.remove('show');
+$('menuSnd').onclick=()=>{soundOn=!soundOn;const g=soundOn?'🔊':'🔇';$('menuSnd').textContent=g;$('sndBtn').textContent=g;if(!soundOn)SFX.charge.stop();};
+// ── Menue-Preview: die ECHTE 3D-Szene zeigt den gewaehlten Modus. Setzt nur den
+//    Pre-Game-Zustand (wie frueher die Menue-Pills) und laesst den echten Spawner
+//    (placeBalls) die Kugeln stellen — der 3D-Renderer spiegelt balls[] ohnehin
+//    jeden Frame. Kein gezeichneter Ersatz, keine Physik-/Online-Aenderung. ──
+function updateMenuPreview(){
+  if(online)return;   // nie eine laufende Online-Session anfassen (Karten sind dann eh verdeckt)
+  if(menuSel==='ffa'){mode=menuMode='ffa';fmt='ffa';ffaN=5;}          // 5 Kugeln: Blau/Rot/Gruen/Gelb/Schwarz
+  else if(menuSel==='vs'){mode=menuMode='online';fmt='double';}       // Versus-Preview: 2v2-Duo-Layout (2 blaue vs 2 rote)
+  else{mode=menuMode='bot';fmt='single';}                             // 1v1: Spieler vs Bot
+  R=R0;outBall=-1;placeBalls();   // frische Plattformgroesse + kein Fall-Rest aus einem Vorspiel
+}
 $('lobbyStart').onclick=()=>startFfaMatch();
 $('startBtn').onclick=()=>{SFX.unlock();if(mode==='online'){openOnline();return;}online=false;showGame();newGame();};
 // During a running online match the header menu must never leave silently:
@@ -387,15 +650,15 @@ $('menuBtn').onclick=()=>{if(online&&gameStarted){$('leaveOv').classList.add('sh
 $('leaveCancel').onclick=()=>$('leaveOv').classList.remove('show');
 $('leaveGo').onclick=()=>{$('leaveOv').classList.remove('show');$('ov').classList.remove('show');leaveOnline();showMenu();};
 $('ovMenuBtn').onclick=()=>{$('ov').classList.remove('show');leaveOnline();showMenu();};
-$('sndBtn').onclick=()=>{soundOn=!soundOn;$('sndBtn').textContent=soundOn?'🔊':'🔇';if(!soundOn)SFX.charge.stop();};
-$('resetBtn').onclick=()=>{if(online){toast('Im Online-Modus nicht verfügbar.');return;}newGame();};
+$('sndBtn').onclick=()=>{soundOn=!soundOn;const g=soundOn?'🔊':'🔇';$('sndBtn').textContent=g;$('menuSnd').textContent=g;if(!soundOn)SFX.charge.stop();};
+$('resetBtn').onclick=()=>{if(online){toast(T('noOnlineReset'));return;}newGame();};
 $('rematchBtn').onclick=()=>{if(online){$('ov').classList.remove('show');onlineRematch();return;}$('ov').classList.remove('show');newGame();};
 $('onCreate').onclick=()=>createRoom();
 $('onJoin').onclick=()=>joinRoom();
-$('onBack').onclick=()=>{leaveOnline();$('online').classList.remove('show');};
+$('onBack').onclick=()=>{leaveOnline();mode=menuMode;ffaN=ffaNMenu;$('online').classList.remove('show');};
 $('onInput').addEventListener('input',e=>{e.target.value=e.target.value.toUpperCase().replace(/[^A-Z0-9]/g,'');});
-function showMenu(){$('menu').style.display='flex';$('game').style.display='none';}
-function showGame(){$('menu').style.display='none';$('game').style.display='flex';}
+function showMenu(){menuVisible=true;$('menu').style.display='flex';$('game').style.display='none';updateMenuPreview();resize();}
+function showGame(){menuVisible=false;$('menu').style.display='none';$('game').style.display='flex';}   // Gameplay-Framing kommt via newGame()->resize()
 
 // ════ SOUND ════
 const SFX=(()=>{
@@ -870,7 +1133,7 @@ function bot1v1Hard(me,op,idx){
   const baseAng=Math.atan2(aby,abx);
   const cand=[];
   const powers=[powerForDist(dist*0.55),powerForDist(dist+BR*2),powerForDist(dist+(R-Math.hypot(op.x-cx,op.y-cy))+BR*2),mp*0.9];
-  for(const off of[-0.34,-0.16,0,0.16,0.34])for(const pw of powers)
+  for(const off of[-0.34,-0.16,-0.08,0,0.08,0.16,0.34])for(const pw of powers)   // feinere Winkel um den Direkttreffer
     cand.push({dx:Math.cos(baseAng+off)*pw,dy:Math.sin(baseAng+off)*pw});
   cand.push({dx:(tcx/tcl)*powerForDist(Math.min(tcl,R*0.5)),dy:(tcy/tcl)*powerForDist(Math.min(tcl,R*0.5))});
   cand.push({dx:0,dy:0});
@@ -891,7 +1154,9 @@ function bot1v1Hard(me,op,idx){
     scored.push({bc,score:0.65*worst+0.35*(sum/opCand.length)});
   }
   scored.sort((a,b)=>b.score-a.score);
-  const top=scored.filter(x=>x.score>=scored[0].score-0.6);
+  // Enge Auswahl-Toleranz (0.2 statt 0.6): der Bot spielt fast immer den besten
+  // gefundenen Zug, minimale Varianz bleibt — staerker ohne Cheat/Physikaenderung.
+  const top=scored.filter(x=>x.score>=scored[0].score-0.2);
   const pick=top[Math.floor(Math.random()*top.length)].bc;
   return{idx,dx:pick.dx,dy:pick.dy};
 }
@@ -1076,19 +1341,20 @@ function renderLobby(p){
 function openOnline(){
   if(TUNE){toast('Tuning aktiv — Online deaktiviert');return;}
   $('onTitle').textContent=mode==='ffa'?'ONLINE-FFA':'ONLINE 1v1';
+  $('onCtxt').textContent=mode==='ffa'?T('dlgFfa'):T('dlg1v1');
   $('online').classList.add('show');
   $('onCreate').style.display='';$('onJoinRow').style.display='flex';$('onWait').style.display='none';
   $('onLobby').style.display='none';
   $('onCode').textContent='';$('onInput').value='';setStatus('');
-  whenFB(()=>{ if(!fbReady())setStatus('⚠ Keine Verbindung zu Firebase. Internet & Config prüfen.'); });
+  whenFB(()=>{ if(!fbReady())setStatus(T('noFb')); });
 }
 
 function createRoom(){
   if(TUNE){toast('Tuning aktiv — Online deaktiviert');return;}
   const ffa=mode==='ffa';   // Kontext vom ffaOnline-Button; Rules verlangen state:'lobby' NUR fuer ffa
-  whenFB(()=>{ if(!fbReady()){setStatus('⚠ Keine Verbindung zu Firebase.');return;}
+  whenFB(()=>{ if(!fbReady()){setStatus(T('noFb'));return;}
     (async()=>{ try{
-      setStatus('Erstelle Raum…');
+      setStatus(T('creating'));
       let code='';
       for(let t=0;t<6;t++){ code=rrand(4); const s=await window.FB.get(window.FB.ref(window.FB.db,'rooms/'+code)); if(!s.exists())break; }
       if(ffa)fmt='ffa';
@@ -1099,10 +1365,10 @@ function createRoom(){
       window.FB.onDisconnect(rRef('p/0')).remove();
       $('onCreate').style.display='none';$('onJoinRow').style.display='none';$('onWait').style.display='';
       $('onCode').textContent=code;
-      if(ffa){ $('onLobby').style.display=''; renderLobby({0:true}); setStatus('FFA · Schick den Code an 1–4 Freunde.'); }
-      else setStatus((fmt==='double'?'2v2 · ':'1v1 · ')+'Schick den Code an deinen Kumpel.');
+      if(ffa){ $('onLobby').style.display=''; renderLobby({0:true}); setStatus(T('ffaShare')); }
+      else setStatus((fmt==='double'?'2v2 · ':'1v1 · ')+T('shareCode'));
       attachRoomListeners();
-    }catch(e){ setStatus('Fehler: '+(e.message||e)); online=false; } })();
+    }catch(e){ setStatus(T('err')+(e.message||e)); online=false; } })();
   });
 }
 
@@ -1164,23 +1430,23 @@ async function claimSeat(code){
 function joinRoom(){
   if(TUNE){toast('Tuning aktiv — Online deaktiviert');return;}
   const code=($('onInput').value||'').toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,4);
-  if(code.length<4){ setStatus('Bitte 4-stelligen Code eingeben.'); return; }
-  whenFB(()=>{ if(!fbReady()){setStatus('⚠ Keine Verbindung zu Firebase.');return;}
+  if(code.length<4){ setStatus(T('code4')); return; }
+  whenFB(()=>{ if(!fbReady()){setStatus(T('noFb'));return;}
     (async()=>{ try{
-      setStatus('Trete bei…');
+      setStatus(T('joining'));
       const s=await window.FB.get(window.FB.ref(window.FB.db,'rooms/'+code));
-      if(!s.exists()){ setStatus('Raum nicht gefunden.'); return; }
+      if(!s.exists()){ setStatus(T('noRoom')); return; }
       const v=validateRoom(s.val());
       if(!v.ok){ setStatus(v.reason); return; }
       if(v.fmt==='ffa'){   // M8-T3c: Seat per write-once-Race claimen statt fix p/1
         const seat=await claimSeat(code);
-        if(seat<0){ setStatus('Raum ist schon voll.'); return; }
+        if(seat<0){ setStatus(T('roomFull')); return; }
         roomCode=code; myPlayer=seat; online=true; mode='ffa'; runningGen=-1; gameStarted=false; seatLeft=[]; seatGone=[];
         winTarget=v.winTarget; fmt='ffa'; gen=v.gen;
         window.FB.onDisconnect(rRef('p/'+seat)).remove();
         $('onTitle').textContent='ONLINE-FFA';
         $('onCreate').style.display='none';$('onJoinRow').style.display='none';$('onLobby').style.display='';
-        setStatus('Verbunden! Warte auf den Host…');
+        setStatus(T('connWait'));
         attachRoomListeners();
         return;
       }
@@ -1189,9 +1455,9 @@ function joinRoom(){
       winTarget=v.winTarget; fmt=v.fmt; gen=v.gen;
       await window.FB.update(rRef('p'), {1:true});
       window.FB.onDisconnect(rRef('p/1')).remove();
-      setStatus('Verbunden! Spiel startet…');
+      setStatus(T('connStart'));
       attachRoomListeners();
-    }catch(e){ setStatus('Fehler: '+(e.message||e)); online=false; } })();
+    }catch(e){ setStatus(T('err')+(e.message||e)); online=false; } })();
   });
 }
 
@@ -1875,9 +2141,16 @@ async function initR3D(){
       const tanV=Math.tan(45*Math.PI/360), need=530;         // sichtbarer Plattform-Aussenradius + knapper Rand
       const baseDist=Math.max(need/(tanV*aspect),need/tanV)*1.10;
       curVA=viewAngle();
+      if(menuVisible){
+        // Menue-Framing: Plattform gross und zentriert, Zentrum bei ~37% Bildhoehe
+        // (Titel darueber, Karten/CTA darunter). Reiner Parameter-Zweig — das
+        // Gameplay-Framing (else) und r3dCamMath bleiben unveraendert.
+        geo={vw,vh,baseDist:baseDist*0.87,ox:0,oy:0,os:vw,shx:0,shy:-vh*0.13};
+      }else{
       const rect=cv.getBoundingClientRect(),wr=cv.parentElement.getBoundingClientRect();
       geo={vw,vh,baseDist,ox:rect.left,oy:rect.top,os:rect.width||1,
            shx:wr.left+wr.width/2-vw/2,shy:wr.top+wr.height/2-vh/2};   // Principal Point -> Wrap-Zentrum (cv ist jetzt Viewport-gross)
+      }
       camera.fov=45;camera.aspect=aspect;camera.near=10;camera.far=20000;
       camera.setViewOffset(vw,vh,-geo.shx,-geo.shy,vw,vh);   // identischer Shift wie in r3dCamMath
       camera.updateProjectionMatrix();
@@ -2004,7 +2277,7 @@ function loop(now){
   requestAnimationFrame(loop);
 }
 
-resize();initArenaGeo();newGame();requestAnimationFrame(loop);
+resize();initArenaGeo();newGame();applyLang();requestAnimationFrame(loop);   // applyLang (inkl. selectMenuMode) erst hier: PCOLS (const) muss initialisiert sein
 })();
 </script>
 </body>

@@ -131,6 +131,7 @@ function makeClient(db, code) {
   const FB = db.FBfor(ui);
   const body = `
     const TUNE=false; let r3dOrbit=false;
+    const T=k=>k;   // i18n-Stub: extrahierte Dialog-Funktionen loggen Text-KEYS (keine Asserts darauf)
     const PCOLS=[{ui:'#e33'},{ui:'#3e3'},{ui:'#33e'},{ui:'#ee3'},{ui:'#e3e'}];
     const window={__FB_READY:true,__FB_ERR:null,FB};
     const document={querySelector:()=>({textContent:''})};

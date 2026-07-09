@@ -1,6 +1,6 @@
 # TODO.md — RingOut
 
-**Zuletzt aktualisiert:** 2026-07-09 (Room-Cleanup v1)
+**Zuletzt aktualisiert:** 2026-07-10 (ONLINE VERSUS + Bot-Format-Modal)
 
 Offene Aufgaben nach Priorität. Abgeschlossene Aufgaben werden nach `CHANGELOG.md` verschoben.
 
