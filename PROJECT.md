@@ -167,6 +167,11 @@ Ringout/
 
 ---
 
+## Systemanalyse
+
+- Systemanalyse vom 2026-07-09 liegt unter `docs/SYSTEM-ANALYSE-2026-07-09.md` (Bewertung, Schwachstellen, Regel-/Workflow-Vorschläge, Token-Sparsystem).
+- Umsetzung erfolgt später in separaten Infra-/Workflow-Tasks (eigene Briefings/Freigaben).
+
 ## Bekannte Einschränkungen
 
 - Firebase API-Key liegt im Klartext im Quellcode (kein Build-System für Env-Variablen)
