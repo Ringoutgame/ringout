@@ -121,11 +121,29 @@ for (const [vw, vh] of [[800, 600], [390, 780], [1400, 900]]) {   // Landscape, 
   }
 }
 
-// 7) localPt: 2D-Zweig byte-identisch vorhanden (der historische Code als exakter Substring)
+// 7) localPt: 2D-Zweig byte-identisch vorhanden (der Code als exakter Substring).
+//    Seit M8-T3c steuert viewAngle() die Ansicht: 1v1/2v2 exakt wie immer
+//    (Spieler 1: exakter 180-Grad-Spiegel 2*cx-x), Online-FFA pro Seat gedreht.
 {
-  const orig = "const r=cv.getBoundingClientRect();const sc=LOGICAL/(r.width||dispS);let x=(e.clientX-r.left)*sc,y=(e.clientY-r.top)*sc;if(online&&myPlayer===1){x=2*cx-x;y=2*cy-y;}return{x:x,y:y};";
+  const orig = "const r=cv.getBoundingClientRect();const sc=LOGICAL/(r.width||dispS);let x=(e.clientX-r.left)*sc,y=(e.clientY-r.top)*sc;const va=viewAngle();if(va===Math.PI){x=2*cx-x;y=2*cy-y;}else if(va){const dx=x-cx,dy=y-cy,c=Math.cos(va),s=Math.sin(va);x=cx+dx*c+dy*s;y=cy-dx*s+dy*c;}return{x:x,y:y};";
   t('localPt 2D-Zweig byte-identisch', HTML.includes(orig));
   t('localPt 3D-Zweig gated', HTML.includes("if(r3dActive)return r3d.s2w(e.clientX,e.clientY);"));
+}
+
+// 7b) viewAngle: eigene Kugel liegt fuer JEDEN Seat vorne/unten (Spawnwinkel
+//     PI/2+seat*2PI/N plus Rotation == PI/2), 1v1/2v2 exakt 0 bzw. PI.
+{
+  const vaM = HTML.match(/function viewAngle\(\)\{[\s\S]*?\n\}/);
+  if (!vaM) { console.error('FAIL: viewAngle nicht gefunden'); process.exit(2); }
+  const va = new Function(`let online=true,mode='ffa',myPlayer=0,ffaN=3;${vaM[0]}
+    return (m,p,n)=>{mode=m;myPlayer=p;ffaN=n;return viewAngle();};`)();
+  for (const n of [2, 3, 4, 5]) for (let p = 0; p < n; p++) {
+    const a = Math.PI / 2 + p * 2 * Math.PI / n + va('ffa', p, n);   // Bildschirmwinkel der eigenen Kugel
+    t(`viewAngle ffa N=${n} Seat ${p}: eigene Kugel unten`, Math.abs(Math.sin(a) - 1) < 1e-9 && Math.abs(Math.cos(a)) < 1e-9);
+  }
+  t('viewAngle 1v1 P0 exakt 0', va('online', 0, 3) === 0);
+  t('viewAngle 1v1 P1 exakt PI (Spiegel-Kontrakt)', va('online', 1, 3) === Math.PI);
+  t('viewAngle offline immer 0 (lokaler FFA unveraendert)', new Function(`let online=false,mode='ffa',myPlayer=2,ffaN=5;${vaM[0]};return viewAngle();`)() === 0);
 }
 
 // 8) #cv3d braucht explizite CSS-Groesse: setSize(...,false) setzt nur die Backing-Aufloesung

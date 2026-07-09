@@ -218,7 +218,7 @@ body.r3d .phase:not(:empty){background:rgba(8,14,22,.72);border:1px solid rgba(1
 </div>
 
 <div class="cover" id="online">
-  <div class="who" style="color:var(--gold)">ONLINE 1v1</div>
+  <div class="who" id="onTitle" style="color:var(--gold)">ONLINE 1v1</div>
   <div class="ctxt">Spiel gegen einen Freund. Einer erstellt einen Raum, der andere tritt mit dem Code bei.</div>
   <button class="cbtn" id="onCreate">Raum erstellen</button>
   <div id="onWait" style="display:none;margin-top:16px;text-align:center">
@@ -226,7 +226,7 @@ body.r3d .phase:not(:empty){background:rgba(8,14,22,.72);border:1px solid rgba(1
     <div id="onCode" style="font-size:42px;font-weight:900;letter-spacing:.28em;color:var(--gold);margin:6px 0"></div>
     <div style="font-size:11px;color:var(--muted)">Warte auf Mitspieler…</div>
   </div>
-  <!-- FFA-Lobby (M8-T3a vorbereitet; wird erst in M8-T3c von Live-Listenern gefuettert) -->
+  <!-- FFA-Lobby (live seit M8-T3c; gefuettert vom Presence-Listener) -->
   <div id="onLobby" style="display:none;margin-top:16px;text-align:center">
     <div style="font-size:10px;color:var(--muted);letter-spacing:.18em">LOBBY <span id="lobbyCount"></span></div>
     <div id="lobbySeats" style="display:flex;gap:10px;justify-content:center;margin:12px 0"></div>
@@ -341,17 +341,32 @@ function r3dCamMath(p){
 function OP(lx,ly,h){ return r3dActive ? r3d.w2s(lx,ly,h||0) : {x:lx,y:ly,s:1}; }
 
 let mode='bot',diff='easy',winTarget=3,soundOn=true;
-let fmt='single';   // Format (single/double)
-let ffaN=3;         // FFA lokal: Spieleranzahl 2-5 (nur mode==='ffa')
+let menuMode='bot'; // im Menue gewaehlter Modus — ein Online-Join kann mode temporaer umstellen
+let fmt='single';   // Format (single/double/ffa)
+let ffaN=3;         // FFA: Spieleranzahl 2-5 (lokal aus dem Menue; online = seats aus Firebase)
+let ffaNMenu=3;     // Menue-Auswahl fuer FFA lokal — leaveOnline() stellt ffaN darauf zurueck
 // ── ONLINE-State ──
 let online=false, roomCode='', myPlayer=0, gen=0, runningGen=-1, turnNo=-1;
-let turnUnsub=null, genUnsub=null, presUnsub=null, gameStarted=false;
+let turnUnsub=null, genUnsub=null, presUnsub=null, seatsUnsub=null, gameStarted=false;
+let lobbyP={};      // letzter Lobby-Presence-Snapshot (Start-Gate des Hosts, M8-T3c)
+let seatLeft=[];    // FFA: Seat hat das Match verlassen (Presence-Sicht) -> Sentinel schreiben
+let seatGone=[];    // FFA: Verlassen-Status aus den Move-Daten — deterministisch fuer alle Clients
+// Ansichts-Rotation pro Client (NUR Ansicht/Input — Simulation, Spawnpositionen
+// und Physik bleiben absolut identisch):
+//   Online 1v1/2v2: Spieler 1 sieht das Brett 180° gedreht (eigene Kugel unten).
+//   Online-FFA: jeder Seat sieht die eigene Kugel vorne/unten — der Spawnwinkel
+//   PI/2+seat*2*PI/N wird auf PI/2 zurueckgedreht (Seat 0: 0, wie lokal).
+function viewAngle(){
+  if(!online)return 0;
+  if(mode==='ffa')return -(myPlayer*2*Math.PI/ffaN);
+  return myPlayer===1?Math.PI:0;
+}
 
 function setOn(grp,id){document.querySelectorAll('#'+grp+' button').forEach(b=>b.classList.remove('on'));$(id).classList.add('on');}
-$('mBot').onclick=()=>{mode='bot';setOn('modeGrp','mBot');$('diffSec').style.display='';$('fmtSec').style.display='';$('ffaSec').style.display='none';};
-$('mPvp').onclick=()=>{mode='pvp';setOn('modeGrp','mPvp');$('diffSec').style.display='none';$('fmtSec').style.display='';$('ffaSec').style.display='none';};
-$('mFfa').onclick=()=>{mode='ffa';setOn('modeGrp','mFfa');$('diffSec').style.display='none';$('fmtSec').style.display='none';$('ffaSec').style.display='';};
-$('mOnline').onclick=()=>{mode='online';setOn('modeGrp','mOnline');$('diffSec').style.display='none';$('fmtSec').style.display='';$('ffaSec').style.display='none';};
+$('mBot').onclick=()=>{mode=menuMode='bot';setOn('modeGrp','mBot');$('diffSec').style.display='';$('fmtSec').style.display='';$('ffaSec').style.display='none';};
+$('mPvp').onclick=()=>{mode=menuMode='pvp';setOn('modeGrp','mPvp');$('diffSec').style.display='none';$('fmtSec').style.display='';$('ffaSec').style.display='none';};
+$('mFfa').onclick=()=>{mode=menuMode='ffa';setOn('modeGrp','mFfa');$('diffSec').style.display='none';$('fmtSec').style.display='none';$('ffaSec').style.display='';};
+$('mOnline').onclick=()=>{mode=menuMode='online';setOn('modeGrp','mOnline');$('diffSec').style.display='none';$('fmtSec').style.display='';$('ffaSec').style.display='none';};
 $('dE').onclick=()=>{diff='easy';setOn('diffGrp','dE');};
 $('dM').onclick=()=>{diff='medium';setOn('diffGrp','dM');};
 $('dH').onclick=()=>{diff='hard';setOn('diffGrp','dH');};
@@ -359,11 +374,11 @@ $('fSingle').onclick=()=>{fmt='single';setOn('fmtGrp','fSingle');};
 $('fDouble').onclick=()=>{fmt='double';setOn('fmtGrp','fDouble');};
 $('w3').onclick=()=>{winTarget=3;setOn('winGrp','w3');};
 $('w5').onclick=()=>{winTarget=5;setOn('winGrp','w5');};
-[['np2',2],['np3',3],['np4',4],['np5',5]].forEach(([id,n])=>{$(id).onclick=()=>{ffaN=n;setOn('ffaGrp',id);};});
-// Online-FFA ist clientseitig vorbereitet (M8-T3a), geht aber erst nach
-// Protocol-Bump + Rules-Publish (M8-T3b/c) live — bis dahin hart geblockt.
-$('ffaOnline').onclick=()=>toast('Online-FFA kommt im nächsten Schritt.');
-$('lobbyStart').onclick=()=>toast('Online-FFA kommt im nächsten Schritt.');
+[['np2',2],['np3',3],['np4',4],['np5',5]].forEach(([id,n])=>{$(id).onclick=()=>{ffaN=ffaNMenu=n;setOn('ffaGrp',id);};});
+// Online-FFA (live seit M8-T3c): Button oeffnet den Online-Dialog im FFA-Kontext
+// (mode==='ffa') — createRoom baut daraus den ffa-Raum mit state:'lobby'.
+$('ffaOnline').onclick=()=>{SFX.unlock();openOnline();};
+$('lobbyStart').onclick=()=>startFfaMatch();
 $('startBtn').onclick=()=>{SFX.unlock();if(mode==='online'){openOnline();return;}online=false;showGame();newGame();};
 // During a running online match the header menu must never leave silently:
 // confirm first, then take the same clean leave path as a disconnect
@@ -583,7 +598,7 @@ function newGame(){resize();R=R0;score=[];for(let p=0;p<np();p++)score.push(0);r
   $('card0').style.display=ffa?'none':'';$('card1').style.display=ffa?'none':'';
   document.querySelector('.scorebox').style.display=ffa?'none':'';
   $('ffaBar').style.display=ffa?'flex':'none';
-  if(online){
+  if(online&&!ffa){
     $('card0').querySelector('.pn').textContent = (myPlayer===0)?'DU':'GEGNER';
     $('n1').textContent = (myPlayer===1)?'DU':'GEGNER';
   } else if(!ffa){
@@ -620,8 +635,15 @@ function updateHud(){
 }
 function setPhaseText(){const p=$('phase');
   if(online){
-    if(phase==='aim')p.innerHTML = aimSet[myPlayer] ? '⏳ Warte auf Gegner…' : (fmt==='double'?'Wähle <span class="me'+myPlayer+'">eine Kugel</span> & zieh zurück':'Zieh <span class="me'+myPlayer+'">deine Kugel zurück</span> & lass los');
-    else if(phase==='reveal')p.textContent='Beide aufgedeckt…';
+    if(phase==='aim'){
+      if(mode==='ffa'){   // Online-FFA: Eliminierte schauen zu, Seat-Farbe statt me0/me1-Klassen
+        if(!aliveCount(myPlayer))p.textContent='💀 Du bist raus — Zuschauen';
+        else if(aimSet[myPlayer])p.textContent='⏳ Warte auf die anderen…';
+        else p.innerHTML='Zieh <span style="color:'+PCOLS[myPlayer].ui+'">deine Kugel zurück</span> & lass los';
+      }
+      else p.innerHTML = aimSet[myPlayer] ? '⏳ Warte auf Gegner…' : (fmt==='double'?'Wähle <span class="me'+myPlayer+'">eine Kugel</span> & zieh zurück':'Zieh <span class="me'+myPlayer+'">deine Kugel zurück</span> & lass los');
+    }
+    else if(phase==='reveal')p.textContent=mode==='ffa'?'Alle aufgedeckt…':'Beide aufgedeckt…';
     else if(phase==='sim')p.textContent='💥';
     else p.textContent='';
     return;
@@ -651,14 +673,14 @@ let toastT;function toast(m){const t=$('toast');t.textContent=m;t.classList.add(
 function openCover(pi){const c=$('cover');$('coverWho').textContent='Spieler '+(pi+1);$('coverWho').className='who';$('coverWho').style.color=PCOLS[pi].ui;c.classList.add('show');}
 $('coverBtn').onclick=()=>{$('cover').classList.remove('show');setPhaseText();updateHud();};
 
-$('actBtn').onclick=()=>{if(r3dOrbit)return;if(phase!=='aim')return;const who=online?myPlayer:(mode==='bot'?0:curAimer);if(aimSet[who])return;
+$('actBtn').onclick=()=>{if(r3dOrbit)return;if(phase!=='aim')return;const who=online?myPlayer:(mode==='bot'?0:curAimer);if(aimSet[who]||!aliveCount(who))return;
   const own=aliveBalls(who);const idx=own.length?balls.indexOf(own[0]):-1;commit(who,idx,0,0);};
 
 // ════ INPUT (slingshot: drag back, fling forward) ════
 function localPt(e){
   if(r3dActive)return r3d.s2w(e.clientX,e.clientY);   // 3D: Ray-Ebene-Schnitt -> LOGICAL (P2 steckt in der Kamera)
-  const r=cv.getBoundingClientRect();const sc=LOGICAL/(r.width||dispS);let x=(e.clientX-r.left)*sc,y=(e.clientY-r.top)*sc;if(online&&myPlayer===1){x=2*cx-x;y=2*cy-y;}return{x:x,y:y};}
-function whoCanAim(){if(r3dOrbit)return -1;if(phase!=='aim')return -1;if(online)return aimSet[myPlayer]?-1:myPlayer;if(mode==='bot')return aimSet[0]?-1:0;return aimSet[curAimer]?-1:curAimer;}
+  const r=cv.getBoundingClientRect();const sc=LOGICAL/(r.width||dispS);let x=(e.clientX-r.left)*sc,y=(e.clientY-r.top)*sc;const va=viewAngle();if(va===Math.PI){x=2*cx-x;y=2*cy-y;}else if(va){const dx=x-cx,dy=y-cy,c=Math.cos(va),s=Math.sin(va);x=cx+dx*c+dy*s;y=cy-dx*s+dy*c;}return{x:x,y:y};}
+function whoCanAim(){if(r3dOrbit)return -1;if(phase!=='aim')return -1;if(online)return (aimSet[myPlayer]||!aliveCount(myPlayer))?-1:myPlayer;if(mode==='bot')return aimSet[0]?-1:0;return aimSet[curAimer]?-1:curAimer;}
 function pickOwnBall(who,p){let best=-1,bd=1e9;balls.forEach((b,i)=>{if(b.alive&&b.owner===who){const d=Math.hypot(p.x-b.x,p.y-b.y);if(d<bd){bd=d;best=i;}}});const reach=teamCap()===2?BR*2.8:BR*5;return bd<=reach?best:-1;}
 // 3D: Screen-space-Trefferzone — projizierter Kugelmittelpunkt + grosszuegiger Touch-Radius
 // (mind. 52 CSS-px). Die Welt-Pruefung am Ray-Bodenpunkt verfehlt die sichtbare Kugel bei
@@ -919,7 +941,21 @@ function bot2v2(){const a=snap(),me=1,opp=0,mine=aliveIdx(a,me);if(!mine.length)
   return best?{idx:best.i,dx:best.dx,dy:best.dy}:{idx:mine[0],dx:0,dy:0};}
 
 // ════ REVEAL → SIM ════
-function beginReveal(){setPhase('reveal');setPhaseText();updateHud();}
+function beginReveal(){if(online&&mode==='ffa')ejectGoneSeats();setPhase('reveal');setPhaseText();updateHud();}
+// Online-FFA: verlassene Seats (ueber den Move-Sentinel fuer ALLE Clients
+// deterministisch bekannt, s. onlineTurnValue) werden vor dem Sim-Start knapp
+// hinter die Ringkante gesetzt — der normale Ring-Out-Pfad in stepSim eliminiert
+// sie und beendet Runde/Match ohne Sonderlogik. Bewusst KEIN Eingriff in stepSim.
+function ejectGoneSeats(){
+  for(let s=0;s<np();s++){
+    if(!seatGone[s])continue;
+    for(const b of balls){
+      if(b.owner!==s||!b.alive)continue;
+      const dx=b.x-cx,dy=b.y-cy,d=Math.hypot(dx,dy)||1,f=(R+BR*2)/d;
+      b.x=cx+dx*f;b.y=cy+dy*f;b.vx=0;b.vy=0;
+    }
+  }
+}
 function applyLaunch(){
   let maxp=0;
   for(let p=0;p<commitIdx.length;p++){const idx=commitIdx[p];if(idx>=0&&balls[idx]&&balls[idx].alive){balls[idx].vx=commitAim[p].dx*LAUNCH;balls[idx].vy=commitAim[p].dy*LAUNCH;balls[idx].spin=commitSpin[p]||0;}
@@ -995,7 +1031,7 @@ function stepSim(){
   }
 }
 function resultDrift(){if(outBall<0)return;const b=balls[outBall];b.x+=b.vx*RESULT_SLOWMUL;b.y+=b.vy*RESULT_SLOWMUL;b.vx*=RESULT_FR;b.vy*=RESULT_FR;}
-function pName(p){return online?(p===myPlayer?'DU':'GEGNER'):(mode==='bot'&&p===1?'Bot':'Spieler '+(p+1));}
+function pName(p){return online?(p===myPlayer?'DU':(mode==='ffa'?'Spieler '+(p+1):'GEGNER')):(mode==='bot'&&p===1?'Bot':'Spieler '+(p+1));}
 function afterResult(){
   const loser=balls[outBall].owner,winner=roundWinner>=0?roundWinner:1-loser;
   roundWinner=-1;score[winner]++;SFX.round(winner);
@@ -1018,9 +1054,11 @@ function rrand(n){let s='';const ch='ABCDEFGHJKMNPQRSTUVWXYZ23456789';for(let i=
 function rRef(p){return window.FB.ref(window.FB.db,'rooms/'+roomCode+(p?'/'+p:''));}
 function setStatus(t){const e=$('onStatus');if(e)e.textContent=t;}
 
-// FFA-Lobby-Roster (M8-T3a vorbereitet; wird erst in M8-T3c von Live-Listenern
-// gefuettert): Seats 0-4 als farbige Kugeln (PCOLS), Zaehler n/5, Host-Start ab 2.
+// FFA-Lobby-Roster (live seit M8-T3c, gefuettert vom Presence-Listener):
+// Seats 0-4 als farbige Kugeln (PCOLS), Zaehler n/5, Host-Start ab 2.
+// Start-Gate: keine Sitzluecken (kein Auto-Nachruecken in v1 — siehe seatsContiguous).
 function renderLobby(p){
+  lobbyP=p;   // Snapshot fuer startFfaMatch (Host prueft n>=2 + Lueckenfreiheit)
   let n=0,h='';
   for(let s=0;s<FFA_MAX_SEATS;s++){
     const here=!!p[s];if(here)n++;
@@ -1029,13 +1067,15 @@ function renderLobby(p){
       :'border:2px dashed #2a3850')+'"></div>';
   }
   $('lobbySeats').innerHTML=h;$('lobbyCount').textContent=n+'/'+FFA_MAX_SEATS;
-  const host=myPlayer===0;
+  const host=myPlayer===0,gap=!seatsContiguous(p,n);
   $('lobbyStart').style.display=host?'':'none';
-  $('lobbyStart').disabled=n<2;
-  $('lobbyHint').style.display=host?'none':'';
+  $('lobbyStart').disabled=n<2||gap;
+  $('lobbyHint').textContent=host?'Sitzlücke: Warte auf freien Sitz / Spieler soll neu beitreten.':'Warte auf Host…';
+  $('lobbyHint').style.display=(host?(gap&&n>=2):true)?'':'none';
 }
 function openOnline(){
   if(TUNE){toast('Tuning aktiv — Online deaktiviert');return;}
+  $('onTitle').textContent=mode==='ffa'?'ONLINE-FFA':'ONLINE 1v1';
   $('online').classList.add('show');
   $('onCreate').style.display='';$('onJoinRow').style.display='flex';$('onWait').style.display='none';
   $('onLobby').style.display='none';
@@ -1045,17 +1085,22 @@ function openOnline(){
 
 function createRoom(){
   if(TUNE){toast('Tuning aktiv — Online deaktiviert');return;}
-  if(fmt==='ffa'||mode==='ffa'){toast('Online-FFA kommt im nächsten Schritt.');return;}   // M8-T3b/c
+  const ffa=mode==='ffa';   // Kontext vom ffaOnline-Button; Rules verlangen state:'lobby' NUR fuer ffa
   whenFB(()=>{ if(!fbReady()){setStatus('⚠ Keine Verbindung zu Firebase.');return;}
     (async()=>{ try{
       setStatus('Erstelle Raum…');
       let code='';
       for(let t=0;t<6;t++){ code=rrand(4); const s=await window.FB.get(window.FB.ref(window.FB.db,'rooms/'+code)); if(!s.exists())break; }
-      roomCode=code; myPlayer=0; online=true; gen=0; runningGen=-1; gameStarted=false;
-      await window.FB.set(rRef(), {v:ONLINE_PROTOCOL_VERSION, config:{winTarget:winTarget,fmt:fmt}, gen:0, p:{0:true}, created:window.FB.serverTimestamp()});
+      if(ffa)fmt='ffa';
+      roomCode=code; myPlayer=0; online=true; gen=0; runningGen=-1; gameStarted=false; seatLeft=[]; seatGone=[];
+      const room={v:ONLINE_PROTOCOL_VERSION, config:{winTarget:winTarget,fmt:fmt}, gen:0, p:{0:true}, created:window.FB.serverTimestamp()};
+      if(ffa)room.state='lobby';
+      await window.FB.set(rRef(), room);
       window.FB.onDisconnect(rRef('p/0')).remove();
       $('onCreate').style.display='none';$('onJoinRow').style.display='none';$('onWait').style.display='';
-      $('onCode').textContent=code; setStatus((fmt==='double'?'2v2 · ':'1v1 · ')+'Schick den Code an deinen Kumpel.');
+      $('onCode').textContent=code;
+      if(ffa){ $('onLobby').style.display=''; renderLobby({0:true}); setStatus('FFA · Schick den Code an 1–4 Freunde.'); }
+      else setStatus((fmt==='double'?'2v2 · ':'1v1 · ')+'Schick den Code an deinen Kumpel.');
       attachRoomListeners();
     }catch(e){ setStatus('Fehler: '+(e.message||e)); online=false; } })();
   });
@@ -1085,8 +1130,8 @@ function validateRoom(d){
   const p=d.p;
   if(!p||typeof p!=='object'||p[0]!==true)return{ok:false,reason:'Raum ist verwaist.'};
   if(cfg.fmt==='ffa'){
-    // FFA-Raum (M8-T3a vorbereitet; live erst nach Protocol-Bump + Rules-Publish in
-    // M8-T3b): Beitritt nur solange die Lobby offen ist und ein Seat 1-4 frei ist.
+    // FFA-Raum (live seit M8-T3c): Beitritt nur solange die Lobby offen ist
+    // und ein Seat 1-4 frei ist.
     if(d.state!=='lobby')return{ok:false,reason:'Match läuft bereits.'};
     const seat=pickFreeSeat(p,FFA_MAX_SEATS);
     if(seat<0)return{ok:false,reason:'Raum ist schon voll.'};
@@ -1097,7 +1142,12 @@ function validateRoom(d){
 }
 // Niedrigster freier Gast-Seat (1..max-1); -1 = voll. Pure Funktion (Node-getestet).
 function pickFreeSeat(p,max){for(let s=1;s<max;s++)if(!p||!p[s])return s;return -1;}
-// Seat-Claiming mit Retry (M8-T3a vorbereitet; wird erst in M8-T3c aufgerufen):
+// Start-Gate-Helfer (pure, Node-getestet). Belegte Seats muessen lueckenlos 0..n-1
+// sein, sonst wartet der Lockstep ewig auf einen leeren Seat (Geister-Spieler).
+// v1-Entscheid: KEIN Auto-Nachruecken — bei Luecke blockt der Start-Button.
+function seatCount(p){let n=0;for(let s=0;s<FFA_MAX_SEATS;s++)if(p&&p[s])n++;return n;}
+function seatsContiguous(p,n){for(let s=0;s<n;s++)if(!p||!p[s])return false;return true;}
+// Seat-Claiming mit Retry (live seit M8-T3c):
 // Die Write-once-Rule auf p/<seat> ist der Schiedsrichter — verliert dieser Client
 // das Race, schlaegt der Write fehl -> Raum neu lesen, naechsten freien Seat versuchen.
 async function claimSeat(code){
@@ -1122,8 +1172,20 @@ function joinRoom(){
       if(!s.exists()){ setStatus('Raum nicht gefunden.'); return; }
       const v=validateRoom(s.val());
       if(!v.ok){ setStatus(v.reason); return; }
-      if(v.fmt==='ffa'){ setStatus('Online-FFA kommt im nächsten Schritt.'); return; }   // M8-T3c: claimSeat statt p/1
-      roomCode=code; myPlayer=1; online=true; runningGen=-1; gameStarted=false;
+      if(v.fmt==='ffa'){   // M8-T3c: Seat per write-once-Race claimen statt fix p/1
+        const seat=await claimSeat(code);
+        if(seat<0){ setStatus('Raum ist schon voll.'); return; }
+        roomCode=code; myPlayer=seat; online=true; mode='ffa'; runningGen=-1; gameStarted=false; seatLeft=[]; seatGone=[];
+        winTarget=v.winTarget; fmt='ffa'; gen=v.gen;
+        window.FB.onDisconnect(rRef('p/'+seat)).remove();
+        $('onTitle').textContent='ONLINE-FFA';
+        $('onCreate').style.display='none';$('onJoinRow').style.display='none';$('onLobby').style.display='';
+        setStatus('Verbunden! Warte auf den Host…');
+        attachRoomListeners();
+        return;
+      }
+      mode='online';   // Gast kann aus dem FFA-Menue heraus auch einem 1v1/2v2-Raum beitreten
+      roomCode=code; myPlayer=1; online=true; runningGen=-1; gameStarted=false; seatLeft=[]; seatGone=[];
       winTarget=v.winTarget; fmt=v.fmt; gen=v.gen;
       await window.FB.update(rRef('p'), {1:true});
       window.FB.onDisconnect(rRef('p/1')).remove();
@@ -1133,17 +1195,62 @@ function joinRoom(){
   });
 }
 
+// Host-Start (M8-T3c): sequenziell state -> seats. KEIN Multi-Path-update():
+// RTDB validiert Multi-Path-Updates pro Pfad, die seats-Rule prueft
+// newData.parent().child('state') und saehe den neuen state dort nicht.
+function startFfaMatch(){
+  const n=seatCount(lobbyP);
+  if(n<2){toast('Mindestens 2 Spieler nötig.');return;}
+  if(!seatsContiguous(lobbyP,n)){toast('Warte auf freien Sitz / Spieler soll neu beitreten.');return;}
+  $('lobbyStart').disabled=true;
+  (async()=>{ try{
+    await window.FB.set(rRef('state'),'playing');
+    await window.FB.set(rRef('seats'),n);
+  }catch(e){ setStatus('Start fehlgeschlagen: '+(e.message||e)); $('lobbyStart').disabled=false; } })();
+}
+// Host weg waehrend der Lobby: Raum ist tot -> zurueck zur Online-Auswahl.
+function onLobbyClosed(){
+  leaveOnline();
+  openOnline();
+  setStatus('Host hat die Lobby geschlossen.');
+}
 function attachRoomListeners(){
   presUnsub=window.FB.onValue(rRef('p'), snap=>{
     const p=snap.val()||{};
-    // Auto-Start nur 1v1/2v2; FFA startet erst per Host-Start ueber 'state' (M8-T3c)
+    // Auto-Start nur 1v1/2v2; FFA startet per Host-Start ueber state+seats (M8-T3c)
     if(fmt!=='ffa' && !!p[0] && !!p[1] && !gameStarted) maybeStart();
-    // Irgendein fremder Seat weg -> Match-Ende fuer alle (1v1/2v2: nur der Gegner)
-    if(gameStarted){for(let s=0;s<np();s++){if(s!==myPlayer&&!p[s]){onOppLeft();break;}}}
+    if(fmt==='ffa' && !gameStarted){
+      if(!p[0] && myPlayer!==0){ onLobbyClosed(); return; }
+      renderLobby(p);
+    }
+    // 1v1/2v2: fremder Seat weg -> Match-Ende fuer alle. Online-FFA: Verlassene
+    // werden per Move-Sentinel eliminiert, die Uebrigen spielen weiter (M8-T3c).
+    if(gameStarted){
+      if(mode==='ffa'){
+        for(let s=0;s<np();s++){
+          if(s===myPlayer||p[s]||seatLeft[s])continue;
+          seatLeft[s]=true;
+          toast('Spieler '+(s+1)+' hat das Match verlassen.');
+          writeLeaveSentinel(s);
+        }
+      }
+      else for(let s=0;s<np();s++){if(s!==myPlayer&&!p[s]){onOppLeft();break;}}
+    }
   });
   genUnsub=window.FB.onValue(rRef('gen'), snap=>{
     const g=snap.val(); if(g==null)return; gen=g;
     if(gameStarted && g!==runningGen) startOnlineGame();
+  });
+  // FFA-Startsignal: seats existiert (Rule-gesichert) erst NACH state='playing' —
+  // ein einziger Listener reicht daher als synchroner Start fuer Host UND Gaeste.
+  if(fmt==='ffa') seatsUnsub=window.FB.onValue(rRef('seats'), snap=>{
+    const n=snap.val();
+    if(gameStarted||!Number.isInteger(n)||n<2||n>FFA_MAX_SEATS)return;
+    if(myPlayer>=n){   // Race: Seat erst nach dem Host-Kopfzaehlen geclaimt -> sauber aussteigen
+      leaveOnline(); openOnline(); setStatus('Das Match ist ohne dich gestartet — tritt einem neuen Raum bei.');
+      return;
+    }
+    ffaN=n; maybeStart();
   });
 }
 function maybeStart(){ if(gameStarted)return; gameStarted=true; $('online').classList.remove('show'); showGame(); startOnlineGame(); }
@@ -1164,6 +1271,17 @@ function onlineArmTurn(){
   if(turnUnsub){turnUnsub();turnUnsub=null;}
   const ref=window.FB.ref(window.FB.db,'rooms/'+roomCode+'/g/'+gen+'/t/'+turnNo);
   turnUnsub=window.FB.onValue(ref, snap=>onlineTurnValue(snap.val()));
+  if(mode==='ffa')for(let s=0;s<np();s++)if(seatLeft[s])writeLeaveSentinel(s);   // offene Slots Verlassener fuellen
+}
+// Verlassener Seat wuerde den Lockstep blockieren: irgendein verbliebener Client
+// fuellt dessen offenen Move-Slot mit einem Stand-still-Sentinel (idx!==seat
+// markiert "verlassen" — in ffa gilt fuer echte Commits immer idx===seat). Die
+// Write-once-Rule ist der Schiedsrichter: kam der echte Commit zuerst, verliert
+// der Sentinel. So spielen alle Clients mit exakt denselben Moves aus der DB —
+// deterministisch, kein Deadlock, keine Rules-Aenderung.
+function writeLeaveSentinel(s){
+  if(!online||mode!=='ffa'||!gameStarted||phase!=='aim'||aimSet[s]||!aliveCount(s))return;
+  try{ window.FB.set(window.FB.ref(window.FB.db,'rooms/'+roomCode+'/g/'+gen+'/t/'+turnNo+'/'+s), {idx:(s+1)%FFA_MAX_SEATS,dx:0,dy:0,sp:0}).catch(()=>{}); }catch(e){}
 }
 function onlineTurnValue(val){
   if(!val)return;
@@ -1171,6 +1289,7 @@ function onlineTurnValue(val){
     if(s===myPlayer)continue;
     const c=val[s];
     if(c && !aimSet[s]){
+      if(mode==='ffa'&&c.idx!==s)seatGone[s]=true;   // Leave-Sentinel erkannt -> Seat wird bei beginReveal eliminiert
       const m=sanitizeMove(s,c.idx,c.dx,c.dy,c.sp);
       commitIdx[s]=m.idx; commitAim[s]={dx:m.dx,dy:m.dy}; commitSpin[s]=m.sp; aimSet[s]=true; updateHud(); setPhaseText();
     }
@@ -1183,10 +1302,11 @@ function onlineSendCommit(idx,fx,fy,spin){
 function onlineRematch(){ try{ window.FB.set(rRef('gen'), runningGen+1); }catch(e){} }
 function leaveOnline(){
   if(!online && !roomCode)return;
-  try{ if(turnUnsub)turnUnsub(); }catch(e){} try{ if(genUnsub)genUnsub(); }catch(e){} try{ if(presUnsub)presUnsub(); }catch(e){}
-  turnUnsub=genUnsub=presUnsub=null;
+  try{ if(turnUnsub)turnUnsub(); }catch(e){} try{ if(genUnsub)genUnsub(); }catch(e){} try{ if(presUnsub)presUnsub(); }catch(e){} try{ if(seatsUnsub)seatsUnsub(); }catch(e){}
+  turnUnsub=genUnsub=presUnsub=seatsUnsub=null;
   try{ if(window.FB && roomCode) window.FB.remove(rRef('p/'+myPlayer)); }catch(e){}
-  online=false; gameStarted=false; roomCode='';
+  online=false; gameStarted=false; roomCode=''; lobbyP={}; seatLeft=[]; seatGone=[];
+  mode=menuMode; ffaN=ffaNMenu;   // Online-FFA stellt mode/ffaN um — Menue-Auswahl wiederherstellen
 }
 
 // ════ PARTICLES ════
@@ -1360,7 +1480,7 @@ function draw(){
   const tnow=performance.now()/1000, puls=.5+.5*Math.sin(tnow*1.6);
   ctx.clearRect(0,0,W,H);
   if(!r3dActive){ctx.fillStyle='#050a12';ctx.fillRect(0,0,W,H);}   // 3D-Modus: Overlay bleibt transparent
-  ctx.save(); if(online&&myPlayer===1&&!r3dActive){ctx.translate(cx,cy);ctx.rotate(Math.PI);ctx.translate(-cx,-cy);}   // 3D: P2 steckt in der Kamera
+  ctx.save(); const vaw=viewAngle(); if(vaw&&!r3dActive){ctx.translate(cx,cy);ctx.rotate(vaw);ctx.translate(-cx,-cy);}   // 3D: die Ansicht steckt in der Kamera
 
   if(!r3dActive){
     // Kuehler dunkler Tiefen-Verlauf (Stahlblau) — dezent, kein heller Himmel
@@ -1475,8 +1595,9 @@ function drawBall(b){
     ctx.font='900 '+(BR*1.05)+'px system-ui';
     ctx.textAlign='center';ctx.textBaseline='middle';
     ctx.shadowColor='rgba(0,0,0,.95)';ctx.shadowBlur=BR*.55;
-    if(online&&myPlayer===1){
-      ctx.save();ctx.translate(b.x,b.y+BR*.06);ctx.rotate(Math.PI);ctx.fillText(lbl,0,0);ctx.restore();
+    const val=viewAngle();
+    if(val){   // Label gegenrotieren, damit es trotz gedrehter Ansicht aufrecht steht
+      ctx.save();ctx.translate(b.x,b.y+BR*.06);ctx.rotate(-val);ctx.fillText(lbl,0,0);ctx.restore();
     }else ctx.fillText(lbl,b.x,b.y+BR*.06);
     ctx.shadowBlur=0;
   }
@@ -1539,7 +1660,8 @@ function drawSling(b,cdx,cdy){
     ctx.closePath();ctx.fillStyle=pwr>0.82?'#ff5c5c':col;ctx.fill();}
   const qt=OP(b.x,b.y-BR*1.6,BR);
   ctx.fillStyle='rgba(255,255,255,.6)';ctx.font='700 '+(BR*0.5*qt.s)+'px system-ui';ctx.textAlign='center';
-  if(online&&myPlayer===1&&!r3dActive){ctx.save();ctx.translate(qt.x,qt.y);ctx.rotate(Math.PI);ctx.fillText(Math.round(pwr*100)+'%',0,0);ctx.restore();}
+  const vap=viewAngle();
+  if(vap&&!r3dActive){ctx.save();ctx.translate(qt.x,qt.y);ctx.rotate(-vap);ctx.fillText(Math.round(pwr*100)+'%',0,0);ctx.restore();}
   else ctx.fillText(Math.round(pwr*100)+'%',qt.x,qt.y);
 }
 function drawArrow(b,a){const len=Math.hypot(a.dx,a.dy);if(len<BR*0.3)return;
@@ -1734,10 +1856,10 @@ async function initR3D(){
     const POLAR0=Math.atan2(27,19);
     let camYaw=0,camPolar=POLAR0,camDistF=1;
     let camYawT=0,camPolarT=POLAR0,camDistFT=1;
-    let camP=null,math=null,curSide=0,orbitCtl=null,geo=null;
+    let camP=null,math=null,curVA=0,orbitCtl=null,geo=null;   // curVA: aktive Ansichts-Rotation (viewAngle)
     function updateCam(){                            // leichtgewichtig: nur Auge/Mathe (kein Resize)
       const dist=geo.baseDist*camDistF;
-      const side=curSide,yawW=(side===1?0:Math.PI)+camYaw;
+      const yawW=curVA+camYaw;                       // Kamera-Azimut folgt der Ansichts-Rotation (1v1: 0/PI wie bisher)
       const spol=Math.sin(camPolar),cpol=Math.cos(camPolar);
       camP={ex:cx+dist*spol*Math.sin(yawW),ey:35+dist*cpol,ez:cy+dist*spol*Math.cos(yawW),tx:cx,ty:35,tz:cy,
             fov:45,vw:geo.vw,vh:geo.vh,ox:geo.ox,oy:geo.oy,os:geo.os,shx:geo.shx,shy:geo.shy,py:camP?camP.py:0};
@@ -1749,7 +1871,7 @@ async function initR3D(){
       const vw=innerWidth,vh=innerHeight,aspect=vw/vh;
       const tanV=Math.tan(45*Math.PI/360), need=530;         // sichtbarer Plattform-Aussenradius + knapper Rand
       const baseDist=Math.max(need/(tanV*aspect),need/tanV)*1.10;
-      curSide=(online&&myPlayer===1)?-1:1;
+      curVA=viewAngle();
       const rect=cv.getBoundingClientRect(),wr=cv.parentElement.getBoundingClientRect();
       geo={vw,vh,baseDist,ox:rect.left,oy:rect.top,os:rect.width||1,
            shx:wr.left+wr.width/2-vw/2,shy:wr.top+wr.height/2-vh/2};   // Principal Point -> Wrap-Zentrum (cv ist jetzt Viewport-gross)
@@ -1762,8 +1884,8 @@ async function initR3D(){
     }
     function sync(){                                  // NUR lesen: balls, R, phase, outBall, online, myPlayer
       const nowS=(performance.now()-t0)/1000;
-      const side=(online&&myPlayer===1)?-1:1;
-      if(!r3dOrbit&&side!==curSide)frame();
+      const va=viewAngle();
+      if(!r3dOrbit&&va!==curVA)frame();
       // Kamera-Damping: weich zu den Zielwerten (ruhiges, fluessiges Gefuehl)
       if(Math.abs(camYaw-camYawT)+Math.abs(camPolar-camPolarT)+Math.abs(camDistF-camDistFT)>1e-4){
         camYaw+=(camYawT-camYaw)*.18;camPolar+=(camPolarT-camPolar)*.18;camDistF+=(camDistFT-camDistF)*.18;
