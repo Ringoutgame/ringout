@@ -20,7 +20,7 @@ RingOut ist ein kompetitives, physikbasiertes Browser-Spiel für 1–5 Spieler. 
 | Audio | Web Audio API (prozedural, kein Asset-Loading) |
 | Netzwerk | Firebase Realtime Database (Lockstep) |
 | Build-System | keines – direktes Öffnen im Browser |
-| Tests | Golden-Physik-Regressionssuite (`tools/test_physics_golden.js`, 13 bit-exakte Fälle) + Logik-Suiten (sanitize/validateRoom/lockstep) |
+| Tests | Vollständige lokale Batterie unter `tools/` — zentraler Runner `tools/run_all_tests.js` fasst 10 Offline-Suiten zusammen: Syntax, Golden-Physik (13 bit-exakt), r3d-Mapping (48), Sanitize (19), ValidateRoom (40), Lockstep (24), FFA-Kern (18), FFA-Online-Prep (40), FFA-Online-Flow (46), Rules (59). Live-REST-Verify (`tools/rest_verify_v2.js`) bleibt manuell (`--live`-Pflichtflag). |
 | TypeScript | nein |
 | UI-Sprache | Deutsch |
 
@@ -177,7 +177,7 @@ Ringout/
 
 - Firebase API-Key liegt im Klartext im Quellcode (kein Build-System für Env-Variablen)
 - Gesamter Code in einer einzigen HTML-Datei – kein Modul-Split
-- Keine automatisierten Tests
+- Kein CI: die lokale Test-Batterie (`tools/run_all_tests.js`) läuft manuell; ein GitHub-Actions-Workflow ist als Folge-Task offen
 - Synchrone Bot-Simulation im UI-Thread (Hard-Bot kann auf schwachen Geräten kurz stocken)
 - Kein PWA-Manifest / kein Offline-Support
 - UI ausschließlich auf Deutsch – keine Lokalisierung vorhanden

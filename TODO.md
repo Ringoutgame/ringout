@@ -1,6 +1,6 @@
 # TODO.md — RingOut
 
-**Zuletzt aktualisiert:** 2026-07-09
+**Zuletzt aktualisiert:** 2026-07-09 (Test-Rettung)
 
 Offene Aufgaben nach Priorität. Abgeschlossene Aufgaben werden nach `CHANGELOG.md` verschoben.
 
@@ -23,6 +23,8 @@ Offene Aufgaben nach Priorität. Abgeschlossene Aufgaben werden nach `CHANGELOG.
 
 ## P1 — Hoch (Codequalität / Architektur)
 
+- [x] ~~**Test-Rettung: Scratchpad-Suiten ins Repo + zentraler Runner (Systemanalyse-Sofortplan Schritt 2)**~~ → **abgeschlossen (2026-07-09)**: 8 Suiten + Live-Skript nach `tools/` versioniert (`test_syntax`, `test_sanitize`, `test_validateroom`, `test_lockstep`, `test_ffa`, `test_ffa_online`, `test_ffa_flow`, `test_rules`, `rest_verify_v2`), repo-relative Pfade, neuer zentraler Runner `tools/run_all_tests.js` (10 Offline-Suiten, eine Zeile pro Suite, voller Output nur bei Fehlschlag, Exit 1 bei Fehler). Live-REST-Verify bleibt bewusst manuell (`--live`-Pflichtflag, nicht im Runner). Alle Suiten einzeln und über den Runner grün. Siehe CHANGELOG.
+- [ ] **CI-Pipeline (Systemanalyse-Sofortplan Schritt 3, Folge-Task):** GitHub-Actions-Workflow, der `node tools/run_all_tests.js` bei Push/PR ausführt (ohne Live-REST-Verify). Bewusst separater Task nach der Test-Rettung.
 - [x] ~~**Offline-Tuning-Harness (M5-T1)**~~ → **abgeschlossen & akzeptiert**: `?tune=br/fend/stopv` nur lokal (Online hart blockiert), `tools/tune_compare.js`, Default bit-identisch; inkl. 3D-Aim-Fix (Screen-Space-Zone, viewport-großes Overlay), siehe CHANGELOG (2026-07-08)
 - [ ] **M5-T2 — Physics-Tuning-Pass (Sizing + Ice-Feel, gebündelt; ersetzt M2-T1b):** Zielwerte per `?tune=`-Playtest fixieren (BR/FEND/STOPV), dann in **einem** Commit: Konstanten einbauen, Goldens `--update`, `ONLINE_PROTOCOL_VERSION` 2→3, `firebase.rules.json` `v===3` publizieren, Online-Zwei-Tab-Test. Kandidaten: `FEND` 0.992→0.989–0.990, `STOPV` 0.10→0.12, `BR` 0.032→0.028–0.029; `R0`/`MAXPULL_FRAC`/`FRICTION`/`REST` unverändert.
 
