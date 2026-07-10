@@ -39,6 +39,7 @@ function buildEnv() {
     function openCover(pi){covered=pi;}
     function updateHud(){} function setPhaseText(){} function onlineArmTurn(){}
     function toast(){} function pName(p){return 'P'+p;}
+    function showRoundEnd(){}   // UI-Overlay-Stub: afterResult zeigt das Round-End-Panel (rein visuell)
     function gameOver(w){gameOverW=w;}
     function startRound(){startRoundCalls++;}
     ${stepSimSrc}

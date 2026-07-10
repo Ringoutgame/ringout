@@ -160,16 +160,41 @@ body.booting #menu{opacity:0;visibility:hidden}
 
 .ov{position:fixed;inset:0;background:rgba(4,7,12,.92);backdrop-filter:blur(6px);display:none;place-items:center;z-index:100}
 .ov.show{display:grid}
-.wb{background:#0f1520;border-radius:20px;padding:28px 22px;text-align:center;width:290px;max-width:86vw;border:1px solid #1a2840;animation:wp .4s cubic-bezier(.2,1.4,.4,1)}
+/* Match-End-/Modal-Panel im Premium-Look (Navy-Glass, Gold-Rand, weiche Entrance) */
+.wb{background:linear-gradient(180deg,rgba(19,27,45,.97),rgba(10,15,26,.98));border-radius:22px;padding:28px 22px;text-align:center;width:300px;max-width:88vw;border:1px solid rgba(255,201,64,.28);box-shadow:0 24px 60px rgba(4,8,16,.6),0 0 50px rgba(255,190,60,.08);animation:wp .4s cubic-bezier(.2,1.4,.4,1)}
 @keyframes wp{from{transform:scale(.6) translateY(20px);opacity:0}to{transform:scale(1);opacity:1}}
+/* Match-End-Headline: gross, ikonisch — Gold bei VICTORY, gedaempft bei DEFEAT */
+.wvic{font-size:clamp(26px,8vw,36px);font-weight:900;letter-spacing:.18em;margin-right:-.18em;text-transform:uppercase;color:var(--gold);margin-bottom:6px;text-shadow:0 0 30px rgba(255,201,64,.55),0 2px 10px rgba(0,0,0,.5)}
+.wvic.lose{color:#c86470;text-shadow:0 0 22px rgba(200,100,112,.35),0 2px 10px rgba(0,0,0,.5)}
 .trophy{font-size:46px;margin-bottom:4px}
-.wt{font-size:18px;font-weight:900;letter-spacing:.06em;text-transform:uppercase;margin-bottom:6px}
+.wt{font-size:12px;font-weight:900;letter-spacing:.12em;text-transform:uppercase;margin-bottom:6px}
 .wt.w0{color:var(--p1)}.wt.w1{color:var(--p2)}
 .wt.w2{color:#39e07a}.wt.w3{color:#ffc940}.wt.w4{color:#aab4c8}
-.ws{color:var(--muted);font-size:11px;margin-bottom:16px}
-.wbtn{width:100%;font-size:14px;padding:12px;border-radius:11px;background:#1a2840;color:var(--text);border:0;font:inherit;font-weight:800;cursor:pointer;margin-bottom:7px}
-.wbtn.primary{background:linear-gradient(135deg,var(--gold),#ff9f00);color:#060a0e}
-@media(prefers-reduced-motion:reduce){.wb{animation:none}}
+.ws{color:#8b99b4;font-size:10px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;margin-bottom:16px}
+.wbtn{width:100%;font-size:14px;padding:13px;border-radius:14px;background:linear-gradient(180deg,rgba(30,40,64,.9),rgba(15,21,36,.95));color:#dfe7f3;border:1px solid rgba(150,172,210,.28);font:inherit;font-weight:900;letter-spacing:.06em;cursor:pointer;margin-bottom:8px;transition:transform .08s}
+.wbtn:active{transform:scale(.97)}
+.wbtn.primary{border:0;color:#2b1c00;text-shadow:0 1px 0 rgba(255,235,180,.5);background:linear-gradient(180deg,#ffe197 0%,#f7ba3e 52%,#dd961e 100%);box-shadow:0 8px 26px rgba(255,185,50,.3),inset 0 1.5px 0 rgba(255,255,255,.6),inset 0 -3px 8px rgba(150,85,0,.35)}
+/* Round-End: cineastische Center-Inszenierung — grosse Farb-Headline mit weichem Glow,
+   dezente Fokus-Abdunklung, Premium-Scale/Blur-Entrance. Kein Panel-Kasten. */
+#rov{position:fixed;inset:0;z-index:130;display:flex;align-items:center;justify-content:center;pointer-events:none;opacity:0;transition:opacity .35s ease;
+  background:radial-gradient(ellipse 72% 46% at 50% 46%,rgba(6,10,18,.55),rgba(6,10,18,0) 72%)}
+#rov.show{opacity:1}
+#rov .rw{text-align:center;transform:scale(1.14);filter:blur(7px);opacity:0;transition:transform .45s cubic-bezier(.2,1.2,.35,1),filter .45s ease,opacity .3s ease}
+#rov.show .rw{transform:scale(1);filter:blur(0);opacity:1}
+.rw-n{font-size:clamp(26px,9vw,44px);font-weight:900;letter-spacing:.14em;margin-right:-.14em;text-transform:uppercase;text-shadow:0 0 34px var(--rc,rgba(255,201,64,.6)),0 2px 12px rgba(0,0,0,.6)}
+.rw-orn{width:150px;height:1px;margin:12px auto;background:linear-gradient(90deg,transparent,rgba(255,201,64,.85),transparent)}
+.rw-s{font-size:clamp(20px,6vw,28px);font-weight:900;letter-spacing:.12em;color:#f2f6fc;text-shadow:0 2px 10px rgba(0,0,0,.5)}
+.rw-x{margin-top:9px;font-size:9px;font-weight:800;letter-spacing:.32em;margin-right:-.32em;color:#9aa8c2;text-transform:uppercase}
+/* RINGOUT: kraeftiger Gold-Pop mit Overshoot beim entscheidenden Rauswurf */
+#koChip{position:fixed;left:50%;top:38%;transform:translate(-50%,-50%);z-index:95;pointer-events:none;opacity:0;font-size:clamp(26px,9vw,40px);font-weight:900;letter-spacing:.3em;margin-right:-.3em;color:#ffd97a;text-shadow:0 0 30px rgba(255,180,40,.65),0 2px 12px rgba(0,0,0,.55)}
+#koChip.show{animation:kopop .95s ease forwards}
+@keyframes kopop{0%{opacity:0;transform:translate(-50%,-50%) scale(.55)}16%{opacity:1;transform:translate(-50%,-50%) scale(1.08)}30%{transform:translate(-50%,-50%) scale(1)}72%{opacity:1}100%{opacity:0;transform:translate(-50%,-50%) scale(1)}}
+/* Score-Fly (1v1/2v2): grosser Spielstand zentriert, schwebt zur Scorebox (JS-Transitions) */
+#scoreFly{position:fixed;left:50%;top:40%;transform:translate(-50%,-50%) scale(.7);z-index:96;pointer-events:none;opacity:0;font-size:clamp(30px,10vw,48px);font-weight:900;letter-spacing:.1em;white-space:nowrap;text-shadow:0 0 30px var(--fc,rgba(255,201,64,.5)),0 2px 12px rgba(0,0,0,.6);will-change:transform,opacity}
+/* Score-Pulse beim Punktgewinn: kurzer Gold-Ring + sanfter Scale-Bump */
+@keyframes scp{0%,100%{transform:scale(1);box-shadow:0 8px 22px rgba(5,9,18,.3)}30%{transform:scale(1.07);box-shadow:0 0 0 1px rgba(255,201,64,.6),0 0 30px rgba(255,201,64,.45)}}
+.scorebox.pulse{animation:scp .8s cubic-bezier(.3,1.4,.4,1)}
+@media(prefers-reduced-motion:reduce){.wb{animation:none}#rov,#rov .rw{transition:opacity .2s}#rov .rw{transform:none;filter:none}#koChip.show{animation:none;opacity:1}.scorebox.pulse{animation:none}}
 #onInput{width:130px;text-transform:uppercase;text-align:center;font:inherit;font-size:22px;font-weight:800;letter-spacing:.22em;padding:11px 8px;border-radius:12px;border:1px solid rgba(255,201,64,.3);background:#0c1420;color:var(--text);user-select:text;-webkit-user-select:text;touch-action:auto}
 #onInput::placeholder{font-size:11px;letter-spacing:.18em;color:#5d6d88;transform:translateY(-2px)}
 #onStatus{font-size:11px;color:var(--muted);margin-top:14px;min-height:16px;max-width:280px;text-align:center;line-height:1.5}
@@ -292,6 +317,7 @@ body.booting #menu{opacity:0;visibility:hidden}
 
 <div class="ov" id="ov">
   <div class="wb">
+    <div class="wvic" id="wVic" style="display:none">VICTORY</div>
     <div class="trophy">🏆</div>
     <div class="wt" id="wt"></div>
     <div class="ws" id="ws"></div>
@@ -300,6 +326,24 @@ body.booting #menu{opacity:0;visibility:hidden}
     <button class="wbtn" id="ovMenuBtn">↩ Menü</button>
   </div>
 </div>
+
+<!-- Round-End: kurze Center-Inszenierung — grosse Farb-Headline ("BLUE SCORES"),
+     Score, Mini-Rundenzeile. Nicht-blockierend (auto-hide, pointer-events:none). -->
+<div id="rov" aria-hidden="true">
+  <div class="rw">
+    <div class="rw-n" id="rovN"></div>
+    <div class="rw-orn"></div>
+    <div class="rw-s" id="rovS"></div>
+    <div class="rw-x" id="rovX"></div>
+  </div>
+</div>
+
+<!-- RINGOUT-Chip: kurzer Gold-Impact beim entscheidenden Rauswurf (rein visuell) -->
+<div id="koChip" aria-hidden="true">RINGOUT</div>
+
+<!-- Score-Fly (1v1/2v2): neuer Spielstand erscheint gross zentral und schwebt
+     elegant zur Scorebox — Spielanimation statt Dialog (rein visuell) -->
+<div id="scoreFly" aria-hidden="true"></div>
 
 <div class="ov" id="leaveOv">
   <div class="wb">
@@ -574,7 +618,10 @@ en:{tagline:'PULL BACK · RELEASE · KNOCK THEM OUT',chip:'ACTIVE',
   creating:'Creating room…',ffaShare:'FFA · Share the code with 1–4 friends.',shareCode:'Share the code with your friend.',
   code4:'Please enter the 4-letter code.',joining:'Joining…',noRoom:'Room not found.',roomFull:'Room is already full.',
   connWait:'Connected! Waiting for the host…',connStart:'Connected! Game starting…',
-  noFb:'⚠ No connection to Firebase. Check internet & config.',err:'Error: ',noOnlineReset:'Not available in online mode.',loading:'Loading arena...'},
+  noFb:'⚠ No connection to Firebase. Check internet & config.',err:'Error: ',noOnlineReset:'Not available in online mode.',loading:'Loading arena...',
+  victory:'VICTORY',defeat:'DEFEAT',wins:'WINS',finalScore:'FINAL SCORE',ringout:'RINGOUT',round:'ROUND',
+  col0:'BLUE',col1:'RED',col2:'GREEN',col3:'YELLOW',col4:'BLACK',
+  nameYou:'YOU',nameOpp:'OPPONENT',namePlayer:'Player'},
 de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'AKTIV',
   ffaT:'ONLINE FFA',ffaS:'2–5 SPIELER',vsT:'ONLINE VERSUS',vsS:'1v1 ODER 2v2<br>2 SPIELER',
   botT:'BOT-TRAINING',botS:'GEGEN KI<br>SOLO-TRAINING',
@@ -591,7 +638,10 @@ de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'AKTIV',
   creating:'Erstelle Raum…',ffaShare:'FFA · Schick den Code an 1–4 Freunde.',shareCode:'Schick den Code an deinen Kumpel.',
   code4:'Bitte 4-stelligen Code eingeben.',joining:'Trete bei…',noRoom:'Raum nicht gefunden.',roomFull:'Raum ist schon voll.',
   connWait:'Verbunden! Warte auf den Host…',connStart:'Verbunden! Spiel startet…',
-  noFb:'⚠ Keine Verbindung zu Firebase. Internet & Config prüfen.',err:'Fehler: ',noOnlineReset:'Im Online-Modus nicht verfügbar.',loading:'Arena wird geladen...'},
+  noFb:'⚠ Keine Verbindung zu Firebase. Internet & Config prüfen.',err:'Fehler: ',noOnlineReset:'Im Online-Modus nicht verfügbar.',loading:'Arena wird geladen...',
+  victory:'SIEG',defeat:'NIEDERLAGE',wins:'GEWINNT',finalScore:'ENDSTAND',ringout:'RINGOUT',round:'RUNDE',
+  col0:'BLAU',col1:'ROT',col2:'GRÜN',col3:'GELB',col4:'SCHWARZ',
+  nameYou:'DU',nameOpp:'GEGNER',namePlayer:'Spieler'},
 tr:{tagline:'GERİ ÇEK · BIRAK · DIŞARI İT',chip:'AKTİF',
   ffaT:'ONLINE FFA',ffaS:'2–5 OYUNCU',vsT:'ONLINE VERSUS',vsS:'1v1 VEYA 2v2<br>2 OYUNCU',
   botT:'BOT ANTRENMANI',botS:'YAPAY ZEKÂYA KARŞI<br>SOLO ANTRENMAN',
@@ -608,7 +658,10 @@ tr:{tagline:'GERİ ÇEK · BIRAK · DIŞARI İT',chip:'AKTİF',
   creating:'Oda kuruluyor…',ffaShare:'FFA · Kodu 1–4 arkadaşına gönder.',shareCode:'Kodu arkadaşına gönder.',
   code4:'Lütfen 4 haneli kodu gir.',joining:'Katılınıyor…',noRoom:'Oda bulunamadı.',roomFull:'Oda zaten dolu.',
   connWait:'Bağlandı! Host bekleniyor…',connStart:'Bağlandı! Oyun başlıyor…',
-  noFb:'⚠ Firebase bağlantısı yok. İnterneti ve yapılandırmayı kontrol et.',err:'Hata: ',noOnlineReset:'Online modda kullanılamaz.',loading:'Arena yükleniyor...'}
+  noFb:'⚠ Firebase bağlantısı yok. İnterneti ve yapılandırmayı kontrol et.',err:'Hata: ',noOnlineReset:'Online modda kullanılamaz.',loading:'Arena yükleniyor...',
+  victory:'ZAFER',defeat:'MAĞLUBİYET',wins:'KAZANDI',finalScore:'SON SKOR',ringout:'RINGOUT',round:'RAUNT',
+  col0:'MAVİ',col1:'KIRMIZI',col2:'YEŞİL',col3:'SARI',col4:'SİYAH',
+  nameYou:'SEN',nameOpp:'RAKİP',namePlayer:'Oyuncu'}
 };
 let LANG=(()=>{try{const l=localStorage.getItem('ringout_lang');return I18N[l]?l:'en';}catch(e){return 'en';}})();
 function T(k){return (I18N[LANG]&&I18N[LANG][k])||I18N.en[k]||k;}
@@ -1329,19 +1382,76 @@ function stepSim(){
   }
 }
 function resultDrift(){if(outBall<0)return;const b=balls[outBall];b.x+=b.vx*RESULT_SLOWMUL;b.y+=b.vy*RESULT_SLOWMUL;b.vx*=RESULT_FR;b.vy*=RESULT_FR;}
-function pName(p){return online?(p===myPlayer?'DU':(mode==='ffa'?'Spieler '+(p+1):'GEGNER')):(mode==='bot'&&p===1?'Bot':'Spieler '+(p+1));}
+function pName(p){return online?(p===myPlayer?T('nameYou'):(mode==='ffa'?T('namePlayer')+' '+(p+1):T('nameOpp'))):(mode==='bot'&&p===1?'Bot':T('namePlayer')+' '+(p+1));}
 function afterResult(){
   const loser=balls[outBall].owner,winner=roundWinner>=0?roundWinner:1-loser;
   roundWinner=-1;score[winner]++;SFX.round(winner);
   if(score[winner]>=winTarget){gameOver(winner);return;}
-  toast('🟢 '+pName(winner)+' holt die Runde');roundNo++;
+  showRoundEnd(winner);roundNo++;
   R=Math.max(R0*0.80,R-R0*0.030);startRound();
 }
+// Spielerfarbe als ikonischer Kurzname (BLAU/ROT/... via i18n) — sofort erkennbar,
+// modusunabhaengig (1v1: blau/rot, 2v2: Teamfarben, FFA: Seatfarben).
+function colName(p){return T('col'+p);}
+// ── Round-End (rein DOM/CSS, kein Einfluss auf Rundenablauf/Lockstep — startRound
+//    laeuft ungebremst weiter). Modus-abhaengig:
+//    FFA -> grosses Center-Overlay (mehrere Spieler muessen den Punkt klar sehen),
+//    1v1/2v2 -> elegante Score-Fly-Animation statt Panel. ──
+let rovT=null;
+function showRoundEnd(winner){
+  if(mode!=='ffa'){showScoreFly(winner);return;}
+  const col=PCOLS[winner].ui,n=$('rovN');
+  n.textContent=colName(winner)+' '+score[winner];   // kompakt: "GREEN 1" (Farbe + Punktestand des Gewinners)
+  n.style.color=col;n.style.setProperty('--rc',col);
+  $('rovS').textContent=score.join(' : ');
+  $('rovX').textContent=T('round')+' '+roundNo;
+  const el=$('rov');el.classList.add('show');
+  clearTimeout(rovT);rovT=setTimeout(()=>el.classList.remove('show'),1600);
+}
+// Score-Fly: "BLUE 1 : 0" erscheint gross zentral, haelt kurz und schwebt dann
+// verkleinernd zur Scorebox; beim Eintreffen pulst diese in Gold. JS-getriebene
+// CSS-Transitions; bei prefers-reduced-motion nur Fade ohne Flug.
+let flyT1=null,flyT2=null;
+const REDUCED_MOTION=matchMedia('(prefers-reduced-motion: reduce)').matches;
+function scorePulse(){const s=document.querySelector('.scorebox');if(s){s.classList.remove('pulse');void s.offsetWidth;s.classList.add('pulse');}}
+function showScoreFly(winner){
+  const el=$('scoreFly'),col=PCOLS[winner].ui;
+  el.textContent=score.join(' : ');   // nur der Score — die Gewinnerfarbe spricht ueber Textfarbe/Glow
+  el.style.color=col;el.style.setProperty('--fc',col);
+  clearTimeout(flyT1);clearTimeout(flyT2);
+  el.style.transition='none';el.style.opacity='0';el.style.transform='translate(-50%,-50%) scale(.7)';
+  void el.offsetWidth;                                   // Transition sauber neu starten
+  el.style.transition='opacity .28s ease,transform .45s cubic-bezier(.2,1.3,.4,1)';
+  el.style.opacity='1';el.style.transform='translate(-50%,-50%) scale(1)';
+  flyT1=setTimeout(()=>{
+    if(REDUCED_MOTION){el.style.transition='opacity .3s ease';el.style.opacity='0';scorePulse();return;}
+    const sb=document.querySelector('.scorebox'),r=sb?sb.getBoundingClientRect():null;
+    const dx=(r?r.left+r.width/2:innerWidth/2)-innerWidth/2;   // Ziel: Scorebox-Zentrum
+    const dy=(r?r.top+r.height/2:40)-innerHeight*0.4;          // Start: 50% / 40% Viewport
+    el.style.transition='opacity .5s ease,transform .55s cubic-bezier(.5,0,.75,.45)';
+    el.style.transform='translate(calc(-50% + '+dx+'px), calc(-50% + '+dy+'px)) scale(.2)';
+    el.style.opacity='0';
+    flyT2=setTimeout(scorePulse,430);                    // Pulse beim "Eintreffen"
+  },850);
+}
+// ── RINGOUT: Gold-Pop beim Phasenwechsel -> 'result' (Watcher in loop, NICHT in stepSim) ──
+let koT=null;
+function showRingout(){
+  const el=$('koChip');el.textContent=T('ringout');
+  el.classList.remove('show');void el.offsetWidth;el.classList.add('show');   // Animation sauber retriggern
+  clearTimeout(koT);koT=setTimeout(()=>el.classList.remove('show'),980);
+}
 function gameOver(winner){setPhase('over');setPhaseText();
-  $('wt').textContent=pName(winner)+' gewinnt!';
+  const meWon=(online&&winner===myPlayer)||(!online&&mode==='bot'&&winner===0);
+  const iPlay=online||mode==='bot';                       // lokaler Hotseat/FFA (dev): neutrale Headline
+  const v=$('wVic');v.style.display='';
+  v.classList.toggle('lose',iPlay&&!meWon);
+  v.textContent=iPlay?(meWon?T('victory'):T('defeat')):colName(winner)+' '+T('wins');
+  document.querySelector('#ov .trophy').textContent=(iPlay&&!meWon)?'':'🏆';
+  $('wt').style.display=(iPlay&&!meWon)?'':'none';        // bei DEFEAT klein: wer gewonnen hat
+  $('wt').textContent=colName(winner)+' '+T('wins');
   $('wt').className='wt w'+winner;
-  $('ws').textContent=score.join(' : ')+(mode==='bot'&&winner===1?' · Rematch?':'');
-  document.querySelector('#ov .trophy').textContent='🏆';
+  $('ws').textContent=T('finalScore')+' · '+score.join(' : ');
   $('rematchBtn').style.display='';$('replayBtn').style.display='';
   SFX.win();setTimeout(()=>$('ov').classList.add('show'),500);}
 
@@ -1558,6 +1668,8 @@ function startOnlineGame(){ replaying=false;repPlaying=false;$('replay').classLi
 // menu — rematch/replay are pointless without a peer, so only "Menü" remains.
 function onOppLeft(){
   toast('Gegner hat den Raum verlassen.');
+  $('wVic').style.display='none';   // kein VICTORY-Header auf dem Disconnect-Overlay
+  $('wt').style.display='';         // gameOver blendet wt bei Sieg aus — hier wieder zeigen
   $('wt').textContent='Gegner hat den Raum verlassen.';$('wt').className='wt';
   $('ws').textContent='Das Match kann nicht fortgesetzt werden.';
   document.querySelector('#ov .trophy').textContent='🔌';
@@ -2300,7 +2412,7 @@ if(R3D_WANTED)initR3D();
 // ── Boot-Ende: idempotent. Ausloeser sind (a) erster gerenderter 3D-Frame (loop),
 //    (b) 2D-Modus (?r2d=1), (c) initR3D-Fehler, (d) 10-s-Sicherheits-Timeout —
 //    das Menue faded ein, das Overlay faded aus und wird entfernt. ──
-let bootDone=false;
+let bootDone=false,prevPhaseFx='';
 function finishBoot(){
   if(bootDone)return;bootDone=true;
   document.body.classList.remove('booting');
@@ -2315,6 +2427,8 @@ function loop(now){
   if(phase==='reveal'&&now-phaseStart>REVEAL_MS)applyLaunch();
   else if(phase==='sim')stepSim();
   else if(phase==='result'){resultDrift();if(now-phaseStart>RESULT_MS)afterResult();}
+  // RINGOUT-Feedback: reiner Phasen-Watcher (stepSim/Physik unangetastet)
+  if(phase!==prevPhaseFx){if(phase==='result')showRingout();prevPhaseFx=phase;}
   SFX.rollUpdate(balls,phase==='sim');
   if(phase==='reveal'||phase==='sim'||phase==='result')recordFrame();
   updParticles();draw();

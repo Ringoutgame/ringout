@@ -1,6 +1,6 @@
 # TODO.md — RingOut
 
-**Zuletzt aktualisiert:** 2026-07-10 (Premium-Boot-Screen)
+**Zuletzt aktualisiert:** 2026-07-10 (Round-/Match-End-Premium-Polish)
 
 Offene Aufgaben nach Priorität. Abgeschlossene Aufgaben werden nach `CHANGELOG.md` verschoben.
 
