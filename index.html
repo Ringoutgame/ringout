@@ -770,33 +770,52 @@ const SFX=(()=>{
   };
   // Spam-Schutz: Cooldown pro Kugelpaar (70ms) + global (30ms), max. 8 gleichzeitige Hit-Voices
   const hitLast={};let hitAny=0,hitVoices=0;
-  // Roll-Voices: eine dauerhafte, wiederverwendete Voice pro Ball-Slot (Loop-Rauschen -> Lowpass -> Gain).
-  // Pro Frame nur setTargetAtTime-Updates, keine Allokationen; bei Stillstand/Mute laeuft der Gain auf 0.
-  const rolls=[];
-  function rollVoice(cc){const g=cc.createGain();g.gain.value=0;g.connect(cc.destination);
-    const f=cc.createBiquadFilter();f.type='lowpass';f.frequency.value=300;f.Q.value=.7;f.connect(g);
-    const s=cc.createBufferSource();s.buffer=noise(cc);s.loop=true;s.playbackRate.value=.85+rolls.length*.09;s.connect(f);s.start();
-    return{g,f};}
+  // Rollsound NUR aus echtem Asset: kurzer, nahtloser Loop "Murmel rollt auf Stein/
+  // Marmor" (0.5–2 s, lizenzfrei). Die prozeduralen Noise-/Tick-Ansaetze sind nach
+  // Owner-Review deaktiviert: lieber KEIN Rollsound als ein schwacher Fake.
+  // Browserfreundlich: mehrere Formate in Praeferenz-Reihenfolge (m4a laeuft auch auf
+  // aelteren iPhones/Safari, ogg nicht). Jede Quelle wird pro Seitenladen genau EINMAL
+  // probiert; existiert keine, bleibt es still — kein Fehler, kein Fetch-Spam, kein
+  // Fallback-Rauschen. Eine Engine fuer alle Kugeln, Tempo steuert Gain + leicht die
+  // Loop-Geschwindigkeit, weiche Fades; Buffer/Nodes persistent (kein Leak, kein Node/Frame).
+  const ROLL_SRCS=['assets/sfx/marble_roll_loop.m4a','assets/sfx/marble_roll_loop.mp3',
+                   'assets/sfx/marble_roll_loop.ogg','assets/sfx/marble_roll_loop.wav'];
+  let roll=null,rollBuf=null,rollLoad=0;   // 0=nie versucht 1=laedt 2=bereit 3=fehlt->still
+  function loadRollAsset(cc){
+    rollLoad=1;
+    (async()=>{
+      for(const src of ROLL_SRCS){
+        try{
+          const r=await fetch(src);if(!r.ok)continue;                 // 404 -> naechstes Format
+          rollBuf=await cc.decodeAudioData(await r.arrayBuffer());    // Decode-Fehler -> naechstes Format
+          rollLoad=2;return;
+        }catch(e){}
+      }
+      rollLoad=3;                          // kein Asset vorhanden -> bewusst still, kein weiterer Versuch
+    })();
+  }
+  function rollEngine(cc){
+    const g=cc.createGain();g.gain.value=0;g.connect(cc.destination);
+    const s=cc.createBufferSource();s.buffer=rollBuf;s.loop=true;s.connect(g);s.start();
+    return{g,s};}
   return{
     charge,
     // Erzwingt Context-Erzeugung/-Resume aus einer User-Geste (Mobile-Autoplay-Unlock)
     unlock(){if(soundOn)try{ac();}catch(e){}},
-    // Pro Frame aus loop(): koppelt Roll-Lautstaerke/-Helligkeit an die Ballgeschwindigkeit
+    // Pro Frame aus loop(): Gain/Rate aus der schnellsten lebenden Kugel
     rollUpdate(bs,active){
       if(!c||c.state!=='running')return;
       const t=c.currentTime,on=active&&soundOn&&bs;
-      const n=on?bs.length:0,m=Math.max(n,rolls.length);
-      for(let i=0;i<m;i++){
-        let sp=0;
-        if(i<n&&bs[i].alive)sp=Math.hypot(bs[i].vx,bs[i].vy);
-        if(sp>SLOWV&&i>=rolls.length)rolls.push(rollVoice(c));
-        if(i>=rolls.length)continue;
-        const v=rolls[i];
-        if(sp>SLOWV){const k=Math.min(1,sp/6);
-          v.g.gain.setTargetAtTime(.006+.05*k*k,t,.06);
-          v.f.frequency.setTargetAtTime(280+2100*k,t,.08);
-        }else v.g.gain.setTargetAtTime(0,t,.05);
-      }
+      let sp=0;
+      if(on)for(const b of bs){if(!b.alive)continue;const s2=Math.hypot(b.vx,b.vy);if(s2>sp)sp=s2;}
+      if(sp>SLOWV&&rollLoad===0)loadRollAsset(c);
+      if(rollLoad!==2)return;                                // laedt noch oder fehlt -> still
+      if(sp>SLOWV&&!roll)roll=rollEngine(c);
+      if(!roll)return;
+      if(sp>SLOWV){const k=Math.min(1,sp/6);
+        roll.g.gain.setTargetAtTime(.04+.18*k*k,t,.07);
+        roll.s.playbackRate.setTargetAtTime(.85+.35*k,t,.1); // Tempo faerbt die Loop-Geschwindigkeit leicht
+      }else roll.g.gain.setTargetAtTime(0,t,.06);
     },
     launch(pwr){go(c=>{const t=c.currentTime;
       const lp=c.createBiquadFilter();lp.type='lowpass';lp.frequency.setValueAtTime(820,t);lp.frequency.exponentialRampToValueAtTime(300,t+.3);lp.connect(c.destination);
@@ -2254,10 +2273,23 @@ async function initR3D(){
     // Kugeln: Radius exakt BR (Physik-Wahrheit), Material aus dem akzeptierten Prototyp
     // Polierte Murmeln: satter/dunkler Grundton, klarer Lack, kraeftige Reflexe -> liest sich
     // deutlich gegen den hellen Marmor, ohne Plastik-Look
+    // Dezente Speckle-Map (einmalig, geteilt): multipliziert mit der Materialfarbe —
+    // der Grundton bleibt, aber die ROLLROTATION wird sichtbar (auf einer uniformen
+    // Hochglanzkugel rotieren nur die view-abhaengigen Reflexe, nie die Oberflaeche).
+    const bCan=document.createElement('canvas');bCan.width=bCan.height=256;
+    {const g=bCan.getContext('2d');g.fillStyle='#f4f4f4';g.fillRect(0,0,256,256);
+     for(let i=0;i<170;i++){const x=Math.random()*256,y=Math.random()*256,r=1+Math.random()*5,a=.05+Math.random()*.10;
+       const rg=g.createRadialGradient(x,y,0,x,y,r);rg.addColorStop(0,'rgba(70,70,70,'+a.toFixed(3)+')');rg.addColorStop(1,'rgba(70,70,70,0)');
+       g.fillStyle=rg;g.beginPath();g.arc(x,y,r,0,7);g.fill();}
+     for(let i=0;i<26;i++){const x=Math.random()*256,y=Math.random()*256,r=2+Math.random()*7;
+       const rg=g.createRadialGradient(x,y,0,x,y,r);rg.addColorStop(0,'rgba(255,255,255,.12)');rg.addColorStop(1,'rgba(255,255,255,0)');
+       g.fillStyle=rg;g.beginPath();g.arc(x,y,r,0,7);g.fill();}}
+    const ballTex=new THREE.CanvasTexture(bCan);
     // 5 Materialien aus der zentralen Farbtabelle (Slots 0/1 = bisherige Werte)
-    const ballMat=PCOLS.map(pc=>new THREE.MeshPhysicalMaterial({color:pc.m3,roughness:.07,metalness:.05,
+    const ballMat=PCOLS.map(pc=>new THREE.MeshPhysicalMaterial({color:pc.m3,map:ballTex,roughness:.07,metalness:.05,
       clearcoat:1.0,clearcoatRoughness:.07,envMapIntensity:1.15,specularIntensity:1.0}));
     const ballMeshes=[],fallT=[],decals=[],fallV=[],prevP=[];
+    const rollAx=new THREE.Vector3(),rollQ=new THREE.Quaternion();   // Roll-Temps (keine Allokation pro Frame)
     // Kontaktschatten-Decal (Prototyp): erdet die Kugeln zusaetzlich zum echten Schatten
     const cCan=document.createElement('canvas');cCan.width=cCan.height=128;
     {const g=cCan.getContext('2d');const rg=g.createRadialGradient(64,64,0,64,64,64);
@@ -2354,7 +2386,11 @@ async function initR3D(){
           d.visible=drop<300;
           if(d.visible){d.material.opacity=Math.max(0,.85*(1-drop/300));d.position.set(px,bob+liftF+.6,pz);}
         }else{
-          fallT[i]=null;m.rotation.set(0,0,0);
+          if(fallT[i]!=null){fallT[i]=null;m.rotation.set(0,0,0);}   // Orientierung nur beim Respawn zuruecksetzen
+          // Sichtbares Rollen (rein visuell): Achse = up x Bewegungsrichtung, Winkel = Weg/BR —
+          // aus dem Render-Delta abgeleitet, Simulation/stepSim bleibt byte-unangetastet.
+          if(prevP[i]){const rdx=b.x-prevP[i].x,rdy=b.y-prevP[i].y,rd=Math.hypot(rdx,rdy);
+            if(rd>1e-3){rollAx.set(rdy/rd,0,-rdx/rd);rollQ.setFromAxisAngle(rollAx,rd/BR);m.quaternion.premultiply(rollQ);}}
           // Kosmetische Auffahrt auf die Randweg-Stufe (GLB: Stufe bei 8.7, Hoehe 0.165)
           const rrG=Math.hypot(b.x-cx,b.y-cy)/sc;
           const lift=rrG>8.55?Math.min(1,(rrG-8.55)/.3)*.165*sc:0;

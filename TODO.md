@@ -1,6 +1,6 @@
 # TODO.md — RingOut
 
-**Zuletzt aktualisiert:** 2026-07-10 (Kamera-Drag-Richtungsfix)
+**Zuletzt aktualisiert:** 2026-07-10 (Kugel-Rollen + Rollsound-Asset-Hook)
 
 Offene Aufgaben nach Priorität. Abgeschlossene Aufgaben werden nach `CHANGELOG.md` verschoben.
 
@@ -43,6 +43,8 @@ Offene Aufgaben nach Priorität. Abgeschlossene Aufgaben werden nach `CHANGELOG.
 ---
 
 ## P2 — Mittel (Spieler-Erfahrung)
+
+- [ ] **Rollsound-Asset besorgen:** Der Asset-Hook ist fertig (Loader probiert `assets/sfx/marble_roll_loop.m4a` → `.mp3` → `.ogg` → `.wav`, still ohne Datei). Benötigt: nahtloser Loop „Murmel rollt auf Stein/Marmor", 0,5–2 s, CC0/lizenzfrei (kommerziell + Repo-Redistribution), Peak −6…−1 dBFS, empfohlen `.m4a` (iPhone-kompatibel). Nach Ablage: Hörtest → Gain-Feintuning → eigener Commit mit Lizenznachweis. Rollsound gilt erst mit echtem Asset als fertig (Owner-Entscheid 2026-07-10).
 
 - [x] ~~**3D-Prototyp zum Premium-Look weiterentwickeln**~~ → erledigt und **visuell akzeptiert** (PBR/HDRI/Blender-GLB-Pipeline), siehe CHANGELOG (2026-07-07)
 - [x] ~~**3D-Prototyp: Mobile-Performance messen**~~ → **bestanden**: Handy 60 FPS (Min 60), GLB ~1,96 s, HDRI ~0,96 s; PC >150 FPS. Monitor via `?perf=1` (2026-07-07)
