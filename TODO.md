@@ -1,6 +1,6 @@
 # TODO.md — RingOut
 
-**Zuletzt aktualisiert:** 2026-07-10 (ONLINE VERSUS + Bot-Format-Modal)
+**Zuletzt aktualisiert:** 2026-07-10 (In-Game-UI Premium-Pass)
 
 Offene Aufgaben nach Priorität. Abgeschlossene Aufgaben werden nach `CHANGELOG.md` verschoben.
 

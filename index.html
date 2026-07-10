@@ -73,29 +73,31 @@ body.r3d #menu{z-index:2;background:linear-gradient(180deg,rgba(6,10,18,.55) 0%,
 /* ── GAME ── */
 #game{display:none;flex-direction:column;align-items:center;width:100%;height:100%;padding:6px 10px}
 header{width:100%;max-width:460px;display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;flex-shrink:0}
-.gtitle{font-size:clamp(15px,4.5vw,19px);font-weight:900;letter-spacing:.12em;text-transform:uppercase}
+.gtitle{font-size:clamp(15px,4.5vw,19px);font-weight:900;letter-spacing:.16em;text-transform:uppercase;color:#eef2f9;text-shadow:0 2px 12px rgba(0,0,0,.35)}
 .gtitle em{font-style:normal;color:var(--gold)}
-.hbtns{display:flex;gap:5px}
-.ibtn{border:0;background:#0f1520;color:var(--muted);border-radius:8px;padding:6px 10px;font-size:12px;cursor:pointer;font:inherit}
-.ibtn:active{background:#1a2840}
+.hbtns{display:flex;gap:6px}
+/* Icon-Buttons in der Menue-Formensprache (.mico): rund, Dark-Glass, feiner Rand */
+.ibtn{width:36px;height:36px;border:1px solid rgba(150,172,210,.3);background:rgba(9,15,26,.6);color:#d5deec;border-radius:50%;padding:0;font-size:13px;cursor:pointer;font:inherit;backdrop-filter:blur(6px)}
+.ibtn:active{background:rgba(26,40,64,.75)}
 
-.status{width:100%;max-width:460px;display:grid;grid-template-columns:1fr auto 1fr;gap:6px;margin-bottom:6px;flex-shrink:0}
-.pcard{background:#0f1520;border-radius:10px;padding:6px 9px;border:2px solid transparent;transition:.2s}
-.pcard.act0{border-color:var(--p1);box-shadow:0 0 16px rgba(0,212,255,.22)}
-.pcard.act1{border-color:var(--p2);box-shadow:0 0 16px rgba(255,77,77,.22)}
+/* Oberes HUD: Player-Cards + Score als Premium-Panels im Menue-Look (Navy-Glass, Gold) */
+.status{width:100%;max-width:460px;display:grid;grid-template-columns:1fr auto 1fr;gap:7px;margin-bottom:6px;flex-shrink:0}
+.pcard{background:linear-gradient(180deg,rgba(24,33,54,.88),rgba(14,21,36,.92));border-radius:14px;padding:8px 12px;border:1px solid rgba(122,142,180,.3);box-shadow:0 8px 22px rgba(5,9,18,.35);backdrop-filter:blur(6px);transition:border-color .2s,box-shadow .2s}
+.pcard.act0{border-color:rgba(0,212,255,.6);box-shadow:0 0 0 1px rgba(0,212,255,.22),0 8px 26px rgba(0,212,255,.16)}
+.pcard.act1{border-color:rgba(255,77,77,.6);box-shadow:0 0 0 1px rgba(255,77,77,.22),0 8px 26px rgba(255,77,77,.16)}
 .ffabar{display:none;flex:1;justify-content:center;align-items:center;gap:7px;flex-wrap:wrap}
-.fchip{display:flex;align-items:center;gap:5px;background:#101725;border:1px solid #232f44;border-radius:8px;padding:5px 9px;font-weight:800;font-size:13px;color:#dfe7f5}
+.fchip{display:flex;align-items:center;gap:6px;background:linear-gradient(180deg,rgba(24,33,54,.88),rgba(14,21,36,.92));border:1px solid rgba(122,142,180,.3);border-radius:11px;padding:6px 10px;font-weight:800;font-size:13px;color:#dfe7f5;box-shadow:0 6px 16px rgba(5,9,18,.3);backdrop-filter:blur(4px)}
 .fchip i{width:10px;height:10px;border-radius:50%;background:var(--fc);box-shadow:0 0 6px var(--fc)}
 .fchip.act{border-color:var(--fc)}
 .fchip.out{opacity:.35}.fchip.out i{box-shadow:none}
-.frnd{color:var(--muted);font-size:11px;font-weight:700;margin-right:2px}
-.pcard .pn{font-size:10px;font-weight:800;letter-spacing:.05em}
+.frnd{color:#8b99b4;font-size:11px;font-weight:800;letter-spacing:.08em;margin-right:2px}
+.pcard .pn{font-size:10px;font-weight:900;letter-spacing:.09em}
 .pcard:first-child .pn{color:var(--p1)}.pcard:last-child{text-align:right}.pcard:last-child .pn{color:var(--p2)}
-.pcard .pw{font-size:8px;color:var(--muted);margin-top:2px}
-.scorebox{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px}
-.score{font-size:18px;font-weight:900;letter-spacing:.05em}
-.score .s0{color:var(--p1)}.score .s1{color:var(--p2)}.score .sep{color:var(--muted);margin:0 4px;font-size:13px}
-.rinfo{font-size:8px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;text-align:center}
+.pcard .pw{font-size:8px;color:#7688a6;margin-top:3px;letter-spacing:.08em;font-weight:700}
+.scorebox{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;background:linear-gradient(180deg,rgba(24,33,54,.82),rgba(14,21,36,.9));border:1px solid rgba(255,201,64,.32);border-radius:14px;padding:5px 14px;box-shadow:0 8px 22px rgba(5,9,18,.3);backdrop-filter:blur(6px)}
+.score{font-size:20px;font-weight:900;letter-spacing:.04em}
+.score .s0{color:var(--p1)}.score .s1{color:var(--p2)}.score .sep{color:rgba(255,201,64,.75);margin:0 5px;font-size:14px}
+.rinfo{font-size:7.5px;color:#8b99b4;text-transform:uppercase;letter-spacing:.22em;text-align:center;font-weight:800}
 
 .arena-wrap{width:100%;max-width:460px;flex:1 1 0;min-height:0;display:flex;align-items:center;justify-content:center;position:relative}
 /* 3D-Render-Adapter (Standard-Modus): WebGL-Canvas fuellt den Viewport HINTER der gesamten UI */
@@ -111,20 +113,23 @@ header{width:100%;max-width:460px;display:flex;align-items:center;justify-conten
 body.r3d #cv{position:fixed;inset:0}
 body.r3d header,body.r3d .status,body.r3d .botbar{position:relative;z-index:2}
 
-.phase{width:100%;max-width:460px;text-align:center;font-size:12px;font-weight:800;letter-spacing:.04em;min-height:34px;display:flex;align-items:center;justify-content:center;flex-shrink:0;padding:4px}
-/* 3D-Modus: Hinweistext als dunkler Chip -> lesbar ueber hellem Himmel/Arena, nie verdeckt */
+.phase{width:100%;max-width:460px;text-align:center;font-size:11px;font-weight:800;letter-spacing:.05em;min-height:34px;display:flex;align-items:center;justify-content:center;flex-shrink:0;padding:4px}
+/* Hinweistext als Premium-Hint-Chip (Menue-Formensprache) — in 2D UND 3D lesbar */
+.phase:not(:empty){background:linear-gradient(180deg,rgba(13,19,32,.85),rgba(8,13,22,.9));border:1px solid rgba(150,170,210,.24);
+  border-radius:999px;padding:8px 18px;width:auto;max-width:92%;margin:0 auto;backdrop-filter:blur(6px);
+  color:#dfe7f3;box-shadow:0 8px 20px rgba(5,9,18,.3)}
 body.r3d .phase{position:relative;z-index:2}
-body.r3d .phase:not(:empty){background:rgba(8,14,22,.72);border:1px solid rgba(120,160,200,.25);
-  border-radius:999px;padding:7px 16px;width:auto;max-width:92%;margin:0 auto;backdrop-filter:blur(6px)}
 .phase .me0{color:var(--p1)}.phase .me1{color:var(--p2)}
 
-.botbar{width:100%;max-width:460px;display:flex;gap:6px;margin-top:2px;flex-shrink:0}
-.btn{flex:1;border:0;border-radius:10px;padding:11px;font:inherit;font-size:13px;font-weight:800;letter-spacing:.04em;cursor:pointer;background:#1a2840;color:var(--text);transition:transform .08s,background .12s}
+.botbar{width:100%;max-width:460px;display:flex;gap:7px;margin-top:2px;flex-shrink:0}
+.btn{flex:1;border:0;border-radius:14px;padding:13px;font:inherit;font-size:13px;font-weight:900;letter-spacing:.09em;cursor:pointer;background:#1a2840;color:var(--text);transition:transform .08s,background .12s}
 .btn:active{transform:scale(.97)}
-.btn.primary{background:linear-gradient(135deg,var(--gold),#ff9f00);color:#060a0e}
-.btn.ghost{flex:0 0 auto;background:#0f1520;color:var(--muted);padding:11px 14px}
+/* Primary Action = Gold-Bevel wie die Menue-CTA */
+.btn.primary{color:#2b1c00;text-shadow:0 1px 0 rgba(255,235,180,.5);background:linear-gradient(180deg,#ffe197 0%,#f7ba3e 52%,#dd961e 100%);box-shadow:0 8px 26px rgba(255,185,50,.3),inset 0 1.5px 0 rgba(255,255,255,.6),inset 0 -3px 8px rgba(150,85,0,.35)}
+/* Utility-Button (Reset): Dark-Glass in derselben Formensprache */
+.btn.ghost{flex:0 0 auto;background:linear-gradient(180deg,rgba(24,33,54,.85),rgba(14,21,36,.9));border:1px solid rgba(150,172,210,.28);color:#cfd9ea;padding:13px 16px;backdrop-filter:blur(6px);box-shadow:0 6px 16px rgba(5,9,18,.3)}
 
-.toast{position:fixed;left:50%;bottom:70px;transform:translateX(-50%) translateY(16px);background:#141d2b;color:var(--text);border-left:3px solid var(--gold);padding:8px 14px;border-radius:8px;font-size:11px;font-weight:700;opacity:0;pointer-events:none;transition:.22s;z-index:50;max-width:86vw;text-align:center}
+.toast{position:fixed;left:50%;bottom:70px;transform:translateX(-50%) translateY(16px);background:linear-gradient(180deg,rgba(20,29,48,.94),rgba(12,18,30,.96));color:var(--text);border:1px solid rgba(150,170,210,.24);border-left:3px solid var(--gold);padding:9px 16px;border-radius:12px;font-size:11px;font-weight:700;letter-spacing:.03em;opacity:0;pointer-events:none;transition:.22s;z-index:50;max-width:86vw;text-align:center;box-shadow:0 10px 26px rgba(5,9,18,.4);backdrop-filter:blur(6px)}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 
 .cover{position:fixed;inset:0;background:rgba(4,7,12,.97);backdrop-filter:blur(8px);display:none;flex-direction:column;align-items:center;justify-content:center;z-index:120;padding:24px;text-align:center}
