@@ -1,6 +1,6 @@
 # TODO.md — RingOut
 
-**Zuletzt aktualisiert:** 2026-07-10 (Round-/Match-End-Premium-Polish)
+**Zuletzt aktualisiert:** 2026-07-10 (Kamera-Drag-Richtungsfix)
 
 Offene Aufgaben nach Priorität. Abgeschlossene Aufgaben werden nach `CHANGELOG.md` verschoben.
 
