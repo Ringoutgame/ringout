@@ -183,8 +183,7 @@ body.booting #menu{opacity:0;visibility:hidden}
 #rov.show .rw{transform:scale(1);filter:blur(0);opacity:1}
 .rw-n{font-size:clamp(26px,9vw,44px);font-weight:900;letter-spacing:.14em;margin-right:-.14em;text-transform:uppercase;text-shadow:0 0 34px var(--rc,rgba(255,201,64,.6)),0 2px 12px rgba(0,0,0,.6)}
 .rw-orn{width:150px;height:1px;margin:12px auto;background:linear-gradient(90deg,transparent,rgba(255,201,64,.85),transparent)}
-.rw-s{font-size:clamp(20px,6vw,28px);font-weight:900;letter-spacing:.12em;color:#f2f6fc;text-shadow:0 2px 10px rgba(0,0,0,.5)}
-.rw-x{margin-top:9px;font-size:9px;font-weight:800;letter-spacing:.32em;margin-right:-.32em;color:#9aa8c2;text-transform:uppercase}
+.rw-x{margin-top:2px;font-size:9px;font-weight:800;letter-spacing:.32em;margin-right:-.32em;color:#9aa8c2;text-transform:uppercase}
 /* RINGOUT: kraeftiger Gold-Pop mit Overshoot beim entscheidenden Rauswurf */
 #koChip{position:fixed;left:50%;top:38%;transform:translate(-50%,-50%);z-index:95;pointer-events:none;opacity:0;font-size:clamp(26px,9vw,40px);font-weight:900;letter-spacing:.3em;margin-right:-.3em;color:#ffd97a;text-shadow:0 0 30px rgba(255,180,40,.65),0 2px 12px rgba(0,0,0,.55)}
 #koChip.show{animation:kopop .95s ease forwards}
@@ -333,7 +332,6 @@ body.booting #menu{opacity:0;visibility:hidden}
   <div class="rw">
     <div class="rw-n" id="rovN"></div>
     <div class="rw-orn"></div>
-    <div class="rw-s" id="rovS"></div>
     <div class="rw-x" id="rovX"></div>
   </div>
 </div>
@@ -1167,10 +1165,18 @@ function sanitizeMove(who,idx,dx,dy,sp){
 function allAliveCommitted(){for(let s=0;s<np();s++){if(aliveCount(s)>0&&!aimSet[s])return false;}return true;}
 function commit(who,shooterIdx,fx,fy,spin){
   const m=sanitizeMove(who,shooterIdx,fx,fy,spin||0);
-  commitIdx[who]=m.idx;commitAim[who]={dx:m.dx,dy:m.dy};commitSpin[who]=m.sp;aimSet[who]=true;updateHud();
-  if(online){onlineSendCommit(m.idx,m.dx,m.dy,m.sp);setPhaseText();
-    if(allAliveCommitted()&&phase==='aim'){if(turnUnsub){turnUnsub();turnUnsub=null;}beginReveal();}
+  if(online){
+    // P0-Desync-Fix (2026-07-10): Lockstep-Wahrheit ist AUSSCHLIESSLICH die DB
+    // (Write-once-Arbiter). Der eigene Move wird NICHT mehr lokal angewendet,
+    // sondern kommt wie alle fremden ueber das Turn-Echo zurueck (onlineTurnValue).
+    // Vorher: verlor der eigene Write das Write-once-Race (z. B. gegen einen
+    // Leave-Sentinel nach Presence-Flap), simulierten die anderen den Sentinel,
+    // dieser Client aber seinen echten Move -> divergente Sims, verschiedene
+    // Ringouts/Sieger, Haenger. Jetzt simulieren alle exakt den DB-Wert.
+    onlineSendCommit(m.idx,m.dx,m.dy,m.sp);
+    setPhaseText();updateHud();
     return;}
+  commitIdx[who]=m.idx;commitAim[who]={dx:m.dx,dy:m.dy};commitSpin[who]=m.sp;aimSet[who]=true;updateHud();
   if(mode==='bot'){const bm=botMove();commitIdx[1]=bm.idx;commitAim[1]={dx:bm.dx,dy:bm.dy};commitSpin[1]=0;aimSet[1]=true;beginReveal();}
   else{ // pvp/ffa: naechster lebender Spieler ohne Commit zielt verdeckt, sonst Reveal
     let nx=-1;for(let p=who+1;p<np();p++){if(!aimSet[p]&&aliveCount(p)>0){nx=p;break;}}
@@ -1328,7 +1334,22 @@ function ejectGoneSeats(){
     }
   }
 }
+// ── Dev-Sync-Diagnose (?dev=1, nur online): kompakter deterministischer State-Hash.
+//    Zwei Clients nebeneinander -> die erste abweichende [sync]-Zeile ist der Punkt,
+//    an dem sie auseinanderlaufen. Kein Produktions-Logging (DEV_MENU-gated). ──
+function simHash(){
+  let h=2166136261>>>0;
+  const mix=s=>{for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619)>>>0;}};
+  for(const b of balls)mix(b.owner+':'+(b.alive?1:0)+':'+b.x+':'+b.y+':'+b.vx+':'+b.vy+':'+(b.spin||0)+';');
+  mix('|R'+R+'|s'+score.join(',')+'|sg'+seatGone.map(v=>v?1:0).join(''));
+  return ('0000000'+h.toString(16)).slice(-8);
+}
+function devSync(tag,extra){
+  if(!DEV_MENU||!online)return;
+  console.log('[sync] '+tag+' gen='+gen+' turn='+turnNo+' phase='+phase+' hash='+simHash()+' score='+score.join(':')+(extra?' '+extra:''));
+}
 function applyLaunch(){
+  devSync('launch','idx='+commitIdx.join(',')+' aims='+commitAim.map(a=>a.dx.toFixed(2)+'/'+a.dy.toFixed(2)).join(';')+' gone='+seatGone.map(v=>v?1:0).join(''));
   let maxp=0;
   for(let p=0;p<commitIdx.length;p++){const idx=commitIdx[p];if(idx>=0&&balls[idx]&&balls[idx].alive){balls[idx].vx=commitAim[p].dx*LAUNCH;balls[idx].vy=commitAim[p].dy*LAUNCH;balls[idx].spin=commitSpin[p]||0;}
     maxp=Math.max(maxp,Math.hypot(commitAim[p].dx,commitAim[p].dy));}
@@ -1422,9 +1443,8 @@ let rovT=null;
 function showRoundEnd(winner){
   if(mode!=='ffa'){showScoreFly(winner);return;}
   const col=PCOLS[winner].ui,n=$('rovN');
-  n.textContent=colName(winner)+' '+score[winner];   // kompakt: "GREEN 1" (Farbe + Punktestand des Gewinners)
+  n.textContent=colName(winner)+' '+score[winner];   // NUR Gewinner + dessen Punktestand ("GRUEN 3"), keine Score-Reihe
   n.style.color=col;n.style.setProperty('--rc',col);
-  $('rovS').textContent=score.join(' : ');
   $('rovX').textContent=T('round')+' '+roundNo;
   const el=$('rov');el.classList.add('show');
   clearTimeout(rovT);rovT=setTimeout(()=>el.classList.remove('show'),1600);
@@ -1717,11 +1737,10 @@ function writeLeaveSentinel(s){
 }
 function onlineTurnValue(val){
   if(!val)return;
-  for(let s=0;s<np();s++){                       // alle fremden Seats einlesen (1v1/2v2: nur der Gegner)
-    if(s===myPlayer)continue;
+  for(let s=0;s<np();s++){                       // ALLE Seats inkl. des eigenen: die DB ist der Arbiter (P0-Fix)
     const c=val[s];
     if(c && !aimSet[s]){
-      if(mode==='ffa'&&c.idx!==s)seatGone[s]=true;   // Leave-Sentinel erkannt -> Seat wird bei beginReveal eliminiert
+      if(mode==='ffa'&&c.idx!==s)seatGone[s]=true;   // Leave-Sentinel erkannt (auch fuer den eigenen Seat) -> Ejection bei beginReveal
       const m=sanitizeMove(s,c.idx,c.dx,c.dy,c.sp);
       commitIdx[s]=m.idx; commitAim[s]={dx:m.dx,dy:m.dy}; commitSpin[s]=m.sp; aimSet[s]=true; updateHud(); setPhaseText();
     }
@@ -1729,7 +1748,9 @@ function onlineTurnValue(val){
   if(allAliveCommitted()&&phase==='aim'){ if(turnUnsub){turnUnsub();turnUnsub=null;} beginReveal(); }
 }
 function onlineSendCommit(idx,fx,fy,spin){
-  try{ window.FB.set(window.FB.ref(window.FB.db,'rooms/'+roomCode+'/g/'+gen+'/t/'+turnNo+'/'+myPlayer), {idx:idx,dx:fx,dy:fy,sp:spin||0}); }catch(e){}
+  // Verlorenes Write-once-Race (z. B. gegen einen Leave-Sentinel) ist ein legitimer
+  // Ausgang: still schlucken — das Turn-Echo liefert allen den gewinnenden Wert.
+  try{ window.FB.set(window.FB.ref(window.FB.db,'rooms/'+roomCode+'/g/'+gen+'/t/'+turnNo+'/'+myPlayer), {idx:idx,dx:fx,dy:fy,sp:spin||0}).catch(()=>{}); }catch(e){}
 }
 function onlineRematch(){ try{ window.FB.set(rRef('gen'), runningGen+1); }catch(e){} }
 function leaveOnline(){
@@ -2467,8 +2488,8 @@ function loop(now){
   if(phase==='reveal'&&now-phaseStart>REVEAL_MS)applyLaunch();
   else if(phase==='sim')stepSim();
   else if(phase==='result'){resultDrift();if(now-phaseStart>RESULT_MS)afterResult();}
-  // RINGOUT-Feedback: reiner Phasen-Watcher (stepSim/Physik unangetastet)
-  if(phase!==prevPhaseFx){if(phase==='result')showRingout();prevPhaseFx=phase;}
+  // RINGOUT-Feedback + Dev-Sync-Log: reiner Phasen-Watcher (stepSim/Physik unangetastet)
+  if(phase!==prevPhaseFx){if(phase==='result')showRingout();devSync('phase->'+phase);prevPhaseFx=phase;}
   SFX.rollUpdate(balls,phase==='sim');
   if(phase==='reveal'||phase==='sim'||phase==='result')recordFrame();
   updParticles();draw();

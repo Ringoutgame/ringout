@@ -96,7 +96,10 @@ function makeDB() {
       return;
     }
     if (key === 'gen') { if (val !== room.gen + 1) throw new Error('PERMISSION_DENIED: gen'); return; }
-    if (key === 'g') return;    // move write-once is covered by rules + lockstep suites
+    if (key === 'g') {          // move slots are write-once (arbiter, mirrors the real rules)
+      if (val != null && at(parts) != null) throw new Error('PERMISSION_DENIED: move write-once');
+      return;
+    }
     throw new Error('PERMISSION_DENIED: ' + key);
   }
   function setParts(parts, val) {
@@ -164,7 +167,7 @@ function makeClient(db, code) {
     }
     return {
       ui, els,
-      st(){return {online,mode,menuMode,fmt,ffaN,ffaNMenu,myPlayer,gameStarted,roomCode,phase,gen,runningGen,aimSet:aimSet.slice()};},
+      st(){return {online,mode,menuMode,fmt,ffaN,ffaNMenu,myPlayer,gameStarted,roomCode,phase,gen,runningGen,aimSet:aimSet.slice(),commitIdx:commitIdx.slice(),commitAim:commitAim.map(a=>a.dx+'/'+a.dy)};},
       setMenu(m,n){mode=menuMode=m;if(n)ffaN=ffaNMenu=n;},
       setLobbyP(p){lobbyP=p;},
       create(){createRoom();},
@@ -175,8 +178,9 @@ function makeClient(db, code) {
       ballDist(o){const b=balls.find(x=>x.owner===o);return b?Math.hypot(b.x-cx,b.y-cy):-1;},
       gone(o){return !!seatGone[o];},
       kill(o){const b=balls.find(x=>x.owner===o);if(b)b.alive=false;},
-      commitMove(){ if(whoCanAim()<0)return false; aimSet[myPlayer]=true; onlineSendCommit(myPlayer,5,5,0);
-        if(allAliveCommitted()&&phase==='aim'){if(turnUnsub){turnUnsub();turnUnsub=null;}beginReveal();} return true; },
+      // P0-Fix-Spiegel: wie commit() online — NUR senden, das Turn-Echo (onlineTurnValue)
+      // wendet den Move an (auch den eigenen). Kein lokaler Sonderweg mehr.
+      commitMove(){ if(whoCanAim()<0)return false; onlineSendCommit(myPlayer,5,5,0); return true; },
       rematch(){onlineRematch();},
       leave(){leaveOnline();},
       drop
@@ -313,6 +317,37 @@ const tick = async (n = 4) => { for (let i = 0; i < n; i++) await new Promise(r 
     t('S9 lobby untouched', (h.els.lobbyCount||{textContent:''}).textContent === '' && g.st().mode === 'online');
     g.drop(); await tick();   // browser close -> onDisconnect removes p/1
     t('S9 disconnect ends match for host', h.els.wt.textContent === 'Gegner hat den Raum verlassen.');
+  }
+
+  // ── F5: 4-Spieler-Sync (P0-Regression 2026-07-10) — Presence-Flap eines Seats:
+  //    die anderen schreiben einen Leave-Sentinel; committet das Opfer danach selbst,
+  //    verliert sein Write das Write-once-Race. ALLE Clients (auch das Opfer!) muessen
+  //    exakt den DB-Wert simulieren -> identische Commits/gone-Flags/Phase ueberall. ──
+  {
+    const db = makeDB();
+    const h = makeClient(db, 'SYN4'); h.setMenu('ffa', 4); h.create(); await tick();
+    const g1 = makeClient(db, 'X'); g1.setMenu('online'); g1.join('SYN4'); await tick();
+    const g2 = makeClient(db, 'X'); g2.setMenu('online'); g2.join('SYN4'); await tick();
+    const g3 = makeClient(db, 'X'); g3.setMenu('online'); g3.join('SYN4'); await tick();
+    h.clickStart(); await tick();
+    const all = [h, g1, g2, g3];
+    t('F5 started 4p', all.every(c => c.st().gameStarted && c.st().ffaN === 4));
+    // Presence-Flap: p/3 verschwindet serverseitig (onDisconnect), g3 laeuft aber weiter
+    const ext = db.FBfor({ log: [], onDrop: [] });
+    await ext.remove(ext.ref(null, 'rooms/SYN4/p/3')); await tick();
+    t('F5 sentinel written once for seat 3', (() => { const c = db.data.rooms.SYN4.g[0].t[0][3]; return c && c.idx !== 3 && c.dx === 0 && c.dy === 0; })());
+    // Das Opfer versucht danach selbst zu committen -> Slot ist schon entschieden
+    t('F5 victim commit blocked (echo already applied)', g3.commitMove() === false);
+    t('F5 victim itself sees the sentinel (gone flag)', g3.gone(3) === true);
+    h.commitMove(); g1.commitMove(); g2.commitMove(); await tick();
+    t('F5 all four reveal', all.every(c => c.st().phase === 'reveal'));
+    t('F5 gone flag identical on ALL clients', all.every(c => c.gone(3) === true));
+    const ref = JSON.stringify({ i: h.st().commitIdx, a: h.st().commitAim, s: h.st().aimSet });
+    t('F5 identical commit state on all clients', all.every(c => JSON.stringify({ i: c.st().commitIdx, a: c.st().commitAim, s: c.st().aimSet }) === ref));
+    // Das sichtbare Symptom des Bugs: dieselbe Kugel muss auf ALLEN Clients fallen —
+    // beginReveal ejectet Seat 3 ueberall identisch hinter die Ringkante (R+2*BR).
+    t('F5 victim ball ejected identically on all clients', all.every(c => c.ballDist(3) > 485));
+    t('F5 other balls untouched on all clients', all.every(c => [0, 1, 2].every(o => c.ballDist(o) <= 485)));
   }
 
   console.log('\nFFA-Online-Flow: ' + pass + ' passed, ' + fail + ' failed');
