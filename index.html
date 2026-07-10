@@ -129,6 +129,25 @@ body.r3d .phase{position:relative;z-index:2}
 /* Utility-Button (Reset): Dark-Glass in derselben Formensprache */
 .btn.ghost{flex:0 0 auto;background:linear-gradient(180deg,rgba(24,33,54,.85),rgba(14,21,36,.9));border:1px solid rgba(150,172,210,.28);color:#cfd9ea;padding:13px 16px;backdrop-filter:blur(6px);box-shadow:0 6px 16px rgba(5,9,18,.3)}
 
+/* ── BOOT/LOADING: Premium-Ladebildschirm bis zum ersten gerenderten 3D-Frame.
+      Verhindert die halbfertige Menueansicht, waehrend GLB/HDRI noch laden. ── */
+#boot{position:fixed;inset:0;z-index:300;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;
+  background:radial-gradient(ellipse 90% 40% at 50% 42%,rgba(255,196,110,.08),transparent 70%),
+    linear-gradient(180deg,#0c1524 0%,#152238 45%,#1d2b44 100%);
+  transition:opacity .55s ease}
+#boot.done{opacity:0;pointer-events:none}
+.boot-logo{font-size:clamp(34px,10vw,46px);font-weight:900;letter-spacing:.2em;margin-right:-.2em;text-transform:uppercase;color:#f4f7fc}
+.boot-logo em{font-style:normal;color:var(--gold)}
+.boot-line{width:170px;height:2px;border-radius:2px;background:rgba(255,201,64,.14);overflow:hidden}
+.boot-line i{display:block;width:42%;height:100%;border-radius:2px;background:linear-gradient(90deg,transparent,var(--gold),transparent);animation:bshim 1.15s ease-in-out infinite}
+@keyframes bshim{from{transform:translateX(-110%)}to{transform:translateX(360%)}}
+.boot-txt{font-size:9px;font-weight:800;letter-spacing:.3em;margin-right:-.3em;color:#8b99b4;text-transform:uppercase}
+@media(prefers-reduced-motion:reduce){.boot-line i{animation:none}}
+/* Menue bis zum First-Frame komplett ungerendert (visibility -> kein frueher Blur-Jank),
+   danach weiches Fade-in */
+body.booting #menu{opacity:0;visibility:hidden}
+#menu{transition:opacity .7s ease}
+
 .toast{position:fixed;left:50%;bottom:70px;transform:translateX(-50%) translateY(16px);background:linear-gradient(180deg,rgba(20,29,48,.94),rgba(12,18,30,.96));color:var(--text);border:1px solid rgba(150,170,210,.24);border-left:3px solid var(--gold);padding:9px 16px;border-radius:12px;font-size:11px;font-weight:700;letter-spacing:.03em;opacity:0;pointer-events:none;transition:.22s;z-index:50;max-width:86vw;text-align:center;box-shadow:0 10px 26px rgba(5,9,18,.4);backdrop-filter:blur(6px)}
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 
@@ -165,7 +184,15 @@ body.r3d .phase{position:relative;z-index:2}
 .repspd.on{color:#06202e;background:var(--gold);border-color:var(--gold)}
 </style>
 </head>
-<body>
+<body class="booting">
+
+<!-- Boot-Overlay: sofort sichtbar (reines HTML/CSS, kein JS noetig), verschwindet
+     nach dem ersten gerenderten 3D-Frame bzw. sofort im 2D-Fallback -->
+<div id="boot" aria-hidden="true">
+  <div class="boot-logo">Ring<em>Out</em></div>
+  <div class="boot-line"><i></i></div>
+  <div class="boot-txt" id="bootTxt">Loading arena...</div>
+</div>
 
 <div id="menu">
  <div id="menuInner">
@@ -547,7 +574,7 @@ en:{tagline:'PULL BACK · RELEASE · KNOCK THEM OUT',chip:'ACTIVE',
   creating:'Creating room…',ffaShare:'FFA · Share the code with 1–4 friends.',shareCode:'Share the code with your friend.',
   code4:'Please enter the 4-letter code.',joining:'Joining…',noRoom:'Room not found.',roomFull:'Room is already full.',
   connWait:'Connected! Waiting for the host…',connStart:'Connected! Game starting…',
-  noFb:'⚠ No connection to Firebase. Check internet & config.',err:'Error: ',noOnlineReset:'Not available in online mode.'},
+  noFb:'⚠ No connection to Firebase. Check internet & config.',err:'Error: ',noOnlineReset:'Not available in online mode.',loading:'Loading arena...'},
 de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'AKTIV',
   ffaT:'ONLINE FFA',ffaS:'2–5 SPIELER',vsT:'ONLINE VERSUS',vsS:'1v1 ODER 2v2<br>2 SPIELER',
   botT:'BOT-TRAINING',botS:'GEGEN KI<br>SOLO-TRAINING',
@@ -564,7 +591,7 @@ de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'AKTIV',
   creating:'Erstelle Raum…',ffaShare:'FFA · Schick den Code an 1–4 Freunde.',shareCode:'Schick den Code an deinen Kumpel.',
   code4:'Bitte 4-stelligen Code eingeben.',joining:'Trete bei…',noRoom:'Raum nicht gefunden.',roomFull:'Raum ist schon voll.',
   connWait:'Verbunden! Warte auf den Host…',connStart:'Verbunden! Spiel startet…',
-  noFb:'⚠ Keine Verbindung zu Firebase. Internet & Config prüfen.',err:'Fehler: ',noOnlineReset:'Im Online-Modus nicht verfügbar.'},
+  noFb:'⚠ Keine Verbindung zu Firebase. Internet & Config prüfen.',err:'Fehler: ',noOnlineReset:'Im Online-Modus nicht verfügbar.',loading:'Arena wird geladen...'},
 tr:{tagline:'GERİ ÇEK · BIRAK · DIŞARI İT',chip:'AKTİF',
   ffaT:'ONLINE FFA',ffaS:'2–5 OYUNCU',vsT:'ONLINE VERSUS',vsS:'1v1 VEYA 2v2<br>2 OYUNCU',
   botT:'BOT ANTRENMANI',botS:'YAPAY ZEKÂYA KARŞI<br>SOLO ANTRENMAN',
@@ -581,7 +608,7 @@ tr:{tagline:'GERİ ÇEK · BIRAK · DIŞARI İT',chip:'AKTİF',
   creating:'Oda kuruluyor…',ffaShare:'FFA · Kodu 1–4 arkadaşına gönder.',shareCode:'Kodu arkadaşına gönder.',
   code4:'Lütfen 4 haneli kodu gir.',joining:'Katılınıyor…',noRoom:'Oda bulunamadı.',roomFull:'Oda zaten dolu.',
   connWait:'Bağlandı! Host bekleniyor…',connStart:'Bağlandı! Oyun başlıyor…',
-  noFb:'⚠ Firebase bağlantısı yok. İnterneti ve yapılandırmayı kontrol et.',err:'Hata: ',noOnlineReset:'Online modda kullanılamaz.'}
+  noFb:'⚠ Firebase bağlantısı yok. İnterneti ve yapılandırmayı kontrol et.',err:'Hata: ',noOnlineReset:'Online modda kullanılamaz.',loading:'Arena yükleniyor...'}
 };
 let LANG=(()=>{try{const l=localStorage.getItem('ringout_lang');return I18N[l]?l:'en';}catch(e){return 'en';}})();
 function T(k){return (I18N[LANG]&&I18N[LANG][k])||I18N.en[k]||k;}
@@ -602,6 +629,7 @@ function applyLang(){
   $('bot1v1T').textContent=T('bot1v1T');$('bot1v1S').textContent=T('bot1v1S');
   $('bot2v2T').textContent=T('bot2v2T');$('bot2v2S').textContent=T('bot2v2S');
   $('onInput').placeholder=T('enterCode');
+  {const bt=$('bootTxt');if(bt)bt.textContent=T('loading');}   // Boot-Overlay existiert nur bis zum First-Frame
   $('setTitle').textContent=T('setTitle');$('setLangLbl').textContent=T('setLang');
   setOn('langGrp',{en:'langEn',de:'langDe',tr:'langTr'}[LANG]);
   $('onCreate').textContent=T('createRoom');$('onJoin').textContent=T('join');$('onBack').textContent=T('back');
@@ -2264,9 +2292,21 @@ async function initR3D(){
     try{if(vig)vig.remove();}catch(_){}
     try{document.body.classList.remove('r3d');}catch(_){}
     toast('3D nicht verfügbar – 2D-Modus aktiv.');
+    finishBoot();   // 3D fehlgeschlagen -> Loader weg, Fallback-Menue zeigen
   }
 }
 if(R3D_WANTED)initR3D();
+
+// ── Boot-Ende: idempotent. Ausloeser sind (a) erster gerenderter 3D-Frame (loop),
+//    (b) 2D-Modus (?r2d=1), (c) initR3D-Fehler, (d) 10-s-Sicherheits-Timeout —
+//    das Menue faded ein, das Overlay faded aus und wird entfernt. ──
+let bootDone=false;
+function finishBoot(){
+  if(bootDone)return;bootDone=true;
+  document.body.classList.remove('booting');
+  const b=$('boot');
+  if(b){b.classList.add('done');setTimeout(()=>{try{b.remove();}catch(e){}},700);}
+}
 
 // ════ MAIN LOOP ════
 function loop(now){
@@ -2279,10 +2319,14 @@ function loop(now){
   if(phase==='reveal'||phase==='sim'||phase==='result')recordFrame();
   updParticles();draw();
   if(r3dActive)r3d.render();
+  if(r3dActive&&!bootDone)finishBoot();   // erster gerenderter 3D-Frame -> Menue einblenden
   requestAnimationFrame(loop);
 }
 
-resize();initArenaGeo();newGame();applyLang();requestAnimationFrame(loop);   // applyLang (inkl. selectMenuMode) erst hier: PCOLS (const) muss initialisiert sein
+resize();initArenaGeo();newGame();applyLang();   // applyLang (inkl. selectMenuMode) erst hier: PCOLS (const) muss initialisiert sein
+if(!R3D_WANTED)finishBoot();                     // 2D-Modus: kein 3D-Warten, Menue direkt
+setTimeout(finishBoot,10000);                    // Sicherheitsnetz: nie im Loader haengen bleiben
+requestAnimationFrame(loop);
 })();
 </script>
 </body>
