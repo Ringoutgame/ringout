@@ -813,7 +813,9 @@ const SFX=(()=>{
       if(sp>SLOWV&&!roll)roll=rollEngine(c);
       if(!roll)return;
       if(sp>SLOWV){const k=Math.min(1,sp/6);
-        roll.g.gain.setTargetAtTime(.04+.18*k*k,t,.07);
+        // +6 dB nach Owner-Hoertest (war .04+.18k^2): 0.08 langsam -> 0.40 schnell.
+        // Kein Limiter noetig: Asset-Peak -3 dBFS x 0.40 = ~0.28 Ausgangspegel.
+        roll.g.gain.setTargetAtTime(.08+.32*k*k,t,.07);
         roll.s.playbackRate.setTargetAtTime(.85+.35*k,t,.1); // Tempo faerbt die Loop-Geschwindigkeit leicht
       }else roll.g.gain.setTargetAtTime(0,t,.06);
     },
