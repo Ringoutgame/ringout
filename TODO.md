@@ -8,7 +8,7 @@ Offene Aufgaben nach Priorität. Abgeschlossene Aufgaben werden nach `CHANGELOG.
 
 ## P0 — Kritisch (Sicherheit / Stabilität)
 
-- [ ] **Live-Validierung: FFA-Desync-Fix mit 4 echten Handys (2026-07-10):** Der Fix (`commit()`/`onlineTurnValue` DB-authoritativ für eigene Moves) ist automatisiert (Flow-Suite F5, 55/55) und lokal am PC mit mehreren simulierten Clients verifiziert — identischer Spielverlauf, Gewinner, Score. **Noch offen:** Realgeräte-Test mit 4 echten Handys über echte Mobilfunk-/WLAN-Netze, inkl. gezieltem Presence-Flap (Bildschirm sperren / App wechseln während der Aim-Phase) auf einem Gerät. Erst nach bestandenem Live-Test gilt der P0 als vollständig geschlossen.
+- [ ] **Live-Validierung: FFA-Desync-Fix mit 4–5 echten Handys (2026-07-10):** Der Fix (`commit()`/`onlineTurnValue` DB-authoritativ für eigene Moves) ist automatisiert (Flow-Suite F5 + F6, 4- und 5-Client-Regression, 64/64) und lokal am PC mit mehreren simulierten Clients verifiziert — identische Commit-Slots, gone-/alive-Flags, Reveal-Phase, Ballzustände, Gewinner, Scores und State-Hashes, kein Hänger. **Noch offen:** Realgeräte-Test mit 4–5 echten Handys über echte Mobilfunk-/WLAN-Netze, inkl. gezieltem Presence-Flap (Bildschirm sperren / App wechseln während der Aim-Phase) auf einem Gerät. Erst nach bestandenem Live-Test gilt der P0 als vollständig geschlossen.
 
 - [x] ~~**Online-Züge validieren (M1-T1)**~~ → erledigt, siehe CHANGELOG (2026-07-05)
 - [x] ~~**Raum-Konfiguration beim Beitritt validieren (M1-T2)**~~ → erledigt, siehe CHANGELOG (2026-07-06)
