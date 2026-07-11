@@ -445,7 +445,7 @@ body.booting #menu{opacity:0;visibility:hidden}
 
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js";
-  import { getDatabase, ref, set, get, update, remove, onValue, onDisconnect, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-database.js";
+  import { getDatabase, ref, set, get, update, remove, onValue, onDisconnect, serverTimestamp, runTransaction } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-database.js";
   const firebaseConfig = {
     apiKey: "AIzaSyDVQNTYoJ3bAUbv4gmcJvjuSVE6vKylZM0",
     authDomain: "ringout-87fbb.firebaseapp.com",
@@ -458,7 +458,7 @@ body.booting #menu{opacity:0;visibility:hidden}
   try{
     const app = initializeApp(firebaseConfig);
     const db = getDatabase(app);
-    window.FB = { db, ref, set, get, update, remove, onValue, onDisconnect, serverTimestamp };
+    window.FB = { db, ref, set, get, update, remove, onValue, onDisconnect, serverTimestamp, runTransaction };
     window.__FB_READY = true;
   }catch(e){ window.__FB_ERR = String(e && e.message || e); }
   window.dispatchEvent(new Event('fb-ready'));
@@ -547,6 +547,40 @@ let turnUnsub=null, genUnsub=null, presUnsub=null, seatsUnsub=null, gameStarted=
 let lobbyP={};      // letzter Lobby-Presence-Snapshot (Start-Gate des Hosts, M8-T3c)
 let seatLeft=[];    // FFA: Seat hat das Match verlassen (Presence-Sicht) -> Sentinel schreiben
 let seatGone=[];    // FFA: Verlassen-Status aus den Move-Daten — deterministisch fuer alle Clients
+// P0-Fix (2026-07-11, Nachbesserung): pendingSlot haelt pro Seat den Kontext
+// (Session/Raum/Generation/Turn) des eigenen, noch nicht per Firebase-Transaction
+// entschiedenen Turn-Writes fest. runTransaction(...,{applyLocally:false}) erzeugt
+// bewusst KEIN lokal-optimistisches onValue-Event fuer den eigenen Write — anders
+// als ein set() wartet die Transaction serverseitig auf das autoritative Ergebnis
+// (s. writeTurnSlot/settleSlot). onlineSessionId ist ein monotoner Zaehler, der bei
+// jedem Raumbeitritt/-erstellung erhoeht und bei leaveOnline entwertet wird: ein
+// verspaeteter Transaction- oder Listener-Callback aus einer alten Session/einem
+// alten Raum darf den aktuellen Zustand nie mehr veraendern, selbst wenn Seat,
+// Generation und Turnnummer zufaellig uebereinstimmen (s. isCurrentCtx).
+let pendingSlot={}, onlineSessionId=0;
+// P0-Nachbesserung (2026-07-11): capped-Backoff-Retry fuer den SYSTEMGENERIERTEN
+// Leave-Sentinel (nicht fuer eigene Spieler-Moves — die muessen nicht automatisch
+// wiederholt werden). sentinelRetryTimer haelt pro Seat hoechstens EINEN
+// ausstehenden setTimeout-Handle (kein paralleler Doppel-Retry).
+let sentinelRetryTimer={};
+const SENTINEL_RETRY_BASE_MS=300, SENTINEL_RETRY_MAX_MS=2000;
+// Obergrenze der automatischen Sentinel-Retries pro Seat und Turn. Der Backoff
+// laeuft 300·2^n ms (bei SENTINEL_RETRY_MAX_MS gedeckelt): 300, 600, 1200, dann
+// 2000er-Schritte. 11 Retries ergeben so eine Gesamt-Retry-Dauer von ~18 s
+// (0,3+0,6+1,2+8·2,0). Wird das Limit erreicht, ohne dass der Slot autoritativ
+// gefuellt wurde (permanenter Firebase-/Permission-/Konfigurationsfehler), bricht
+// der Client kontrolliert ab (s. onlineConnectionLost) — kein unbegrenztes
+// Weiterschreiben, kein dauerhaft eingefrorener Turn.
+const SENTINEL_RETRY_MAX_ATTEMPTS=11;
+// Terminaler, sessiongebundener Abbruchzustand: speichert die onlineSessionId, in
+// der onlineConnectionLost() den Match-Abbruch ausgeloest hat. isOnlineTerminated()
+// ist damit automatisch NUR fuer genau diese Session true — ein neuer Join/Create
+// oder leaveOnline erhoeht onlineSessionId (und setzt zusaetzlich explizit zurueck),
+// sodass die naechste Session sauber startet. Nach dem Abbruch muss JEDER asynchrone
+// Pfad (settleSlot/processSlot/maybeReveal/Retry/Listener/eigener Commit) diesen
+// Status pruefen und wirkungslos zurueckkehren — bereits laufende Transactions
+// duerfen technisch weiter aufloesen, aber nichts mehr veraendern.
+let onlineTerminatedSession=-1;
 // Ansichts-Rotation pro Client (NUR Ansicht/Input — Simulation, Spawnpositionen
 // und Physik bleiben absolut identisch):
 //   Online 1v1/2v2: Spieler 1 sieht das Brett 180° gedreht (eigene Kugel unten).
@@ -1665,7 +1699,20 @@ function onLobbyClosed(){
   setStatus('Host hat die Lobby geschlossen.');
 }
 function attachRoomListeners(){
+  onlineSessionId++;   // P0-Fix: neue Session je Raumbeitritt/-erstellung -> Transaction-/Listener-Ergebnisse einer fruehreren Session werden ungueltig
+  onlineTerminatedSession=-1;   // neue Session startet nie im terminalen Abbruchzustand
+  // P0-Nachbesserung: presUnsub/genUnsub/seatsUnsub sind reine Praesenz-/Metadaten-
+  // Listener, keine Turn-Slot-Callbacks — sie brauchen deshalb KEINE Generation/
+  // Turnnummer als Identitaet (der Gen-Listener MUSS legitime Generationswechsel
+  // sehen), sondern nur Session+Raum. roomCtx wird bei Registrierung eingefangen;
+  // ein verspaeteter Callback aus Raum A darf Raum B nie beruehren (gen ueber-
+  // schreiben, startOnlineGame ausloesen, ffaN aendern, einen Sentinel starten).
+  const roomCtx={sid:onlineSessionId,room:roomCode};
+  // roomCtx-Guard (Session+Raum) UND terminaler Abbruch: nach onlineConnectionLost
+  // darf kein Presence-/Gen-/Seats-Callback mehr das Match veraendern.
+  const isCurrentRoom=()=>roomCtx.sid===onlineSessionId&&roomCtx.room===roomCode&&!isOnlineTerminated();
   presUnsub=window.FB.onValue(rRef('p'), snap=>{
+    if(!isCurrentRoom())return;
     const p=snap.val()||{};
     // Auto-Start nur 1v1/2v2; FFA startet per Host-Start ueber state+seats (M8-T3c)
     if(fmt!=='ffa' && !!p[0] && !!p[1] && !gameStarted) maybeStart();
@@ -1688,12 +1735,14 @@ function attachRoomListeners(){
     }
   });
   genUnsub=window.FB.onValue(rRef('gen'), snap=>{
+    if(!isCurrentRoom())return;
     const g=snap.val(); if(g==null)return; gen=g;
     if(gameStarted && g!==runningGen) startOnlineGame();
   });
   // FFA-Startsignal: seats existiert (Rule-gesichert) erst NACH state='playing' —
   // ein einziger Listener reicht daher als synchroner Start fuer Host UND Gaeste.
   if(fmt==='ffa') seatsUnsub=window.FB.onValue(rRef('seats'), snap=>{
+    if(!isCurrentRoom())return;
     const n=snap.val();
     if(gameStarted||!Number.isInteger(n)||n<2||n>FFA_MAX_SEATS)return;
     if(myPlayer>=n){   // Race: Seat erst nach dem Host-Kopfzaehlen geclaimt -> sauber aussteigen
@@ -1720,41 +1769,183 @@ function onOppLeft(){
 
 function onlineArmTurn(){
   turnNo++;
+  pendingSlot={};   // P0-Fix: neue Turn-Runde -> keine Altlast aus vorherigen Pending-Writes
+  clearAllSentinelRetries();   // P0-Nachbesserung: Retries der alten Turn-Runde sind ab hier gegenstandslos
   if(turnUnsub){turnUnsub();turnUnsub=null;}
-  const ref=window.FB.ref(window.FB.db,'rooms/'+roomCode+'/g/'+gen+'/t/'+turnNo);
-  turnUnsub=window.FB.onValue(ref, snap=>onlineTurnValue(snap.val()));
+  const ctx={sid:onlineSessionId,room:roomCode,gen:gen,turnNo:turnNo};
+  const ref=window.FB.ref(window.FB.db,'rooms/'+ctx.room+'/g/'+ctx.gen+'/t/'+ctx.turnNo);
+  // ctx wird bei JEDEM Fire neu gegen die aktuellen Globals geprueft: ein Listener,
+  // der aus irgendeinem Grund noch feuert, nachdem Session/Raum/Turn sich schon
+  // weiterbewegt haben (turnUnsub() garantiert das nicht zwingend synchron gegen
+  // bereits zugestellte Firebase-Events), darf den jetzigen Zustand nie beruehren.
+  turnUnsub=window.FB.onValue(ref, snap=>{ if(isCurrentCtx(ctx)&&!isOnlineTerminated()) onlineTurnValue(snap.val()); });
   if(mode==='ffa')for(let s=0;s<np();s++)if(seatLeft[s])writeLeaveSentinel(s);   // offene Slots Verlassener fuellen
+}
+function isCurrentCtx(ctx){ return ctx.sid===onlineSessionId && ctx.room===roomCode && ctx.gen===gen && ctx.turnNo===turnNo; }
+// true, sobald die AKTUELLE Online-Session per onlineConnectionLost() terminal
+// abgebrochen wurde. Wird von allen asynchronen Pfaden geprueft, damit nach dem
+// Abbruch nichts mehr aimSet/commit*/seatGone/Reveal/Retry beruehrt.
+function isOnlineTerminated(){ return onlineTerminatedSession===onlineSessionId; }
+// P0-Fix (2026-07-11, Nachbesserung): einziger Schreibpfad fuer Turn-Slots (eigener
+// Move UND Leave-Sentinel fuer fremde Seats) — ausschliesslich per Firebase-
+// Transaction, NIE per set(). set() wendet einen Write lokal SOFORT optimistisch an
+// und feuert onValue-Listener (auch den eigenen!) VOR der Server-/Rules-Antwort;
+// runTransaction(...,{applyLocally:false}) erzeugt bewusst KEIN lokales Zwischen-
+// Event — der eigene Payload wird nur dann sichtbar, wenn die Transaction bereits
+// autoritativ entschieden ist. Ist der Slot leer, gewinnt payload; ist er bereits
+// belegt, bricht die Transaction ab (kein Write) und result.snapshot enthaelt in
+// BEIDEN Faellen den autoritativen Serverwert (s. settleSlot).
+function writeTurnSlot(s,payload,opts){
+  if(isOnlineTerminated())return;   // Match terminal abgebrochen -> kein eigener Move/Sentinel mehr senden
+  if(pendingSlot[s])return;   // eigener Write fuer diesen Slot bereits unterwegs -> kein doppeltes Senden
+  opts=opts||{};
+  const ctx={sid:onlineSessionId,room:roomCode,gen:gen,turnNo:turnNo,sentinel:!!opts.sentinel,attempt:opts.attempt||0};
+  pendingSlot[s]=ctx;
+  const slotRef=window.FB.ref(window.FB.db,'rooms/'+ctx.room+'/g/'+ctx.gen+'/t/'+ctx.turnNo+'/'+s);
+  try{
+    window.FB.runTransaction(slotRef, current=>current==null?payload:undefined, {applyLocally:false})
+      .then(result=>settleSlot(s,ctx,result,null))
+      .catch(err=>settleSlot(s,ctx,null,err));
+  }catch(err){ settleSlot(s,ctx,null,err); }
 }
 // Verlassener Seat wuerde den Lockstep blockieren: irgendein verbliebener Client
 // fuellt dessen offenen Move-Slot mit einem Stand-still-Sentinel (idx!==seat
 // markiert "verlassen" — in ffa gilt fuer echte Commits immer idx===seat). Die
-// Write-once-Rule ist der Schiedsrichter: kam der echte Commit zuerst, verliert
-// der Sentinel. So spielen alle Clients mit exakt denselben Moves aus der DB —
-// deterministisch, kein Deadlock, keine Rules-Aenderung.
-function writeLeaveSentinel(s){
-  if(!online||mode!=='ffa'||!gameStarted||phase!=='aim'||aimSet[s]||!aliveCount(s))return;
-  try{ window.FB.set(window.FB.ref(window.FB.db,'rooms/'+roomCode+'/g/'+gen+'/t/'+turnNo+'/'+s), {idx:(s+1)%FFA_MAX_SEATS,dx:0,dy:0,sp:0}).catch(()=>{}); }catch(e){}
+// Write-once-Transaction ist der Schiedsrichter: kam der echte Commit zuerst,
+// verliert der Sentinel. So spielen alle Clients mit exakt denselben Moves aus der
+// DB — deterministisch, kein Deadlock, keine Rules-Aenderung. attempt zaehlt
+// automatische Retries nach einem echten Transaction-Fehler (s. scheduleSentinelRetry).
+function writeLeaveSentinel(s,attempt){
+  if(!online||mode!=='ffa'||!gameStarted||phase!=='aim'||aimSet[s]||pendingSlot[s]||!aliveCount(s))return;
+  writeTurnSlot(s,{idx:(s+1)%FFA_MAX_SEATS,dx:0,dy:0,sp:0},{sentinel:true,attempt:attempt||0});
 }
+// P0-Nachbesserung: automatischer, kontextgebundener Retry NUR fuer den system-
+// generierten Leave-Sentinel (ein haengengebliebener Sentinel wuerde den Turn sonst
+// dauerhaft blockieren) — eigene Spieler-Moves werden bewusst NICHT automatisch
+// wiederholt (der Spieler kann jederzeit erneut committen). Backoff ist auf
+// SENTINEL_RETRY_MAX_MS gedeckelt, damit Firebase bei wiederholten echten Fehlern
+// nicht mit Requests geflutet wird. sentinelRetryTimer[s] verhindert einen
+// parallelen Doppel-Retry fuer denselben Seat.
+function scheduleSentinelRetry(s,ctx){
+  if(isOnlineTerminated())return;              // Match terminal abgebrochen -> kein neuer Retry, kein erneuter Abbruch
+  if(sentinelRetryTimer[s])return;             // nie mehrere parallele Timer pro Seat
+  if(ctx.attempt>=SENTINEL_RETRY_MAX_ATTEMPTS){ onlineConnectionLost(ctx); return; }   // Limit erreicht -> kontrollierter Abbruch statt Endlos-Retry
+  const delay=Math.min(SENTINEL_RETRY_BASE_MS*Math.pow(2,ctx.attempt),SENTINEL_RETRY_MAX_MS);
+  sentinelRetryTimer[s]=setTimeout(()=>{
+    sentinelRetryTimer[s]=null;
+    if(!isCurrentCtx(ctx))return;              // Session/Raum/Generation/Turn gewechselt -> Retry gegenstandslos
+    if(!seatLeft[s])return;                    // Seat ist nicht (mehr) verlassen -> Sentinel nicht mehr noetig
+    writeLeaveSentinel(s,ctx.attempt+1);       // prueft aimSet/pendingSlot/phase erneut selbst
+  },delay);
+}
+// Sentinel-Retry-Limit erreicht: der offene Slot laesst sich wegen eines
+// permanenten Fehlers nicht schliessen. KEINEN Move/Sentinel lokal erfinden —
+// stattdessen alle Retries/Timer stoppen und das Online-Match kontrolliert ueber
+// den bestehenden Disconnect-Overlay beenden (Rueckweg ins Menue = leaveOnline,
+// derselbe sichere Pfad wie bei onOppLeft). Kontextschutz: nur fuer die
+// urspruengliche Session/Raum/Generation/Turn (ctx) — ein alter Retry darf nie
+// einen neuen Raum oder eine neue Runde beenden.
+function onlineConnectionLost(ctx){
+  if(ctx&&!isCurrentCtx(ctx))return;
+  if(isOnlineTerminated())return;                 // idempotent: nur der erste gueltige Aufruf dieser Session bricht ab
+  onlineTerminatedSession=onlineSessionId;         // ab hier sind alle async Pfade dieser Session wirkungslos
+  clearAllSentinelRetries();
+  pendingSlot={};                                  // Pending-State entwerten: spaete Transaction-Callbacks laufen ins Leere (settleSlot: p!==ctx)
+  // Alle Raum-Listener sauber loesen (Rueckweg ins Menue via Overlay -> leaveOnline
+  // raeumt den Rest ab). Die isOnlineTerminated-Guards fangen zusaetzlich jeden
+  // Callback ab, der ein bereits zugestelltes Event noch verspaetet ausliefert.
+  if(turnUnsub){turnUnsub();turnUnsub=null;}
+  try{ if(genUnsub)genUnsub(); }catch(e){} try{ if(presUnsub)presUnsub(); }catch(e){} try{ if(seatsUnsub)seatsUnsub(); }catch(e){}
+  genUnsub=presUnsub=seatsUnsub=null;
+  toast('Verbindung zum Spiel verloren. Bitte Raum neu betreten.');
+  $('wVic').style.display='none';
+  $('wt').style.display='';
+  $('wt').textContent='Verbindung zum Spiel verloren.';$('wt').className='wt';
+  $('ws').textContent='Bitte Raum neu betreten.';
+  document.querySelector('#ov .trophy').textContent='🔌';
+  $('rematchBtn').style.display='none';$('replayBtn').style.display='none';
+  $('ov').classList.add('show');
+}
+function clearSentinelRetry(s){
+  if(sentinelRetryTimer[s]){clearTimeout(sentinelRetryTimer[s]);sentinelRetryTimer[s]=null;}
+}
+function clearAllSentinelRetries(){
+  for(const s in sentinelRetryTimer)clearSentinelRetry(s);
+}
+// Wendet einen einzelnen, als autoritativ bekannten Turn-Slot an (entweder ein
+// frisches DB-Echo — via onlineTurnValue, IMMER autoritativ, da der Turn-Pfad
+// ausschliesslich per runTransaction(...,{applyLocally:false}) beschrieben wird —
+// oder das autoritative Transaction-Ergebnis des eigenen Writes via settleSlot).
+// aimSet[s] schuetzt vor doppelter Anwendung, falls beide Pfade denselben Slot
+// erreichen (z. B. autoritativer Fremdwert kommt an, WAEHREND die eigene
+// Transaction fuer denselben Slot noch pending ist).
+function processSlot(s,c){
+  if(isOnlineTerminated())return;   // Match terminal abgebrochen -> aimSet/commit*/seatGone nicht mehr veraendern
+  if(!c||aimSet[s])return;
+  clearSentinelRetry(s);   // autoritativer Wert da -> ein evtl. noch wartender Sentinel-Retry ist sofort gegenstandslos
+  if(mode==='ffa'&&c.idx!==s)seatGone[s]=true;   // Leave-Sentinel erkannt (auch fuer den eigenen Seat) -> Ejection bei beginReveal
+  const m=sanitizeMove(s,c.idx,c.dx,c.dy,c.sp);
+  commitIdx[s]=m.idx; commitAim[s]={dx:m.dx,dy:m.dy}; commitSpin[s]=m.sp; aimSet[s]=true; updateHud(); setPhaseText();
+}
+// Ergebnis der eigenen Turn-Slot-Transaction fuer Slot s. result.snapshot.val() ist
+// IMMER der autoritative Serverwert — unabhaengig davon, ob result.committed true
+// (eigener Payload gewonnen) oder false (Slot war bereits belegt) ist — und wird
+// hier via processSlot() angewendet; aimSet[s] verhindert eine doppelte Anwendung,
+// falls onlineTurnValue denselben (fremden) Wert bereits waehrend des Pendings
+// verarbeitet hat. ctx wird zweifach geprueft: p!==ctx faengt einen NEUEREN Write
+// fuer denselben Slot ab (z. B. ein automatischer Sentinel-Retry), isCurrentCtx()
+// faengt Session-/Raum-/Turn-Wechsel ab — auch wenn Seat, Generation und Turnnummer
+// eines neuen Raums zufaellig mit denen des alten uebereinstimmen.
+function settleSlot(s,ctx,result,err){
+  if(isOnlineTerminated()){ delete pendingSlot[s]; return; }   // Match terminal abgebrochen -> Ergebnis wirkungslos (kein process/reveal/retry)
+  const p=pendingSlot[s];
+  if(p!==ctx)return;                          // ueberholt: ein neuerer Write fuer diesen Slot laeuft bereits/ist bereits fertig
+  if(!isCurrentCtx(ctx)){ delete pendingSlot[s]; return; }   // Session/Raum/Turn haben gewechselt -> Ergebnis gehoert nicht mehr hierher
+  delete pendingSlot[s];
+  if(err){
+    // Echter Netzwerk-/Permission-/Transaction-Fehler: eigenen Payload NICHT
+    // anwenden, Listener bleibt aktiv (turnUnsub laeuft weiter) — ein spaeterer
+    // fremder Write auf denselben Slot kommt normal ueber onlineTurnValue an.
+    // Der system-generierte Sentinel bekommt einen automatischen, kontextgebundenen
+    // Retry (scheduleSentinelRetry); ein eigener Spieler-Move nicht — der Spieler
+    // kann jederzeit erneut committen.
+    console.error('[online] Turn-Slot-Transaction fehlgeschlagen (Seat '+s+'):',err);
+    if(ctx.sentinel&&!aimSet[s]) scheduleSentinelRetry(s,ctx);   // Slot evtl. inzwischen anderweitig autoritativ befuellt -> dann kein Retry noetig
+    maybeReveal();
+    return;
+  }
+  processSlot(s,result.snapshot.val());
+  maybeReveal();
+}
+function maybeReveal(){
+  if(isOnlineTerminated())return;   // Match terminal abgebrochen -> kein Reveal mehr starten
+  if(allAliveCommitted()&&phase==='aim'&&!Object.keys(pendingSlot).length){
+    if(turnUnsub){turnUnsub();turnUnsub=null;} beginReveal();
+  }
+}
+// P0-Nachbesserung: der Turn-Pfad schreibt AUSSCHLIESSLICH per
+// runTransaction(...,{applyLocally:false}) — jeder onValue-Snapshot hier ist somit
+// bereits autoritativ, auch waehrend die eigene Transaction fuer denselben Slot
+// noch pending ist. Der Slot wird deshalb IMMER sofort via processSlot() verarbeitet
+// (aimSet[s] schuetzt vor Doppelanwendung); pendingSlot[s] bleibt trotzdem bestehen,
+// bis settleSlot() die eigene Transaction abschliesst — maybeReveal() bleibt so
+// lange blockiert (s. dort).
 function onlineTurnValue(val){
   if(!val)return;
-  for(let s=0;s<np();s++){                       // ALLE Seats inkl. des eigenen: die DB ist der Arbiter (P0-Fix)
-    const c=val[s];
-    if(c && !aimSet[s]){
-      if(mode==='ffa'&&c.idx!==s)seatGone[s]=true;   // Leave-Sentinel erkannt (auch fuer den eigenen Seat) -> Ejection bei beginReveal
-      const m=sanitizeMove(s,c.idx,c.dx,c.dy,c.sp);
-      commitIdx[s]=m.idx; commitAim[s]={dx:m.dx,dy:m.dy}; commitSpin[s]=m.sp; aimSet[s]=true; updateHud(); setPhaseText();
-    }
-  }
-  if(allAliveCommitted()&&phase==='aim'){ if(turnUnsub){turnUnsub();turnUnsub=null;} beginReveal(); }
+  for(let s=0;s<np();s++) processSlot(s,val[s]);   // ALLE Seats inkl. des eigenen: die DB ist der alleinige Arbiter
+  maybeReveal();
 }
 function onlineSendCommit(idx,fx,fy,spin){
   // Verlorenes Write-once-Race (z. B. gegen einen Leave-Sentinel) ist ein legitimer
   // Ausgang: still schlucken — das Turn-Echo liefert allen den gewinnenden Wert.
-  try{ window.FB.set(window.FB.ref(window.FB.db,'rooms/'+roomCode+'/g/'+gen+'/t/'+turnNo+'/'+myPlayer), {idx:idx,dx:fx,dy:fy,sp:spin||0}).catch(()=>{}); }catch(e){}
+  writeTurnSlot(myPlayer,{idx:idx,dx:fx,dy:fy,sp:spin||0});
 }
 function onlineRematch(){ try{ window.FB.set(rRef('gen'), runningGen+1); }catch(e){} }
 function leaveOnline(){
   if(!online && !roomCode)return;
+  onlineSessionId++;   // P0-Fix: laufende Transaktionen/Listener dieser Session sofort entwerten (auch bei sofortigem Wiederbeitritt zum selben Raum)
+  onlineTerminatedSession=-1;   // terminalen Abbruchzustand sicher zuruecksetzen (die neue Session ist ohnehin != gespeicherter Session)
+  clearAllSentinelRetries();   // P0-Nachbesserung: Raum wird verlassen -> kein Sentinel-Retry darf danach noch feuern
   try{ if(turnUnsub)turnUnsub(); }catch(e){} try{ if(genUnsub)genUnsub(); }catch(e){} try{ if(presUnsub)presUnsub(); }catch(e){} try{ if(seatsUnsub)seatsUnsub(); }catch(e){}
   turnUnsub=genUnsub=presUnsub=seatsUnsub=null;
   // Eigene Presence entfernen, dann best-effort den ganzen Raum abräumen: die

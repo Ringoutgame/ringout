@@ -9,23 +9,32 @@
 // Usage: node tools/run_all_tests.js
 const path = require('path'), { spawnSync } = require('child_process');
 
-// name = display label, file = suite in tools/, expect = expected summary hint.
+// name = display label, file = suite in tools/, expectPassed = erwartete Anzahl
+// bestandener Assertions (aus dem letzten "N passed, M failed" der Suite geparst),
+// null = Suite hat keinen Assertion-Zaehler (nur Exit-Code zaehlt, z.B. Syntax-Check).
 const SUITES = [
-  { name: 'Syntax',           file: 'test_syntax.js',         expect: 'SYNTAX OK' },
-  { name: 'Golden-Physik',    file: 'test_physics_golden.js', expect: '13/13' },
-  { name: 'r3d-Mapping',      file: 'test_r3d_mapping.js',    expect: '48/48' },
-  { name: 'Sanitize',         file: 'test_sanitize.js',       expect: '19/19' },
-  { name: 'ValidateRoom',     file: 'test_validateroom.js',   expect: '40/40' },
-  { name: 'Lockstep',         file: 'test_lockstep.js',       expect: '24/24' },
-  { name: 'FFA-Kern',         file: 'test_ffa.js',            expect: '18/18' },
-  { name: 'FFA-Online-Prep',  file: 'test_ffa_online.js',     expect: '40/40' },
-  { name: 'FFA-Online-Flow',  file: 'test_ffa_flow.js',       expect: '46/46' },
-  { name: 'Rules',            file: 'test_rules.js',          expect: '59/59' },
+  { name: 'Syntax',           file: 'test_syntax.js',         expectPassed: null },
+  { name: 'Golden-Physik',    file: 'test_physics_golden.js', expectPassed: 13 },
+  { name: 'r3d-Mapping',      file: 'test_r3d_mapping.js',    expectPassed: 48 },
+  { name: 'Sanitize',         file: 'test_sanitize.js',       expectPassed: 19 },
+  { name: 'ValidateRoom',     file: 'test_validateroom.js',   expectPassed: 40 },
+  { name: 'Lockstep',         file: 'test_lockstep.js',       expectPassed: 24 },
+  { name: 'FFA-Kern',         file: 'test_ffa.js',            expectPassed: 18 },
+  { name: 'FFA-Online-Prep',  file: 'test_ffa_online.js',     expectPassed: 40 },
+  { name: 'FFA-Online-Flow',  file: 'test_ffa_flow.js',       expectPassed: 64 },
+  { name: 'FFA-Online-Race',  file: 'test_ffa_race.js',       expectPassed: 115 },
+  { name: 'Rules',            file: 'test_rules.js',          expectPassed: 70 },
 ];
 
 const lastLine = (s) => {
   const lines = String(s).split('\n').map((l) => l.trim()).filter(Boolean);
   return lines.length ? lines[lines.length - 1] : '(keine Ausgabe)';
+};
+// Parst "N passed, M failed" aus der Suite-Ausgabe — alle Suiten enden mit dieser
+// Zeile (bzw. lassen expectPassed=null, wenn sie keinen Zaehler ausgeben).
+const parsePassed = (s) => {
+  const m = String(s).match(/(\d+)\s+passed/);
+  return m ? parseInt(m[1], 10) : null;
 };
 
 let failed = 0;
@@ -37,9 +46,18 @@ for (const s of SUITES) {
   const r = spawnSync(process.execPath, [path.join(__dirname, s.file)], { encoding: 'utf8' });
   const ms = Date.now() - started;
   const out = (r.stdout || '') + (r.stderr || '');
-  const ok = r.status === 0;
+  const exitOk = r.status === 0;
+  const actualPassed = parsePassed(r.stdout);
+  // Weniger ODER mehr bestandene Assertions als erwartet gilt als Fehlschlag —
+  // eine veraltete/gesunkene Testabdeckung faellt so sofort auf, nicht erst wenn
+  // jemand zufaellig die letzte Zeile manuell liest.
+  const countOk = s.expectPassed == null || actualPassed === s.expectPassed;
+  const ok = exitOk && countOk;
   const tag = ok ? 'OK  ' : 'FAIL';
-  const summary = ok ? lastLine(r.stdout) : ('exit ' + r.status);
+  let summary;
+  if (!exitOk) summary = 'exit ' + r.status;
+  else if (!countOk) summary = 'Assertion-Zahl weicht ab: erwartet ' + s.expectPassed + ', erhalten ' + actualPassed;
+  else summary = lastLine(r.stdout);
   console.log(
     '[' + tag + '] ' + s.name.padEnd(16) + ' ' + summary.padEnd(40) + ' (' + ms + ' ms)'
   );

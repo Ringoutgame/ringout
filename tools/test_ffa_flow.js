@@ -21,7 +21,11 @@ const SRC = [
   grab(/function viewAngle\(\)\{[\s\S]*?\n\}/, 'viewAngle'),
   grab(/function beginReveal\(\)\{[^\n]*/, 'beginReveal'),
   grab(/function ejectGoneSeats\(\)\{[\s\S]*?\n\}/, 'ejectGoneSeats'),
-  grab(/function writeLeaveSentinel\(s\)\{[\s\S]*?\n\}/, 'writeLeaveSentinel'),
+  grab(/function writeLeaveSentinel\(s,attempt\)\{[\s\S]*?\n\}/, 'writeLeaveSentinel'),
+  grab(/function scheduleSentinelRetry\(s,ctx\)\{[\s\S]*?\n\}/, 'scheduleSentinelRetry'),
+  grab(/function onlineConnectionLost\(ctx\)\{[\s\S]*?\n\}/, 'onlineConnectionLost'),
+  grab(/function clearSentinelRetry\(s\)\{[\s\S]*?\n\}/, 'clearSentinelRetry'),
+  grab(/function clearAllSentinelRetries\(\)\{[\s\S]*?\n\}/, 'clearAllSentinelRetries'),
   grab(/function np\(\)\{[^\n]*/, 'np'),
   grab(/function aliveCount\(owner\)\{[^\n]*/, 'aliveCount'),
   grab(/function allAliveCommitted\(\)\{[^\n]*/, 'allAliveCommitted'),
@@ -46,6 +50,12 @@ const SRC = [
   grab(/function startOnlineGame\(\)\{[^\n]*/, 'startOnlineGame'),
   grab(/function onOppLeft\(\)\{[\s\S]*?\n\}/, 'onOppLeft'),
   grab(/function onlineArmTurn\(\)\{[\s\S]*?\n\}/, 'onlineArmTurn'),
+  grab(/function isCurrentCtx\(ctx\)\{[^\n]*/, 'isCurrentCtx'),
+  grab(/function isOnlineTerminated\(\)\{[^\n]*/, 'isOnlineTerminated'),
+  grab(/function writeTurnSlot\(s,payload,opts\)\{[\s\S]*?\n\}/, 'writeTurnSlot'),
+  grab(/function processSlot\(s,c\)\{[\s\S]*?\n\}/, 'processSlot'),
+  grab(/function settleSlot\(s,ctx,result,err\)\{[\s\S]*?\n\}/, 'settleSlot'),
+  grab(/function maybeReveal\(\)\{[\s\S]*?\n\}/, 'maybeReveal'),
   grab(/function onlineTurnValue\(val\)\{[\s\S]*?\n\}/, 'onlineTurnValue'),
   grab(/function onlineSendCommit\(idx,fx,fy,spin\)\{[\s\S]*?\n\}/, 'onlineSendCommit'),
   grab(/function simHash\(\)\{[\s\S]*?\n\}/, 'simHash'),
@@ -117,6 +127,17 @@ function makeDB() {
     set: async (ref, val) => setParts(ref, val),
     update: async (ref, obj) => { for (const k of Object.keys(obj)) setParts(ref.concat(String(k).split('/')), obj[k]); },
     remove: async ref => setParts(ref, null),
+    // Immediate-resolution transaction mirror for the non-race flow suite (S1..F6):
+    // no local-optimistic intermediate state modeled here (that is the job of the
+    // dedicated two-phase harness in test_ffa_race.js) — just write-once arbitration,
+    // synchronously, exactly like the old set()-based fake did.
+    runTransaction: async (ref, updateFn, options) => {
+      const current = clone(at(ref));
+      const next = updateFn(current);
+      if (next === undefined) return { committed: false, snapshot: { val: () => clone(at(ref)), exists: () => at(ref) != null } };
+      setParts(ref, next);
+      return { committed: true, snapshot: { val: () => clone(at(ref)), exists: () => at(ref) != null } };
+    },
     onValue: (ref, cb) => {
       const l = { parts: ref, cb, last: JSON.stringify(clone(at(ref))) };
       listeners.add(l);
@@ -145,6 +166,11 @@ function makeClient(db, code) {
     let online=false, roomCode='', myPlayer=0, gen=0, runningGen=-1, turnNo=-1;
     let turnUnsub=null, genUnsub=null, presUnsub=null, seatsUnsub=null, gameStarted=false;
     let lobbyP={}, seatLeft=[], seatGone=[];
+    let pendingSlot={}, onlineSessionId=0;
+    let sentinelRetryTimer={};
+    const SENTINEL_RETRY_BASE_MS=300, SENTINEL_RETRY_MAX_MS=2000;
+    const SENTINEL_RETRY_MAX_ATTEMPTS=11;
+    let onlineTerminatedSession=-1;
     let phase='over', curAimer=0, balls=[], aimSet=[], commitIdx=[], commitAim=[], commitSpin=[], score=[];
     let replaying=false, repPlaying=false;
     const cx=500, cy=500, BR=32; let R=485;
