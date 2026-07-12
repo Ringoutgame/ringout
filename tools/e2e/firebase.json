@@ -1,0 +1,15 @@
+{
+  "database": {
+    "rules": "firebase.rules.json"
+  },
+  "emulators": {
+    "singleProjectMode": true,
+    "database": {
+      "host": "127.0.0.1",
+      "port": 9000
+    },
+    "ui": {
+      "enabled": false
+    }
+  }
+}

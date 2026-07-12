@@ -1,3 +1,17 @@
+# Node / Playwright (lokale Dev-Tools, nicht eingecheckt)
+node_modules/
+test-results/
+playwright-report/
+blob-report/
+
+# Firebase-Emulator-Debug-Logs (lokale Testartefakte)
+firebase-debug.log
+database-debug.log
+ui-debug.log
+
+# E2E-Harness: flüchtige Temp-Kopien (Rules-Kopie, Temp-firebase.json, Logs)
+tools/e2e/.tmp/
+
 # Blender-Backups
 *.blend1
 *.blend2
