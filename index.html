@@ -63,6 +63,12 @@ body.r3d #menu{z-index:2;background:linear-gradient(180deg,rgba(6,10,18,.55) 0%,
 .lbl{font-size:9px;font-weight:800;letter-spacing:.14em;color:var(--muted);text-transform:uppercase;margin-bottom:7px}
 .pills{display:flex;background:#0c1420;border-radius:999px;padding:3px;gap:2px}
 .pills button{border:0;background:transparent;color:var(--muted);font:inherit;font-size:11px;font-weight:700;padding:8px 0;border-radius:999px;cursor:pointer;flex:1;transition:.15s}
+/* Premium-Klickfeedback (dezentes Press-Feedback ~90ms) fuer wichtige Menu-/Lobby-
+   Buttons; Klasse wird per JS (wireMenuClickFeedback) nur auf die kuratierten
+   Buttons gesetzt. Reduced-motion: Skalierung aus, nur Helligkeit bleibt spuerbar. */
+.press-fx{transition:transform .09s ease,filter .09s ease}
+.press-fx:active{transform:scale(.96);filter:brightness(1.1)}
+@media(prefers-reduced-motion:reduce){.press-fx{transition:filter .09s ease}.press-fx:active{transform:none}}
 .pills button.on{background:#1a2840;color:var(--text)}
 #modeGrp{flex-direction:column;border-radius:14px;padding:4px;gap:3px}
 #modeGrp button{padding:11px;border-radius:10px;font-size:12px;letter-spacing:.03em}
@@ -83,6 +89,9 @@ header{width:100%;max-width:460px;display:flex;align-items:center;justify-conten
 /* Oberes HUD: Player-Cards + Score als Premium-Panels im Menue-Look (Navy-Glass, Gold) */
 .status{width:100%;max-width:460px;display:grid;grid-template-columns:1fr auto 1fr;gap:7px;margin-bottom:6px;flex-shrink:0}
 .pcard{background:linear-gradient(180deg,rgba(24,33,54,.88),rgba(14,21,36,.92));border-radius:14px;padding:8px 12px;border:1px solid rgba(122,142,180,.3);box-shadow:0 8px 22px rgba(5,9,18,.35);backdrop-filter:blur(6px);transition:border-color .2s,box-shadow .2s}
+/* Eigener Spieler (online): dezenter heller Rand, unabhaengig vom "am Zug"-Highlight
+   act0/act1 (die weiter unten stehen und bei Bedarf ueberschreiben). */
+.pcard.mine{border-color:rgba(255,255,255,.28)}
 .pcard.act0{border-color:rgba(0,212,255,.6);box-shadow:0 0 0 1px rgba(0,212,255,.22),0 8px 26px rgba(0,212,255,.16)}
 .pcard.act1{border-color:rgba(255,77,77,.6);box-shadow:0 0 0 1px rgba(255,77,77,.22),0 8px 26px rgba(255,77,77,.16)}
 .ffabar{display:none;flex:1;justify-content:center;align-items:center;gap:7px;flex-wrap:wrap}
@@ -90,6 +99,10 @@ header{width:100%;max-width:460px;display:flex;align-items:center;justify-conten
 .fchip i{width:10px;height:10px;border-radius:50%;background:var(--fc);box-shadow:0 0 6px var(--fc)}
 .fchip.act{border-color:var(--fc)}
 .fchip.out{opacity:.35}.fchip.out i{box-shadow:none}
+/* Eigener Spieler (Online-FFA): dezenter heller Ring um den Farbpunkt, kein
+   zusaetzlicher Text/Groessenwechsel -> stoert das Chip-Layout nicht. */
+.fchip.mine{border-color:rgba(255,255,255,.5)}
+.fchip.mine i{box-shadow:0 0 6px var(--fc),0 0 0 2px rgba(255,255,255,.4)}
 .frnd{color:#8b99b4;font-size:11px;font-weight:800;letter-spacing:.08em;margin-right:2px}
 .pcard .pn{font-size:10px;font-weight:900;letter-spacing:.09em}
 .pcard:first-child .pn{color:var(--p1)}.pcard:last-child{text-align:right}.pcard:last-child .pn{color:var(--p2)}
@@ -425,6 +438,7 @@ body.booting #menu{opacity:0;visibility:hidden}
   <div id="onLobby" style="display:none;margin-top:16px;text-align:center">
     <div style="font-size:10px;color:var(--muted);letter-spacing:.18em"><span id="lobbyLbl">LOBBY</span> <span id="lobbyCount"></span></div>
     <div id="lobbySeats" style="display:flex;gap:10px;justify-content:center;margin:12px 0"></div>
+    <div id="lobbyMine" style="font-size:11px;font-weight:800;letter-spacing:.06em;color:#fff;margin-bottom:10px"></div>
     <button class="cbtn" id="lobbyStart" style="display:none">▶ Start</button>
     <div id="lobbyHint" style="font-size:11px;color:var(--muted)">Warte auf Host…</div>
   </div>
@@ -652,8 +666,8 @@ en:{tagline:'PULL BACK · RELEASE · KNOCK THEM OUT',chip:'ACTIVE',
   connWait:'Connected! Waiting for the host…',connStart:'Connected! Game starting…',
   noFb:'⚠ No connection to Firebase. Check internet & config.',err:'Error: ',noOnlineReset:'Not available in online mode.',loading:'Loading arena...',
   victory:'VICTORY',defeat:'DEFEAT',wins:'WINS',finalScore:'FINAL SCORE',ringout:'RINGOUT',round:'ROUND',
-  col0:'BLUE',col1:'RED',col2:'GREEN',col3:'YELLOW',col4:'BLACK',
-  nameYou:'YOU',nameOpp:'OPPONENT',namePlayer:'Player'},
+  col0:'BLUE',col1:'RED',col2:'GREEN',col3:'YELLOW',col4:'GRAY',
+  nameYou:'YOU',nameOpp:'OPPONENT',namePlayer:'Player',youAre:'YOU ARE'},
 de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'AKTIV',
   ffaT:'ONLINE FFA',ffaS:'2–5 SPIELER',vsT:'ONLINE VERSUS',vsS:'1v1 ODER 2v2<br>2 SPIELER',
   botT:'BOT-TRAINING',botS:'GEGEN KI<br>SOLO-TRAINING',
@@ -672,8 +686,8 @@ de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'AKTIV',
   connWait:'Verbunden! Warte auf den Host…',connStart:'Verbunden! Spiel startet…',
   noFb:'⚠ Keine Verbindung zu Firebase. Internet & Config prüfen.',err:'Fehler: ',noOnlineReset:'Im Online-Modus nicht verfügbar.',loading:'Arena wird geladen...',
   victory:'SIEG',defeat:'NIEDERLAGE',wins:'GEWINNT',finalScore:'ENDSTAND',ringout:'RINGOUT',round:'RUNDE',
-  col0:'BLAU',col1:'ROT',col2:'GRÜN',col3:'GELB',col4:'SCHWARZ',
-  nameYou:'DU',nameOpp:'GEGNER',namePlayer:'Spieler'},
+  col0:'BLAU',col1:'ROT',col2:'GRÜN',col3:'GELB',col4:'GRAU',
+  nameYou:'DU',nameOpp:'GEGNER',namePlayer:'Spieler',youAre:'DU BIST'},
 tr:{tagline:'GERİ ÇEK · BIRAK · DIŞARI İT',chip:'AKTİF',
   ffaT:'ONLINE FFA',ffaS:'2–5 OYUNCU',vsT:'ONLINE VERSUS',vsS:'1v1 VEYA 2v2<br>2 OYUNCU',
   botT:'BOT ANTRENMANI',botS:'YAPAY ZEKÂYA KARŞI<br>SOLO ANTRENMAN',
@@ -692,8 +706,8 @@ tr:{tagline:'GERİ ÇEK · BIRAK · DIŞARI İT',chip:'AKTİF',
   connWait:'Bağlandı! Host bekleniyor…',connStart:'Bağlandı! Oyun başlıyor…',
   noFb:'⚠ Firebase bağlantısı yok. İnterneti ve yapılandırmayı kontrol et.',err:'Hata: ',noOnlineReset:'Online modda kullanılamaz.',loading:'Arena yükleniyor...',
   victory:'ZAFER',defeat:'MAĞLUBİYET',wins:'KAZANDI',finalScore:'SON SKOR',ringout:'RINGOUT',round:'RAUNT',
-  col0:'MAVİ',col1:'KIRMIZI',col2:'YEŞİL',col3:'SARI',col4:'SİYAH',
-  nameYou:'SEN',nameOpp:'RAKİP',namePlayer:'Oyuncu'}
+  col0:'MAVİ',col1:'KIRMIZI',col2:'YEŞİL',col3:'SARI',col4:'GRİ',
+  nameYou:'SEN',nameOpp:'RAKİP',namePlayer:'Oyuncu',youAre:'RENGİN'}
 };
 let LANG=(()=>{try{const l=localStorage.getItem('ringout_lang');return I18N[l]?l:'en';}catch(e){return 'en';}})();
 function T(k){return (I18N[LANG]&&I18N[LANG][k])||I18N.en[k]||k;}
@@ -802,6 +816,7 @@ const SFX=(()=>{
   };
   // Spam-Schutz: Cooldown pro Kugelpaar (70ms) + global (30ms), max. 8 gleichzeitige Hit-Voices
   const hitLast={};let hitAny=0,hitVoices=0;
+  let clickLast=0;   // eigener Cooldown fuer den UI-Klick, unabhaengig vom Hit-Sound
   // Rollsound NUR aus echtem Asset: kurzer, nahtloser Loop "Murmel rollt auf Stein/
   // Marmor" (0.5–2 s, lizenzfrei). Die prozeduralen Noise-/Tick-Ansaetze sind nach
   // Owner-Review deaktiviert: lieber KEIN Rollsound als ein schwacher Fake.
@@ -895,11 +910,45 @@ const SFX=(()=>{
       const wg=c.createGain();wg.gain.setValueAtTime(.0001,t);wg.gain.linearRampToValueAtTime(.11,t+.07);wg.gain.exponentialRampToValueAtTime(.001,t+.45);wg.connect(bp);
       const wn=c.createBufferSource();wn.buffer=noise(c);wn.loop=true;wn.connect(wg);wn.start(t);wn.stop(t+.5);});},
     round(pi){go(c=>{const a=pi===0?[523,784,1047]:[440,659,880];a.forEach((f,i)=>{const d=i*.07,g=c.createGain();g.gain.setValueAtTime(0,c.currentTime+d);g.gain.linearRampToValueAtTime(.25,c.currentTime+d+.03);g.gain.exponentialRampToValueAtTime(.001,c.currentTime+d+.4);g.connect(c.destination);const o=c.createOscillator();o.type='sine';o.frequency.value=f;o.connect(g);o.start(c.currentTime+d);o.stop(c.currentTime+d+.4);});});},
-    win(){go(c=>{[523,659,784,1047,1318].forEach((f,i)=>{const d=i*.09,g=c.createGain();g.gain.setValueAtTime(0,c.currentTime+d);g.gain.linearRampToValueAtTime(.22,c.currentTime+d+.04);g.gain.exponentialRampToValueAtTime(.001,c.currentTime+d+.6);g.connect(c.destination);const o=c.createOscillator();o.type='sine';o.frequency.value=f;o.connect(g);o.start(c.currentTime+d);o.stop(c.currentTime+d+.6);});});}
+    win(){go(c=>{[523,659,784,1047,1318].forEach((f,i)=>{const d=i*.09,g=c.createGain();g.gain.setValueAtTime(0,c.currentTime+d);g.gain.linearRampToValueAtTime(.22,c.currentTime+d+.04);g.gain.exponentialRampToValueAtTime(.001,c.currentTime+d+.6);g.connect(c.destination);const o=c.createOscillator();o.type='sine';o.frequency.value=f;o.connect(g);o.start(c.currentTime+d);o.stop(c.currentTime+d+.6);});});},
+    // Premium-UI-Klick: kurzer gefilterter Transient + weicher abfallender Sinuskern.
+    // Sehr kurz (~60ms) und leise, damit er bei schnellem Menue-Klicken nicht nervt.
+    // Eigener 90ms-Cooldown haengt VOR go()/soundOn -> zaehlt auch stumm, kein Sound-Spam-Reset beim Muten.
+    click(){
+      const now=performance.now();if(now-clickLast<90)return;clickLast=now;
+      go(c=>{const t=c.currentTime;
+        const hp=c.createBiquadFilter();hp.type='highpass';hp.frequency.value=1600;hp.connect(c.destination);
+        const ng=c.createGain();ng.gain.setValueAtTime(.045,t);ng.gain.exponentialRampToValueAtTime(.0004,t+.014);ng.connect(hp);
+        const n=c.createBufferSource();n.buffer=noise(c);n.loop=true;n.connect(ng);n.start(t);n.stop(t+.016);
+        const g=c.createGain();g.gain.setValueAtTime(.0001,t);g.gain.linearRampToValueAtTime(.085,t+.007);g.gain.exponentialRampToValueAtTime(.0005,t+.05);g.connect(c.destination);
+        const o=c.createOscillator();o.type='sine';o.frequency.setValueAtTime(1180,t);o.frequency.exponentialRampToValueAtTime(760,t+.045);o.connect(g);o.start(t);o.stop(t+.06);
+      });
+    }
   };
 })();
 // Mobile-Autoplay: der erste Touch/Klick irgendwo entsperrt den AudioContext aus der Geste heraus
 window.addEventListener('pointerdown',()=>SFX.unlock(),{once:true});
+
+// ════ MENU-KLICKFEEDBACK ════
+// Einheitlicher Premium-Klick (SFX.click, eigenes Debounce+Mute-Check) + dezente
+// Press-Skalierung (.press-fx, CSS) fuer die wichtigen Menu-/Lobby-Buttons. Haengt
+// sich NACH den bestehenden $('id').onclick-Zuweisungen ein (diese liegen alle vor
+// dieser Stelle im Script) und ruft den urspruenglichen Handler unveraendert weiter
+// auf -> genau ein Klick, genau ein Sound, keine doppelte Logik. Deaktivierte
+// Buttons (z.B. lobbyStart) feuern nativ kein 'click' -> kein Extra-Guard noetig.
+function wireMenuClickFeedback(){
+  const IDS=['cardFfa','card2v2','cardBot','ctaBtn','vs1v1','vs2v2','vsBack',
+    'bot1v1','bot2v2','botBack','ffaOnline','onCreate','onJoin','onBack','lobbyStart',
+    'menuSet','setClose','langEn','langDe','langTr','menuBtn','startBtn',
+    'rematchBtn','ovMenuBtn','leaveCancel','leaveGo'];
+  for(const id of IDS){
+    const el=$(id);if(!el)continue;
+    el.classList.add('press-fx');
+    const orig=el.onclick;
+    el.onclick=function(e){SFX.click();if(orig)orig.call(this,e);};
+  }
+}
+wireMenuClickFeedback();
 
 // ════ GEOMETRY ════
 // FUNDAMENT FUER ONLINE-LOCKSTEP: Die Sim muss auf jedem Geraet IDENTISCH rechnen.
@@ -1022,7 +1071,7 @@ function renderFfaBar(){
   let h='<span class="frnd">R'+roundNo+'</span>';
   for(let p=0;p<ffaN;p++){
     const dead=!aliveCount(p),act=phase==='aim'&&curAimer===p&&!aimSet[p]&&!dead;
-    h+='<span class="fchip'+(dead?' out':'')+(act?' act':'')+'" style="--fc:'+PCOLS[p].ui+'"><i></i>'+(score[p]||0)+'</span>';
+    h+='<span class="fchip'+(dead?' out':'')+(act?' act':'')+(online&&p===myPlayer?' mine':'')+'" style="--fc:'+PCOLS[p].ui+'"><i></i>'+(score[p]||0)+'</span>';
   }
   $('ffaBar').innerHTML=h;
 }
@@ -1032,8 +1081,8 @@ function updateHud(){
   $('rinfo').textContent='Runde '+roundNo;
   $('ready0').textContent=readyText(0);
   $('ready1').textContent=readyText(1);
-  $('card0').className='pcard'+(phase==='aim'&&((online&&myPlayer===0)||(!online&&(mode==='bot'||curAimer===0)))&&!aimSet[0]?' act0':'');
-  $('card1').className='pcard'+(phase==='aim'&&((online&&myPlayer===1)||(!online&&mode==='pvp'&&curAimer===1))&&!aimSet[1]?' act1':'');
+  $('card0').className='pcard'+(online&&myPlayer===0?' mine':'')+(phase==='aim'&&((online&&myPlayer===0)||(!online&&(mode==='bot'||curAimer===0)))&&!aimSet[0]?' act0':'');
+  $('card1').className='pcard'+(online&&myPlayer===1?' mine':'')+(phase==='aim'&&((online&&myPlayer===1)||(!online&&mode==='pvp'&&curAimer===1))&&!aimSet[1]?' act1':'');
 }
 function setPhaseText(){const p=$('phase');
   if(online){
@@ -1550,6 +1599,7 @@ function renderLobby(p){
       :'border:2px dashed #2a3850')+'"></div>';
   }
   $('lobbySeats').innerHTML=h;$('lobbyCount').textContent=n+'/'+FFA_MAX_SEATS;
+  $('lobbyMine').textContent=T('youAre')+' '+T('col'+myPlayer);
   const host=myPlayer===0,gap=!seatsContiguous(p,n);
   $('lobbyStart').style.display=host?'':'none';
   $('lobbyStart').disabled=n<2||gap;
@@ -1752,7 +1802,7 @@ function attachRoomListeners(){
     ffaN=n; maybeStart();
   });
 }
-function maybeStart(){ if(gameStarted)return; gameStarted=true; $('online').classList.remove('show'); showGame(); startOnlineGame(); }
+function maybeStart(){ if(gameStarted)return; gameStarted=true; $('online').classList.remove('show'); showGame(); startOnlineGame(); toast(T('youAre')+' '+T('col'+myPlayer)); }
 function startOnlineGame(){ replaying=false;repPlaying=false;$('replay').classList.remove('show'); runningGen=gen; turnNo=-1; if(turnUnsub){turnUnsub();turnUnsub=null;} $('ov').classList.remove('show'); newGame(); }
 // Opponent presence lost: reuse the end overlay as a clear way back to the
 // menu — rematch/replay are pointless without a peer, so only "Menü" remains.
@@ -2205,6 +2255,18 @@ function drawBall(b){
   const edge=R-Math.hypot(b.x-cx,b.y-cy);
   if(edge<R*.26){const q=OP(b.x,b.y,0);ctx.beginPath();ctx.arc(q.x,q.y,BR*2.2*q.s,0,7);
     ctx.fillStyle='rgba('+glowRGB+','+(0.13*(1-edge/(R*.26))+0.02)+')';ctx.fill();}
+
+  // ── Eigene-Kugel-Marker (Online): dezenter weisser Ring, screen-space via OP() ──
+  // funktioniert identisch in 2D und 3D. Blendet bei Bewegung selbststaendig aus
+  // (ueber die vorhandene Geschwindigkeit), kein neuer Phasen-State noetig. Rein
+  // kosmetisch: keine Groessenaenderung der Hitbox/Physik, kein Sichtvorteil.
+  if(online&&b.owner===myPlayer){
+    const mA=Math.max(0,.55-sp*.09);
+    if(mA>.02){const q=OP(b.x,b.y,0);
+      ctx.beginPath();ctx.arc(q.x,q.y,BR*1.35*q.s,0,Math.PI*2);
+      ctx.lineWidth=Math.max(1,BR*.10*q.s);
+      ctx.strokeStyle='rgba(255,255,255,'+mA+')';ctx.stroke();}
+  }
 
   if(!r3dActive){                                   // Glow/Koerper/Rim nur 2D; 3D rendert die Kugel selbst
     // ── 2. Großer äußerer Glow ──
