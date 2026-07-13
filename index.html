@@ -63,12 +63,16 @@ body.r3d #menu{z-index:2;background:linear-gradient(180deg,rgba(6,10,18,.55) 0%,
 .lbl{font-size:9px;font-weight:800;letter-spacing:.14em;color:var(--muted);text-transform:uppercase;margin-bottom:7px}
 .pills{display:flex;background:#0c1420;border-radius:999px;padding:3px;gap:2px}
 .pills button{border:0;background:transparent;color:var(--muted);font:inherit;font-size:11px;font-weight:700;padding:8px 0;border-radius:999px;cursor:pointer;flex:1;transition:.15s}
-/* Premium-Klickfeedback (dezentes Press-Feedback ~90ms) fuer wichtige Menu-/Lobby-
-   Buttons; Klasse wird per JS (wireMenuClickFeedback) nur auf die kuratierten
-   Buttons gesetzt. Reduced-motion: Skalierung aus, nur Helligkeit bleibt spuerbar. */
-.press-fx{transition:transform .09s ease,filter .09s ease}
-.press-fx:active{transform:scale(.96);filter:brightness(1.1)}
-@media(prefers-reduced-motion:reduce){.press-fx{transition:filter .09s ease}.press-fx:active{transform:none}}
+/* Premium-Klickfeedback fuer wichtige Menu-/Lobby-Buttons; Klasse wird per JS
+   (wireMenuClickFeedback) nur auf die kuratierten Buttons gesetzt. ".pressed"
+   wird JS-seitig ueber pointerdown/keydown gesetzt (nicht ueber :active) ->
+   reagiert ohne Verzoegerung, unabhaengig von Browser-/Touch-Eigenheiten bei
+   :active. Asymmetrisches Timing: Press-Start fast instant (schnelle 40ms-Rampe
+   in .pressed), Loslassen etwas weicher (140ms Basis-Transition). Reduced-motion:
+   Skalierung aus, nur die Helligkeitsaenderung bleibt als Feedback spuerbar. */
+.press-fx{transition:transform .14s ease,filter .14s ease}
+.press-fx.pressed{transition:transform .04s ease-out,filter .04s ease-out;transform:scale(.96);filter:brightness(1.12)}
+@media(prefers-reduced-motion:reduce){.press-fx{transition:filter .14s ease}.press-fx.pressed{transition:filter .04s ease-out;transform:none}}
 .pills button.on{background:#1a2840;color:var(--text)}
 #modeGrp{flex-direction:column;border-radius:14px;padding:4px;gap:3px}
 #modeGrp button{padding:11px;border-radius:10px;font-size:12px;letter-spacing:.03em}
@@ -406,6 +410,10 @@ body.booting #menu{opacity:0;visibility:hidden}
     <div class="pills" id="langGrp" style="margin-bottom:16px">
       <button id="langEn">English</button><button id="langDe">Deutsch</button><button id="langTr">Türkçe</button>
     </div>
+    <div class="lbl" id="setVibeLbl" style="text-align:left;margin-top:6px">Vibration</div>
+    <div class="pills" id="vibeGrp" style="margin-bottom:16px">
+      <button id="vibeOnBtn">ON</button><button id="vibeOffBtn">OFF</button>
+    </div>
     <button class="wbtn primary" id="setClose">OK</button>
   </div>
 </div>
@@ -551,6 +559,15 @@ function r3dCamMath(p){
 function OP(lx,ly,h){ return r3dActive ? r3d.w2s(lx,ly,h||0) : {x:lx,y:ly,s:1}; }
 
 let mode='bot',diff='hard',winTarget=3,soundOn=true;   // Bot ist hard-only im Spieler-Menue (?dev=1 zeigt Leicht/Mittel)
+// Vibration: unabhaengig von soundOn, in localStorage persistiert (Default an). Nur
+// echte Geraete mit Vibration API zeigen den Toggle als bedienbar (siehe applyLang).
+const VIBE_SUPPORTED=typeof navigator!=='undefined'&&'vibrate' in navigator;
+let vibrationOn=(()=>{try{const v=localStorage.getItem('ringout_vibe');return v===null?true:v==='1';}catch(e){return true;}})();
+const VIBE_CLICK_MS=10, VIBE_CONFIRM_MS=25;   // normaler Klick vs. Play-Online-FFA-Start (deutlicher)
+function vibrateMs(ms){
+  if(!vibrationOn||!VIBE_SUPPORTED)return;
+  try{navigator.vibrate(ms);}catch(e){}
+}
 let menuMode='bot'; // im Menue gewaehlter Modus — ein Online-Join kann mode temporaer umstellen
 let fmt='single';   // Format (single/double/ffa)
 let ffaN=3;         // FFA: Spieleranzahl 2-5 (lokal aus dem Menue; online = seats aus Firebase)
@@ -655,7 +672,7 @@ en:{tagline:'PULL BACK · RELEASE · KNOCK THEM OUT',chip:'ACTIVE',
   infoFfa:'2–5 PLAYERS · HOST STARTS',infoVs:'2 PLAYERS · 1v1 OR 2v2 DUO',infoBot:'VS AI · SOLO PRACTICE',
   vs1v1T:'1v1 DUEL',vs1v1S:'2 PLAYERS · 1 BALL EACH',vs2v2T:'2v2 DUO DUEL',vs2v2S:'2 PLAYERS · 2 BALLS EACH',
   bot1v1T:'1v1 VS BOT',bot1v1S:'1 BALL EACH',bot2v2T:'2v2 DUO VS BOT',bot2v2S:'2 BALLS EACH',comingSoon:'COMING SOON',
-  setTitle:'SETTINGS',setLang:'Language',
+  setTitle:'SETTINGS',setLang:'Language',vibeLbl:'Vibration',vibeUnsupported:' (not available)',
   dlgFfa:'Create a room and share the code with 1–4 friends — as host you start once everyone is in.',
   dlg1v1:'Play against a friend. One creates a room, the other joins with the code.',
   createRoom:'Create room',join:'Join Code',enterCode:'ENTER CODE',back:'↩ Back',yourCode:'YOUR CODE',waitMate:'Waiting for opponent…',lobby:'LOBBY',lobbyGo:'▶ Start',
@@ -675,7 +692,7 @@ de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'AKTIV',
   infoFfa:'2–5 SPIELER · HOST STARTET',infoVs:'2 SPIELER · 1v1 ODER 2v2 DUO',infoBot:'GEGEN KI · SOLO-TRAINING',
   vs1v1T:'1v1 DUELL',vs1v1S:'2 SPIELER · 1 KUGEL PRO SPIELER',vs2v2T:'2v2 DUO-DUELL',vs2v2S:'2 SPIELER · 2 KUGELN PRO SPIELER',
   bot1v1T:'1v1 GEGEN BOT',bot1v1S:'1 KUGEL PRO SEITE',bot2v2T:'2v2 DUO GEGEN BOT',bot2v2S:'2 KUGELN PRO SEITE',comingSoon:'BALD VERFÜGBAR',
-  setTitle:'EINSTELLUNGEN',setLang:'Sprache',
+  setTitle:'EINSTELLUNGEN',setLang:'Sprache',vibeLbl:'Vibration',vibeUnsupported:' (nicht verfügbar)',
   dlgFfa:'Erstelle einen Raum und teile den Code mit 1–4 Freunden — als Host startest du, sobald alle da sind.',
   dlg1v1:'Spiel gegen einen Freund. Einer erstellt einen Raum, der andere tritt mit dem Code bei.',
   createRoom:'Raum erstellen',join:'Beitreten',enterCode:'CODE EINGEBEN',back:'↩ Zurück',yourCode:'DEIN CODE',waitMate:'Warte auf Gegner…',lobby:'LOBBY',lobbyGo:'▶ Start',
@@ -695,7 +712,7 @@ tr:{tagline:'GERİ ÇEK · BIRAK · DIŞARI İT',chip:'AKTİF',
   infoFfa:'2–5 OYUNCU · HOST BAŞLATIR',infoVs:'2 OYUNCU · 1v1 VEYA 2v2 DUO',infoBot:'YAPAY ZEKÂYA KARŞI · SOLO ANTRENMAN',
   vs1v1T:'1v1 DÜELLO',vs1v1S:'2 OYUNCU · HERKESE 1 TOP',vs2v2T:'2v2 DUO DÜELLO',vs2v2S:'2 OYUNCU · HERKESE 2 TOP',
   bot1v1T:'BOTA KARŞI 1v1',bot1v1S:'HERKESE 1 TOP',bot2v2T:'BOTA KARŞI 2v2 DUO',bot2v2S:'HERKESE 2 TOP',comingSoon:'ÇOK YAKINDA',
-  setTitle:'AYARLAR',setLang:'Dil',
+  setTitle:'AYARLAR',setLang:'Dil',vibeLbl:'Titreşim',vibeUnsupported:' (desteklenmiyor)',
   dlgFfa:'Bir oda kur ve kodu 1–4 arkadaşınla paylaş — herkes gelince host olarak sen başlatırsın.',
   dlg1v1:'Bir arkadaşına karşı oyna. Biri oda kurar, diğeri kodla katılır.',
   createRoom:'Oda kur',join:'Katıl',enterCode:'KOD GİR',back:'↩ Geri',yourCode:'KODUN',waitMate:'Rakip bekleniyor…',lobby:'LOBİ',lobbyGo:'▶ Başlat',
@@ -731,6 +748,8 @@ function applyLang(){
   {const bt=$('bootTxt');if(bt)bt.textContent=T('loading');}   // Boot-Overlay existiert nur bis zum First-Frame
   $('setTitle').textContent=T('setTitle');$('setLangLbl').textContent=T('setLang');
   setOn('langGrp',{en:'langEn',de:'langDe',tr:'langTr'}[LANG]);
+  $('setVibeLbl').textContent=T('vibeLbl')+(VIBE_SUPPORTED?'':T('vibeUnsupported'));
+  setOn('vibeGrp',vibrationOn?'vibeOnBtn':'vibeOffBtn');
   $('onCreate').textContent=T('createRoom');$('onJoin').textContent=T('join');$('onBack').textContent=T('back');
   $('onCodeLbl').textContent=T('yourCode');$('onWaitTxt').textContent=T('waitMate');
   $('lobbyLbl').textContent=T('lobby');$('lobbyStart').textContent=T('lobbyGo');
@@ -743,15 +762,24 @@ $('menuSet').onclick=()=>$('setOv').classList.add('show');
 $('setClose').onclick=()=>$('setOv').classList.remove('show');
 for(const[id,lg]of[['langEn','en'],['langDe','de'],['langTr','tr']])
   $(id).onclick=()=>{LANG=lg;try{localStorage.setItem('ringout_lang',lg);}catch(e){}applyLang();};
+// Vibration-Toggle: unabhaengig von soundOn/Mute. Ohne Vibration-API bleiben beide
+// Buttons disabled -> applyLang() haengt zusaetzlich den "(nicht verfuegbar)"-Hinweis
+// an das Label; die App funktioniert unveraendert ohne jede Vibration.
+$('vibeOnBtn').disabled=$('vibeOffBtn').disabled=!VIBE_SUPPORTED;
+for(const[id,on]of[['vibeOnBtn',true],['vibeOffBtn',false]])
+  $(id).onclick=()=>{vibrationOn=on;try{localStorage.setItem('ringout_vibe',on?'1':'0');}catch(e){}setOn('vibeGrp',id);};
 $('cardFfa').onclick=()=>selectMenuMode('ffa');
 $('card2v2').onclick=()=>selectMenuMode('vs');
 $('cardBot').onclick=()=>selectMenuMode('bot');
 $('ctaBtn').onclick=()=>{
   SFX.unlock();
-  if(menuSel==='bot'){$('botOv').classList.add('show');return;}       // Format-Auswahl: 1v1 / 2v2 Duo vs Bot
-  if(TUNE){toast('Tuning aktiv — Online deaktiviert');return;}
-  if(menuSel==='ffa'){mode='ffa';openOnline();return;}                // createRoom liest mode==='ffa' -> ffa-Raum (state:'lobby')
-  $('vsOv').classList.add('show');                                    // Online Versus: Format-Auswahl 1v1 / 2v2 Duo
+  if(menuSel==='bot'){if(SFX.click())vibrateMs(VIBE_CLICK_MS);$('botOv').classList.add('show');return;}       // Format-Auswahl: 1v1 / 2v2 Duo vs Bot
+  if(TUNE){if(SFX.click())vibrateMs(VIBE_CLICK_MS);toast('Tuning aktiv — Online deaktiviert');return;}
+  // "Play Online FFA": normaler Klick, aber weiterhin die deutlichere Vibration
+  // (25ms statt 10ms) — nur hier, weil die Aktion tatsaechlich angenommen wird
+  // (nicht durch TUNE blockiert).
+  if(menuSel==='ffa'){if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);mode='ffa';openOnline();return;}        // createRoom liest mode==='ffa' -> ffa-Raum (state:'lobby')
+  if(SFX.click())vibrateMs(VIBE_CLICK_MS);$('vsOv').classList.add('show');                                    // Online Versus: Format-Auswahl 1v1 / 2v2 Duo
 };
 // Versus-Modal: setzt fmt wie frueher die Format-Pills, dann der bestehende Online-Flow
 $('vs1v1').onclick=()=>{$('vsOv').classList.remove('show');mode=menuMode='online';fmt='single';openOnline();};
@@ -794,11 +822,35 @@ function showGame(){menuVisible=false;$('menu').style.display='none';$('game').s
 
 // ════ SOUND ════
 const SFX=(()=>{
-  let c=null,noiseBuf=null;
+  let c=null,noiseBuf=null,clickBuf=null;
   function ac(){if(!c)c=new(window.AudioContext||window.webkitAudioContext)();if(c.state==='suspended')c.resume();return c;}
   function go(f){if(soundOn)try{f(ac());}catch(e){}}
   // 1s geteiltes Rausch-Buffer: einmal erzeugt, von Hit-Transient/Roll/Wind wiederverwendet
   function noise(cc){if(!noiseBuf){noiseBuf=cc.createBuffer(1,cc.sampleRate,cc.sampleRate);const d=noiseBuf.getChannelData(0);for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1;}return noiseBuf;}
+  // Klick-Buffer: EINMAL gebacken (Rauschen + Differenzierer + fest programmierter Decay,
+  // dann auf feste Spitzenamplitude 1.0 normalisiert), danach bei JEDER Wiedergabe bit-
+  // identisch. Ersetzt die vorherige live geschaltete Gain-/Filter-Automation (SFX.click):
+  // deren Huellkurve wurde per exponentialRampToValueAtTime gegen die Audio-Thread-Uhr
+  // (AudioContext.currentTime) geplant — bei schnellem Tastenwechsel/kurz nach einem
+  // ac()-resume() aus dem suspended-State konnte dieser Ramp inkonsistent anschlagen
+  // (mal voll, mal sichtbar leiser). Ein vorgerendertes Buffer hat keine Rampen mehr,
+  // die zur Abspielzeit ausgewertet werden muessen -> jede Wiedergabe klingt identisch.
+  function makeClickBuf(cc){
+    const sr=cc.sampleRate, len=Math.max(1,Math.round(sr*0.016));
+    const buf=cc.createBuffer(1,len,sr);
+    const d=buf.getChannelData(0);
+    let prev=0,peak=0;
+    for(let i=0;i<len;i++){
+      const x=Math.random()*2-1;
+      const hp=x-prev;prev=x;                          // simpler Differenzierer -> hochfrequenzbetont, kein Live-Filter noetig
+      const env=Math.exp(-i/(len*0.16));                // scharfer, fest programmierter Decay (kein Zufall in der Huellkurve)
+      const v=hp*env;
+      d[i]=v; const a=Math.abs(v); if(a>peak)peak=a;
+    }
+    const norm=peak>0?1/peak:1;
+    for(let i=0;i<len;i++)d[i]*=norm;                   // feste Ziel-Spitzenamplitude 1.0 -> immer gleiche Lautstaerke ab dem Buffer
+    return buf;
+  }
   // Charge = dezentes "Strain"-Bett: tief gefiltertes Rauschen, das mit der Zugkraft nur leicht
   // lauter/heller wird. Bewusst kein Ton/Pitch-Sweep (klang wie Sirene) — lieber zu dezent als nervig.
   let chSrc=null,chGain=null,chFilt=null;
@@ -817,6 +869,7 @@ const SFX=(()=>{
   // Spam-Schutz: Cooldown pro Kugelpaar (70ms) + global (30ms), max. 8 gleichzeitige Hit-Voices
   const hitLast={};let hitAny=0,hitVoices=0;
   let clickLast=0;   // eigener Cooldown fuer den UI-Klick, unabhaengig vom Hit-Sound
+  const CLICK_HP_HZ=2400, CLICK_GAIN=.05;   // fest, keine Automation -> immer gleicher Klang/Lautstaerke
   // Rollsound NUR aus echtem Asset: kurzer, nahtloser Loop "Murmel rollt auf Stein/
   // Marmor" (0.5–2 s, lizenzfrei). Die prozeduralen Noise-/Tick-Ansaetze sind nach
   // Owner-Review deaktiviert: lieber KEIN Rollsound als ein schwacher Fake.
@@ -911,18 +964,22 @@ const SFX=(()=>{
       const wn=c.createBufferSource();wn.buffer=noise(c);wn.loop=true;wn.connect(wg);wn.start(t);wn.stop(t+.5);});},
     round(pi){go(c=>{const a=pi===0?[523,784,1047]:[440,659,880];a.forEach((f,i)=>{const d=i*.07,g=c.createGain();g.gain.setValueAtTime(0,c.currentTime+d);g.gain.linearRampToValueAtTime(.25,c.currentTime+d+.03);g.gain.exponentialRampToValueAtTime(.001,c.currentTime+d+.4);g.connect(c.destination);const o=c.createOscillator();o.type='sine';o.frequency.value=f;o.connect(g);o.start(c.currentTime+d);o.stop(c.currentTime+d+.4);});});},
     win(){go(c=>{[523,659,784,1047,1318].forEach((f,i)=>{const d=i*.09,g=c.createGain();g.gain.setValueAtTime(0,c.currentTime+d);g.gain.linearRampToValueAtTime(.22,c.currentTime+d+.04);g.gain.exponentialRampToValueAtTime(.001,c.currentTime+d+.6);g.connect(c.destination);const o=c.createOscillator();o.type='sine';o.frequency.value=f;o.connect(g);o.start(c.currentTime+d);o.stop(c.currentTime+d+.6);});});},
-    // Premium-UI-Klick: kurzer gefilterter Transient + weicher abfallender Sinuskern.
-    // Sehr kurz (~60ms) und leise, damit er bei schnellem Menue-Klicken nicht nervt.
-    // Eigener 90ms-Cooldown haengt VOR go()/soundOn -> zaehlt auch stumm, kein Sound-Spam-Reset beim Muten.
+    // Trockener UI-Klick: fest vorgerendertes Buffer (siehe makeClickBuf), pro Wiedergabe
+    // ein FRISCHES Gain- + Filter-Node mit FESTEN (nicht automatisierten) Werten -> kein
+    // Zufall, keine Rampen, keine geteilte/weiterlaufende Huellkurve zwischen Aufrufen.
+    // Eigener 90ms-Cooldown haengt VOR go()/soundOn -> zaehlt auch stumm, kein Sound-Spam-
+    // Reset beim Muten. Rueckgabewert true/false meldet, ob der Aufruf NICHT als Spam
+    // uebersprungen wurde (unabhaengig von soundOn) -> Aufrufer koppeln Vibration daran,
+    // damit Schnellklicks auch keinen Vibrationsspam erzeugen.
     click(){
-      const now=performance.now();if(now-clickLast<90)return;clickLast=now;
-      go(c=>{const t=c.currentTime;
-        const hp=c.createBiquadFilter();hp.type='highpass';hp.frequency.value=1600;hp.connect(c.destination);
-        const ng=c.createGain();ng.gain.setValueAtTime(.045,t);ng.gain.exponentialRampToValueAtTime(.0004,t+.014);ng.connect(hp);
-        const n=c.createBufferSource();n.buffer=noise(c);n.loop=true;n.connect(ng);n.start(t);n.stop(t+.016);
-        const g=c.createGain();g.gain.setValueAtTime(.0001,t);g.gain.linearRampToValueAtTime(.085,t+.007);g.gain.exponentialRampToValueAtTime(.0005,t+.05);g.connect(c.destination);
-        const o=c.createOscillator();o.type='sine';o.frequency.setValueAtTime(1180,t);o.frequency.exponentialRampToValueAtTime(760,t+.045);o.connect(g);o.start(t);o.stop(t+.06);
+      const now=performance.now();if(now-clickLast<90)return false;clickLast=now;
+      go(c=>{
+        if(!clickBuf)clickBuf=makeClickBuf(c);
+        const hp=c.createBiquadFilter();hp.type='highpass';hp.frequency.value=CLICK_HP_HZ;hp.connect(c.destination);
+        const g=c.createGain();g.gain.value=CLICK_GAIN;g.connect(hp);
+        const src=c.createBufferSource();src.buffer=clickBuf;src.connect(g);src.start(c.currentTime);
       });
+      return true;
     }
   };
 })();
@@ -930,22 +987,44 @@ const SFX=(()=>{
 window.addEventListener('pointerdown',()=>SFX.unlock(),{once:true});
 
 // ════ MENU-KLICKFEEDBACK ════
-// Einheitlicher Premium-Klick (SFX.click, eigenes Debounce+Mute-Check) + dezente
-// Press-Skalierung (.press-fx, CSS) fuer die wichtigen Menu-/Lobby-Buttons. Haengt
-// sich NACH den bestehenden $('id').onclick-Zuweisungen ein (diese liegen alle vor
-// dieser Stelle im Script) und ruft den urspruenglichen Handler unveraendert weiter
-// auf -> genau ein Klick, genau ein Sound, keine doppelte Logik. Deaktivierte
-// Buttons (z.B. lobbyStart) feuern nativ kein 'click' -> kein Extra-Guard noetig.
+// Drei entkoppelte Kanaele: (1) Sound haengt weiterhin exakt am 'click'-Event
+// (echte Aktion, per SFX.click() debounced) -> immer genau ein Sound pro
+// gueltiger Aktion. (2) Vibration feuert NUR, wenn SFX.click() true liefert
+// (also nicht als Spam uebersprungen wurde) -> teilt sich denselben Cooldown,
+// unabhaengig von soundOn/Mute (Sound und Vibration bleiben unabhaengige
+// Einstellungen). (3) die visuelle Press-Reaktion (.pressed) startet OHNE
+// Umweg ueber 'click' direkt bei pointerdown/keydown -> kein wahrnehmbarer
+// Delay, unabhaengig von Touch-/Browser-Eigenheiten bei CSS :active. Haengt
+// sich NACH den bestehenden $('id').onclick-Zuweisungen ein (diese liegen alle
+// vor dieser Stelle im Script) und ruft den urspruenglichen Handler unveraendert
+// weiter auf. ctaBtn ist bewusst NICHT in SOUND_IDS: er ruft SFX.click() und
+// vibrateMs() direkt in seinem eigenen Handler auf (dort variiert nur die
+// Vibrationsstaerke je Zweig, z.B. "Play Online FFA" -> VIBE_CONFIRM_MS statt
+// VIBE_CLICK_MS) -> kein doppelter Sound. Deaktivierte Buttons feuern nativ weder 'click' noch
+// Pointer-/Key-Events -> kein Extra-Guard fuer Sound/Vibration noetig;
+// el.disabled wird in pressStart trotzdem defensiv geprueft.
 function wireMenuClickFeedback(){
   const IDS=['cardFfa','card2v2','cardBot','ctaBtn','vs1v1','vs2v2','vsBack',
     'bot1v1','bot2v2','botBack','ffaOnline','onCreate','onJoin','onBack','lobbyStart',
-    'menuSet','setClose','langEn','langDe','langTr','menuBtn','startBtn',
-    'rematchBtn','ovMenuBtn','leaveCancel','leaveGo'];
+    'menuSet','setClose','langEn','langDe','langTr','vibeOnBtn','vibeOffBtn','menuBtn',
+    'startBtn','rematchBtn','ovMenuBtn','leaveCancel','leaveGo'];
+  const SOUND_IDS=new Set(IDS.filter(id=>id!=='ctaBtn'));
+  const pressStart=el=>{if(!el.disabled)el.classList.add('pressed');};
+  const pressEnd=el=>el.classList.remove('pressed');
   for(const id of IDS){
     const el=$(id);if(!el)continue;
     el.classList.add('press-fx');
-    const orig=el.onclick;
-    el.onclick=function(e){SFX.click();if(orig)orig.call(this,e);};
+    if(SOUND_IDS.has(id)){
+      const orig=el.onclick;
+      el.onclick=function(e){if(!el.disabled&&SFX.click())vibrateMs(VIBE_CLICK_MS);if(orig)orig.call(this,e);};
+    }
+    el.addEventListener('pointerdown',()=>pressStart(el));
+    el.addEventListener('pointerup',()=>pressEnd(el));
+    el.addEventListener('pointercancel',()=>pressEnd(el));
+    el.addEventListener('pointerleave',()=>pressEnd(el));   // Abbruch: Pointer wird bei gedrueckter Taste herausgezogen
+    el.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '||e.key==='Spacebar')pressStart(el);});
+    el.addEventListener('keyup',e=>{if(e.key==='Enter'||e.key===' '||e.key==='Spacebar')pressEnd(el);});
+    el.addEventListener('blur',()=>pressEnd(el));   // Sicherheitsnetz: Fokus weg waehrend Taste gehalten -> nie haengen bleiben
   }
 }
 wireMenuClickFeedback();
