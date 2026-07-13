@@ -86,10 +86,11 @@ const H = require('./lib/harness');
     H.ok(`Host hat FFA-Raum erstellt: ${code}`);
 
     const authRoom = await H.dbRead(pageH, 'rooms/' + code);
-    if (!authRoom || authRoom.v !== 2 || authRoom.config.fmt !== 'ffa' || authRoom.p[0] !== true || authRoom.state !== 'lobby') {
+    if (!authRoom || authRoom.v !== 3 || authRoom.config.fmt !== 'ffa' || authRoom.p[0] !== true || authRoom.state !== 'lobby'
+      || !authRoom.players || !authRoom.players[0] || typeof authRoom.players[0].id !== 'string') {
       throw new Error('Autoritativer Raumzustand unerwartet: ' + JSON.stringify(authRoom));
     }
-    H.ok('Autoritativer Testzustand aus Emulator gelesen (rooms/' + code + ': v2, ffa, lobby, p0=true)');
+    H.ok('Autoritativer Testzustand aus Emulator gelesen (rooms/' + code + ': v3, ffa, lobby, p0=true, players/0 vorhanden)');
     result.authRoom = authRoom;
 
     await pageG.evaluate((c) => window.__ringoutE2E.joinFFA(c), code);
@@ -126,6 +127,52 @@ const H = require('./lib/harness');
     H.ok('Aim/Commit bewiesen — DOM (host) & Adapter (guest): Slots g/0/t/0/0 & /1 gültig, kein Regel-Bypass');
     result.slots = slots;
 
+    // ── Atomic seat-claim proofs against the REAL emulator + real firebase.rules.json.
+    // Raw window.FB multi-path writes on a fresh throwaway room prove exactly what the
+    // local single-path rules model cannot: (a) a rejected multi-path claim leaves NO
+    // partial p/players, (b) two parallel claims on one seat yield exactly one winner
+    // (write-once presence arbiter), (c) a claim is denied once state==='playing'. The
+    // intentional permission_denied warnings are expected — this diagnostic tolerates
+    // them (the strict FFA harness deliberately does not, so these live here). ──
+    const ac = await pageH.evaluate(async () => {
+      const FB = window.FB;
+      const CH = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+      const rc = () => Array.from({ length: 4 }, () => CH[Math.floor(Math.random() * CH.length)]).join('');
+      const rec = (id) => ({ id, name: 'G', tab: 'GUESTTAB' });
+      const upd = async (code, obj) => { try { await FB.update(FB.ref(FB.db, 'rooms/' + code), obj); return { ok: true }; } catch (e) { return { ok: false, err: String((e && (e.code || e.message)) || e) }; } };
+      const read = async (p) => { const s = await FB.get(FB.ref(FB.db, 'rooms/' + p)); return s.exists() ? s.val() : null; };
+      let code; for (let i = 0; i < 8; i++) { code = rc(); if ((await read(code)) == null) break; }
+      await FB.set(FB.ref(FB.db, 'rooms/' + code), { v: 3, config: { winTarget: 3, fmt: 'ffa' }, gen: 0, state: 'lobby', p: { 0: true }, players: { 0: rec('HOST0001') }, created: FB.serverTimestamp() });
+      const out = { code };
+      // (a) atomic reject: invalid players leg (id too short) rejects the WHOLE write
+      out.bad = await upd(code, { 'p/1': true, 'players/1': { id: 'x', name: 'g', tab: 'GUESTTAB' } });
+      out.p1AfterBad = await read(code + '/p/1');
+      out.rec1AfterBad = await read(code + '/players/1');
+      // (b) parallel claims on the SAME seat 2 -> exactly one winner
+      const par = await Promise.all([upd(code, { 'p/2': true, 'players/2': rec('GUESTAAA') }), upd(code, { 'p/2': true, 'players/2': rec('GUESTBBB') })]);
+      out.parWins = par.filter((r) => r.ok).length;
+      out.p2 = await read(code + '/p/2');
+      out.rec2 = await read(code + '/players/2');
+      // (c) legit seat-1 claim, flip to playing, then a late claim must be denied
+      out.ok1 = await upd(code, { 'p/1': true, 'players/1': rec('GUEST111') });
+      out.started = await upd(code, { 'state': 'playing' });
+      out.late = await upd(code, { 'p/3': true, 'players/3': rec('LATE0001') });
+      out.p3AfterLate = await read(code + '/p/3');
+      for (let s = 0; s < 5; s++) { try { await FB.remove(FB.ref(FB.db, 'rooms/' + code + '/p/' + s)); } catch (e) {} }
+      try { await FB.remove(FB.ref(FB.db, 'rooms/' + code)); } catch (e) {}
+      return out;
+    });
+    if (ac.bad.ok !== false) throw new Error('Atomarer Claim mit ungültigem Record wurde NICHT abgelehnt');
+    if (ac.p1AfterBad !== null || ac.rec1AfterBad !== null) throw new Error('Abgelehnter atomarer Claim hinterließ Teilzustand: ' + JSON.stringify(ac));
+    if (ac.parWins !== 1) throw new Error('Parallele Claims auf denselben Seat: nicht genau ein Gewinner (' + ac.parWins + ')');
+    if (ac.p2 !== true || !ac.rec2) throw new Error('Seat 2 hält keinen konsistenten Gewinner-Record: ' + JSON.stringify(ac));
+    if (ac.ok1.ok !== true) throw new Error('Legitimer Lobby-Claim Seat 1 wurde abgelehnt: ' + JSON.stringify(ac.ok1));
+    if (ac.started.ok !== true) throw new Error('lobby->playing mit p/1 wurde abgelehnt: ' + JSON.stringify(ac.started));
+    if (ac.late.ok !== false) throw new Error('Seat-Claim während state=playing wurde NICHT abgelehnt');
+    if (ac.p3AfterLate !== null) throw new Error('Abgelehnter Playing-Claim hinterließ p/3');
+    H.ok('Atomarer Seat-Claim bewiesen (Emulator): Reject ohne Teilzustand · genau ein Gewinner bei Parallel-Claim · Claim bei state=playing abgelehnt');
+    result.atomicClaim = ac;
+
     if (state.prodHits.length || state.wsProdHits.length) {
       throw new Error('Unerwartete Produktionskontakte: ' + JSON.stringify({ http: state.prodHits, ws: state.wsProdHits }));
     }
@@ -149,6 +196,7 @@ const H = require('./lib/harness');
       negativeProbes: result.negativeProbes,
       authRoom: result.authRoom,
       slots: result.slots,
+      atomicClaim: result.atomicClaim,
       prodHits: state.prodHits,
       wsProdHits: state.wsProdHits,
       otherBlocked: state.otherBlocked,

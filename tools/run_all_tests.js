@@ -3,7 +3,7 @@
 // suite, and dumps the full output only for suites that fail. Exit code is 1
 // as soon as any suite fails, 0 when all pass.
 //
-// Deliberately NOT included: tools/rest_verify_v2.js writes to the LIVE
+// Deliberately NOT included: tools/rest_verify_v3.js writes to the LIVE
 // database and must be run manually with --live. See docs/SYSTEM-ANALYSE.
 //
 // Usage: node tools/run_all_tests.js
@@ -17,13 +17,14 @@ const SUITES = [
   { name: 'Golden-Physik',    file: 'test_physics_golden.js', expectPassed: 13 },
   { name: 'r3d-Mapping',      file: 'test_r3d_mapping.js',    expectPassed: 48 },
   { name: 'Sanitize',         file: 'test_sanitize.js',       expectPassed: 19 },
-  { name: 'ValidateRoom',     file: 'test_validateroom.js',   expectPassed: 40 },
+  { name: 'Identity',         file: 'test_identity.js',       expectPassed: 45 },
+  { name: 'ValidateRoom',     file: 'test_validateroom.js',   expectPassed: 44 },
   { name: 'Lockstep',         file: 'test_lockstep.js',       expectPassed: 24 },
   { name: 'FFA-Kern',         file: 'test_ffa.js',            expectPassed: 18 },
-  { name: 'FFA-Online-Prep',  file: 'test_ffa_online.js',     expectPassed: 40 },
-  { name: 'FFA-Online-Flow',  file: 'test_ffa_flow.js',       expectPassed: 64 },
+  { name: 'FFA-Online-Prep',  file: 'test_ffa_online.js',     expectPassed: 41 },
+  { name: 'FFA-Online-Flow',  file: 'test_ffa_flow.js',       expectPassed: 116 },
   { name: 'FFA-Online-Race',  file: 'test_ffa_race.js',       expectPassed: 115 },
-  { name: 'Rules',            file: 'test_rules.js',          expectPassed: 70 },
+  { name: 'Rules',            file: 'test_rules.js',          expectPassed: 106 },
 ];
 
 const lastLine = (s) => {

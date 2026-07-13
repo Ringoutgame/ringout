@@ -22,6 +22,7 @@ class NSnap {
   exists() { return this._v() !== null; }
   val() { return this._v(); }
   isNumber() { return typeof this._v() === 'number'; }
+  isString() { return typeof this._v() === 'string'; }
   child(p) { return new NSnap(this._t, this._p.concat(String(p).split('/'))); }
   parent() { return new NSnap(this._t, this._p.slice(0, -1)); }
   hasChildren(ks) { return this.exists() && ks.every(k => this.child(k).exists()); }
@@ -80,10 +81,14 @@ function tryWrite(db, path, value) {
 }
 
 // ── fixtures ──
-const V = 2;
+const V = 3;
+// Valid roster records (id/tab match /^[A-Za-z0-9_-]{8,24}$/, name 1..16 chars).
+const HOST = { id: 'HOST0000', name: 'Host', tab: 'HOSTTAB0' };
+const REC = (id) => ({ id: id || 'GUEST001', name: 'G', tab: 'GTAB0001' });
+// Unified room-state (Paket A): EVERY mode is created with state:'lobby'.
 const mkRoom = (fmt, over = {}) => Object.assign(
-  { v: V, config: { winTarget: 3, fmt }, gen: 0, p: { 0: true }, created: NOW },
-  fmt === 'ffa' ? { state: 'lobby' } : {}, over);
+  { v: V, config: { winTarget: 3, fmt }, gen: 0, state: 'lobby', p: { 0: true }, players: { 0: HOST }, created: NOW },
+  over);
 const db1 = (roomOver = {}, fmt = 'single') => ({ rooms: { KX7P: mkRoom(fmt, Object.assign({ created: NOW - 5000 }, roomOver)) } });
 const MOVE = { idx: 0, dx: 100, dy: -50, sp: 0.5 };
 
@@ -97,15 +102,16 @@ allow('create single v2', { rooms: {} }, 'rooms/KX7P', mkRoom('single'));
 allow('create double v2', { rooms: {} }, 'rooms/KX7P', mkRoom('double', { config: { winTarget: 5, fmt: 'double' } }));
 deny('create v1 room', { rooms: {} }, 'rooms/KX7P', mkRoom('single', { v: 1 }));
 deny('create fmt triple', { rooms: {} }, 'rooms/KX7P', mkRoom('single', { config: { winTarget: 3, fmt: 'triple' } }));
-deny('create single WITH state', { rooms: {} }, 'rooms/KX7P', mkRoom('single', { state: 'lobby' }));
+deny('create single WITHOUT state', { rooms: {} }, 'rooms/KX7P', (() => { const r = mkRoom('single'); delete r.state; return r; })());
+deny('create single state=playing at create', { rooms: {} }, 'rooms/KX7P', mkRoom('single', { state: 'playing' }));
 deny('create single WITH seats', { rooms: {} }, 'rooms/KX7P', mkRoom('single', { seats: 2 }));
 deny('create bad code charset', { rooms: {} }, 'rooms/AAA0', mkRoom('single'));
 deny('overwrite existing room', db1(), 'rooms/KX7P', mkRoom('single'));
 allow('single: guest join p/1', db1(), 'rooms/KX7P/p/1', true);
-allow('single: p/1 overwrite allowed (NOT tightened)', db1({ p: { 0: true, 1: true } }), 'rooms/KX7P/p/1', true);
+deny('single: p/1 overwrite (write-once since v3)', db1({ p: { 0: true, 1: true } }), 'rooms/KX7P/p/1', true);
 allow('single: guest delete p/1', db1({ p: { 0: true, 1: true } }), 'rooms/KX7P/p/1', null);
 allow('single: host delete p/0', db1(), 'rooms/KX7P/p/0', null);
-deny('single: re-set p/0', db1({ p: {} }), 'rooms/KX7P/p/0', true);
+allow('single: host rejoin re-set p/0 (players/0 present, v3)', db1({ p: {} }), 'rooms/KX7P/p/0', true);
 deny('single: seat 2 claim', db1(), 'rooms/KX7P/p/2', true);
 deny('single: join after 2h window', db1({ created: NOW - 7200001 }), 'rooms/KX7P/p/1', true);
 allow('single: move pl 0', db1(), 'rooms/KX7P/g/0/t/0/0', MOVE);
@@ -116,7 +122,13 @@ deny('single: move dx out of bounds', db1(), 'rooms/KX7P/g/0/t/0/0', { idx: 0, d
 deny('single: move extra field', db1(), 'rooms/KX7P/g/0/t/0/0', { idx: 0, dx: 0, dy: 0, sp: 0, hack: 1 });
 deny('single: move pl 2', db1(), 'rooms/KX7P/g/0/t/0/2', MOVE);
 deny('single: move idx 4', db1(), 'rooms/KX7P/g/0/t/0/0', { idx: 4, dx: 0, dy: 0, sp: 0 });
-deny('single: state write rejected', db1(), 'rooms/KX7P/state', 'lobby');
+// Unified room-state: 1v1/2v2 also transition lobby->playing (with p/1 present).
+deny('single: re-write lobby over lobby rejected', db1(), 'rooms/KX7P/state', 'lobby');
+allow('single: lobby->playing with p/1', db1({ p: { 0: true, 1: true } }), 'rooms/KX7P/state', 'playing');
+deny('single: lobby->playing WITHOUT p/1', db1(), 'rooms/KX7P/state', 'playing');
+deny('single: playing->lobby rejected', db1({ p: { 0: true, 1: true }, state: 'playing' }), 'rooms/KX7P/state', 'lobby');
+deny('single: guest claim p/1 blocked in PLAYING', db1({ state: 'playing' }), 'rooms/KX7P/p/1', true);
+deny('double: guest claim p/1 blocked in PLAYING', db1({ state: 'playing' }, 'double'), 'rooms/KX7P/p/1', true);
 deny('single: seats write rejected', db1(), 'rooms/KX7P/seats', 2);
 allow('single: gen increment', db1(), 'rooms/KX7P/gen', 1);
 deny('single: gen jump', db1(), 'rooms/KX7P/gen', 5);
@@ -178,6 +190,45 @@ deny('cleanup: delete blocked, p/4 present', db1({ p: { 4: true } }, 'ffa'), 'ro
 deny('cleanup: delete blocked, playing with seats present', db1({ p: { 0: true, 1: true }, state: 'playing', seats: 2 }, 'ffa'), 'rooms/KX7P', null);
 deny('cleanup: still cannot overwrite existing room', db1(), 'rooms/KX7P', mkRoom('single'));
 deny('cleanup: still cannot delete non-existent room', { rooms: {} }, 'rooms/KX7P', null);
+
+// ── (8) v3 identity: room creation requires players/0, forbids prefilled 1-4 ──
+deny('create WITHOUT players/0', { rooms: {} }, 'rooms/KX7P', (() => { const r = mkRoom('single'); delete r.players; return r; })());
+deny('create with players/0 missing name', { rooms: {} }, 'rooms/KX7P', mkRoom('single', { players: { 0: { id: 'HOST0000', tab: 'HOSTTAB0' } } }));
+deny('create with players/1 prefilled', { rooms: {} }, 'rooms/KX7P', mkRoom('ffa', { players: { 0: HOST, 1: REC() } }));
+allow('create v3 ffa with players/0', { rooms: {} }, 'rooms/KX7P', mkRoom('ffa'));
+
+// ── (9) players node: creation only by the presence holder, id immutable,
+//        delete only on free presence, recycle = delete+create (lobby only) ──
+const ffaLob = (p, players) => db1(Object.assign({ p }, players ? { players } : {}), 'ffa');
+allow('players: presence holder creates own record', ffaLob({ 0: true, 1: true }), 'rooms/KX7P/players/1', REC('GUEST001'));
+allow('players: same-id update (rejoin / name change)', db1({ players: { 0: HOST, 1: { id: 'GUEST001', name: 'old', tab: 'T0000000' } } }), 'rooms/KX7P/players/1', REC('GUEST001'));
+deny('players: id switch on existing record (presence held)', ffaLob({ 0: true, 1: true }, { 0: HOST, 1: { id: 'GUEST001', name: 'g', tab: 'T0000000' } }), 'rooms/KX7P/players/1', REC('EVIL0001'));
+deny('players: id switch on existing record (presence free)', ffaLob({ 0: true }, { 0: HOST, 2: { id: 'OLD00001', name: 'x', tab: 'T0000000' } }), 'rooms/KX7P/players/2', REC('NEW00001'));
+deny('players: delete while presence held', ffaLob({ 0: true, 1: true }, { 0: HOST, 1: REC('GUEST001') }), 'rooms/KX7P/players/1', null);
+allow('players: delete own record after presence removal (leave)', ffaLob({ 0: true }, { 0: HOST, 1: REC('GUEST001') }), 'rooms/KX7P/players/1', null);
+allow('players: recycle step 1 — delete stale record (lobby, presence free)', ffaLob({ 0: true }, { 0: HOST, 2: { id: 'OLD00001', name: 'x', tab: 'T0000000' } }), 'rooms/KX7P/players/2', null);
+allow('players: recycle step 2 — create after own presence win', ffaLob({ 0: true, 2: true }, { 0: HOST }), 'rooms/KX7P/players/2', REC('NEW00001'));
+deny('players: create without presence (even in lobby)', ffaLob({ 0: true }), 'rooms/KX7P/players/1', REC('GUEST001'));
+deny('players: create while playing (missing record mid-match)', db1({ p: { 0: true, 1: true, 2: true }, state: 'playing', seats: 3, players: { 0: HOST, 1: REC('GUEST001') } }, 'ffa'), 'rooms/KX7P/players/2', REC('NEW00001'));
+deny('players: id charset invalid', ffaLob({ 0: true, 1: true }), 'rooms/KX7P/players/1', { id: 'bad id!!', name: 'g', tab: 'T0000000' });
+allow('players: name up to 48 UTF-16 units (16-grapheme cap is client-side)', ffaLob({ 0: true, 1: true }), 'rooms/KX7P/players/1', { id: 'GUEST001', name: 'x'.repeat(48), tab: 'T0000000' });
+deny('players: name too long (>48 units)', ffaLob({ 0: true, 1: true }), 'rooms/KX7P/players/1', { id: 'GUEST001', name: 'x'.repeat(49), tab: 'T0000000' });
+deny('players: name empty', ffaLob({ 0: true, 1: true }), 'rooms/KX7P/players/1', { id: 'GUEST001', name: '', tab: 'T0000000' });
+deny('players: missing tab', ffaLob({ 0: true, 1: true }), 'rooms/KX7P/players/1', { id: 'GUEST001', name: 'g' });
+deny('players: extra field rejected', ffaLob({ 0: true, 1: true }), 'rooms/KX7P/players/1', { id: 'GUEST001', name: 'g', tab: 'T0000000', hack: 1 });
+deny('players: seat 5 out of range', ffaLob({ 0: true }), 'rooms/KX7P/players/5', REC('GUEST001'));
+deny('players: seat 2 in single (non-ffa)', db1({ p: { 0: true, 2: true } }), 'rooms/KX7P/players/2', REC('GUEST001'));
+
+// ── (10) host presence rejoin: p/0 re-add only with players/0 AND only while the
+//        room is really in its lobby/waiting state ──
+allow('host rejoin: p/0 re-add in ffa LOBBY', db1({ p: {} }, 'ffa'), 'rooms/KX7P/p/0', true);
+deny('host rejoin: p/0 re-add blocked in ffa PLAYING', db1({ p: { 1: true }, state: 'playing', seats: 2 }, 'ffa'), 'rooms/KX7P/p/0', true);
+allow('host rejoin: p/0 re-add (single) while still in lobby', db1({ p: {} }), 'rooms/KX7P/p/0', true);
+deny('host rejoin: p/0 blocked (single) in PLAYING', db1({ p: { 1: true }, state: 'playing' }), 'rooms/KX7P/p/0', true);
+deny('host rejoin: p/0 blocked (double) in PLAYING', db1({ p: { 1: true }, state: 'playing' }, 'double'), 'rooms/KX7P/p/0', true);
+deny('players: 1v1 create while playing (no record steal mid-match)', db1({ p: { 0: true, 1: true }, state: 'playing', players: { 0: HOST } }), 'rooms/KX7P/players/1', REC('GUEST001'));
+deny('host rejoin: p/0 re-add blocked without players/0', { rooms: { KX7P: { v: V, config: { winTarget: 3, fmt: 'ffa' }, gen: 0, state: 'lobby', p: {}, created: NOW - 5000 } } }, 'rooms/KX7P/p/0', true);
+allow('host: p/0 delete still allowed', db1(), 'rooms/KX7P/p/0', null);
 
 console.log('\nRules-Suite (lokal, echte firebase.rules.json): ' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

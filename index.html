@@ -307,7 +307,7 @@ body.booting #menu{opacity:0;visibility:hidden}
     <div class="hbtns"><button class="ibtn" id="menuBtn">☰</button><button class="ibtn" id="sndBtn">🔊</button></div>
   </header>
   <div class="status">
-    <div class="pcard" id="card0"><div class="pn">SPIELER 1</div><div class="pw" id="ready0">zielt…</div></div>
+    <div class="pcard" id="card0"><div class="pn" id="n0">SPIELER 1</div><div class="pw" id="ready0">zielt…</div></div>
     <div class="scorebox">
       <div class="score"><span class="s0" id="sc0">0</span><span class="sep">:</span><span class="s1" id="sc1">0</span></div>
       <div class="rinfo" id="rinfo">Runde 1</div>
@@ -436,6 +436,16 @@ body.booting #menu{opacity:0;visibility:hidden}
 <div class="cover" id="online">
   <div class="who" id="onTitle" style="color:var(--gold)">ONLINE 1v1</div>
   <div class="ctxt" id="onCtxt">Spiel gegen einen Freund. Einer erstellt einen Raum, der andere tritt mit dem Code bei.</div>
+  <!-- Rejoin bar: shown only when a fresh saved room exists (reload / tab-switch). -->
+  <div id="onRejoin" style="display:none;margin-bottom:14px;text-align:center">
+    <div id="onRejoinTxt" style="font-size:11px;color:var(--muted);margin-bottom:8px"></div>
+    <button class="cbtn" id="rejoinBtn">Wieder beitreten</button>
+  </div>
+  <!-- Player name (identity v3): sanitized, max 16 chars, rendered via textContent. -->
+  <div id="nameRow" style="margin-bottom:14px;text-align:left">
+    <div id="nameLbl" style="font-size:10px;color:var(--muted);letter-spacing:.14em;margin-bottom:6px">DEIN NAME</div>
+    <input id="nameInput" maxlength="48" autocomplete="off" placeholder="Name" style="width:100%;box-sizing:border-box;font:inherit;font-size:16px;font-weight:700;padding:10px 12px;border-radius:12px;border:1px solid rgba(255,201,64,.3);background:#0c1420;color:var(--text)">
+  </div>
   <button class="cbtn" id="onCreate">Raum erstellen</button>
   <div id="onWait" style="display:none;margin-top:16px;text-align:center">
     <div id="onCodeLbl" style="font-size:10px;color:var(--muted);letter-spacing:.18em">DEIN CODE</div>
@@ -446,6 +456,13 @@ body.booting #menu{opacity:0;visibility:hidden}
   <div id="onLobby" style="display:none;margin-top:16px;text-align:center">
     <div style="font-size:10px;color:var(--muted);letter-spacing:.18em"><span id="lobbyLbl">LOBBY</span> <span id="lobbyCount"></span></div>
     <div id="lobbySeats" style="display:flex;gap:10px;justify-content:center;margin:12px 0"></div>
+    <div id="lobbyNames" style="display:flex;flex-direction:column;gap:3px;align-items:center;margin-bottom:10px">
+      <div id="lobbyName0" style="display:none;font-size:12px;font-weight:800;letter-spacing:.04em"></div>
+      <div id="lobbyName1" style="display:none;font-size:12px;font-weight:800;letter-spacing:.04em"></div>
+      <div id="lobbyName2" style="display:none;font-size:12px;font-weight:800;letter-spacing:.04em"></div>
+      <div id="lobbyName3" style="display:none;font-size:12px;font-weight:800;letter-spacing:.04em"></div>
+      <div id="lobbyName4" style="display:none;font-size:12px;font-weight:800;letter-spacing:.04em"></div>
+    </div>
     <div id="lobbyMine" style="font-size:11px;font-weight:800;letter-spacing:.06em;color:#fff;margin-bottom:10px"></div>
     <button class="cbtn" id="lobbyStart" style="display:none">▶ Start</button>
     <div id="lobbyHint" style="font-size:11px;color:var(--muted)">Warte auf Host…</div>
@@ -612,6 +629,201 @@ const SENTINEL_RETRY_MAX_ATTEMPTS=11;
 // Status pruefen und wirkungslos zurueckkehren — bereits laufende Transactions
 // duerfen technisch weiter aufloesen, aber nichts mehr veraendern.
 let onlineTerminatedSession=-1;
+// ════ PLAYER IDENTITY (v3) ════
+// Browser-local, auth-free identity so the same player keeps their seat and name
+// across reload / tab-switch inside a private room. p/<seat> stays volatile
+// presence; players/<seat>={id,name,tab} is the durable roster record. onlineTab
+// is the per-tab guard (used fully in Paket B), onlineName is player-chosen,
+// sanitized, capped at NAME_MAX visible chars. The design intentionally leaves a
+// clean slot for Firebase Anonymous Auth (auth.uid) to replace onlinePid later
+// without a schema change — no auth is introduced now.
+const NAME_MAX=16;        // visible graphemes (user-facing cap)
+const NAME_MAX_UNITS=48;  // hard cap in UTF-16 units — must match the rules bound on players/<seat>/name
+let onlinePid='', onlineTab='', onlineName='';
+let playersRoster={};      // last players/<seat> snapshot -> lobby + HUD names
+let rosterUnsub=null;
+let lobbyHostGraceTimer=null;
+const LOBBY_HOST_GRACE_MS=12000;   // lobby-only: a host reload must not close the room at once
+// Random url-safe token in [A-Za-z0-9_-] (matches the rules charset). Uses the
+// Web Crypto RNG; falls back to Math.random only where getRandomValues is absent.
+function genToken(n){
+  n=n||16;
+  const A='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_',b=new Array(n);
+  try{ const arr=new Uint8Array(n); crypto.getRandomValues(arr); for(let i=0;i<n;i++)b[i]=arr[i]; }
+  catch(e){ for(let i=0;i<n;i++)b[i]=Math.floor(Math.random()*256); }
+  let s=''; for(let i=0;i<n;i++)s+=A[b[i]&63]; return s;
+}
+// Cap a string at max visible graphemes. Uses Intl.Segmenter (grapheme clusters,
+// so emoji/ZWJ families count as ONE) with a code-point fallback where the API
+// is unavailable. Returns the input unchanged when it is already within the cap.
+function capGraphemes(s,max){
+  try{
+    if(typeof Intl!=='undefined'&&Intl.Segmenter){
+      let out='',n=0;
+      for(const seg of new Intl.Segmenter(undefined,{granularity:'grapheme'}).segment(s)){
+        if(++n>max)return out;
+        out+=seg.segment;
+      }
+      return s;
+    }
+  }catch(e){}
+  const cps=[...s];
+  return cps.length>max?cps.slice(0,max).join(''):s;
+}
+// Trim, collapse inner whitespace, strip C0/C1 controls, bidi controls
+// (LRM/RLM/ALM, embeddings/overrides, isolates) and invisible format chars
+// (zero-widths, word joiner, soft hyphen, BOM, interlinear annotations), then
+// cap at NAME_MAX visible graphemes and NAME_MAX_UNITS UTF-16 units (the rules
+// bound on players/<seat>/name). Empty -> '' (caller falls back to the seat
+// color name). Pure & idempotent.
+function sanitizeName(raw){
+  if(typeof raw!=='string')return '';
+  let s=raw.replace(/[\u0000-\u001f\u007f-\u009f\u00ad\u061c\u180e\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff\ufff9-\ufffb]/g,' ').replace(/\s+/g,' ').trim();
+  const cap=capGraphemes(s,NAME_MAX);
+  if(cap!==s)s=cap.trim();
+  if(s.length>NAME_MAX_UNITS){
+    const cps=[...s];
+    while(cps.length&&cps.join('').length>NAME_MAX_UNITS)cps.pop();
+    s=cps.join('').trim();
+  }
+  return s;
+}
+function loadOnlineIdentity(){
+  try{ onlinePid=localStorage.getItem('ringout_pid')||''; }catch(e){ onlinePid=''; }
+  if(!/^[A-Za-z0-9_-]{8,24}$/.test(onlinePid)){ onlinePid=genToken(16); try{ localStorage.setItem('ringout_pid',onlinePid); }catch(e){} }
+  onlineTab=genToken(16);   // fresh per tab load
+  let nm=''; try{ nm=localStorage.getItem('ringout_name')||''; }catch(e){}
+  onlineName=sanitizeName(nm);
+}
+function setOnlineName(raw){ onlineName=sanitizeName(raw); try{ localStorage.setItem('ringout_name',onlineName); }catch(e){} }
+// Durable roster record for a seat. Name is never empty (rules require length>=1):
+// it falls back to the localized seat color name.
+function playerRecord(seat){ return {id:onlinePid, name:(onlineName||T('col'+seat)), tab:onlineTab}; }
+// Display name for a seat: sanitized roster name, else the localized color name.
+// Callers MUST render the result via textContent (never innerHTML) — names are
+// untrusted input.
+function nameForSeat(s){
+  const r=playersRoster&&playersRoster[s];
+  const n=r&&typeof r.name==='string'?sanitizeName(r.name):'';
+  return n||T('col'+s);
+}
+// Lowest seat whose stored id equals pid; -1 if none. Basis for same-seat rejoin.
+function findOwnSeat(players,pid){
+  if(!players||typeof players!=='object'||!pid)return -1;
+  for(let s=0;s<FFA_MAX_SEATS;s++){ const r=players[s]; if(r&&r.id===pid)return s; }
+  return -1;
+}
+function rememberRoom(code,seat){ try{ localStorage.setItem('ringout_room',JSON.stringify({code:code,seat:seat,ts:Date.now()})); }catch(e){} }
+function forgetRoom(){ try{ localStorage.removeItem('ringout_room'); }catch(e){} }
+function savedRoom(){
+  let raw=''; try{ raw=localStorage.getItem('ringout_room')||''; }catch(e){ return null; }
+  if(!raw)return null;
+  try{ const o=JSON.parse(raw);
+    if(o&&typeof o.code==='string'&&/^[A-HJKMNP-Z2-9]{4}$/.test(o.code)&&(Date.now()-o.ts)<7200000)return o;
+  }catch(e){}
+  return null;
+}
+// ── Join-/Rejoin-Operation-Guard ──
+// Every create/join/rejoin gets a fresh op id and re-checks it after EVERY await.
+// A newer op or leaveOnline() invalidates older ones, so a late continuation from
+// room A can never overwrite globals, listeners or room data of a newer join to
+// room B. Globals (roomCode/myPlayer/online/mode/gen/...) are only assigned AFTER
+// the whole remote flow succeeded; until then the client stays fully offline.
+let joinOpSeq=0;
+function newJoinOp(){ return ++joinOpSeq; }
+function joinOpCurrent(op){ return op===joinOpSeq; }
+// Atomic compensated seat claim (Paket A, letzte Blocker-Korrektur):
+//   1. arm onDisconnect(p/<seat>) BEFORE the write — a crash mid-claim self-heals
+//      (presence auto-clears; a durable players/<seat> lingers for a lobby rejoin),
+//   2. atomically write p/<seat>=true AND players/<seat>=record — plus, for a
+//      1v1/2v2 guest, state='playing' — in ONE multi-path update(). Every path
+//      succeeds together or the whole write is rejected with nothing applied.
+// The write-once presence rule (p/<seat> requires !exists) is the SOLE arbiter:
+// two parallel claims can never both win the same seat, and a rejected claim
+// leaves no partial p/players/state behind. A stale foreign record is recycled
+// only inside this same atomic update — never pre-deleted. The op token is checked
+// BEFORE and AFTER the write; a stale op disarms the armed onDisconnect (pre-write)
+// or rolls its OWN just-written p/players back (post-write) and never touches
+// foreign data — the rules also block record deletes while p/<seat> is true, so a
+// takeover that already re-won the presence is protected server-side. onDisconnect
+// and cleanup errors are logged, never swallowed silently.
+// Outcomes: {ok:true,dc} claimed · {lost:true} presence race lost / rules rejected
+// (no partial state) · {stale:true} op superseded (own writes rolled back).
+async function claimSeatSlot(code,seat,op,extra){
+  const rootRef=window.FB.ref(window.FB.db,'rooms/'+code);
+  const pRef=window.FB.ref(window.FB.db,'rooms/'+code+'/p/'+seat);
+  const dc=window.FB.onDisconnect(pRef);
+  await dc.remove();   // arm BEFORE the write; a throw here surfaces to the caller
+  if(op!=null&&!joinOpCurrent(op)){ try{ await dc.cancel(); }catch(e){ console.error('[online] onDisconnect cancel (stale pre-write):',e); } return {ok:false,stale:true,dc:null}; }
+  const upd={}; upd['p/'+seat]=true; upd['players/'+seat]=playerRecord(seat);
+  if(extra&&extra.state)upd['state']=extra.state;
+  try{ await window.FB.update(rootRef,upd); }
+  catch(e){
+    // Atomic reject: nothing was written. Disarm the onDisconnect we armed; its
+    // cancel error (if any) is logged, never swallowed.
+    try{ await dc.cancel(); }catch(e2){ console.error('[online] onDisconnect cancel after failed claim:',e2); }
+    // A write-once / rule permission_denied is the benign "seat lost / lobby closed"
+    // outcome (no partial state); anything else is a real transport error and is
+    // surfaced to the caller's catch, never swallowed into a false "seat taken".
+    if(/permission[_ ]?denied/i.test(String((e&&(e.code||e.message))||e)))return {ok:false,lost:true,dc:null};
+    throw e;
+  }
+  if(op!=null&&!joinOpCurrent(op)){
+    // Won the seat but the op was superseded (user navigated on / left). Release
+    // only OWN data — never a foreign takeover's. A rejoin refresh (record existed
+    // before this op) keeps the durable record and only drops the presence; a fresh
+    // claim drops its own just-created record too.
+    if(extra&&extra.keepRecordOnRollback) await releaseSeatSlot(code,seat,dc);
+    else await releaseSeatClaim(code,seat,dc);
+    return {ok:false,stale:true,dc:null};
+  }
+  return {ok:true,dc:dc};
+}
+// Compensation: release ONLY the own presence and disarm its onDisconnect. Errors
+// are logged, never swallowed. Deliberately never touches players/<seat>.
+async function releaseSeatSlot(code,seat,dc){
+  try{ await window.FB.remove(window.FB.ref(window.FB.db,'rooms/'+code+'/p/'+seat)); }catch(e){ console.error('[online] presence release failed (seat '+seat+'):',e); }
+  if(dc){ try{ await dc.cancel(); }catch(e){ console.error('[online] onDisconnect cancel failed (seat '+seat+'):',e); } }
+}
+// Full cleanup for a FRESH claim whose op became stale (user navigated away
+// mid-join): release the presence, then drop the own just-created record — but
+// only if it still carries the own id. If the seat was taken over in between,
+// the new holder owns the presence again and the rules reject the delete anyway
+// (a rollback can never destroy a foreign record).
+async function releaseSeatClaim(code,seat,dc){
+  await releaseSeatSlot(code,seat,dc);
+  try{
+    const ref=window.FB.ref(window.FB.db,'rooms/'+code+'/players/'+seat);
+    const s=await window.FB.get(ref);
+    if(s.exists()&&s.val()&&s.val().id===onlinePid) await window.FB.remove(ref);
+  }catch(e){ console.error('[online] own record cleanup failed (seat '+seat+'):',e); }
+}
+// Lobby-only host grace: while the host presence is briefly gone (reload), hold the
+// room open. A deliberate host leave removes players/0 as well and closes at once
+// (see evalLobbyHostPresence). This is NOT the in-match grace (that is Paket B).
+function clearLobbyHostGrace(){ if(lobbyHostGraceTimer){ clearTimeout(lobbyHostGraceTimer); lobbyHostGraceTimer=null; } }
+function startLobbyHostGrace(){
+  if(lobbyHostGraceTimer)return;
+  const ctx={sid:onlineSessionId,room:roomCode};
+  lobbyHostGraceTimer=setTimeout(()=>{
+    lobbyHostGraceTimer=null;
+    if(ctx.sid!==onlineSessionId||ctx.room!==roomCode)return;
+    if(gameStarted||fmt!=='ffa'||myPlayer===0)return;
+    if(lobbyP&&lobbyP[0])return;   // host came back within the grace
+    onLobbyClosed();
+  },LOBBY_HOST_GRACE_MS);
+}
+// Decides what a guest does when the host presence is (still) missing in the lobby:
+//   host present            -> cancel any grace
+//   host record gone (left) -> close the lobby immediately
+//   host record kept (reload)-> start/keep the grace and wait for the return
+function evalLobbyHostPresence(){
+  if(!(online&&fmt==='ffa'&&!gameStarted&&myPlayer!==0))return;
+  if(lobbyP&&lobbyP[0]){ clearLobbyHostGrace(); return; }
+  if(!(playersRoster&&playersRoster[0])){ clearLobbyHostGrace(); onLobbyClosed(); return; }
+  startLobbyHostGrace();
+}
+loadOnlineIdentity();   // stable pid + fresh tab token + persisted name, once per load
 // Ansichts-Rotation pro Client (NUR Ansicht/Input — Simulation, Spawnpositionen
 // und Physik bleiben absolut identisch):
 //   Online 1v1/2v2: Spieler 1 sieht das Brett 180° gedreht (eigene Kugel unten).
@@ -684,7 +896,9 @@ en:{tagline:'PULL BACK · RELEASE · KNOCK THEM OUT',chip:'ACTIVE',
   noFb:'⚠ No connection to Firebase. Check internet & config.',err:'Error: ',noOnlineReset:'Not available in online mode.',loading:'Loading arena...',
   victory:'VICTORY',defeat:'DEFEAT',wins:'WINS',finalScore:'FINAL SCORE',ringout:'RINGOUT',round:'ROUND',
   col0:'BLUE',col1:'RED',col2:'GREEN',col3:'YELLOW',col4:'GRAY',
-  nameYou:'YOU',nameOpp:'OPPONENT',namePlayer:'Player',youAre:'YOU ARE'},
+  nameYou:'YOU',nameOpp:'OPPONENT',namePlayer:'Player',youAre:'YOU ARE',
+  nameLbl:'YOUR NAME',namePh:'Name',rejoinBtn:'Rejoin',rejoinAsk:'Rejoin room {code}?',
+  rejoinNoLobby:'Room is no longer in the lobby.',rejoinTab:'Seat is active in another tab.',rejoinOk:'Rejoined.'},
 de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'AKTIV',
   ffaT:'ONLINE FFA',ffaS:'2–5 SPIELER',vsT:'ONLINE VERSUS',vsS:'1v1 ODER 2v2<br>2 SPIELER',
   botT:'BOT-TRAINING',botS:'GEGEN KI<br>SOLO-TRAINING',
@@ -704,7 +918,9 @@ de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'AKTIV',
   noFb:'⚠ Keine Verbindung zu Firebase. Internet & Config prüfen.',err:'Fehler: ',noOnlineReset:'Im Online-Modus nicht verfügbar.',loading:'Arena wird geladen...',
   victory:'SIEG',defeat:'NIEDERLAGE',wins:'GEWINNT',finalScore:'ENDSTAND',ringout:'RINGOUT',round:'RUNDE',
   col0:'BLAU',col1:'ROT',col2:'GRÜN',col3:'GELB',col4:'GRAU',
-  nameYou:'DU',nameOpp:'GEGNER',namePlayer:'Spieler',youAre:'DU BIST'},
+  nameYou:'DU',nameOpp:'GEGNER',namePlayer:'Spieler',youAre:'DU BIST',
+  nameLbl:'DEIN NAME',namePh:'Name',rejoinBtn:'Wieder beitreten',rejoinAsk:'Raum {code} wieder beitreten?',
+  rejoinNoLobby:'Raum ist nicht mehr in der Lobby.',rejoinTab:'Sitz ist in einem anderen Tab aktiv.',rejoinOk:'Wieder beigetreten.'},
 tr:{tagline:'GERİ ÇEK · BIRAK · DIŞARI İT',chip:'AKTİF',
   ffaT:'ONLINE FFA',ffaS:'2–5 OYUNCU',vsT:'ONLINE VERSUS',vsS:'1v1 VEYA 2v2<br>2 OYUNCU',
   botT:'BOT ANTRENMANI',botS:'YAPAY ZEKÂYA KARŞI<br>SOLO ANTRENMAN',
@@ -724,7 +940,9 @@ tr:{tagline:'GERİ ÇEK · BIRAK · DIŞARI İT',chip:'AKTİF',
   noFb:'⚠ Firebase bağlantısı yok. İnterneti ve yapılandırmayı kontrol et.',err:'Hata: ',noOnlineReset:'Online modda kullanılamaz.',loading:'Arena yükleniyor...',
   victory:'ZAFER',defeat:'MAĞLUBİYET',wins:'KAZANDI',finalScore:'SON SKOR',ringout:'RINGOUT',round:'RAUNT',
   col0:'MAVİ',col1:'KIRMIZI',col2:'YEŞİL',col3:'SARI',col4:'GRİ',
-  nameYou:'SEN',nameOpp:'RAKİP',namePlayer:'Oyuncu',youAre:'RENGİN'}
+  nameYou:'SEN',nameOpp:'RAKİP',namePlayer:'Oyuncu',youAre:'RENGİN',
+  nameLbl:'ADIN',namePh:'Ad',rejoinBtn:'Tekrar katıl',rejoinAsk:'{code} odasına tekrar katıl?',
+  rejoinNoLobby:'Oda artık lobide değil.',rejoinTab:'Koltuk başka bir sekmede etkin.',rejoinOk:'Yeniden katıldın.'}
 };
 let LANG=(()=>{try{const l=localStorage.getItem('ringout_lang');return I18N[l]?l:'en';}catch(e){return 'en';}})();
 function T(k){return (I18N[LANG]&&I18N[LANG][k])||I18N.en[k]||k;}
@@ -745,6 +963,7 @@ function applyLang(){
   $('bot1v1T').textContent=T('bot1v1T');$('bot1v1S').textContent=T('bot1v1S');
   $('bot2v2T').textContent=T('bot2v2T');$('bot2v2S').textContent=T('bot2v2S');
   $('onInput').placeholder=T('enterCode');
+  $('nameLbl').textContent=T('nameLbl');$('nameInput').placeholder=T('namePh');$('rejoinBtn').textContent=T('rejoinBtn');
   {const bt=$('bootTxt');if(bt)bt.textContent=T('loading');}   // Boot-Overlay existiert nur bis zum First-Frame
   $('setTitle').textContent=T('setTitle');$('setLangLbl').textContent=T('setLang');
   setOn('langGrp',{en:'langEn',de:'langDe',tr:'langTr'}[LANG]);
@@ -817,6 +1036,13 @@ $('onCreate').onclick=()=>createRoom();
 $('onJoin').onclick=()=>joinRoom();
 $('onBack').onclick=()=>{leaveOnline();mode=menuMode;ffaN=ffaNMenu;$('online').classList.remove('show');};
 $('onInput').addEventListener('input',e=>{e.target.value=e.target.value.toUpperCase().replace(/[^A-Z0-9]/g,'');});
+// Player name: sanitize + persist on every edit; push live to the roster if already
+// seated so the lobby/HUD update for everyone. The record write is same-id (allowed).
+$('nameInput').addEventListener('input',e=>{ setOnlineName(e.target.value);
+  // Live same-id refresh; a denied/failed push leaves the old (valid) record —
+  // consistent state, so log only (no rollback needed).
+  if(online&&roomCode){ try{ window.FB.set(rRef('players/'+myPlayer),playerRecord(myPlayer)).catch(err=>console.warn('[online] name push failed:',err)); }catch(err){} } });
+$('rejoinBtn').onclick=()=>{ const sr=savedRoom(); if(!sr)return; $('onRejoin').style.display='none'; attemptRejoin(sr.code); };
 function showMenu(){menuVisible=true;$('menu').style.display='flex';$('game').style.display='none';updateMenuPreview();resize();}
 function showGame(){menuVisible=false;$('menu').style.display='none';$('game').style.display='flex';}   // Gameplay-Framing kommt via newGame()->resize()
 
@@ -1156,6 +1382,8 @@ function renderFfaBar(){
 }
 function updateHud(){
   if(mode==='ffa'){renderFfaBar();return;}
+  // Online 1v1/2v2: show the durable roster names (textContent — never innerHTML).
+  if(online){ $('n0').textContent=pName(0); $('n1').textContent=pName(1); }
   $('sc0').textContent=score[0];$('sc1').textContent=score[1];
   $('rinfo').textContent='Runde '+roundNo;
   $('ready0').textContent=readyText(0);
@@ -1586,7 +1814,9 @@ function stepSim(){
   }
 }
 function resultDrift(){if(outBall<0)return;const b=balls[outBall];b.x+=b.vx*RESULT_SLOWMUL;b.y+=b.vy*RESULT_SLOWMUL;b.vx*=RESULT_FR;b.vy*=RESULT_FR;}
-function pName(p){return online?(p===myPlayer?T('nameYou'):(mode==='ffa'?T('namePlayer')+' '+(p+1):T('nameOpp'))):(mode==='bot'&&p===1?'Bot':T('namePlayer')+' '+(p+1));}
+// Online play uses the durable roster name (own or others; color-name fallback).
+// Local play keeps the generic labels. Callers render via textContent.
+function pName(p){return online?nameForSeat(p):(mode==='bot'&&p===1?'Bot':T('namePlayer')+' '+(p+1));}
 function afterResult(){
   const loser=balls[outBall].owner,winner=roundWinner>=0?roundWinner:1-loser;
   roundWinner=-1;score[winner]++;SFX.round(winner);
@@ -1678,7 +1908,14 @@ function renderLobby(p){
       :'border:2px dashed #2a3850')+'"></div>';
   }
   $('lobbySeats').innerHTML=h;$('lobbyCount').textContent=n+'/'+FFA_MAX_SEATS;
-  $('lobbyMine').textContent=T('youAre')+' '+T('col'+myPlayer);
+  // Names are untrusted input -> ONLY ever via textContent, never innerHTML. Each
+  // seat has a fixed row; occupied seats show the roster name in the seat color.
+  for(let s=0;s<FFA_MAX_SEATS;s++){
+    const row=$('lobbyName'+s); if(!row)continue;
+    if(p[s]){ row.textContent=nameForSeat(s); row.style.display=''; row.style.color=PCOLS[s].ui; }
+    else { row.textContent=''; row.style.display='none'; }
+  }
+  $('lobbyMine').textContent=T('youAre')+' '+nameForSeat(myPlayer);
   const host=myPlayer===0,gap=!seatsContiguous(p,n);
   $('lobbyStart').style.display=host?'':'none';
   $('lobbyStart').disabled=n<2||gap;
@@ -1691,31 +1928,55 @@ function openOnline(){
   $('onCtxt').textContent=mode==='ffa'?T('dlgFfa'):T('dlg1v1');
   $('online').classList.add('show');
   $('onCreate').style.display='';$('onJoinRow').style.display='flex';$('onWait').style.display='none';
-  $('onLobby').style.display='none';
-  $('onCode').textContent='';$('onInput').value='';setStatus('');
+  $('onLobby').style.display='none';$('nameRow').style.display='';
+  $('onCode').textContent='';$('onInput').value='';$('nameInput').value=onlineName;setStatus('');
+  // Rejoin affordance: only when a fresh saved room exists (reload / tab-switch).
+  const sr=savedRoom();
+  if(sr){ $('onRejoin').style.display=''; $('onRejoinTxt').textContent=T('rejoinAsk').replace('{code}',sr.code); }
+  else $('onRejoin').style.display='none';
   whenFB(()=>{ if(!fbReady())setStatus(T('noFb')); });
 }
 
 function createRoom(){
   if(TUNE){toast('Tuning aktiv — Online deaktiviert');return;}
-  const ffa=mode==='ffa';   // Kontext vom ffaOnline-Button; Rules verlangen state:'lobby' NUR fuer ffa
+  const ffa=mode==='ffa';   // Kontext vom ffaOnline-Button
   whenFB(()=>{ if(!fbReady()){setStatus(T('noFb'));return;}
-    (async()=>{ try{
+    (async()=>{ const op=newJoinOp(); let dc=null, code='';
+    try{
       setStatus(T('creating'));
-      let code='';
-      for(let t=0;t<6;t++){ code=rrand(4); const s=await window.FB.get(window.FB.ref(window.FB.db,'rooms/'+code)); if(!s.exists())break; }
-      if(ffa)fmt='ffa';
+      for(let t=0;t<6;t++){ code=rrand(4); const s=await window.FB.get(window.FB.ref(window.FB.db,'rooms/'+code)); if(!joinOpCurrent(op))return; if(!s.exists())break; }
+      const fmtNew=ffa?'ffa':fmt, rec=playerRecord(0);
+      // Einheitlicher Room-State (Paket A, letzte Blocker): ALLE Modi starten in
+      // 'lobby'. Der explizite State ersetzt die frueheren indirekten Nicht-FFA-
+      // Heuristiken (fehlende Presence/players/g) als alleinige Wahrheit fuer
+      // Rejoin-/Claim-/Recycling-Erlaubnis. FFA bleibt bis zum Host-Start in 'lobby';
+      // 1v1/2v2 schaltet der atomare Gastclaim auf 'playing' (siehe joinRoom).
+      const room={v:ONLINE_PROTOCOL_VERSION, config:{winTarget:winTarget,fmt:fmtNew}, gen:0, state:'lobby', p:{0:true}, players:{0:rec}, created:window.FB.serverTimestamp()};
+      // onDisconnect armed BEFORE the room exists: a crash right after the create
+      // self-heals (presence auto-clears; players/0 lingers so the host can rejoin).
+      dc=window.FB.onDisconnect(window.FB.ref(window.FB.db,'rooms/'+code+'/p/0'));
+      await dc.remove();
+      if(!joinOpCurrent(op)){ try{ await dc.cancel(); }catch(e){} return; }
+      await window.FB.set(window.FB.ref(window.FB.db,'rooms/'+code), room);
+      if(!joinOpCurrent(op)){   // op stale after the create -> tear the own fresh room down again
+        await releaseSeatClaim(code,0,dc);
+        try{ await window.FB.remove(window.FB.ref(window.FB.db,'rooms/'+code)); }catch(e){}
+        return;
+      }
+      // remote flow complete -> NOW commit the globals + UI + listeners
+      fmt=fmtNew;
       roomCode=code; myPlayer=0; online=true; gen=0; runningGen=-1; gameStarted=false; seatLeft=[]; seatGone=[];
-      const room={v:ONLINE_PROTOCOL_VERSION, config:{winTarget:winTarget,fmt:fmt}, gen:0, p:{0:true}, created:window.FB.serverTimestamp()};
-      if(ffa)room.state='lobby';
-      await window.FB.set(rRef(), room);
-      window.FB.onDisconnect(rRef('p/0')).remove();
+      playersRoster={0:rec};
+      rememberRoom(code,0);
       $('onCreate').style.display='none';$('onJoinRow').style.display='none';$('onWait').style.display='';
       $('onCode').textContent=code;
       if(ffa){ $('onLobby').style.display=''; renderLobby({0:true}); setStatus(T('ffaShare')); }
       else setStatus((fmt==='double'?'2v2 · ':'1v1 · ')+T('shareCode'));
       attachRoomListeners();
-    }catch(e){ setStatus(T('err')+(e.message||e)); online=false; } })();
+    }catch(e){
+      if(dc){ try{ dc.cancel(); }catch(e2){} }
+      if(joinOpCurrent(op))setStatus(T('err')+(e.message||e));
+    } })();
   });
 }
 
@@ -1725,8 +1986,12 @@ function createRoom(){
 // v2 (M8-T3b): Online-FFA room schema — fmt 'ffa', state lobby/playing,
 // seats 2-5, p/0..p/4, moves for seats 0-4 with idx up to 4. Goes live
 // together with the matching firebase.rules.json publish (cutover).
-// A later physics-tuning pass (M5-T2) would bump to v3.
-const ONLINE_PROTOCOL_VERSION=2;
+// v3 (Paket A): adds the durable players/<seat>={id,name,tab} identity roster
+// alongside p/<seat> (volatile presence), player names, and lobby rejoin. The
+// disconnect semantics change (lobby host grace; players/<seat> survives a reload),
+// so a mixed v2/v3 room is unsafe — this bump goes live together with the matching
+// firebase.rules.json publish (hard cutover, after Paket B).
+const ONLINE_PROTOCOL_VERSION=3;
 const FFA_MAX_SEATS=5;   // Online-FFA: Seats 0-4 (Host=0), Farben aus PCOLS
 // Pure validator for a room snapshot the joiner is about to trust. No globals,
 // no state, no silent defaults: invalid or missing fields reject the join.
@@ -1750,6 +2015,9 @@ function validateRoom(d){
     if(seat<0)return{ok:false,reason:'Raum ist schon voll.'};
     return{ok:true,winTarget:cfg.winTarget,fmt:cfg.fmt,gen:d.gen,freeSeat:seat};
   }
+  // 1v1/2v2: Beitritt nur solange die Lobby offen ist (einheitlicher Room-State).
+  // Der erfolgreiche Gastclaim schaltet danach atomar auf state:'playing'.
+  if(d.state!=='lobby')return{ok:false,reason:'Match läuft bereits.'};
   if(p[1])return{ok:false,reason:'Raum ist schon voll.'};
   return{ok:true,winTarget:cfg.winTarget,fmt:cfg.fmt,gen:d.gen};
 }
@@ -1760,51 +2028,77 @@ function pickFreeSeat(p,max){for(let s=1;s<max;s++)if(!p||!p[s])return s;return 
 // v1-Entscheid: KEIN Auto-Nachruecken — bei Luecke blockt der Start-Button.
 function seatCount(p){let n=0;for(let s=0;s<FFA_MAX_SEATS;s++)if(p&&p[s])n++;return n;}
 function seatsContiguous(p,n){for(let s=0;s<n;s++)if(!p||!p[s])return false;return true;}
-// Seat-Claiming mit Retry (live seit M8-T3c):
+// Seat-Claiming mit Retry (live seit M8-T3c, kompensiert seit der Korrekturrunde):
 // Die Write-once-Rule auf p/<seat> ist der Schiedsrichter — verliert dieser Client
-// das Race, schlaegt der Write fehl -> Raum neu lesen, naechsten freien Seat versuchen.
-async function claimSeat(code){
+// das Race, schlaegt der Write fehl -> Raum neu lesen, naechsten freien Seat
+// versuchen. Ein fehlgeschlagener Roster-Write nach dem Presence-Gewinn rollt den
+// Sitz zurueck und bricht den Join ab (claimSeatSlot wirft — kein Ghost-Seat).
+// Rueckgabe: {seat,dc} bei Erfolg, {seat:-1} wenn kein Raum/kein freier Sitz.
+async function claimSeat(code,op){
   for(let t=0;t<FFA_MAX_SEATS;t++){
+    if(!joinOpCurrent(op))return {seat:-1,dc:null,stale:true};
     const s=await window.FB.get(window.FB.ref(window.FB.db,'rooms/'+code));
-    if(!s.exists())return -1;
-    const seat=pickFreeSeat((s.val()||{}).p,FFA_MAX_SEATS);
-    if(seat<0)return -1;
-    try{ await window.FB.set(window.FB.ref(window.FB.db,'rooms/'+code+'/p/'+seat),true); return seat; }
-    catch(e){ /* Race verloren -> Retry mit frischem Snapshot */ }
+    if(!joinOpCurrent(op))return {seat:-1,dc:null,stale:true};
+    if(!s.exists())return {seat:-1,dc:null};
+    const d=s.val()||{};
+    if(d.state!=='lobby')return {seat:-1,dc:null};   // Lobby geschlossen -> Match laeuft bereits
+    const seat=pickFreeSeat(d.p,FFA_MAX_SEATS);
+    if(seat<0)return {seat:-1,dc:null};
+    // KEIN Vorab-Loeschen fremder Records: ein verwaister Fremd-Record wird
+    // ausschliesslich INNERHALB des atomaren Claims (Multi-Path p+players) recycelt.
+    // Die Write-once-Presence bleibt der alleinige Schiedsrichter, der atomare Claim
+    // gewinnt oder scheitert vollstaendig — kein Zwischenzustand, kein fremder Verlust.
+    const r=await claimSeatSlot(code,seat,op);
+    if(r.stale)return {seat:-1,dc:null,stale:true};
+    if(r.lost)continue;   // Presence-Race verloren / Lobby geschlossen -> frischer Snapshot
+    return {seat:seat,dc:r.dc};
   }
-  return -1;
+  return {seat:-1,dc:null};
 }
 function joinRoom(){
   if(TUNE){toast('Tuning aktiv — Online deaktiviert');return;}
   const code=($('onInput').value||'').toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,4);
   if(code.length<4){ setStatus(T('code4')); return; }
   whenFB(()=>{ if(!fbReady()){setStatus(T('noFb'));return;}
-    (async()=>{ try{
+    (async()=>{ const op=newJoinOp();
+    try{
       setStatus(T('joining'));
       const s=await window.FB.get(window.FB.ref(window.FB.db,'rooms/'+code));
+      if(!joinOpCurrent(op))return;
       if(!s.exists()){ setStatus(T('noRoom')); return; }
-      const v=validateRoom(s.val());
+      const d=s.val();
+      // Same-seat rejoin: this browser identity already holds a seat here (reload /
+      // tab-switch). The Join tap is the visible confirmation the user must give.
+      // attemptRejoin opens its own (newer) op — this one simply ends here.
+      if(findOwnSeat(d.players,onlinePid)>=0){ await attemptRejoin(code); return; }
+      const v=validateRoom(d);
       if(!v.ok){ setStatus(v.reason); return; }
-      if(v.fmt==='ffa'){   // M8-T3c: Seat per write-once-Race claimen statt fix p/1
-        const seat=await claimSeat(code);
-        if(seat<0){ setStatus(T('roomFull')); return; }
-        roomCode=code; myPlayer=seat; online=true; mode='ffa'; runningGen=-1; gameStarted=false; seatLeft=[]; seatGone=[];
+      if(v.fmt==='ffa'){   // M8-T3c: Seat per atomaren write-once-Claim statt fix p/1
+        const c=await claimSeat(code,op);   // rolls its own writes back if the op goes stale
+        if(c.stale)return;                  // op superseded -> globals stay untouched (offline)
+        if(c.seat<0){ setStatus(T('roomFull')); return; }
+        // remote claim complete -> NOW commit the globals + UI + listeners
+        roomCode=code; myPlayer=c.seat; online=true; mode='ffa'; runningGen=-1; gameStarted=false; seatLeft=[]; seatGone=[]; playersRoster=d.players||{};
         winTarget=v.winTarget; fmt='ffa'; gen=v.gen;
-        window.FB.onDisconnect(rRef('p/'+seat)).remove();
+        rememberRoom(code,c.seat);
         $('onTitle').textContent='ONLINE-FFA';
         $('onCreate').style.display='none';$('onJoinRow').style.display='none';$('onLobby').style.display='';
         setStatus(T('connWait'));
         attachRoomListeners();
         return;
       }
+      // 1v1/2v2 guest seat 1 — atomic claim writes p/1 + players/1 AND flips
+      // state lobby->playing together (einheitlicher Room-State, Paket A).
+      const r=await claimSeatSlot(code,1,op,{state:'playing'});
+      if(r.stale)return;                    // op superseded -> own writes already rolled back
+      if(r.lost){ setStatus(T('roomFull')); return; }
       mode='online';   // Gast kann aus dem FFA-Menue heraus auch einem 1v1/2v2-Raum beitreten
-      roomCode=code; myPlayer=1; online=true; runningGen=-1; gameStarted=false; seatLeft=[]; seatGone=[];
+      roomCode=code; myPlayer=1; online=true; runningGen=-1; gameStarted=false; seatLeft=[]; seatGone=[]; playersRoster=d.players||{};
       winTarget=v.winTarget; fmt=v.fmt; gen=v.gen;
-      await window.FB.update(rRef('p'), {1:true});
-      window.FB.onDisconnect(rRef('p/1')).remove();
+      rememberRoom(code,1);
       setStatus(T('connStart'));
       attachRoomListeners();
-    }catch(e){ setStatus(T('err')+(e.message||e)); online=false; } })();
+    }catch(e){ if(joinOpCurrent(op))setStatus(T('err')+(e.message||e)); } })();
   });
 }
 
@@ -1827,6 +2121,69 @@ function onLobbyClosed(){
   openOnline();
   setStatus('Host hat die Lobby geschlossen.');
 }
+// Paket-A boundary check: a room is rejoinable ONLY while it is really in its
+// lobby state — reconnect into a RUNNING match is Paket B. With the unified
+// room-state this is a single truth for ALL modes: state==='lobby'. For 1v1/2v2
+// the guest claim flips the room to 'playing', so a lobby room can only hold the
+// host (seat 0) waiting for an opponent — a guest is never seated in a lobby, and
+// a running match is never rejoinable here (client- and rule-enforced alike).
+function roomRejoinableState(d,seat){
+  return !!d && d.state==='lobby';
+}
+// Same-seat rejoin into a still-open lobby (host seat 0 or a guest seat). Requires
+// a visible user action (Join tap / rejoin button) — never silent. Runs under the
+// join-op guard: globals are committed only after the remote claim succeeded, a
+// stale op releases its own presence again (the durable record stays — it existed
+// before this op). maybeStart() can never restart a running room after a rejoin:
+// the lobby-only boundary above rejects every running-match state, and the rules
+// enforce the same server-side (lobby-only p/<seat> restore).
+async function attemptRejoin(code){
+  if(TUNE){toast('Tuning aktiv — Online deaktiviert');return false;}
+  if(!fbReady()){ setStatus(T('noFb')); return false; }
+  const op=newJoinOp();
+  try{
+    setStatus(T('joining'));
+    const snap=await window.FB.get(window.FB.ref(window.FB.db,'rooms/'+code));
+    if(!joinOpCurrent(op))return false;
+    if(!snap.exists()){ forgetRoom(); setStatus(T('noRoom')); return false; }
+    const d=snap.val();
+    if(d.v!==ONLINE_PROTOCOL_VERSION){ forgetRoom(); setStatus(T('noRoom')); return false; }
+    const seat=findOwnSeat(d.players,onlinePid);
+    if(seat<0){ forgetRoom(); setStatus(T('noRoom')); return false; }   // identity no longer holds a seat here
+    const ffa=d.config&&d.config.fmt==='ffa';
+    if(!roomRejoinableState(d,seat)){ forgetRoom(); setStatus(T('rejoinNoLobby')); return false; }
+    if(d.p&&d.p[seat]===true){ setStatus(T('rejoinTab')); return false; }
+    // Atomic p/<seat>+players/<seat> refresh (same-id). The durable record existed
+    // before this op, so a stale rollback keeps it and only drops the presence.
+    const claim=await claimSeatSlot(code,seat,op,{keepRecordOnRollback:true});
+    if(claim.stale)return false;   // op superseded -> own presence already released, record kept
+    if(claim.lost){
+      // Presence write denied: either another tab re-took the seat, or the room
+      // left the lobby between the snapshot and the claim (the rules reject a
+      // presence restore outside the lobby). Re-read once for the right message.
+      let otherTab=true;
+      try{ const s2=await window.FB.get(window.FB.ref(window.FB.db,'rooms/'+code+'/p/'+seat)); otherTab=s2.val()===true; }catch(e){}
+      setStatus(T(otherTab?'rejoinTab':'rejoinNoLobby'));
+      return false;
+    }
+    // remote claim complete -> NOW commit the globals + UI + listeners
+    roomCode=code; myPlayer=seat; online=true; gen=(typeof d.gen==='number'?d.gen:0); runningGen=-1; gameStarted=false;
+    seatLeft=[]; seatGone=[]; playersRoster=d.players||{};
+    winTarget=(d.config&&d.config.winTarget)||3; fmt=ffa?'ffa':((d.config&&d.config.fmt)||'single'); mode=ffa?'ffa':'online';
+    rememberRoom(code,seat);
+    $('onCreate').style.display='none';$('onJoinRow').style.display='none';
+    if(ffa){ $('onTitle').textContent='ONLINE-FFA'; $('onLobby').style.display=''; }
+    else { $('onWait').style.display=''; }
+    $('onCode').textContent=code;
+    setStatus(T('rejoinOk'));
+    attachRoomListeners();
+    return true;
+  }catch(e){
+    // claimSeatSlot already rolled its own partial writes back on a roster failure
+    if(joinOpCurrent(op))setStatus(T('err')+(e.message||e));
+    return false;
+  }
+}
 function attachRoomListeners(){
   onlineSessionId++;   // P0-Fix: neue Session je Raumbeitritt/-erstellung -> Transaction-/Listener-Ergebnisse einer fruehreren Session werden ungueltig
   onlineTerminatedSession=-1;   // neue Session startet nie im terminalen Abbruchzustand
@@ -1846,8 +2203,11 @@ function attachRoomListeners(){
     // Auto-Start nur 1v1/2v2; FFA startet per Host-Start ueber state+seats (M8-T3c)
     if(fmt!=='ffa' && !!p[0] && !!p[1] && !gameStarted) maybeStart();
     if(fmt==='ffa' && !gameStarted){
-      if(!p[0] && myPlayer!==0){ onLobbyClosed(); return; }
       renderLobby(p);
+      // Host presence gone is no longer an instant close: a reload keeps players/0,
+      // so evalLobbyHostPresence holds the lobby open during a short host grace and
+      // only closes when the host record itself is gone (a deliberate leave).
+      evalLobbyHostPresence();
     }
     // 1v1/2v2: fremder Seat weg -> Match-Ende fuer alle. Online-FFA: Verlassene
     // werden per Move-Sentinel eliminiert, die Uebrigen spielen weiter (M8-T3c).
@@ -1862,6 +2222,15 @@ function attachRoomListeners(){
       }
       else for(let s=0;s<np();s++){if(s!==myPlayer&&!p[s]){onOppLeft();break;}}
     }
+  });
+  // Roster listener: durable player identities/names (id,name,tab). Keeps
+  // playersRoster fresh for lobby + HUD names and feeds the lobby host-grace
+  // decision (a deliberate host leave removes players/0 -> close immediately).
+  rosterUnsub=window.FB.onValue(rRef('players'), snap=>{
+    if(!isCurrentRoom())return;
+    playersRoster=snap.val()||{};
+    if(fmt==='ffa' && !gameStarted){ renderLobby(lobbyP); evalLobbyHostPresence(); }
+    else if(gameStarted) updateHud();
   });
   genUnsub=window.FB.onValue(rRef('gen'), snap=>{
     if(!isCurrentRoom())return;
@@ -1983,9 +2352,10 @@ function onlineConnectionLost(ctx){
   // Alle Raum-Listener sauber loesen (Rueckweg ins Menue via Overlay -> leaveOnline
   // raeumt den Rest ab). Die isOnlineTerminated-Guards fangen zusaetzlich jeden
   // Callback ab, der ein bereits zugestelltes Event noch verspaetet ausliefert.
+  clearLobbyHostGrace();
   if(turnUnsub){turnUnsub();turnUnsub=null;}
-  try{ if(genUnsub)genUnsub(); }catch(e){} try{ if(presUnsub)presUnsub(); }catch(e){} try{ if(seatsUnsub)seatsUnsub(); }catch(e){}
-  genUnsub=presUnsub=seatsUnsub=null;
+  try{ if(genUnsub)genUnsub(); }catch(e){} try{ if(presUnsub)presUnsub(); }catch(e){} try{ if(seatsUnsub)seatsUnsub(); }catch(e){} try{ if(rosterUnsub)rosterUnsub(); }catch(e){}
+  genUnsub=presUnsub=seatsUnsub=rosterUnsub=null;
   toast('Verbindung zum Spiel verloren. Bitte Raum neu betreten.');
   $('wVic').style.display='none';
   $('wt').style.display='';
@@ -2071,17 +2441,21 @@ function onlineSendCommit(idx,fx,fy,spin){
 }
 function onlineRematch(){ try{ window.FB.set(rRef('gen'), runningGen+1); }catch(e){} }
 function leaveOnline(){
+  joinOpSeq++;   // in-flight join/rejoin ops become stale BEFORE the early return — their continuations release own partial writes and never commit globals
   if(!online && !roomCode)return;
   onlineSessionId++;   // P0-Fix: laufende Transaktionen/Listener dieser Session sofort entwerten (auch bei sofortigem Wiederbeitritt zum selben Raum)
   onlineTerminatedSession=-1;   // terminalen Abbruchzustand sicher zuruecksetzen (die neue Session ist ohnehin != gespeicherter Session)
   clearAllSentinelRetries();   // P0-Nachbesserung: Raum wird verlassen -> kein Sentinel-Retry darf danach noch feuern
-  try{ if(turnUnsub)turnUnsub(); }catch(e){} try{ if(genUnsub)genUnsub(); }catch(e){} try{ if(presUnsub)presUnsub(); }catch(e){} try{ if(seatsUnsub)seatsUnsub(); }catch(e){}
-  turnUnsub=genUnsub=presUnsub=seatsUnsub=null;
-  // Eigene Presence entfernen, dann best-effort den ganzen Raum abräumen: die
-  // Cleanup-Rule erlaubt den Room-Delete nur, wenn kein Seat mehr präsent ist —
-  // sonst wird er still verworfen (laufendes Match anderer bleibt unberührt).
-  try{ if(window.FB && roomCode){ window.FB.remove(rRef('p/'+myPlayer)); window.FB.remove(rRef()).catch(()=>{}); } }catch(e){}
-  online=false; gameStarted=false; roomCode=''; lobbyP={}; seatLeft=[]; seatGone=[];
+  clearLobbyHostGrace();       // deliberate leave -> no pending lobby grace may fire afterwards
+  try{ if(turnUnsub)turnUnsub(); }catch(e){} try{ if(genUnsub)genUnsub(); }catch(e){} try{ if(presUnsub)presUnsub(); }catch(e){} try{ if(seatsUnsub)seatsUnsub(); }catch(e){} try{ if(rosterUnsub)rosterUnsub(); }catch(e){}
+  turnUnsub=genUnsub=presUnsub=seatsUnsub=rosterUnsub=null;
+  // Deliberate leave is immediate: drop own presence AND own roster record (frees
+  // the seat for recycling and signals "left, not reloading" to the others), then
+  // best-effort remove the whole room. The cleanup rule allows the room delete only
+  // when no seat is present — otherwise it is silently rejected (others play on).
+  try{ if(window.FB && roomCode){ window.FB.remove(rRef('p/'+myPlayer)); window.FB.remove(rRef('players/'+myPlayer)); window.FB.remove(rRef()).catch(()=>{}); } }catch(e){}
+  forgetRoom();
+  online=false; gameStarted=false; roomCode=''; lobbyP={}; seatLeft=[]; seatGone=[]; playersRoster={};
   mode=menuMode; ffaN=ffaNMenu;   // Online-FFA stellt mode/ffaN um — Menue-Auswahl wiederherstellen
 }
 

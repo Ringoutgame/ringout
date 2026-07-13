@@ -38,7 +38,7 @@ const SRC = [
   grab(/function pickFreeSeat\(p,max\)\{[^\n]*/, 'pickFreeSeat'),
   grab(/function seatCount\(p\)\{[^\n]*/, 'seatCount'),
   grab(/function seatsContiguous\(p,n\)\{[^\n]*/, 'seatsContiguous'),
-  grab(/async function claimSeat\(code\)\{[\s\S]*?\n\}/, 'claimSeat'),
+  grab(/async function claimSeat\(code,op\)\{[\s\S]*?\n\}/, 'claimSeat'),
   grab(/function renderLobby\(p\)\{[\s\S]*?\n\}/, 'renderLobby'),
   grab(/function openOnline\(\)\{[\s\S]*?\n\}/, 'openOnline'),
   grab(/function createRoom\(\)\{[\s\S]*?\n\}/, 'createRoom'),
@@ -61,12 +61,37 @@ const SRC = [
   grab(/function simHash\(\)\{[\s\S]*?\n\}/, 'simHash'),
   grab(/function onlineRematch\(\)\{[^\n]*/, 'onlineRematch'),
   grab(/function leaveOnline\(\)\{[\s\S]*?\n\}/, 'leaveOnline'),
+  // v3 identity (Paket A) + compensated claim lifecycle (Korrekturrunde)
+  grab(/function genToken\(n\)\{[\s\S]*?\n\}/, 'genToken'),
+  grab(/function capGraphemes\(s,max\)\{[\s\S]*?\n\}/, 'capGraphemes'),
+  grab(/function sanitizeName\(raw\)\{[\s\S]*?\n\}/, 'sanitizeName'),
+  grab(/function newJoinOp\(\)\{[^\n]*/, 'newJoinOp'),
+  grab(/function joinOpCurrent\(op\)\{[^\n]*/, 'joinOpCurrent'),
+  grab(/async function claimSeatSlot\(code,seat,op,extra\)\{[\s\S]*?\n\}/, 'claimSeatSlot'),
+  grab(/async function releaseSeatSlot\(code,seat,dc\)\{[\s\S]*?\n\}/, 'releaseSeatSlot'),
+  grab(/async function releaseSeatClaim\(code,seat,dc\)\{[\s\S]*?\n\}/, 'releaseSeatClaim'),
+  grab(/function roomRejoinableState\(d,seat\)\{[\s\S]*?\n\}/, 'roomRejoinableState'),
+  grab(/function playerRecord\(seat\)\{[^\n]*/, 'playerRecord'),
+  grab(/function nameForSeat\(s\)\{[\s\S]*?\n\}/, 'nameForSeat'),
+  grab(/function findOwnSeat\(players,pid\)\{[\s\S]*?\n\}/, 'findOwnSeat'),
+  grab(/function rememberRoom\(code,seat\)\{[^\n]*/, 'rememberRoom'),
+  grab(/function forgetRoom\(\)\{[^\n]*/, 'forgetRoom'),
+  grab(/function savedRoom\(\)\{[\s\S]*?\n\}/, 'savedRoom'),
+  grab(/function clearLobbyHostGrace\(\)\{[^\n]*/, 'clearLobbyHostGrace'),
+  grab(/function startLobbyHostGrace\(\)\{[\s\S]*?\n\}/, 'startLobbyHostGrace'),
+  grab(/function evalLobbyHostPresence\(\)\{[\s\S]*?\n\}/, 'evalLobbyHostPresence'),
+  grab(/async function attemptRejoin\(code\)\{[\s\S]*?\n\}/, 'attemptRejoin'),
 ].join('\n');
 
-// ── fake RTDB with the v2 rule behaviors the flows depend on ──
+// ── fake RTDB with the v3 rule behaviors the flows depend on ──
 function makeDB() {
   const data = { rooms: {} };
   const listeners = new Set();
+  // Failure injection: the next `times` writes whose path starts with `prefix`
+  // fail like a transport error (before any data change) — used by the negative
+  // claim-lifecycle scenarios (R3/R4).
+  const failures = [];
+  const failWrite = (prefix, times = 1) => failures.push({ prefix, times });
   const at = parts => parts.reduce((a, k) => (a && typeof a === 'object') ? a[k] : undefined, data);
   const clone = v => v === undefined || v === null ? null : JSON.parse(JSON.stringify(v));
   function notify() {
@@ -76,7 +101,11 @@ function makeDB() {
       if (cur !== l.last) { l.last = cur; l.cb({ val: () => clone(at(l.parts)), exists: () => at(l.parts) != null }); }
     }
   }
-  function checkWrite(parts, val) {  // minimal mirror of the published v2 rules
+  // Minimal mirror of the v3 rules with the unified room-state + atomic-claim
+  // semantics (Paket A, letzte Blocker). mergedP maps seat->true for presence writes
+  // in the SAME atomic update() as the checked path, so a players/<seat> create sees
+  // the sibling p/<seat> claim exactly as the real rules' merged newData does.
+  function checkWrite(parts, val, mergedP) {
     if (parts[0] !== 'rooms') throw new Error('PERMISSION_DENIED');
     const room = data.rooms[parts[1]];
     if (parts.length === 2) {
@@ -91,13 +120,20 @@ function makeDB() {
       const seat = +parts[3];
       if (val != null) {
         if (seat >= 5 || (fmt !== 'ffa' && seat >= 2)) throw new Error('PERMISSION_DENIED: seat range');
-        if (fmt === 'ffa' && room.p && room.p[seat]) throw new Error('PERMISSION_DENIED: write-once seat');
-        if (fmt === 'ffa' && seat !== 0 && room.state !== 'lobby') throw new Error('PERMISSION_DENIED: not lobby');
+        if (room.p && room.p[seat]) throw new Error('PERMISSION_DENIED: write-once seat');   // write-once presence = sole arbiter
+        if (seat === 0) {   // host presence re-add = lobby-only rejoin (unified state, ALL modes)
+          const pl = room.players || {};
+          if (!(pl[0] && pl[0].id) || room.state !== 'lobby') throw new Error('PERMISSION_DENIED: host rejoin only in lobby');
+        }
+        else if (room.state !== 'lobby') throw new Error('PERMISSION_DENIED: guest claim only in lobby');   // ALL modes, not just ffa
       }
       return;
     }
     if (key === 'state') {
-      if (!(fmt === 'ffa' && val === 'playing' && room.state === 'lobby' && room.p && room.p[1] === true))
+      // lobby->playing: ffa host-start OR 1v1/2v2 guest claim; p/1 may be set in the
+      // SAME atomic update (merged presence).
+      const p1 = (room.p && room.p[1] === true) || !!(mergedP && mergedP[1]);
+      if (!(val === 'playing' && room.state === 'lobby' && p1))
         throw new Error('PERMISSION_DENIED: state');
       return;
     }
@@ -111,9 +147,39 @@ function makeDB() {
       if (val != null && at(parts) != null) throw new Error('PERMISSION_DENIED: move write-once');
       return;
     }
+    if (key === 'players') {   // v3 identity roster — mirrors the real v3 rule expressions
+      const seat = parts[3], si = +seat;
+      const rec = room.players && room.players[seat];
+      const prePresent = room.p && room.p[seat] === true;   // pre-write presence
+      if (val == null) {       // delete: only while the seat presence is NOT held (pre-write)
+        if (prePresent) throw new Error('PERMISSION_DENIED: players delete while presence held');
+        return;
+      }
+      if (si >= 5 || (fmt !== 'ffa' && si >= 2)) throw new Error('PERMISSION_DENIED: players seat range');
+      if (!val || typeof val !== 'object'
+        || typeof val.id !== 'string' || !/^[A-Za-z0-9_-]{8,24}$/.test(val.id)
+        || typeof val.name !== 'string' || val.name.length < 1 || val.name.length > 48
+        || typeof val.tab !== 'string' || !/^[A-Za-z0-9_-]{8,24}$/.test(val.tab)
+        || Object.keys(val).some(k => k !== 'id' && k !== 'name' && k !== 'tab'))
+        throw new Error('PERMISSION_DENIED: players record invalid');
+      if (rec && rec.id === val.id) return;   // same-id update (name refresh / rejoin): id immutable, always ok
+      // create (holder writes own record) OR recycle-replace (one atomic claim takes
+      // over a stale foreign record): both need the merged presence (held from before
+      // or set in the SAME atomic write) and lobby. A REPLACE additionally requires
+      // a pre-write-free seat, so a currently-held foreign record can never be stolen.
+      const mergedPresent = prePresent || !!(mergedP && mergedP[seat]);
+      if (!mergedPresent) throw new Error('PERMISSION_DENIED: players needs presence');
+      if (room.state !== 'lobby') throw new Error('PERMISSION_DENIED: players create/replace only in lobby');
+      if (rec && prePresent) throw new Error('PERMISSION_DENIED: players replace requires pre-free presence');
+      return;
+    }
     throw new Error('PERMISSION_DENIED: ' + key);
   }
   function setParts(parts, val) {
+    const pathStr = parts.join('/');
+    for (const f of failures) {
+      if (f.times > 0 && pathStr.startsWith(f.prefix)) { f.times--; throw new Error('INJECTED_WRITE_FAILURE: ' + pathStr); }
+    }
     checkWrite(parts, val);
     let o = data;
     for (let i = 0; i < parts.length - 1; i++) { if (o[parts[i]] == null) o[parts[i]] = {}; o = o[parts[i]]; }
@@ -125,7 +191,30 @@ function makeDB() {
     ref: (db, path) => path.split('/'),
     get: async ref => ({ exists: () => at(ref) != null, val: () => clone(at(ref)) }),
     set: async (ref, val) => setParts(ref, val),
-    update: async (ref, obj) => { for (const k of Object.keys(obj)) setParts(ref.concat(String(k).split('/')), obj[k]); },
+    // Atomic multi-path update: honor failure injection and validate EVERY path
+    // against the pre-write tree (with merged sibling presence) BEFORE any data
+    // change, then apply all-or-nothing — a single rejected/failed path aborts the
+    // whole write, leaving no partial p/players/state behind.
+    update: async (ref, obj) => {
+      const keys = Object.keys(obj);
+      const paths = keys.map(k => ref.concat(String(k).split('/')));
+      for (const p of paths) {
+        const pathStr = p.join('/');
+        for (const f of failures) {
+          if (f.times > 0 && pathStr.startsWith(f.prefix)) { f.times--; throw new Error('INJECTED_WRITE_FAILURE: ' + pathStr); }
+        }
+      }
+      const mergedP = {};
+      keys.forEach((k, i) => { const pr = paths[i]; if (pr[pr.length - 2] === 'p' && obj[k] === true) mergedP[pr[pr.length - 1]] = true; });
+      keys.forEach((k, i) => checkWrite(paths[i], obj[k], mergedP));
+      keys.forEach((k, i) => {
+        let o = data;
+        for (let j = 0; j < paths[i].length - 1; j++) { if (o[paths[i][j]] == null) o[paths[i][j]] = {}; o = o[paths[i][j]]; }
+        const last = paths[i][paths[i].length - 1];
+        if (obj[k] == null) delete o[last]; else o[last] = JSON.parse(JSON.stringify(obj[k]));
+      });
+      notify();
+    },
     remove: async ref => setParts(ref, null),
     // Immediate-resolution transaction mirror for the non-race flow suite (S1..F6):
     // no local-optimistic intermediate state modeled here (that is the job of the
@@ -144,16 +233,24 @@ function makeDB() {
       cb({ val: () => clone(at(ref)), exists: () => at(ref) != null });   // initial fire like Firebase
       return () => listeners.delete(l);
     },
-    onDisconnect: ref => ({ remove() { ui.onDrop.push(ref); } }),
+    onDisconnect: ref => ({
+      remove: async () => { ui.onDrop.push(ref); },
+      cancel: async () => { for (let i = ui.onDrop.length - 1; i >= 0; i--) if (ui.onDrop[i].join('/') === ref.join('/')) ui.onDrop.splice(i, 1); }
+    }),
     serverTimestamp: () => 1751900000000
   });
-  return { data, FBfor };
+  return { data, FBfor, failWrite };
 }
 
 // ── one sandboxed client = the real functions + inert UI/game stubs ──
-function makeClient(db, code) {
+function makeClient(db, code, forcePid) {
   const ui = { code, log: [], onDrop: [] };
   const FB = db.FBfor(ui);
+  // Unique browser identity per sandboxed client (pid/tab match the rules charset).
+  // forcePid lets a "reloaded" client keep the SAME pid (fresh tab) to test rejoin.
+  const seq = (makeClient._seq = (makeClient._seq || 0) + 1);
+  const pid = forcePid || ('PID' + String(seq).padStart(6, '0'));
+  const tab = 'TAB' + String(seq).padStart(6, '0');
   const body = `
     const TUNE=false; let r3dOrbit=false;
     const T=k=>k;   // i18n-Stub: extrahierte Dialog-Funktionen loggen Text-KEYS (keine Asserts darauf)
@@ -171,6 +268,10 @@ function makeClient(db, code) {
     const SENTINEL_RETRY_BASE_MS=300, SENTINEL_RETRY_MAX_MS=2000;
     const SENTINEL_RETRY_MAX_ATTEMPTS=11;
     let onlineTerminatedSession=-1;
+    // v3 identity state (per client)
+    const NAME_MAX=16, NAME_MAX_UNITS=48, LOBBY_HOST_GRACE_MS=12000;
+    let onlinePid=${JSON.stringify(pid)}, onlineTab=${JSON.stringify(tab)}, onlineName='';
+    let playersRoster={}, rosterUnsub=null, lobbyHostGraceTimer=null, joinOpSeq=0;
     let phase='over', curAimer=0, balls=[], aimSet=[], commitIdx=[], commitAim=[], commitSpin=[], score=[];
     let replaying=false, repPlaying=false;
     const cx=500, cy=500, BR=32; let R=485;
@@ -188,9 +289,10 @@ function makeClient(db, code) {
     function drop(){   // browser-close simulation: listeners die, onDisconnect fires
       try{if(turnUnsub)turnUnsub();}catch(e){} try{if(genUnsub)genUnsub();}catch(e){}
       try{if(presUnsub)presUnsub();}catch(e){} try{if(seatsUnsub)seatsUnsub();}catch(e){}
-      turnUnsub=genUnsub=presUnsub=seatsUnsub=null;
+      try{if(rosterUnsub)rosterUnsub();}catch(e){}
+      turnUnsub=genUnsub=presUnsub=seatsUnsub=rosterUnsub=null;
       const d=ui.onDrop.slice(); ui.onDrop.length=0;
-      for(const r of d) FB.remove(r);
+      for(const r of d) FB.remove(r).catch(()=>{});   // server no-op when the path is already gone
     }
     return {
       ui, els,
@@ -211,6 +313,19 @@ function makeClient(db, code) {
       commitMove(){ if(whoCanAim()<0)return false; onlineSendCommit(myPlayer,5,5,0); return true; },
       rematch(){onlineRematch();},
       leave(){leaveOnline();},
+      pid(){return onlinePid;},
+      setFmt(f){fmt=f;},
+      setName(n){onlineName=sanitizeName(n); if(online&&roomCode){try{FB.set(rRef('players/'+myPlayer),playerRecord(myPlayer)).catch(()=>{});}catch(e){}}},
+      roster(){return JSON.parse(JSON.stringify(playersRoster));},
+      nameFor(s){return nameForSeat(s);},
+      async rejoin(c){return await attemptRejoin(c);},
+      async releaseClaim(c,s){return await releaseSeatClaim(c,s,null);},
+      // Direct atomic-claim driver for the parallel-race / onDisconnect-lifecycle
+      // tests: fresh op each call, real claimSeatSlot (p+players[+state] in one write).
+      async claimSlot(c,s,extra){return await claimSeatSlot(c,s,newJoinOp(),extra);},
+      onDrops(){return ui.onDrop.map(r=>r.join('/'));},
+      status(){return $('onStatus').textContent;},
+      hasGrace(){return !!lobbyHostGraceTimer;},
       drop
     };`;
   return new Function('FB', 'ui', body)(FB, ui);
@@ -226,7 +341,8 @@ const tick = async (n = 4) => { for (let i = 0; i < n; i++) await new Promise(r 
     const db = makeDB();
     const [h, g1, g2] = [makeClient(db, 'FFA3'), makeClient(db, 'X'), makeClient(db, 'X')];
     h.setMenu('ffa', 3); h.create(); await tick();
-    t('S1 room created ffa lobby', db.data.rooms.FFA3.state === 'lobby' && db.data.rooms.FFA3.config.fmt === 'ffa' && db.data.rooms.FFA3.v === 2);
+    t('S1 room created ffa lobby v3', db.data.rooms.FFA3.state === 'lobby' && db.data.rooms.FFA3.config.fmt === 'ffa' && db.data.rooms.FFA3.v === 3);
+    t('S1 host roster record written', !!db.data.rooms.FFA3.players && db.data.rooms.FFA3.players[0] && db.data.rooms.FFA3.players[0].id === h.pid());
     g1.setMenu('online'); g1.join('FFA3'); await tick();
     g2.setMenu('online'); g2.join('FFA3'); await tick();
     t('S1 guests seated 1,2', g1.st().myPlayer === 1 && g2.st().myPlayer === 2 && g1.st().mode === 'ffa');
@@ -334,12 +450,13 @@ const tick = async (n = 4) => { for (let i = 0; i < n; i++) await new Promise(r 
     t('S8 late seat ejected with status', g2.st().online === false && g2.st().gameStarted === false && g2.els.onStatus.textContent === 'Das Match ist ohne dich gestartet — tritt einem neuen Raum bei.');
   }
 
-  // ── S9: 1v1 regression through the same fake (auto-start, flip, no lobby) ──
+  // ── S9: 1v1 regression through the same fake (auto-start, flip, unified state) ──
   {
     const db = makeDB();
     const h = makeClient(db, 'SGL1'); h.setMenu('online'); h.create(); await tick();
-    t('S9 single room without state', db.data.rooms.SGL1.state === undefined && db.data.rooms.SGL1.config.fmt === 'single');
+    t('S9 single room created in lobby v3', db.data.rooms.SGL1.state === 'lobby' && db.data.rooms.SGL1.config.fmt === 'single');
     const g = makeClient(db, 'X'); g.setMenu('online'); g.join('SGL1'); await tick();
+    t('S9 guest atomic claim flipped state to playing', db.data.rooms.SGL1.state === 'playing' && db.data.rooms.SGL1.p[1] === true && db.data.rooms.SGL1.players[1].id === g.pid());
     t('S9 auto-start both, np 2', h.st().gameStarted && g.st().gameStarted && h.ui.log.includes('newGame:2'));
     t('S9 guest view flip stays 1v1', g.va() === Math.PI && h.va() === 0);
     t('S9 lobby untouched', (h.els.lobbyCount||{textContent:''}).textContent === '' && g.st().mode === 'online');
@@ -424,6 +541,240 @@ const tick = async (n = 4) => { for (let i = 0; i < n; i++) await new Promise(r 
     // unterschiedlicher Lese-Reihenfolgen ueberall exakt identisch bleibt.
     const refScore = JSON.stringify(h.st().score);
     t('F6 score state identical on all five clients', all5.every(c => JSON.stringify(c.st().score) === refScore));
+  }
+
+  // ── N1: player name sanitization + live roster propagation to other clients ──
+  {
+    const db = makeDB();
+    const h = makeClient(db, 'NAM3'); h.setMenu('ffa', 3); h.create(); await tick();
+    const g1 = makeClient(db, 'X'); g1.setMenu('online'); g1.join('NAM3'); await tick();
+    g1.setName('  Ali  '); await tick();
+    t('N1 name trimmed/collapsed in db', db.data.rooms.NAM3.players[1].name === 'Ali');
+    t('N1 host roster sees the guest name', h.nameFor(1) === 'Ali');
+    g1.setName('x234567890123456789'); await tick();   // 19 chars -> capped at 16
+    t('N1 overlong name capped to 16 visible chars', db.data.rooms.NAM3.players[1].name.length === 16);
+    g1.setName('   '); await tick();                    // empty after trim -> color fallback
+    t('N1 empty name falls back to seat color name in db', db.data.rooms.NAM3.players[1].name === 'col1');
+    t('N1 nameFor falls back to color for empty roster name', h.nameFor(1) === 'col1');
+  }
+
+  // ── R1: guest reload in the lobby (presence drops, players record lingers) ->
+  //    rejoin with the same pid lands on the SAME seat ──
+  {
+    const db = makeDB();
+    const h = makeClient(db, 'RJN1'); h.setMenu('ffa', 3); h.create(); await tick();
+    const g = makeClient(db, 'X'); g.setMenu('online'); g.join('RJN1'); await tick();
+    const gpid = g.pid();
+    t('R1 guest seated 1 with roster record', g.st().myPlayer === 1 && db.data.rooms.RJN1.players[1].id === gpid);
+    g.drop(); await tick();                              // reload: onDisconnect removes p/1; players/1 stays
+    t('R1 presence gone but roster record kept for rejoin', db.data.rooms.RJN1.p[1] == null && db.data.rooms.RJN1.players[1].id === gpid);
+    const g2 = makeClient(db, 'X', gpid); g2.setMenu('online'); g2.join('RJN1'); await tick();
+    t('R1 rejoined the SAME seat 1', g2.st().myPlayer === 1 && g2.st().online === true && g2.status() === 'rejoinOk');
+    t('R1 presence restored, roster id unchanged', db.data.rooms.RJN1.p[1] === true && db.data.rooms.RJN1.players[1].id === gpid);
+  }
+
+  // ── R2: host reload does NOT close the lobby at once (grace), host rejoins seat 0 ──
+  {
+    const db = makeDB();
+    const h = makeClient(db, 'RJN2'); h.setMenu('ffa', 3); h.create(); await tick();
+    const g = makeClient(db, 'X'); g.setMenu('online'); g.join('RJN2'); await tick();
+    const hpid = h.pid();
+    h.drop(); await tick();                              // host reload: p/0 removed, players/0 kept
+    t('R2 guest keeps the lobby open during the host grace', g.st().online === true && g.hasGrace() === true);
+    const h2 = makeClient(db, 'X', hpid); h2.setMenu('ffa'); h2.join('RJN2'); await tick();
+    t('R2 host rejoined on seat 0', h2.st().myPlayer === 0 && h2.st().online === true);
+    t('R2 guest grace cleared once the host returned', g.hasGrace() === false && g.st().online === true);
+  }
+
+  // ── R3: one path of the ATOMIC claim (players/1) fails -> the whole multi-path
+  //    write is rejected: no presence, no roster record, join aborts loud, seat
+  //    stays claimable (atomic all-or-nothing, no partial state) ──
+  {
+    const db = makeDB();
+    const h = makeClient(db, 'RBK1'); h.setMenu('ffa', 3); h.create(); await tick();
+    const g = makeClient(db, 'X'); g.setMenu('online');
+    db.failWrite('rooms/RBK1/players/1', 1);   // the roster leg of the atomic claim fails
+    g.join('RBK1'); await tick();
+    t('R3 join aborted with visible error (not swallowed)', g.st().online === false && g.status().indexOf('err') === 0);
+    t('R3 no ghost seat: presence not left behind', db.data.rooms.RBK1.p[1] == null);
+    t('R3 no orphaned roster record', !(db.data.rooms.RBK1.players && db.data.rooms.RBK1.players[1]));
+    t('R3 onDisconnect disarmed after the failed claim', g.ui.onDrop.length === 0);
+    const g2 = makeClient(db, 'X'); g2.setMenu('online'); g2.join('RBK1'); await tick();
+    t('R3 seat claimable again after the rollback', g2.st().myPlayer === 1 && db.data.rooms.RBK1.players[1].id === g2.pid());
+  }
+
+  // ── R4: a transport failure on the atomic claim (presence leg) aborts the WHOLE
+  //    write — nothing (presence, roster, state) is left behind, the error surfaces
+  //    (never swallowed into a false "seat taken"), and the seat stays claimable ──
+  {
+    const db = makeDB();
+    const h = makeClient(db, 'RBK2'); h.setMenu('ffa', 3); h.create(); await tick();
+    const g = makeClient(db, 'X'); g.setMenu('online');
+    db.failWrite('rooms/RBK2/p/1', 1);   // the atomic multi-path claim fails like a network error
+    g.join('RBK2'); await tick();
+    t('R4 transport failure aborts join with visible error', g.st().online === false && g.status().indexOf('err') === 0);
+    t('R4 atomic reject: neither presence nor roster record left', db.data.rooms.RBK2.p[1] == null && !(db.data.rooms.RBK2.players && db.data.rooms.RBK2.players[1]));
+    t('R4 onDisconnect disarmed after the failed claim', g.ui.onDrop.length === 0);
+    const g2 = makeClient(db, 'X'); g2.setMenu('online'); g2.join('RBK2'); await tick();
+    t('R4 seat claimable again by a fresh guest', g2.st().myPlayer === 1 && db.data.rooms.RBK2.players[1].id === g2.pid());
+  }
+
+  // ── R5: late rejoin from room A after a newer join to room B -> op guard
+  //    neutralizes the old continuation (no globals/listeners/writes of B touched) ──
+  {
+    const db = makeDB();
+    const hA = makeClient(db, 'ROMA'); hA.setMenu('ffa', 3); hA.create(); await tick();
+    const hB = makeClient(db, 'ROMB'); hB.setMenu('ffa', 3); hB.create(); await tick();
+    const g = makeClient(db, 'X'); g.setMenu('online'); g.join('ROMA'); await tick();
+    const gpid = g.pid();
+    g.drop(); await tick();                       // reload while seated in A
+    const g2 = makeClient(db, 'X', gpid); g2.setMenu('online');
+    const late = g2.rejoin('ROMA');               // old intent, still in flight...
+    g2.join('ROMB');                              // ...user decides differently (newer op)
+    await tick(6);
+    t('R5 late rejoin from room A neutralized (op guard)', (await late) === false);
+    t('R5 client ended up in room B on a normal claim', g2.st().roomCode === 'ROMB' && g2.st().online === true && g2.st().myPlayer === 1);
+    t('R5 room A presence NOT restored by the stale rejoin', db.data.rooms.ROMA.p[1] == null);
+    t('R5 room A record untouched (rejoin identity preserved)', db.data.rooms.ROMA.players[1].id === gpid);
+  }
+
+  // ── R6: foreign claims against the roster (id switch, delete, mid-match create)
+  //    are denied by the mirrored v3 rule expressions ──
+  {
+    const db = makeDB();
+    const h = makeClient(db, 'ATK1'); h.setMenu('ffa', 3); h.create(); await tick();
+    const g = makeClient(db, 'X'); g.setMenu('online'); g.join('ATK1'); await tick();
+    const atk = db.FBfor({ log: [], onDrop: [] });
+    let denied = false;
+    try { await atk.set(atk.ref(null, 'rooms/ATK1/players/1'), { id: 'EVIL0001', name: 'evil', tab: 'EVILTAB0' }); } catch (e) { denied = true; }
+    t('R6 id switch on an occupied seat denied (id immutable)', denied && db.data.rooms.ATK1.players[1].id === g.pid());
+    denied = false;
+    try { await atk.remove(atk.ref(null, 'rooms/ATK1/players/1')); } catch (e) { denied = true; }
+    t('R6 record delete denied while the presence is held', denied && !!db.data.rooms.ATK1.players[1]);
+    h.clickStart(); await tick();
+    denied = false;
+    try { await atk.set(atk.ref(null, 'rooms/ATK1/players/2'), { id: 'EVIL0002', name: 'evil', tab: 'EVILTAB0' }); } catch (e) { denied = true; }
+    t('R6 record creation during a running match denied', denied && !(db.data.rooms.ATK1.players && db.data.rooms.ATK1.players[2]));
+  }
+
+  // ── R7: host rejoin during a RUNNING ffa match is rejected (client boundary
+  //    AND rules) — maybeStart can never locally restart a running room ──
+  {
+    const db = makeDB();
+    const h = makeClient(db, 'RUN1'); h.setMenu('ffa', 3); h.create(); await tick();
+    const g = makeClient(db, 'X'); g.setMenu('online'); g.join('RUN1'); await tick();
+    h.clickStart(); await tick();
+    const hpid = h.pid();
+    h.drop(); await tick();                       // host reload mid-match
+    const h2 = makeClient(db, 'X', hpid); h2.setMenu('ffa');
+    const ok = await h2.rejoin('RUN1'); await tick();
+    t('R7 host rejoin during running ffa match rejected', ok === false && h2.st().online === false && h2.st().gameStarted === false && h2.status() === 'rejoinNoLobby');
+    t('R7 host presence NOT restored during playing', db.data.rooms.RUN1.p[0] == null);
+    const atk = db.FBfor({ log: [], onDrop: [] });
+    let denied = false;
+    try { await atk.set(atk.ref(null, 'rooms/RUN1/p/0'), true); } catch (e) { denied = true; }
+    t('R7 rules deny the p/0 restore while playing', denied);
+  }
+
+  // ── R8: 1v1 — host rejoin allowed ONLY while the room still waits for an
+  //    opponent; after the auto-start every rejoin (host or guest) is rejected ──
+  {
+    const db = makeDB();
+    const h = makeClient(db, 'SGL2'); h.setMenu('online'); h.create(); await tick();
+    const hpid = h.pid();
+    h.drop(); await tick();                       // host reload while waiting
+    const h2 = makeClient(db, 'X', hpid); h2.setMenu('online');
+    const okWait = await h2.rejoin('SGL2'); await tick();
+    t('R8 1v1 host rejoin while waiting allowed', okWait === true && h2.st().myPlayer === 0 && db.data.rooms.SGL2.p[0] === true);
+    const g = makeClient(db, 'X'); g.setMenu('online'); g.join('SGL2'); await tick();
+    t('R8 1v1 auto-start after the guest join', h2.st().gameStarted && g.st().gameStarted);
+    h2.drop(); await tick();                      // host reload mid-match
+    const h3 = makeClient(db, 'X', hpid); h3.setMenu('online');
+    const okRun = await h3.rejoin('SGL2'); await tick();
+    t('R8 1v1 host rejoin after match start rejected', okRun === false && h3.st().online === false && h3.status() === 'rejoinNoLobby' && db.data.rooms.SGL2.p[0] == null);
+    const atk = db.FBfor({ log: [], onDrop: [] });
+    let denied = false;
+    try { await atk.set(atk.ref(null, 'rooms/SGL2/p/0'), true); } catch (e) { denied = true; }
+    t('R8 rules deny the 1v1 host presence restore (guest record exists)', denied);
+    const gpid = g.pid();
+    g.drop(); await tick();
+    const g2 = makeClient(db, 'X', gpid); g2.setMenu('online');
+    const okG = await g2.rejoin('SGL2'); await tick();
+    t('R8 1v1 guest rejoin rejected (their join started the match)', okG === false && g2.status() === 'rejoinNoLobby');
+  }
+
+  // ── R9: 2v2 — same boundary: match rejoin rejected ──
+  {
+    const db = makeDB();
+    const h = makeClient(db, 'DBL1'); h.setMenu('online'); h.setFmt('double'); h.create(); await tick();
+    const g = makeClient(db, 'X'); g.setMenu('online'); g.join('DBL1'); await tick();
+    t('R9 2v2 started', h.st().gameStarted && g.st().gameStarted && db.data.rooms.DBL1.config.fmt === 'double');
+    const hpid = h.pid();
+    h.drop(); await tick();
+    const h2 = makeClient(db, 'X', hpid); h2.setMenu('online');
+    const ok = await h2.rejoin('DBL1'); await tick();
+    t('R9 2v2 host match rejoin rejected', ok === false && h2.status() === 'rejoinNoLobby' && db.data.rooms.DBL1.p[0] == null);
+  }
+
+  // ── R10: seat recycling only in the lobby at free presence; a late rollback/
+  //    cleanup never deletes a record that was taken over in the meantime ──
+  {
+    const db = makeDB();
+    const h = makeClient(db, 'RCY1'); h.setMenu('ffa', 3); h.create(); await tick();
+    const g1 = makeClient(db, 'X'); g1.setMenu('online'); g1.join('RCY1'); await tick();
+    const oldPid = g1.pid();
+    g1.drop(); await tick();                      // reload: presence free, record lingers (lobby)
+    const g2 = makeClient(db, 'X'); g2.setMenu('online'); g2.join('RCY1'); await tick();
+    t('R10 lobby recycle takes the presence-free seat', g2.st().myPlayer === 1 && db.data.rooms.RCY1.players[1].id === g2.pid());
+    t('R10 stale record replaced atomically inside the claim (never id mutation)', db.data.rooms.RCY1.players[1].id !== oldPid);
+    const g1b = makeClient(db, 'X', oldPid); g1b.setMenu('online');
+    const ok = await g1b.rejoin('RCY1'); await tick();
+    t('R10 old identity rejoin rejected after the recycle', ok === false && g1b.st().online === false);
+    t('R10 recycled seat untouched by the failed rejoin', db.data.rooms.RCY1.players[1].id === g2.pid() && db.data.rooms.RCY1.p[1] === true);
+    // Worst-case cleanup fired against a taken-over seat: the id check (and the
+    // rules delete-guard) must leave the foreign record alone.
+    await g1b.releaseClaim('RCY1', 1); await tick();
+    t('R10 late cleanup never deletes a foreign record', db.data.rooms.RCY1.players[1].id === g2.pid());
+  }
+
+  // ── RP1: two atomic claims on the SAME seat -> the write-once presence is the
+  //    sole arbiter: exactly one winner, the other reports lost (no throw), and the
+  //    DB holds a single consistent presence+record for that seat ──
+  {
+    const db = makeDB();
+    const h = makeClient(db, 'PAR1'); h.setMenu('ffa', 3); h.create(); await tick();
+    const a = makeClient(db, 'AAA'); const b = makeClient(db, 'BBB');
+    const [ra, rb] = await Promise.all([a.claimSlot('PAR1', 1), b.claimSlot('PAR1', 1)]);
+    t('RP1 exactly one atomic claim wins the shared seat', [ra, rb].filter(r => r.ok).length === 1 && [ra, rb].filter(r => r.lost).length === 1);
+    const winnerPid = ra.ok ? a.pid() : b.pid();
+    t('RP1 db seat 1 holds a single presence + winner record', db.data.rooms.PAR1.p[1] === true && db.data.rooms.PAR1.players[1] && db.data.rooms.PAR1.players[1].id === winnerPid);
+  }
+
+  // ── RD1: onDisconnect lifecycle — armed and KEPT after a successful atomic claim,
+  //    disarmed after a rejected one (no leaked disconnect handler) ──
+  {
+    const db = makeDB();
+    const h = makeClient(db, 'ODC1'); h.setMenu('ffa', 3); h.create(); await tick();
+    const a = makeClient(db, 'AAA'); const ra = await a.claimSlot('ODC1', 1);
+    t('RD1 successful claim keeps its onDisconnect armed', ra.ok === true && a.onDrops().indexOf('rooms/ODC1/p/1') !== -1);
+    const b = makeClient(db, 'BBB'); const rb = await b.claimSlot('ODC1', 1);   // seat held -> write-once rejects
+    t('RD1 rejected claim disarms its onDisconnect', rb.lost === true && b.onDrops().length === 0);
+  }
+
+  // ── RN1: recycle race on a stale foreign seat — the loser NEVER pre-deletes the
+  //    foreign record; the seat is only ever replaced atomically by the one winner ──
+  {
+    const db = makeDB();
+    const h = makeClient(db, 'NPD1'); h.setMenu('ffa', 3); h.create(); await tick();
+    const g1 = makeClient(db, 'X'); g1.setMenu('online'); g1.join('NPD1'); await tick();
+    const stalePid = g1.pid();
+    g1.drop(); await tick();   // reload: presence free, stale foreign record lingers (lobby)
+    const a = makeClient(db, 'AAA'); const b = makeClient(db, 'BBB');
+    const [ra, rb] = await Promise.all([a.claimSlot('NPD1', 1), b.claimSlot('NPD1', 1)]);
+    t('RN1 recycle race: exactly one winner', [ra, rb].filter(r => r.ok).length === 1);
+    const winnerPid = ra.ok ? a.pid() : b.pid();
+    t('RN1 seat recycled atomically to the winner (no pre-delete)', db.data.rooms.NPD1.players[1].id === winnerPid && db.data.rooms.NPD1.p[1] === true);
+    t('RN1 stale foreign record was replaced, not the winner clobbered', db.data.rooms.NPD1.players[1].id !== stalePid);
   }
 
   console.log('\nFFA-Online-Flow: ' + pass + ' passed, ' + fail + ' failed');

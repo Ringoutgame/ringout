@@ -12,7 +12,7 @@ const VER = new Function([verSrc, 'return ONLINE_PROTOCOL_VERSION;'].join('\n'))
 let pass = 0, fail = 0;
 const t = (name, cond) => { cond ? pass++ : (fail++, console.error('FAIL: ' + name)); };
 const room = (over = {}) => Object.assign(
-  { v: VER, config: { winTarget: 3, fmt: 'single' }, gen: 0, p: { 0: true }, created: 1751800000000 }, over);
+  { v: VER, config: { winTarget: 3, fmt: 'single' }, gen: 0, state: 'lobby', p: { 0: true }, created: 1751800000000 }, over);
 
 // ── protocol version (M1-T3) ──
 const VMSG = 'Versionen stimmen nicht überein — bitte beide Seite neu laden.';
@@ -64,6 +64,12 @@ t('host false -> verwaist', validateRoom(room({ p: { 0: false } })).reason === '
 t('host non-bool truthy rejected', validateRoom(room({ p: { 0: 1 } })).ok === false);
 t('full room exact message', validateRoom(room({ p: { 0: true, 1: true } })).reason === 'Raum ist schon voll.');
 t('full room as array [true,true]', validateRoom(room({ p: [true, true] })).reason === 'Raum ist schon voll.');
+
+// ── unified room-state (Paket A): 1v1/2v2 join only while the lobby is open ──
+t('single without state -> match läuft', validateRoom(room({ state: undefined })).reason === 'Match läuft bereits.');
+t('single state=playing -> match läuft', validateRoom(room({ state: 'playing' })).reason === 'Match läuft bereits.');
+t('double state=playing -> match läuft', validateRoom(room({ config: { winTarget: 3, fmt: 'double' }, state: 'playing' })).reason === 'Match läuft bereits.');
+t('single state=lobby -> ok', validateRoom(room({ state: 'lobby' })).ok === true);
 
 // ── purity ──
 { const input = room(); Object.freeze(input); Object.freeze(input.config); Object.freeze(input.p);

@@ -40,7 +40,7 @@ const SRC = [
   grab(/function pickFreeSeat\(p,max\)\{[^\n]*/, 'pickFreeSeat'),
   grab(/function seatCount\(p\)\{[^\n]*/, 'seatCount'),
   grab(/function seatsContiguous\(p,n\)\{[^\n]*/, 'seatsContiguous'),
-  grab(/async function claimSeat\(code\)\{[\s\S]*?\n\}/, 'claimSeat'),
+  grab(/async function claimSeat\(code,op\)\{[\s\S]*?\n\}/, 'claimSeat'),
   grab(/function renderLobby\(p\)\{[\s\S]*?\n\}/, 'renderLobby'),
   grab(/function openOnline\(\)\{[\s\S]*?\n\}/, 'openOnline'),
   grab(/function createRoom\(\)\{[\s\S]*?\n\}/, 'createRoom'),
@@ -69,6 +69,26 @@ const SRC = [
   grab(/function simHash\(\)\{[\s\S]*?\n\}/, 'simHash'),
   grab(/function onlineRematch\(\)\{[^\n]*/, 'onlineRematch'),
   grab(/function leaveOnline\(\)\{[\s\S]*?\n\}/, 'leaveOnline'),
+  // v3 identity (Paket A) + compensated claim lifecycle (Korrekturrunde)
+  grab(/function genToken\(n\)\{[\s\S]*?\n\}/, 'genToken'),
+  grab(/function capGraphemes\(s,max\)\{[\s\S]*?\n\}/, 'capGraphemes'),
+  grab(/function sanitizeName\(raw\)\{[\s\S]*?\n\}/, 'sanitizeName'),
+  grab(/function newJoinOp\(\)\{[^\n]*/, 'newJoinOp'),
+  grab(/function joinOpCurrent\(op\)\{[^\n]*/, 'joinOpCurrent'),
+  grab(/async function claimSeatSlot\(code,seat,op,extra\)\{[\s\S]*?\n\}/, 'claimSeatSlot'),
+  grab(/async function releaseSeatSlot\(code,seat,dc\)\{[\s\S]*?\n\}/, 'releaseSeatSlot'),
+  grab(/async function releaseSeatClaim\(code,seat,dc\)\{[\s\S]*?\n\}/, 'releaseSeatClaim'),
+  grab(/function roomRejoinableState\(d,seat\)\{[\s\S]*?\n\}/, 'roomRejoinableState'),
+  grab(/function playerRecord\(seat\)\{[^\n]*/, 'playerRecord'),
+  grab(/function nameForSeat\(s\)\{[\s\S]*?\n\}/, 'nameForSeat'),
+  grab(/function findOwnSeat\(players,pid\)\{[\s\S]*?\n\}/, 'findOwnSeat'),
+  grab(/function rememberRoom\(code,seat\)\{[^\n]*/, 'rememberRoom'),
+  grab(/function forgetRoom\(\)\{[^\n]*/, 'forgetRoom'),
+  grab(/function savedRoom\(\)\{[\s\S]*?\n\}/, 'savedRoom'),
+  grab(/function clearLobbyHostGrace\(\)\{[^\n]*/, 'clearLobbyHostGrace'),
+  grab(/function startLobbyHostGrace\(\)\{[\s\S]*?\n\}/, 'startLobbyHostGrace'),
+  grab(/function evalLobbyHostPresence\(\)\{[\s\S]*?\n\}/, 'evalLobbyHostPresence'),
+  grab(/async function attemptRejoin\(code\)\{[\s\S]*?\n\}/, 'attemptRejoin'),
 ].join('\n');
 
 // ── fake RTDB with a real two-phase runTransaction() model ──
@@ -87,7 +107,12 @@ function makeDB() {
       if (cur !== l.last) { l.last = cur; l.cb({ val: () => clone(at(l.parts)), exists: () => at(l.parts) != null }); }
     }
   }
-  function checkWrite(parts, val) {  // minimal mirror of the published v2 rules (unverändert)
+  // Minimal mirror of the v3 rules with the unified room-state + atomic-claim
+  // semantics (Paket A, letzte Blocker). mergedP maps seat->true for presence
+  // writes that occur in the SAME atomic update() as the path being checked, so a
+  // players/<seat> create can see the sibling p/<seat> claim exactly as the real
+  // rules' merged newData does. Sequential single-path writes pass mergedP=undefined.
+  function checkWrite(parts, val, mergedP) {
     if (parts[0] !== 'rooms') throw new Error('PERMISSION_DENIED');
     const room = data.rooms[parts[1]];
     if (parts.length === 2) {
@@ -101,13 +126,20 @@ function makeDB() {
       const seat = +parts[3];
       if (val != null) {
         if (seat >= 5 || (fmt !== 'ffa' && seat >= 2)) throw new Error('PERMISSION_DENIED: seat range');
-        if (fmt === 'ffa' && room.p && room.p[seat]) throw new Error('PERMISSION_DENIED: write-once seat');
-        if (fmt === 'ffa' && seat !== 0 && room.state !== 'lobby') throw new Error('PERMISSION_DENIED: not lobby');
+        if (room.p && room.p[seat]) throw new Error('PERMISSION_DENIED: write-once seat');   // write-once presence = sole arbiter
+        if (seat === 0) {   // host presence re-add = lobby-only rejoin (unified state, ALL modes)
+          const pl = room.players || {};
+          if (!(pl[0] && pl[0].id) || room.state !== 'lobby') throw new Error('PERMISSION_DENIED: host rejoin only in lobby');
+        }
+        else if (room.state !== 'lobby') throw new Error('PERMISSION_DENIED: guest claim only in lobby');   // ALL modes, not just ffa
       }
       return;
     }
     if (key === 'state') {
-      if (!(fmt === 'ffa' && val === 'playing' && room.state === 'lobby' && room.p && room.p[1] === true))
+      // lobby->playing: ffa host-start OR 1v1/2v2 guest claim; p/1 may be set in the
+      // SAME atomic update (merged presence).
+      const p1 = (room.p && room.p[1] === true) || !!(mergedP && mergedP[1]);
+      if (!(val === 'playing' && room.state === 'lobby' && p1))
         throw new Error('PERMISSION_DENIED: state');
       return;
     }
@@ -119,6 +151,32 @@ function makeDB() {
     if (key === 'gen') { if (val !== room.gen + 1) throw new Error('PERMISSION_DENIED: gen'); return; }
     if (key === 'g') {          // move slots are write-once (arbiter, mirrors the real rules)
       if (val != null && at(parts) != null) throw new Error('PERMISSION_DENIED: move write-once');
+      return;
+    }
+    if (key === 'players') {   // v3 identity roster — mirrors the real v3 rule expressions
+      const seat = parts[3], si = +seat;
+      const rec = room.players && room.players[seat];
+      const prePresent = room.p && room.p[seat] === true;   // pre-write presence
+      if (val == null) {       // delete: only while the seat presence is NOT held (pre-write)
+        if (prePresent) throw new Error('PERMISSION_DENIED: players delete while presence held');
+        return;
+      }
+      if (si >= 5 || (fmt !== 'ffa' && si >= 2)) throw new Error('PERMISSION_DENIED: players seat range');
+      if (!val || typeof val !== 'object'
+        || typeof val.id !== 'string' || !/^[A-Za-z0-9_-]{8,24}$/.test(val.id)
+        || typeof val.name !== 'string' || val.name.length < 1 || val.name.length > 48
+        || typeof val.tab !== 'string' || !/^[A-Za-z0-9_-]{8,24}$/.test(val.tab)
+        || Object.keys(val).some(k => k !== 'id' && k !== 'name' && k !== 'tab'))
+        throw new Error('PERMISSION_DENIED: players record invalid');
+      if (rec && rec.id === val.id) return;   // same-id update (name refresh / rejoin): id immutable, always ok
+      // create (holder writes own record) OR recycle-replace (one atomic claim takes
+      // over a stale foreign record): both need the merged presence (held from before
+      // or set in the SAME atomic write) and lobby. A REPLACE additionally requires
+      // a pre-write-free seat, so a currently-held foreign record can never be stolen.
+      const mergedPresent = prePresent || !!(mergedP && mergedP[seat]);
+      if (!mergedPresent) throw new Error('PERMISSION_DENIED: players needs presence');
+      if (room.state !== 'lobby') throw new Error('PERMISSION_DENIED: players create/replace only in lobby');
+      if (rec && prePresent) throw new Error('PERMISSION_DENIED: players replace requires pre-free presence');
       return;
     }
     throw new Error('PERMISSION_DENIED: ' + key);
@@ -163,7 +221,25 @@ function makeDB() {
     ref: (db, path) => path.split('/'),
     get: async ref => ({ exists: () => at(ref) != null, val: () => clone(at(ref)) }),
     set: async (ref, val) => setParts(ref, val),          // weiterhin genutzt fuer Raum/Presence/gen/state/seats (kein Turn-Slot-Pfad mehr)
-    update: async (ref, obj) => { for (const k of Object.keys(obj)) setParts(ref.concat(String(k).split('/')), obj[k]); },
+    // Atomic multi-path update: validate EVERY path against the pre-write tree
+    // (rules see root = pre-write) with knowledge of sibling presence writes in THIS
+    // same update (merged p/<seat>), then apply all-or-nothing. Mirrors the real
+    // RTDB update() the atomic seat-claim relies on: any single rejected path aborts
+    // the WHOLE write, leaving no partial p/players/state behind.
+    update: async (ref, obj) => {
+      const keys = Object.keys(obj);
+      const paths = keys.map(k => ref.concat(String(k).split('/')));
+      const mergedP = {};
+      keys.forEach((k, i) => { const pr = paths[i]; if (pr[pr.length - 2] === 'p' && obj[k] === true) mergedP[pr[pr.length - 1]] = true; });
+      keys.forEach((k, i) => checkWrite(paths[i], obj[k], mergedP));   // any throw aborts BEFORE any apply
+      keys.forEach((k, i) => {
+        let o = data;
+        for (let j = 0; j < paths[i].length - 1; j++) { if (o[paths[i][j]] == null) o[paths[i][j]] = {}; o = o[paths[i][j]]; }
+        const last = paths[i][paths[i].length - 1];
+        if (obj[k] == null) delete o[last]; else o[last] = JSON.parse(JSON.stringify(obj[k]));
+      });
+      notify();
+    },
     remove: async ref => setParts(ref, null),
     // Codex-Nachbesserung Punkt 4: die Fake-DB akzeptiert runTransaction() nur mit
     // dem dritten Argument {applyLocally:false} — genau wie die echte Firebase-API
@@ -199,7 +275,10 @@ function makeDB() {
       cb({ val: () => clone(at(ref)), exists: () => at(ref) != null });
       return () => listeners.delete(l);
     },
-    onDisconnect: ref => ({ remove() { ui.onDrop.push(ref); } }),
+    onDisconnect: ref => ({
+      remove: async () => { ui.onDrop.push(ref); },
+      cancel: async () => { for (let i = ui.onDrop.length - 1; i >= 0; i--) if (ui.onDrop[i].join('/') === ref.join('/')) ui.onDrop.splice(i, 1); }
+    }),
     serverTimestamp: () => 1751900000000
   });
   return {
@@ -212,9 +291,13 @@ function makeDB() {
 }
 
 // ── one sandboxed client = the real functions + inert UI/game stubs ──
-function makeClient(db, code) {
+function makeClient(db, code, forcePid) {
   const ui = { code, log: [], onDrop: [] };
   const FB = db.FBfor(ui);
+  // Unique browser identity per sandboxed client (pid/tab match the rules charset).
+  const seq = (makeClient._seq = (makeClient._seq || 0) + 1);
+  const pid = forcePid || ('PID' + String(seq).padStart(6, '0'));
+  const tab = 'TAB' + String(seq).padStart(6, '0');
   const body = `
     const TUNE=false; let r3dOrbit=false;
     const T=k=>k;
@@ -232,6 +315,10 @@ function makeClient(db, code) {
     const SENTINEL_RETRY_BASE_MS=300, SENTINEL_RETRY_MAX_MS=2000;
     const SENTINEL_RETRY_MAX_ATTEMPTS=11;
     let onlineTerminatedSession=-1;
+    // v3 identity state (per client)
+    const NAME_MAX=16, NAME_MAX_UNITS=48, LOBBY_HOST_GRACE_MS=12000;
+    let onlinePid=${JSON.stringify(pid)}, onlineTab=${JSON.stringify(tab)}, onlineName='';
+    let playersRoster={}, rosterUnsub=null, lobbyHostGraceTimer=null, joinOpSeq=0;
     let phase='over', curAimer=0, balls=[], aimSet=[], commitIdx=[], commitAim=[], commitSpin=[], score=[];
     let replaying=false, repPlaying=false;
     const cx=500, cy=500, BR=32; let R=485;
@@ -271,9 +358,10 @@ function makeClient(db, code) {
     function drop(){
       try{if(turnUnsub)turnUnsub();}catch(e){} try{if(genUnsub)genUnsub();}catch(e){}
       try{if(presUnsub)presUnsub();}catch(e){} try{if(seatsUnsub)seatsUnsub();}catch(e){}
-      turnUnsub=genUnsub=presUnsub=seatsUnsub=null;
+      try{if(rosterUnsub)rosterUnsub();}catch(e){}
+      turnUnsub=genUnsub=presUnsub=seatsUnsub=rosterUnsub=null;
       const d=ui.onDrop.slice(); ui.onDrop.length=0;
-      for(const r of d) FB.remove(r);
+      for(const r of d) FB.remove(r).catch(()=>{});   // server no-op when the path is already gone
     }
     return {
       ui, els,

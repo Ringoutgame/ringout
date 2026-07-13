@@ -1,6 +1,7 @@
 // M8-T3a/T3c client tests — extracts the REAL validateRoom/pickFreeSeat/
 // allAliveCommitted/seatCount/seatsContiguous/startFfaMatch from index.html:
-//   (1) single/double validation is UNCHANGED,
+//   (1) single/double validation now shares the unified room-state (join only
+//       while state==='lobby'),
 //   (2) the ffa schema validation (state/lobby, seats, full),
 //   (3) seat picking 0-4 incl. gaps,
 //   (4) the N-player reveal helper (eliminated players don't count),
@@ -54,17 +55,18 @@ const env = new Function(`
 let pass = 0, fail = 0;
 const t = (name, cond) => { cond ? pass++ : (fail++, console.error('FAIL: ' + name)); };
 const room = (over = {}) => Object.assign(
-  { v: VER, config: { winTarget: 3, fmt: 'single' }, gen: 0, p: { 0: true }, created: 1 }, over);
+  { v: VER, config: { winTarget: 3, fmt: 'single' }, gen: 0, state: 'lobby', p: { 0: true }, created: 1 }, over);
 const ffaRoom = (over = {}) => Object.assign(
   { v: VER, config: { winTarget: 3, fmt: 'ffa' }, gen: 0, state: 'lobby', p: { 0: true }, created: 1 }, over);
 
-// ── (1) single/double unveraendert ──
+// ── (1) single/double: unified room-state, join only while state==='lobby' ──
 t('single valid', env.validateRoom(room()).ok === true);
 t('double valid', env.validateRoom(room({ config: { winTarget: 5, fmt: 'double' } })).ok === true);
 t('single full rejected', env.validateRoom(room({ p: { 0: true, 1: true } })).reason === 'Raum ist schon voll.');
 t('orphan rejected', env.validateRoom(room({ p: {} })).reason === 'Raum ist verwaist.');
 t('fmt triple rejected', env.validateRoom(room({ config: { winTarget: 3, fmt: 'triple' } })).ok === false);
-t('single ignores state field', env.validateRoom(room({ state: 'playing' })).ok === true);
+t('single state=playing rejected (match läuft)', env.validateRoom(room({ state: 'playing' })).reason === 'Match läuft bereits.');
+t('single state missing rejected', (() => { const r = room(); delete r.state; return env.validateRoom(r).reason === 'Match läuft bereits.'; })());
 t('single has no freeSeat', env.validateRoom(room()).freeSeat === undefined);
 
 // ── (2) ffa vorbereitet ──
