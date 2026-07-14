@@ -24,7 +24,7 @@ const SUITES = [
   { name: 'FFA-Online-Prep',  file: 'test_ffa_online.js',     expectPassed: 41 },
   { name: 'FFA-Online-Flow',  file: 'test_ffa_flow.js',       expectPassed: 116 },
   { name: 'FFA-Online-Race',  file: 'test_ffa_race.js',       expectPassed: 115 },
-  { name: 'Rules',            file: 'test_rules.js',          expectPassed: 106 },
+  { name: 'Rules',            file: 'test_rules.js',          expectPassed: 111 },
 ];
 
 const lastLine = (s) => {

@@ -1,12 +1,21 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// RingOut — E2E Feasibility-Spike (Online-FFA) — standalone diagnostic
+// RingOut — E2E Feasibility-Spike (Online) — standalone diagnostic
 //
 // Proves the minimal building blocks the full harness relies on, using the SAME
 // shared infrastructure (lib/harness.js — no duplicated setup): in-memory HTML
 // transform, hard production block over HTTP + WebSocket, JDK-21 emulator (per-run
-// isolated temp dir), authoritative read, and a commit driven once via DOM (host)
-// and once via the test adapter (guest). It builds nothing permanent and cleans up
-// every process/port/temp file the run itself created.
+// isolated temp dir), and authoritative reads/writes via the page's own window.FB.
+//
+// Presence & Reconnect v3 (Paket B0): index.html still writes the OLD boolean
+// presence schema (p/<seat>=true), so this spike does NOT drive the client's
+// presence/room lifecycle. Instead it exercises the NEW rules foundation
+// (p/<seat>={s,on,t}) directly against the real emulator + real firebase.rules.json
+// via raw window.FB writes — the ONLY way to prove the atomic p+players coupling, the
+// parallel write-once arbiter, the coupled 1v1/2v2 start, the joint-token recycling and
+// the fact that the disconnect leave-sentinel + elimination latch are currently DENY
+// (Fund 2 deferred) — none of which the local single-path model in tools/test_rules.js
+// can. The client cutover to this schema happens in B1; until then the full FFA runner
+// is expected red.
 //
 // Run:  node tools/e2e/spike.js
 // ─────────────────────────────────────────────────────────────────────────────
@@ -15,6 +24,196 @@
 const fs = require('fs');
 const { chromium } = require('@playwright/test');
 const H = require('./lib/harness');
+
+// One in-page v3 rules driver, injected into the host page. Uses window.FB
+// (exposed by index.html) to run labelled ALLOW/DENY writes against the emulator.
+// Returns collected checks + the room codes seeded for the post-grace second pass.
+const V3_PART1 = async () => {
+  const FB = window.FB;
+  const ref = (p) => FB.ref(FB.db, 'rooms/' + p);
+  const TS = () => FB.serverTimestamp();
+  const P = (s, on) => ({ s, on, t: TS() });
+  const rec = (id, tab) => ({ id, name: 'G', tab });
+  const errc = (e) => String((e && (e.code || e.message)) || e);
+  const set = async (p, v) => { try { await FB.set(ref(p), v); return { ok: true }; } catch (e) { return { ok: false, err: errc(e) }; } };
+  const upd = async (p, o) => { try { await FB.update(ref(p), o); return { ok: true }; } catch (e) { return { ok: false, err: errc(e) }; } };
+  const del = async (p) => { try { await FB.remove(ref(p)); return { ok: true }; } catch (e) { return { ok: false, err: errc(e) }; } };
+  const read = async (p) => { const s = await FB.get(ref(p)); return s.exists() ? s.val() : null; };
+  const CH = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+  const rcode = () => Array.from({ length: 4 }, () => CH[Math.floor(Math.random() * CH.length)]).join('');
+  const fresh = async () => { for (let i = 0; i < 12; i++) { const c = rcode(); if ((await read(c)) == null) return c; } throw new Error('no free code'); };
+  const mkRoom = (fmt) => ({ v: 3, config: { winTarget: 3, fmt }, gen: 0, state: 'lobby', p: { 0: P('HOSTTAB0', false) }, players: { 0: { id: 'HOST0000', name: 'H', tab: 'HOSTTAB0' } }, created: TS() });
+  const checks = [];
+  const c = (kind, name, res) => { checks.push({ kind, name, ok: kind === 'ALLOW' ? res.ok === true : res.ok === false, err: res && res.err || null }); return res; };
+  const state = (name, ok) => checks.push({ kind: 'STATE', name, ok: !!ok, err: null });
+
+  // ── Scenario A — 1v1 presence lifecycle (RESERVE→ARM→ACTIVATE→start→DISCONNECT) ──
+  const A = await fresh();
+  c('ALLOW', 'create 1v1 v3 (offline host)', await set(A, mkRoom('single')));
+  c('DENY', 'create 1v1 boolean presence (old schema rejected)', await set(await fresh(), Object.assign(mkRoom('single'), { p: { 0: true } })));
+  c('ALLOW', 'host ACTIVATE p/0', await upd(A, { 'p/0/on': true, 'p/0/t': TS() }));
+  c('DENY', 'isolated players/1 without presence', await set(A + '/players/1', rec('GUEST001', 'GTAB0001')));
+  state('isolated players/1 left no partial state', (await read(A + '/players/1')) === null);
+  c('DENY', 'isolated p/1 RESERVE without players leg', await set(A + '/p/1', P('GTAB0001', false)));
+  state('isolated p/1 RESERVE left no partial state', (await read(A + '/p/1')) === null);
+  c('ALLOW', 'atomic RESERVE p/1 + players/1 (join)', await upd(A, { 'p/1': P('GTAB0001', false), 'players/1': rec('GUEST001', 'GTAB0001') }));
+  c('ALLOW', 'ARM p/1 (t refresh only)', await upd(A, { 'p/1/t': TS() }));
+  c('DENY', 'ARM p/1 foreign token', await upd(A, { 'p/1/s': 'EVILTAB0', 'p/1/t': TS() }));
+  // Fund 1 — in single/double seat 1 may reach on:true ONLY atomically with the match
+  //          start. An isolated ACTIVATE and a later separate state write are both DENY;
+  //          only the coupled p/1.on + p/1.t + state:'playing' multi-path write succeeds.
+  c('DENY', 'isolated ACTIVATE p/1 single lobby (must couple state)', await upd(A, { 'p/1/on': true, 'p/1/t': TS() }));
+  state('isolated ACTIVATE left p/1 offline', (await read(A + '/p/1/on')) === false);
+  c('DENY', 'separate start while p/1 offline (coupling)', await upd(A, { 'state': 'playing' }));
+  state('separate start left state=lobby', (await read(A + '/state')) === 'lobby');
+  c('DENY', 'isolated on flip without fresh t (host p/0 leaf)', await set(A + '/p/0/on', false));
+  c('ALLOW', 'coupled ACTIVATE p/1 + start 1v1 (atomic)', await upd(A, { 'p/1/on': true, 'p/1/t': TS(), 'state': 'playing' }));
+  c('ALLOW', 'move p0 (online)', await set(A + '/g/0/t/0/0', { idx: 0, dx: 10, dy: 10, sp: 0 }));
+  c('ALLOW', 'DISCONNECT p/1 (same token)', await upd(A, { 'p/1/on': false, 'p/1/t': TS() }));
+  // Fund 4 — a reconnect/ACTIVATE that also latches e in the SAME write is rejected as a
+  //          whole; e is deferred (Fund 2), so the e leg alone already sinks the update.
+  c('DENY', 'ACTIVATE p/1 + e latch in one write (Fund 4)', await upd(A, { 'p/1/on': true, 'p/1/t': TS(), 'g/0/e/1': true }));
+  c('DENY', 'reconnect p/1 + e latch in one write (Fund 4)', await upd(A, { 'p/1/s': 'GTAB0011', 'p/1/t': TS(), 'players/1/tab': 'GTAB0011', 'g/0/e/1': true }));
+  const a4p = await read(A + '/p/1');
+  state('rejected ACTIVATE/reconnect+e left seat offline, no e, token intact', a4p !== null && a4p.on === false && a4p.s === 'GTAB0001' && (await read(A + '/g/0/e/1')) === null);
+  // ── match reconnect: rotate the session token in p.s + players.tab TOGETHER,
+  //    keep the player id; only from on:false in playing, only while e !== true ──
+  c('DENY', 'reconnect rotate p/1.s WITHOUT players.tab (coupling)', await upd(A, { 'p/1/s': 'GTAB0009', 'p/1/t': TS() }));
+  c('DENY', 'reconnect p/1 with player-id change (id frozen)', await upd(A, { 'p/1/s': 'GTAB0009', 'p/1/t': TS(), 'players/1/tab': 'GTAB0009', 'players/1/id': 'EVIL0001' }));
+  c('ALLOW', 'match reconnect p/1 (new token, same id, atomic p.s+players.tab)', await upd(A, { 'p/1/s': 'GTAB0009', 'p/1/t': TS(), 'players/1/tab': 'GTAB0009' }));
+  const arp = await read(A + '/p/1'), arr = await read(A + '/players/1');
+  state('reconnect rotated token in both legs, kept player id', !!(arp && arr && arp.s === 'GTAB0009' && arr.tab === 'GTAB0009' && arr.id === 'GUEST001'));
+  c('ALLOW', 'ACTIVATE p/1 after reconnect (new token)', await upd(A, { 'p/1/on': true, 'p/1/t': TS() }));
+  c('DENY', 'reconnect p/1 while ONLINE (must be on:false)', await upd(A, { 'p/1/s': 'GTAB0010', 'p/1/t': TS(), 'players/1/tab': 'GTAB0010' }));
+  c('ALLOW', 'DISCONNECT p/1 again (new token)', await upd(A, { 'p/1/on': false, 'p/1/t': TS() }));
+  c('DENY', 'DISCONNECT p/0 foreign token', await upd(A, { 'p/0/s': 'EVILTAB0', 'p/0/on': false, 'p/0/t': TS() }));
+  c('DENY', 'move p1 offline (no e coupling)', await set(A + '/g/0/t/0/1', { idx: 1, dx: 10, dy: 10, sp: 0 }));
+  c('DENY', 'e latch p1 before grace', await set(A + '/g/0/e/1', true));
+  c('DENY', 'room delete with p/players anchors', await del(A));
+
+  // ── Scenario B — atomic reject leaves no partial + parallel write-once arbiter ──
+  const B = await fresh();
+  await set(B, mkRoom('ffa')); await upd(B, { 'p/0/on': true, 'p/0/t': TS() });
+  c('DENY', 'atomic claim with invalid players leg', await upd(B, { 'p/1': P('GTAB0001', false), 'players/1': { id: 'x', name: 'g', tab: 'GTAB0001' } }));
+  state('rejected atomic claim left no partial p/players', (await read(B + '/p/1')) === null && (await read(B + '/players/1')) === null);
+  const par = await Promise.all([
+    upd(B, { 'p/2': P('GTAB0002', false), 'players/2': rec('GUESTAAA', 'GTAB0002') }),
+    upd(B, { 'p/2': P('GTAB0003', false), 'players/2': rec('GUESTBBB', 'GTAB0003') }),
+  ]);
+  state('parallel same-seat claim: exactly one winner', par.filter((r) => r.ok).length === 1);
+  const bp2 = await read(B + '/p/2'), br2 = await read(B + '/players/2');
+  state('seat 2 holds a consistent winner (tab === s)', !!(bp2 && br2 && bp2.s === br2.tab));
+  c('DENY', 'atomic claim coupling mismatch (tab != s)', await upd(B, { 'p/3': P('GTAB0004', false), 'players/3': rec('GUEST003', 'WRONGTB0') }));
+  state('coupling-mismatch claim left no partial p/players', (await read(B + '/p/3')) === null && (await read(B + '/players/3')) === null);
+
+  // ── Scenario C — coupled 1v1 ACTIVATE+start requires an ONLINE host ──
+  const C = await fresh();
+  await set(C, mkRoom('single')); await upd(C, { 'p/0/on': true, 'p/0/t': TS() });
+  await upd(C, { 'p/1': P('GTAB0001', false), 'players/1': rec('GUEST001', 'GTAB0001') });
+  await upd(C, { 'p/0/on': false, 'p/0/t': TS() });                       // host goes offline
+  c('DENY', 'coupled ACTIVATE+start with OFFLINE host', await upd(C, { 'p/1/on': true, 'p/1/t': TS(), 'state': 'playing' }));
+  state('offline-host start left state=lobby', (await read(C + '/state')) === 'lobby');
+  await upd(C, { 'p/0/on': true, 'p/0/t': TS() });                        // host back online
+  c('ALLOW', 'coupled ACTIVATE+start with ONLINE host', await upd(C, { 'p/1/on': true, 'p/1/t': TS(), 'state': 'playing' }));
+
+  // ── Scenario D2 — leg deletes are atomic (both legs together, or neither) ──
+  const Del = await fresh();
+  await set(Del, mkRoom('single')); await upd(Del, { 'p/0/on': true, 'p/0/t': TS() });
+  await upd(Del, { 'p/1': P('GTAB0001', false), 'players/1': rec('GUEST001', 'GTAB0001') });
+  c('DENY', 'isolated p/1 delete while players/1 present', await del(Del + '/p/1'));
+  c('DENY', 'isolated players/1 delete while p/1 present', await del(Del + '/players/1'));
+  c('ALLOW', 'atomic p/1 + players/1 lobby delete', await upd(Del, { 'p/1': null, 'players/1': null }));
+  state('atomic leg delete removed both legs', (await read(Del + '/p/1')) === null && (await read(Del + '/players/1')) === null);
+
+  // ── Scenario HR — a simultaneous host reactivation + match start is rejected. Uses
+  //    ffa so the guest can go online independently in the lobby (in single/double that
+  //    step would itself require the coupled start), isolating the host-offline guard. ──
+  const HR = await fresh();
+  await set(HR, mkRoom('ffa')); await upd(HR, { 'p/0/on': true, 'p/0/t': TS() });
+  await upd(HR, { 'p/1': P('GTAB0001', false), 'players/1': rec('GUEST001', 'GTAB0001') });
+  await upd(HR, { 'p/1/on': true, 'p/1/t': TS() });                       // guest online (ffa: independent)
+  await upd(HR, { 'p/0/on': false, 'p/0/t': TS() });                      // host drops offline
+  c('DENY', 'simultaneous host reactivation + match start', await upd(HR, { 'p/0/on': true, 'p/0/t': TS(), 'state': 'playing' }));
+  state('host-reactivation start left state=lobby', (await read(HR + '/state')) === 'lobby');
+
+  // ── Seed rooms whose offline seats must age past the grace window (second pass) ──
+  const D = await fresh();                                                // recycle (lobby)
+  await set(D, mkRoom('ffa')); await upd(D, { 'p/0/on': true, 'p/0/t': TS() });
+  await upd(D, { 'p/1': P('GTAB0001', false), 'players/1': rec('GUEST001', 'GTAB0001') });
+  c('DENY', 'recycle p/1+players/1 before grace', await upd(D, { 'p/1': P('GTAB0009', false), 'players/1': rec('NEW00001', 'GTAB0009') }));
+
+  const E1 = await fresh();                                               // empty slot (playing)
+  await set(E1, mkRoom('single')); await upd(E1, { 'p/0/on': true, 'p/0/t': TS() });
+  await upd(E1, { 'p/1': P('GTAB0001', false), 'players/1': rec('GUEST001', 'GTAB0001') });
+  await upd(E1, { 'p/1/on': true, 'p/1/t': TS(), 'state': 'playing' });   // coupled ACTIVATE+start
+  await upd(E1, { 'p/1/on': false, 'p/1/t': TS() });                      // guest disconnects mid-match
+  c('DENY', 'empty-slot sentinel+e before grace — deferred (Fund 2)', await upd(E1 + '/g/0', { 't/0/1': { idx: 1, dx: 0, dy: 0, sp: 0 }, 'e/1': true }));
+
+  const E2 = await fresh();                                               // occupied slot (playing, move committed)
+  await set(E2, mkRoom('single')); await upd(E2, { 'p/0/on': true, 'p/0/t': TS() });
+  await upd(E2, { 'p/1': P('GTAB0001', false), 'players/1': rec('GUEST001', 'GTAB0001') });
+  await upd(E2, { 'p/1/on': true, 'p/1/t': TS(), 'state': 'playing' });   // coupled ACTIVATE+start
+  await set(E2 + '/g/0/t/0/1', { idx: 1, dx: 7, dy: 7, sp: 0 });          // guest commits a real move
+  await upd(E2, { 'p/1/on': false, 'p/1/t': TS() });                      // then disconnects
+
+  // best-effort purge of the finished lobby/match rooms. Leg deletes are atomic
+  // (p + players together), so each seat is cleared in a single coupled update.
+  const purge = async (code) => { for (let s = 0; s < 5; s++) { await upd(code, { ['p/' + s]: null, ['players/' + s]: null }); } await del(code); };
+  for (const code of [A, B, C, Del, HR]) await purge(code);
+
+  return { checks, seeds: { D, E1, E2 } };
+};
+
+// Second pass: after the real grace window has elapsed, prove joint-token recycling (and
+// that the old token is dead afterwards) and that the disconnect leave-sentinel + the
+// elimination latch are currently DENY for both empty and occupied slots (Fund 2 deferred).
+const V3_PART2 = async ({ D, E1, E2 }) => {
+  const FB = window.FB;
+  const ref = (p) => FB.ref(FB.db, 'rooms/' + p);
+  const TS = () => FB.serverTimestamp();
+  const P = (s, on) => ({ s, on, t: TS() });
+  const rec = (id, tab) => ({ id, name: 'G', tab });
+  const errc = (e) => String((e && (e.code || e.message)) || e);
+  const set = async (p, v) => { try { await FB.set(ref(p), v); return { ok: true }; } catch (e) { return { ok: false, err: errc(e) }; } };
+  const upd = async (p, o) => { try { await FB.update(ref(p), o); return { ok: true }; } catch (e) { return { ok: false, err: errc(e) }; } };
+  const del = async (p) => { try { await FB.remove(ref(p)); return { ok: true }; } catch (e) { return { ok: false, err: errc(e) }; } };
+  const read = async (p) => { const s = await FB.get(ref(p)); return s.exists() ? s.val() : null; };
+  const checks = [];
+  const c = (kind, name, res) => { checks.push({ kind, name, ok: kind === 'ALLOW' ? res.ok === true : res.ok === false, err: res && res.err || null }); return res; };
+  const state = (name, ok) => checks.push({ kind: 'STATE', name, ok: !!ok, err: null });
+
+  // D — recycle now allowed (offline seat aged past grace, lobby). Fund 3: recycling to a
+  //     new identity requires the FULL joint token rotation. Neither single-leg form — an
+  //     id change that keeps the old token, or a p.s rotation without the players leg — is
+  //     accepted; only the atomic both-leg rotation succeeds. The old token is dead after.
+  c('DENY', 'recycle id change WITHOUT token rotation (tab unchanged, Fund 3)', await upd(D, { 'players/1/id': 'HACK0001' }));
+  c('DENY', 'recycle p.s rotation WITHOUT players leg (single-leg, Fund 3)', await upd(D, { 'p/1/s': 'GTAB0009', 'p/1/t': TS() }));
+  const dOrig = await read(D + '/p/1');
+  state('rejected single-leg recycles left the original token bound', !!(dOrig && dOrig.s === 'GTAB0001'));
+  c('ALLOW', 'recycle p/1+players/1 after grace (full joint token rotation)', await upd(D, { 'p/1': P('GTAB0009', false), 'players/1': rec('NEW00001', 'GTAB0009') }));
+  const dr = await read(D + '/players/1'), dp = await read(D + '/p/1');
+  state('recycled roster carries the new id and rotated token', !!(dr && dr.id === 'NEW00001' && dr.tab === 'GTAB0009' && dp && dp.s === 'GTAB0009'));
+  c('DENY', 'old token ARM after recycling (stale token rejected)', await upd(D, { 'p/1/s': 'GTAB0001', 'p/1/t': TS() }));
+  c('DENY', 'old token DISCONNECT after recycling (stale token rejected)', await upd(D, { 'p/1/s': 'GTAB0001', 'p/1/on': false, 'p/1/t': TS() }));
+
+  // E1 / E2 — Fund 2 DEFERRED: the disconnect leave-sentinel and the elimination latch are
+  //           fully shut until the authoritative turn-pointer package lands. A seat that
+  //           dropped mid-match cannot be eliminated by anyone, and its open slot cannot be
+  //           filled — the turn stalls by design. E1 (empty slot) and E2 (a move already
+  //           committed) prove every one of these transitions is currently locked.
+  c('DENY', 'E1 empty slot: zero sentinel + e in one write — deferred', await upd(E1 + '/g/0', { 't/0/1': { idx: 1, dx: 0, dy: 0, sp: 0 }, 'e/1': true }));
+  c('DENY', 'E1 empty slot: e-only latch — deferred', await set(E1 + '/g/0/e/1', true));
+  c('DENY', 'E1 empty slot: bare leave-sentinel move (offline seat) — deferred', await set(E1 + '/g/0/t/0/1', { idx: 1, dx: 0, dy: 0, sp: 0 }));
+  state('E1 left no e latch and an empty move slot', (await read(E1 + '/g/0/e/1')) === null && (await read(E1 + '/g/0/t/0/1')) === null);
+  c('DENY', 'E2 occupied slot: e-only latch — deferred', await set(E2 + '/g/0/e/1', true));
+  const e2move = await read(E2 + '/g/0/t/0/1');
+  state('E2 committed move untouched and no e latch exists', (await read(E2 + '/g/0/e/1')) === null && !!(e2move && e2move.dx === 7));
+
+  const purge = async (code) => { for (let s = 0; s < 5; s++) { await upd(code, { ['p/' + s]: null, ['players/' + s]: null }); } await del(code); };
+  for (const code of [D, E1, E2]) await purge(code);
+
+  return { checks };
+};
 
 (async () => {
   const result = { errors: [] };
@@ -59,119 +258,34 @@ const H = require('./lib/harness');
     H.ok('Produktions-Block bewiesen — HTTP-Fetch + WebSocket zu Produktion abgefangen (kein realer Connect)');
 
     const ctxH = await browser.newContext({ serviceWorkers: 'block' });
-    const ctxG = await browser.newContext({ serviceWorkers: 'block' });
     await H.armContext(ctxH, 'host', state);
-    await H.armContext(ctxG, 'guest', state);
     const pageH = await ctxH.newPage();
-    const pageG = await ctxG.newPage();
     H.wireDiagnostics(pageH, 'host', diag);
-    H.wireDiagnostics(pageG, 'guest', diag);
 
     await pageH.goto(NAV_URL, { waitUntil: 'domcontentloaded' });
-    await pageG.goto(NAV_URL, { waitUntil: 'domcontentloaded' });
-    for (const pg of [pageH, pageG]) {
-      await pg.waitForFunction(() => window.__FB_READY === true && window.__ringoutE2E && window.__ringoutE2E.ready, null, { timeout: 20000 });
-    }
+    await pageH.waitForFunction(() => window.__FB_READY === true, null, { timeout: 20000 });
     const emuFlagH = await pageH.evaluate(() => window.__E2E_EMULATOR === true);
     const fbErrH = await pageH.evaluate(() => window.__FB_ERR || null);
     if (!emuFlagH || fbErrH) throw new Error('Emulator-Injektion nicht aktiv oder FB-Fehler: ' + fbErrH);
-    H.ok('Zwei isolierte Kontexte geladen; Emulator-Injektion aktiv, kein FB-Init-Fehler');
+    H.ok('Isolierter Kontext geladen; Emulator-Injektion aktiv, kein FB-Init-Fehler (window.FB verfügbar)');
 
-    // Host creates FFA room via adapter; read authoritative room from emulator.
-    await pageH.evaluate(() => window.__ringoutE2E.hostFFA(3));
-    const code = await H.poll(async () => {
-      const s = await pageH.evaluate(() => window.__ringoutE2E.snapshot());
-      return s && s.roomCode && s.roomCode.length === 4 ? s.roomCode : null;
-    }, 15000, 'Host erstellt FFA-Raum');
-    H.ok(`Host hat FFA-Raum erstellt: ${code}`);
+    // ── v3 presence rules proof (raw window.FB writes vs. the real emulator) ──
+    // NB: index.html is untouched and still on the boolean schema — one create with
+    // the old p/0=true is written here purely to assert the new rules reject it.
+    const part1 = await pageH.evaluate(V3_PART1);
+    H.ok(`v3 Teil 1 — ${part1.checks.length} Presence-Checks (RESERVE/ARM/DISCONNECT/ACTIVATE, atomare Kopplung, Parallel-Arbiter, 1v1-Start online/offline Host, Grace-vor-15s)`);
 
-    const authRoom = await H.dbRead(pageH, 'rooms/' + code);
-    if (!authRoom || authRoom.v !== 3 || authRoom.config.fmt !== 'ffa' || authRoom.p[0] !== true || authRoom.state !== 'lobby'
-      || !authRoom.players || !authRoom.players[0] || typeof authRoom.players[0].id !== 'string') {
-      throw new Error('Autoritativer Raumzustand unerwartet: ' + JSON.stringify(authRoom));
-    }
-    H.ok('Autoritativer Testzustand aus Emulator gelesen (rooms/' + code + ': v3, ffa, lobby, p0=true, players/0 vorhanden)');
-    result.authRoom = authRoom;
+    H.ok('Warte 16s, bis die Offline-Seats das 15s-Grace-Fenster überschreiten (Recycling/Grace/Sentinel)…');
+    await H.sleep(16000);
 
-    await pageG.evaluate((c) => window.__ringoutE2E.joinFFA(c), code);
-    await H.poll(async () => {
-      const s = await pageG.evaluate(() => window.__ringoutE2E.snapshot());
-      return s && s.myPlayer === 1 && s.online ? true : null;
-    }, 15000, 'Gast tritt bei (Seat 1)');
-    H.ok('Gast beigetreten, Seat 1 zugewiesen');
+    const part2 = await pageH.evaluate(V3_PART2, part1.seeds);
+    H.ok(`v3 Teil 2 — ${part2.checks.length} Grace-Checks (Recycling nach 15s nur mit vollständiger Tokenrotation, alter Token danach tot, Disconnect-Sentinel/e-Latch bei leerem UND belegtem Slot gesperrt — Fund 2 verschoben)`);
 
-    await H.poll(async () => {
-      const p = await H.dbRead(pageH, 'rooms/' + code + '/p');
-      return p && p[0] === true && p[1] === true ? true : null;
-    }, 15000, 'Host sieht beide Seats');
-    await pageH.evaluate(() => window.__ringoutE2E.start());
-
-    for (const [pg, lbl] of [[pageH, 'host'], [pageG, 'guest']]) {
-      await H.poll(async () => {
-        const s = await pg.evaluate(() => window.__ringoutE2E.snapshot());
-        return s && s.gameStarted && s.phase === 'aim' ? true : null;
-      }, 20000, `${lbl} erreicht Aim-Phase`);
-    }
-    H.ok('Match gestartet — beide Clients in Aim-Phase (gen 0, turn 0)');
-
-    await pageH.evaluate(() => document.getElementById('actBtn').click()); // real production onclick → commit()
-    await pageG.evaluate(() => window.__ringoutE2E.commitReady());          // adapter mirror of the same path
-
-    const slots = await H.poll(async () => {
-      const v = await H.dbRead(pageH, 'rooms/' + code + '/g/0/t/0');
-      return v && v[0] && v[1] ? v : null;
-    }, 15000, 'Beide Commit-Slots autoritativ in DB');
-    const validSlot = (s) => s && [0, 1, 2, 3, 4].includes(s.idx)
-      && s.dx >= -195 && s.dx <= 195 && s.dy >= -195 && s.dy <= 195 && s.sp >= -1 && s.sp <= 1;
-    if (!validSlot(slots[0]) || !validSlot(slots[1])) throw new Error('Slot-Payload ungültig: ' + JSON.stringify(slots));
-    H.ok('Aim/Commit bewiesen — DOM (host) & Adapter (guest): Slots g/0/t/0/0 & /1 gültig, kein Regel-Bypass');
-    result.slots = slots;
-
-    // ── Atomic seat-claim proofs against the REAL emulator + real firebase.rules.json.
-    // Raw window.FB multi-path writes on a fresh throwaway room prove exactly what the
-    // local single-path rules model cannot: (a) a rejected multi-path claim leaves NO
-    // partial p/players, (b) two parallel claims on one seat yield exactly one winner
-    // (write-once presence arbiter), (c) a claim is denied once state==='playing'. The
-    // intentional permission_denied warnings are expected — this diagnostic tolerates
-    // them (the strict FFA harness deliberately does not, so these live here). ──
-    const ac = await pageH.evaluate(async () => {
-      const FB = window.FB;
-      const CH = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
-      const rc = () => Array.from({ length: 4 }, () => CH[Math.floor(Math.random() * CH.length)]).join('');
-      const rec = (id) => ({ id, name: 'G', tab: 'GUESTTAB' });
-      const upd = async (code, obj) => { try { await FB.update(FB.ref(FB.db, 'rooms/' + code), obj); return { ok: true }; } catch (e) { return { ok: false, err: String((e && (e.code || e.message)) || e) }; } };
-      const read = async (p) => { const s = await FB.get(FB.ref(FB.db, 'rooms/' + p)); return s.exists() ? s.val() : null; };
-      let code; for (let i = 0; i < 8; i++) { code = rc(); if ((await read(code)) == null) break; }
-      await FB.set(FB.ref(FB.db, 'rooms/' + code), { v: 3, config: { winTarget: 3, fmt: 'ffa' }, gen: 0, state: 'lobby', p: { 0: true }, players: { 0: rec('HOST0001') }, created: FB.serverTimestamp() });
-      const out = { code };
-      // (a) atomic reject: invalid players leg (id too short) rejects the WHOLE write
-      out.bad = await upd(code, { 'p/1': true, 'players/1': { id: 'x', name: 'g', tab: 'GUESTTAB' } });
-      out.p1AfterBad = await read(code + '/p/1');
-      out.rec1AfterBad = await read(code + '/players/1');
-      // (b) parallel claims on the SAME seat 2 -> exactly one winner
-      const par = await Promise.all([upd(code, { 'p/2': true, 'players/2': rec('GUESTAAA') }), upd(code, { 'p/2': true, 'players/2': rec('GUESTBBB') })]);
-      out.parWins = par.filter((r) => r.ok).length;
-      out.p2 = await read(code + '/p/2');
-      out.rec2 = await read(code + '/players/2');
-      // (c) legit seat-1 claim, flip to playing, then a late claim must be denied
-      out.ok1 = await upd(code, { 'p/1': true, 'players/1': rec('GUEST111') });
-      out.started = await upd(code, { 'state': 'playing' });
-      out.late = await upd(code, { 'p/3': true, 'players/3': rec('LATE0001') });
-      out.p3AfterLate = await read(code + '/p/3');
-      for (let s = 0; s < 5; s++) { try { await FB.remove(FB.ref(FB.db, 'rooms/' + code + '/p/' + s)); } catch (e) {} }
-      try { await FB.remove(FB.ref(FB.db, 'rooms/' + code)); } catch (e) {}
-      return out;
-    });
-    if (ac.bad.ok !== false) throw new Error('Atomarer Claim mit ungültigem Record wurde NICHT abgelehnt');
-    if (ac.p1AfterBad !== null || ac.rec1AfterBad !== null) throw new Error('Abgelehnter atomarer Claim hinterließ Teilzustand: ' + JSON.stringify(ac));
-    if (ac.parWins !== 1) throw new Error('Parallele Claims auf denselben Seat: nicht genau ein Gewinner (' + ac.parWins + ')');
-    if (ac.p2 !== true || !ac.rec2) throw new Error('Seat 2 hält keinen konsistenten Gewinner-Record: ' + JSON.stringify(ac));
-    if (ac.ok1.ok !== true) throw new Error('Legitimer Lobby-Claim Seat 1 wurde abgelehnt: ' + JSON.stringify(ac.ok1));
-    if (ac.started.ok !== true) throw new Error('lobby->playing mit p/1 wurde abgelehnt: ' + JSON.stringify(ac.started));
-    if (ac.late.ok !== false) throw new Error('Seat-Claim während state=playing wurde NICHT abgelehnt');
-    if (ac.p3AfterLate !== null) throw new Error('Abgelehnter Playing-Claim hinterließ p/3');
-    H.ok('Atomarer Seat-Claim bewiesen (Emulator): Reject ohne Teilzustand · genau ein Gewinner bei Parallel-Claim · Claim bei state=playing abgelehnt');
-    result.atomicClaim = ac;
+    const allChecks = [...part1.checks, ...part2.checks];
+    const failedChecks = allChecks.filter((k) => !k.ok);
+    if (failedChecks.length) throw new Error('v3-Rules-Checks fehlgeschlagen:\n' + JSON.stringify(failedChecks, null, 2));
+    result.v3 = { total: allChecks.length, passed: allChecks.length - failedChecks.length, seeds: part1.seeds, checks: allChecks };
+    H.ok(`v3-Presence-Rules-Fundament bewiesen (Emulator, echte firebase.rules.json): ${allChecks.length} Checks grün`);
 
     if (state.prodHits.length || state.wsProdHits.length) {
       throw new Error('Unerwartete Produktionskontakte: ' + JSON.stringify({ http: state.prodHits, ws: state.wsProdHits }));
@@ -194,9 +308,7 @@ const H = require('./lib/harness');
       rulesHash: result.rulesHash,
       matcherSelfTest: result.matcherSelfTest,
       negativeProbes: result.negativeProbes,
-      authRoom: result.authRoom,
-      slots: result.slots,
-      atomicClaim: result.atomicClaim,
+      v3: result.v3,
       prodHits: state.prodHits,
       wsProdHits: state.wsProdHits,
       otherBlocked: state.otherBlocked,
