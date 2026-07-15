@@ -226,13 +226,14 @@ async function setupRoom(clients, winTarget) {
   }
   assert(seats.size === clients.length, 'Seats nicht eindeutig: ' + JSON.stringify([...seats]));
 
-  // Host waits until all seats are present, then starts (retry until state=playing).
+  // Host waits until all seats are ACTIVE (v3: p/<seat>.on===true — a merely
+  // reserved-but-not-yet-activated seat must not count), then starts.
   await H.poll(async () => {
     const p = await H.dbRead(host.page, `rooms/${code}/p`);
     if (!p) return null;
-    for (let i = 0; i < clients.length; i++) if (!p[i]) return null;
+    for (let i = 0; i < clients.length; i++) if (!(p[i] && p[i].on === true)) return null;
     return true;
-  }, 15000, 'Host sieht alle Seats präsent');
+  }, 15000, 'Host sieht alle Seats aktiv');
   await H.poll(async () => {
     await host.page.evaluate(() => window.__ringoutE2E.start());
     const st = await H.dbRead(host.page, `rooms/${code}/state`);
@@ -354,69 +355,86 @@ async function scenarioMatch(ctx) {
   return r;
 }
 
-// ── Scenario 2: leave / sentinel during an active aim phase ──────────────────
+// ── Scenario 2 (B1-revised): lobby leave + seat reuse ─────────────────────────
+// Mid-match leave/disconnect handling (Disconnect-Sentinel, Eliminierungs-Latch)
+// is explicitly OUT of B1 scope. The v3 rules foundation from B0 defers it
+// ("Fund 2", see tools/e2e/spike.js): a move-slot write for seat $pl requires
+// root.p($pl).on===true, so no OTHER client can ever write a leave-sentinel for
+// a seat that has gone offline under the current rules — that gap is tracked
+// for Paket B, not exercised here. This scenario instead proves the path that
+// IS in B1 scope: a deliberate LOBBY leave atomically frees p/<seat> AND
+// players/<seat> together (leaveOnline), and the freed seat — genuinely absent,
+// not merely stale — is claimable again by a fresh joiner (pickFreeSeat treats
+// only a non-existent p/<seat> as free; no recycling of a stale reservation).
 async function scenarioLeave(ctx) {
-  const r = { name: 'leave-sentinel' };
+  const r = { name: 'lobby-leave-seat-reuse' };
   const clients = [];
   try {
     for (let i = 0; i < 3; i++) clients.push(await newClient(ctx, i));
-    const { code } = await setupRoom(clients, 3);
+    const host = clients[0], g1 = clients[1], leaver = clients[2];
+
+    await host.page.evaluate((w) => window.__ringoutE2E.hostFFA(w), 3);
+    const code = await H.poll(async () => {
+      const s = await snap(host.page);
+      return s && s.roomCode && s.roomCode.length === 4 ? s.roomCode : null;
+    }, 15000, 'Host erstellt FFA-Raum');
     r.roomCode = code;
 
-    await waitAllAim(clients, 0, 25000);
-    const remaining = [clients[0], clients[1]];
-    const leaver = clients[2];
+    // Sequential + polled joins (like setupRoom): joinFFA() only KICKS OFF the
+    // async claim (page.evaluate resolves once the call returns, not once the
+    // claim settles) — joining two guests back-to-back without waiting would let
+    // them race for the SAME lowest-free-seat and land non-deterministically.
+    for (let i = 1; i < clients.length; i++) {
+      await clients[i].page.evaluate((cc) => window.__ringoutE2E.joinFFA(cc), code);
+      await H.poll(async () => {
+        const s = await snap(clients[i].page);
+        return s && s.online && s.myPlayer === i ? true : null;
+      }, 15000, `Client c${i} tritt bei (Seat ${i})`);
+    }
+    await H.poll(async () => {
+      const p = await H.dbRead(host.page, `rooms/${code}/p`);
+      return p && p[0] && p[0].on === true && p[1] && p[1].on === true && p[2] && p[2].on === true ? true : null;
+    }, 15000, 'alle drei Seats aktiv in der Lobby');
 
-    // Close the leaver mid-aim (before it commits) → onDisconnect drops p/2.
-    await leaver.context.close();
+    // Deliberate lobby leave (seat 2): real leaveOnline() path, atomic p+players delete.
+    const w = H.beginLeaveWindow(ctx.state, code);
+    await leaver.page.evaluate(() => window.__ringoutE2E.leave());
+    H.endLeaveWindow(w);
     leaver.closed = true;
 
     await H.poll(async () => {
-      const p = await H.dbRead(remaining[0].page, `rooms/${code}/p`);
-      return p && !p[2] ? true : null;
-    }, 20000, 'verbleibende Clients sehen Seat 2 weg');
+      const p = await H.dbRead(host.page, `rooms/${code}/p`);
+      const pl = await H.dbRead(host.page, `rooms/${code}/players`);
+      return (!p || p[2] == null) && (!pl || pl[2] == null) ? true : null;
+    }, 15000, 'Seat 2 vollständig freigegeben (p UND players)');
 
-    // Remaining seats commit; seat 2's open slot is filled by the leave-sentinel.
-    for (const c of remaining) await commitZeroSeat(c);
-
-    // Authoritative slot 2 must be EXACTLY the production sentinel contract
-    // {idx:(2+1)%5=3, dx:0, dy:0, sp:0} — not merely idx !== 2.
-    const slots = await H.poll(async () => {
-      const v = await readSlots(remaining[0].page, code, 0, 0);
-      return v && v[0] && v[1] && v[2] ? v : null;
-    }, 20000, 'alle Slots inkl. Sentinel für Seat 2');
-    const sen = slots[2];
-    assert(sen.idx === 3 && sen.dx === 0 && sen.dy === 0 && sen.sp === 0,
-      `Sentinel Seat 2 nicht exakt {idx:3,dx:0,dy:0,sp:0}: ${JSON.stringify(sen)}`);
-    r.sentinelSlot = sen;
-
-    // Both remaining clients converge on the processed sentinel: seatGone[2] true
-    // and identical locally-processed slot-2 idx across clients.
+    // A fresh joiner claims the now-genuinely-free seat 2 (no recycling involved —
+    // the seat has no p/<seat> node left at all after the atomic leave-delete).
+    const newcomer = await newClient(ctx, 2);
+    clients[2] = newcomer;
+    await newcomer.page.evaluate((cc) => window.__ringoutE2E.joinFFA(cc), code);
     await H.poll(async () => {
-      for (const c of remaining) { const s = await snap(c.page); if (s.seatGone[2] !== true) return null; }
-      return true;
-    }, 20000, 'seatGone[2] bei allen verbleibenden Clients');
-    const rs = [];
-    for (const c of remaining) rs.push(await snap(c.page));
-    assert(rs.every((s) => s.seatGone[2] === true), 'seatGone[2] nicht bei allen true');
-    assert(new Set(rs.map((s) => s.commitIdx[2])).size === 1,
-      'Verbleibende Clients uneinig über verarbeiteten Sentinel-Slot 2: ' + JSON.stringify(rs.map((s) => s.commitIdx[2])));
+      const s = await snap(newcomer.page);
+      return s && s.online && s.myPlayer === 2 ? true : null;
+    }, 15000, 'Neuer Client belegt den freigegebenen Seat 2');
 
-    // Slot value is stable (no double-sentinel overwrite). NOTE: stability proves
-    // the authoritative value did not change — it does NOT by itself prove how many
-    // sentinel transactions were attempted (write-once arbiter absorbs re-tries).
-    const slot2a = await readSlots(remaining[0].page, code, 0, 0);
-    await H.sleep(500);
-    const slot2b = await readSlots(remaining[0].page, code, 0, 0);
-    assert(JSON.stringify(slot2a[2]) === JSON.stringify(slot2b[2]), 'Doppelter Sentinel: Slot 2 hat sich verändert');
+    // Host starts and the match proceeds normally with all three (now-active) seats.
+    await H.poll(async () => {
+      const p = await H.dbRead(host.page, `rooms/${code}/p`);
+      return p && p[0] && p[0].on === true && p[1] && p[1].on === true && p[2] && p[2].on === true ? true : null;
+    }, 15000, 'Host sieht alle drei Seats aktiv');
+    await H.poll(async () => {
+      await host.page.evaluate(() => window.__ringoutE2E.start());
+      const st = await H.dbRead(host.page, `rooms/${code}/state`);
+      return st === 'playing' ? true : null;
+    }, 15000, 'Host startet Match (state=playing)');
+    await waitAllAim(clients, 0, 25000, 'alle drei Clients erreichen Aim (turn 0)');
+    for (const c of clients) await commitZeroSeat(c);
+    await waitAllAim(clients, 1, 25000, 'alle drei Clients erreichen Aim (turn 1) nach normalem Turn');
+    await assertConverged(clients, 'nach Lobby-Leave + Seat-Reuse');
 
-    // No endless turn: remaining clients reach the next aim; seat 2 stays gone.
-    await waitAllAim(remaining, 1, 25000, 'verbleibende Clients erreichen Aim (turn 1)');
-    await assertConverged(remaining, 'nach Leave-Sentinel');
-    const s0 = await snap(remaining[0].page);
-    assert(s0.seatGone[2] === true, 'Seat 2 nicht mehr als gone markiert nach Turn-Wechsel');
     r.passed = true;
-    r.note = 'Retry-Limit-Fehlerpfad (SENTINEL_RETRY_MAX_ATTEMPTS→onlineConnectionLost) nicht erzwungen — nur über künstliche Transaction-Fehler simulierbar; abgedeckt durch bestehende FFA-Online-Race-Regressionstests. Slot-Stabilität beweist nicht die Anzahl versuchter Sentinel-Transactions.';
+    r.note = 'Mid-Match-Leave/Disconnect (Disconnect-Sentinel, Eliminierungs-Latch) ist in B1 bewusst nicht umgesetzt — das v3-Rules-Fundament aus B0 verlangt für einen fremden Move-Slot-Write p/$seat.on===true ("Fund 2", verschoben auf Paket B). Dieses Szenario deckt stattdessen den tatsächlich in B1 umgesetzten Pfad ab: atomarer p+players-Delete beim bewussten Lobby-Leave und Wiederverwendung des dadurch echt freien Sitzes.';
   } finally {
     for (const c of clients) await closeClient(c, ctx);
   }
@@ -465,8 +483,8 @@ async function scenarioStaleness(ctx) {
 
     await H.poll(async () => {
       const p = await H.dbRead(hostB.page, `rooms/${codeB}/p`);
-      return p && p[0] && p[1] ? true : null;
-    }, 15000, 'Host B sieht beide Seats');
+      return p && p[0] && p[0].on === true && p[1] && p[1].on === true ? true : null;
+    }, 15000, 'Host B sieht beide Seats aktiv');
     await H.poll(async () => {
       await hostB.page.evaluate(() => window.__ringoutE2E.start());
       const st = await H.dbRead(hostB.page, `rooms/${codeB}/state`);

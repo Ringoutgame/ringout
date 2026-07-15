@@ -81,7 +81,29 @@ const ROOM_CODE_CLASS = '[A-HJKMNP-Z2-9]{4}';
 const BENIGN_PERMISSION_DENIED_RE = new RegExp(
   '^(?:\\[[^\\]]*\\]\\s*)?@firebase/database: FIREBASE WARNING: set at /rooms/(' + ROOM_CODE_CLASS + ') failed: permission_denied\\s*$');
 
-// Two precisely-scoped benign diagnostics are tolerated — no blanket suppression:
+// B1 (v3 client cutover): the leave-sentinel/elimination-latch path is NOT
+// implemented client-side (see tools/e2e/ffa-scenarios.js scenarioLeave) — the
+// v3 rules foundation from B0 defers it ("Fund 2", see tools/e2e/spike.js): a
+// move-slot write for seat $pl requires root.p($pl).on===true, which a departed
+// seat never has. So whenever ANY client leaves while a match is still active
+// for the OTHERS (including ordinary test cleanup closing clients one-by-one
+// after a scenario's own assertions already passed), every remaining client's
+// automatic writeLeaveSentinel() attempt for that seat is expected to fail here,
+// repeating on the capped backoff until it gives up. Two diagnostics result per
+// attempt: the SDK's own `transaction at .../g/<gen>/t/<turn>/<seat> failed`
+// warning (carries the room code) and index.html's own
+// `[online] Turn-Slot-Transaction fehlgeschlagen` error log (does not carry a
+// room code). Unlike the other two patterns this one is NOT scoped to a leave
+// window's few-second grace — the capped backoff can legitimately keep retrying
+// for up to ~18s (SENTINEL_RETRY_MAX_ATTEMPTS) after the seat departed, well
+// past LEAVE_WINDOW_GRACE_MS — so it is tolerated for the whole run once at
+// least one leave has occurred, which is safe because the regex/prefix stay
+// narrowly anchored to this exact known-benign shape.
+const BENIGN_SENTINEL_WARN_RE = new RegExp(
+  '^(?:\\[[^\\]]*\\]\\s*)?@firebase/database: FIREBASE WARNING: transaction at /rooms/' + ROOM_CODE_CLASS + '/g/\\d+/t/\\d+/[0-4] failed: permission_denied\\s*$');
+const BENIGN_SENTINEL_ERROR_RE = /^\[online\] Turn-Slot-Transaction fehlgeschlagen \(Seat [0-4]\): Error: permission_denied/;
+
+// Three precisely-scoped benign diagnostics are tolerated — no blanket suppression:
 //   1) Chromium's own DevTools inspector resource, blocked by the client, never
 //      reaching gameplay (console.error, ERR_BLOCKED_BY_CLIENT.Inspector).
 //   2) The best-effort whole-room delete in leaveOnline(): `remove(rRef())` is
@@ -92,11 +114,16 @@ const BENIGN_PERMISSION_DENIED_RE = new RegExp(
 //      belongs to a room a client is currently/just leaving, and the warning
 //      timestamp falls inside that leave window. Anything else — any other path,
 //      any other permission_denied, any transaction/seat/turn error — fails.
+//   3) A remaining client's automatic leave-sentinel write for a just-departed
+//      seat, denied by design (Fund 2 deferred, B1 scope — see above). Tolerated
+//      for the whole run once at least one leave-window has been opened.
 function isBenignDiag(d, state) {
   if (!d) return false;
   if (d.kind === 'console.error'
     && /Failed to load resource/.test(d.text)
     && /ERR_BLOCKED_BY_CLIENT\.Inspector/.test(d.text)) return true;
+  const anyLeaveOccurred = !!(state && state.leaveWindows && state.leaveWindows.length);
+  if (d.kind === 'console.error' && anyLeaveOccurred && BENIGN_SENTINEL_ERROR_RE.test(d.text)) return true;
   if (d.kind === 'console.warn') {
     const m = d.text.match(BENIGN_PERMISSION_DENIED_RE);
     if (m) {
@@ -105,6 +132,7 @@ function isBenignDiag(d, state) {
       const ts = typeof d.ts === 'number' ? d.ts : 0;
       return windows.some((w) => w.code === code && ts >= w.start && (w.end == null || ts <= w.end));
     }
+    if (anyLeaveOccurred && BENIGN_SENTINEL_WARN_RE.test(d.text)) return true;
   }
   return false;
 }
@@ -134,6 +162,19 @@ function selfTestBenignMatcher() {
   reject('anderer Raumcode als aktiv', mk('/rooms/MTZV'), W);
   reject('ausserhalb des Leave-Fensters (ts nach end)', mk('/rooms/QX9K', 'console.warn', now + 100000), W);
   reject('kein aktives Leave-Fenster', mk('/rooms/QX9K'), { leaveWindows: [] });
+
+  // Sentinel-Denied (Fund 2 deferred, B1 scope) — NICHT fenstergebunden, nur
+  // "irgendein Leave ist im Lauf passiert".
+  const mkTx = (path, ts) => ({ kind: 'console.warn', text: '@firebase/database: FIREBASE WARNING: transaction at ' + path + ' failed: permission_denied', ts: ts == null ? now : ts });
+  const mkErr = (seat, ts) => ({ kind: 'console.error', text: '[online] Turn-Slot-Transaction fehlgeschlagen (Seat ' + seat + '): Error: permission_denied\n    at stack...', ts: ts == null ? now : ts });
+  accept('Sentinel-Warn gueltig, irgendein Leave im Lauf (weit ausserhalb der 4s-Gnadenfrist)',
+    mkTx('/rooms/QX9K/g/0/t/3/1', now + 20000), W);
+  accept('Sentinel-Error gueltig, irgendein Leave im Lauf', mkErr(2, now + 20000), W);
+  reject('Sentinel-Warn ohne jedes Leave im Lauf', mkTx('/rooms/QX9K/g/0/t/3/1'), { leaveWindows: [] });
+  reject('Sentinel-Error ohne jedes Leave im Lauf', mkErr(2), { leaveWindows: [] });
+  reject('Sentinel-Warn Seat ausserhalb 0-4', mkTx('/rooms/QX9K/g/0/t/3/5'), W);
+  reject('Sentinel-Error Seat ausserhalb 0-4', mkErr(5), W);
+  reject('Sentinel-Pfad mit falschem Op (set statt transaction)', mk('/rooms/QX9K/g/0/t/3/1'), W);
   reject('falsche Diagnose-Art (console.error statt warn)', mk('/rooms/QX9K', 'console.error'), W);
   reject('anderer Op (update/Transaction) statt set', { kind: 'console.warn', text: '@firebase/database: FIREBASE WARNING: update at /rooms/QX9K failed: permission_denied', ts: now }, W);
 

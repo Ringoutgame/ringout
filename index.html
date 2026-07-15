@@ -732,71 +732,88 @@ function savedRoom(){
 let joinOpSeq=0;
 function newJoinOp(){ return ++joinOpSeq; }
 function joinOpCurrent(op){ return op===joinOpSeq; }
-// Atomic compensated seat claim (Paket A, letzte Blocker-Korrektur):
-//   1. arm onDisconnect(p/<seat>) BEFORE the write — a crash mid-claim self-heals
-//      (presence auto-clears; a durable players/<seat> lingers for a lobby rejoin),
-//   2. atomically write p/<seat>=true AND players/<seat>=record — plus, for a
-//      1v1/2v2 guest, state='playing' — in ONE multi-path update(). Every path
-//      succeeds together or the whole write is rejected with nothing applied.
-// The write-once presence rule (p/<seat> requires !exists) is the SOLE arbiter:
-// two parallel claims can never both win the same seat, and a rejected claim
-// leaves no partial p/players/state behind. A stale foreign record is recycled
-// only inside this same atomic update — never pre-deleted. The op token is checked
-// BEFORE and AFTER the write; a stale op disarms the armed onDisconnect (pre-write)
-// or rolls its OWN just-written p/players back (post-write) and never touches
-// foreign data — the rules also block record deletes while p/<seat> is true, so a
-// takeover that already re-won the presence is protected server-side. onDisconnect
-// and cleanup errors are logged, never swallowed silently.
-// Outcomes: {ok:true,dc} claimed · {lost:true} presence race lost / rules rejected
-// (no partial state) · {stale:true} op superseded (own writes rolled back).
-async function claimSeatSlot(code,seat,op,extra){
-  const rootRef=window.FB.ref(window.FB.db,'rooms/'+code);
-  const pRef=window.FB.ref(window.FB.db,'rooms/'+code+'/p/'+seat);
-  const dc=window.FB.onDisconnect(pRef);
-  await dc.remove();   // arm BEFORE the write; a throw here surfaces to the caller
-  if(op!=null&&!joinOpCurrent(op)){ try{ await dc.cancel(); }catch(e){ console.error('[online] onDisconnect cancel (stale pre-write):',e); } return {ok:false,stale:true,dc:null}; }
-  const upd={}; upd['p/'+seat]=true; upd['players/'+seat]=playerRecord(seat);
-  if(extra&&extra.state)upd['state']=extra.state;
-  try{ await window.FB.update(rootRef,upd); }
+// ════ v3 tokenized presence: p/<seat> = {s,on,t} (B1 client cutover) ════
+// A seat only counts as occupied/connected when on===true. RESERVE writes s+t
+// with on:false; ACTIVATE flips on:false->true on the SAME s; onDisconnect (ARM)
+// writes on:false again (never removes the node) — all token-bound (same s),
+// which is what lets the rules reject a late/stale onDisconnect write once a
+// different claimant's s has taken the seat. No client-side recycling/takeover
+// of an existing p/<seat> node is implemented here (B1 scope): a RESERVE only
+// ever targets a seat whose p/<seat> does not exist at all (pickFreeSeat), and a
+// rejected RESERVE is reported as {lost:true} for the caller to retry elsewhere.
+function seatActive(p,s){ return !!(p&&p[s]&&p[s].on===true); }
+
+// Phase 1 — RESERVE: atomic multi-path write of p/<seat> (on:false) + the durable
+// players/<seat> roster record, same token (s===tab) as the rules require. Only
+// ever called against a seat whose p/<seat> is currently absent (fresh claim) —
+// a rules rejection here (seat taken / lobby closed in the meantime) is the
+// benign "lost" outcome, not an error.
+async function reserveSeat(code,seat){
+  const upd={}; upd['p/'+seat]={s:onlineTab,on:false,t:window.FB.serverTimestamp()}; upd['players/'+seat]=playerRecord(seat);
+  try{ await window.FB.update(window.FB.ref(window.FB.db,'rooms/'+code),upd); return {ok:true}; }
   catch(e){
-    // Atomic reject: nothing was written. Disarm the onDisconnect we armed; its
-    // cancel error (if any) is logged, never swallowed.
-    try{ await dc.cancel(); }catch(e2){ console.error('[online] onDisconnect cancel after failed claim:',e2); }
-    // A write-once / rule permission_denied is the benign "seat lost / lobby closed"
-    // outcome (no partial state); anything else is a real transport error and is
-    // surfaced to the caller's catch, never swallowed into a false "seat taken".
-    if(/permission[_ ]?denied/i.test(String((e&&(e.code||e.message))||e)))return {ok:false,lost:true,dc:null};
+    if(/permission[_ ]?denied/i.test(String((e&&(e.code||e.message))||e)))return {ok:false,lost:true};
     throw e;
   }
-  if(op!=null&&!joinOpCurrent(op)){
-    // Won the seat but the op was superseded (user navigated on / left). Release
-    // only OWN data — never a foreign takeover's. A rejoin refresh (record existed
-    // before this op) keeps the durable record and only drops the presence; a fresh
-    // claim drops its own just-created record too.
-    if(extra&&extra.keepRecordOnRollback) await releaseSeatSlot(code,seat,dc);
-    else await releaseSeatClaim(code,seat,dc);
-    return {ok:false,stale:true,dc:null};
-  }
-  return {ok:true,dc:dc};
 }
-// Compensation: release ONLY the own presence and disarm its onDisconnect. Errors
-// are logged, never swallowed. Deliberately never touches players/<seat>.
-async function releaseSeatSlot(code,seat,dc){
-  try{ await window.FB.remove(window.FB.ref(window.FB.db,'rooms/'+code+'/p/'+seat)); }catch(e){ console.error('[online] presence release failed (seat '+seat+'):',e); }
+// Phase 2 — ARM: token-bound onDisconnect on p/<seat>, registered AFTER the
+// reservation exists. On a real disconnect this writes {s,on:false,t:now} — never
+// a remove() — so a later claimant's differing s is what the rules use to reject
+// a stale handler from an earlier claim.
+async function armPresence(code,seat){
+  const dc=window.FB.onDisconnect(window.FB.ref(window.FB.db,'rooms/'+code+'/p/'+seat));
+  await dc.set({s:onlineTab,on:false,t:window.FB.serverTimestamp()});
+  return dc;
+}
+// Phase 3 — ACTIVATE: flips p/<seat> on:false->true on the same token. For a
+// 1v1/2v2 guest, extra.state='playing' rides along in the SAME atomic update as
+// required by the rules' state-write condition (p/1/on must already be true in
+// that same write).
+async function activateSeat(code,seat,extra){
+  const upd={}; upd['p/'+seat]={s:onlineTab,on:true,t:window.FB.serverTimestamp()};
+  if(extra&&extra.state)upd['state']=extra.state;
+  await window.FB.update(window.FB.ref(window.FB.db,'rooms/'+code),upd);
+}
+// Rollback of OWN reservation/activation: atomically deletes p/<seat> AND
+// players/<seat> together (the rules require both gone in the same write — a
+// presence-only delete is not expressible under v3) and disarms the onDisconnect
+// if one was armed. Never touches a foreign record (only ever called on a seat
+// this same call just reserved). Errors are logged, never swallowed silently.
+async function releaseReservation(code,seat,dc){
+  try{ const upd={}; upd['p/'+seat]=null; upd['players/'+seat]=null; await window.FB.update(window.FB.ref(window.FB.db,'rooms/'+code),upd); }
+  catch(e){ console.error('[online] reservation rollback failed (seat '+seat+'):',e); }
   if(dc){ try{ await dc.cancel(); }catch(e){ console.error('[online] onDisconnect cancel failed (seat '+seat+'):',e); } }
 }
-// Full cleanup for a FRESH claim whose op became stale (user navigated away
-// mid-join): release the presence, then drop the own just-created record — but
-// only if it still carries the own id. If the seat was taken over in between,
-// the new holder owns the presence again and the rules reject the delete anyway
-// (a rollback can never destroy a foreign record).
-async function releaseSeatClaim(code,seat,dc){
-  await releaseSeatSlot(code,seat,dc);
-  try{
-    const ref=window.FB.ref(window.FB.db,'rooms/'+code+'/players/'+seat);
-    const s=await window.FB.get(ref);
-    if(s.exists()&&s.val()&&s.val().id===onlinePid) await window.FB.remove(ref);
-  }catch(e){ console.error('[online] own record cleanup failed (seat '+seat+'):',e); }
+// Orchestrates RESERVE -> ARM -> ACTIVATE for a guest seat claim (FFA seat 1-4,
+// or the 1v1/2v2 guest seat 1 with extra.state='playing'). The op token is
+// re-checked after every await; a stale op rolls back ONLY this call's own
+// just-written data via releaseReservation and never touches foreign state.
+// Outcomes: {ok:true,dc} activated · {lost:true} reserve lost (no partial state,
+// caller tries the next seat) · {stale:true} op superseded (own writes rolled back).
+async function claimSeatSlot(code,seat,op,extra){
+  const r=await reserveSeat(code,seat);
+  if(!r.ok)return {ok:false,lost:true,dc:null};
+  if(op!=null&&!joinOpCurrent(op)){ await releaseReservation(code,seat,null); return {ok:false,stale:true,dc:null}; }
+  let dc=null;
+  try{ dc=await armPresence(code,seat); }
+  catch(e){ await releaseReservation(code,seat,null); throw e; }
+  if(op!=null&&!joinOpCurrent(op)){ await releaseReservation(code,seat,dc); return {ok:false,stale:true,dc:null}; }
+  try{ await activateSeat(code,seat,extra); }
+  catch(e){ await releaseReservation(code,seat,dc); throw e; }
+  if(op!=null&&!joinOpCurrent(op)){ await releaseReservation(code,seat,dc); return {ok:false,stale:true,dc:null}; }
+  return {ok:true,dc:dc};
+}
+// Best-effort teardown of a just-created room whose create/arm/activate flow
+// failed or went stale. Nobody else can know the code yet (it is only revealed
+// in the UI after a successful ACTIVATE), so a full room removal is safe.
+// v3: the cleanup rule denies a whole-room delete while p/0 or players/0 still
+// exist, so the host seat's presence AND roster must be cleared FIRST — atomically
+// together (a presence-only delete is not expressible under v3) — then the now-empty
+// room is removed. Same clear-then-delete order as leaveOnline() / the spike purge.
+async function abortFreshRoom(code,dc){
+  if(dc){ try{ await dc.cancel(); }catch(e){ console.error('[online] onDisconnect cancel (create abort):',e); } }
+  try{ const upd={}; upd['p/0']=null; upd['players/0']=null; await window.FB.update(window.FB.ref(window.FB.db,'rooms/'+code),upd); }catch(e){ console.error('[online] fresh room seat cleanup failed:',e); }
+  try{ await window.FB.remove(window.FB.ref(window.FB.db,'rooms/'+code)); }catch(e){ console.error('[online] fresh room cleanup failed:',e); }
 }
 // Lobby-only host grace: while the host presence is briefly gone (reload), hold the
 // room open. A deliberate host leave removes players/0 as well and closes at once
@@ -809,7 +826,7 @@ function startLobbyHostGrace(){
     lobbyHostGraceTimer=null;
     if(ctx.sid!==onlineSessionId||ctx.room!==roomCode)return;
     if(gameStarted||fmt!=='ffa'||myPlayer===0)return;
-    if(lobbyP&&lobbyP[0])return;   // host came back within the grace
+    if(seatActive(lobbyP,0))return;   // host came back within the grace
     onLobbyClosed();
   },LOBBY_HOST_GRACE_MS);
 }
@@ -819,7 +836,7 @@ function startLobbyHostGrace(){
 //   host record kept (reload)-> start/keep the grace and wait for the return
 function evalLobbyHostPresence(){
   if(!(online&&fmt==='ffa'&&!gameStarted&&myPlayer!==0))return;
-  if(lobbyP&&lobbyP[0]){ clearLobbyHostGrace(); return; }
+  if(seatActive(lobbyP,0)){ clearLobbyHostGrace(); return; }
   if(!(playersRoster&&playersRoster[0])){ clearLobbyHostGrace(); onLobbyClosed(); return; }
   startLobbyHostGrace();
 }
@@ -1902,7 +1919,7 @@ function renderLobby(p){
   lobbyP=p;   // Snapshot fuer startFfaMatch (Host prueft n>=2 + Lueckenfreiheit)
   let n=0,h='';
   for(let s=0;s<FFA_MAX_SEATS;s++){
-    const here=!!p[s];if(here)n++;
+    const here=seatActive(p,s);if(here)n++;
     h+='<div style="width:26px;height:26px;border-radius:50%;'+(here
       ?'background:'+PCOLS[s].ui+';box-shadow:0 0 8px '+PCOLS[s].ui+(s===myPlayer?';outline:2px solid #fff':'')
       :'border:2px dashed #2a3850')+'"></div>';
@@ -1912,7 +1929,7 @@ function renderLobby(p){
   // seat has a fixed row; occupied seats show the roster name in the seat color.
   for(let s=0;s<FFA_MAX_SEATS;s++){
     const row=$('lobbyName'+s); if(!row)continue;
-    if(p[s]){ row.textContent=nameForSeat(s); row.style.display=''; row.style.color=PCOLS[s].ui; }
+    if(seatActive(p,s)){ row.textContent=nameForSeat(s); row.style.display=''; row.style.color=PCOLS[s].ui; }
     else { row.textContent=''; row.style.display='none'; }
   }
   $('lobbyMine').textContent=T('youAre')+' '+nameForSeat(myPlayer);
@@ -1930,10 +1947,10 @@ function openOnline(){
   $('onCreate').style.display='';$('onJoinRow').style.display='flex';$('onWait').style.display='none';
   $('onLobby').style.display='none';$('nameRow').style.display='';
   $('onCode').textContent='';$('onInput').value='';$('nameInput').value=onlineName;setStatus('');
-  // Rejoin affordance: only when a fresh saved room exists (reload / tab-switch).
-  const sr=savedRoom();
-  if(sr){ $('onRejoin').style.display=''; $('onRejoinTxt').textContent=T('rejoinAsk').replace('{code}',sr.code); }
-  else $('onRejoin').style.display='none';
+  // Lobby-Rejoin bleibt bis B2 deaktiviert (v3 braucht dafuer Stale-Reservierungs-
+  // Recycling, das hier bewusst nicht implementiert ist — siehe attemptRejoin).
+  // Die Affordance wird deshalb nie gezeigt, auch wenn ein savedRoom() existiert.
+  $('onRejoin').style.display='none';
   whenFB(()=>{ if(!fbReady())setStatus(T('noFb')); });
 }
 
@@ -1941,7 +1958,7 @@ function createRoom(){
   if(TUNE){toast('Tuning aktiv — Online deaktiviert');return;}
   const ffa=mode==='ffa';   // Kontext vom ffaOnline-Button
   whenFB(()=>{ if(!fbReady()){setStatus(T('noFb'));return;}
-    (async()=>{ const op=newJoinOp(); let dc=null, code='';
+    (async()=>{ const op=newJoinOp(); let dc=null, code='', created=false;
     try{
       setStatus(T('creating'));
       for(let t=0;t<6;t++){ code=rrand(4); const s=await window.FB.get(window.FB.ref(window.FB.db,'rooms/'+code)); if(!joinOpCurrent(op))return; if(!s.exists())break; }
@@ -1951,18 +1968,20 @@ function createRoom(){
       // Heuristiken (fehlende Presence/players/g) als alleinige Wahrheit fuer
       // Rejoin-/Claim-/Recycling-Erlaubnis. FFA bleibt bis zum Host-Start in 'lobby';
       // 1v1/2v2 schaltet der atomare Gastclaim auf 'playing' (siehe joinRoom).
-      const room={v:ONLINE_PROTOCOL_VERSION, config:{winTarget:winTarget,fmt:fmtNew}, gen:0, state:'lobby', p:{0:true}, players:{0:rec}, created:window.FB.serverTimestamp()};
-      // onDisconnect armed BEFORE the room exists: a crash right after the create
-      // self-heals (presence auto-clears; players/0 lingers so the host can rejoin).
-      dc=window.FB.onDisconnect(window.FB.ref(window.FB.db,'rooms/'+code+'/p/0'));
-      await dc.remove();
-      if(!joinOpCurrent(op)){ try{ await dc.cancel(); }catch(e){} return; }
+      // RESERVE: Raum inkl. Host-Reservierung (p/0.on=false) + players/0 anlegen.
+      const room={v:ONLINE_PROTOCOL_VERSION, config:{winTarget:winTarget,fmt:fmtNew}, gen:0, state:'lobby',
+        p:{0:{s:onlineTab,on:false,t:window.FB.serverTimestamp()}}, players:{0:rec}, created:window.FB.serverTimestamp()};
       await window.FB.set(window.FB.ref(window.FB.db,'rooms/'+code), room);
-      if(!joinOpCurrent(op)){   // op stale after the create -> tear the own fresh room down again
-        await releaseSeatClaim(code,0,dc);
-        try{ await window.FB.remove(window.FB.ref(window.FB.db,'rooms/'+code)); }catch(e){}
-        return;
-      }
+      created=true;   // room exists from here on -> abortFreshRoom(code,...) below is now safe to call
+      if(!joinOpCurrent(op)){ await abortFreshRoom(code,null); return; }
+      // ARM: tokengebundener onDisconnect erst NACH der Reservierung.
+      try{ dc=await armPresence(code,0); }
+      catch(e){ await abortFreshRoom(code,null); if(joinOpCurrent(op))setStatus(T('err')+(e.message||e)); return; }
+      if(!joinOpCurrent(op)){ await abortFreshRoom(code,dc); return; }
+      // ACTIVATE: Host auf on:true — Raumcode/UI erst danach freigeben.
+      try{ await activateSeat(code,0); }
+      catch(e){ await abortFreshRoom(code,dc); if(joinOpCurrent(op))setStatus(T('err')+(e.message||e)); return; }
+      if(!joinOpCurrent(op)){ await abortFreshRoom(code,dc); return; }
       // remote flow complete -> NOW commit the globals + UI + listeners
       fmt=fmtNew;
       roomCode=code; myPlayer=0; online=true; gen=0; runningGen=-1; gameStarted=false; seatLeft=[]; seatGone=[];
@@ -1970,11 +1989,11 @@ function createRoom(){
       rememberRoom(code,0);
       $('onCreate').style.display='none';$('onJoinRow').style.display='none';$('onWait').style.display='';
       $('onCode').textContent=code;
-      if(ffa){ $('onLobby').style.display=''; renderLobby({0:true}); setStatus(T('ffaShare')); }
+      if(ffa){ $('onLobby').style.display=''; renderLobby({0:{s:onlineTab,on:true,t:Date.now()}}); setStatus(T('ffaShare')); }
       else setStatus((fmt==='double'?'2v2 · ':'1v1 · ')+T('shareCode'));
       attachRoomListeners();
     }catch(e){
-      if(dc){ try{ dc.cancel(); }catch(e2){} }
+      if(created) await abortFreshRoom(code,dc);   // never touch 'rooms/'+code before the room actually exists
       if(joinOpCurrent(op))setStatus(T('err')+(e.message||e));
     } })();
   });
@@ -1995,7 +2014,9 @@ const ONLINE_PROTOCOL_VERSION=3;
 const FFA_MAX_SEATS=5;   // Online-FFA: Seats 0-4 (Host=0), Farben aus PCOLS
 // Pure validator for a room snapshot the joiner is about to trust. No globals,
 // no state, no silent defaults: invalid or missing fields reject the join.
-// Note: Firebase may deliver p:{0:true} as the array [true] — both forms pass.
+// v3: p/<seat> is {s,on,t} — the host only counts as present when p/0.on===true.
+// Deliberately self-contained (no seatActive call) so it stays extractable/testable
+// on its own, like before.
 const GEN_MAX=10000;   // gen grows +1 per rematch; anything above is manipulation
 function validateRoom(d){
   if(!d||typeof d!=='object')return{ok:false,reason:'Raumdaten ungültig.'};
@@ -2006,7 +2027,7 @@ function validateRoom(d){
   if(!Number.isSafeInteger(d.gen)||d.gen<0||d.gen>GEN_MAX)
     return{ok:false,reason:'Raum-Konfiguration ungültig.'};
   const p=d.p;
-  if(!p||typeof p!=='object'||p[0]!==true)return{ok:false,reason:'Raum ist verwaist.'};
+  if(!p||typeof p!=='object'||!(p[0]&&p[0].on===true))return{ok:false,reason:'Raum ist verwaist.'};
   if(cfg.fmt==='ffa'){
     // FFA-Raum (live seit M8-T3c): Beitritt nur solange die Lobby offen ist
     // und ein Seat 1-4 frei ist.
@@ -2026,8 +2047,10 @@ function pickFreeSeat(p,max){for(let s=1;s<max;s++)if(!p||!p[s])return s;return 
 // Start-Gate-Helfer (pure, Node-getestet). Belegte Seats muessen lueckenlos 0..n-1
 // sein, sonst wartet der Lockstep ewig auf einen leeren Seat (Geister-Spieler).
 // v1-Entscheid: KEIN Auto-Nachruecken — bei Luecke blockt der Start-Button.
-function seatCount(p){let n=0;for(let s=0;s<FFA_MAX_SEATS;s++)if(p&&p[s])n++;return n;}
-function seatsContiguous(p,n){for(let s=0;s<n;s++)if(!p||!p[s])return false;return true;}
+// v3: "belegt" heisst aktiv verbunden (on===true) — eine reservierte, aber noch
+// nicht aktivierte Presence zaehlt nicht mit.
+function seatCount(p){let n=0;for(let s=0;s<FFA_MAX_SEATS;s++)if(seatActive(p,s))n++;return n;}
+function seatsContiguous(p,n){for(let s=0;s<n;s++)if(!seatActive(p,s))return false;return true;}
 // Seat-Claiming mit Retry (live seit M8-T3c, kompensiert seit der Korrekturrunde):
 // Die Write-once-Rule auf p/<seat> ist der Schiedsrichter — verliert dieser Client
 // das Race, schlaegt der Write fehl -> Raum neu lesen, naechsten freien Seat
@@ -2067,10 +2090,9 @@ function joinRoom(){
       if(!joinOpCurrent(op))return;
       if(!s.exists()){ setStatus(T('noRoom')); return; }
       const d=s.val();
-      // Same-seat rejoin: this browser identity already holds a seat here (reload /
-      // tab-switch). The Join tap is the visible confirmation the user must give.
-      // attemptRejoin opens its own (newer) op — this one simply ends here.
-      if(findOwnSeat(d.players,onlinePid)>=0){ await attemptRejoin(code); return; }
+      // Lobby-Rejoin ist bis B2 deaktiviert (siehe attemptRejoin): eine wiedererkannte
+      // eigene Identitaet loest hier bewusst KEINEN Rejoin aus, sondern durchlaeuft den
+      // normalen Claim-Flow unten wie jeder andere Beitritt.
       const v=validateRoom(d);
       if(!v.ok){ setStatus(v.reason); return; }
       if(v.fmt==='ffa'){   // M8-T3c: Seat per atomaren write-once-Claim statt fix p/1
@@ -2152,17 +2174,25 @@ async function attemptRejoin(code){
     if(seat<0){ forgetRoom(); setStatus(T('noRoom')); return false; }   // identity no longer holds a seat here
     const ffa=d.config&&d.config.fmt==='ffa';
     if(!roomRejoinableState(d,seat)){ forgetRoom(); setStatus(T('rejoinNoLobby')); return false; }
-    if(d.p&&d.p[seat]===true){ setStatus(T('rejoinTab')); return false; }
-    // Atomic p/<seat>+players/<seat> refresh (same-id). The durable record existed
-    // before this op, so a stale rollback keeps it and only drops the presence.
-    const claim=await claimSeatSlot(code,seat,op,{keepRecordOnRollback:true});
-    if(claim.stale)return false;   // op superseded -> own presence already released, record kept
+    if(d.p&&seatActive(d.p,seat)){ setStatus(T('rejoinTab')); return false; }
+    // v3 note (B1 scope): this call site is unreachable (no UI path triggers
+    // attemptRejoin) — kept schema-compatible only, not functionally extended.
+    // claimSeatSlot's RESERVE targets a seat whose p/<seat> already exists here
+    // (an earlier session's reservation), which the rules only allow to be
+    // re-claimed via the 15s stale-reservation recycling case — not implemented
+    // in B1 (no automatic recycling/takeover). This therefore realistically
+    // resolves to {lost:true} until B2 adds that recycling path. The old
+    // "keepRecordOnRollback" (drop presence, keep the durable record) is no
+    // longer expressible under v3 either: the rules require p/<seat> and
+    // players/<seat> to be deleted together, never one without the other.
+    const claim=await claimSeatSlot(code,seat,op);
+    if(claim.stale)return false;   // op superseded -> own writes already rolled back
     if(claim.lost){
       // Presence write denied: either another tab re-took the seat, or the room
       // left the lobby between the snapshot and the claim (the rules reject a
       // presence restore outside the lobby). Re-read once for the right message.
       let otherTab=true;
-      try{ const s2=await window.FB.get(window.FB.ref(window.FB.db,'rooms/'+code+'/p/'+seat)); otherTab=s2.val()===true; }catch(e){}
+      try{ const s2=await window.FB.get(window.FB.ref(window.FB.db,'rooms/'+code+'/p/'+seat)); const v2=s2.val(); otherTab=!!(v2&&v2.on===true); }catch(e){}
       setStatus(T(otherTab?'rejoinTab':'rejoinNoLobby'));
       return false;
     }
@@ -2201,7 +2231,7 @@ function attachRoomListeners(){
     if(!isCurrentRoom())return;
     const p=snap.val()||{};
     // Auto-Start nur 1v1/2v2; FFA startet per Host-Start ueber state+seats (M8-T3c)
-    if(fmt!=='ffa' && !!p[0] && !!p[1] && !gameStarted) maybeStart();
+    if(fmt!=='ffa' && seatActive(p,0) && seatActive(p,1) && !gameStarted) maybeStart();
     if(fmt==='ffa' && !gameStarted){
       renderLobby(p);
       // Host presence gone is no longer an instant close: a reload keeps players/0,
@@ -2211,16 +2241,18 @@ function attachRoomListeners(){
     }
     // 1v1/2v2: fremder Seat weg -> Match-Ende fuer alle. Online-FFA: Verlassene
     // werden per Move-Sentinel eliminiert, die Uebrigen spielen weiter (M8-T3c).
+    // v3: "weg" heisst nicht mehr aktiv verbunden (on!==true) — das deckt sowohl
+    // den deliberate Leave (p geloescht) als auch onDisconnect (on:false) ab.
     if(gameStarted){
       if(mode==='ffa'){
         for(let s=0;s<np();s++){
-          if(s===myPlayer||p[s]||seatLeft[s])continue;
+          if(s===myPlayer||seatActive(p,s)||seatLeft[s])continue;
           seatLeft[s]=true;
           toast('Spieler '+(s+1)+' hat das Match verlassen.');
           writeLeaveSentinel(s);
         }
       }
-      else for(let s=0;s<np();s++){if(s!==myPlayer&&!p[s]){onOppLeft();break;}}
+      else for(let s=0;s<np();s++){if(s!==myPlayer&&!seatActive(p,s)){onOppLeft();break;}}
     }
   });
   // Roster listener: durable player identities/names (id,name,tab). Keeps
@@ -2451,9 +2483,16 @@ function leaveOnline(){
   turnUnsub=genUnsub=presUnsub=seatsUnsub=rosterUnsub=null;
   // Deliberate leave is immediate: drop own presence AND own roster record (frees
   // the seat for recycling and signals "left, not reloading" to the others), then
-  // best-effort remove the whole room. The cleanup rule allows the room delete only
-  // when no seat is present — otherwise it is silently rejected (others play on).
-  try{ if(window.FB && roomCode){ window.FB.remove(rRef('p/'+myPlayer)); window.FB.remove(rRef('players/'+myPlayer)); window.FB.remove(rRef()).catch(()=>{}); } }catch(e){}
+  // best-effort remove the whole room. v3: the rules only allow a p/<seat> delete
+  // when players/<seat> vanishes in the SAME write (and vice versa) — so both must
+  // go in one atomic update(), not two separate remove() calls, or either write is
+  // rejected. The whole-room cleanup only runs after that update settles (the
+  // cleanup rule needs no seat present).
+  try{ if(window.FB && roomCode){
+    const rootRef=window.FB.ref(window.FB.db,'rooms/'+roomCode);
+    const upd={}; upd['p/'+myPlayer]=null; upd['players/'+myPlayer]=null;
+    window.FB.update(rootRef,upd).then(()=>{ window.FB.remove(rootRef).catch(()=>{}); }).catch(()=>{});
+  } }catch(e){}
   forgetRoom();
   online=false; gameStarted=false; roomCode=''; lobbyP={}; seatLeft=[]; seatGone=[]; playersRoster={};
   mode=menuMode; ffaN=ffaNMenu;   // Online-FFA stellt mode/ffaN um — Menue-Auswahl wiederherstellen

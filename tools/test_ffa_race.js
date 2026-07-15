@@ -75,9 +75,13 @@ const SRC = [
   grab(/function sanitizeName\(raw\)\{[\s\S]*?\n\}/, 'sanitizeName'),
   grab(/function newJoinOp\(\)\{[^\n]*/, 'newJoinOp'),
   grab(/function joinOpCurrent\(op\)\{[^\n]*/, 'joinOpCurrent'),
+  grab(/function seatActive\(p,s\)\{[^\n]*/, 'seatActive'),
+  grab(/async function reserveSeat\(code,seat\)\{[\s\S]*?\n\}/, 'reserveSeat'),
+  grab(/async function armPresence\(code,seat\)\{[\s\S]*?\n\}/, 'armPresence'),
+  grab(/async function activateSeat\(code,seat,extra\)\{[\s\S]*?\n\}/, 'activateSeat'),
+  grab(/async function releaseReservation\(code,seat,dc\)\{[\s\S]*?\n\}/, 'releaseReservation'),
   grab(/async function claimSeatSlot\(code,seat,op,extra\)\{[\s\S]*?\n\}/, 'claimSeatSlot'),
-  grab(/async function releaseSeatSlot\(code,seat,dc\)\{[\s\S]*?\n\}/, 'releaseSeatSlot'),
-  grab(/async function releaseSeatClaim\(code,seat,dc\)\{[\s\S]*?\n\}/, 'releaseSeatClaim'),
+  grab(/async function abortFreshRoom\(code,dc\)\{[\s\S]*?\n\}/, 'abortFreshRoom'),
   grab(/function roomRejoinableState\(d,seat\)\{[\s\S]*?\n\}/, 'roomRejoinableState'),
   grab(/function playerRecord\(seat\)\{[^\n]*/, 'playerRecord'),
   grab(/function nameForSeat\(s\)\{[\s\S]*?\n\}/, 'nameForSeat'),
@@ -107,39 +111,76 @@ function makeDB() {
       if (cur !== l.last) { l.last = cur; l.cb({ val: () => clone(at(l.parts)), exists: () => at(l.parts) != null }); }
     }
   }
-  // Minimal mirror of the v3 rules with the unified room-state + atomic-claim
-  // semantics (Paket A, letzte Blocker). mergedP maps seat->true for presence
-  // writes that occur in the SAME atomic update() as the path being checked, so a
-  // players/<seat> create can see the sibling p/<seat> claim exactly as the real
-  // rules' merged newData does. Sequential single-path writes pass mergedP=undefined.
-  function checkWrite(parts, val, mergedP) {
+  // Minimal mirror of the v3 rules (B1 client cutover): unified room-state +
+  // tokenized presence p/<seat>={s,on,t}. `merged` gives each checkWrite call a
+  // POST-write view (this write's own siblings in the same atomic update layered
+  // over the current room) for p/<seat>, players/<seat> and `state`, just like the
+  // real rules' merged newData tree. B1 scope note: recycling a STALE existing
+  // p/<seat> (15s rule) and the in-match takeover case are deliberately NOT
+  // modeled — any write whose token (s) differs from the current holder's is
+  // rejected here too, mirroring the real client's "no automatic recycling/
+  // takeover" behavior (see Paket B/TODO).
+  function buildMerged(room, writes) {
+    const wp = {}, wpl = {}; let wstate;
+    for (const w of writes) {
+      if (w.parts[2] === 'p' && w.parts.length === 4) wp[w.parts[3]] = w.val;
+      else if (w.parts[2] === 'players' && w.parts.length === 4) wpl[w.parts[3]] = w.val;
+      else if (w.parts[2] === 'state' && w.parts.length === 3) wstate = w.val;
+    }
+    return {
+      p: seat => (String(seat) in wp) ? wp[String(seat)] : (room && room.p && room.p[seat]),
+      players: seat => (String(seat) in wpl) ? wpl[String(seat)] : (room && room.players && room.players[seat]),
+      state: () => wstate !== undefined ? wstate : (room && room.state)
+    };
+  }
+  function checkWrite(parts, val, merged) {
     if (parts[0] !== 'rooms') throw new Error('PERMISSION_DENIED');
     const room = data.rooms[parts[1]];
     if (parts.length === 2) {
       if (val != null) { if (room) throw new Error('PERMISSION_DENIED: room exists'); return; }
-      if (room && [0, 1, 2, 3, 4].some(s => room.p && room.p[s] === true)) throw new Error('PERMISSION_DENIED: room not empty');
+      if (room && ((room.p && Object.keys(room.p).length) || (room.players && Object.keys(room.players).length)))
+        throw new Error('PERMISSION_DENIED: room not empty');
       return;
     }
     if (!room) throw new Error('PERMISSION_DENIED: no room');
+    if (!merged) merged = buildMerged(room, [{ parts, val }]);
     const fmt = room.config && room.config.fmt, key = parts[2];
     if (key === 'p') {
       const seat = +parts[3];
-      if (val != null) {
-        if (seat >= 5 || (fmt !== 'ffa' && seat >= 2)) throw new Error('PERMISSION_DENIED: seat range');
-        if (room.p && room.p[seat]) throw new Error('PERMISSION_DENIED: write-once seat');   // write-once presence = sole arbiter
-        if (seat === 0) {   // host presence re-add = lobby-only rejoin (unified state, ALL modes)
-          const pl = room.players || {};
-          if (!(pl[0] && pl[0].id) || room.state !== 'lobby') throw new Error('PERMISSION_DENIED: host rejoin only in lobby');
-        }
-        else if (room.state !== 'lobby') throw new Error('PERMISSION_DENIED: guest claim only in lobby');   // ALL modes, not just ffa
+      if (seat >= 5 || (fmt !== 'ffa' && seat >= 2)) throw new Error('PERMISSION_DENIED: seat range');
+      const cur = room.p && room.p[seat];
+      if (val == null) {
+        if (merged.players(seat) != null) throw new Error('PERMISSION_DENIED: p delete requires players delete in same write');
+        return;
       }
-      return;
+      if (!val || typeof val !== 'object' || typeof val.s !== 'string' || typeof val.on !== 'boolean' || typeof val.t !== 'number'
+        || Object.keys(val).some(k => k !== 's' && k !== 'on' && k !== 't'))
+        throw new Error('PERMISSION_DENIED: p shape');
+      if (!cur) {
+        if (val.on !== false) throw new Error('PERMISSION_DENIED: fresh reserve must be on:false');
+        if (room.state !== 'lobby') throw new Error('PERMISSION_DENIED: reserve only in lobby');
+        const pl = merged.players(seat);
+        if (!pl || pl.tab !== val.s) throw new Error('PERMISSION_DENIED: reserve needs matching players.tab in same write');
+        return;
+      }
+      if (val.s === cur.s) {
+        if (cur.on === false && val.on === true) {
+          const g = room.g && room.g[room.gen];
+          if (g && g.e && g.e[seat] === true) throw new Error('PERMISSION_DENIED: activate eliminated seat');
+          const okState = seat === 0 || fmt === 'ffa' || room.state === 'playing' ||
+            (seat === 1 && room.state === 'lobby' && merged.state() === 'playing');
+          if (!okState) throw new Error('PERMISSION_DENIED: activate state gate');
+          return;
+        }
+        if (cur.on === true && val.on === false) return;
+        if (cur.on === false && val.on === false) return;
+        throw new Error('PERMISSION_DENIED: p on transition');
+      }
+      throw new Error('PERMISSION_DENIED: p token mismatch (recycle/takeover not in B1 scope)');
     }
     if (key === 'state') {
-      // lobby->playing: ffa host-start OR 1v1/2v2 guest claim; p/1 may be set in the
-      // SAME atomic update (merged presence).
-      const p1 = (room.p && room.p[1] === true) || !!(mergedP && mergedP[1]);
-      if (!(val === 'playing' && room.state === 'lobby' && p1))
+      const p0 = room.p && room.p[0], p1 = merged.p(1);
+      if (!(val === 'playing' && room.state === 'lobby' && p0 && p0.on === true && p1 && p1.on === true))
         throw new Error('PERMISSION_DENIED: state');
       return;
     }
@@ -156,9 +197,8 @@ function makeDB() {
     if (key === 'players') {   // v3 identity roster — mirrors the real v3 rule expressions
       const seat = parts[3], si = +seat;
       const rec = room.players && room.players[seat];
-      const prePresent = room.p && room.p[seat] === true;   // pre-write presence
-      if (val == null) {       // delete: only while the seat presence is NOT held (pre-write)
-        if (prePresent) throw new Error('PERMISSION_DENIED: players delete while presence held');
+      if (val == null) {
+        if (merged.p(seat) != null) throw new Error('PERMISSION_DENIED: players delete requires p delete in same write');
         return;
       }
       if (si >= 5 || (fmt !== 'ffa' && si >= 2)) throw new Error('PERMISSION_DENIED: players seat range');
@@ -168,15 +208,11 @@ function makeDB() {
         || typeof val.tab !== 'string' || !/^[A-Za-z0-9_-]{8,24}$/.test(val.tab)
         || Object.keys(val).some(k => k !== 'id' && k !== 'name' && k !== 'tab'))
         throw new Error('PERMISSION_DENIED: players record invalid');
-      if (rec && rec.id === val.id) return;   // same-id update (name refresh / rejoin): id immutable, always ok
-      // create (holder writes own record) OR recycle-replace (one atomic claim takes
-      // over a stale foreign record): both need the merged presence (held from before
-      // or set in the SAME atomic write) and lobby. A REPLACE additionally requires
-      // a pre-write-free seat, so a currently-held foreign record can never be stolen.
-      const mergedPresent = prePresent || !!(mergedP && mergedP[seat]);
-      if (!mergedPresent) throw new Error('PERMISSION_DENIED: players needs presence');
-      if (room.state !== 'lobby') throw new Error('PERMISSION_DENIED: players create/replace only in lobby');
-      if (rec && prePresent) throw new Error('PERMISSION_DENIED: players replace requires pre-free presence');
+      const pVal = merged.p(seat);
+      if (!pVal || pVal.s !== val.tab) throw new Error('PERMISSION_DENIED: players needs matching p.s in same write');
+      if (rec && rec.id === val.id) return;
+      if (rec) throw new Error('PERMISSION_DENIED: players replace not in B1 scope (no recycling)');
+      if (room.state !== 'lobby') throw new Error('PERMISSION_DENIED: players create only in lobby');
       return;
     }
     throw new Error('PERMISSION_DENIED: ' + key);
@@ -229,9 +265,9 @@ function makeDB() {
     update: async (ref, obj) => {
       const keys = Object.keys(obj);
       const paths = keys.map(k => ref.concat(String(k).split('/')));
-      const mergedP = {};
-      keys.forEach((k, i) => { const pr = paths[i]; if (pr[pr.length - 2] === 'p' && obj[k] === true) mergedP[pr[pr.length - 1]] = true; });
-      keys.forEach((k, i) => checkWrite(paths[i], obj[k], mergedP));   // any throw aborts BEFORE any apply
+      const room = data.rooms[ref[1]];
+      const merged = buildMerged(room, keys.map((k, i) => ({ parts: paths[i], val: obj[k] })));
+      keys.forEach((k, i) => checkWrite(paths[i], obj[k], merged));   // any throw aborts BEFORE any apply
       keys.forEach((k, i) => {
         let o = data;
         for (let j = 0; j < paths[i].length - 1; j++) { if (o[paths[i][j]] == null) o[paths[i][j]] = {}; o = o[paths[i][j]]; }
@@ -275,9 +311,11 @@ function makeDB() {
       cb({ val: () => clone(at(ref)), exists: () => at(ref) != null });
       return () => listeners.delete(l);
     },
+    // v3: onDisconnect only ever SETs a token-bound offline payload — the real
+    // client never calls .remove() on p/<seat> anymore.
     onDisconnect: ref => ({
-      remove: async () => { ui.onDrop.push(ref); },
-      cancel: async () => { for (let i = ui.onDrop.length - 1; i >= 0; i--) if (ui.onDrop[i].join('/') === ref.join('/')) ui.onDrop.splice(i, 1); }
+      set: async (val) => { const key = ref.join('/'); for (let i = ui.onDrop.length - 1; i >= 0; i--) if (ui.onDrop[i].ref.join('/') === key) ui.onDrop.splice(i, 1); ui.onDrop.push({ ref, val }); },
+      cancel: async () => { const key = ref.join('/'); for (let i = ui.onDrop.length - 1; i >= 0; i--) if (ui.onDrop[i].ref.join('/') === key) ui.onDrop.splice(i, 1); }
     }),
     serverTimestamp: () => 1751900000000
   });
@@ -361,7 +399,8 @@ function makeClient(db, code, forcePid) {
       try{if(rosterUnsub)rosterUnsub();}catch(e){}
       turnUnsub=genUnsub=presUnsub=seatsUnsub=rosterUnsub=null;
       const d=ui.onDrop.slice(); ui.onDrop.length=0;
-      for(const r of d) FB.remove(r).catch(()=>{});   // server no-op when the path is already gone
+      // v3: onDisconnect writes its armed {s,on:false,t} payload, never removes.
+      for(const {ref,val} of d) FB.set(ref,val).catch(()=>{});
     }
     return {
       ui, els,

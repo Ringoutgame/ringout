@@ -12,7 +12,7 @@ const VER = new Function([verSrc, 'return ONLINE_PROTOCOL_VERSION;'].join('\n'))
 let pass = 0, fail = 0;
 const t = (name, cond) => { cond ? pass++ : (fail++, console.error('FAIL: ' + name)); };
 const room = (over = {}) => Object.assign(
-  { v: VER, config: { winTarget: 3, fmt: 'single' }, gen: 0, state: 'lobby', p: { 0: true }, created: 1751800000000 }, over);
+  { v: VER, config: { winTarget: 3, fmt: 'single' }, gen: 0, state: 'lobby', p: { 0: { s: 'hosttoken1', on: true, t: 1751800000000 } }, created: 1751800000000 }, over);
 
 // ── protocol version (M1-T3) ──
 const VMSG = 'Versionen stimmen nicht überein — bitte beide Seite neu laden.';
@@ -29,9 +29,9 @@ t('valid 3/single', validateRoom(room()).ok === true);
 t('valid 5/double', validateRoom(room({ config: { winTarget: 5, fmt: 'double' } })).ok === true);
 t('valid gen 7 (rematches)', validateRoom(room({ gen: 7 })).ok === true);
 t('valid gen at GEN_MAX', validateRoom(room({ gen: 10000 })).ok === true);
-t('valid p as Firebase array [true]', validateRoom(room({ p: [true] })).ok === true);
+t('valid p as Firebase array [{...}]', validateRoom(room({ p: [{ s: 'hosttoken1', on: true, t: 1 }] })).ok === true);
 t('valid: unknown extra fields ignored', validateRoom(room({ zzz: 'junk' })).ok === true);
-t('valid: guest slot cleared (p[1] falsy)', validateRoom(room({ p: { 0: true, 1: false } })).ok === true);
+t('valid: guest slot cleared (p[1] falsy)', validateRoom(room({ p: { 0: { s: 'hosttoken1', on: true, t: 1 }, 1: false } })).ok === true);
 { const v = validateRoom(room({ config: { winTarget: 5, fmt: 'double' }, gen: 3 }));
   t('returns exact validated values', v.winTarget === 5 && v.fmt === 'double' && v.gen === 3); }
 
@@ -56,14 +56,15 @@ t('gen 10001 (> GEN_MAX)', validateRoom(room({ gen: 10001 })).ok === false);
 t('gen missing', validateRoom(room({ gen: undefined })).ok === false);
 t('gen NaN', validateRoom(room({ gen: NaN })).ok === false);
 
-// ── invalid: p (presence) ──
+// ── invalid: p (presence, v3 = {s,on,t}) ──
 t('p missing -> verwaist', validateRoom(room({ p: undefined })).reason === 'Raum ist verwaist.');
 t('p wrong type', validateRoom(room({ p: 'x' })).ok === false);
-t('host missing {1:true} -> verwaist', validateRoom(room({ p: { 1: true } })).reason === 'Raum ist verwaist.');
+t('host missing {1:...} -> verwaist', validateRoom(room({ p: { 1: { s: 'x', on: true, t: 1 } } })).reason === 'Raum ist verwaist.');
 t('host false -> verwaist', validateRoom(room({ p: { 0: false } })).reason === 'Raum ist verwaist.');
-t('host non-bool truthy rejected', validateRoom(room({ p: { 0: 1 } })).ok === false);
-t('full room exact message', validateRoom(room({ p: { 0: true, 1: true } })).reason === 'Raum ist schon voll.');
-t('full room as array [true,true]', validateRoom(room({ p: [true, true] })).reason === 'Raum ist schon voll.');
+t('host reserved but not active (on:false) -> verwaist', validateRoom(room({ p: { 0: { s: 'hosttoken1', on: false, t: 1 } } })).reason === 'Raum ist verwaist.');
+t('host non-object truthy rejected', validateRoom(room({ p: { 0: 1 } })).ok === false);
+t('full room exact message', validateRoom(room({ p: { 0: { s: 'hosttoken1', on: true, t: 1 }, 1: true } })).reason === 'Raum ist schon voll.');
+t('full room as array [{...},true]', validateRoom(room({ p: [{ s: 'hosttoken1', on: true, t: 1 }, true] })).reason === 'Raum ist schon voll.');
 
 // ── unified room-state (Paket A): 1v1/2v2 join only while the lobby is open ──
 t('single without state -> match läuft', validateRoom(room({ state: undefined })).reason === 'Match läuft bereits.');

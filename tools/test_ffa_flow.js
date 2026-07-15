@@ -67,9 +67,13 @@ const SRC = [
   grab(/function sanitizeName\(raw\)\{[\s\S]*?\n\}/, 'sanitizeName'),
   grab(/function newJoinOp\(\)\{[^\n]*/, 'newJoinOp'),
   grab(/function joinOpCurrent\(op\)\{[^\n]*/, 'joinOpCurrent'),
+  grab(/function seatActive\(p,s\)\{[^\n]*/, 'seatActive'),
+  grab(/async function reserveSeat\(code,seat\)\{[\s\S]*?\n\}/, 'reserveSeat'),
+  grab(/async function armPresence\(code,seat\)\{[\s\S]*?\n\}/, 'armPresence'),
+  grab(/async function activateSeat\(code,seat,extra\)\{[\s\S]*?\n\}/, 'activateSeat'),
+  grab(/async function releaseReservation\(code,seat,dc\)\{[\s\S]*?\n\}/, 'releaseReservation'),
   grab(/async function claimSeatSlot\(code,seat,op,extra\)\{[\s\S]*?\n\}/, 'claimSeatSlot'),
-  grab(/async function releaseSeatSlot\(code,seat,dc\)\{[\s\S]*?\n\}/, 'releaseSeatSlot'),
-  grab(/async function releaseSeatClaim\(code,seat,dc\)\{[\s\S]*?\n\}/, 'releaseSeatClaim'),
+  grab(/async function abortFreshRoom\(code,dc\)\{[\s\S]*?\n\}/, 'abortFreshRoom'),
   grab(/function roomRejoinableState\(d,seat\)\{[\s\S]*?\n\}/, 'roomRejoinableState'),
   grab(/function playerRecord\(seat\)\{[^\n]*/, 'playerRecord'),
   grab(/function nameForSeat\(s\)\{[\s\S]*?\n\}/, 'nameForSeat'),
@@ -101,39 +105,84 @@ function makeDB() {
       if (cur !== l.last) { l.last = cur; l.cb({ val: () => clone(at(l.parts)), exists: () => at(l.parts) != null }); }
     }
   }
-  // Minimal mirror of the v3 rules with the unified room-state + atomic-claim
-  // semantics (Paket A, letzte Blocker). mergedP maps seat->true for presence writes
-  // in the SAME atomic update() as the checked path, so a players/<seat> create sees
-  // the sibling p/<seat> claim exactly as the real rules' merged newData does.
-  function checkWrite(parts, val, mergedP) {
+  // Minimal mirror of the v3 rules (B1 client cutover): unified room-state +
+  // tokenized presence p/<seat>={s,on,t}. `merged` gives each checkWrite call a
+  // POST-write view (this write's own siblings in the same atomic update layered
+  // over the current room) for both p/<seat> and players/<seat> and `state`, just
+  // like the real rules' merged `newData` tree — so e.g. a players/<seat> create
+  // sees the sibling p/<seat> reservation written in the SAME update().
+  // B1 scope note: recycling a STALE existing p/<seat> (15s rule) and the
+  // in-match takeover case are deliberately NOT modeled — any write whose token
+  // (s) differs from the current holder's is rejected here too, mirroring the
+  // real client's "no automatic recycling/takeover" behavior (see Paket B/TODO).
+  function buildMerged(room, writes) {
+    const wp = {}, wpl = {}; let wstate;
+    for (const w of writes) {
+      if (w.parts[2] === 'p' && w.parts.length === 4) wp[w.parts[3]] = w.val;
+      else if (w.parts[2] === 'players' && w.parts.length === 4) wpl[w.parts[3]] = w.val;
+      else if (w.parts[2] === 'state' && w.parts.length === 3) wstate = w.val;
+    }
+    return {
+      p: seat => (String(seat) in wp) ? wp[String(seat)] : (room && room.p && room.p[seat]),
+      players: seat => (String(seat) in wpl) ? wpl[String(seat)] : (room && room.players && room.players[seat]),
+      state: () => wstate !== undefined ? wstate : (room && room.state)
+    };
+  }
+  function checkWrite(parts, val, merged) {
     if (parts[0] !== 'rooms') throw new Error('PERMISSION_DENIED');
     const room = data.rooms[parts[1]];
     if (parts.length === 2) {
       if (val != null) { if (room) throw new Error('PERMISSION_DENIED: room exists'); return; }
-      // cleanup delete (v1): whole room removable ONLY when no seat is present
-      if (room && [0, 1, 2, 3, 4].some(s => room.p && room.p[s] === true)) throw new Error('PERMISSION_DENIED: room not empty');
+      // cleanup delete: whole room removable ONLY when no seat p/players remain
+      // AT ALL (not just no ACTIVE seat) — a stale reservation also blocks it,
+      // matching the real rule's !data.child('p').exists() (existence, not on).
+      if (room && ((room.p && Object.keys(room.p).length) || (room.players && Object.keys(room.players).length)))
+        throw new Error('PERMISSION_DENIED: room not empty');
       return;
     }
     if (!room) throw new Error('PERMISSION_DENIED: no room');
+    if (!merged) merged = buildMerged(room, [{ parts, val }]);
     const fmt = room.config && room.config.fmt, key = parts[2];
     if (key === 'p') {
       const seat = +parts[3];
-      if (val != null) {
-        if (seat >= 5 || (fmt !== 'ffa' && seat >= 2)) throw new Error('PERMISSION_DENIED: seat range');
-        if (room.p && room.p[seat]) throw new Error('PERMISSION_DENIED: write-once seat');   // write-once presence = sole arbiter
-        if (seat === 0) {   // host presence re-add = lobby-only rejoin (unified state, ALL modes)
-          const pl = room.players || {};
-          if (!(pl[0] && pl[0].id) || room.state !== 'lobby') throw new Error('PERMISSION_DENIED: host rejoin only in lobby');
-        }
-        else if (room.state !== 'lobby') throw new Error('PERMISSION_DENIED: guest claim only in lobby');   // ALL modes, not just ffa
+      if (seat >= 5 || (fmt !== 'ffa' && seat >= 2)) throw new Error('PERMISSION_DENIED: seat range');
+      const cur = room.p && room.p[seat];
+      if (val == null) {   // delete only together with players/<seat> gone in the SAME write
+        if (merged.players(seat) != null) throw new Error('PERMISSION_DENIED: p delete requires players delete in same write');
+        return;
       }
-      return;
+      if (!val || typeof val !== 'object' || typeof val.s !== 'string' || typeof val.on !== 'boolean' || typeof val.t !== 'number'
+        || Object.keys(val).some(k => k !== 's' && k !== 'on' && k !== 't'))
+        throw new Error('PERMISSION_DENIED: p shape');
+      if (!cur) {   // RESERVE: fresh claim, on:false, lobby, matching players.tab in the SAME write
+        if (val.on !== false) throw new Error('PERMISSION_DENIED: fresh reserve must be on:false');
+        if (room.state !== 'lobby') throw new Error('PERMISSION_DENIED: reserve only in lobby');
+        const pl = merged.players(seat);
+        if (!pl || pl.tab !== val.s) throw new Error('PERMISSION_DENIED: reserve needs matching players.tab in same write');
+        return;
+      }
+      if (val.s === cur.s) {
+        if (cur.on === false && val.on === true) {   // ACTIVATE
+          const g = room.g && room.g[room.gen];
+          if (g && g.e && g.e[seat] === true) throw new Error('PERMISSION_DENIED: activate eliminated seat');
+          const okState = seat === 0 || fmt === 'ffa' || room.state === 'playing' ||
+            (seat === 1 && room.state === 'lobby' && merged.state() === 'playing');
+          if (!okState) throw new Error('PERMISSION_DENIED: activate state gate');
+          return;
+        }
+        if (cur.on === true && val.on === false) return;    // onDisconnect / deliberate offline-write
+        if (cur.on === false && val.on === false) return;   // same-token refresh (unused by B1 client)
+        throw new Error('PERMISSION_DENIED: p on transition');
+      }
+      // Different token than the current holder: recycle/takeover — out of B1
+      // scope (no automatic recycling/takeover implemented), rejected here too.
+      throw new Error('PERMISSION_DENIED: p token mismatch (recycle/takeover not in B1 scope)');
     }
     if (key === 'state') {
-      // lobby->playing: ffa host-start OR 1v1/2v2 guest claim; p/1 may be set in the
-      // SAME atomic update (merged presence).
-      const p1 = (room.p && room.p[1] === true) || !!(mergedP && mergedP[1]);
-      if (!(val === 'playing' && room.state === 'lobby' && p1))
+      // lobby->playing: ffa host-start OR 1v1/2v2 guest claim; p/1 must already be
+      // on:true in the SAME write (or already true), host p/0 stays on:true.
+      const p0 = room.p && room.p[0], p1 = merged.p(1);
+      if (!(val === 'playing' && room.state === 'lobby' && p0 && p0.on === true && p1 && p1.on === true))
         throw new Error('PERMISSION_DENIED: state');
       return;
     }
@@ -150,9 +199,8 @@ function makeDB() {
     if (key === 'players') {   // v3 identity roster — mirrors the real v3 rule expressions
       const seat = parts[3], si = +seat;
       const rec = room.players && room.players[seat];
-      const prePresent = room.p && room.p[seat] === true;   // pre-write presence
-      if (val == null) {       // delete: only while the seat presence is NOT held (pre-write)
-        if (prePresent) throw new Error('PERMISSION_DENIED: players delete while presence held');
+      if (val == null) {       // delete only together with p/<seat> gone in the SAME write
+        if (merged.p(seat) != null) throw new Error('PERMISSION_DENIED: players delete requires p delete in same write');
         return;
       }
       if (si >= 5 || (fmt !== 'ffa' && si >= 2)) throw new Error('PERMISSION_DENIED: players seat range');
@@ -162,15 +210,13 @@ function makeDB() {
         || typeof val.tab !== 'string' || !/^[A-Za-z0-9_-]{8,24}$/.test(val.tab)
         || Object.keys(val).some(k => k !== 'id' && k !== 'name' && k !== 'tab'))
         throw new Error('PERMISSION_DENIED: players record invalid');
-      if (rec && rec.id === val.id) return;   // same-id update (name refresh / rejoin): id immutable, always ok
-      // create (holder writes own record) OR recycle-replace (one atomic claim takes
-      // over a stale foreign record): both need the merged presence (held from before
-      // or set in the SAME atomic write) and lobby. A REPLACE additionally requires
-      // a pre-write-free seat, so a currently-held foreign record can never be stolen.
-      const mergedPresent = prePresent || !!(mergedP && mergedP[seat]);
-      if (!mergedPresent) throw new Error('PERMISSION_DENIED: players needs presence');
-      if (room.state !== 'lobby') throw new Error('PERMISSION_DENIED: players create/replace only in lobby');
-      if (rec && prePresent) throw new Error('PERMISSION_DENIED: players replace requires pre-free presence');
+      const pVal = merged.p(seat);
+      if (!pVal || pVal.s !== val.tab) throw new Error('PERMISSION_DENIED: players needs matching p.s in same write');
+      if (rec && rec.id === val.id) return;   // same-id update (name refresh): id immutable, always ok
+      // A differing-id create/replace needs a genuinely FRESH seat (no rec at all);
+      // replacing an existing foreign record (recycle) is out of B1 scope.
+      if (rec) throw new Error('PERMISSION_DENIED: players replace not in B1 scope (no recycling)');
+      if (room.state !== 'lobby') throw new Error('PERMISSION_DENIED: players create only in lobby');
       return;
     }
     throw new Error('PERMISSION_DENIED: ' + key);
@@ -192,9 +238,9 @@ function makeDB() {
     get: async ref => ({ exists: () => at(ref) != null, val: () => clone(at(ref)) }),
     set: async (ref, val) => setParts(ref, val),
     // Atomic multi-path update: honor failure injection and validate EVERY path
-    // against the pre-write tree (with merged sibling presence) BEFORE any data
-    // change, then apply all-or-nothing — a single rejected/failed path aborts the
-    // whole write, leaving no partial p/players/state behind.
+    // against the pre-write tree (with a merged post-write view across the WHOLE
+    // batch) BEFORE any data change, then apply all-or-nothing — a single
+    // rejected/failed path aborts the whole write, leaving no partial state.
     update: async (ref, obj) => {
       const keys = Object.keys(obj);
       const paths = keys.map(k => ref.concat(String(k).split('/')));
@@ -204,9 +250,9 @@ function makeDB() {
           if (f.times > 0 && pathStr.startsWith(f.prefix)) { f.times--; throw new Error('INJECTED_WRITE_FAILURE: ' + pathStr); }
         }
       }
-      const mergedP = {};
-      keys.forEach((k, i) => { const pr = paths[i]; if (pr[pr.length - 2] === 'p' && obj[k] === true) mergedP[pr[pr.length - 1]] = true; });
-      keys.forEach((k, i) => checkWrite(paths[i], obj[k], mergedP));
+      const room = data.rooms[ref[1]];
+      const merged = buildMerged(room, keys.map((k, i) => ({ parts: paths[i], val: obj[k] })));
+      keys.forEach((k, i) => checkWrite(paths[i], obj[k], merged));
       keys.forEach((k, i) => {
         let o = data;
         for (let j = 0; j < paths[i].length - 1; j++) { if (o[paths[i][j]] == null) o[paths[i][j]] = {}; o = o[paths[i][j]]; }
@@ -233,9 +279,11 @@ function makeDB() {
       cb({ val: () => clone(at(ref)), exists: () => at(ref) != null });   // initial fire like Firebase
       return () => listeners.delete(l);
     },
+    // v3: onDisconnect only ever SETs a token-bound offline payload — the real
+    // client never calls .remove() on p/<seat> anymore.
     onDisconnect: ref => ({
-      remove: async () => { ui.onDrop.push(ref); },
-      cancel: async () => { for (let i = ui.onDrop.length - 1; i >= 0; i--) if (ui.onDrop[i].join('/') === ref.join('/')) ui.onDrop.splice(i, 1); }
+      set: async (val) => { const key = ref.join('/'); for (let i = ui.onDrop.length - 1; i >= 0; i--) if (ui.onDrop[i].ref.join('/') === key) ui.onDrop.splice(i, 1); ui.onDrop.push({ ref, val }); },
+      cancel: async () => { const key = ref.join('/'); for (let i = ui.onDrop.length - 1; i >= 0; i--) if (ui.onDrop[i].ref.join('/') === key) ui.onDrop.splice(i, 1); }
     }),
     serverTimestamp: () => 1751900000000
   });
@@ -292,7 +340,8 @@ function makeClient(db, code, forcePid) {
       try{if(rosterUnsub)rosterUnsub();}catch(e){}
       turnUnsub=genUnsub=presUnsub=seatsUnsub=rosterUnsub=null;
       const d=ui.onDrop.slice(); ui.onDrop.length=0;
-      for(const r of d) FB.remove(r).catch(()=>{});   // server no-op when the path is already gone
+      // v3: onDisconnect writes its armed {s,on:false,t} payload, never removes.
+      for(const {ref,val} of d) FB.set(ref,val).catch(()=>{});   // server-side reject (stale token) is silent, like real onDisconnect
     }
     return {
       ui, els,
@@ -319,11 +368,11 @@ function makeClient(db, code, forcePid) {
       roster(){return JSON.parse(JSON.stringify(playersRoster));},
       nameFor(s){return nameForSeat(s);},
       async rejoin(c){return await attemptRejoin(c);},
-      async releaseClaim(c,s){return await releaseSeatClaim(c,s,null);},
+      async releaseClaim(c,s){return await releaseReservation(c,s,null);},
       // Direct atomic-claim driver for the parallel-race / onDisconnect-lifecycle
       // tests: fresh op each call, real claimSeatSlot (p+players[+state] in one write).
       async claimSlot(c,s,extra){return await claimSeatSlot(c,s,newJoinOp(),extra);},
-      onDrops(){return ui.onDrop.map(r=>r.join('/'));},
+      onDrops(){return ui.onDrop.map(d=>d.ref.join('/'));},
       status(){return $('onStatus').textContent;},
       hasGrace(){return !!lobbyHostGraceTimer;},
       drop
@@ -334,6 +383,15 @@ function makeClient(db, code, forcePid) {
 let pass = 0, fail = 0;
 const t = (name, cond) => { cond ? pass++ : (fail++, console.error('FAIL: ' + name)); };
 const tick = async (n = 4) => { for (let i = 0; i < n; i++) await new Promise(r => setImmediate(r)); };
+// External presence-flap simulation (server-observed disconnect from OUTSIDE any
+// sandboxed client): v3 onDisconnect only ever writes {s,on:false,t} on the SAME
+// token, never removes — this mirrors that for scenarios that flap a seat without
+// going through a real client's own drop().
+async function dropSeat(db, code, seat) {
+  const ext = db.FBfor({ log: [], onDrop: [] });
+  const cur = db.data.rooms[code].p[seat];
+  await ext.set(ext.ref(null, 'rooms/' + code + '/p/' + seat), { s: cur.s, on: false, t: 1 });
+}
 
 (async () => {
   // ── S1: 3-player lobby -> start -> lockstep turn -> all reveal ──
@@ -443,7 +501,7 @@ const tick = async (n = 4) => { for (let i = 0; i < n; i++) await new Promise(r 
     const h = makeClient(db, 'RCE2'); h.setMenu('ffa', 3); h.create(); await tick();
     const g1 = makeClient(db, 'X'); g1.setMenu('online'); g1.join('RCE2'); await tick();
     const g2 = makeClient(db, 'X'); g2.setMenu('online'); g2.join('RCE2'); await tick();
-    h.setLobbyP({ 0: true, 1: true });   // stale headcount: host missed g2's claim
+    h.setLobbyP({ 0: { on: true }, 1: { on: true } });   // stale headcount: host missed g2's claim
     h.clickStart(); await tick();
     t('S8 db seats 2 despite 3 seated', db.data.rooms.RCE2.seats === 2);
     t('S8 match runs for seats 0,1', h.st().gameStarted && g1.st().gameStarted && h.st().ffaN === 2);
@@ -456,7 +514,7 @@ const tick = async (n = 4) => { for (let i = 0; i < n; i++) await new Promise(r 
     const h = makeClient(db, 'SGL1'); h.setMenu('online'); h.create(); await tick();
     t('S9 single room created in lobby v3', db.data.rooms.SGL1.state === 'lobby' && db.data.rooms.SGL1.config.fmt === 'single');
     const g = makeClient(db, 'X'); g.setMenu('online'); g.join('SGL1'); await tick();
-    t('S9 guest atomic claim flipped state to playing', db.data.rooms.SGL1.state === 'playing' && db.data.rooms.SGL1.p[1] === true && db.data.rooms.SGL1.players[1].id === g.pid());
+    t('S9 guest atomic claim flipped state to playing', db.data.rooms.SGL1.state === 'playing' && db.data.rooms.SGL1.p[1].on === true && db.data.rooms.SGL1.players[1].id === g.pid());
     t('S9 auto-start both, np 2', h.st().gameStarted && g.st().gameStarted && h.ui.log.includes('newGame:2'));
     t('S9 guest view flip stays 1v1', g.va() === Math.PI && h.va() === 0);
     t('S9 lobby untouched', (h.els.lobbyCount||{textContent:''}).textContent === '' && g.st().mode === 'online');
@@ -477,9 +535,8 @@ const tick = async (n = 4) => { for (let i = 0; i < n; i++) await new Promise(r 
     h.clickStart(); await tick();
     const all = [h, g1, g2, g3];
     t('F5 started 4p', all.every(c => c.st().gameStarted && c.st().ffaN === 4));
-    // Presence-Flap: p/3 verschwindet serverseitig (onDisconnect), g3 laeuft aber weiter
-    const ext = db.FBfor({ log: [], onDrop: [] });
-    await ext.remove(ext.ref(null, 'rooms/SYN4/p/3')); await tick();
+    // Presence-Flap: p/3 geht serverseitig auf on:false (onDisconnect), g3 laeuft aber weiter
+    await dropSeat(db, 'SYN4', 3); await tick();
     t('F5 sentinel written once for seat 3', (() => { const c = db.data.rooms.SYN4.g[0].t[0][3]; return c && c.idx !== 3 && c.dx === 0 && c.dy === 0; })());
     // Das Opfer versucht danach selbst zu committen -> Slot ist schon entschieden
     t('F5 victim commit blocked (echo already applied)', g3.commitMove() === false);
@@ -511,9 +568,8 @@ const tick = async (n = 4) => { for (let i = 0; i < n; i++) await new Promise(r 
     h.clickStart(); await tick();
     const all5 = [h, g1, g2, g3, g4];
     t('F6 started 5p', all5.every(c => c.st().gameStarted && c.st().ffaN === 5));
-    // Presence-Flap: Seat 4 verschwindet serverseitig, bevor irgendwer committet
-    const ext = db.FBfor({ log: [], onDrop: [] });
-    await ext.remove(ext.ref(null, 'rooms/SYN5/p/4')); await tick();
+    // Presence-Flap: Seat 4 geht serverseitig auf on:false, bevor irgendwer committet
+    await dropSeat(db, 'SYN5', 4); await tick();
     // Alle 5 committen "gleichzeitig" (Reihenfolge der Aufrufe variiert bewusst,
     // Seat 4 zuletzt und verliert das Write-once-Race gegen den bereits gesetzten Sentinel)
     g3.commitMove(); h.commitMove(); g1.commitMove(); g2.commitMove();
@@ -558,32 +614,46 @@ const tick = async (n = 4) => { for (let i = 0; i < n; i++) await new Promise(r 
     t('N1 nameFor falls back to color for empty roster name', h.nameFor(1) === 'col1');
   }
 
-  // ── R1: guest reload in the lobby (presence drops, players record lingers) ->
-  //    rejoin with the same pid lands on the SAME seat ──
+  // ── R1 (B1-revised): guest reload in the lobby — presence goes inactive
+  //    (on:false, never removed) but the roster record lingers. B1 deliberately
+  //    implements NO automatic recycling/takeover: a fresh join by a DIFFERENT
+  //    identity claims the NEXT free seat (2), not the stale one, and the
+  //    original identity's own direct rejoin attempt is safely rejected (dead
+  //    code path — attemptRejoin/roomRejoinableState stay schema-compatible but
+  //    unreachable from the UI; real same-seat rejoin is Paket B/B2). ──
   {
     const db = makeDB();
     const h = makeClient(db, 'RJN1'); h.setMenu('ffa', 3); h.create(); await tick();
     const g = makeClient(db, 'X'); g.setMenu('online'); g.join('RJN1'); await tick();
     const gpid = g.pid();
     t('R1 guest seated 1 with roster record', g.st().myPlayer === 1 && db.data.rooms.RJN1.players[1].id === gpid);
-    g.drop(); await tick();                              // reload: onDisconnect removes p/1; players/1 stays
-    t('R1 presence gone but roster record kept for rejoin', db.data.rooms.RJN1.p[1] == null && db.data.rooms.RJN1.players[1].id === gpid);
-    const g2 = makeClient(db, 'X', gpid); g2.setMenu('online'); g2.join('RJN1'); await tick();
-    t('R1 rejoined the SAME seat 1', g2.st().myPlayer === 1 && g2.st().online === true && g2.status() === 'rejoinOk');
-    t('R1 presence restored, roster id unchanged', db.data.rooms.RJN1.p[1] === true && db.data.rooms.RJN1.players[1].id === gpid);
+    g.drop(); await tick();                              // reload: onDisconnect writes p/1 on:false; players/1 stays
+    t('R1 presence inactive but roster record kept', db.data.rooms.RJN1.p[1].on === false && db.data.rooms.RJN1.players[1].id === gpid);
+    const g2 = makeClient(db, 'X'); g2.setMenu('online'); g2.join('RJN1'); await tick();
+    t('R1 no recycling: a new guest claims the NEXT free seat, not the stale one', g2.st().myPlayer === 2);
+    t('R1 stale seat 1 untouched by the new joiner', db.data.rooms.RJN1.p[1].on === false && db.data.rooms.RJN1.players[1].id === gpid);
+    const g3 = makeClient(db, 'X', gpid); g3.setMenu('online');
+    const ok = await g3.rejoin('RJN1');
+    t('R1 direct rejoin of the stale seat by the SAME identity is safely rejected', ok === false && g3.st().online === false);
+    t('R1 rejected rejoin left the stale seat exactly as-is', db.data.rooms.RJN1.p[1].on === false && db.data.rooms.RJN1.players[1].id === gpid);
   }
 
-  // ── R2: host reload does NOT close the lobby at once (grace), host rejoins seat 0 ──
+  // ── R2 (B1-revised): host reload does NOT close the FFA lobby at once (grace) —
+  //    that part of Paket A is a presence-tolerance feature, not a rejoin, and
+  //    stays active. Actually reclaiming seat 0 during the grace still needs the
+  //    recycling this task deliberately does not implement, so a direct host
+  //    rejoin attempt is safely rejected. ──
   {
     const db = makeDB();
     const h = makeClient(db, 'RJN2'); h.setMenu('ffa', 3); h.create(); await tick();
     const g = makeClient(db, 'X'); g.setMenu('online'); g.join('RJN2'); await tick();
     const hpid = h.pid();
-    h.drop(); await tick();                              // host reload: p/0 removed, players/0 kept
+    h.drop(); await tick();                              // host reload: p/0 on:false, players/0 kept
     t('R2 guest keeps the lobby open during the host grace', g.st().online === true && g.hasGrace() === true);
-    const h2 = makeClient(db, 'X', hpid); h2.setMenu('ffa'); h2.join('RJN2'); await tick();
-    t('R2 host rejoined on seat 0', h2.st().myPlayer === 0 && h2.st().online === true);
-    t('R2 guest grace cleared once the host returned', g.hasGrace() === false && g.st().online === true);
+    const h2 = makeClient(db, 'X', hpid); h2.setMenu('ffa');
+    const ok = await h2.rejoin('RJN2'); await tick();
+    t('R2 direct host rejoin during the grace is rejected (no recycling in B1)', ok === false && h2.st().online === false);
+    t('R2 host seat left inactive, not restored by the rejected rejoin', db.data.rooms.RJN2.p[0].on === false);
   }
 
   // ── R3: one path of the ATOMIC claim (players/1) fails -> the whole multi-path
@@ -619,8 +689,11 @@ const tick = async (n = 4) => { for (let i = 0; i < n; i++) await new Promise(r 
     t('R4 seat claimable again by a fresh guest', g2.st().myPlayer === 1 && db.data.rooms.RBK2.players[1].id === g2.pid());
   }
 
-  // ── R5: late rejoin from room A after a newer join to room B -> op guard
-  //    neutralizes the old continuation (no globals/listeners/writes of B touched) ──
+  // ── R5: late rejoin attempt from room A after a newer join to room B -> the
+  //    op guard neutralizes the old continuation (no globals/listeners/writes of
+  //    B touched). The attempt would fail on its own anyway (no recycling in B1
+  //    scope), but the op guard must still short-circuit it BEFORE that, leaving
+  //    room A's stale seat exactly as the reload left it. ──
   {
     const db = makeDB();
     const hA = makeClient(db, 'ROMA'); hA.setMenu('ffa', 3); hA.create(); await tick();
@@ -634,7 +707,7 @@ const tick = async (n = 4) => { for (let i = 0; i < n; i++) await new Promise(r 
     await tick(6);
     t('R5 late rejoin from room A neutralized (op guard)', (await late) === false);
     t('R5 client ended up in room B on a normal claim', g2.st().roomCode === 'ROMB' && g2.st().online === true && g2.st().myPlayer === 1);
-    t('R5 room A presence NOT restored by the stale rejoin', db.data.rooms.ROMA.p[1] == null);
+    t('R5 room A presence NOT restored by the stale rejoin', db.data.rooms.ROMA.p[1].on === false);
     t('R5 room A record untouched (rejoin identity preserved)', db.data.rooms.ROMA.players[1].id === gpid);
   }
 
@@ -646,7 +719,10 @@ const tick = async (n = 4) => { for (let i = 0; i < n; i++) await new Promise(r 
     const g = makeClient(db, 'X'); g.setMenu('online'); g.join('ATK1'); await tick();
     const atk = db.FBfor({ log: [], onDrop: [] });
     let denied = false;
-    try { await atk.set(atk.ref(null, 'rooms/ATK1/players/1'), { id: 'EVIL0001', name: 'evil', tab: 'EVILTAB0' }); } catch (e) { denied = true; }
+    // Same tab (p/1.s) as the legitimate holder — isolates the assertion to id
+    // immutability specifically, not an (also-denied) tab/p.s mismatch.
+    const holdTab = db.data.rooms.ATK1.p[1].s;
+    try { await atk.set(atk.ref(null, 'rooms/ATK1/players/1'), { id: 'EVIL0001', name: 'evil', tab: holdTab }); } catch (e) { denied = true; }
     t('R6 id switch on an occupied seat denied (id immutable)', denied && db.data.rooms.ATK1.players[1].id === g.pid());
     denied = false;
     try { await atk.remove(atk.ref(null, 'rooms/ATK1/players/1')); } catch (e) { denied = true; }
@@ -657,8 +733,11 @@ const tick = async (n = 4) => { for (let i = 0; i < n; i++) await new Promise(r 
     t('R6 record creation during a running match denied', denied && !(db.data.rooms.ATK1.players && db.data.rooms.ATK1.players[2]));
   }
 
-  // ── R7: host rejoin during a RUNNING ffa match is rejected (client boundary
-  //    AND rules) — maybeStart can never locally restart a running room ──
+  // ── R7: host rejoin during a RUNNING ffa match is rejected by the CLIENT
+  //    boundary (roomRejoinableState requires state==='lobby') — maybeStart can
+  //    never locally restart a running room. This is a client-side gate check
+  //    only; the exact rule-level permission matrix for p/<seat> is covered by
+  //    test_rules.js directly against the real firebase.rules.json. ──
   {
     const db = makeDB();
     const h = makeClient(db, 'RUN1'); h.setMenu('ffa', 3); h.create(); await tick();
@@ -669,15 +748,15 @@ const tick = async (n = 4) => { for (let i = 0; i < n; i++) await new Promise(r 
     const h2 = makeClient(db, 'X', hpid); h2.setMenu('ffa');
     const ok = await h2.rejoin('RUN1'); await tick();
     t('R7 host rejoin during running ffa match rejected', ok === false && h2.st().online === false && h2.st().gameStarted === false && h2.status() === 'rejoinNoLobby');
-    t('R7 host presence NOT restored during playing', db.data.rooms.RUN1.p[0] == null);
-    const atk = db.FBfor({ log: [], onDrop: [] });
-    let denied = false;
-    try { await atk.set(atk.ref(null, 'rooms/RUN1/p/0'), true); } catch (e) { denied = true; }
-    t('R7 rules deny the p/0 restore while playing', denied);
+    t('R7 host presence left inactive, untouched by the rejected rejoin', db.data.rooms.RUN1.p[0].on === false);
   }
 
-  // ── R8: 1v1 — host rejoin allowed ONLY while the room still waits for an
-  //    opponent; after the auto-start every rejoin (host or guest) is rejected ──
+  // ── R8 (B1-revised): 1v1 — host reload while still waiting for a guest leaves
+  //    the host presence inactive (no recycling => the room reads as orphaned to
+  //    new joiners, exactly like validateRoom is supposed to reject an inactive
+  //    host); a direct host rejoin attempt is rejected too. Separately, once a
+  //    match is running NORMALLY (no reload involved), rejoin (host or guest) is
+  //    rejected by the client-side lobby-only boundary. ──
   {
     const db = makeDB();
     const h = makeClient(db, 'SGL2'); h.setMenu('online'); h.create(); await tick();
@@ -685,22 +764,25 @@ const tick = async (n = 4) => { for (let i = 0; i < n; i++) await new Promise(r 
     h.drop(); await tick();                       // host reload while waiting
     const h2 = makeClient(db, 'X', hpid); h2.setMenu('online');
     const okWait = await h2.rejoin('SGL2'); await tick();
-    t('R8 1v1 host rejoin while waiting allowed', okWait === true && h2.st().myPlayer === 0 && db.data.rooms.SGL2.p[0] === true);
-    const g = makeClient(db, 'X'); g.setMenu('online'); g.join('SGL2'); await tick();
-    t('R8 1v1 auto-start after the guest join', h2.st().gameStarted && g.st().gameStarted);
-    h2.drop(); await tick();                      // host reload mid-match
-    const h3 = makeClient(db, 'X', hpid); h3.setMenu('online');
-    const okRun = await h3.rejoin('SGL2'); await tick();
-    t('R8 1v1 host rejoin after match start rejected', okRun === false && h3.st().online === false && h3.status() === 'rejoinNoLobby' && db.data.rooms.SGL2.p[0] == null);
-    const atk = db.FBfor({ log: [], onDrop: [] });
-    let denied = false;
-    try { await atk.set(atk.ref(null, 'rooms/SGL2/p/0'), true); } catch (e) { denied = true; }
-    t('R8 rules deny the 1v1 host presence restore (guest record exists)', denied);
-    const gpid = g.pid();
-    g.drop(); await tick();
-    const g2 = makeClient(db, 'X', gpid); g2.setMenu('online');
-    const okG = await g2.rejoin('SGL2'); await tick();
-    t('R8 1v1 guest rejoin rejected (their join started the match)', okG === false && g2.status() === 'rejoinNoLobby');
+    t('R8 1v1 host rejoin while waiting rejected (no recycling in B1)', okWait === false && h2.st().online === false);
+    const gOrphan = makeClient(db, 'X'); gOrphan.setMenu('online'); gOrphan.join('SGL2'); await tick();
+    t('R8 1v1 room reads as orphaned to joiners while host is inactive', gOrphan.status() === 'Raum ist verwaist.' && gOrphan.st().online === false);
+
+    // Separate room: a normal 1v1 match (no reload) running -> rejoin rejected.
+    const db2 = makeDB();
+    const h3 = makeClient(db2, 'SGL3'); h3.setMenu('online'); h3.create(); await tick();
+    const h3pid = h3.pid();
+    const g3 = makeClient(db2, 'X'); g3.setMenu('online'); g3.join('SGL3'); await tick();
+    t('R8 1v1 auto-start on a normal join', h3.st().gameStarted && g3.st().gameStarted);
+    h3.drop(); await tick();                      // host reload mid-match
+    const h4 = makeClient(db2, 'X', h3pid); h4.setMenu('online');
+    const okRun = await h4.rejoin('SGL3'); await tick();
+    t('R8 1v1 host rejoin after match start rejected', okRun === false && h4.st().online === false && h4.status() === 'rejoinNoLobby' && db2.data.rooms.SGL3.p[0].on === false);
+    const g3pid = g3.pid();
+    g3.drop(); await tick();
+    const g4 = makeClient(db2, 'X', g3pid); g4.setMenu('online');
+    const okG = await g4.rejoin('SGL3'); await tick();
+    t('R8 1v1 guest rejoin rejected (their join started the match)', okG === false && g4.status() === 'rejoinNoLobby');
   }
 
   // ── R9: 2v2 — same boundary: match rejoin rejected ──
@@ -713,28 +795,26 @@ const tick = async (n = 4) => { for (let i = 0; i < n; i++) await new Promise(r 
     h.drop(); await tick();
     const h2 = makeClient(db, 'X', hpid); h2.setMenu('online');
     const ok = await h2.rejoin('DBL1'); await tick();
-    t('R9 2v2 host match rejoin rejected', ok === false && h2.status() === 'rejoinNoLobby' && db.data.rooms.DBL1.p[0] == null);
+    t('R9 2v2 host match rejoin rejected', ok === false && h2.status() === 'rejoinNoLobby' && db.data.rooms.DBL1.p[0].on === false);
   }
 
-  // ── R10: seat recycling only in the lobby at free presence; a late rollback/
-  //    cleanup never deletes a record that was taken over in the meantime ──
+  // ── R10 (B1-revised, replaces old R10/RN1): a stale (disconnected) seat is
+  //    NEVER automatically recycled or taken over in B1 scope — two clients
+  //    racing to claim it both lose, the stale presence+record are left exactly
+  //    as the reload left them, and a plain new join lands on the NEXT free
+  //    seat instead. Real same-seat recycling is Paket B. ──
   {
     const db = makeDB();
     const h = makeClient(db, 'RCY1'); h.setMenu('ffa', 3); h.create(); await tick();
     const g1 = makeClient(db, 'X'); g1.setMenu('online'); g1.join('RCY1'); await tick();
-    const oldPid = g1.pid();
-    g1.drop(); await tick();                      // reload: presence free, record lingers (lobby)
+    const stalePid = g1.pid();
+    g1.drop(); await tick();                      // reload: presence inactive, record lingers (lobby)
+    const a = makeClient(db, 'AAA'); const b = makeClient(db, 'BBB');
+    const [ra, rb] = await Promise.all([a.claimSlot('RCY1', 1), b.claimSlot('RCY1', 1)]);
+    t('R10 no recycling: both racing claims on the stale seat lose', ra.lost === true && rb.lost === true);
+    t('R10 stale seat untouched by the failed race', db.data.rooms.RCY1.p[1].on === false && db.data.rooms.RCY1.players[1].id === stalePid);
     const g2 = makeClient(db, 'X'); g2.setMenu('online'); g2.join('RCY1'); await tick();
-    t('R10 lobby recycle takes the presence-free seat', g2.st().myPlayer === 1 && db.data.rooms.RCY1.players[1].id === g2.pid());
-    t('R10 stale record replaced atomically inside the claim (never id mutation)', db.data.rooms.RCY1.players[1].id !== oldPid);
-    const g1b = makeClient(db, 'X', oldPid); g1b.setMenu('online');
-    const ok = await g1b.rejoin('RCY1'); await tick();
-    t('R10 old identity rejoin rejected after the recycle', ok === false && g1b.st().online === false);
-    t('R10 recycled seat untouched by the failed rejoin', db.data.rooms.RCY1.players[1].id === g2.pid() && db.data.rooms.RCY1.p[1] === true);
-    // Worst-case cleanup fired against a taken-over seat: the id check (and the
-    // rules delete-guard) must leave the foreign record alone.
-    await g1b.releaseClaim('RCY1', 1); await tick();
-    t('R10 late cleanup never deletes a foreign record', db.data.rooms.RCY1.players[1].id === g2.pid());
+    t('R10 a plain new join claims the next free seat instead', g2.st().myPlayer === 2);
   }
 
   // ── RP1: two atomic claims on the SAME seat -> the write-once presence is the
@@ -747,7 +827,7 @@ const tick = async (n = 4) => { for (let i = 0; i < n; i++) await new Promise(r 
     const [ra, rb] = await Promise.all([a.claimSlot('PAR1', 1), b.claimSlot('PAR1', 1)]);
     t('RP1 exactly one atomic claim wins the shared seat', [ra, rb].filter(r => r.ok).length === 1 && [ra, rb].filter(r => r.lost).length === 1);
     const winnerPid = ra.ok ? a.pid() : b.pid();
-    t('RP1 db seat 1 holds a single presence + winner record', db.data.rooms.PAR1.p[1] === true && db.data.rooms.PAR1.players[1] && db.data.rooms.PAR1.players[1].id === winnerPid);
+    t('RP1 db seat 1 holds a single active presence + winner record', db.data.rooms.PAR1.p[1].on === true && db.data.rooms.PAR1.players[1] && db.data.rooms.PAR1.players[1].id === winnerPid);
   }
 
   // ── RD1: onDisconnect lifecycle — armed and KEPT after a successful atomic claim,
@@ -761,20 +841,32 @@ const tick = async (n = 4) => { for (let i = 0; i < n; i++) await new Promise(r 
     t('RD1 rejected claim disarms its onDisconnect', rb.lost === true && b.onDrops().length === 0);
   }
 
-  // ── RN1: recycle race on a stale foreign seat — the loser NEVER pre-deletes the
-  //    foreign record; the seat is only ever replaced atomically by the one winner ──
+  // ── RN1 (B1-revised): releaseReservation atomically removes BOTH p/<seat> and
+  //    players/<seat> together — the v3 rules reject deleting either one alone
+  //    (see checkWrite), so the rollback helper must always pair them. ──
   {
     const db = makeDB();
     const h = makeClient(db, 'NPD1'); h.setMenu('ffa', 3); h.create(); await tick();
-    const g1 = makeClient(db, 'X'); g1.setMenu('online'); g1.join('NPD1'); await tick();
-    const stalePid = g1.pid();
-    g1.drop(); await tick();   // reload: presence free, stale foreign record lingers (lobby)
-    const a = makeClient(db, 'AAA'); const b = makeClient(db, 'BBB');
-    const [ra, rb] = await Promise.all([a.claimSlot('NPD1', 1), b.claimSlot('NPD1', 1)]);
-    t('RN1 recycle race: exactly one winner', [ra, rb].filter(r => r.ok).length === 1);
-    const winnerPid = ra.ok ? a.pid() : b.pid();
-    t('RN1 seat recycled atomically to the winner (no pre-delete)', db.data.rooms.NPD1.players[1].id === winnerPid && db.data.rooms.NPD1.p[1] === true);
-    t('RN1 stale foreign record was replaced, not the winner clobbered', db.data.rooms.NPD1.players[1].id !== stalePid);
+    const a = makeClient(db, 'AAA'); const ra = await a.claimSlot('NPD1', 1);
+    t('RN1 fresh claim on a genuinely free seat succeeds', ra.ok === true && db.data.rooms.NPD1.p[1].on === true);
+    await a.releaseClaim('NPD1', 1); await tick();
+    t('RN1 rollback removes presence AND roster record together', db.data.rooms.NPD1.p[1] == null && !(db.data.rooms.NPD1.players && db.data.rooms.NPD1.players[1]));
+  }
+
+  // ── CR1 (B1 regression): a createRoom whose ACTIVATE fails must NOT leave an
+  //    orphan room. v3's cleanup rule denies a whole-room delete while p/0 or
+  //    players/0 still exist, so abortFreshRoom() has to clear the host seat's
+  //    presence AND roster atomically FIRST, then remove the now-empty room —
+  //    exactly the clear-then-delete order leaveOnline() uses. A direct room
+  //    remove (the pre-fix behavior) is rejected by the fake DB's cleanup mirror
+  //    and would leave db.data.rooms.<code> behind. ──
+  {
+    const db = makeDB();
+    const h = makeClient(db, 'CRB1'); h.setMenu('ffa', 3);
+    db.failWrite('rooms/CRB1/p/0', 1);   // the ACTIVATE (p/0 on:true) leg fails like a transport error
+    h.create(); await tick();
+    t('CR1 host create with failed ACTIVATE stays offline', h.st().online === false);
+    t('CR1 no orphan room left behind (host seat cleared, room removed)', !db.data.rooms.CRB1);
   }
 
   console.log('\nFFA-Online-Flow: ' + pass + ' passed, ' + fail + ' failed');

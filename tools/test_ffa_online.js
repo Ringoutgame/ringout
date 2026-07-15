@@ -16,6 +16,7 @@ const genSrc = grab(html, /const GEN_MAX=[^\n]*/, 'GEN_MAX');
 const vrSrc = grab(html, /function validateRoom\(d\)\{[\s\S]*?\n\}/, 'validateRoom');
 const pfsSrc = grab(html, /function pickFreeSeat\(p,max\)\{[^\n]*/, 'pickFreeSeat');
 const aacSrc = grab(html, /function allAliveCommitted\(\)\{[^\n]*/, 'allAliveCommitted');
+const saSrc = grab(html, /function seatActive\(p,s\)\{[^\n]*/, 'seatActive');
 const scSrc = grab(html, /function seatCount\(p\)\{[^\n]*/, 'seatCount');
 const sgSrc = grab(html, /function seatsContiguous\(p,n\)\{[^\n]*/, 'seatsContiguous');
 const sfmSrc = grab(html, /function startFfaMatch\(\)\{[\s\S]*?\n\}/, 'startFfaMatch');
@@ -33,6 +34,7 @@ const env = new Function(`
   function np(){return mode==='ffa'?ffaN:2;}
   function aliveCount(o){let n=0;for(const b of balls)if(b.alive&&b.owner===o)n++;return n;}
   ${aacSrc}
+  ${saSrc}
   ${scSrc}
   ${sgSrc}
   // startFfaMatch runs against stubbed lobby UI + a write-recording fake FB
@@ -54,16 +56,20 @@ const env = new Function(`
 
 let pass = 0, fail = 0;
 const t = (name, cond) => { cond ? pass++ : (fail++, console.error('FAIL: ' + name)); };
+// v3: p/<seat> = {s,on,t}. These pure-function unit tests only need the field
+// seatActive()/validateRoom() actually read (on); s/t are irrelevant here (the
+// rules — not the client — enforce their shape, see test_rules.js).
 const room = (over = {}) => Object.assign(
-  { v: VER, config: { winTarget: 3, fmt: 'single' }, gen: 0, state: 'lobby', p: { 0: true }, created: 1 }, over);
+  { v: VER, config: { winTarget: 3, fmt: 'single' }, gen: 0, state: 'lobby', p: { 0: { on: true } }, created: 1 }, over);
 const ffaRoom = (over = {}) => Object.assign(
-  { v: VER, config: { winTarget: 3, fmt: 'ffa' }, gen: 0, state: 'lobby', p: { 0: true }, created: 1 }, over);
+  { v: VER, config: { winTarget: 3, fmt: 'ffa' }, gen: 0, state: 'lobby', p: { 0: { on: true } }, created: 1 }, over);
 
 // ── (1) single/double: unified room-state, join only while state==='lobby' ──
 t('single valid', env.validateRoom(room()).ok === true);
 t('double valid', env.validateRoom(room({ config: { winTarget: 5, fmt: 'double' } })).ok === true);
-t('single full rejected', env.validateRoom(room({ p: { 0: true, 1: true } })).reason === 'Raum ist schon voll.');
+t('single full rejected', env.validateRoom(room({ p: { 0: { on: true }, 1: true } })).reason === 'Raum ist schon voll.');
 t('orphan rejected', env.validateRoom(room({ p: {} })).reason === 'Raum ist verwaist.');
+t('host reserved but not active rejected', env.validateRoom(room({ p: { 0: { on: false } } })).reason === 'Raum ist verwaist.');
 t('fmt triple rejected', env.validateRoom(room({ config: { winTarget: 3, fmt: 'triple' } })).ok === false);
 t('single state=playing rejected (match läuft)', env.validateRoom(room({ state: 'playing' })).reason === 'Match läuft bereits.');
 t('single state missing rejected', (() => { const r = room(); delete r.state; return env.validateRoom(r).reason === 'Match läuft bereits.'; })());
@@ -73,8 +79,8 @@ t('single has no freeSeat', env.validateRoom(room()).freeSeat === undefined);
 t('ffa lobby valid -> seat 1', (() => { const v = env.validateRoom(ffaRoom()); return v.ok === true && v.freeSeat === 1 && v.fmt === 'ffa'; })());
 t('ffa state playing rejected', env.validateRoom(ffaRoom({ state: 'playing' })).reason === 'Match läuft bereits.');
 t('ffa state missing rejected', (() => { const r = ffaRoom(); delete r.state; return env.validateRoom(r).reason === 'Match läuft bereits.'; })());
-t('ffa full (5 seats) rejected', env.validateRoom(ffaRoom({ p: { 0: true, 1: true, 2: true, 3: true, 4: true } })).reason === 'Raum ist schon voll.');
-t('ffa gap -> lowest free seat 2', env.validateRoom(ffaRoom({ p: { 0: true, 1: true, 3: true } })).freeSeat === 2);
+t('ffa full (5 seats) rejected', env.validateRoom(ffaRoom({ p: { 0: { on: true }, 1: true, 2: true, 3: true, 4: true } })).reason === 'Raum ist schon voll.');
+t('ffa gap -> lowest free seat 2', env.validateRoom(ffaRoom({ p: { 0: { on: true }, 1: true, 3: true } })).freeSeat === 2);
 t('ffa orphan rejected', env.validateRoom(ffaRoom({ p: { 1: true } })).reason === 'Raum ist verwaist.');
 t('ffa wrong version rejected', env.validateRoom(ffaRoom({ v: 99 })).ok === false);
 
@@ -96,26 +102,31 @@ t('aac 2p mode like 1v1 both', env.aac('online', 2, [B(0), B(1)], [true, true]) 
 t('aac 2p mode like 1v1 waiting', env.aac('online', 2, [B(0), B(1)], [true, false]) === false);
 
 // ── (5) seatCount / seatsContiguous (Start-Gate, kein Auto-Nachruecken) ──
-t('sc host only', env.seatCount({ 0: true }) === 1);
-t('sc three', env.seatCount({ 0: true, 1: true, 2: true }) === 3);
-t('sc gap counts occupied', env.seatCount({ 0: true, 2: true }) === 2);
-t('sc firebase array form', env.seatCount([true, true]) === 2);
+// v3: "belegt" = on===true; ein reserviertes aber nicht aktives Presence-Objekt
+// (on:false) zaehlt bewusst nicht mit.
+const A = { on: true };   // minimal active-seat fixture
+t('sc host only', env.seatCount({ 0: A }) === 1);
+t('sc three', env.seatCount({ 0: A, 1: A, 2: A }) === 3);
+t('sc gap counts occupied', env.seatCount({ 0: A, 2: A }) === 2);
+t('sc reserved-not-active does not count', env.seatCount({ 0: A, 1: { on: false } }) === 1);
+t('sc firebase array form', env.seatCount([A, A]) === 2);
 t('sc null', env.seatCount(null) === 0);
-t('sg 0..1 contiguous', env.seatsContiguous({ 0: true, 1: true }, 2) === true);
-t('sg gap at 1', env.seatsContiguous({ 0: true, 2: true }, 2) === false);
-t('sg full 5', env.seatsContiguous({ 0: true, 1: true, 2: true, 3: true, 4: true }, 5) === true);
-t('sg gap at 3 of 4', env.seatsContiguous({ 0: true, 1: true, 2: true, 4: true }, 4) === false);
-t('sg firebase array form', env.seatsContiguous([true, true, true], 3) === true);
+t('sg 0..1 contiguous', env.seatsContiguous({ 0: A, 1: A }, 2) === true);
+t('sg gap at 1', env.seatsContiguous({ 0: A, 2: A }, 2) === false);
+t('sg full 5', env.seatsContiguous({ 0: A, 1: A, 2: A, 3: A, 4: A }, 5) === true);
+t('sg gap at 3 of 4', env.seatsContiguous({ 0: A, 1: A, 2: A, 4: A }, 4) === false);
+t('sg firebase array form', env.seatsContiguous([A, A, A], 3) === true);
+t('sg reserved-not-active is a gap', env.seatsContiguous({ 0: A, 1: { on: false } }, 2) === false);
 
 // ── (6) startFfaMatch: Gates + sequenzielle state->seats Schreibfolge ──
 (async () => {
-  let r = await env.start({ 0: true });
+  let r = await env.start({ 0: A });
   t('start alone blocked', r.writes.length === 0 && r.toasts[0] === 'Mindestens 2 Spieler nötig.');
-  r = await env.start({ 0: true, 2: true });
+  r = await env.start({ 0: A, 2: A });
   t('start with gap blocked', r.writes.length === 0 && r.toasts[0] === 'Warte auf freien Sitz / Spieler soll neu beitreten.');
-  r = await env.start({ 0: true, 1: true });
+  r = await env.start({ 0: A, 1: A });
   t('start 2p writes state then seats', r.writes.join('|') === 'state=playing|seats=2' && r.disabled === true);
-  r = await env.start({ 0: true, 1: true, 2: true, 3: true, 4: true });
+  r = await env.start({ 0: A, 1: A, 2: A, 3: A, 4: A });
   t('start 5p seats=5', r.writes.join('|') === 'state=playing|seats=5');
 
   console.log('\nFFA-Online-Prep: ' + pass + ' passed, ' + fail + ' failed');

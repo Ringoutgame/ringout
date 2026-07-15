@@ -6,16 +6,18 @@
 // transform, hard production block over HTTP + WebSocket, JDK-21 emulator (per-run
 // isolated temp dir), and authoritative reads/writes via the page's own window.FB.
 //
-// Presence & Reconnect v3 (Paket B0): index.html still writes the OLD boolean
-// presence schema (p/<seat>=true), so this spike does NOT drive the client's
-// presence/room lifecycle. Instead it exercises the NEW rules foundation
-// (p/<seat>={s,on,t}) directly against the real emulator + real firebase.rules.json
-// via raw window.FB writes — the ONLY way to prove the atomic p+players coupling, the
-// parallel write-once arbiter, the coupled 1v1/2v2 start, the joint-token recycling and
-// the fact that the disconnect leave-sentinel + elimination latch are currently DENY
-// (Fund 2 deferred) — none of which the local single-path model in tools/test_rules.js
-// can. The client cutover to this schema happens in B1; until then the full FFA runner
-// is expected red.
+// Presence & Reconnect v3 (Paket B0 rules foundation + B1 client cutover): this
+// spike still drives the presence/room lifecycle directly via raw window.FB
+// writes rather than through index.html's client functions (createRoom/joinRoom/
+// etc., now on the v3 p/<seat>={s,on,t} schema since B1) — that's the ONLY way to
+// prove the atomic p+players coupling, the parallel write-once arbiter, the
+// coupled 1v1/2v2 start, the joint-token recycling and the fact that the
+// disconnect leave-sentinel + elimination latch are currently DENY (Fund 2
+// deferred) — none of which the local single-path model in tools/test_rules.js
+// can. B1 deliberately does NOT implement recycling/Fund-2-dependent client
+// behavior either (see tools/e2e/ffa-scenarios.js), so these rule-level proofs
+// stay independently useful; the full FFA runner (tools/e2e/run-ffa-e2e.js)
+// exercises the real client paths that ARE in B1 scope.
 //
 // Run:  node tools/e2e/spike.js
 // ─────────────────────────────────────────────────────────────────────────────
