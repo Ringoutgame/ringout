@@ -81,7 +81,7 @@ const SRC = [
   grab(/async function activateSeat\(code,seat,extra\)\{[\s\S]*?\n\}/, 'activateSeat'),
   grab(/async function releaseReservation\(code,seat,dc\)\{[\s\S]*?\n\}/, 'releaseReservation'),
   grab(/async function claimSeatSlot\(code,seat,op,extra\)\{[\s\S]*?\n\}/, 'claimSeatSlot'),
-  grab(/async function abortFreshRoom\(code,dc\)\{[\s\S]*?\n\}/, 'abortFreshRoom'),
+  grab(/async function abortFreshRoom\(code,dc,listed\)\{[\s\S]*?\n\}/, 'abortFreshRoom'),
   grab(/function roomRejoinableState\(d,seat\)\{[\s\S]*?\n\}/, 'roomRejoinableState'),
   grab(/function playerRecord\(seat\)\{[^\n]*/, 'playerRecord'),
   grab(/function nameForSeat\(s\)\{[\s\S]*?\n\}/, 'nameForSeat'),
@@ -357,6 +357,13 @@ function makeClient(db, code, forcePid) {
     const NAME_MAX=16, NAME_MAX_UNITS=48, LOBBY_HOST_GRACE_MS=12000;
     let onlinePid=${JSON.stringify(pid)}, onlineTab=${JSON.stringify(tab)}, onlineName='';
     let playersRoster={}, rosterUnsub=null, lobbyHostGraceTimer=null, joinOpSeq=0;
+    // Public-Lobby (feature/public-lobby-mvp): UI-only symbols the extracted online
+    // functions reference. This suite exercises the turn/claim race arbiter, not the
+    // discovery list, so these are inert stubs (private default -> listing never touched).
+    let roomPublic=false, createVisibility='private';
+    function removePublicListing(){} function writePublicListing(){return Promise.resolve();}
+    function publicListingRef(){return null;} function hidePublicUI(){}
+    function startPublicListing(){} function stopPublicListing(){} function setOn(){}
     let phase='over', curAimer=0, balls=[], aimSet=[], commitIdx=[], commitAim=[], commitSpin=[], score=[];
     let replaying=false, repPlaying=false;
     const cx=500, cy=500, BR=32; let R=485;

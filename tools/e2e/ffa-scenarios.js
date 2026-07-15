@@ -36,6 +36,24 @@ const CONCURRENT_MAX_SPREAD_MS = 100;
 
 function assert(cond, msg) { if (!cond) throw new Error('ASSERT: ' + msg); }
 const snap = (page) => page.evaluate(() => window.__ringoutE2E.snapshot());
+// Read the REAL rendered public-room list (feature/public-lobby-mvp): serialize each
+// #onPublicList .proom row exactly as a human sees it — sanitized host name, mode +
+// capacity meta, and whether the join button is present. No production/source string
+// assertions: this reads the DOM the client actually rendered.
+const readPublicRows = (page) => page.evaluate(() => Array.from(document.querySelectorAll('#onPublicList .proom')).map((row) => ({
+  host: (row.querySelector('.pr-host') || {}).textContent || '',
+  meta: (row.querySelector('.pr-meta') || {}).textContent || '',
+  hasJoin: !!row.querySelector('.pr-join'),
+})));
+// Read the discovery index via the ONLY allowed path — the query read the client uses
+// (orderByChild('created').limitToLast(30)). A direct per-code read of publicRooms/<code>
+// is denied by the rules, so this proves index membership the same way the app does.
+const readPublicIndexKeys = (page) => page.evaluate(async () => {
+  const FB = window.FB;
+  const q = FB.query(FB.ref(FB.db, 'publicRooms'), FB.orderByChild('created'), FB.limitToLast(30));
+  const s = await FB.get(q);
+  return Object.keys(s.val() || {});
+});
 const r4 = (n) => (typeof n === 'number' && isFinite(n)) ? Math.round(n * 1e4) / 1e4 : 0;
 
 // ── Client factory: one isolated context = one player ────────────────────────
@@ -518,4 +536,96 @@ async function scenarioStaleness(ctx) {
   return r;
 }
 
-module.exports = { scenarioMatch, scenarioLeave, scenarioStaleness, PRODUCT_SPEC_COLORS };
+// ── Scenario 4: PUBLIC LOBBY — real UI create → discover → list-join → start ──
+// A production-near flow entirely through the real UI and the real joinRoom() path:
+//   • host creates a PUBLIC room via the visibility toggle + create button,
+//   • a second client creates a PRIVATE room the same way,
+//   • an observer opens the dialog and sees ONLY the public room in the rendered list,
+//     with the host name, mode and player count visible,
+//   • a joiner joins by clicking the list's own join button (joinPublicRoom only hands
+//     the code to the existing joinRoom() — no second join path),
+//   • the host starts the match and the listing disappears from the observer's list.
+// Private room never appears; production Firebase is hard-blocked (checked by launcher).
+async function scenarioPublicLobby(ctx) {
+  const r = { name: 'public-lobby-ui' };
+  const clients = [];
+  try {
+    const host = await newClient(ctx, 0); clients.push(host);
+    const priv = await newClient(ctx, 1); clients.push(priv);
+    const obs = await newClient(ctx, 2); clients.push(obs);
+    const joiner = await newClient(ctx, 3); clients.push(joiner);
+
+    // ── Host creates a PUBLIC room through the real UI: open dialog → click the public
+    //    visibility toggle → click the create button. ──
+    await host.page.evaluate(() => window.__ringoutE2E.openOnlineFFA());
+    await host.page.evaluate(() => document.getElementById('onVisPub').click());   // real toggle handler → createVisibility='public'
+    await host.page.evaluate(() => document.getElementById('onCreate').click());   // real onCreate handler → createRoom()
+    const pubCode = await H.poll(async () => {
+      const s = await snap(host.page); return s && s.roomCode && s.roomCode.length === 4 ? s.roomCode : null;
+    }, 15000, 'Host erstellt öffentlichen Raum über die UI');
+    r.publicCode = pubCode;
+
+    // ── Second client creates a PRIVATE room (visibility toggle left at its private
+    //    default) the same way. ──
+    await priv.page.evaluate(() => window.__ringoutE2E.openOnlineFFA());
+    await priv.page.evaluate(() => document.getElementById('onCreate').click());
+    const privCode = await H.poll(async () => {
+      const s = await snap(priv.page); return s && s.roomCode && s.roomCode.length === 4 ? s.roomCode : null;
+    }, 15000, 'zweiter Client erstellt privaten Raum über die UI');
+    r.privateCode = privCode;
+    assert(privCode !== pubCode, 'privater und öffentlicher Raumcode müssen verschieden sein');
+
+    // Discovery index (via the allowed query read): public code present, private NEVER.
+    await H.poll(async () => {
+      const keys = await readPublicIndexKeys(host.page);
+      return keys.indexOf(pubCode) >= 0 && keys.indexOf(privCode) < 0 ? true : null;
+    }, 15000, 'Index enthält den öffentlichen, NICHT den privaten Raum');
+
+    // ── Observer opens the dialog and sees the public room in the REAL rendered list;
+    //    exactly one row, private room absent, host name / mode / count visible. ──
+    await obs.page.evaluate(() => window.__ringoutE2E.openOnlineFFA());
+    const rows0 = await H.poll(async () => {
+      const rows = await readPublicRows(obs.page);
+      return rows.length === 1 ? rows : null;
+    }, 15000, 'Observer sieht genau EINEN öffentlichen Raum in der Liste');
+    const expName = await H.dbRead(host.page, 'rooms/' + pubCode + '/players/0/name');
+    assert(typeof expName === 'string' && expName.length >= 1, 'Host-Roster-Name vorhanden: ' + expName);
+    assert(rows0[0].host === String(expName), 'Listen-Hostname == players/0.name: ' + rows0[0].host + ' vs ' + expName);
+    assert(/FFA/.test(rows0[0].meta), 'Listen-Modus FFA sichtbar: ' + rows0[0].meta);
+    assert(/(^|\D)1\/5(\D|$)/.test(rows0[0].meta), 'Listen-Spielerzahl 1/5 (nur Host aktiv) sichtbar: ' + rows0[0].meta);
+    assert(rows0[0].hasJoin === true, 'Beitreten-Button in der Zeile vorhanden');
+
+    // ── Joiner opens the dialog, sees the room, and JOINS by clicking the list's own
+    //    join button — the same existing joinRoom() path. ──
+    await joiner.page.evaluate(() => window.__ringoutE2E.openOnlineFFA());
+    await H.poll(async () => { const rows = await readPublicRows(joiner.page); return rows.length === 1 && rows[0].hasJoin ? true : null; }, 15000, 'Joiner sieht den öffentlichen Raum in der Liste');
+    await joiner.page.evaluate(() => { const b = document.querySelector('#onPublicList .proom .pr-join'); if (b) b.click(); });
+    await H.poll(async () => {
+      const s = await snap(joiner.page); return s && s.online && s.roomCode === pubCode && s.myPlayer === 1 ? true : null;
+    }, 15000, 'Joiner tritt über den Listenbutton bei (Seat 1, echter joinRoom-Pfad)');
+    await H.poll(async () => {
+      const p = await H.dbRead(host.page, 'rooms/' + pubCode + '/p');
+      return p && p[0] && p[0].on === true && p[1] && p[1].on === true ? true : null;
+    }, 15000, 'Host + Joiner beide aktiv in der öffentlichen Lobby');
+
+    // ── Host starts the match; the listing must disappear from the observer's list.
+    //    (Presence-driven live count updates are deliberately NOT required in the MVP —
+    //    the row refreshes on index change, and the index change on start is exactly
+    //    the removal we assert here.) ──
+    await H.poll(async () => {
+      await host.page.evaluate(() => window.__ringoutE2E.start());
+      const st = await H.dbRead(host.page, 'rooms/' + pubCode + '/state');
+      return st === 'playing' ? true : null;
+    }, 15000, 'Host startet Match (state=playing)');
+    await H.poll(async () => { const keys = await readPublicIndexKeys(obs.page); return keys.indexOf(pubCode) < 0 ? true : null; }, 15000, 'Listing nach Matchstart aus dem Index entfernt');
+    await H.poll(async () => { const rows = await readPublicRows(obs.page); return rows.length === 0 ? true : null; }, 15000, 'Observer-Liste ist nach Matchstart leer');
+
+    r.passed = true;
+    r.note = 'Voller UI-Pfad: Sichtbarkeits-Toggle + Erstellen-Button, echte Listendarstellung, Beitritt über den Listen-Button (joinPublicRoom → bestehender joinRoom), Listing verschwindet bei Matchstart. Live-Aktualisierung der Spielerzahl pro Presence-Änderung ist im MVP bewusst nicht Teil des Umfangs.';
+  } finally {
+    for (const c of clients) await closeClient(c, ctx);
+  }
+  return r;
+}
+
+module.exports = { scenarioMatch, scenarioLeave, scenarioStaleness, scenarioPublicLobby, PRODUCT_SPEC_COLORS };

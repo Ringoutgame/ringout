@@ -10,9 +10,10 @@
         "v": { ".validate": "newData.val() === 3" },
         "created": { ".validate": "newData.val() === now" },
         "config": {
-          ".validate": "newData.hasChildren(['winTarget','fmt'])",
+          ".validate": "newData.hasChildren(['winTarget','fmt','visibility'])",
           "winTarget": { ".validate": "newData.val() === 3 || newData.val() === 5" },
           "fmt": { ".validate": "newData.val() === 'single' || newData.val() === 'double' || newData.val() === 'ffa'" },
+          "visibility": { ".validate": "newData.val() === 'private' || newData.val() === 'public'" },
           "$other": { ".validate": false }
         },
         "gen": {
@@ -70,6 +71,16 @@
             }
           }
         },
+        "$other": { ".validate": false }
+      }
+    },
+    "publicRooms": {
+      ".read": "query.orderByChild === 'created' && query.limitToLast <= 30",
+      ".indexOn": ["created"],
+      "$code": {
+        ".write": "(!data.exists() && newData.exists() && root.child('rooms').child($code).child('v').val() === 3 && root.child('rooms').child($code).child('config/visibility').val() === 'public' && root.child('rooms').child($code).child('state').val() === 'lobby' && root.child('rooms').child($code).child('p/0/on').val() === true && (now - root.child('rooms').child($code).child('created').val()) < 7200000) || (data.exists() && !newData.exists() && (!root.child('rooms').child($code).exists() || root.child('rooms').child($code).child('v').val() !== 3 || root.child('rooms').child($code).child('config/visibility').val() !== 'public' || root.child('rooms').child($code).child('state').val() !== 'lobby' || (now - root.child('rooms').child($code).child('created').val()) >= 7200000 || (!root.child('rooms').child($code).child('p/0').exists() && !root.child('rooms').child($code).child('players/0').exists())))",
+        ".validate": "$code.matches(/^[A-HJKMNP-Z2-9]{4}$/) && newData.hasChildren(['created']) && newData.child('created').val() === now",
+        "created": { ".validate": "newData.isNumber() && newData.val() === now" },
         "$other": { ".validate": false }
       }
     }

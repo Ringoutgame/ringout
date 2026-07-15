@@ -19,7 +19,7 @@
 const fs = require('fs');
 const { chromium } = require('@playwright/test');
 const H = require('./lib/harness');
-const { scenarioMatch, scenarioLeave, scenarioStaleness, PRODUCT_SPEC_COLORS } = require('./ffa-scenarios');
+const { scenarioMatch, scenarioLeave, scenarioStaleness, scenarioPublicLobby, PRODUCT_SPEC_COLORS } = require('./ffa-scenarios');
 
 (async () => {
   const result = { scenarios: [], errors: [] };
@@ -77,7 +77,7 @@ const { scenarioMatch, scenarioLeave, scenarioStaleness, PRODUCT_SPEC_COLORS } =
     H.ok('Negative Proben blockiert — HTTP-Fetch + WebSocket zu Produktion abgefangen');
 
     // Run scenarios in sequence; each isolates its own contexts and cleans up.
-    for (const [name, fn] of [['match', scenarioMatch], ['leave', scenarioLeave], ['staleness', scenarioStaleness]]) {
+    for (const [name, fn] of [['match', scenarioMatch], ['leave', scenarioLeave], ['staleness', scenarioStaleness], ['public-lobby', scenarioPublicLobby]]) {
       H.log(`Szenario '${name}' …`);
       const before = { http: state.prodHits.length, ws: state.wsProdHits.length };
       const sr = await fn(ctx);

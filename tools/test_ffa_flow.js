@@ -73,7 +73,7 @@ const SRC = [
   grab(/async function activateSeat\(code,seat,extra\)\{[\s\S]*?\n\}/, 'activateSeat'),
   grab(/async function releaseReservation\(code,seat,dc\)\{[\s\S]*?\n\}/, 'releaseReservation'),
   grab(/async function claimSeatSlot\(code,seat,op,extra\)\{[\s\S]*?\n\}/, 'claimSeatSlot'),
-  grab(/async function abortFreshRoom\(code,dc\)\{[\s\S]*?\n\}/, 'abortFreshRoom'),
+  grab(/async function abortFreshRoom\(code,dc,listed\)\{[\s\S]*?\n\}/, 'abortFreshRoom'),
   grab(/function roomRejoinableState\(d,seat\)\{[\s\S]*?\n\}/, 'roomRejoinableState'),
   grab(/function playerRecord\(seat\)\{[^\n]*/, 'playerRecord'),
   grab(/function nameForSeat\(s\)\{[\s\S]*?\n\}/, 'nameForSeat'),
@@ -320,6 +320,16 @@ function makeClient(db, code, forcePid) {
     const NAME_MAX=16, NAME_MAX_UNITS=48, LOBBY_HOST_GRACE_MS=12000;
     let onlinePid=${JSON.stringify(pid)}, onlineTab=${JSON.stringify(tab)}, onlineName='';
     let playersRoster={}, rosterUnsub=null, lobbyHostGraceTimer=null, joinOpSeq=0;
+    // Public-Lobby (feature/public-lobby-mvp): the discovery index itself is not backed
+    // by the fake DB, but writePublicListing/removePublicListing RECORD their calls so the
+    // create-race + host-leave order can be asserted. bumpAfterListing lets a test make the
+    // op go stale exactly after a successful listing write. UI helpers stay inert stubs.
+    let roomPublic=false, createVisibility='private', bumpAfterListing=false;
+    const pubCalls=[];
+    function removePublicListing(c){pubCalls.push('remove:'+c);}
+    function writePublicListing(c){pubCalls.push('write:'+c); if(bumpAfterListing){bumpAfterListing=false;joinOpSeq++;} return Promise.resolve();}
+    function publicListingRef(){return null;} function hidePublicUI(){}
+    function startPublicListing(){} function stopPublicListing(){} function setOn(){}
     let phase='over', curAimer=0, balls=[], aimSet=[], commitIdx=[], commitAim=[], commitSpin=[], score=[];
     let replaying=false, repPlaying=false;
     const cx=500, cy=500, BR=32; let R=485;
@@ -375,6 +385,12 @@ function makeClient(db, code, forcePid) {
       onDrops(){return ui.onDrop.map(d=>d.ref.join('/'));},
       status(){return $('onStatus').textContent;},
       hasGrace(){return !!lobbyHostGraceTimer;},
+      // Public-Lobby hooks: set the create-visibility, arm a stale-after-listing bump,
+      // read the recorded listing calls, and read the committed roomPublic flag.
+      setVis(v){createVisibility=v;},
+      armStaleAfterListing(){bumpAfterListing=true;},
+      pubCalls(){return pubCalls.slice();},
+      isRoomPublic(){return roomPublic;},
       drop
     };`;
   return new Function('FB', 'ui', body)(FB, ui);
@@ -867,6 +883,85 @@ async function dropSeat(db, code, seat) {
     h.create(); await tick();
     t('CR1 host create with failed ACTIVATE stays offline', h.st().online === false);
     t('CR1 no orphan room left behind (host seat cleared, room removed)', !db.data.rooms.CRB1);
+  }
+
+  // ── PUB-CR (public-lobby create race): the visibility snapshot is operation-local.
+  //    A UI toggle flip DURING the create's awaits must never change the running op's
+  //    path, listing decision or cleanup. ──
+  {
+    const db = makeDB();
+    const h = makeClient(db, 'PUBA'); h.setMenu('ffa', 3);
+    h.setVis('public'); h.create();   // snapshots visibility='public' before the first await
+    h.setVis('private');              // UI flips mid-op -> must NOT affect this create
+    await tick();
+    t('PUB-CR1 public create stays public despite mid-op flip to private', !!db.data.rooms.PUBA && db.data.rooms.PUBA.config.visibility === 'public');
+    t('PUB-CR1 listing written for the public room', h.pubCalls().includes('write:PUBA'));
+    t('PUB-CR1 committed roomPublic === true', h.isRoomPublic() === true);
+  }
+  {
+    const db = makeDB();
+    const h = makeClient(db, 'PUBB'); h.setMenu('ffa', 3);
+    h.setVis('private'); h.create();  // snapshots visibility='private'
+    h.setVis('public');               // UI flips mid-op -> must NOT create a listing
+    await tick();
+    t('PUB-CR2 private create stays private despite mid-op flip to public', !!db.data.rooms.PUBB && db.data.rooms.PUBB.config.visibility === 'private');
+    t('PUB-CR2 no listing written for a private create', !h.pubCalls().some(c => c.indexOf('write:') === 0));
+    t('PUB-CR2 committed roomPublic === false', h.isRoomPublic() === false);
+  }
+  {
+    // stale op AFTER a successful listing write -> room AND listing fully compensated.
+    const db = makeDB();
+    const h = makeClient(db, 'PUBC'); h.setMenu('ffa', 3);
+    h.setVis('public'); h.armStaleAfterListing(); h.create(); await tick();
+    t('PUB-CR3 stale-after-listing create leaves NO room', !db.data.rooms.PUBC);
+    t('PUB-CR3 listing was written then compensated (remove)', h.pubCalls().includes('write:PUBC') && h.pubCalls().includes('remove:PUBC'));
+    t('PUB-CR3 client stays offline (globals never committed)', h.st().online === false);
+  }
+
+  // ── PUB-JOIN (roomPublic commit): the joining client adopts roomPublic ONLY after a
+  //    successful seat claim; a failed/full join must leave no residue. ──
+  {
+    const db = makeDB();
+    const hp = makeClient(db, 'PRVR'); hp.setMenu('ffa', 3); hp.setVis('private'); hp.create(); await tick();
+    const gp = makeClient(db, 'JG1'); gp.setMenu('online'); gp.join('PRVR'); await tick();
+    t('PUB-JOIN private room -> guest roomPublic false', gp.isRoomPublic() === false && gp.st().myPlayer === 1);
+
+    const hpub = makeClient(db, 'PUBR'); hpub.setMenu('ffa', 3); hpub.setVis('public'); hpub.create(); await tick();
+    const g1 = makeClient(db, 'JG2'); g1.setMenu('online'); g1.join('PUBR'); await tick();   // seat 1
+    t('PUB-JOIN public room -> guest roomPublic true after successful claim', g1.isRoomPublic() === true && g1.st().myPlayer === 1);
+    const g2 = makeClient(db, 'JG3'); g2.setMenu('online'); g2.join('PUBR'); await tick();   // seat 2
+    const g3 = makeClient(db, 'JG4'); g3.setMenu('online'); g3.join('PUBR'); await tick();   // seat 3
+    const g4 = makeClient(db, 'JG5'); g4.setMenu('online'); g4.join('PUBR'); await tick();   // seat 4 -> 5/5 full
+    const gLate = makeClient(db, 'JG6'); gLate.setMenu('online'); gLate.join('PUBR'); await tick();
+    t('PUB-JOIN lost/full public join leaves roomPublic unset', gLate.isRoomPublic() === false && gLate.st().online === false);
+  }
+
+  // ── PUB-LEAVE (rules-conform host-leave order): a public host leaves while a guest is
+  //    still seated. The host removes p/0 + players/0 atomically FIRST (room becomes
+  //    objectively host-less), and only AFTER that update settles removes the listing —
+  //    the removePublicListing call sits inside the update's .then(), so its presence in
+  //    pubCalls proves the atomic anchor removal succeeded before it. A present guest does
+  //    not block that cleanup. (The FFA guest then closes the now host-less lobby itself,
+  //    tearing the room down — a separate, already-tested behavior.) ──
+  {
+    const db = makeDB();
+    const host = makeClient(db, 'PUBL'); host.setMenu('ffa', 3); host.setVis('public'); host.create(); await tick();
+    const guest = makeClient(db, 'LGX'); guest.setMenu('online'); guest.join('PUBL'); await tick();
+    t('PUB-LEAVE setup: public host + guest both online', db.data.rooms.PUBL.p[0].on === true && db.data.rooms.PUBL.p[1].on === true);
+    host.leave(); await tick();
+    t('PUB-LEAVE host anchors p/0 + players/0 gone after leave', !db.data.rooms.PUBL || (db.data.rooms.PUBL.p[0] == null && !(db.data.rooms.PUBL.players && db.data.rooms.PUBL.players[0])));
+    t('PUB-LEAVE listing removed only after the atomic anchor removal settled', host.pubCalls().includes('remove:PUBL'));
+  }
+  // ── PUB-GUEST-LEAVE: a GUEST leaving a public lobby must NOT touch the listing —
+  //    only the host owns it, and the room stays a valid public lobby for the host. ──
+  {
+    const db = makeDB();
+    const host = makeClient(db, 'PUBG'); host.setMenu('ffa', 3); host.setVis('public'); host.create(); await tick();
+    const guest = makeClient(db, 'GGX'); guest.setMenu('online'); guest.join('PUBG'); await tick();
+    t('PUB-GUEST-LEAVE setup: guest seated, guest roomPublic true', guest.st().myPlayer === 1 && guest.isRoomPublic() === true);
+    guest.leave(); await tick();
+    t('PUB-GUEST-LEAVE guest never removes the listing', !guest.pubCalls().some(c => c.indexOf('remove:') === 0));
+    t('PUB-GUEST-LEAVE room + host stay (still a valid public lobby)', !!db.data.rooms.PUBG && db.data.rooms.PUBG.p[0] && db.data.rooms.PUBG.p[0].on === true);
   }
 
   console.log('\nFFA-Online-Flow: ' + pass + ' passed, ' + fail + ' failed');

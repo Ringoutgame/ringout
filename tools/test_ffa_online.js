@@ -39,6 +39,10 @@ const env = new Function(`
   ${sgSrc}
   // startFfaMatch runs against stubbed lobby UI + a write-recording fake FB
   let lobbyP={};
+  // Public-Lobby: startFfaMatch best-effort removes the discovery listing on start.
+  // Private rooms (roomPublic=false) skip it entirely — stub keeps the branch inert.
+  let roomPublic=false, roomCode='';
+  function removePublicListing(){}
   const writes=[], toasts=[];
   const btn={disabled:false};
   const $=()=>btn;                                   // touches only lobbyStart
@@ -60,13 +64,13 @@ const t = (name, cond) => { cond ? pass++ : (fail++, console.error('FAIL: ' + na
 // seatActive()/validateRoom() actually read (on); s/t are irrelevant here (the
 // rules — not the client — enforce their shape, see test_rules.js).
 const room = (over = {}) => Object.assign(
-  { v: VER, config: { winTarget: 3, fmt: 'single' }, gen: 0, state: 'lobby', p: { 0: { on: true } }, created: 1 }, over);
+  { v: VER, config: { winTarget: 3, fmt: 'single', visibility: 'private' }, gen: 0, state: 'lobby', p: { 0: { on: true } }, created: 1 }, over);
 const ffaRoom = (over = {}) => Object.assign(
-  { v: VER, config: { winTarget: 3, fmt: 'ffa' }, gen: 0, state: 'lobby', p: { 0: { on: true } }, created: 1 }, over);
+  { v: VER, config: { winTarget: 3, fmt: 'ffa', visibility: 'private' }, gen: 0, state: 'lobby', p: { 0: { on: true } }, created: 1 }, over);
 
 // ── (1) single/double: unified room-state, join only while state==='lobby' ──
 t('single valid', env.validateRoom(room()).ok === true);
-t('double valid', env.validateRoom(room({ config: { winTarget: 5, fmt: 'double' } })).ok === true);
+t('double valid', env.validateRoom(room({ config: { winTarget: 5, fmt: 'double', visibility: 'private' } })).ok === true);
 t('single full rejected', env.validateRoom(room({ p: { 0: { on: true }, 1: true } })).reason === 'Raum ist schon voll.');
 t('orphan rejected', env.validateRoom(room({ p: {} })).reason === 'Raum ist verwaist.');
 t('host reserved but not active rejected', env.validateRoom(room({ p: { 0: { on: false } } })).reason === 'Raum ist verwaist.');

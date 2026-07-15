@@ -96,7 +96,7 @@ const P = (s, on, t) => ({ s, on: !!on, t: (t === undefined ? NOW : t) });
 // Unified room-state: EVERY mode is created with state:'lobby' and an OFFLINE
 // host presence (p/0.on === false) — the host ACTIVATEs right after create.
 const mkRoom = (fmt, over = {}) => Object.assign(
-  { v: V, config: { winTarget: 3, fmt }, gen: 0, state: 'lobby', p: { 0: P(H_TAB, false) }, players: { 0: HOST }, created: NOW },
+  { v: V, config: { winTarget: 3, fmt, visibility: 'private' }, gen: 0, state: 'lobby', p: { 0: P(H_TAB, false) }, players: { 0: HOST }, created: NOW },
   over);
 const db1 = (roomOver = {}, fmt = 'single') => ({ rooms: { KX7P: mkRoom(fmt, Object.assign({ created: NOW - 5000 }, roomOver)) } });
 const MOVE = { idx: 0, dx: 100, dy: -50, sp: 0.5 };
@@ -108,7 +108,7 @@ const deny = (name, db, path, v) => t('[DENY]  ' + name, tryWrite(db, path, v) =
 
 // ── (1) room creation — v3 object presence, offline host, atomic identity ──
 allow('create single', { rooms: {} }, 'rooms/KX7P', mkRoom('single'));
-allow('create double', { rooms: {} }, 'rooms/KX7P', mkRoom('double', { config: { winTarget: 5, fmt: 'double' } }));
+allow('create double', { rooms: {} }, 'rooms/KX7P', mkRoom('double', { config: { winTarget: 5, fmt: 'double', visibility: 'private' } }));
 allow('create ffa', { rooms: {} }, 'rooms/KX7P', mkRoom('ffa'));
 deny('create v1 (old protocol)', { rooms: {} }, 'rooms/KX7P', mkRoom('single', { v: 1 }));
 deny('create fmt triple', { rooms: {} }, 'rooms/KX7P', mkRoom('single', { config: { winTarget: 3, fmt: 'triple' } }));
@@ -273,6 +273,45 @@ deny('room delete blocked: p anchor present', db1(), 'rooms/KX7P', null);
 deny('room delete blocked: players anchor present (p empty)', db1({ p: {} }), 'rooms/KX7P', null);
 allow('room delete when fully empty (no p, no players)', db1({ p: {}, players: {} }), 'rooms/KX7P', null);
 deny('room delete non-existent', { rooms: {} }, 'rooms/KX7P', null);
+
+// ── (13) config.visibility — mandatory, exactly 'private' | 'public' ──
+deny('create room WITHOUT visibility', { rooms: {} }, 'rooms/KX7P', (() => { const r = mkRoom('single'); r.config = { winTarget: 3, fmt: 'single' }; return r; })());
+deny('create room bad visibility value', { rooms: {} }, 'rooms/KX7P', mkRoom('single', { config: { winTarget: 3, fmt: 'single', visibility: 'secret' } }));
+allow('create room visibility public', { rooms: {} }, 'rooms/KX7P', mkRoom('single', { config: { winTarget: 3, fmt: 'single', visibility: 'public' } }));
+
+// ── (14) publicRooms discovery index — write-once create, stale-only delete ──
+// A listable public room: v3, config.visibility 'public', state 'lobby', host online,
+// younger than 2h. The listing itself is exactly { created: now } — nothing else.
+const PUB_ROOM = (over = {}) => mkRoom('ffa', Object.assign({ created: NOW - 5000, config: { winTarget: 3, fmt: 'ffa', visibility: 'public' }, p: { 0: P(H_TAB, true) } }, over));
+const pubDb = (roomOver = {}, listing = undefined) => { const db = { rooms: { KX7P: PUB_ROOM(roomOver) }, publicRooms: {} }; if (listing !== undefined) db.publicRooms.KX7P = listing; return db; };
+const LISTING = { created: NOW };
+
+// create (write-once) — only for a valid, live, public lobby room
+allow('pub create: valid public lobby room', pubDb(), 'publicRooms/KX7P', LISTING);
+deny('pub create: private room never indexable', pubDb({ config: { winTarget: 3, fmt: 'ffa', visibility: 'private' } }), 'publicRooms/KX7P', LISTING);
+deny('pub create: wrong protocol version', pubDb({ v: 2 }), 'publicRooms/KX7P', LISTING);
+deny('pub create: match already running (state playing)', pubDb({ state: 'playing' }), 'publicRooms/KX7P', LISTING);
+deny('pub create: host offline', pubDb({ p: { 0: P(H_TAB, false) } }), 'publicRooms/KX7P', LISTING);
+deny('pub create: room older than 2h', pubDb({ created: NOW - 7200001 }), 'publicRooms/KX7P', LISTING);
+deny('pub create: no backing room', { rooms: {}, publicRooms: {} }, 'publicRooms/KX7P', LISTING);
+deny('pub create: created not now (planted timestamp)', pubDb(), 'publicRooms/KX7P', { created: NOW - 1 });
+deny('pub create: extra field beyond created', pubDb(), 'publicRooms/KX7P', { created: NOW, name: 'x' });
+deny('pub create: bad code charset', pubDb(), 'publicRooms/AAA0', LISTING);
+
+// update existing listing (write-once — every update rejected)
+deny('pub update rejected (write-once)', pubDb({}, LISTING), 'publicRooms/KX7P', { created: NOW });
+
+// delete — allowed ONLY for an objectively stale/invalid room
+allow('pub stale delete: backing room gone', { rooms: {}, publicRooms: { KX7P: LISTING } }, 'publicRooms/KX7P', null);
+allow('pub stale delete: match running', pubDb({ state: 'playing' }, LISTING), 'publicRooms/KX7P', null);
+allow('pub stale delete: room older than 2h', pubDb({ created: NOW - 7200001 }, LISTING), 'publicRooms/KX7P', null);
+allow('pub stale delete: room no longer public', pubDb({ config: { winTarget: 3, fmt: 'ffa', visibility: 'private' } }, LISTING), 'publicRooms/KX7P', null);
+deny('pub delete blocked: room still open (public lobby, host online)', pubDb({}, LISTING), 'publicRooms/KX7P', null);
+deny('pub delete blocked: host offline is transient (not stale)', pubDb({ p: { 0: P(H_TAB, false) } }, LISTING), 'publicRooms/KX7P', null);
+// deliberate host leave: BOTH host anchors (p/0 AND players/0) gone -> stale -> deletable
+allow('pub stale delete: both host anchors gone (deliberate host leave)', pubDb({ p: {}, players: {} }, LISTING), 'publicRooms/KX7P', null);
+deny('pub delete blocked: only p/0 gone (players/0 remains -> not a leave)', pubDb({ p: {} }, LISTING), 'publicRooms/KX7P', null);
+deny('pub delete blocked: only players/0 gone (p/0 remains -> not a leave)', pubDb({ players: {} }, LISTING), 'publicRooms/KX7P', null);
 
 console.log('\nRules-Suite (lokal, echte firebase.rules.json): ' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

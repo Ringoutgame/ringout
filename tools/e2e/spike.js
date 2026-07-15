@@ -44,7 +44,7 @@ const V3_PART1 = async () => {
   const CH = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
   const rcode = () => Array.from({ length: 4 }, () => CH[Math.floor(Math.random() * CH.length)]).join('');
   const fresh = async () => { for (let i = 0; i < 12; i++) { const c = rcode(); if ((await read(c)) == null) return c; } throw new Error('no free code'); };
-  const mkRoom = (fmt) => ({ v: 3, config: { winTarget: 3, fmt }, gen: 0, state: 'lobby', p: { 0: P('HOSTTAB0', false) }, players: { 0: { id: 'HOST0000', name: 'H', tab: 'HOSTTAB0' } }, created: TS() });
+  const mkRoom = (fmt, visibility) => ({ v: 3, config: { winTarget: 3, fmt, visibility: visibility || 'private' }, gen: 0, state: 'lobby', p: { 0: P('HOSTTAB0', false) }, players: { 0: { id: 'HOST0000', name: 'H', tab: 'HOSTTAB0' } }, created: TS() });
   const checks = [];
   const c = (kind, name, res) => { checks.push({ kind, name, ok: kind === 'ALLOW' ? res.ok === true : res.ok === false, err: res && res.err || null }); return res; };
   const state = (name, ok) => checks.push({ kind: 'STATE', name, ok: !!ok, err: null });
@@ -138,6 +138,44 @@ const V3_PART1 = async () => {
   c('DENY', 'simultaneous host reactivation + match start', await upd(HR, { 'p/0/on': true, 'p/0/t': TS(), 'state': 'playing' }));
   state('host-reactivation start left state=lobby', (await read(HR + '/state')) === 'lobby');
 
+  // ── Scenario PUB — public discovery index (feature/public-lobby-mvp) ──────────
+  // Proves against the REAL rules what the local single-path model cannot: the
+  // query-gated parent read, write-once listing create bound to a live public room,
+  // private rooms never indexable, timestamp/extra-field validation, update reject,
+  // and stale-only delete. Listings live at publicRooms/<code> = { created }.
+  const pref = (p) => FB.ref(FB.db, 'publicRooms/' + p);
+  const pset = async (p, v) => { try { await FB.set(pref(p), v); return { ok: true }; } catch (e) { return { ok: false, err: errc(e) }; } };
+  const pdel = async (p) => { try { await FB.remove(pref(p)); return { ok: true }; } catch (e) { return { ok: false, err: errc(e) }; } };
+  const PUB = await fresh();
+  await set(PUB, mkRoom('ffa', 'public')); await upd(PUB, { 'p/0/on': true, 'p/0/t': TS() });   // public room, host online
+  c('DENY', 'pub listing created != now (planted timestamp)', await pset(PUB, { created: 1 }));
+  c('DENY', 'pub listing extra field beyond created', await pset(PUB, { created: TS(), name: 'x' }));
+  c('ALLOW', 'pub listing create for a valid public lobby room', await pset(PUB, { created: TS() }));
+  c('DENY', 'pub listing update rejected (write-once)', await pset(PUB, { created: TS() }));
+  c('DENY', 'pub listing delete blocked while room open (public lobby, host online)', await pdel(PUB));
+  // Parent read is allowed ONLY with orderByChild('created') + limitToLast(<=30).
+  let pubQueryOk = false, pubIdx = null;
+  try { const q = FB.query(FB.ref(FB.db, 'publicRooms'), FB.orderByChild('created'), FB.limitToLast(30)); const s = await FB.get(q); pubIdx = s.val() || {}; pubQueryOk = true; } catch (e) { pubQueryOk = false; }
+  state('pub query (orderByChild created, limitToLast 30) allowed + lists the code', pubQueryOk && !!pubIdx && Object.prototype.hasOwnProperty.call(pubIdx, PUB));
+  let pubPlainDenied = false;
+  try { await FB.get(FB.ref(FB.db, 'publicRooms')); } catch (e) { pubPlainDenied = /permission/i.test(errc(e)); }
+  state('pub plain read without a query denied', pubPlainDenied);
+  let pubOverDenied = false;
+  try { const q = FB.query(FB.ref(FB.db, 'publicRooms'), FB.orderByChild('created'), FB.limitToLast(31)); await FB.get(q); } catch (e) { pubOverDenied = /permission/i.test(errc(e)); }
+  state('pub query with limitToLast 31 (over cap) denied', pubOverDenied);
+  let pubNoLimitDenied = false;
+  try { const q = FB.query(FB.ref(FB.db, 'publicRooms'), FB.orderByChild('created')); await FB.get(q); } catch (e) { pubNoLimitDenied = /permission/i.test(errc(e)); }
+  state('pub query with orderByChild but NO limitToLast denied', pubNoLimitDenied);
+  // A private room's listing is never accepted.
+  const PUBP = await fresh();
+  await set(PUBP, mkRoom('single', 'private')); await upd(PUBP, { 'p/0/on': true, 'p/0/t': TS() });
+  c('DENY', 'pub listing for a PRIVATE room rejected (never indexable)', await pset(PUBP, { created: TS() }));
+  // stale delete: once the match starts (state playing), the listing is removable.
+  await upd(PUB, { 'p/1': P('GTAB0001', false), 'players/1': rec('GUEST001', 'GTAB0001') });
+  await upd(PUB, { 'p/1/on': true, 'p/1/t': TS() });   // ffa: independent activate
+  await upd(PUB, { 'state': 'playing' });               // ffa host-start (host + p/1 online)
+  c('ALLOW', 'pub listing stale delete after match start (state playing)', await pdel(PUB));
+
   // ── Seed rooms whose offline seats must age past the grace window (second pass) ──
   const D = await fresh();                                                // recycle (lobby)
   await set(D, mkRoom('ffa')); await upd(D, { 'p/0/on': true, 'p/0/t': TS() });
@@ -161,7 +199,7 @@ const V3_PART1 = async () => {
   // best-effort purge of the finished lobby/match rooms. Leg deletes are atomic
   // (p + players together), so each seat is cleared in a single coupled update.
   const purge = async (code) => { for (let s = 0; s < 5; s++) { await upd(code, { ['p/' + s]: null, ['players/' + s]: null }); } await del(code); };
-  for (const code of [A, B, C, Del, HR]) await purge(code);
+  for (const code of [A, B, C, Del, HR, PUB, PUBP]) await purge(code);
 
   return { checks, seeds: { D, E1, E2 } };
 };

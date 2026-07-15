@@ -22,9 +22,10 @@ const SUITES = [
   { name: 'Lockstep',         file: 'test_lockstep.js',       expectPassed: 24 },
   { name: 'FFA-Kern',         file: 'test_ffa.js',            expectPassed: 18 },
   { name: 'FFA-Online-Prep',  file: 'test_ffa_online.js',     expectPassed: 44 },
-  { name: 'FFA-Online-Flow',  file: 'test_ffa_flow.js',       expectPassed: 116 },
+  { name: 'FFA-Online-Flow',  file: 'test_ffa_flow.js',       expectPassed: 134 },
   { name: 'FFA-Online-Race',  file: 'test_ffa_race.js',       expectPassed: 115 },
-  { name: 'Rules',            file: 'test_rules.js',          expectPassed: 111 },
+  { name: 'Rules',            file: 'test_rules.js',          expectPassed: 134 },
+  { name: 'Public-Lobby',     file: 'test_public_lobby.js',   expectPassed: 30 },
 ];
 
 const lastLine = (s) => {

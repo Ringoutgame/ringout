@@ -218,6 +218,11 @@ window.__ringoutE2E = (function(){
     // ── Drivers: each calls the REAL production function, nothing more. ──
     hostFFA: function(win){ mode='ffa'; fmt='ffa'; winTarget=(win===5?5:3); createRoom(); },
     joinFFA: function(code){ mode='ffa'; var el=$('onInput'); if(el) el.value=code; joinRoom(); },
+    // Public-Lobby UI (feature/public-lobby-mvp): opens the REAL online dialog in FFA
+    // context — this shows the visibility toggle + public list and starts the real
+    // publicRooms query listener. The scenario then drives the actual DOM buttons
+    // (#onVisPub, #onCreate, .pr-join) and reads the rendered #onPublicList directly.
+    openOnlineFFA: function(){ mode='ffa'; fmt='ffa'; openOnline(); },
     start: function(){ startFfaMatch(); },
     leave: function(){ leaveOnline(); },
     // Legal zero-power move through the real commit()/sanitizeMove()/write-once path
@@ -378,8 +383,8 @@ function transformHtml(src) {
   let out = src;
 
   out = replaceOnce(out,
-    'import { getDatabase, ref, set, get, update, remove, onValue, onDisconnect, serverTimestamp, runTransaction } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-database.js";',
-    'import { getDatabase, connectDatabaseEmulator, ref, set, get, update, remove, onValue, onDisconnect, serverTimestamp, runTransaction } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-database.js";',
+    'import { getDatabase, ref, set, get, update, remove, onValue, onDisconnect, serverTimestamp, runTransaction, query, orderByChild, limitToLast } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-database.js";',
+    'import { getDatabase, connectDatabaseEmulator, ref, set, get, update, remove, onValue, onDisconnect, serverTimestamp, runTransaction, query, orderByChild, limitToLast } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-database.js";',
     'db-import', report);
 
   out = replaceOnce(out,
