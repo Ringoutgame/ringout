@@ -434,7 +434,7 @@ body:not(.r3d) .ohero{height:12px}
       <span class="chip">ACTIVE</span>
       <span class="mic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="9" cy="8.6" r="3"/><path d="M3.4 19c0-3.1 2.6-4.8 5.6-4.8s5.6 1.7 5.6 4.8"/><circle cx="16.6" cy="9.4" r="2.4"/><path d="M16 14.4c2.6.3 4.7 1.9 4.7 4.4"/></svg></span>
       <span class="mt">ONLINE VERSUS</span>
-      <span class="msub">1v1 OR 2v2</span>
+      <span class="msub">2 PLAYERS · 2 BALLS EACH</span>
       <span class="ms">Challenge other players in head-to-head matches.</span>
     </button>
     <button class="mcard" id="cardBot">
@@ -561,23 +561,6 @@ body:not(.r3d) .ohero{height:12px}
     <div class="ws" id="leaveS">Dein Gegner kann dann nicht weiterspielen.</div>
     <button class="wbtn primary" id="leaveCancel">Abbrechen</button>
     <button class="wbtn" id="leaveGo">Match verlassen</button>
-  </div>
-</div>
-
-<!-- Versus-Modal: Format-Auswahl fuer Online Versus — 2 ECHTE Spieler, 1v1 (1 Kugel) oder
-     2v2 Duo (2 Kugeln pro Spieler). Bewusst NICHT "Team Battle" (kein 4-Spieler-Modus). -->
-<div class="ov" id="vsOv">
-  <div class="wb vswb">
-    <div class="wt" id="vsTitle">ONLINE VERSUS</div>
-    <button class="vopt" id="vs1v1">
-      <span class="vopt-t" id="vs1v1T">1v1 DUEL</span>
-      <span class="vopt-s" id="vs1v1S">2 PLAYERS · 1 BALL EACH</span>
-    </button>
-    <button class="vopt" id="vs2v2">
-      <span class="vopt-t" id="vs2v2T">2v2 DUO DUEL</span>
-      <span class="vopt-s" id="vs2v2S">2 PLAYERS · 2 BALLS EACH</span>
-    </button>
-    <button class="wbtn" id="vsBack">↩ Back</button>
   </div>
 </div>
 
@@ -1181,7 +1164,7 @@ en:{tagline:'PULL BACK · RELEASE · KNOCK THEM OUT',chip:'ACTIVE',
   tripleT:'TRIPLE FFA',tripleS:'3 PLAYERS',tripleD:'2 balls per player — free-for-all.',
   ctaTriple:'PLAY TRIPLE FFA',infoTriple:'3 PLAYERS · 2 BALLS EACH · HOST STARTS',
   onSubTriple:'Triple FFA · exactly 3 players',tripleShare:'TRIPLE FFA · Share the code with 2 friends.',
-  vsT:'ONLINE VERSUS',vsS:'1v1 OR 2v2',vsD:'Challenge other players in head-to-head matches.',
+  vsT:'ONLINE VERSUS',vsS:'2 PLAYERS · 2 BALLS EACH',vsD:'Challenge other players in head-to-head matches.',
   botT:'BOT TRAINING',botS:'VS AI',botD:'Practice against AI and improve your skills.',
   secPlay:'PLAY',secRooms:'ONLINE ROOMS',secHow:'HOW TO PLAY',viewAll:'VIEW ALL',
   scrollHint:'SCROLL TO EXPLORE',soonT:'MORE COMING SOON',soonS:'New modes and features are in the works.',
@@ -1189,8 +1172,7 @@ en:{tagline:'PULL BACK · RELEASE · KNOCK THEM OUT',chip:'ACTIVE',
   how2T:'2. RELEASE',how2S:'Let go to launch your marble.',
   how3T:'3. KNOCK OUT',how3S:'Push your opponents off the arena.',
   ctaFfa:'PLAY ONLINE FFA',ctaVs:'PLAY ONLINE VERSUS',ctaBot:'START BOT TRAINING',
-  infoFfa:'2–5 PLAYERS · HOST STARTS',infoVs:'2 PLAYERS · 1v1 OR 2v2 DUO',infoBot:'VS AI · SOLO PRACTICE',
-  vs1v1T:'1v1 DUEL',vs1v1S:'2 PLAYERS · 1 BALL EACH',vs2v2T:'2v2 DUO DUEL',vs2v2S:'2 PLAYERS · 2 BALLS EACH',
+  infoFfa:'2–5 PLAYERS · HOST STARTS',infoVs:'2 PLAYERS · 2 BALLS EACH',infoBot:'VS AI · SOLO PRACTICE',
   bot1v1T:'1v1 VS BOT',bot1v1S:'1 BALL EACH',bot2v2T:'2v2 DUO VS BOT',bot2v2S:'2 BALLS EACH',comingSoon:'COMING SOON',
   setTitle:'SETTINGS',setLang:'Language',vibeLbl:'Vibration',vibeUnsupported:' (not available)',
   onSubFfa:'Free for all · 2 to 5 players',onSubVs:'Versus · 2 players',
@@ -1215,7 +1197,7 @@ de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'AKTIV',
   tripleT:'TRIPLE FFA',tripleS:'3 SPIELER',tripleD:'2 Kugeln pro Spieler — jeder gegen jeden.',
   ctaTriple:'TRIPLE FFA SPIELEN',infoTriple:'3 SPIELER · 2 KUGELN JE SPIELER · HOST STARTET',
   onSubTriple:'Triple FFA · genau 3 Spieler',tripleShare:'TRIPLE FFA · Schick den Code an 2 Freunde.',
-  vsT:'ONLINE VERSUS',vsS:'1v1 ODER 2v2',vsD:'Fordere andere Spieler im direkten Duell heraus.',
+  vsT:'ONLINE VERSUS',vsS:'2 SPIELER · 2 KUGELN PRO SPIELER',vsD:'Fordere andere Spieler im direkten Duell heraus.',
   botT:'BOT-TRAINING',botS:'GEGEN KI',botD:'Trainiere gegen die KI und verbessere dein Spiel.',
   secPlay:'SPIELEN',secRooms:'ONLINE-RÄUME',secHow:'SO WIRD GESPIELT',viewAll:'ALLE ANZEIGEN',
   scrollHint:'SCROLLEN FÜR MEHR',soonT:'BALD MEHR',soonS:'Neue Modi und Features sind in Arbeit.',
@@ -1223,8 +1205,7 @@ de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'AKTIV',
   how2T:'2. LASS LOS',how2S:'Loslassen — die Kugel schießt los.',
   how3T:'3. RAUSWERFEN',how3S:'Schieb deine Gegner von der Platte.',
   ctaFfa:'ONLINE FFA SPIELEN',ctaVs:'ONLINE VERSUS SPIELEN',ctaBot:'BOT-TRAINING STARTEN',
-  infoFfa:'2–5 SPIELER · HOST STARTET',infoVs:'2 SPIELER · 1v1 ODER 2v2 DUO',infoBot:'GEGEN KI · SOLO-TRAINING',
-  vs1v1T:'1v1 DUELL',vs1v1S:'2 SPIELER · 1 KUGEL PRO SPIELER',vs2v2T:'2v2 DUO-DUELL',vs2v2S:'2 SPIELER · 2 KUGELN PRO SPIELER',
+  infoFfa:'2–5 SPIELER · HOST STARTET',infoVs:'2 SPIELER · 2 KUGELN PRO SPIELER',infoBot:'GEGEN KI · SOLO-TRAINING',
   bot1v1T:'1v1 GEGEN BOT',bot1v1S:'1 KUGEL PRO SEITE',bot2v2T:'2v2 DUO GEGEN BOT',bot2v2S:'2 KUGELN PRO SEITE',comingSoon:'BALD VERFÜGBAR',
   setTitle:'EINSTELLUNGEN',setLang:'Sprache',vibeLbl:'Vibration',vibeUnsupported:' (nicht verfügbar)',
   onSubFfa:'Free for all · 2 bis 5 Spieler',onSubVs:'Versus · 2 Spieler',
@@ -1249,7 +1230,7 @@ tr:{tagline:'GERİ ÇEK · BIRAK · DIŞARI İT',chip:'AKTİF',
   tripleT:'TRIPLE FFA',tripleS:'3 OYUNCU',tripleD:'Oyuncu başına 2 top — herkes tek.',
   ctaTriple:'TRIPLE FFA OYNA',infoTriple:'3 OYUNCU · HERKESE 2 TOP · HOST BAŞLATIR',
   onSubTriple:'Triple FFA · tam 3 oyuncu',tripleShare:'TRIPLE FFA · Kodu 2 arkadaşına gönder.',
-  vsT:'ONLINE VERSUS',vsS:'1v1 VEYA 2v2',vsD:'Diğer oyunculara kafa kafaya meydan oku.',
+  vsT:'ONLINE VERSUS',vsS:'2 OYUNCU · HERKESE 2 TOP',vsD:'Diğer oyunculara kafa kafaya meydan oku.',
   botT:'BOT ANTRENMANI',botS:'YAPAY ZEKÂYA KARŞI',botD:'Yapay zekâya karşı antrenman yap, ustalaş.',
   secPlay:'OYNA',secRooms:'ONLINE ODALAR',secHow:'NASIL OYNANIR',viewAll:'TÜMÜNÜ GÖR',
   scrollHint:'KAYDIR VE KEŞFET',soonT:'ÇOK YAKINDA DAHA FAZLASI',soonS:'Yeni modlar ve özellikler yolda.',
@@ -1257,8 +1238,7 @@ tr:{tagline:'GERİ ÇEK · BIRAK · DIŞARI İT',chip:'AKTİF',
   how2T:'2. BIRAK',how2S:'Bırak — misket fırlasın.',
   how3T:'3. DIŞARI İT',how3S:'Rakiplerini arenadan dışarı it.',
   ctaFfa:'ONLINE FFA OYNA',ctaVs:'ONLINE VERSUS OYNA',ctaBot:'BOT ANTRENMANI BAŞLAT',
-  infoFfa:'2–5 OYUNCU · HOST BAŞLATIR',infoVs:'2 OYUNCU · 1v1 VEYA 2v2 DUO',infoBot:'YAPAY ZEKÂYA KARŞI · SOLO ANTRENMAN',
-  vs1v1T:'1v1 DÜELLO',vs1v1S:'2 OYUNCU · HERKESE 1 TOP',vs2v2T:'2v2 DUO DÜELLO',vs2v2S:'2 OYUNCU · HERKESE 2 TOP',
+  infoFfa:'2–5 OYUNCU · HOST BAŞLATIR',infoVs:'2 OYUNCU · HERKESE 2 TOP',infoBot:'YAPAY ZEKÂYA KARŞI · SOLO ANTRENMAN',
   bot1v1T:'BOTA KARŞI 1v1',bot1v1S:'HERKESE 1 TOP',bot2v2T:'BOTA KARŞI 2v2 DUO',bot2v2S:'HERKESE 2 TOP',comingSoon:'ÇOK YAKINDA',
   setTitle:'AYARLAR',setLang:'Dil',vibeLbl:'Titreşim',vibeUnsupported:' (desteklenmiyor)',
   onSubFfa:'Herkes tek · 2–5 oyuncu',onSubVs:'Karşılıklı · 2 oyuncu',
@@ -1305,9 +1285,6 @@ function applyLang(){
   $('scrollHintT').textContent=T('scrollHint');
   for(const k of ['how1T','how1S','how2T','how2S','how3T','how3S'])
     document.querySelectorAll('.'+k).forEach(e=>{e.textContent=T(k);});
-  $('vsTitle').textContent=T('vsT');$('vsBack').textContent=T('back');
-  $('vs1v1T').textContent=T('vs1v1T');$('vs1v1S').textContent=T('vs1v1S');
-  $('vs2v2T').textContent=T('vs2v2T');$('vs2v2S').textContent=T('vs2v2S');
   $('botTitle').textContent=T('botT');$('botBack').textContent=T('back');
   $('bot1v1T').textContent=T('bot1v1T');$('bot1v1S').textContent=T('bot1v1S');
   $('bot2v2T').textContent=T('bot2v2T');$('bot2v2S').textContent=T('bot2v2S');
@@ -1357,12 +1334,10 @@ $('ctaBtn').onclick=()=>{
   // (nicht durch TUNE blockiert).
   if(menuSel==='ffa'){if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);mode='ffa';fmt='ffa';openOnline();return;}        // createRoom liest mode==='ffa' -> ffa-Raum (state:'lobby')
   if(menuSel==='triple'){if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);mode='ffa';fmt='triple_ffa';openOnline();return;}   // TRIPLE FFA: derselbe Online-Flow, fmt traegt das Format
-  if(SFX.click())vibrateMs(VIBE_CLICK_MS);$('vsOv').classList.add('show');                                    // Online Versus: Format-Auswahl 1v1 / 2v2 Duo
+  // Online Versus: immer Doppel (2 Spieler, 2 Kugeln pro Spieler) — keine Format-Auswahl mehr.
+  // Internes 'single'-Format bleibt fuer bestehende Raeume/Tests erhalten, ist aber ueber die UI nicht mehr erreichbar.
+  if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);mode=menuMode='online';fmt='double';openOnline();
 };
-// Versus-Modal: setzt fmt wie frueher die Format-Pills, dann der bestehende Online-Flow
-$('vs1v1').onclick=()=>{$('vsOv').classList.remove('show');mode=menuMode='online';fmt='single';openOnline();};
-$('vs2v2').onclick=()=>{$('vsOv').classList.remove('show');mode=menuMode='online';fmt='double';openOnline();};
-$('vsBack').onclick=()=>$('vsOv').classList.remove('show');
 // Bot-Modal: 1v1 oder 2v2 Duo gegen den Hard-Bot (botMove routet fmt-abhaengig auf bot1v1/bot2v2)
 $('bot1v1').onclick=()=>{$('botOv').classList.remove('show');mode=menuMode='bot';fmt='single';online=false;showGame();newGame();};
 $('bot2v2').onclick=()=>{$('botOv').classList.remove('show');mode=menuMode='bot';fmt='double';online=false;showGame();newGame();};
@@ -1633,7 +1608,7 @@ function wireBtnFx(el,withSound){
   el.addEventListener('blur',pressEnd);   // Sicherheitsnetz: Fokus weg waehrend Taste gehalten -> nie haengen bleiben
 }
 function wireMenuClickFeedback(){
-  const IDS=['cardFfa','card2v2','cardBot','ctaBtn','vs1v1','vs2v2','vsBack',
+  const IDS=['cardFfa','card2v2','cardBot','ctaBtn',
     'bot1v1','bot2v2','botBack','ffaOnline','onCreate','onJoin','onBack','onBack2','lobbyStart',
     'homeViewAll','homeCreate','pubRefresh','onVisPriv','onVisPub',
     'menuSet','setClose','langEn','langDe','langTr','vibeOnBtn','vibeOffBtn','menuBtn',
