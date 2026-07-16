@@ -518,3 +518,160 @@ If any step fails: explain the issue, fix it if possible, and continue the workf
 ```
 
 The workflow runs automatically after every completed task — the project owner never needs to ask for it.
+
+---
+
+## Arbeitsmodus: Minimaler Scope und feste Stop-Regel
+
+### Grundprinzip
+
+Bearbeite ausschließlich das, was der Nutzer ausdrücklich verlangt.
+
+Eine kleine Änderung darf nicht selbstständig zu einer größeren Analyse-,
+Refactoring-, Test-, Architektur- oder Dokumentationsaufgabe erweitert werden.
+
+Keine zusätzlichen Verbesserungen, nur weil sie sinnvoll erscheinen könnten.
+Nicht angeforderte Probleme nur kurz erwähnen, aber nicht automatisch lösen.
+
+### Standardablauf bei Änderungen
+
+Jede normale Aufgabe besteht standardmäßig nur aus Phase 1:
+
+#### Phase 1 – Ändern und zeigen
+
+1. Die konkrete Anforderung kurz prüfen.
+2. Nur die minimal notwendigen Dateien und Codebereiche ändern.
+3. Den kleinsten sinnvollen Smoke-Test durchführen.
+4. Genau ein relevantes Vorschaufenster beziehungsweise Ergebnis öffnen.
+5. Danach vollständig stoppen und auf die visuelle oder funktionale
+   Freigabe des Nutzers warten.
+
+Ohne ausdrückliche Freigabe nicht automatisch fortfahren mit:
+
+- vollständigen Test-Suites
+- zusätzlichen Regressionstests
+- umfangreicher Root-Cause-Analyse
+- Refactorings
+- Dokumentationsänderungen
+- weiteren Browserfenstern
+- Commit
+- Push
+- Merge
+- Deploy
+
+#### Phase 2 – Finalisieren
+
+Phase 2 beginnt nur, wenn der Nutzer ausdrücklich die finale Freigabe erteilt.
+
+Erst dann:
+
+1. die vereinbarten finalen Tests genau einmal ausführen
+2. bei grünen Tests committen, falls ausdrücklich verlangt
+3. pushen, falls ausdrücklich verlangt
+4. deployen, falls ausdrücklich verlangt
+5. kurz das Ergebnis berichten
+
+Nach Beginn von Phase 2 keine zusätzlichen Verbesserungen oder Refactorings
+mehr durchführen.
+
+### Kleine UI-, CSS-, Text- und Sound-Aufgaben
+
+Bei klaren kleinen Aufgaben:
+
+- keine lange Voranalyse
+- kein umfangreiches Pflicht-Briefing
+- keine neue Testarchitektur
+- keine unnötigen Screenshots
+- keine mehrfachen Auflösungen oder Fenster
+- keine Änderungen außerhalb des betroffenen UI-Bereichs
+- nach der sichtbaren Vorschau sofort stoppen
+
+Zielzeit: möglichst wenige Minuten statt eines vollständigen Entwicklungsruns.
+
+### Bugfixes
+
+Bei einem klar reproduzierbaren Bug:
+
+1. einmal reproduzieren
+2. kleinste nachweisbare Root Cause bestimmen
+3. minimalen Fix umsetzen
+4. gezielten Test durchführen
+5. Ergebnis zeigen
+6. stoppen
+
+Keine umfassende Repro-Matrix oder neue Regression-Suite, außer:
+
+- der Nutzer fordert sie ausdrücklich an
+- der Fehler betrifft deterministische Physik, Lockstep, Firebase Rules,
+  Online-Protokoll oder Datenverlust
+- der kleine Test kann das Risiko objektiv nicht absichern
+
+Ist ein Fehler nicht reproduzierbar:
+
+- nichts auf Verdacht ändern
+- kurz berichten
+- stoppen
+
+### Scope-Erweiterung
+
+Sobald sich zeigt, dass eine Aufgabe deutlich größer wird als vom Nutzer
+angefordert, vor weiteren Arbeiten stoppen und kurz erklären:
+
+- warum der Scope größer wird
+- welche zusätzliche Arbeit notwendig wäre
+- ob dafür eine separate Freigabe benötigt wird
+
+Nicht eigenständig weitermachen.
+
+### Rückfragen
+
+Keine Multiple-Choice-Rückfragen für Details, die aus Repository, aktuellem
+Stand oder Nutzeranforderung eindeutig hervorgehen.
+
+Nur nachfragen, wenn eine echte Blockade oder eine Entscheidung mit deutlich
+unterschiedlichen Ergebnissen besteht.
+
+### Berichte
+
+Standardberichte kurz halten:
+
+- was geändert wurde
+- welcher kleine Test durchgeführt wurde
+- Ergebnis
+- geänderte Dateien
+- aktueller Git-Status
+
+Keine langen Missionsberichte, Risikoabhandlungen oder Wiederholungen der
+Aufgabe, sofern nicht ausdrücklich verlangt.
+
+### Harte Stop-Regel
+
+Sobald das ausdrücklich verlangte sichtbare Ergebnis erreicht und dem Nutzer
+gezeigt wurde:
+
+STOPPEN.
+
+Nicht weiterprogrammieren, nicht weiteranalysieren und keine zusätzlichen
+Tests starten, bis der Nutzer antwortet.
+
+### Qualitätsausnahme
+
+Diese Effizienzregeln dürfen keine sicherheitskritischen oder
+produktionskritischen Prüfungen verhindern.
+
+Bei Änderungen an:
+
+- deterministischer Physik
+- Lockstep
+- Online-Protokoll
+- Firebase Rules
+- Datenmigration
+- Security
+- Speicherung oder möglichem Datenverlust
+
+muss das notwendige Mindestmaß professioneller Verifikation erhalten bleiben.
+
+Auch hier darf der Scope jedoch nicht ohne kurze Rücksprache unnötig
+ausgeweitet werden.
+
+ENDE DES ABSCHNITTS.
