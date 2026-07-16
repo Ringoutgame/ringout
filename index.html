@@ -430,6 +430,13 @@ body:not(.r3d) .ohero{height:12px}
       <span class="msub">3 PLAYERS</span>
       <span class="ms">2 balls per player — free-for-all.</span>
     </button>
+    <button class="mcard" id="cardTeam">
+      <span class="chip">ACTIVE</span>
+      <span class="mic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="7.2" cy="7.2" r="2.4"/><circle cx="16.8" cy="7.2" r="2.4"/><circle cx="7.2" cy="16.8" r="2.4"/><circle cx="16.8" cy="16.8" r="2.4"/><path d="M9.6 12h4.8M12 9.6v4.8"/></svg></span>
+      <span class="mt">TEAM DUEL</span>
+      <span class="msub">4 PLAYERS</span>
+      <span class="ms">2 teams · 1 ball per player — win together.</span>
+    </button>
     <button class="mcard" id="card2v2">
       <span class="chip">ACTIVE</span>
       <span class="mic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="9" cy="8.6" r="3"/><path d="M3.4 19c0-3.1 2.6-4.8 5.6-4.8s5.6 1.7 5.6 4.8"/><circle cx="16.6" cy="9.4" r="2.4"/><path d="M16 14.4c2.6.3 4.7 1.9 4.7 4.4"/></svg></span>
@@ -679,6 +686,10 @@ body:not(.r3d) .ohero{height:12px}
     <div style="font-size:10px;color:var(--muted);letter-spacing:.18em"><span id="lobbyLbl">LOBBY</span> <span id="lobbyCount"></span></div>
     <div id="lobbySeats" style="display:flex;gap:10px;justify-content:center;margin:12px 0"></div>
     <div id="lobbyNames" style="display:flex;flex-direction:column;gap:3px;align-items:center;margin-bottom:10px">
+      <!-- TEAM DUEL: Team-Header, nur in diesem Format sichtbar; die Namenszeilen darunter
+           werden per CSS order (renderLobby) in Blau(0,2)/Rot(1,3)-Gruppen sortiert. -->
+      <div id="lobbyTeamBlue" style="display:none;order:0;font-size:10px;font-weight:900;letter-spacing:.14em;color:#00d4ff;margin-top:2px">TEAM BLAU</div>
+      <div id="lobbyTeamRed" style="display:none;order:3;font-size:10px;font-weight:900;letter-spacing:.14em;color:#ff4d4d;margin-top:6px">TEAM ROT</div>
       <div id="lobbyName0" style="display:none;font-size:12px;font-weight:800;letter-spacing:.04em"></div>
       <div id="lobbyName1" style="display:none;font-size:12px;font-weight:800;letter-spacing:.04em"></div>
       <div id="lobbyName2" style="display:none;font-size:12px;font-weight:800;letter-spacing:.04em"></div>
@@ -1141,6 +1152,7 @@ let menuSel='ffa';
 const MENU_SEL={
   ffa:{card:'cardFfa',cta:'ctaFfa',info:'infoFfa'},
   triple:{card:'cardTriple',cta:'ctaTriple',info:'infoTriple'},   // TRIPLE FFA: 3 Spieler, 2 Kugeln pro Spieler (fmt 'triple_ffa')
+  team:{card:'cardTeam',cta:'ctaTeam',info:'infoTeam'},   // TEAM DUEL: 4 Spieler, 2 Teams, 1 Kugel pro Spieler (fmt 'team_duel')
   vs:{card:'card2v2',cta:'ctaVs',info:'infoVs'},   // Online Versus: 2 ECHTE Spieler, Format 1v1/2v2 im Modal
   bot:{card:'cardBot',cta:'ctaBot',info:'infoBot'}
 };
@@ -1164,6 +1176,10 @@ en:{tagline:'PULL BACK · RELEASE · KNOCK THEM OUT',chip:'ACTIVE',
   tripleT:'TRIPLE FFA',tripleS:'3 PLAYERS',tripleD:'2 balls per player — free-for-all.',
   ctaTriple:'PLAY TRIPLE FFA',infoTriple:'3 PLAYERS · 2 BALLS EACH · HOST STARTS',
   onSubTriple:'Triple FFA · exactly 3 players',tripleShare:'TRIPLE FFA · Share the code with 2 friends.',
+  teamT:'TEAM DUEL',teamS:'4 PLAYERS',teamD:'2 teams · 1 ball per player — win together.',
+  ctaTeam:'PLAY TEAM DUEL',infoTeam:'4 PLAYERS · 2 TEAMS · 1 BALL PER PLAYER',
+  onSubTeam:'Team Duel · exactly 4 players · 2 vs 2',teamShare:'TEAM DUEL · Share the code with 3 friends.',
+  teamBlue:'TEAM BLUE',teamRed:'TEAM RED',teamBlueWins:'TEAM BLUE WINS',teamRedWins:'TEAM RED WINS',teamDraw:'DRAW',
   vsT:'ONLINE VERSUS',vsS:'2 PLAYERS · 2 BALLS EACH',vsD:'Challenge other players in head-to-head matches.',
   botT:'BOT TRAINING',botS:'VS AI',botD:'Practice against AI and improve your skills.',
   secPlay:'PLAY',secRooms:'ONLINE ROOMS',secHow:'HOW TO PLAY',viewAll:'VIEW ALL',
@@ -1197,6 +1213,10 @@ de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'AKTIV',
   tripleT:'TRIPLE FFA',tripleS:'3 SPIELER',tripleD:'2 Kugeln pro Spieler — jeder gegen jeden.',
   ctaTriple:'TRIPLE FFA SPIELEN',infoTriple:'3 SPIELER · 2 KUGELN JE SPIELER · HOST STARTET',
   onSubTriple:'Triple FFA · genau 3 Spieler',tripleShare:'TRIPLE FFA · Schick den Code an 2 Freunde.',
+  teamT:'TEAM DUEL',teamS:'4 SPIELER',teamD:'2 Teams · 1 Kugel pro Spieler — gewinnt zusammen.',
+  ctaTeam:'TEAM DUEL SPIELEN',infoTeam:'4 SPIELER · 2 TEAMS · 1 KUGEL PRO SPIELER',
+  onSubTeam:'Team Duel · genau 4 Spieler · 2 gegen 2',teamShare:'TEAM DUEL · Schick den Code an 3 Freunde.',
+  teamBlue:'TEAM BLAU',teamRed:'TEAM ROT',teamBlueWins:'TEAM BLAU GEWINNT',teamRedWins:'TEAM ROT GEWINNT',teamDraw:'UNENTSCHIEDEN',
   vsT:'ONLINE VERSUS',vsS:'2 SPIELER · 2 KUGELN PRO SPIELER',vsD:'Fordere andere Spieler im direkten Duell heraus.',
   botT:'BOT-TRAINING',botS:'GEGEN KI',botD:'Trainiere gegen die KI und verbessere dein Spiel.',
   secPlay:'SPIELEN',secRooms:'ONLINE-RÄUME',secHow:'SO WIRD GESPIELT',viewAll:'ALLE ANZEIGEN',
@@ -1230,6 +1250,10 @@ tr:{tagline:'GERİ ÇEK · BIRAK · DIŞARI İT',chip:'AKTİF',
   tripleT:'TRIPLE FFA',tripleS:'3 OYUNCU',tripleD:'Oyuncu başına 2 top — herkes tek.',
   ctaTriple:'TRIPLE FFA OYNA',infoTriple:'3 OYUNCU · HERKESE 2 TOP · HOST BAŞLATIR',
   onSubTriple:'Triple FFA · tam 3 oyuncu',tripleShare:'TRIPLE FFA · Kodu 2 arkadaşına gönder.',
+  teamT:'TEAM DUEL',teamS:'4 OYUNCU',teamD:'2 takım · oyuncu başına 1 top — birlikte kazanın.',
+  ctaTeam:'TEAM DUEL OYNA',infoTeam:'4 OYUNCU · 2 TAKIM · OYUNCU BAŞINA 1 TOP',
+  onSubTeam:'Team Duel · tam 4 oyuncu · 2\'ye 2',teamShare:'TEAM DUEL · Kodu 3 arkadaşına gönder.',
+  teamBlue:'MAVİ TAKIM',teamRed:'KIRMIZI TAKIM',teamBlueWins:'MAVİ TAKIM KAZANDI',teamRedWins:'KIRMIZI TAKIM KAZANDI',teamDraw:'BERABERE',
   vsT:'ONLINE VERSUS',vsS:'2 OYUNCU · HERKESE 2 TOP',vsD:'Diğer oyunculara kafa kafaya meydan oku.',
   botT:'BOT ANTRENMANI',botS:'YAPAY ZEKÂYA KARŞI',botD:'Yapay zekâya karşı antrenman yap, ustalaş.',
   secPlay:'OYNA',secRooms:'ONLINE ODALAR',secHow:'NASIL OYNANIR',viewAll:'TÜMÜNÜ GÖR',
@@ -1271,6 +1295,10 @@ function applyLang(){
   document.querySelector('#cardTriple .mt').textContent=T('tripleT');
   document.querySelector('#cardTriple .msub').textContent=T('tripleS');
   document.querySelector('#cardTriple .ms').textContent=T('tripleD');
+  document.querySelector('#cardTeam .mt').textContent=T('teamT');
+  document.querySelector('#cardTeam .msub').textContent=T('teamS');
+  document.querySelector('#cardTeam .ms').textContent=T('teamD');
+  $('lobbyTeamBlue').textContent=T('teamBlue');$('lobbyTeamRed').textContent=T('teamRed');
   document.querySelector('#card2v2 .mt').textContent=T('vsT');
   document.querySelector('#card2v2 .msub').textContent=T('vsS');
   document.querySelector('#card2v2 .ms').textContent=T('vsD');
@@ -1323,6 +1351,7 @@ for(const[id,on]of[['vibeOnBtn',true],['vibeOffBtn',false]])
   $(id).onclick=()=>{vibrationOn=on;try{localStorage.setItem('ringout_vibe',on?'1':'0');}catch(e){}setOn('vibeGrp',id);};
 $('cardFfa').onclick=()=>selectMenuMode('ffa');
 $('cardTriple').onclick=()=>selectMenuMode('triple');
+$('cardTeam').onclick=()=>selectMenuMode('team');
 $('card2v2').onclick=()=>selectMenuMode('vs');
 $('cardBot').onclick=()=>selectMenuMode('bot');
 $('ctaBtn').onclick=()=>{
@@ -1334,6 +1363,7 @@ $('ctaBtn').onclick=()=>{
   // (nicht durch TUNE blockiert).
   if(menuSel==='ffa'){if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);mode='ffa';fmt='ffa';openOnline();return;}        // createRoom liest mode==='ffa' -> ffa-Raum (state:'lobby')
   if(menuSel==='triple'){if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);mode='ffa';fmt='triple_ffa';openOnline();return;}   // TRIPLE FFA: derselbe Online-Flow, fmt traegt das Format
+  if(menuSel==='team'){if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);mode='ffa';fmt='team_duel';openOnline();return;}   // TEAM DUEL: FFA-Raum-Flow, fmt traegt das Format
   // Online Versus: immer Doppel (2 Spieler, 2 Kugeln pro Spieler) — keine Format-Auswahl mehr.
   // Internes 'single'-Format bleibt fuer bestehende Raeume/Tests erhalten, ist aber ueber die UI nicht mehr erreichbar.
   if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);mode=menuMode='online';fmt='double';openOnline();
@@ -1351,6 +1381,7 @@ function updateMenuPreview(){
   if(online)return;   // nie eine laufende Online-Session anfassen (Karten sind dann eh verdeckt)
   if(menuSel==='ffa'){mode=menuMode='ffa';fmt='ffa';ffaN=5;}          // 5 Kugeln: Blau/Rot/Gruen/Gelb/Schwarz
   else if(menuSel==='triple'){mode=menuMode='ffa';fmt='triple_ffa';ffaN=3;}   // TRIPLE-Preview: 6 Kugeln Blau/Rot/Gruen alternierend
+  else if(menuSel==='team'){mode=menuMode='ffa';fmt='team_duel';ffaN=4;}      // TEAM-DUEL-Preview: 4 Kugeln Blau/Rot/Blau/Rot
   else if(menuSel==='vs'){mode=menuMode='online';fmt='double';}       // Versus-Preview: 2v2-Duo-Layout (2 blaue vs 2 rote)
   else{mode=menuMode='bot';fmt='single';}                             // 1v1: Spieler vs Bot
   R=R0;outBall=-1;placeBalls();   // frische Plattformgroesse + kein Fall-Rest aus einem Vorspiel
@@ -1701,10 +1732,14 @@ function np(){return mode==='ffa'?ffaN:2;}   // Spieleranzahl der Partie (Bestan
 // Kugeln pro Spieler: 2 im 2v2-Doppel UND im TRIPLE FFA (fmt 'triple_ffa' —
 // FFA-Variante mit exakt 3 Spielern, laeuft komplett ueber die FFA-Systeme).
 function teamCap(){return (mode!=='ffa'&&fmt==='double')||fmt==='triple_ffa'?2:1;}
-// FFA-Raeume: 'ffa' und 'triple_ffa' teilen Lobby/Seats/Sentinel-Pfad …
-function ffaRoom(){return fmt==='ffa'||fmt==='triple_ffa';}
-// … aber TRIPLE FFA hat exakt 3 Sitze (Rules-gesichert), klassisches FFA 5.
-function ffaSeatCap(){return fmt==='triple_ffa'?3:FFA_MAX_SEATS;}
+// FFA-Raeume: 'ffa', 'triple_ffa' und 'team_duel' teilen Lobby/Seats/Sentinel-Pfad …
+function ffaRoom(){return fmt==='ffa'||fmt==='triple_ffa'||fmt==='team_duel';}
+// … aber TRIPLE FFA hat exakt 3, TEAM DUEL exakt 4 Sitze (Rules-gesichert), klassisches FFA 5.
+function ffaSeatCap(){return fmt==='triple_ffa'?3:fmt==='team_duel'?4:FFA_MAX_SEATS;}
+// TEAM DUEL: Team eines Seats (0=Blau: Seats 0/2, 1=Rot: Seats 1/3). Zugleich der
+// PCOLS-Farbslot — beide Teamkugeln tragen die Teamfarbe, Ownership bleibt pro Seat.
+function teamOf(s){return s%2;}
+function colorSlot(owner){return fmt==='team_duel'?teamOf(owner):owner;}
 
 function placeBalls(){
   balls=[];
@@ -1752,8 +1787,32 @@ function renderFfaBar(){
   }
   $('ffaBar').innerHTML=h;
 }
+// TEAM DUEL: Team-Leiste statt Einzel-Chips — Teamscore (score[0]=Blau, score[1]=Rot)
+// plus die beiden Spielernamen je Team; Ausgeschiedene dieser Runde durchgestrichen.
+// Namen sind untrusted -> ausschliesslich textContent, nie innerHTML.
+function renderTeamBar(){
+  const bar=$('ffaBar');bar.textContent='';
+  const rnd=document.createElement('span');rnd.className='frnd';rnd.textContent='R'+roundNo;bar.appendChild(rnd);
+  for(let t=0;t<2;t++){
+    const chip=document.createElement('span');
+    chip.className='fchip'+(online&&teamOf(myPlayer)===t?' mine':'');
+    chip.style.setProperty('--fc',PCOLS[t].ui);
+    const dot=document.createElement('i');chip.appendChild(dot);
+    const sc=document.createElement('b');sc.textContent=String(score[t]||0);chip.appendChild(sc);
+    for(const s of (t===0?[0,2]:[1,3])){
+      const nm=document.createElement('span');
+      nm.textContent=pName(s);
+      const dead=!aliveCount(s);
+      nm.style.cssText='font-size:10px;font-weight:700;max-width:72px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap'
+        +(dead?';opacity:.4;text-decoration:line-through':'')
+        +(online&&s===myPlayer?';color:#fff':';color:#aab7cd');
+      chip.appendChild(nm);
+    }
+    bar.appendChild(chip);
+  }
+}
 function updateHud(){
-  if(mode==='ffa'){renderFfaBar();return;}
+  if(mode==='ffa'){if(fmt==='team_duel')renderTeamBar();else renderFfaBar();return;}
   // Online 1v1/2v2: show the durable roster names (textContent — never innerHTML).
   if(online){ $('n0').textContent=pName(0); $('n1').textContent=pName(1); }
   $('sc0').textContent=score[0];$('sc1').textContent=score[1];
@@ -1770,7 +1829,7 @@ function setPhaseText(){const p=$('phase');
         if(!aliveCount(myPlayer))p.textContent='💀 Du bist raus — Zuschauen';
         else if(aimSet[myPlayer])p.textContent='⏳ Warte auf die anderen…';
         else if(fmt==='triple_ffa'&&aliveCount(myPlayer)>1)p.innerHTML='Wähle <span style="color:'+PCOLS[myPlayer].ui+'">eine deiner Kugeln</span> & zieh zurück';
-        else p.innerHTML='Zieh <span style="color:'+PCOLS[myPlayer].ui+'">deine Kugel zurück</span> & lass los';
+        else p.innerHTML='Zieh <span style="color:'+PCOLS[colorSlot(myPlayer)].ui+'">deine Kugel zurück</span> & lass los';
       }
       else p.innerHTML = aimSet[myPlayer] ? '⏳ Warte auf Gegner…' : (fmt==='double'?'Wähle <span class="me'+myPlayer+'">eine Kugel</span> & zieh zurück':'Zieh <span class="me'+myPlayer+'">deine Kugel zurück</span> & lass los');
     }
@@ -2117,11 +2176,15 @@ function applyLaunch(){
   for(let p=0;p<commitIdx.length;p++){const idx=commitIdx[p];if(idx>=0&&balls[idx]&&balls[idx].alive){balls[idx].vx=commitAim[p].dx*LAUNCH;balls[idx].vy=commitAim[p].dy*LAUNCH;balls[idx].spin=commitSpin[p]||0;}
     maxp=Math.max(maxp,Math.hypot(commitAim[p].dx,commitAim[p].dy));}
   SFX.launch(maxp/maxPull());
-  for(let p=0;p<commitIdx.length;p++){const idx=commitIdx[p];if(idx<0||!balls[idx])continue;const sp=Math.hypot(commitAim[p].dx,commitAim[p].dy);if(sp>BR&&!r3dActive)spawn(balls[idx].x,balls[idx].y,5,[PCOLS[balls[idx].owner].ui],sp*0.02,0.6);}
+  for(let p=0;p<commitIdx.length;p++){const idx=commitIdx[p];if(idx<0||!balls[idx])continue;const sp=Math.hypot(commitAim[p].dx,commitAim[p].dy);if(sp>BR&&!r3dActive)spawn(balls[idx].x,balls[idx].y,5,[PCOLS[colorSlot(balls[idx].owner)].ui],sp*0.02,0.6);}
   setPhase('sim');setPhaseText();
 }
-function winnerRGB(loserOwner){const w=roundWinner>=0?roundWinner:1-loserOwner;return PCOLS[w].rgb;}
-function popBall(b){if(r3dActive)fx3Dust(b.x,b.y,b.vx,b.vy);else spawn(b.x,b.y,26,[PCOLS[b.owner].ui,'#ffffff'],Math.max(5,Math.hypot(b.vx,b.vy))*0.9,1.1);}
+// TEAM DUEL: roundWinner traegt den TEAM-Index (0/1 = PCOLS Blau/Rot); -2 ist der
+// Unentschieden-Sentinel (beide Teams im selben Sub-Step vollstaendig raus) -> Gold.
+function winnerRGB(loserOwner){
+  if(fmt==='team_duel')return roundWinner>=0?PCOLS[roundWinner].rgb:'255,201,64';
+  const w=roundWinner>=0?roundWinner:1-loserOwner;return PCOLS[w].rgb;}
+function popBall(b){if(r3dActive)fx3Dust(b.x,b.y,b.vx,b.vy);else spawn(b.x,b.y,26,[PCOLS[colorSlot(b.owner)].ui,'#ffffff'],Math.max(5,Math.hypot(b.vx,b.vy))*0.9,1.1);}
 
 function stepSim(){
   const FR=curFR(),FE=curFE();
@@ -2152,7 +2215,9 @@ function stepSim(){
       // (2 Spieler: identisch zu left(0)<=0||left(1)<=0; FFA: Last-Man-Standing).
       const survivors=new Set();
       for(let k=0;k<balls.length;k++){const b=balls[k];if(b.alive&&!willDie.has(k))survivors.add(b.owner);}
-      const roundOver=survivors.size<=1;
+      // TEAM DUEL: Rundenende erst, wenn hoechstens noch EIN TEAM lebende Kugeln hat —
+      // ein einzelner Ausgeschiedener beendet die Runde nicht, solange sein Teammitglied lebt.
+      const roundOver=fmt==='team_duel'?new Set([...survivors].map(o=>o%2)).size<=1:survivors.size<=1;   // Team = Seat%2 — bewusst inline (kein teamOf()): stepSim laeuft auch extrahiert in den Test-Harnessen
       if(roundOver){
         let decisive=-1,dmax=-1;
         for(const i of crossed){const o=balls[i].owner;if(left(o)<=0){const dd=Math.sqrt((balls[i].x-cx)*(balls[i].x-cx)+(balls[i].y-cy)*(balls[i].y-cy));if(dd>dmax){dmax=dd;decisive=i;}}}
@@ -2160,18 +2225,25 @@ function stepSim(){
         // Sub-Step raus, gewinnt der Besitzer der am wenigsten weit draussen liegenden Kugel
         // (nicht der Verlierer-Besitzer). Fuer 2 Spieler immer identisch zu 1-loser.
         roundWinner=-1;
-        for(let k=0;k<balls.length;k++){const b=balls[k];if(b.alive&&!willDie.has(k)){roundWinner=b.owner;break;}}
+        for(let k=0;k<balls.length;k++){const b=balls[k];if(b.alive&&!willDie.has(k)){roundWinner=fmt==='team_duel'?b.owner%2:b.owner;break;}}
+        if(fmt==='team_duel'){
+          // TEAM DUEL: roundWinner = TEAM-Index des Ueberlebenden. Kein Ueberlebender ->
+          // beide Teams im selben Sub-Step vollstaendig raus: deterministisches
+          // Unentschieden (-2, kein Punkt) — NIE eine Exit-Reihenfolge-Heuristik.
+          if(roundWinner<0)roundWinner=-2;
+        }else{
         if(roundWinner<0){let md=Infinity;for(const i of crossed){if(balls[i].owner===balls[decisive].owner)continue;const dd=Math.sqrt((balls[i].x-cx)*(balls[i].x-cx)+(balls[i].y-cy)*(balls[i].y-cy));if(dd<md){md=dd;roundWinner=balls[i].owner;}}}
         if(roundWinner<0)roundWinner=1-balls[decisive].owner;
+        }
         for(const i of crossed){if(i===decisive)continue;balls[i].alive=false;popBall(balls[i]);}
         const lb=balls[decisive];
         if(r3dActive)fx3Dust(lb.x,lb.y,lb.vx,lb.vy);
-        else spawn(lb.x,lb.y,40,[PCOLS[lb.owner].ui,'#ffffff'],Math.max(6,Math.hypot(lb.vx,lb.vy))*1.1,1.4);
+        else spawn(lb.x,lb.y,40,[PCOLS[fmt==='team_duel'?lb.owner%2:lb.owner].ui,'#ffffff'],Math.max(6,Math.hypot(lb.vx,lb.vy))*1.1,1.4);
         SFX.ringout();bgPulse=1;bgPulseRGB=winnerRGB(lb.owner);
         outBall=decisive;setPhase('result');return;
       }else{
         for(const i of crossed){balls[i].alive=false;popBall(balls[i]);}
-        SFX.drop();bgPulse=Math.max(bgPulse,0.4);bgPulseRGB=PCOLS[balls[crossed[0]].owner].rgb;
+        SFX.drop();bgPulse=Math.max(bgPulse,0.4);bgPulseRGB=PCOLS[fmt==='team_duel'?balls[crossed[0]].owner%2:balls[crossed[0]].owner].rgb;
       }
     }
   }
@@ -2191,6 +2263,12 @@ function resultDrift(){if(outBall<0)return;const b=balls[outBall];b.x+=b.vx*RESU
 // Local play keeps the generic labels. Callers render via textContent.
 function pName(p){return online?nameForSeat(p):(mode==='bot'&&p===1?'Bot':T('namePlayer')+' '+(p+1));}
 function afterResult(){
+  // TEAM DUEL: -2 = simultane Vollelimination beider Teams -> Unentschieden.
+  // Kein Punkt, kein Sieger — naechste Runde startet regulaer mit vier Kugeln.
+  if(fmt==='team_duel'&&roundWinner===-2){
+    roundWinner=-1;showTeamDraw();roundNo++;
+    R=Math.max(R0*0.80,R-R0*0.030);startRound();return;
+  }
   const loser=balls[outBall].owner,winner=roundWinner>=0?roundWinner:1-loser;
   roundWinner=-1;score[winner]++;SFX.round(winner);
   if(score[winner]>=winTarget){gameOver(winner);return;}
@@ -2208,8 +2286,19 @@ let rovT=null;
 function showRoundEnd(winner){
   if(mode!=='ffa'){showScoreFly(winner);return;}
   const col=PCOLS[winner].ui,n=$('rovN');
-  n.textContent=colName(winner)+' '+score[winner];   // NUR Gewinner + dessen Punktestand ("GRUEN 3"), keine Score-Reihe
+  // TEAM DUEL: winner ist der TEAM-Index (0/1) -> Teamname statt Einzelfarbe
+  n.textContent=(fmt==='team_duel'?T(winner===0?'teamBlue':'teamRed'):colName(winner))+' '+score[winner];
   n.style.color=col;n.style.setProperty('--rc',col);
+  $('rovX').textContent=T('round')+' '+roundNo;
+  const el=$('rov');el.classList.add('show');
+  clearTimeout(rovT);rovT=setTimeout(()=>el.classList.remove('show'),1600);
+}
+// TEAM DUEL: Unentschieden-Overlay (simultane Vollelimination) — gleiche rov-Mechanik,
+// neutrales Gold statt Teamfarbe, kein Punktestand.
+function showTeamDraw(){
+  const n=$('rovN');
+  n.textContent=T('teamDraw');
+  n.style.color='#ffc940';n.style.setProperty('--rc','#ffc940');
   $('rovX').textContent=T('round')+' '+roundNo;
   const el=$('rov');el.classList.add('show');
   clearTimeout(rovT);rovT=setTimeout(()=>el.classList.remove('show'),1600);
@@ -2248,16 +2337,19 @@ function showRingout(){
   clearTimeout(koT);koT=setTimeout(()=>el.classList.remove('show'),980);
 }
 function gameOver(winner){setPhase('over');setPhaseText();
-  const meWon=(online&&winner===myPlayer)||(!online&&mode==='bot'&&winner===0);
+  // TEAM DUEL: winner ist der TEAM-Index (0/1) -> Ich gewinne, wenn MEIN Team gewinnt.
+  const team=fmt==='team_duel';
+  const meWon=(online&&winner===(team?teamOf(myPlayer):myPlayer))||(!online&&mode==='bot'&&winner===0);
   const iPlay=online||mode==='bot';                       // lokaler Hotseat/FFA (dev): neutrale Headline
+  const winTxt=team?T(winner===0?'teamBlueWins':'teamRedWins'):colName(winner)+' '+T('wins');
   const v=$('wVic');v.style.display='';
   v.classList.toggle('lose',iPlay&&!meWon);
-  v.textContent=iPlay?(meWon?T('victory'):T('defeat')):colName(winner)+' '+T('wins');
+  v.textContent=iPlay?(meWon?T('victory'):T('defeat')):winTxt;
   document.querySelector('#ov .trophy').textContent=(iPlay&&!meWon)?'':'🏆';
-  $('wt').style.display=(iPlay&&!meWon)?'':'none';        // bei DEFEAT klein: wer gewonnen hat
-  $('wt').textContent=colName(winner)+' '+T('wins');
+  $('wt').style.display=(iPlay&&!meWon)||team?'':'none';  // bei DEFEAT (und im TEAM DUEL immer): wer gewonnen hat
+  $('wt').textContent=winTxt;
   $('wt').className='wt w'+winner;
-  $('ws').textContent=T('finalScore')+' · '+score.join(' : ');
+  $('ws').textContent=T('finalScore')+' · '+(team?score.slice(0,2):score).join(' : ');
   $('rematchBtn').style.display='';$('replayBtn').style.display='';
   SFX.win();setTimeout(()=>$('ov').classList.add('show'),500);}
 
@@ -2273,36 +2365,43 @@ function setStatus(t){const e=$('onStatus');if(e)e.textContent=t;}
 // Start-Gate: keine Sitzluecken (kein Auto-Nachruecken in v1 — siehe seatsContiguous).
 function renderLobby(p){
   lobbyP=p;   // Snapshot fuer startFfaMatch (Host prueft n>=2 + Lueckenfreiheit)
-  const cap=ffaSeatCap(),trip=fmt==='triple_ffa';   // TRIPLE FFA: exakt 3 Sitze, Start nur bei 3/3
+  const cap=ffaSeatCap(),trip=fmt==='triple_ffa',team=fmt==='team_duel';   // TRIPLE: exakt 3/3, TEAM DUEL: exakt 4/4
   let n=0,h='';
   for(let s=0;s<cap;s++){
     const here=seatActive(p,s);if(here)n++;
+    const col=PCOLS[colorSlot(s)].ui;   // TEAM DUEL: Seat-Kreis in Teamfarbe (0/2 Blau, 1/3 Rot)
     h+='<div style="width:26px;height:26px;border-radius:50%;'+(here
-      ?'background:'+PCOLS[s].ui+';box-shadow:0 0 8px '+PCOLS[s].ui+(s===myPlayer?';outline:2px solid #fff':'')
+      ?'background:'+col+';box-shadow:0 0 8px '+col+(s===myPlayer?';outline:2px solid #fff':'')
       :'border:2px dashed #2a3850')+'"></div>';
   }
   $('lobbySeats').innerHTML=h;$('lobbyCount').textContent=n+'/'+cap;
+  // TEAM DUEL: Team-Header einblenden und Namenszeilen per CSS order gruppieren —
+  // Blau (Seats 0,2) unter den Blau-Header (order 0), Rot (1,3) unter Rot (order 3).
+  $('lobbyTeamBlue').style.display=team?'':'none';
+  $('lobbyTeamRed').style.display=team?'':'none';
+  const TEAM_ORDER=[1,4,2,5,6];   // Seat s -> Flex-order im Team-Layout
   // Names are untrusted input -> ONLY ever via textContent, never innerHTML. Each
   // seat has a fixed row; occupied seats show the roster name in the seat color.
   for(let s=0;s<FFA_MAX_SEATS;s++){
     const row=$('lobbyName'+s); if(!row)continue;
-    if(s<cap&&seatActive(p,s)){ row.textContent=nameForSeat(s); row.style.display=''; row.style.color=PCOLS[s].ui; }
+    row.style.order=team?TEAM_ORDER[s]:'';
+    if(s<cap&&seatActive(p,s)){ row.textContent=nameForSeat(s); row.style.display=''; row.style.color=PCOLS[colorSlot(s)].ui; }
     else { row.textContent=''; row.style.display='none'; }
   }
   $('lobbyMine').textContent=T('youAre')+' '+nameForSeat(myPlayer);
   const host=myPlayer===0,gap=!seatsContiguous(p,n);
   $('lobbyStart').style.display=host?'':'none';
-  $('lobbyStart').disabled=trip?(n!==3||gap):(n<2||gap);
-  $('lobbyHint').textContent=host?(trip&&n<3?'TRIPLE FFA braucht genau 3 Spieler.':'Sitzlücke: Warte auf freien Sitz / Spieler soll neu beitreten.'):'Warte auf Host…';
-  $('lobbyHint').style.display=(host?((gap&&n>=2)||(trip&&n<3)):true)?'':'none';
+  $('lobbyStart').disabled=team?(n!==4||gap):trip?(n!==3||gap):(n<2||gap);
+  $('lobbyHint').textContent=host?(team&&n<4?'TEAM DUEL braucht genau 4 Spieler.':trip&&n<3?'TRIPLE FFA braucht genau 3 Spieler.':'Sitzlücke: Warte auf freien Sitz / Spieler soll neu beitreten.'):'Warte auf Host…';
+  $('lobbyHint').style.display=(host?((gap&&n>=2)||(trip&&n<3)||(team&&n<4)):true)?'':'none';
 }
 // Kopfbereich der Online-Seite: zweifarbiger Titel (ONLINE · FFA/1v1/2v2), Untertitel,
 // Spielerzahl-Badge — eine Stelle fuer openOnline UND attemptRejoin.
 function setOnTitle(ffa){
-  const trip=ffa&&fmt==='triple_ffa';
-  $('onTitleMode').textContent=trip?'TRIPLE FFA':ffa?'FFA':(fmt==='double'?'2v2':'1v1');
-  $('onCtxt').textContent=trip?T('onSubTriple'):ffa?T('onSubFfa'):T('onSubVs');
-  $('onBadgeN').textContent=trip?'3':ffa?'2–5':'2';
+  const trip=ffa&&fmt==='triple_ffa',team=ffa&&fmt==='team_duel';
+  $('onTitleMode').textContent=team?'TEAM DUEL':trip?'TRIPLE FFA':ffa?'FFA':(fmt==='double'?'2v2':'1v1');
+  $('onCtxt').textContent=team?T('onSubTeam'):trip?T('onSubTriple'):ffa?T('onSubFfa'):T('onSubVs');
+  $('onBadgeN').textContent=team?'4':trip?'3':ffa?'2–5':'2';
 }
 function openOnline(){
   if(TUNE){toast('Tuning aktiv — Online deaktiviert');return;}
@@ -2340,7 +2439,7 @@ function createRoom(){
       for(let t=0;t<6;t++){ code=rrand(4); const s=await window.FB.get(window.FB.ref(window.FB.db,'rooms/'+code)); if(!joinOpCurrent(op))return; if(!s.exists())break; }
       // FFA-Kontext traegt das konkrete Format im fmt-Global: 'triple_ffa' bleibt
       // erhalten (TRIPLE-Karte/CTA), jedes andere Rest-fmt wird zu 'ffa' normalisiert.
-      const fmtNew=ffa?(fmt==='triple_ffa'?'triple_ffa':'ffa'):fmt, rec=playerRecord(0);
+      const fmtNew=ffa?(fmt==='triple_ffa'||fmt==='team_duel'?fmt:'ffa'):fmt, rec=playerRecord(0);
       // Einheitlicher Room-State (Paket A, letzte Blocker): ALLE Modi starten in
       // 'lobby'. Der explizite State ersetzt die frueheren indirekten Nicht-FFA-
       // Heuristiken (fehlende Presence/players/g) als alleinige Wahrheit fuer
@@ -2378,7 +2477,7 @@ function createRoom(){
       hidePublicUI();   // entered a room -> stop the listener, hide the public UI
       $('onActions').style.display='none';$('onWait').style.display='';
       $('onCode').textContent=code;
-      if(ffa){ $('onLobby').style.display=''; renderLobby({0:{s:onlineTab,on:true,t:Date.now()}}); setStatus(T(fmtNew==='triple_ffa'?'tripleShare':'ffaShare')); }
+      if(ffa){ $('onLobby').style.display=''; renderLobby({0:{s:onlineTab,on:true,t:Date.now()}}); setStatus(T(fmtNew==='team_duel'?'teamShare':fmtNew==='triple_ffa'?'tripleShare':'ffaShare')); }
       else setStatus((fmt==='double'?'2v2 · ':'1v1 · ')+T('shareCode'));
       attachRoomListeners();
     }catch(e){
@@ -2431,7 +2530,7 @@ async function renderPublicList(codes){
   renderPublicRows(shown);
   setPublicState(shown.length?'':T('pubEmpty'));
 }
-const PUB_MODE_LABEL={single:'1v1',double:'2v2',ffa:'FFA',triple_ffa:'TRIPLE FFA'};
+const PUB_MODE_LABEL={single:'1v1',double:'2v2',ffa:'FFA',triple_ffa:'TRIPLE FFA',team_duel:'TEAM DUEL'};
 const HOME_ROOMS_MAX=3;   // Home-Vorschau bewusst kompakt — volle Liste auf der Online-Seite
 function buildRoomRow(code,view,fromHome){
   const row=document.createElement('div'); row.className='proom';
@@ -2489,7 +2588,7 @@ function validateRoom(d){
   if(!d||typeof d!=='object')return{ok:false,reason:'Raumdaten ungültig.'};
   if(d.v!==ONLINE_PROTOCOL_VERSION)return{ok:false,reason:'Versionen stimmen nicht überein — bitte beide Seite neu laden.'};
   const cfg=d.config;
-  if(!cfg||typeof cfg!=='object'||(cfg.winTarget!==3&&cfg.winTarget!==5)||(cfg.fmt!=='single'&&cfg.fmt!=='double'&&cfg.fmt!=='ffa'&&cfg.fmt!=='triple_ffa'))
+  if(!cfg||typeof cfg!=='object'||(cfg.winTarget!==3&&cfg.winTarget!==5)||(cfg.fmt!=='single'&&cfg.fmt!=='double'&&cfg.fmt!=='ffa'&&cfg.fmt!=='triple_ffa'&&cfg.fmt!=='team_duel'))
     return{ok:false,reason:'Raum-Konfiguration ungültig.'};
   // Public-Lobby (feature/public-lobby-mvp): visibility ist Pflicht und exakt
   // 'private' | 'public'. Fehlend/ungueltig -> Ablehnung (kein stiller Default).
@@ -2500,11 +2599,11 @@ function validateRoom(d){
     return{ok:false,reason:'Raum-Konfiguration ungültig.'};
   const p=d.p;
   if(!p||typeof p!=='object'||!(p[0]&&p[0].on===true))return{ok:false,reason:'Raum ist verwaist.'};
-  if(cfg.fmt==='ffa'||cfg.fmt==='triple_ffa'){
-    // FFA-Raum (live seit M8-T3c) / TRIPLE FFA (exakt 3 Sitze): Beitritt nur
-    // solange die Lobby offen ist und ein Gast-Seat frei ist.
+  if(cfg.fmt==='ffa'||cfg.fmt==='triple_ffa'||cfg.fmt==='team_duel'){
+    // FFA-Raum (live seit M8-T3c) / TRIPLE FFA (exakt 3 Sitze) / TEAM DUEL (exakt
+    // 4 Sitze): Beitritt nur solange die Lobby offen ist und ein Gast-Seat frei ist.
     if(d.state!=='lobby')return{ok:false,reason:'Match läuft bereits.'};
-    const seat=pickFreeSeat(p,cfg.fmt==='triple_ffa'?3:FFA_MAX_SEATS);
+    const seat=pickFreeSeat(p,cfg.fmt==='triple_ffa'?3:cfg.fmt==='team_duel'?4:FFA_MAX_SEATS);
     if(seat<0)return{ok:false,reason:'Raum ist schon voll.'};
     return{ok:true,winTarget:cfg.winTarget,fmt:cfg.fmt,gen:d.gen,freeSeat:seat};
   }
@@ -2530,14 +2629,14 @@ function publicListingView(d,now){
   if(d.v!==ONLINE_PROTOCOL_VERSION)return{show:false,remove:true};
   const cfg=d.config;
   if(!cfg||typeof cfg!=='object'||cfg.visibility!=='public')return{show:false,remove:true};
-  if(cfg.fmt!=='single'&&cfg.fmt!=='double'&&cfg.fmt!=='ffa'&&cfg.fmt!=='triple_ffa')return{show:false,remove:true};
+  if(cfg.fmt!=='single'&&cfg.fmt!=='double'&&cfg.fmt!=='ffa'&&cfg.fmt!=='triple_ffa'&&cfg.fmt!=='team_duel')return{show:false,remove:true};
   if(!Number.isFinite(d.created)||(now-d.created)>=ROOM_MAX_AGE_MS)return{show:false,remove:true};
   if(d.state!=='lobby')return{show:false,remove:true};   // match started/finished -> stale
   // From here the listing itself is valid; it is only HIDDEN (not removed) for transient
   // reasons that may recover: a host reload, or a currently full room.
   const p=d.p;
   if(!(p&&p[0]&&p[0].on===true))return{show:false,remove:false};   // host offline (maybe reloading)
-  const capacity=cfg.fmt==='ffa'?FFA_MAX_SEATS:cfg.fmt==='triple_ffa'?3:2;
+  const capacity=cfg.fmt==='ffa'?FFA_MAX_SEATS:cfg.fmt==='triple_ffa'?3:cfg.fmt==='team_duel'?4:2;
   let active=0; for(let s=0;s<capacity;s++)if(p&&p[s]&&p[s].on===true)active++;
   if(active>=capacity)return{show:false,remove:false};             // full -> hide, may free up
   const players=d.players;
@@ -2602,8 +2701,8 @@ function joinRoom(){
       // roomPublic residue. The displayed room is never authoritative — the seat
       // arbiter decides the actual join, not the list.
       const isPublic=!!(d.config&&d.config.visibility==='public');
-      if(v.fmt==='ffa'||v.fmt==='triple_ffa'){   // M8-T3c: Seat per atomaren write-once-Claim statt fix p/1
-        const c=await claimSeat(code,op,v.fmt==='triple_ffa'?3:FFA_MAX_SEATS);   // rolls its own writes back if the op goes stale
+      if(v.fmt==='ffa'||v.fmt==='triple_ffa'||v.fmt==='team_duel'){   // M8-T3c: Seat per atomaren write-once-Claim statt fix p/1
+        const c=await claimSeat(code,op,v.fmt==='triple_ffa'?3:v.fmt==='team_duel'?4:FFA_MAX_SEATS);   // rolls its own writes back if the op goes stale
         if(c.stale)return;                  // op superseded -> globals stay untouched (offline)
         if(c.seat<0){ setStatus(T('roomFull')); return; }
         // remote claim complete -> NOW commit the globals + UI + listeners
@@ -2639,6 +2738,7 @@ function joinRoom(){
 function startFfaMatch(){
   const n=seatCount(lobbyP);
   if(fmt==='triple_ffa'&&n!==3){toast('TRIPLE FFA braucht genau 3 Spieler.');return;}
+  if(fmt==='team_duel'&&n!==4){toast('TEAM DUEL braucht genau 4 Spieler.');return;}
   if(n<2){toast('Mindestens 2 Spieler nötig.');return;}
   if(!seatsContiguous(lobbyP,n)){toast('Warte auf freien Sitz / Spieler soll neu beitreten.');return;}
   $('lobbyStart').disabled=true;
@@ -2683,7 +2783,7 @@ async function attemptRejoin(code){
     if(d.v!==ONLINE_PROTOCOL_VERSION){ forgetRoom(); setStatus(T('noRoom')); return false; }
     const seat=findOwnSeat(d.players,onlinePid);
     if(seat<0){ forgetRoom(); setStatus(T('noRoom')); return false; }   // identity no longer holds a seat here
-    const ffa=d.config&&(d.config.fmt==='ffa'||d.config.fmt==='triple_ffa');
+    const ffa=d.config&&(d.config.fmt==='ffa'||d.config.fmt==='triple_ffa'||d.config.fmt==='team_duel');
     if(!roomRejoinableState(d,seat)){ forgetRoom(); setStatus(T('rejoinNoLobby')); return false; }
     if(d.p&&seatActive(d.p,seat)){ setStatus(T('rejoinTab')); return false; }
     // v3 note (B1 scope): this call site is unreachable (no UI path triggers
@@ -2790,6 +2890,7 @@ function attachRoomListeners(){
     const n=snap.val();
     if(gameStarted||!Number.isInteger(n)||n<2||n>FFA_MAX_SEATS)return;
     if(fmt==='triple_ffa'&&n!==3)return;   // Rules erzwingen seats===3 — alles andere ist manipuliert
+    if(fmt==='team_duel'&&n!==4)return;    // Rules erzwingen seats===4 — alles andere ist manipuliert
     if(myPlayer>=n){   // Race: Seat erst nach dem Host-Kopfzaehlen geclaimt -> sauber aussteigen
       leaveOnline(); openOnline(); setStatus('Das Match ist ohne dich gestartet — tritt einem neuen Raum bei.');
       return;
@@ -2797,7 +2898,7 @@ function attachRoomListeners(){
     ffaN=n; maybeStart();
   });
 }
-function maybeStart(){ if(gameStarted)return; gameStarted=true; if(roomPublic&&myPlayer===0){removePublicListing(roomCode);roomPublic=false;} $('online').classList.remove('show'); showGame(); startOnlineGame(); toast(T('youAre')+' '+T('col'+myPlayer)); }
+function maybeStart(){ if(gameStarted)return; gameStarted=true; if(roomPublic&&myPlayer===0){removePublicListing(roomCode);roomPublic=false;} $('online').classList.remove('show'); showGame(); startOnlineGame(); toast(T('youAre')+' '+(fmt==='team_duel'?T(teamOf(myPlayer)===0?'teamBlue':'teamRed'):T('col'+myPlayer))); }
 function startOnlineGame(){ replaying=false;repPlaying=false;$('replay').classList.remove('show'); runningGen=gen; turnNo=-1; if(turnUnsub){turnUnsub();turnUnsub=null;} $('ov').classList.remove('show'); newGame(); }
 // Opponent presence lost: reuse the end overlay as a clear way back to the
 // menu — rematch/replay are pointless without a peer, so only "Menü" remains.
@@ -2863,8 +2964,9 @@ function writeTurnSlot(s,payload,opts){
 function writeLeaveSentinel(s,attempt){
   if(!online||mode!=='ffa'||!gameStarted||phase!=='aim'||aimSet[s]||pendingSlot[s]||!aliveCount(s))return;
   // Sentinel-idx = garantiert KEINE eigene Kugel des Seats: ffa -> fremder Seat-Index,
-  // triple_ffa -> Kugel des naechsten Owners ((s+1)%3, owner!==s). Rules-schemakonform.
-  writeTurnSlot(s,{idx:fmt==='triple_ffa'?(s+1)%3:(s+1)%FFA_MAX_SEATS,dx:0,dy:0,sp:0},{sentinel:true,attempt:attempt||0});
+  // triple_ffa -> Kugel des naechsten Owners ((s+1)%3, owner!==s),
+  // team_duel -> fremder Seat-Index ((s+1)%4 — Rules erlauben idx nur 0-3). Rules-schemakonform.
+  writeTurnSlot(s,{idx:fmt==='triple_ffa'?(s+1)%3:fmt==='team_duel'?(s+1)%4:(s+1)%FFA_MAX_SEATS,dx:0,dy:0,sp:0},{sentinel:true,attempt:attempt||0});
 }
 // P0-Nachbesserung: automatischer, kontextgebundener Retry NUR fuer den system-
 // generierten Leave-Sentinel (ein haengengebliebener Sentinel wuerde den Turn sonst
@@ -3256,7 +3358,7 @@ function draw(){
   ctx.restore();
 }
 function drawBall(b){
-  const pc=PCOLS[b.owner];
+  const pc=PCOLS[colorSlot(b.owner)];   // TEAM DUEL: beide Teamkugeln in Teamfarbe
   const col=pc.c, colLt=pc.lt, colDk=pc.dk, glowRGB=pc.gl;
   const lbl=(mode==='bot'&&b.owner===1)?'B':String(b.owner+1);
 
@@ -3348,7 +3450,7 @@ function drawSpinPreview(b,fx,fy,spin){
   ctx.lineCap='round';ctx.stroke();ctx.setLineDash([]);
 }
 function drawSling(b,cdx,cdy){
-  const col=PCOLS[b.owner].ui;const len=Math.hypot(cdx,cdy),mp=maxPull(),pwr=Math.min(1,len/mp);
+  const col=PCOLS[colorSlot(b.owner)].ui;const len=Math.hypot(cdx,cdy),mp=maxPull(),pwr=Math.min(1,len/mp);
   const p0=OP(b.x,b.y,0),p1=OP(b.x+cdx,b.y+cdy,0),p2=OP(b.x-cdx*1.6,b.y-cdy*1.6,0);
   if(r3dActive){
     // Luxury-minimal: nur ein duenner Anthrazit-Strahl mit feiner Spitze und eine
@@ -3397,7 +3499,7 @@ function drawSling(b,cdx,cdy){
   else ctx.fillText(Math.round(pwr*100)+'%',qt.x,qt.y);
 }
 function drawArrow(b,a){const len=Math.hypot(a.dx,a.dy);if(len<BR*0.3)return;
-  const col=PCOLS[b.owner].ui;
+  const col=PCOLS[colorSlot(b.owner)].ui;
   const p0=OP(b.x,b.y,0),p1=OP(b.x+a.dx*1.6,b.y+a.dy*1.6,0);
   ctx.beginPath();ctx.moveTo(p0.x,p0.y);ctx.lineTo(p1.x,p1.y);ctx.lineWidth=BR*0.42*p0.s;ctx.lineCap='round';ctx.strokeStyle=col;ctx.globalAlpha=.9;ctx.stroke();ctx.globalAlpha=1;
   const ang=Math.atan2(p1.y-p0.y,p1.x-p0.x),h=BR*0.8*p0.s;ctx.beginPath();ctx.moveTo(p1.x,p1.y);
@@ -3664,7 +3766,7 @@ async function initR3D(){
             new THREE.MeshBasicMaterial({map:contactTex,transparent:true,depthWrite:false,opacity:.85}));
           d.rotation.x=-Math.PI/2;d.renderOrder=1;decals[i]=d;scene.add(d);}
         const b=balls[i];
-        m.material=ballMat[b.owner];
+        m.material=ballMat[colorSlot(b.owner)];   // TEAM DUEL: Teamfarbe (0/2 Blau, 1/3 Rot)
         // Kosmetischer Fall ueber die Kante (rein visuell, Zustand wird nie geschrieben):
         // Schwung der letzten Bewegung traegt die Kugel ueber die Kante hinaus (weich abklingend),
         // dann Gravity + rollende Rotation, bis sie in den Wolken verschwindet.

@@ -30,6 +30,8 @@ const SRC = [
   grab(/function teamCap\(\)\{[^\n]*/, 'teamCap'),
   grab(/function ffaRoom\(\)\{[^\n]*/, 'ffaRoom'),
   grab(/function ffaSeatCap\(\)\{[^\n]*/, 'ffaSeatCap'),
+  grab(/function teamOf\(s\)\{[^\n]*/, 'teamOf'),
+  grab(/function colorSlot\(owner\)\{[^\n]*/, 'colorSlot'),
   grab(/function aliveCount\(owner\)\{[^\n]*/, 'aliveCount'),
   grab(/function allAliveCommitted\(\)\{[^\n]*/, 'allAliveCommitted'),
   grab(/function whoCanAim\(\)\{[^\n]*/, 'whoCanAim'),

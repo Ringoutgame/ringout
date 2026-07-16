@@ -340,5 +340,32 @@ deny('triple players/4 create (seat gate)', db1({ p: { 0: P(H_TAB, false), 4: P(
 deny('idx 5 in single', playing({ p: { 0: P(H_TAB, true), 1: P(G_TAB, true) } }), 'rooms/KX7P/g/0/t/0/0', { idx: 5, dx: 0, dy: 0, sp: 0 });
 deny('idx 5 in ffa (unchanged)', ffaMatch, 'rooms/KX7P/g/0/t/0/1', { idx: 5, dx: 0, dy: 0, sp: 0 });
 
+// ── (16) team_duel — additive v3 format: seats 0-3 only, seats === 4, idx 0-3.
+//        Ball OWNERSHIP (idx belongs to the committing seat) is deliberately NOT a
+//        rules concern (same as ffa — a foreign idx is the leave-sentinel);
+//        determinism is enforced client-side via sanitizeMove + processSlot. ──
+const G4_TAB = 'GTAB0004';
+allow('team create room', { rooms: {} }, 'rooms/KX7P', mkRoom('team_duel'));
+allow('team seats=4 after start', db1({ state: 'playing', p: { 0: P(H_TAB, true), 1: P(G_TAB, true), 2: P(G2_TAB, true), 3: P(G3_TAB, true) } }, 'team_duel'), 'rooms/KX7P/seats', 4);
+deny('team seats=2', db1({ state: 'playing', p: { 0: P(H_TAB, true), 1: P(G_TAB, true), 2: P(G2_TAB, true), 3: P(G3_TAB, true) } }, 'team_duel'), 'rooms/KX7P/seats', 2);
+deny('team seats=3', db1({ state: 'playing', p: { 0: P(H_TAB, true), 1: P(G_TAB, true), 2: P(G2_TAB, true), 3: P(G3_TAB, true) } }, 'team_duel'), 'rooms/KX7P/seats', 3);
+deny('team seats=5', db1({ state: 'playing', p: { 0: P(H_TAB, true), 1: P(G_TAB, true), 2: P(G2_TAB, true), 3: P(G3_TAB, true) } }, 'team_duel'), 'rooms/KX7P/seats', 5);
+deny('team seats while still lobby', db1({ p: { 0: P(H_TAB, true), 1: P(G_TAB, true), 2: P(G2_TAB, true), 3: P(G3_TAB, true) } }, 'team_duel'), 'rooms/KX7P/seats', 4);
+allow('team ACTIVATE p/2 in lobby (pre-seeded)', db1({ p: { 0: P(H_TAB, true), 2: P(G2_TAB, false) }, players: { 0: HOST, 2: REC('GUEST002', G2_TAB) } }, 'team_duel'), 'rooms/KX7P/p/2', P(G2_TAB, true));
+allow('team ACTIVATE p/3 in lobby (pre-seeded)', db1({ p: { 0: P(H_TAB, true), 3: P(G3_TAB, false) }, players: { 0: HOST, 3: REC('GUEST003', G3_TAB) } }, 'team_duel'), 'rooms/KX7P/p/3', P(G3_TAB, true));
+deny('team RESERVE seat 4 (seat gate)', db1({}, 'team_duel'), 'rooms/KX7P/p/4', P(G4_TAB, false));
+deny('team ACTIVATE p/4 (seat gate, pre-seeded)', db1({ p: { 0: P(H_TAB, true), 4: P(G4_TAB, false) }, players: { 0: HOST, 4: REC('GUEST004', G4_TAB) } }, 'team_duel'), 'rooms/KX7P/p/4', P(G4_TAB, true));
+deny('team players/4 create (seat gate)', db1({ p: { 0: P(H_TAB, false), 4: P(G4_TAB, false) } }, 'team_duel'), 'rooms/KX7P/players/4', REC('GUEST004', G4_TAB));
+deny('team isolated p/3 RESERVE without players leg (atomic coupling)', db1({}, 'team_duel'), 'rooms/KX7P/p/3', P(G3_TAB, false));
+const teamMatch = playing({ p: { 0: P(H_TAB, true), 1: P(G_TAB, true), 2: P(G2_TAB, true), 3: P(G3_TAB, true) }, seats: 4 }, 'team_duel');
+allow('team move pl 0 idx 0', teamMatch, 'rooms/KX7P/g/0/t/0/0', { idx: 0, dx: 10, dy: 10, sp: 0 });
+allow('team move pl 1 idx 1', teamMatch, 'rooms/KX7P/g/0/t/0/1', { idx: 1, dx: -10, dy: 10, sp: 0.5 });
+allow('team move pl 2 idx 2', teamMatch, 'rooms/KX7P/g/0/t/0/2', { idx: 2, dx: 10, dy: -10, sp: -0.5 });
+allow('team move pl 3 idx 3', teamMatch, 'rooms/KX7P/g/0/t/0/3', { idx: 3, dx: 0, dy: 0, sp: 0 });
+allow('team leave-sentinel pl 3 idx 0 (foreign idx)', teamMatch, 'rooms/KX7P/g/0/t/0/3', { idx: 0, dx: 0, dy: 0, sp: 0 });
+deny('team move idx 4', teamMatch, 'rooms/KX7P/g/0/t/0/0', { idx: 4, dx: 0, dy: 0, sp: 0 });
+deny('team move idx 5', teamMatch, 'rooms/KX7P/g/0/t/0/0', { idx: 5, dx: 0, dy: 0, sp: 0 });
+deny('team move pl 4 (seat gate, presence pre-seeded)', playing({ p: { 0: P(H_TAB, true), 1: P(G_TAB, true), 2: P(G2_TAB, true), 3: P(G3_TAB, true), 4: P(G4_TAB, true) }, seats: 4 }, 'team_duel'), 'rooms/KX7P/g/0/t/0/4', MOVE);
+
 console.log('\nRules-Suite (lokal, echte firebase.rules.json): ' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);
