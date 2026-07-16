@@ -13,16 +13,24 @@
 html,body{height:100%;overflow:hidden}
 body{background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",sans-serif;display:flex;flex-direction:column;align-items:center;height:100dvh;user-select:none;-webkit-user-select:none}
 
-/* ── MENU (Premium-Redesign nach Referenzbild: Navy-Sky, grosse Arena-Preview,
-      3 Modus-Karten, goldene CTA, Info-Chip — ruhig, luxurioes, mobile-first) ── */
-#menu{display:flex;flex-direction:column;width:100%;height:100%;padding:16px 18px;position:relative;overflow:auto;
+/* ── MENU (Premium-Home nach Referenzbild: Navy-Sky, dominante Arena als Hero,
+      Panel-Sheet mit PLAY / ONLINE ROOMS / HOW TO PLAY — app-artig vertikal
+      scrollbar, mobile-first, bewusste Desktop-Komposition) ── */
+#menu{display:flex;flex-direction:column;width:100%;height:100%;padding:0;position:relative;
+  overflow-y:auto;overflow-x:hidden;overscroll-behavior:contain;scrollbar-width:none;
   background:radial-gradient(ellipse 100% 42% at 50% 40%,rgba(255,196,110,.10),transparent 70%),
     linear-gradient(180deg,#0c1524 0%,#152238 30%,#2c3c58 58%,#526176 82%,#76839a 100%)}
-#menuInner{margin:auto;display:flex;flex-direction:column;align-items:center;width:100%}
+#menu::-webkit-scrollbar{display:none}
+/* Globales *{touch-action:none} dient dem Gameplay-Drag — im Menue/Online-Sheet muss
+   vertikales Touch-Scrolling trotzdem funktionieren (touch-action erbt nicht ->
+   Subtree-Regel). Das Gameplay-Canvas #cv behaelt sein eigenes touch-action:none. */
+#menu,#menu *,#online,#online *{touch-action:pan-y}
+#menu input,#online input{touch-action:auto}
+#menuInner{margin:0 auto;display:flex;flex-direction:column;align-items:center;width:100%;min-height:100%;padding-top:16px}
 .mtop{position:absolute;top:14px;left:16px;right:16px;display:flex;justify-content:space-between;z-index:3}
 .mico{width:40px;height:40px;border-radius:50%;border:1px solid rgba(150,172,210,.3);background:rgba(9,15,26,.6);color:#d5deec;font-size:15px;cursor:pointer;backdrop-filter:blur(6px)}
 .mico:active{background:rgba(26,40,64,.75)}
-.logo{text-align:center;margin-bottom:6px}
+.logo{text-align:center;margin-bottom:4px}
 .logo h1{font-size:clamp(40px,11.5vw,56px);font-weight:900;letter-spacing:.18em;margin-right:-.18em;text-transform:uppercase;color:#f4f7fc;text-shadow:0 2px 18px rgba(0,0,0,.35)}
 .logo h1 em{font-style:normal;color:var(--gold);text-shadow:0 2px 18px rgba(255,180,40,.25)}
 .orn{width:172px;height:1px;margin:12px auto 0;background:linear-gradient(90deg,transparent,rgba(255,201,64,.9),transparent);position:relative}
@@ -30,26 +38,104 @@ body{background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,
 .logo .sub{font-size:9px;letter-spacing:.34em;margin-right:-.34em;color:#93a2bd;text-transform:uppercase;margin-top:12px}
 /* Hero-Fenster: reiner Platzhalter im Layout — die ECHTE 3D-Arena (#cv3d, fixed hinter
    der UI) ist durch das transparente Menue sichtbar. Kein gezeichneter Ersatz mehr. */
-#menuHero{width:100%;max-width:420px;height:clamp(190px,32vh,270px);flex:0 0 auto;margin:2px 0 8px}
-body:not(.r3d) #menuHero{height:clamp(50px,9vh,110px)}   /* 2D-Fallback: kein Arena-Fenster noetig */
+#menuHero{width:100%;max-width:520px;height:clamp(200px,33vh,320px);flex:0 0 auto;margin:0 0 4px}
+body:not(.r3d) #menuHero{height:clamp(40px,7vh,90px)}   /* 2D-Fallback: kein Arena-Fenster noetig */
 /* 3D aktiv: Menue transparent ueber der echten Szene — nur dezente Lese-Verlaeufe oben/unten */
 body.r3d #menu{z-index:2;background:linear-gradient(180deg,rgba(6,10,18,.55) 0%,rgba(6,10,18,.22) 16%,rgba(6,10,18,0) 30%,rgba(6,10,18,0) 55%,rgba(7,11,19,.35) 74%,rgba(7,11,19,.62) 100%)}
-.mcards{display:flex;gap:11px;width:100%;max-width:400px;align-items:stretch;margin-top:4px}
-.mcard{flex:1;position:relative;display:flex;flex-direction:column;align-items:center;gap:9px;padding:18px 6px 14px;border-radius:18px;cursor:pointer;font:inherit;border:1px solid rgba(122,142,180,.32);background:linear-gradient(180deg,#182136 0%,#0e1524 100%);box-shadow:0 14px 30px rgba(5,9,18,.45);transition:transform .18s,border-color .18s,box-shadow .18s}
-.mcard.on{border-color:rgba(255,201,64,.9);background:linear-gradient(180deg,#1e2740 0%,#131b2e 100%);box-shadow:0 0 0 1px rgba(255,201,64,.4),0 14px 44px rgba(255,178,40,.30),inset 0 0 26px rgba(255,201,64,.06);transform:translateY(-7px) scale(1.035)}
-.mcard .chip{position:absolute;top:-10px;left:50%;transform:translateX(-50%);font-size:7px;font-weight:900;letter-spacing:.18em;padding:3.5px 10px;border-radius:999px;color:#241800;background:linear-gradient(180deg,#ffd97a,#f0a92e);box-shadow:0 2px 12px rgba(255,180,40,.55),inset 0 1px 0 rgba(255,255,255,.5);display:none}
+/* Panel-Sheet: dunkles Glass-Panel unter dem Arena-Hero — buendelt alle Home-Sektionen
+   und streckt sich bis zum Ende des Scroll-Inhalts (app-artige "Bottom Sheet"-Anmutung) */
+.msheet{position:relative;z-index:0;flex:1;width:min(100% - 24px,560px);margin:0 auto;display:flex;flex-direction:column;align-items:stretch;
+  border-radius:26px 26px 0 0;border:1px solid rgba(122,142,180,.26);border-bottom:0;
+  padding:18px 16px calc(26px + env(safe-area-inset-bottom));
+  background:linear-gradient(180deg,rgba(16,24,41,.88) 0%,rgba(10,16,28,.95) 16%,rgba(8,13,23,.975) 100%);
+  backdrop-filter:blur(10px);box-shadow:0 -18px 50px rgba(4,8,16,.45)}
+/* Sektions-Header: Gold-Label + Hairline (optional rechts eine Aktion, z.B. VIEW ALL) */
+.msec{display:flex;align-items:center;gap:12px;width:100%;margin:20px 2px 12px}
+.msec:first-child{margin-top:2px}
+.msec>span{font-size:11px;font-weight:900;letter-spacing:.2em;color:#e6c46c;text-transform:uppercase;white-space:nowrap}
+.msec .hr{flex:1;height:1px;background:linear-gradient(90deg,rgba(200,181,129,.38),rgba(150,170,210,.08))}
+.mlink{display:flex;align-items:center;gap:5px;border:0;background:transparent;color:#93a2bd;font:inherit;font-size:10px;font-weight:900;letter-spacing:.14em;cursor:pointer;padding:6px 2px;white-space:nowrap}
+.mlink:active{color:#e6c46c}
+.mlink svg{width:12px;height:12px}
+/* Modus-Karten: grosse Premium-Karten (Icon-Medaillon, Titel, Gold-Untertitel,
+   Beschreibung). Desktop/Tablet: 3er-Grid. Mobil: Snap-Karussell mit grossen,
+   voll lesbaren Karten (bewusst KEINE drei Mini-Spalten nebeneinander). */
+.mcards{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;width:100%}
+.mcard{position:relative;display:flex;flex-direction:column;align-items:center;gap:8px;padding:22px 10px 16px;border-radius:20px;cursor:pointer;font:inherit;
+  border:1.5px solid rgba(122,142,180,.3);background:linear-gradient(180deg,rgba(28,38,60,.6),rgba(13,19,32,.9));
+  box-shadow:0 12px 28px rgba(5,9,18,.35);transition:transform .18s,border-color .18s,box-shadow .18s}
+.mcard.on{border-color:rgba(255,201,64,.95);background:linear-gradient(180deg,rgba(38,47,66,.75),rgba(20,26,42,.95));
+  box-shadow:0 0 0 1px rgba(255,201,64,.35),0 14px 40px rgba(255,178,40,.22),inset 0 0 30px rgba(255,201,64,.05)}
+.mcard .chip{position:absolute;top:-11px;right:14px;font-size:8px;font-weight:900;letter-spacing:.16em;padding:4px 11px;border-radius:999px;color:#241800;background:linear-gradient(180deg,#ffd97a,#f0a92e);box-shadow:0 2px 12px rgba(255,180,40,.55),inset 0 1px 0 rgba(255,255,255,.5);display:none}
 .mcard.on .chip{display:block}
-.mcard .mic{width:50px;height:50px;border-radius:50%;display:flex;align-items:center;justify-content:center;border:1px solid rgba(255,201,64,.35);background:radial-gradient(circle at 35% 28%,#2a3a5c,#0f1830 72%);color:#cbb27a;box-shadow:inset 0 0 10px rgba(0,0,0,.5)}
-.mcard.on .mic{border-color:rgba(255,201,64,.85);color:var(--gold);box-shadow:0 0 16px rgba(255,201,64,.3),inset 0 0 10px rgba(0,0,0,.4)}
-.mcard .mic svg{width:23px;height:23px}
-.mcard .mt{font-size:clamp(9.5px,2.8vw,11px);font-weight:900;letter-spacing:.1em;color:#eef2f9;white-space:nowrap}
-.mcard.on .mt{color:#ffd97a}
-.mcard .ms{font-size:7.5px;font-weight:800;letter-spacing:.16em;line-height:2;text-align:center;color:#7688a6}
-.mcard.on .ms{color:#c9b787}
-.mcta{width:100%;max-width:400px;margin-top:18px;position:relative;border:0;border-radius:17px;padding:19px 44px;font:inherit;font-size:clamp(14px,4.2vw,16px);font-weight:900;letter-spacing:.16em;cursor:pointer;color:#2b1c00;text-shadow:0 1px 0 rgba(255,235,180,.5);background:linear-gradient(180deg,#ffe197 0%,#f7ba3e 52%,#dd961e 100%);box-shadow:0 10px 36px rgba(255,185,50,.38),inset 0 1.5px 0 rgba(255,255,255,.65),inset 0 -3px 8px rgba(150,85,0,.38);transition:transform .1s}
+.mcard .mic{width:60px;height:60px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex:0 0 auto;
+  border:1.5px solid rgba(255,201,64,.5);background:radial-gradient(circle at 35% 28%,#232f4c,#0d1528 74%);
+  color:#d9b96a;box-shadow:0 0 0 4px rgba(9,14,25,.55),inset 0 0 12px rgba(0,0,0,.5)}
+.mcard.on .mic{color:var(--gold);border-color:rgba(255,201,64,.9);box-shadow:0 0 22px rgba(255,201,64,.3),0 0 0 4px rgba(9,14,25,.55),inset 0 0 12px rgba(0,0,0,.45)}
+.mcard .mic svg{width:29px;height:29px}
+.mcard .mt{font-size:14px;font-weight:900;letter-spacing:.05em;color:#eef2f9;white-space:nowrap;margin-top:3px}
+.mcard.on .mt{color:#fff}
+.mcard .msub{font-size:9.5px;font-weight:900;letter-spacing:.14em;color:#d9b96a;text-transform:uppercase}
+.mcard .ms{font-size:11px;font-weight:600;line-height:1.45;color:#93a2bd;text-align:center;max-width:190px}
+.mcard.on .ms{color:#aab7cd}
+@media(max-width:559px){
+  .mcards{display:flex;overflow-x:auto;overscroll-behavior-x:contain;scroll-snap-type:x mandatory;scrollbar-width:none;
+    margin:0 -16px;width:calc(100% + 32px);padding:12px 16px 4px}
+  .mcards::-webkit-scrollbar{display:none}
+  /* #menu-Praefix noetig: muss die #menu-* pan-y-Subtree-Regel (hoehere Spezifitaet) schlagen */
+  #menu .mcards,#menu .mcards *{touch-action:pan-x pan-y}
+  .mcard{flex:0 0 70%;scroll-snap-align:center}
+}
+.mcta{width:100%;margin-top:18px;position:relative;border:0;border-radius:18px;padding:19px 44px;font:inherit;font-size:clamp(14px,4.2vw,16px);font-weight:900;letter-spacing:.16em;cursor:pointer;color:#2b1c00;text-shadow:0 1px 0 rgba(255,235,180,.5);background:linear-gradient(180deg,#ffe197 0%,#f7ba3e 52%,#dd961e 100%);box-shadow:0 10px 36px rgba(255,185,50,.38),inset 0 1.5px 0 rgba(255,255,255,.65),inset 0 -3px 8px rgba(150,85,0,.38);transition:transform .1s}
 .mcta:active{transform:scale(.97)}
 .mcta::after{content:"›";position:absolute;right:22px;top:50%;transform:translateY(-54%);font-size:24px;font-weight:800}
-.mfoot{margin-top:12px;font-size:8.5px;font-weight:800;letter-spacing:.26em;margin-right:-.26em;color:#dfe7f3;background:rgba(7,12,22,.5);border:1px solid rgba(150,170,210,.22);padding:8px 18px;border-radius:999px;backdrop-filter:blur(4px)}
+.mfoot{align-self:center;margin-top:12px;font-size:8.5px;font-weight:800;letter-spacing:.26em;color:#dfe7f3;background:rgba(7,12,22,.5);border:1px solid rgba(150,170,210,.22);padding:8px calc(18px - .26em) 8px 18px;border-radius:999px;backdrop-filter:blur(4px)}
+/* Home-Rooms: Live-Vorschau der oeffentlichen Raeume + Create-Aktion */
+.mstate{font-size:11px;color:#7688a6;text-align:center;padding:6px 0 10px;font-weight:600}
+.ghostbtn{width:100%;display:flex;align-items:center;justify-content:center;gap:8px;border:1px solid rgba(150,170,210,.32);border-radius:999px;
+  background:linear-gradient(180deg,rgba(20,29,48,.5),rgba(12,18,30,.7));color:#dfe7f3;font:inherit;font-size:12px;font-weight:900;letter-spacing:.16em;text-transform:uppercase;
+  padding:14px;cursor:pointer;transition:border-color .15s}
+.ghostbtn .plus{color:var(--gold);font-size:17px;font-weight:800;line-height:1;margin-top:-1px}
+/* How-to-play: 3 Schritte in einem Panel (Gold-Icons, Hairline-Trenner) */
+.howp{width:100%;display:grid;grid-template-columns:repeat(3,1fr);border-radius:18px;border:1px solid rgba(122,142,180,.24);
+  background:linear-gradient(180deg,rgba(19,27,45,.6),rgba(10,15,26,.75));overflow:hidden}
+.hstep{display:flex;flex-direction:column;align-items:center;gap:7px;padding:16px 10px 15px;position:relative;text-align:center}
+.hstep+.hstep::before{content:"";position:absolute;left:0;top:18%;bottom:18%;width:1px;background:linear-gradient(180deg,transparent,rgba(150,170,210,.25),transparent)}
+.hico{width:32px;height:32px;color:var(--gold);display:flex;align-items:center;justify-content:center}
+.hico svg{width:29px;height:29px}
+.hst{font-size:10.5px;font-weight:900;letter-spacing:.08em;color:#e6c46c;white-space:nowrap}
+.hss{font-size:10px;font-weight:600;line-height:1.5;color:#93a2bd}
+/* Ausbau-Slot: ehrlicher Platzhalter fuer kommende Modi/Features (keine Fake-Funktion) */
+.soon{width:100%;margin-top:16px;display:flex;flex-direction:column;align-items:center;gap:5px;padding:18px 14px;border-radius:18px;
+  border:1.5px dashed rgba(150,170,210,.3);color:#93a2bd;background:rgba(10,16,28,.35)}
+.soon-t{font-size:10.5px;font-weight:900;letter-spacing:.22em;color:#b9c4d6}
+.soon-s{font-size:10px;font-weight:600;color:#7688a6;text-align:center}
+/* Scroll-Cue: dezenter Hinweis am unteren Rand, nur solange oben & scrollbar */
+#scrollHint{position:fixed;left:50%;bottom:10px;transform:translateX(-50%);z-index:3;display:flex;align-items:center;gap:8px;
+  color:#c3cede;font-size:8.5px;font-weight:900;letter-spacing:.28em;margin-right:0;text-transform:uppercase;pointer-events:none;opacity:0;transition:opacity .4s;
+  background:rgba(7,12,22,.78);border:1px solid rgba(150,170,210,.28);padding:8px 16px 8px calc(16px + .28em);border-radius:999px;backdrop-filter:blur(6px);box-shadow:0 6px 18px rgba(4,8,16,.45)}
+#scrollHint.show{opacity:.9}
+#scrollHint svg{width:12px;height:12px;color:#e6c46c;animation:shbob 1.6s ease-in-out infinite}
+@keyframes shbob{0%,100%{transform:translateY(-1px)}50%{transform:translateY(2px)}}
+@media(prefers-reduced-motion:reduce){#scrollHint svg{animation:none}}
+/* Desktop-Komposition: breiteres Sheet, groessere Karten, mehr Luft — keine verlorene Mobile-Spalte */
+@media(min-width:900px){
+  .msheet{width:min(100% - 48px,780px);padding:24px 28px 36px}
+  #menuHero{max-width:640px;height:clamp(240px,36vh,340px)}
+  .mcard{padding:26px 14px 20px;gap:9px}
+  .mcard .ms{font-size:11.5px}
+  .howp .hss{font-size:10.5px}
+}
+/* Desktop-Hover + Tastatur-Fokus: konsistente Premium-States (Touch nutzt .press-fx) */
+@media(hover:hover){
+  .mcard:not(.on):hover{border-color:rgba(255,201,64,.45);transform:translateY(-3px)}
+  .mcta:hover,.cbtn:hover,.pr-join:hover,.start:hover{filter:brightness(1.07)}
+  .mico:hover,.ibtn:hover,.obk:hover{border-color:rgba(255,201,64,.55);color:#ffd97a}
+  .ghostbtn:hover,.proom:hover{border-color:rgba(255,201,64,.45)}
+  .mlink:hover{color:#e6c46c}
+}
+#menu button:focus-visible,#online button:focus-visible,.cover button:focus-visible,.ov button:focus-visible{outline:2px solid rgba(255,201,64,.8);outline-offset:2px}
+#menu input:focus-visible,#online input:focus-visible{outline:2px solid rgba(255,201,64,.6);outline-offset:1px}
 /* Versus-/Bot-Modal: grosse Touch-Auswahlkarten im Glass/Navy/Gold-Stil des Menues */
 .vswb{width:330px;max-width:90vw;background:linear-gradient(180deg,rgba(17,24,40,.96),rgba(10,15,26,.97));border:1px solid rgba(255,201,64,.25);backdrop-filter:blur(8px)}
 .vopt{width:100%;display:flex;flex-direction:column;gap:6px;align-items:center;padding:19px 14px;margin-bottom:10px;border-radius:16px;cursor:pointer;font:inherit;border:1px solid rgba(255,201,64,.28);background:linear-gradient(180deg,rgba(32,42,66,.92),rgba(15,21,36,.96));box-shadow:0 10px 26px rgba(5,9,18,.45);transition:transform .12s,border-color .12s,box-shadow .12s}
@@ -74,13 +160,15 @@ body.r3d #menu{z-index:2;background:linear-gradient(180deg,rgba(6,10,18,.55) 0%,
 .press-fx.pressed{transition:transform .04s ease-out,filter .04s ease-out;transform:scale(.96);filter:brightness(1.12)}
 @media(prefers-reduced-motion:reduce){.press-fx{transition:filter .14s ease}.press-fx.pressed{transition:filter .04s ease-out;transform:none}}
 .pills button.on{background:#1a2840;color:var(--text)}
-/* Public-Room-Liste (feature/public-lobby-mvp): kompakte, beitretbare Raumzeilen im
-   Navy-/Gold-Stil. Kapazitaet/Modus links, Beitreten rechts. */
-.proom{display:flex;align-items:center;gap:10px;background:#0c1420;border:1px solid rgba(255,201,64,.14);border-radius:12px;padding:9px 11px;margin-bottom:8px}
-.proom .pr-main{flex:1;min-width:0}
-.proom .pr-host{font-size:13px;font-weight:800;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.proom .pr-meta{font-size:10px;color:var(--muted);letter-spacing:.06em;margin-top:2px}
-.proom .pr-join{border:0;border-radius:9px;padding:8px 14px;font:inherit;font-size:11px;font-weight:900;letter-spacing:.06em;cursor:pointer;color:#2b1c00;background:linear-gradient(180deg,#ffe197 0%,#f7ba3e 52%,#dd961e 100%)}
+/* Public-Room-Zeilen (Home-Vorschau + Online-Seite): Live-Punkt, Hostname,
+   Modus/Belegung, goldener Join-Pill — identische Zeile an beiden Orten. */
+.proom{display:flex;align-items:center;gap:11px;background:linear-gradient(180deg,rgba(23,32,52,.72),rgba(13,19,32,.9));
+  border:1px solid rgba(122,142,180,.26);border-radius:16px;padding:11px 13px;margin-bottom:9px;transition:border-color .15s}
+.pr-dot{width:9px;height:9px;border-radius:50%;background:var(--green);box-shadow:0 0 9px rgba(57,224,122,.7);flex:0 0 auto}
+.proom .pr-main{flex:1;min-width:0;display:flex;align-items:baseline;gap:10px}
+.proom .pr-host{flex:1;min-width:0;font-size:14px;font-weight:800;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.proom .pr-meta{flex:0 0 auto;font-size:11px;color:#8b99b4;letter-spacing:.05em;font-weight:700}
+.proom .pr-join{border:0;border-radius:999px;padding:9px 18px;font:inherit;font-size:11px;font-weight:900;letter-spacing:.1em;cursor:pointer;color:#2b1c00;text-transform:uppercase;background:linear-gradient(180deg,#ffe197 0%,#f7ba3e 52%,#dd961e 100%);box-shadow:0 4px 14px rgba(255,185,50,.25),inset 0 1px 0 rgba(255,255,255,.5)}
 #modeGrp{flex-direction:column;border-radius:14px;padding:4px;gap:3px}
 #modeGrp button{padding:11px;border-radius:10px;font-size:12px;letter-spacing:.03em}
 #modeGrp button.on{box-shadow:inset 0 0 0 1px #2a3850}
@@ -218,9 +306,76 @@ body.booting #menu{opacity:0;visibility:hidden}
 @keyframes scp{0%,100%{transform:scale(1);box-shadow:0 8px 22px rgba(5,9,18,.3)}30%{transform:scale(1.07);box-shadow:0 0 0 1px rgba(255,201,64,.6),0 0 30px rgba(255,201,64,.45)}}
 .scorebox.pulse{animation:scp .8s cubic-bezier(.3,1.4,.4,1)}
 @media(prefers-reduced-motion:reduce){.wb{animation:none}#rov,#rov .rw{transition:opacity .2s}#rov .rw{transform:none;filter:none}#koChip.show{animation:none;opacity:1}.scorebox.pulse{animation:none}}
-#onInput{width:130px;text-transform:uppercase;text-align:center;font:inherit;font-size:22px;font-weight:800;letter-spacing:.22em;padding:11px 8px;border-radius:12px;border:1px solid rgba(255,201,64,.3);background:#0c1420;color:var(--text);user-select:text;-webkit-user-select:text;touch-action:auto}
-#onInput::placeholder{font-size:11px;letter-spacing:.18em;color:#5d6d88;transform:translateY(-2px)}
-#onStatus{font-size:11px;color:var(--muted);margin-top:14px;min-height:16px;max-width:280px;text-align:center;line-height:1.5}
+/* ── ONLINE als eigene App-Seite (nach Referenzbild 2): Header mit Back/Titel/Badge,
+      Arena-Fenster, Panel-Sheet mit Name+Sichtbarkeit, Create-ODER-Join-Karten,
+      Public Rooms und How-to — vertikal scrollbar wie die Startseite. ── */
+#online{justify-content:flex-start;align-items:stretch;padding:0;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:none;text-align:left}
+#online::-webkit-scrollbar{display:none}
+/* 3D aktiv: Arena-Durchblick im oberen Drittel (wie das Menue); das Menue dahinter
+   wird per :has ausgeblendet, damit nur die Szene durchscheint. 2D behaelt den Cover. */
+body.r3d #online{backdrop-filter:none;background:linear-gradient(180deg,rgba(6,10,18,.78) 0%,rgba(6,10,18,.4) 13%,rgba(6,10,18,.08) 24%,rgba(6,10,18,.05) 38%,rgba(7,11,19,.5) 50%,rgba(7,11,19,.82) 58%,rgba(7,11,19,.9) 100%)}
+body.r3d:has(#online.show) #menuInner{visibility:hidden}
+.osheet{margin:0 auto;width:min(100%,560px);display:flex;flex-direction:column;min-height:100%;padding-top:14px}
+.ohead{display:flex;align-items:center;gap:12px;padding:2px 14px 8px}
+.obk{width:44px;height:44px;flex:0 0 auto;display:flex;align-items:center;justify-content:center;border-radius:14px;border:1px solid rgba(255,201,64,.42);background:rgba(9,15,26,.7);color:#ffd97a;cursor:pointer;backdrop-filter:blur(6px);font:inherit}
+.obk svg{width:20px;height:20px}
+.obk:active{background:rgba(26,40,64,.75)}
+.ohead-c{flex:1;min-width:0;text-align:center}
+#online .who{font-size:clamp(23px,6.6vw,32px);font-weight:900;letter-spacing:.08em;margin-right:-.08em;text-transform:uppercase;color:#f4f7fc;margin-bottom:3px;text-shadow:0 2px 14px rgba(0,0,0,.45)}
+#online .who em{font-style:normal;color:var(--gold);text-shadow:0 2px 14px rgba(255,180,40,.3)}
+.osub{font-size:11px;font-weight:700;letter-spacing:.06em;color:#b9c4d6;text-shadow:0 1px 8px rgba(0,0,0,.5)}
+.obadge{flex:0 0 auto;display:flex;flex-direction:column;align-items:center;gap:2px;min-width:44px;padding:7px 9px;border-radius:14px;border:1px solid rgba(150,172,210,.35);background:rgba(9,15,26,.7);color:#dfe7f3;backdrop-filter:blur(6px)}
+.obadge svg{width:15px;height:15px;color:#e6c46c}
+.obadge span{font-size:10px;font-weight:900;letter-spacing:.06em}
+/* Arena-Fenster der Online-Seite (nur 3D; 2D: schmaler Abstand) */
+.ohero{height:clamp(210px,37vh,340px);flex:0 0 auto}
+body:not(.r3d) .ohero{height:12px}
+.opanel{flex:1;display:flex;flex-direction:column;align-items:stretch;border-radius:26px 26px 0 0;border:1px solid rgba(122,142,180,.26);border-bottom:0;
+  background:linear-gradient(180deg,rgba(16,24,41,.9),rgba(8,13,23,.975) 22%);backdrop-filter:blur(10px);
+  padding:20px 16px calc(26px + env(safe-area-inset-bottom));box-shadow:0 -18px 50px rgba(4,8,16,.45);text-align:left}
+/* Name + Sichtbarkeit nebeneinander (mobil untereinander) */
+.ogrid2{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px}
+@media(max-width:429px){.ogrid2{grid-template-columns:1fr}}
+.olbl{font-size:10px;font-weight:900;letter-spacing:.2em;color:#93a2bd;text-transform:uppercase;margin-bottom:8px}
+.oinwrap{display:flex;align-items:center;gap:9px;border:1px solid rgba(122,142,180,.32);border-radius:14px;background:linear-gradient(180deg,#101a2c,#0c1420);padding:0 12px;transition:border-color .15s}
+.oinwrap:focus-within{border-color:rgba(255,201,64,.65)}
+.oinwrap svg{width:15px;height:15px;color:#7688a6;flex:0 0 auto}
+.oinwrap svg.pen{color:#d9b96a}
+#nameInput{flex:1;min-width:0;border:0;background:transparent;color:var(--text);font:inherit;font-size:15px;font-weight:700;padding:13px 0;user-select:text;-webkit-user-select:text}
+#nameInput:focus{outline:none}
+#nameInput::placeholder{color:#5d6d88}
+/* Sichtbarkeit: segmentierter Gold-Toggle */
+.oseg{display:grid;grid-template-columns:1fr 1fr;border:1px solid rgba(122,142,180,.32);border-radius:14px;background:linear-gradient(180deg,#101a2c,#0c1420);padding:4px;gap:3px}
+.oseg button{border:0;border-radius:11px;background:transparent;color:#8b99b4;font:inherit;font-size:11px;font-weight:900;letter-spacing:.06em;padding:11px 4px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;transition:color .15s;text-transform:uppercase}
+.oseg button svg{width:13px;height:13px;flex:0 0 auto}
+.oseg button.on{color:#2b1c00;background:linear-gradient(180deg,#ffe197,#f0ae32);box-shadow:0 3px 12px rgba(255,185,50,.3),inset 0 1px 0 rgba(255,255,255,.5)}
+/* Create-ODER-Join: zwei gleichwertige Aktionskarten, Create als Primaerweg */
+.ocards{position:relative;display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.ocard{display:flex;flex-direction:column;align-items:center;gap:8px;padding:18px 14px 15px;border-radius:20px;border:1.5px solid rgba(122,142,180,.3);
+  background:linear-gradient(180deg,rgba(24,33,54,.8),rgba(13,19,32,.94));box-shadow:0 12px 28px rgba(5,9,18,.4);text-align:center}
+.ocard.primary{border-color:rgba(255,201,64,.75);box-shadow:0 0 0 1px rgba(255,201,64,.25),0 14px 36px rgba(255,178,40,.16)}
+.ocic{width:52px;height:52px;border-radius:50%;display:flex;align-items:center;justify-content:center;border:1.5px solid rgba(255,201,64,.5);
+  background:radial-gradient(circle at 35% 28%,#232f4c,#0d1528 74%);color:var(--gold);flex:0 0 auto;box-shadow:0 0 0 4px rgba(9,14,25,.5)}
+.ocic svg{width:24px;height:24px}
+.oct{font-size:13px;font-weight:900;letter-spacing:.06em;color:#eef2f9;text-transform:uppercase}
+.ocs{font-size:10.5px;font-weight:600;line-height:1.5;color:#93a2bd}
+.ocard .cbtn{width:100%;margin-top:auto;padding:13px 6px;font-size:12.5px;letter-spacing:.08em;border-radius:13px;text-transform:uppercase}
+.orb{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:1;width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  font-size:10px;font-weight:900;letter-spacing:.06em;color:#e6c46c;background:radial-gradient(circle at 35% 28%,#1b2540,#0b1220 76%);
+  border:1px solid rgba(255,201,64,.45);box-shadow:0 6px 18px rgba(4,8,16,.55)}
+@media(max-width:429px){.ocards{grid-template-columns:1fr;gap:10px}.orb{position:static;transform:none;margin:-2px auto;width:38px;height:38px}}
+#onJoinRow{display:flex;gap:8px;width:100%;margin-top:auto}
+#onInput{flex:1;min-width:0;width:auto;text-transform:uppercase;text-align:center;font:inherit;font-size:18px;font-weight:800;letter-spacing:.2em;padding:12px 6px;border-radius:13px;border:1px solid rgba(122,142,180,.32);background:linear-gradient(180deg,#101a2c,#0c1420);color:var(--text);user-select:text;-webkit-user-select:text;transition:border-color .15s}
+#onInput:focus{outline:none;border-color:rgba(255,201,64,.65)}
+#onInput::placeholder{font-size:10px;letter-spacing:.16em;color:#5d6d88;transform:translateY(-2px)}
+#onJoinRow .cbtn{width:auto;margin-top:0;flex:0 0 auto;padding:12px 16px}
+/* Raumcode-/Lobby-Panel: erscheint nach Create/Join anstelle der Aktionskarten */
+#onWait,#onLobby{margin-top:16px;border-radius:20px;border:1px solid rgba(255,201,64,.3);background:linear-gradient(180deg,rgba(24,33,54,.85),rgba(13,19,32,.94));padding:20px 14px;text-align:center;box-shadow:0 12px 28px rgba(5,9,18,.4)}
+#onStatus{font-size:11px;color:#8b99b4;margin:14px auto 0;min-height:16px;max-width:300px;text-align:center;line-height:1.5;font-weight:600}
+/* Public-Rooms-Sektion + unterer Back-Button */
+#onPublic{margin-top:8px}
+#onBack2{align-self:center;width:auto;margin:22px auto 0;padding:12px 30px;border-radius:999px;margin-bottom:0}
+@media(min-width:900px){.osheet{width:min(100% - 48px,760px)}.opanel{padding:24px 28px 36px}}
 #replay{position:fixed;left:0;right:0;bottom:0;z-index:60;display:none;padding:9px 11px;background:linear-gradient(0deg,rgba(5,8,14,.97),rgba(5,8,14,.55));backdrop-filter:blur(4px)}
 #replay.show{display:block}
 .repbar{display:flex;align-items:center;gap:7px;max-width:560px;margin:0 auto}
@@ -256,28 +411,51 @@ body.booting #menu{opacity:0;visibility:hidden}
   <!-- Hero-Fenster: Platzhalter — die echte 3D-Arena rendert dahinter (#cv3d);
        die Kugeln darauf zeigen den gewaehlten Modus (FFA 5 / 2v2 Teams / Bot 1v1) -->
   <div id="menuHero"></div>
-  <div class="mcards">
+  <!-- Panel-Sheet: alle Home-Sektionen (PLAY / ONLINE ROOMS / HOW TO PLAY / Ausbau-Slot)
+       in einem app-artigen Bottom-Sheet unter dem Arena-Hero -->
+  <div class="msheet">
+   <div class="msec"><span id="secPlayT">PLAY</span><i class="hr"></i></div>
+   <div class="mcards">
     <button class="mcard on" id="cardFfa">
       <span class="chip">ACTIVE</span>
       <span class="mic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="12" r="8"/><ellipse cx="12" cy="12" rx="3.4" ry="8"/><path d="M4.6 12h14.8"/></svg></span>
       <span class="mt">ONLINE FFA</span>
-      <span class="ms">2–5 PLAYERS</span>
+      <span class="msub">2–5 PLAYERS</span>
+      <span class="ms">Play in a free-for-all with players worldwide.</span>
     </button>
     <button class="mcard" id="card2v2">
       <span class="chip">ACTIVE</span>
       <span class="mic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="9" cy="8.6" r="3"/><path d="M3.4 19c0-3.1 2.6-4.8 5.6-4.8s5.6 1.7 5.6 4.8"/><circle cx="16.6" cy="9.4" r="2.4"/><path d="M16 14.4c2.6.3 4.7 1.9 4.7 4.4"/></svg></span>
       <span class="mt">ONLINE VERSUS</span>
-      <span class="ms">1v1 OR 2v2<br>2 PLAYERS</span>
+      <span class="msub">1v1 OR 2v2</span>
+      <span class="ms">Challenge other players in head-to-head matches.</span>
     </button>
     <button class="mcard" id="cardBot">
       <span class="chip">ACTIVE</span>
       <span class="mic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="6" y="8.5" width="12" height="8.5" rx="2.6"/><circle cx="10" cy="12.6" r="1" fill="currentColor" stroke="none"/><circle cx="14" cy="12.6" r="1" fill="currentColor" stroke="none"/><path d="M12 8.5V6"/><circle cx="12" cy="4.8" r="1.1"/></svg></span>
       <span class="mt">BOT TRAINING</span>
-      <span class="ms">VS AI<br>SOLO PRACTICE</span>
+      <span class="msub">VS AI</span>
+      <span class="ms">Practice against AI and improve your skills.</span>
     </button>
-  </div>
-  <button class="mcta" id="ctaBtn">PLAY ONLINE FFA</button>
-  <div class="mfoot" id="ctaInfo">2–5 PLAYERS · HOST STARTS</div>
+   </div>
+   <button class="mcta" id="ctaBtn">PLAY ONLINE FFA</button>
+   <div class="mfoot" id="ctaInfo">2–5 PLAYERS · HOST STARTS</div>
+
+   <!-- Online-Rooms-Vorschau: dieselben Live-Daten wie die Public-Liste der Online-Seite
+        (ein geteilter Listener, gekappt auf 3 Zeilen). Join nutzt den echten joinRoom()-Pfad. -->
+   <div class="msec"><span id="secRoomsT">ONLINE ROOMS</span><i class="hr"></i><button class="mlink" id="homeViewAll"><span id="viewAllT">VIEW ALL</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></button></div>
+   <div id="homeRoomsList"></div>
+   <div id="homeRoomsState" class="mstate"></div>
+   <button class="ghostbtn" id="homeCreate"><span class="plus">+</span><span id="homeCreateT">CREATE ROOM</span></button>
+
+   <div class="msec"><span id="secHowT">HOW TO PLAY</span><i class="hr"></i></div>
+   <div class="howp">
+    <div class="hstep"><span class="hico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="15.5" cy="8.5" r="3.2"/><path d="M12.9 11.1 6.2 17.8"/><path d="M9.6 18H6v-3.6"/></svg></span><div class="hst how1T">1. PULL BACK</div><div class="hss how1S">Pull back to aim and set your power.</div></div>
+    <div class="hstep"><span class="hico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="8.5" cy="15.5" r="3.2"/><path d="M11.1 12.9l6.7-6.7"/><path d="M14.4 6H18v3.6"/></svg></span><div class="hst how2T">2. RELEASE</div><div class="hss how2S">Let go to launch your marble.</div></div>
+    <div class="hstep"><span class="hico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="14.5" r="3.4"/><circle cx="16.8" cy="8.8" r="2.6"/><path d="M12.1 12.2l1.5-1.3"/><path d="M20 5.6l1.7-1.7"/></svg></span><div class="hst how3T">3. KNOCK OUT</div><div class="hss how3S">Push your opponents off the arena.</div></div>
+   </div>
+   <!-- Ausbau-Slot: ehrlicher Platzhalter fuer kuenftige Modi/Features -->
+   <div class="soon"><span class="soon-t" id="soonT">MORE COMING SOON</span><span class="soon-s" id="soonS">New modes and features are in the works.</span></div>
 
   <!-- Dev-/Test-Panel (?dev=1): Legacy-Modi bleiben als Test-/Regressionsbasis vollstaendig
        erhalten (Hotseat-2-Spieler, FFA lokal inkl. Spieleranzahl, Bot-Stufen, Format, Runden). -->
@@ -305,6 +483,9 @@ body.booting #menu{opacity:0;visibility:hidden}
     </div>
     <button class="start" id="startBtn">▶ Spielen (Dev)</button>
   </div>
+  </div><!-- /.msheet -->
+  <!-- Scroll-Cue: nur sichtbar, solange oben gescrollt werden kann (JS toggelt .show) -->
+  <div id="scrollHint" aria-hidden="true"><span id="scrollHintT">SCROLL TO EXPLORE</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></div>
  </div>
 </div>
 
@@ -441,31 +622,70 @@ body.booting #menu{opacity:0;visibility:hidden}
 </div>
 
 <div class="cover" id="online">
-  <div class="who" id="onTitle" style="color:var(--gold)">ONLINE 1v1</div>
-  <div class="ctxt" id="onCtxt">Spiel gegen einen Freund. Einer erstellt einen Raum, der andere tritt mit dem Code bei.</div>
+ <div class="osheet">
+  <!-- App-Seiten-Header: Back, zweifarbiger Titel + Untertitel, Spielerzahl-Badge -->
+  <div class="ohead">
+    <button class="obk" id="onBack" aria-label="Zurück"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H6"/><path d="M11.5 6 5.5 12l6 6"/></svg></button>
+    <div class="ohead-c">
+      <div class="who" id="onTitle">ONLINE · <em id="onTitleMode">FFA</em></div>
+      <div class="osub" id="onCtxt">Free for all · 2 to 5 players</div>
+    </div>
+    <div class="obadge"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="9" cy="8.6" r="3"/><path d="M3.4 19c0-3.1 2.6-4.8 5.6-4.8s5.6 1.7 5.6 4.8"/><circle cx="16.6" cy="9.4" r="2.4"/><path d="M16 14.4c2.6.3 4.7 1.9 4.7 4.4"/></svg><span id="onBadgeN">2–5</span></div>
+  </div>
+  <!-- Arena-Fenster: die echte 3D-Szene scheint hier durch (nur 3D-Modus) -->
+  <div class="ohero"></div>
+  <div class="opanel">
   <!-- Rejoin bar: shown only when a fresh saved room exists (reload / tab-switch). -->
   <div id="onRejoin" style="display:none;margin-bottom:14px;text-align:center">
     <div id="onRejoinTxt" style="font-size:11px;color:var(--muted);margin-bottom:8px"></div>
     <button class="cbtn" id="rejoinBtn">Wieder beitreten</button>
   </div>
-  <!-- Player name (identity v3): sanitized, max 16 chars, rendered via textContent. -->
-  <div id="nameRow" style="margin-bottom:14px;text-align:left">
-    <div id="nameLbl" style="font-size:10px;color:var(--muted);letter-spacing:.14em;margin-bottom:6px">DEIN NAME</div>
-    <input id="nameInput" maxlength="48" autocomplete="off" placeholder="Name" style="width:100%;box-sizing:border-box;font:inherit;font-size:16px;font-weight:700;padding:10px 12px;border-radius:12px;border:1px solid rgba(255,201,64,.3);background:#0c1420;color:var(--text)">
+  <!-- Player name (identity v3, sanitized, textContent-only) + Sichtbarkeit (Default privat) -->
+  <div class="ogrid2">
+    <div id="nameRow">
+      <div id="nameLbl" class="olbl">DEIN NAME</div>
+      <div class="oinwrap">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="8.2" r="3.4"/><path d="M5.5 19c0-3.4 2.9-5.3 6.5-5.3s6.5 1.9 6.5 5.3"/></svg>
+        <input id="nameInput" maxlength="48" autocomplete="off" placeholder="Name">
+        <svg class="pen" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 5.5l4 4L8 20H4v-4L14.5 5.5z"/></svg>
+      </div>
+    </div>
+    <div id="onVisRow">
+      <div id="onVisLbl" class="olbl">SICHTBARKEIT</div>
+      <div class="oseg" id="onVisGrp">
+        <button id="onVisPub"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="8"/><ellipse cx="12" cy="12" rx="3.4" ry="8"/><path d="M4.6 12h14.8"/></svg><span>Öffentlich</span></button>
+        <button id="onVisPriv" class="on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="11" width="12" height="8" rx="2"/><path d="M8.5 11V8.5a3.5 3.5 0 0 1 7 0V11"/></svg><span>Privat</span></button>
+      </div>
+    </div>
   </div>
-  <!-- Sichtbarkeit beim Erstellen (feature/public-lobby-mvp): Default privat. -->
-  <div id="onVisRow" style="margin-bottom:12px;text-align:left;width:100%;max-width:320px;box-sizing:border-box">
-    <div id="onVisLbl" style="font-size:10px;color:var(--muted);letter-spacing:.14em;margin-bottom:6px">SICHTBARKEIT</div>
-    <div class="pills" id="onVisGrp"><button id="onVisPriv" class="on">Privat</button><button id="onVisPub">Öffentlich</button></div>
+  <!-- Die zwei Wege in einen Raum: erstellen ODER mit Code beitreten. JS toggelt den
+       CONTAINER (onActions); die inneren IDs (onCreate, onJoinRow, onInput, onJoin)
+       bleiben unveraendert. -->
+  <div class="ocards" id="onActions">
+    <div class="ocard primary" id="onCreateCard">
+      <span class="ocic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="10" cy="8.4" r="3.1"/><path d="M4.2 19c0-3.2 2.7-5 5.8-5s5.8 1.8 5.8 5"/><path d="M18.4 7.2v5M15.9 9.7h5"/></svg></span>
+      <div class="oct" id="onCreateT">Raum erstellen</div>
+      <div class="ocs" id="onCreateS">Erstelle einen Raum und lade Freunde ein.</div>
+      <button class="cbtn" id="onCreate">Erstellen</button>
+    </div>
+    <div class="orb" id="orBadge" aria-hidden="true">OR</div>
+    <div class="ocard" id="onJoinCard">
+      <span class="ocic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M13 4h6v16h-6"/><path d="M4 12h9"/><path d="M10.5 8.5 14 12l-3.5 3.5"/></svg></span>
+      <div class="oct" id="onJoinT">Raum beitreten</div>
+      <div class="ocs" id="onJoinS">Tritt mit dem 4-stelligen Code bei.</div>
+      <div id="onJoinRow">
+        <input id="onInput" maxlength="4" autocomplete="off" autocapitalize="characters" placeholder="CODE">
+        <button class="cbtn" id="onJoin">Beitreten</button>
+      </div>
+    </div>
   </div>
-  <button class="cbtn" id="onCreate">Raum erstellen</button>
-  <div id="onWait" style="display:none;margin-top:16px;text-align:center">
+  <div id="onWait" style="display:none">
     <div id="onCodeLbl" style="font-size:10px;color:var(--muted);letter-spacing:.18em">DEIN CODE</div>
     <div id="onCode" style="font-size:42px;font-weight:900;letter-spacing:.28em;color:var(--gold);margin:6px 0"></div>
     <div id="onWaitTxt" style="font-size:11px;color:var(--muted)">Warte auf Mitspieler…</div>
   </div>
   <!-- FFA-Lobby (live seit M8-T3c; gefuettert vom Presence-Listener) -->
-  <div id="onLobby" style="display:none;margin-top:16px;text-align:center">
+  <div id="onLobby" style="display:none">
     <div style="font-size:10px;color:var(--muted);letter-spacing:.18em"><span id="lobbyLbl">LOBBY</span> <span id="lobbyCount"></span></div>
     <div id="lobbySeats" style="display:flex;gap:10px;justify-content:center;margin:12px 0"></div>
     <div id="lobbyNames" style="display:flex;flex-direction:column;gap:3px;align-items:center;margin-bottom:10px">
@@ -479,19 +699,24 @@ body.booting #menu{opacity:0;visibility:hidden}
     <button class="cbtn" id="lobbyStart" style="display:none">▶ Start</button>
     <div id="lobbyHint" style="font-size:11px;color:var(--muted)">Warte auf Host…</div>
   </div>
-  <div id="onJoinRow" style="display:flex;gap:8px;margin-top:18px;align-items:center">
-    <input id="onInput" maxlength="4" autocomplete="off" autocapitalize="characters" placeholder="CODE">
-    <button class="cbtn" id="onJoin" style="padding:13px 18px">Beitreten</button>
-  </div>
+  <div id="onStatus"></div>
   <!-- Public-Room-Liste (feature/public-lobby-mvp): oeffentliche, beitretbare Raeume.
        Ein Klick uebernimmt nur den Code und ruft den bestehenden joinRoom()-Pfad. -->
-  <div id="onPublic" style="margin-top:18px;text-align:left">
-    <div id="onPublicLbl" style="font-size:10px;color:var(--muted);letter-spacing:.14em;margin-bottom:8px">ÖFFENTLICHE RÄUME</div>
+  <div id="onPublic">
+    <div class="msec"><span id="onPublicLbl">ÖFFENTLICHE RÄUME</span><i class="hr"></i><button class="mlink" id="pubRefresh"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12a7 7 0 1 1-2.05-4.95"/><path d="M17.6 3.6V7.2H14"/></svg><span id="pubRefreshT">REFRESH</span></button></div>
     <div id="onPublicList"></div>
     <div id="onPublicState" style="font-size:11px;color:var(--muted);text-align:center;padding:8px 0"></div>
   </div>
-  <div id="onStatus"></div>
-  <button class="wbtn" id="onBack" style="width:auto;padding:10px 22px;margin-top:18px">↩ Zurück</button>
+  <!-- How-to-play: gleiche 3 Schritte wie auf der Startseite (Klassen-basierte i18n) -->
+  <div class="msec"><span id="onHowLbl">HOW TO PLAY</span><i class="hr"></i></div>
+  <div class="howp">
+    <div class="hstep"><span class="hico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="15.5" cy="8.5" r="3.2"/><path d="M12.9 11.1 6.2 17.8"/><path d="M9.6 18H6v-3.6"/></svg></span><div class="hst how1T">1. PULL BACK</div><div class="hss how1S">Pull back to aim and set your power.</div></div>
+    <div class="hstep"><span class="hico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="8.5" cy="15.5" r="3.2"/><path d="M11.1 12.9l6.7-6.7"/><path d="M14.4 6H18v3.6"/></svg></span><div class="hst how2T">2. RELEASE</div><div class="hss how2S">Let go to launch your marble.</div></div>
+    <div class="hstep"><span class="hico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="14.5" r="3.4"/><circle cx="16.8" cy="8.8" r="2.6"/><path d="M12.1 12.2l1.5-1.3"/><path d="M20 5.6l1.7-1.7"/></svg></span><div class="hst how3T">3. KNOCK OUT</div><div class="hss how3S">Push your opponents off the arena.</div></div>
+  </div>
+  <button class="wbtn" id="onBack2">↩ Zurück</button>
+  </div><!-- /.opanel -->
+ </div>
 </div>
 
 <!-- Importmap fuer den 3D-Modus (Standard; ?r2d=1 erzwingt 2D). Laedt selbst nichts;
@@ -933,6 +1158,9 @@ function selectMenuMode(m){
   for(const k of Object.keys(MENU_SEL))$(MENU_SEL[k].card).classList.toggle('on',k===m);
   $('ctaBtn').textContent=T(MENU_SEL[m].cta);
   $('ctaInfo').textContent=T(MENU_SEL[m].info);
+  // Mobil-Karussell: gewaehlte Karte in die Mitte holen (nur wenn horizontal scrollbar)
+  const card=$(MENU_SEL[m].card),row=card.parentElement;
+  if(row.scrollWidth>row.clientWidth+4)card.scrollIntoView({block:'nearest',inline:'center',behavior:'smooth'});
   updateMenuPreview();
 }
 // ── v1-Localization (EN default, DE, TR) — nur Player-facing UI: Hauptmenue, Settings,
@@ -941,16 +1169,23 @@ function selectMenuMode(m){
 //    Hints, startFfaMatch-/Leave-Toasts, onLobbyClosed, onOppLeft) und In-Game-Texte. ──
 const I18N={
 en:{tagline:'PULL BACK · RELEASE · KNOCK THEM OUT',chip:'ACTIVE',
-  ffaT:'ONLINE FFA',ffaS:'2–5 PLAYERS',vsT:'ONLINE VERSUS',vsS:'1v1 OR 2v2<br>2 PLAYERS',
-  botT:'BOT TRAINING',botS:'VS AI<br>SOLO PRACTICE',
+  ffaT:'ONLINE FFA',ffaS:'2–5 PLAYERS',ffaD:'Play in a free-for-all with players worldwide.',
+  vsT:'ONLINE VERSUS',vsS:'1v1 OR 2v2',vsD:'Challenge other players in head-to-head matches.',
+  botT:'BOT TRAINING',botS:'VS AI',botD:'Practice against AI and improve your skills.',
+  secPlay:'PLAY',secRooms:'ONLINE ROOMS',secHow:'HOW TO PLAY',viewAll:'VIEW ALL',
+  scrollHint:'SCROLL TO EXPLORE',soonT:'MORE COMING SOON',soonS:'New modes and features are in the works.',
+  how1T:'1. PULL BACK',how1S:'Pull back to aim and set your power.',
+  how2T:'2. RELEASE',how2S:'Let go to launch your marble.',
+  how3T:'3. KNOCK OUT',how3S:'Push your opponents off the arena.',
   ctaFfa:'PLAY ONLINE FFA',ctaVs:'PLAY ONLINE VERSUS',ctaBot:'START BOT TRAINING',
   infoFfa:'2–5 PLAYERS · HOST STARTS',infoVs:'2 PLAYERS · 1v1 OR 2v2 DUO',infoBot:'VS AI · SOLO PRACTICE',
   vs1v1T:'1v1 DUEL',vs1v1S:'2 PLAYERS · 1 BALL EACH',vs2v2T:'2v2 DUO DUEL',vs2v2S:'2 PLAYERS · 2 BALLS EACH',
   bot1v1T:'1v1 VS BOT',bot1v1S:'1 BALL EACH',bot2v2T:'2v2 DUO VS BOT',bot2v2S:'2 BALLS EACH',comingSoon:'COMING SOON',
   setTitle:'SETTINGS',setLang:'Language',vibeLbl:'Vibration',vibeUnsupported:' (not available)',
-  dlgFfa:'Create a room and share the code with 1–4 friends — as host you start once everyone is in.',
-  dlg1v1:'Play against a friend. One creates a room, the other joins with the code.',
-  createRoom:'Create room',join:'Join Code',enterCode:'ENTER CODE',back:'↩ Back',yourCode:'YOUR CODE',waitMate:'Waiting for opponent…',lobby:'LOBBY',lobbyGo:'▶ Start',
+  onSubFfa:'Free for all · 2 to 5 players',onSubVs:'Versus · 2 players',
+  createBtn:'Create',createSub:'Create a room and invite your friends.',
+  joinTitle:'Join room',joinSub:'Join with the 4-letter room code.',orLbl:'OR',refresh:'REFRESH',
+  createRoom:'Create room',join:'Join',enterCode:'ENTER CODE',back:'↩ Back',yourCode:'YOUR CODE',waitMate:'Waiting for opponent…',lobby:'LOBBY',lobbyGo:'▶ Start',
   leaveT:'Leave online match?',leaveS:'Your opponent can’t continue without you.',leaveNo:'Cancel',leaveYes:'Leave match',
   rematch:'🔄 Rematch',replayB:'🎬 Watch replay',menuB:'↩ Menu',
   creating:'Creating room…',ffaShare:'FFA · Share the code with 1–4 friends.',shareCode:'Share the code with your friend.',
@@ -965,15 +1200,22 @@ en:{tagline:'PULL BACK · RELEASE · KNOCK THEM OUT',chip:'ACTIVE',
   visLbl:'VISIBILITY',visPriv:'Private',visPub:'Public',pubTitle:'PUBLIC ROOMS',pubJoin:'Join',
   pubLoading:'Loading rooms…',pubEmpty:'No public rooms right now.',pubError:'Couldn’t load rooms.'},
 de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'AKTIV',
-  ffaT:'ONLINE FFA',ffaS:'2–5 SPIELER',vsT:'ONLINE VERSUS',vsS:'1v1 ODER 2v2<br>2 SPIELER',
-  botT:'BOT-TRAINING',botS:'GEGEN KI<br>SOLO-TRAINING',
+  ffaT:'ONLINE FFA',ffaS:'2–5 SPIELER',ffaD:'Spiel ein Free-for-all gegen Spieler weltweit.',
+  vsT:'ONLINE VERSUS',vsS:'1v1 ODER 2v2',vsD:'Fordere andere Spieler im direkten Duell heraus.',
+  botT:'BOT-TRAINING',botS:'GEGEN KI',botD:'Trainiere gegen die KI und verbessere dein Spiel.',
+  secPlay:'SPIELEN',secRooms:'ONLINE-RÄUME',secHow:'SO WIRD GESPIELT',viewAll:'ALLE ANZEIGEN',
+  scrollHint:'SCROLLEN FÜR MEHR',soonT:'BALD MEHR',soonS:'Neue Modi und Features sind in Arbeit.',
+  how1T:'1. ZIEH ZURÜCK',how1S:'Ziehe zurück, ziele und bestimme die Kraft.',
+  how2T:'2. LASS LOS',how2S:'Loslassen — die Kugel schießt los.',
+  how3T:'3. RAUSWERFEN',how3S:'Schieb deine Gegner von der Platte.',
   ctaFfa:'ONLINE FFA SPIELEN',ctaVs:'ONLINE VERSUS SPIELEN',ctaBot:'BOT-TRAINING STARTEN',
   infoFfa:'2–5 SPIELER · HOST STARTET',infoVs:'2 SPIELER · 1v1 ODER 2v2 DUO',infoBot:'GEGEN KI · SOLO-TRAINING',
   vs1v1T:'1v1 DUELL',vs1v1S:'2 SPIELER · 1 KUGEL PRO SPIELER',vs2v2T:'2v2 DUO-DUELL',vs2v2S:'2 SPIELER · 2 KUGELN PRO SPIELER',
   bot1v1T:'1v1 GEGEN BOT',bot1v1S:'1 KUGEL PRO SEITE',bot2v2T:'2v2 DUO GEGEN BOT',bot2v2S:'2 KUGELN PRO SEITE',comingSoon:'BALD VERFÜGBAR',
   setTitle:'EINSTELLUNGEN',setLang:'Sprache',vibeLbl:'Vibration',vibeUnsupported:' (nicht verfügbar)',
-  dlgFfa:'Erstelle einen Raum und teile den Code mit 1–4 Freunden — als Host startest du, sobald alle da sind.',
-  dlg1v1:'Spiel gegen einen Freund. Einer erstellt einen Raum, der andere tritt mit dem Code bei.',
+  onSubFfa:'Free for all · 2 bis 5 Spieler',onSubVs:'Versus · 2 Spieler',
+  createBtn:'Erstellen',createSub:'Erstelle einen Raum und lade Freunde ein.',
+  joinTitle:'Raum beitreten',joinSub:'Tritt mit dem 4-stelligen Code bei.',orLbl:'ODER',refresh:'AKTUALISIEREN',
   createRoom:'Raum erstellen',join:'Beitreten',enterCode:'CODE EINGEBEN',back:'↩ Zurück',yourCode:'DEIN CODE',waitMate:'Warte auf Gegner…',lobby:'LOBBY',lobbyGo:'▶ Start',
   leaveT:'Online-Match verlassen?',leaveS:'Dein Gegner kann dann nicht weiterspielen.',leaveNo:'Abbrechen',leaveYes:'Match verlassen',
   rematch:'🔄 Rematch',replayB:'🎬 Replay ansehen',menuB:'↩ Menü',
@@ -989,15 +1231,22 @@ de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'AKTIV',
   visLbl:'SICHTBARKEIT',visPriv:'Privat',visPub:'Öffentlich',pubTitle:'ÖFFENTLICHE RÄUME',pubJoin:'Beitreten',
   pubLoading:'Räume werden geladen…',pubEmpty:'Gerade keine öffentlichen Räume.',pubError:'Räume konnten nicht geladen werden.'},
 tr:{tagline:'GERİ ÇEK · BIRAK · DIŞARI İT',chip:'AKTİF',
-  ffaT:'ONLINE FFA',ffaS:'2–5 OYUNCU',vsT:'ONLINE VERSUS',vsS:'1v1 VEYA 2v2<br>2 OYUNCU',
-  botT:'BOT ANTRENMANI',botS:'YAPAY ZEKÂYA KARŞI<br>SOLO ANTRENMAN',
+  ffaT:'ONLINE FFA',ffaS:'2–5 OYUNCU',ffaD:'Dünya çapında oyunculara karşı serbest mücadele.',
+  vsT:'ONLINE VERSUS',vsS:'1v1 VEYA 2v2',vsD:'Diğer oyunculara kafa kafaya meydan oku.',
+  botT:'BOT ANTRENMANI',botS:'YAPAY ZEKÂYA KARŞI',botD:'Yapay zekâya karşı antrenman yap, ustalaş.',
+  secPlay:'OYNA',secRooms:'ONLINE ODALAR',secHow:'NASIL OYNANIR',viewAll:'TÜMÜNÜ GÖR',
+  scrollHint:'KAYDIR VE KEŞFET',soonT:'ÇOK YAKINDA DAHA FAZLASI',soonS:'Yeni modlar ve özellikler yolda.',
+  how1T:'1. GERİ ÇEK',how1S:'Geri çek, nişan al ve gücü ayarla.',
+  how2T:'2. BIRAK',how2S:'Bırak — misket fırlasın.',
+  how3T:'3. DIŞARI İT',how3S:'Rakiplerini arenadan dışarı it.',
   ctaFfa:'ONLINE FFA OYNA',ctaVs:'ONLINE VERSUS OYNA',ctaBot:'BOT ANTRENMANI BAŞLAT',
   infoFfa:'2–5 OYUNCU · HOST BAŞLATIR',infoVs:'2 OYUNCU · 1v1 VEYA 2v2 DUO',infoBot:'YAPAY ZEKÂYA KARŞI · SOLO ANTRENMAN',
   vs1v1T:'1v1 DÜELLO',vs1v1S:'2 OYUNCU · HERKESE 1 TOP',vs2v2T:'2v2 DUO DÜELLO',vs2v2S:'2 OYUNCU · HERKESE 2 TOP',
   bot1v1T:'BOTA KARŞI 1v1',bot1v1S:'HERKESE 1 TOP',bot2v2T:'BOTA KARŞI 2v2 DUO',bot2v2S:'HERKESE 2 TOP',comingSoon:'ÇOK YAKINDA',
   setTitle:'AYARLAR',setLang:'Dil',vibeLbl:'Titreşim',vibeUnsupported:' (desteklenmiyor)',
-  dlgFfa:'Bir oda kur ve kodu 1–4 arkadaşınla paylaş — herkes gelince host olarak sen başlatırsın.',
-  dlg1v1:'Bir arkadaşına karşı oyna. Biri oda kurar, diğeri kodla katılır.',
+  onSubFfa:'Herkes tek · 2–5 oyuncu',onSubVs:'Karşılıklı · 2 oyuncu',
+  createBtn:'Oda kur',createSub:'Bir oda kur ve arkadaşlarını davet et.',
+  joinTitle:'Odaya katıl',joinSub:'4 haneli oda koduyla katıl.',orLbl:'VEYA',refresh:'YENİLE',
   createRoom:'Oda kur',join:'Katıl',enterCode:'KOD GİR',back:'↩ Geri',yourCode:'KODUN',waitMate:'Rakip bekleniyor…',lobby:'LOBİ',lobbyGo:'▶ Başlat',
   leaveT:'Online maçtan çıkılsın mı?',leaveS:'Rakibin sensiz devam edemez.',leaveNo:'İptal',leaveYes:'Maçtan çık',
   rematch:'🔄 Rövanş',replayB:'🎬 Tekrarı izle',menuB:'↩ Menü',
@@ -1020,11 +1269,22 @@ function applyLang(){
   document.querySelector('.logo .sub').textContent=T('tagline');
   document.querySelectorAll('.mcard .chip').forEach(e=>{e.textContent=T('chip');});
   document.querySelector('#cardFfa .mt').textContent=T('ffaT');
-  document.querySelector('#cardFfa .ms').innerHTML=T('ffaS');
+  document.querySelector('#cardFfa .msub').textContent=T('ffaS');
+  document.querySelector('#cardFfa .ms').textContent=T('ffaD');
   document.querySelector('#card2v2 .mt').textContent=T('vsT');
-  document.querySelector('#card2v2 .ms').innerHTML=T('vsS');
+  document.querySelector('#card2v2 .msub').textContent=T('vsS');
+  document.querySelector('#card2v2 .ms').textContent=T('vsD');
   document.querySelector('#cardBot .mt').textContent=T('botT');
-  document.querySelector('#cardBot .ms').innerHTML=T('botS');
+  document.querySelector('#cardBot .msub').textContent=T('botS');
+  document.querySelector('#cardBot .ms').textContent=T('botD');
+  // Home-Sektionen + Online-Rooms-Vorschau + How-to (Klassen: Home UND Online-Seite)
+  $('secPlayT').textContent=T('secPlay');$('secRoomsT').textContent=T('secRooms');
+  $('secHowT').textContent=T('secHow');$('onHowLbl').textContent=T('secHow');
+  $('viewAllT').textContent=T('viewAll');$('homeCreateT').textContent=T('createRoom');
+  $('soonT').textContent=T('soonT');$('soonS').textContent=T('soonS');
+  $('scrollHintT').textContent=T('scrollHint');
+  for(const k of ['how1T','how1S','how2T','how2S','how3T','how3S'])
+    document.querySelectorAll('.'+k).forEach(e=>{e.textContent=T(k);});
   $('vsTitle').textContent=T('vsT');$('vsBack').textContent=T('back');
   $('vs1v1T').textContent=T('vs1v1T');$('vs1v1S').textContent=T('vs1v1S');
   $('vs2v2T').textContent=T('vs2v2T');$('vs2v2S').textContent=T('vs2v2S');
@@ -1038,9 +1298,15 @@ function applyLang(){
   setOn('langGrp',{en:'langEn',de:'langDe',tr:'langTr'}[LANG]);
   $('setVibeLbl').textContent=T('vibeLbl')+(VIBE_SUPPORTED?'':T('vibeUnsupported'));
   setOn('vibeGrp',vibrationOn?'vibeOnBtn':'vibeOffBtn');
-  $('onCreate').textContent=T('createRoom');$('onJoin').textContent=T('join');$('onBack').textContent=T('back');
-  $('onVisLbl').textContent=T('visLbl');$('onVisPriv').textContent=T('visPriv');$('onVisPub').textContent=T('visPub');
-  $('onPublicLbl').textContent=T('pubTitle');
+  // Online-Seite: Karten-Titel/-Texte, Toggle-Labels (nur der Text-Span — Icons bleiben)
+  $('onCreate').textContent=T('createBtn');$('onJoin').textContent=T('join');$('onBack2').textContent=T('back');
+  $('onCreateT').textContent=T('createRoom');$('onCreateS').textContent=T('createSub');
+  $('onJoinT').textContent=T('joinTitle');$('onJoinS').textContent=T('joinSub');
+  $('orBadge').textContent=T('orLbl');
+  $('onVisLbl').textContent=T('visLbl');
+  document.querySelector('#onVisPriv span').textContent=T('visPriv');
+  document.querySelector('#onVisPub span').textContent=T('visPub');
+  $('onPublicLbl').textContent=T('pubTitle');$('pubRefreshT').textContent=T('refresh');
   $('onCodeLbl').textContent=T('yourCode');$('onWaitTxt').textContent=T('waitMate');
   $('lobbyLbl').textContent=T('lobby');$('lobbyStart').textContent=T('lobbyGo');
   $('leaveT').textContent=T('leaveT');$('leaveS').textContent=T('leaveS');
@@ -1092,6 +1358,12 @@ function updateMenuPreview(){
   R=R0;outBall=-1;placeBalls();   // frische Plattformgroesse + kein Fall-Rest aus einem Vorspiel
 }
 $('lobbyStart').onclick=()=>startFfaMatch();
+// Home-Rooms-Sektion: VIEW ALL / CREATE ROOM oeffnen die Online-FFA-Seite — der echte
+// openOnline-Flow (Erstellen erst nach Name/Sichtbarkeit dort). Kein Fake-Quick-Match.
+$('homeViewAll').onclick=()=>{SFX.unlock();mode='ffa';openOnline();};
+$('homeCreate').onclick=()=>{SFX.unlock();mode='ffa';openOnline();};
+// Public-Liste manuell auffrischen (Listener ist ohnehin live; Refresh startet ihn neu)
+$('pubRefresh').onclick=()=>{whenFB(()=>{if(fbReady())startPublicListing();});};
 $('startBtn').onclick=()=>{SFX.unlock();if(mode==='online'){openOnline();return;}online=false;showGame();newGame();};
 // During a running online match the header menu must never leave silently:
 // confirm first, then take the same clean leave path as a disconnect
@@ -1105,7 +1377,12 @@ $('resetBtn').onclick=()=>{if(online){toast(T('noOnlineReset'));return;}newGame(
 $('rematchBtn').onclick=()=>{if(online){$('ov').classList.remove('show');onlineRematch();return;}$('ov').classList.remove('show');newGame();};
 $('onCreate').onclick=()=>createRoom();
 $('onJoin').onclick=()=>joinRoom();
-$('onBack').onclick=()=>{stopPublicListing();leaveOnline();mode=menuMode;ffaN=ffaNMenu;$('online').classList.remove('show');};
+// Beide Back-Wege (Header-Pfeil + unterer Button) nehmen denselben Pfad; danach laeuft
+// die Public-Liste fuer die Home-Rooms-Vorschau weiter (startPublicListing stoppt zuerst).
+const onlineBack=()=>{leaveOnline();mode=menuMode;ffaN=ffaNMenu;$('online').classList.remove('show');
+  whenFB(()=>{if(fbReady()&&menuVisible)startPublicListing();});updScrollHint();};
+$('onBack').onclick=onlineBack;
+$('onBack2').onclick=onlineBack;
 $('onInput').addEventListener('input',e=>{e.target.value=e.target.value.toUpperCase().replace(/[^A-Z0-9]/g,'');});
 // Player name: sanitize + persist on every edit; push live to the roster if already
 // seated so the lobby/HUD update for everyone. The record write is same-id (allowed).
@@ -1114,8 +1391,21 @@ $('nameInput').addEventListener('input',e=>{ setOnlineName(e.target.value);
   // consistent state, so log only (no rollback needed).
   if(online&&roomCode){ try{ window.FB.set(rRef('players/'+myPlayer),playerRecord(myPlayer)).catch(err=>console.warn('[online] name push failed:',err)); }catch(err){} } });
 $('rejoinBtn').onclick=()=>{ const sr=savedRoom(); if(!sr)return; $('onRejoin').style.display='none'; attemptRejoin(sr.code); };
-function showMenu(){menuVisible=true;$('menu').style.display='flex';$('game').style.display='none';updateMenuPreview();resize();}
-function showGame(){menuVisible=false;$('menu').style.display='none';$('game').style.display='flex';}   // Gameplay-Framing kommt via newGame()->resize()
+function showMenu(){menuVisible=true;$('menu').style.display='flex';$('game').style.display='none';updateMenuPreview();resize();
+  whenFB(()=>{if(fbReady()&&menuVisible)startPublicListing();});updScrollHint();}   // Home-Rooms-Vorschau reaktivieren
+function showGame(){menuVisible=false;$('menu').style.display='none';$('game').style.display='flex';stopPublicListing();updScrollHint();}   // Gameplay-Framing kommt via newGame()->resize()
+// Scroll-Cue der Startseite: transienter Onboarding-Hinweis — sichtbar nur solange
+// das Menue oben steht UND scrollbar ist; nach dem ersten Scroll oder ein paar
+// Sekunden endgueltig ausgeblendet (ueberdeckt nie dauerhaft Inhalte am Viewport-Rand).
+let scrollHintDone=false;
+function updScrollHint(){
+  const m=$('menu'),h=$('scrollHint');if(!h)return;
+  if(m.scrollTop>=24)scrollHintDone=true;   // einmal gescrollt -> Cue hat seinen Zweck erfuellt
+  const show=!scrollHintDone&&menuVisible&&!$('online').classList.contains('show')&&m.scrollHeight>m.clientHeight+30&&m.scrollTop<24;
+  h.classList.toggle('show',show);
+}
+$('menu').addEventListener('scroll',updScrollHint,{passive:true});
+window.addEventListener('resize',()=>updScrollHint());
 
 // ════ SOUND ════
 const SFX=(()=>{
@@ -1300,29 +1590,33 @@ window.addEventListener('pointerdown',()=>SFX.unlock(),{once:true});
 // VIBE_CLICK_MS) -> kein doppelter Sound. Deaktivierte Buttons feuern nativ weder 'click' noch
 // Pointer-/Key-Events -> kein Extra-Guard fuer Sound/Vibration noetig;
 // el.disabled wird in pressStart trotzdem defensiv geprueft.
+// Wiederverwendbar fuer statische UND dynamisch erzeugte Buttons (z.B. Public-Room-Join):
+// haengt Press-FX + optional den Klick-Sound an EIN Element. onclick muss vor dem Wiring
+// gesetzt sein (der Sound-Wrapper ruft den Original-Handler unveraendert weiter auf).
+function wireBtnFx(el,withSound){
+  const pressStart=()=>{if(!el.disabled)el.classList.add('pressed');};
+  const pressEnd=()=>el.classList.remove('pressed');
+  el.classList.add('press-fx');
+  if(withSound){
+    const orig=el.onclick;
+    el.onclick=function(e){if(!el.disabled&&SFX.click())vibrateMs(VIBE_CLICK_MS);if(orig)orig.call(this,e);};
+  }
+  el.addEventListener('pointerdown',pressStart);
+  el.addEventListener('pointerup',pressEnd);
+  el.addEventListener('pointercancel',pressEnd);   // Touch-Scroll ueber dem Button -> Press-State sauber loesen
+  el.addEventListener('pointerleave',pressEnd);    // Abbruch: Pointer wird bei gedrueckter Taste herausgezogen
+  el.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '||e.key==='Spacebar')pressStart();});
+  el.addEventListener('keyup',e=>{if(e.key==='Enter'||e.key===' '||e.key==='Spacebar')pressEnd();});
+  el.addEventListener('blur',pressEnd);   // Sicherheitsnetz: Fokus weg waehrend Taste gehalten -> nie haengen bleiben
+}
 function wireMenuClickFeedback(){
   const IDS=['cardFfa','card2v2','cardBot','ctaBtn','vs1v1','vs2v2','vsBack',
-    'bot1v1','bot2v2','botBack','ffaOnline','onCreate','onJoin','onBack','lobbyStart',
+    'bot1v1','bot2v2','botBack','ffaOnline','onCreate','onJoin','onBack','onBack2','lobbyStart',
+    'homeViewAll','homeCreate','pubRefresh','onVisPriv','onVisPub',
     'menuSet','setClose','langEn','langDe','langTr','vibeOnBtn','vibeOffBtn','menuBtn',
     'startBtn','rematchBtn','ovMenuBtn','leaveCancel','leaveGo'];
   const SOUND_IDS=new Set(IDS.filter(id=>id!=='ctaBtn'));
-  const pressStart=el=>{if(!el.disabled)el.classList.add('pressed');};
-  const pressEnd=el=>el.classList.remove('pressed');
-  for(const id of IDS){
-    const el=$(id);if(!el)continue;
-    el.classList.add('press-fx');
-    if(SOUND_IDS.has(id)){
-      const orig=el.onclick;
-      el.onclick=function(e){if(!el.disabled&&SFX.click())vibrateMs(VIBE_CLICK_MS);if(orig)orig.call(this,e);};
-    }
-    el.addEventListener('pointerdown',()=>pressStart(el));
-    el.addEventListener('pointerup',()=>pressEnd(el));
-    el.addEventListener('pointercancel',()=>pressEnd(el));
-    el.addEventListener('pointerleave',()=>pressEnd(el));   // Abbruch: Pointer wird bei gedrueckter Taste herausgezogen
-    el.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '||e.key==='Spacebar')pressStart(el);});
-    el.addEventListener('keyup',e=>{if(e.key==='Enter'||e.key===' '||e.key==='Spacebar')pressEnd(el);});
-    el.addEventListener('blur',()=>pressEnd(el));   // Sicherheitsnetz: Fokus weg waehrend Taste gehalten -> nie haengen bleiben
-  }
+  for(const id of IDS){ const el=$(id); if(el)wireBtnFx(el,SOUND_IDS.has(id)); }
 }
 wireMenuClickFeedback();
 
@@ -1993,12 +2287,22 @@ function renderLobby(p){
   $('lobbyHint').textContent=host?'Sitzlücke: Warte auf freien Sitz / Spieler soll neu beitreten.':'Warte auf Host…';
   $('lobbyHint').style.display=(host?(gap&&n>=2):true)?'':'none';
 }
+// Kopfbereich der Online-Seite: zweifarbiger Titel (ONLINE · FFA/1v1/2v2), Untertitel,
+// Spielerzahl-Badge — eine Stelle fuer openOnline UND attemptRejoin.
+function setOnTitle(ffa){
+  $('onTitleMode').textContent=ffa?'FFA':(fmt==='double'?'2v2':'1v1');
+  $('onCtxt').textContent=ffa?T('onSubFfa'):T('onSubVs');
+  $('onBadgeN').textContent=ffa?'2–5':'2';
+}
 function openOnline(){
   if(TUNE){toast('Tuning aktiv — Online deaktiviert');return;}
-  $('onTitle').textContent=mode==='ffa'?'ONLINE-FFA':'ONLINE 1v1';
-  $('onCtxt').textContent=mode==='ffa'?T('dlgFfa'):T('dlg1v1');
+  setOnTitle(mode==='ffa');
   $('online').classList.add('show');
-  $('onCreate').style.display='';$('onJoinRow').style.display='flex';$('onWait').style.display='none';
+  $('online').scrollTop=0;
+  updScrollHint();
+  // Sichtbarkeit laeuft ueber den Aktions-CONTAINER (Create-/Join-Karten) — die
+  // inneren IDs (onCreate/onJoinRow/onInput/onJoin) bleiben stabil.
+  $('onActions').style.display='';$('onWait').style.display='none';
   $('onLobby').style.display='none';$('nameRow').style.display='';
   $('onVisRow').style.display='';$('onPublic').style.display='';
   createVisibility='private';   // safe default on every open — no accidental public create
@@ -2060,7 +2364,7 @@ function createRoom(){
       playersRoster={0:rec};
       rememberRoom(code,0);
       hidePublicUI();   // entered a room -> stop the listener, hide the public UI
-      $('onCreate').style.display='none';$('onJoinRow').style.display='none';$('onWait').style.display='';
+      $('onActions').style.display='none';$('onWait').style.display='';
       $('onCode').textContent=code;
       if(ffa){ $('onLobby').style.display=''; renderLobby({0:{s:onlineTab,on:true,t:Date.now()}}); setStatus(T('ffaShare')); }
       else setStatus((fmt==='double'?'2v2 · ':'1v1 · ')+T('shareCode'));
@@ -2078,8 +2382,10 @@ function createRoom(){
 // Listener: startPublicListing stoppt einen bestehenden zuerst. Alle Namen werden nur
 // sanitisiert und ueber textContent gesetzt.
 let publicUnsub=null, publicRenderToken=0;
-function setPublicState(msg){ const el=$('onPublicState'); if(el)el.textContent=msg||''; }
-function clearPublicRows(){ const el=$('onPublicList'); if(el)el.textContent=''; }
+// Zwei Render-Ziele, EIN Listener: die volle Liste auf der Online-Seite und die
+// Home-Vorschau (max. 3 Zeilen) auf der Startseite werden immer gemeinsam bedient.
+function setPublicState(msg){ for(const id of ['onPublicState','homeRoomsState']){ const el=$(id); if(el)el.textContent=msg||''; } }
+function clearPublicRows(){ for(const id of ['onPublicList','homeRoomsList']){ const el=$(id); if(el)el.textContent=''; } }
 function startPublicListing(){
   if(!fbReady())return;
   stopPublicListing();               // never stack two listeners
@@ -2113,22 +2419,30 @@ async function renderPublicList(codes){
   renderPublicRows(shown);
   setPublicState(shown.length?'':T('pubEmpty'));
 }
+const PUB_MODE_LABEL={single:'1v1',double:'2v2',ffa:'FFA'};
+const HOME_ROOMS_MAX=3;   // Home-Vorschau bewusst kompakt — volle Liste auf der Online-Seite
+function buildRoomRow(code,view,fromHome){
+  const row=document.createElement('div'); row.className='proom';
+  const dot=document.createElement('span'); dot.className='pr-dot';
+  const main=document.createElement('div'); main.className='pr-main';
+  const host=document.createElement('div'); host.className='pr-host';
+  host.textContent=sanitizeName(view.host)||T('namePlayer');   // textContent -> XSS-safe
+  const meta=document.createElement('div'); meta.className='pr-meta';
+  meta.textContent=(PUB_MODE_LABEL[view.mode]||view.mode)+' · '+view.active+'/'+view.capacity;
+  main.appendChild(host); main.appendChild(meta);
+  const btn=document.createElement('button'); btn.className='pr-join'; btn.type='button';
+  btn.textContent=T('pubJoin');
+  // Home-Join: erst die Online-Seite oeffnen (Status/Fehler sichtbar), dann der
+  // unveraenderte joinPublicRoom->joinRoom-Pfad — keine zweite Join-Implementierung.
+  btn.onclick=fromHome?()=>{mode='ffa';openOnline();joinPublicRoom(code);}:()=>joinPublicRoom(code);
+  wireBtnFx(btn,true);
+  row.appendChild(dot); row.appendChild(main); row.appendChild(btn);
+  return row;
+}
 function renderPublicRows(shown){
-  const list=$('onPublicList'); if(!list)return; list.textContent='';
-  const MODE_LABEL={single:'1v1',double:'2v2',ffa:'FFA'};
-  for(const {code,view} of shown){
-    const row=document.createElement('div'); row.className='proom';
-    const main=document.createElement('div'); main.className='pr-main';
-    const host=document.createElement('div'); host.className='pr-host';
-    host.textContent=sanitizeName(view.host)||T('namePlayer');   // textContent -> XSS-safe
-    const meta=document.createElement('div'); meta.className='pr-meta';
-    meta.textContent=(MODE_LABEL[view.mode]||view.mode)+' · '+view.active+'/'+view.capacity;
-    main.appendChild(host); main.appendChild(meta);
-    const btn=document.createElement('button'); btn.className='pr-join'; btn.type='button';
-    btn.textContent=T('pubJoin'); btn.onclick=()=>joinPublicRoom(code);
-    row.appendChild(main); row.appendChild(btn);
-    list.appendChild(row);
-  }
+  const list=$('onPublicList'),home=$('homeRoomsList');
+  if(list){ list.textContent=''; for(const {code,view} of shown)list.appendChild(buildRoomRow(code,view,false)); }
+  if(home){ home.textContent=''; for(const {code,view} of shown.slice(0,HOME_ROOMS_MAX))home.appendChild(buildRoomRow(code,view,true)); }
 }
 // Public join: hand ONLY the room code to the existing joinRoom() path — no second
 // join implementation. The room is re-read and validated there, the seat arbiter is
@@ -2284,8 +2598,8 @@ function joinRoom(){
         winTarget=v.winTarget; fmt='ffa'; gen=v.gen; roomPublic=isPublic;
         rememberRoom(code,c.seat);
         hidePublicUI();   // entered a room -> stop the listener, hide the public UI
-        $('onTitle').textContent='ONLINE-FFA';
-        $('onCreate').style.display='none';$('onJoinRow').style.display='none';$('onLobby').style.display='';
+        setOnTitle(true);
+        $('onActions').style.display='none';$('onLobby').style.display='';
         setStatus(T('connWait'));
         attachRoomListeners();
         return;
@@ -2386,8 +2700,9 @@ async function attemptRejoin(code){
     roomPublic=!!(d.config&&d.config.visibility==='public');   // commit only after a successful claim
     rememberRoom(code,seat);
     hidePublicUI();   // entered a room -> stop the listener, hide the public UI
-    $('onCreate').style.display='none';$('onJoinRow').style.display='none';
-    if(ffa){ $('onTitle').textContent='ONLINE-FFA'; $('onLobby').style.display=''; }
+    $('onActions').style.display='none';
+    setOnTitle(ffa);
+    if(ffa){ $('onLobby').style.display=''; }
     else { $('onWait').style.display=''; }
     $('onCode').textContent=code;
     setStatus(T('rejoinOk'));
@@ -3440,6 +3755,9 @@ function loop(now){
 }
 
 resize();initArenaGeo();newGame();applyLang();   // applyLang (inkl. selectMenuMode) erst hier: PCOLS (const) muss initialisiert sein
+updScrollHint();                                            // Scroll-Cue initial bewerten (Menue ist der Startscreen)
+setTimeout(()=>{scrollHintDone=true;updScrollHint();},8000);   // Onboarding-Cue ist transient (Timer ab Script-Start, Boot ~2s) — nie dauerhaft ueber Inhalten
+whenFB(()=>{ if(fbReady()&&menuVisible)startPublicListing(); });   // Home-Rooms-Vorschau ab Boot (best-effort, ohne FB stiller Leerzustand)
 if(!R3D_WANTED)finishBoot();                     // 2D-Modus: kein 3D-Warten, Menue direkt
 setTimeout(finishBoot,10000);                    // Sicherheitsnetz: nie im Loader haengen bleiben
 requestAnimationFrame(loop);

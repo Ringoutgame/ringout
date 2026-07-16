@@ -42,6 +42,7 @@ const SRC = [
   grab(/function seatsContiguous\(p,n\)\{[^\n]*/, 'seatsContiguous'),
   grab(/async function claimSeat\(code,op\)\{[\s\S]*?\n\}/, 'claimSeat'),
   grab(/function renderLobby\(p\)\{[\s\S]*?\n\}/, 'renderLobby'),
+  grab(/function setOnTitle\(ffa\)\{[\s\S]*?\n\}/, 'setOnTitle'),
   grab(/function openOnline\(\)\{[\s\S]*?\n\}/, 'openOnline'),
   grab(/function createRoom\(\)\{[\s\S]*?\n\}/, 'createRoom'),
   grab(/function joinRoom\(\)\{[\s\S]*?\n\}/, 'joinRoom'),
@@ -364,6 +365,7 @@ function makeClient(db, code, forcePid) {
     function removePublicListing(){} function writePublicListing(){return Promise.resolve();}
     function publicListingRef(){return null;} function hidePublicUI(){}
     function startPublicListing(){} function stopPublicListing(){} function setOn(){}
+    function updScrollHint(){}   // Scroll-Cue der Startseite: reine UI, im Race-Harness inert
     let phase='over', curAimer=0, balls=[], aimSet=[], commitIdx=[], commitAim=[], commitSpin=[], score=[];
     let replaying=false, repPlaying=false;
     const cx=500, cy=500, BR=32; let R=485;
