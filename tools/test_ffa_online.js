@@ -30,7 +30,7 @@ const env = new Function(`
   ${genSrc}
   ${vrSrc}
   ${pfsSrc}
-  let mode='ffa', ffaN=3, balls=[], aimSet=[];
+  let mode='ffa', ffaN=3, fmt='ffa', balls=[], aimSet=[];   // fmt: startFfaMatch-Gate (triple_ffa braucht exakt 3)
   function np(){return mode==='ffa'?ffaN:2;}
   function aliveCount(o){let n=0;for(const b of balls)if(b.alive&&b.owner===o)n++;return n;}
   ${aacSrc}
@@ -53,7 +53,7 @@ const env = new Function(`
   ${sfmSrc}
   return { validateRoom, pickFreeSeat, seatCount, seatsContiguous,
     aac(m,n,bs,as){mode=m;ffaN=n;balls=bs;aimSet=as;return allAliveCommitted();},
-    async start(p){writes.length=0;toasts.length=0;btn.disabled=false;lobbyP=p;
+    async start(p,f){writes.length=0;toasts.length=0;btn.disabled=false;lobbyP=p;fmt=f||'ffa';
       startFfaMatch();await new Promise(r=>setTimeout(r,0));
       return {writes:writes.slice(),toasts:toasts.slice(),disabled:btn.disabled};} };
 `)();
@@ -132,6 +132,22 @@ t('sg reserved-not-active is a gap', env.seatsContiguous({ 0: A, 1: { on: false 
   t('start 2p writes state then seats', r.writes.join('|') === 'state=playing|seats=2' && r.disabled === true);
   r = await env.start({ 0: A, 1: A, 2: A, 3: A, 4: A });
   t('start 5p seats=5', r.writes.join('|') === 'state=playing|seats=5');
+
+  // ── (7) triple_ffa: validateRoom-Schema + Start-Gate exakt 3 Spieler ──
+  const tripleRoom = (over = {}) => Object.assign(
+    { v: VER, config: { winTarget: 3, fmt: 'triple_ffa', visibility: 'private' }, gen: 0, state: 'lobby', p: { 0: { on: true } }, created: 1 }, over);
+  t('triple lobby valid -> seat 1', (() => { const v = env.validateRoom(tripleRoom()); return v.ok === true && v.freeSeat === 1 && v.fmt === 'triple_ffa'; })());
+  t('triple full (3 seats) rejected', env.validateRoom(tripleRoom({ p: { 0: { on: true }, 1: true, 2: true } })).reason === 'Raum ist schon voll.');
+  t('triple state playing rejected', env.validateRoom(tripleRoom({ state: 'playing' })).reason === 'Match läuft bereits.');
+  t('triple gap -> lowest free seat 2', env.validateRoom(tripleRoom({ p: { 0: { on: true }, 1: true } })).freeSeat === 2);
+  r = await env.start({ 0: A, 1: A }, 'triple_ffa');
+  t('triple start with 2 blocked', r.writes.length === 0 && r.toasts[0] === 'TRIPLE FFA braucht genau 3 Spieler.');
+  r = await env.start({ 0: A, 1: A, 2: A }, 'triple_ffa');
+  t('triple start 3p writes state then seats=3', r.writes.join('|') === 'state=playing|seats=3' && r.disabled === true);
+  // aac mit 2 Kugeln pro Owner: Seat mit 1 Restkugel zaehlt weiter, Seat ohne Kugeln nicht
+  t('aac triple all committed', env.aac('ffa', 3, [B(0), B(1), B(2), B(0), B(1), B(2)], [true, true, true]) === true);
+  t('aac triple one-ball seat still counts', env.aac('ffa', 3, [B(0), B(1), B(2), B(0, false), B(1), B(2)], [false, true, true]) === false);
+  t('aac triple eliminated (both balls) not counted', env.aac('ffa', 3, [B(0, false), B(1), B(2), B(0, false), B(1), B(2)], [false, true, true]) === true);
 
   console.log('\nFFA-Online-Prep: ' + pass + ' passed, ' + fail + ' failed');
   process.exit(fail ? 1 : 0);

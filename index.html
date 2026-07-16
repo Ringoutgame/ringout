@@ -423,6 +423,13 @@ body:not(.r3d) .ohero{height:12px}
       <span class="msub">2–5 PLAYERS</span>
       <span class="ms">Play in a free-for-all with players worldwide.</span>
     </button>
+    <button class="mcard" id="cardTriple">
+      <span class="chip">ACTIVE</span>
+      <span class="mic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="6.4" r="2.5"/><circle cx="6.4" cy="16.6" r="2.5"/><circle cx="17.6" cy="16.6" r="2.5"/><path d="M10.6 8.6l-2.9 5.3M13.4 8.6l2.9 5.3M9 16.6h6"/></svg></span>
+      <span class="mt">TRIPLE FFA</span>
+      <span class="msub">3 PLAYERS</span>
+      <span class="ms">2 balls per player — free-for-all.</span>
+    </button>
     <button class="mcard" id="card2v2">
       <span class="chip">ACTIVE</span>
       <span class="mic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="9" cy="8.6" r="3"/><path d="M3.4 19c0-3.1 2.6-4.8 5.6-4.8s5.6 1.7 5.6 4.8"/><circle cx="16.6" cy="9.4" r="2.4"/><path d="M16 14.4c2.6.3 4.7 1.9 4.7 4.4"/></svg></span>
@@ -1093,7 +1100,7 @@ function startLobbyHostGrace(){
   lobbyHostGraceTimer=setTimeout(()=>{
     lobbyHostGraceTimer=null;
     if(ctx.sid!==onlineSessionId||ctx.room!==roomCode)return;
-    if(gameStarted||fmt!=='ffa'||myPlayer===0)return;
+    if(gameStarted||!ffaRoom()||myPlayer===0)return;
     if(seatActive(lobbyP,0))return;   // host came back within the grace
     onLobbyClosed();
   },LOBBY_HOST_GRACE_MS);
@@ -1103,7 +1110,7 @@ function startLobbyHostGrace(){
 //   host record gone (left) -> close the lobby immediately
 //   host record kept (reload)-> start/keep the grace and wait for the return
 function evalLobbyHostPresence(){
-  if(!(online&&fmt==='ffa'&&!gameStarted&&myPlayer!==0))return;
+  if(!(online&&ffaRoom()&&!gameStarted&&myPlayer!==0))return;
   if(seatActive(lobbyP,0)){ clearLobbyHostGrace(); return; }
   if(!(playersRoster&&playersRoster[0])){ clearLobbyHostGrace(); onLobbyClosed(); return; }
   startLobbyHostGrace();
@@ -1116,7 +1123,7 @@ loadOnlineIdentity();   // stable pid + fresh tab token + persisted name, once p
 //   PI/2+seat*2*PI/N wird auf PI/2 zurueckgedreht (Seat 0: 0, wie lokal).
 function viewAngle(){
   if(!online)return 0;
-  if(mode==='ffa')return -(myPlayer*2*Math.PI/ffaN);
+  if(mode==='ffa')return -(myPlayer*2*Math.PI/(ffaN*teamCap()));   // TRIPLE FFA: /6 — erste eigene Kugel vorne/unten
   return myPlayer===1?Math.PI:0;
 }
 
@@ -1139,7 +1146,7 @@ $('w5').onclick=()=>{winTarget=5;setOn('winGrp','w5');};
 [['np2',2],['np3',3],['np4',4],['np5',5]].forEach(([id,n])=>{$(id).onclick=()=>{ffaN=ffaNMenu=n;setOn('ffaGrp',id);};});
 // Online-FFA (live seit M8-T3c): Button oeffnet den Online-Dialog im FFA-Kontext
 // (mode==='ffa') — createRoom baut daraus den ffa-Raum mit state:'lobby'.
-$('ffaOnline').onclick=()=>{SFX.unlock();openOnline();};
+$('ffaOnline').onclick=()=>{SFX.unlock();fmt='ffa';openOnline();};
 // Public-Lobby: Sichtbarkeits-Auswahl beim Erstellen (Default privat).
 $('onVisPriv').onclick=()=>{createVisibility='private';setOn('onVisGrp','onVisPriv');};
 $('onVisPub').onclick=()=>{createVisibility='public';setOn('onVisGrp','onVisPub');};
@@ -1150,6 +1157,7 @@ $('onVisPub').onclick=()=>{createVisibility='public';setOn('onVisGrp','onVisPub'
 let menuSel='ffa';
 const MENU_SEL={
   ffa:{card:'cardFfa',cta:'ctaFfa',info:'infoFfa'},
+  triple:{card:'cardTriple',cta:'ctaTriple',info:'infoTriple'},   // TRIPLE FFA: 3 Spieler, 2 Kugeln pro Spieler (fmt 'triple_ffa')
   vs:{card:'card2v2',cta:'ctaVs',info:'infoVs'},   // Online Versus: 2 ECHTE Spieler, Format 1v1/2v2 im Modal
   bot:{card:'cardBot',cta:'ctaBot',info:'infoBot'}
 };
@@ -1170,6 +1178,9 @@ function selectMenuMode(m){
 const I18N={
 en:{tagline:'PULL BACK · RELEASE · KNOCK THEM OUT',chip:'ACTIVE',
   ffaT:'ONLINE FFA',ffaS:'2–5 PLAYERS',ffaD:'Play in a free-for-all with players worldwide.',
+  tripleT:'TRIPLE FFA',tripleS:'3 PLAYERS',tripleD:'2 balls per player — free-for-all.',
+  ctaTriple:'PLAY TRIPLE FFA',infoTriple:'3 PLAYERS · 2 BALLS EACH · HOST STARTS',
+  onSubTriple:'Triple FFA · exactly 3 players',tripleShare:'TRIPLE FFA · Share the code with 2 friends.',
   vsT:'ONLINE VERSUS',vsS:'1v1 OR 2v2',vsD:'Challenge other players in head-to-head matches.',
   botT:'BOT TRAINING',botS:'VS AI',botD:'Practice against AI and improve your skills.',
   secPlay:'PLAY',secRooms:'ONLINE ROOMS',secHow:'HOW TO PLAY',viewAll:'VIEW ALL',
@@ -1201,6 +1212,9 @@ en:{tagline:'PULL BACK · RELEASE · KNOCK THEM OUT',chip:'ACTIVE',
   pubLoading:'Loading rooms…',pubEmpty:'No public rooms right now.',pubError:'Couldn’t load rooms.'},
 de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'AKTIV',
   ffaT:'ONLINE FFA',ffaS:'2–5 SPIELER',ffaD:'Spiel ein Free-for-all gegen Spieler weltweit.',
+  tripleT:'TRIPLE FFA',tripleS:'3 SPIELER',tripleD:'2 Kugeln pro Spieler — jeder gegen jeden.',
+  ctaTriple:'TRIPLE FFA SPIELEN',infoTriple:'3 SPIELER · 2 KUGELN JE SPIELER · HOST STARTET',
+  onSubTriple:'Triple FFA · genau 3 Spieler',tripleShare:'TRIPLE FFA · Schick den Code an 2 Freunde.',
   vsT:'ONLINE VERSUS',vsS:'1v1 ODER 2v2',vsD:'Fordere andere Spieler im direkten Duell heraus.',
   botT:'BOT-TRAINING',botS:'GEGEN KI',botD:'Trainiere gegen die KI und verbessere dein Spiel.',
   secPlay:'SPIELEN',secRooms:'ONLINE-RÄUME',secHow:'SO WIRD GESPIELT',viewAll:'ALLE ANZEIGEN',
@@ -1232,6 +1246,9 @@ de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'AKTIV',
   pubLoading:'Räume werden geladen…',pubEmpty:'Gerade keine öffentlichen Räume.',pubError:'Räume konnten nicht geladen werden.'},
 tr:{tagline:'GERİ ÇEK · BIRAK · DIŞARI İT',chip:'AKTİF',
   ffaT:'ONLINE FFA',ffaS:'2–5 OYUNCU',ffaD:'Dünya çapında oyunculara karşı serbest mücadele.',
+  tripleT:'TRIPLE FFA',tripleS:'3 OYUNCU',tripleD:'Oyuncu başına 2 top — herkes tek.',
+  ctaTriple:'TRIPLE FFA OYNA',infoTriple:'3 OYUNCU · HERKESE 2 TOP · HOST BAŞLATIR',
+  onSubTriple:'Triple FFA · tam 3 oyuncu',tripleShare:'TRIPLE FFA · Kodu 2 arkadaşına gönder.',
   vsT:'ONLINE VERSUS',vsS:'1v1 VEYA 2v2',vsD:'Diğer oyunculara kafa kafaya meydan oku.',
   botT:'BOT ANTRENMANI',botS:'YAPAY ZEKÂYA KARŞI',botD:'Yapay zekâya karşı antrenman yap, ustalaş.',
   secPlay:'OYNA',secRooms:'ONLINE ODALAR',secHow:'NASIL OYNANIR',viewAll:'TÜMÜNÜ GÖR',
@@ -1271,6 +1288,9 @@ function applyLang(){
   document.querySelector('#cardFfa .mt').textContent=T('ffaT');
   document.querySelector('#cardFfa .msub').textContent=T('ffaS');
   document.querySelector('#cardFfa .ms').textContent=T('ffaD');
+  document.querySelector('#cardTriple .mt').textContent=T('tripleT');
+  document.querySelector('#cardTriple .msub').textContent=T('tripleS');
+  document.querySelector('#cardTriple .ms').textContent=T('tripleD');
   document.querySelector('#card2v2 .mt').textContent=T('vsT');
   document.querySelector('#card2v2 .msub').textContent=T('vsS');
   document.querySelector('#card2v2 .ms').textContent=T('vsD');
@@ -1325,6 +1345,7 @@ $('vibeOnBtn').disabled=$('vibeOffBtn').disabled=!VIBE_SUPPORTED;
 for(const[id,on]of[['vibeOnBtn',true],['vibeOffBtn',false]])
   $(id).onclick=()=>{vibrationOn=on;try{localStorage.setItem('ringout_vibe',on?'1':'0');}catch(e){}setOn('vibeGrp',id);};
 $('cardFfa').onclick=()=>selectMenuMode('ffa');
+$('cardTriple').onclick=()=>selectMenuMode('triple');
 $('card2v2').onclick=()=>selectMenuMode('vs');
 $('cardBot').onclick=()=>selectMenuMode('bot');
 $('ctaBtn').onclick=()=>{
@@ -1334,7 +1355,8 @@ $('ctaBtn').onclick=()=>{
   // "Play Online FFA": normaler Klick, aber weiterhin die deutlichere Vibration
   // (25ms statt 10ms) — nur hier, weil die Aktion tatsaechlich angenommen wird
   // (nicht durch TUNE blockiert).
-  if(menuSel==='ffa'){if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);mode='ffa';openOnline();return;}        // createRoom liest mode==='ffa' -> ffa-Raum (state:'lobby')
+  if(menuSel==='ffa'){if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);mode='ffa';fmt='ffa';openOnline();return;}        // createRoom liest mode==='ffa' -> ffa-Raum (state:'lobby')
+  if(menuSel==='triple'){if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);mode='ffa';fmt='triple_ffa';openOnline();return;}   // TRIPLE FFA: derselbe Online-Flow, fmt traegt das Format
   if(SFX.click())vibrateMs(VIBE_CLICK_MS);$('vsOv').classList.add('show');                                    // Online Versus: Format-Auswahl 1v1 / 2v2 Duo
 };
 // Versus-Modal: setzt fmt wie frueher die Format-Pills, dann der bestehende Online-Flow
@@ -1353,6 +1375,7 @@ $('menuSnd').onclick=()=>{soundOn=!soundOn;const g=soundOn?'🔊':'🔇';$('menu
 function updateMenuPreview(){
   if(online)return;   // nie eine laufende Online-Session anfassen (Karten sind dann eh verdeckt)
   if(menuSel==='ffa'){mode=menuMode='ffa';fmt='ffa';ffaN=5;}          // 5 Kugeln: Blau/Rot/Gruen/Gelb/Schwarz
+  else if(menuSel==='triple'){mode=menuMode='ffa';fmt='triple_ffa';ffaN=3;}   // TRIPLE-Preview: 6 Kugeln Blau/Rot/Gruen alternierend
   else if(menuSel==='vs'){mode=menuMode='online';fmt='double';}       // Versus-Preview: 2v2-Duo-Layout (2 blaue vs 2 rote)
   else{mode=menuMode='bot';fmt='single';}                             // 1v1: Spieler vs Bot
   R=R0;outBall=-1;placeBalls();   // frische Plattformgroesse + kein Fall-Rest aus einem Vorspiel
@@ -1360,8 +1383,8 @@ function updateMenuPreview(){
 $('lobbyStart').onclick=()=>startFfaMatch();
 // Home-Rooms-Sektion: VIEW ALL / CREATE ROOM oeffnen die Online-FFA-Seite — der echte
 // openOnline-Flow (Erstellen erst nach Name/Sichtbarkeit dort). Kein Fake-Quick-Match.
-$('homeViewAll').onclick=()=>{SFX.unlock();mode='ffa';openOnline();};
-$('homeCreate').onclick=()=>{SFX.unlock();mode='ffa';openOnline();};
+$('homeViewAll').onclick=()=>{SFX.unlock();mode='ffa';fmt='ffa';openOnline();};
+$('homeCreate').onclick=()=>{SFX.unlock();mode='ffa';fmt='ffa';openOnline();};
 // Public-Liste manuell auffrischen (Listener ist ohnehin live; Refresh startet ihn neu)
 $('pubRefresh').onclick=()=>{whenFB(()=>{if(fbReady())startPublicListing();});};
 $('startBtn').onclick=()=>{SFX.unlock();if(mode==='online'){openOnline();return;}online=false;showGame();newGame();};
@@ -1700,13 +1723,22 @@ function mkBall(x,y,owner){return{x,y,vx:0,vy:0,sx:x,sy:y,owner,alive:true,spin:
 function aliveBalls(owner){return balls.filter(b=>b.alive&&b.owner===owner);}
 function aliveCount(owner){let n=0;for(const b of balls)if(b.alive&&b.owner===owner)n++;return n;}
 function np(){return mode==='ffa'?ffaN:2;}   // Spieleranzahl der Partie (Bestandsmodi: immer 2)
-function teamCap(){return mode!=='ffa'&&fmt==='double'?2:1;}
+// Kugeln pro Spieler: 2 im 2v2-Doppel UND im TRIPLE FFA (fmt 'triple_ffa' —
+// FFA-Variante mit exakt 3 Spielern, laeuft komplett ueber die FFA-Systeme).
+function teamCap(){return (mode!=='ffa'&&fmt==='double')||fmt==='triple_ffa'?2:1;}
+// FFA-Raeume: 'ffa' und 'triple_ffa' teilen Lobby/Seats/Sentinel-Pfad …
+function ffaRoom(){return fmt==='ffa'||fmt==='triple_ffa';}
+// … aber TRIPLE FFA hat exakt 3 Sitze (Rules-gesichert), klassisches FFA 5.
+function ffaSeatCap(){return fmt==='triple_ffa'?3:FFA_MAX_SEATS;}
 
 function placeBalls(){
   balls=[];
-  if(mode==='ffa'){                                  // FFA: je 1 Kugel, gleichmaessig im Kreis, Spieler 1 unten
-    const rr=R*0.57;
-    for(let i=0;i<ffaN;i++){const a=Math.PI/2+i*2*Math.PI/ffaN;balls.push(mkBall(cx+Math.cos(a)*rr,cy+Math.sin(a)*rr,i));}
+  if(mode==='ffa'){                                  // FFA: gleichmaessig im Kreis, Spieler 1 unten.
+    // TRIPLE FFA (teamCap 2): 6 Positionen, Owner alternierend 0,1,2,0,1,2 —
+    // die beiden Kugeln eines Spielers liegen sich dadurch exakt gegenueber.
+    // Klassisches FFA (teamCap 1): i%ffaN === i -> bit-identisch zu vorher.
+    const rr=R*0.57,tot=ffaN*teamCap();
+    for(let i=0;i<tot;i++){const a=Math.PI/2+i*2*Math.PI/tot;balls.push(mkBall(cx+Math.cos(a)*rr,cy+Math.sin(a)*rr,i%ffaN));}
   }else if(fmt==='double'){const ox=R*0.30,oy=R*0.55;
     balls.push(mkBall(cx-ox,cy+oy,0),mkBall(cx+ox,cy+oy,0));
     balls.push(mkBall(cx-ox,cy-oy,1),mkBall(cx+ox,cy-oy,1));
@@ -1762,6 +1794,7 @@ function setPhaseText(){const p=$('phase');
       if(mode==='ffa'){   // Online-FFA: Eliminierte schauen zu, Seat-Farbe statt me0/me1-Klassen
         if(!aliveCount(myPlayer))p.textContent='💀 Du bist raus — Zuschauen';
         else if(aimSet[myPlayer])p.textContent='⏳ Warte auf die anderen…';
+        else if(fmt==='triple_ffa'&&aliveCount(myPlayer)>1)p.innerHTML='Wähle <span style="color:'+PCOLS[myPlayer].ui+'">eine deiner Kugeln</span> & zieh zurück';
         else p.innerHTML='Zieh <span style="color:'+PCOLS[myPlayer].ui+'">deine Kugel zurück</span> & lass los';
       }
       else p.innerHTML = aimSet[myPlayer] ? '⏳ Warte auf Gegner…' : (fmt==='double'?'Wähle <span class="me'+myPlayer+'">eine Kugel</span> & zieh zurück':'Zieh <span class="me'+myPlayer+'">deine Kugel zurück</span> & lass los');
@@ -2265,34 +2298,36 @@ function setStatus(t){const e=$('onStatus');if(e)e.textContent=t;}
 // Start-Gate: keine Sitzluecken (kein Auto-Nachruecken in v1 — siehe seatsContiguous).
 function renderLobby(p){
   lobbyP=p;   // Snapshot fuer startFfaMatch (Host prueft n>=2 + Lueckenfreiheit)
+  const cap=ffaSeatCap(),trip=fmt==='triple_ffa';   // TRIPLE FFA: exakt 3 Sitze, Start nur bei 3/3
   let n=0,h='';
-  for(let s=0;s<FFA_MAX_SEATS;s++){
+  for(let s=0;s<cap;s++){
     const here=seatActive(p,s);if(here)n++;
     h+='<div style="width:26px;height:26px;border-radius:50%;'+(here
       ?'background:'+PCOLS[s].ui+';box-shadow:0 0 8px '+PCOLS[s].ui+(s===myPlayer?';outline:2px solid #fff':'')
       :'border:2px dashed #2a3850')+'"></div>';
   }
-  $('lobbySeats').innerHTML=h;$('lobbyCount').textContent=n+'/'+FFA_MAX_SEATS;
+  $('lobbySeats').innerHTML=h;$('lobbyCount').textContent=n+'/'+cap;
   // Names are untrusted input -> ONLY ever via textContent, never innerHTML. Each
   // seat has a fixed row; occupied seats show the roster name in the seat color.
   for(let s=0;s<FFA_MAX_SEATS;s++){
     const row=$('lobbyName'+s); if(!row)continue;
-    if(seatActive(p,s)){ row.textContent=nameForSeat(s); row.style.display=''; row.style.color=PCOLS[s].ui; }
+    if(s<cap&&seatActive(p,s)){ row.textContent=nameForSeat(s); row.style.display=''; row.style.color=PCOLS[s].ui; }
     else { row.textContent=''; row.style.display='none'; }
   }
   $('lobbyMine').textContent=T('youAre')+' '+nameForSeat(myPlayer);
   const host=myPlayer===0,gap=!seatsContiguous(p,n);
   $('lobbyStart').style.display=host?'':'none';
-  $('lobbyStart').disabled=n<2||gap;
-  $('lobbyHint').textContent=host?'Sitzlücke: Warte auf freien Sitz / Spieler soll neu beitreten.':'Warte auf Host…';
-  $('lobbyHint').style.display=(host?(gap&&n>=2):true)?'':'none';
+  $('lobbyStart').disabled=trip?(n!==3||gap):(n<2||gap);
+  $('lobbyHint').textContent=host?(trip&&n<3?'TRIPLE FFA braucht genau 3 Spieler.':'Sitzlücke: Warte auf freien Sitz / Spieler soll neu beitreten.'):'Warte auf Host…';
+  $('lobbyHint').style.display=(host?((gap&&n>=2)||(trip&&n<3)):true)?'':'none';
 }
 // Kopfbereich der Online-Seite: zweifarbiger Titel (ONLINE · FFA/1v1/2v2), Untertitel,
 // Spielerzahl-Badge — eine Stelle fuer openOnline UND attemptRejoin.
 function setOnTitle(ffa){
-  $('onTitleMode').textContent=ffa?'FFA':(fmt==='double'?'2v2':'1v1');
-  $('onCtxt').textContent=ffa?T('onSubFfa'):T('onSubVs');
-  $('onBadgeN').textContent=ffa?'2–5':'2';
+  const trip=ffa&&fmt==='triple_ffa';
+  $('onTitleMode').textContent=trip?'TRIPLE FFA':ffa?'FFA':(fmt==='double'?'2v2':'1v1');
+  $('onCtxt').textContent=trip?T('onSubTriple'):ffa?T('onSubFfa'):T('onSubVs');
+  $('onBadgeN').textContent=trip?'3':ffa?'2–5':'2';
 }
 function openOnline(){
   if(TUNE){toast('Tuning aktiv — Online deaktiviert');return;}
@@ -2328,7 +2363,9 @@ function createRoom(){
     try{
       setStatus(T('creating'));
       for(let t=0;t<6;t++){ code=rrand(4); const s=await window.FB.get(window.FB.ref(window.FB.db,'rooms/'+code)); if(!joinOpCurrent(op))return; if(!s.exists())break; }
-      const fmtNew=ffa?'ffa':fmt, rec=playerRecord(0);
+      // FFA-Kontext traegt das konkrete Format im fmt-Global: 'triple_ffa' bleibt
+      // erhalten (TRIPLE-Karte/CTA), jedes andere Rest-fmt wird zu 'ffa' normalisiert.
+      const fmtNew=ffa?(fmt==='triple_ffa'?'triple_ffa':'ffa'):fmt, rec=playerRecord(0);
       // Einheitlicher Room-State (Paket A, letzte Blocker): ALLE Modi starten in
       // 'lobby'. Der explizite State ersetzt die frueheren indirekten Nicht-FFA-
       // Heuristiken (fehlende Presence/players/g) als alleinige Wahrheit fuer
@@ -2366,7 +2403,7 @@ function createRoom(){
       hidePublicUI();   // entered a room -> stop the listener, hide the public UI
       $('onActions').style.display='none';$('onWait').style.display='';
       $('onCode').textContent=code;
-      if(ffa){ $('onLobby').style.display=''; renderLobby({0:{s:onlineTab,on:true,t:Date.now()}}); setStatus(T('ffaShare')); }
+      if(ffa){ $('onLobby').style.display=''; renderLobby({0:{s:onlineTab,on:true,t:Date.now()}}); setStatus(T(fmtNew==='triple_ffa'?'tripleShare':'ffaShare')); }
       else setStatus((fmt==='double'?'2v2 · ':'1v1 · ')+T('shareCode'));
       attachRoomListeners();
     }catch(e){
@@ -2419,7 +2456,7 @@ async function renderPublicList(codes){
   renderPublicRows(shown);
   setPublicState(shown.length?'':T('pubEmpty'));
 }
-const PUB_MODE_LABEL={single:'1v1',double:'2v2',ffa:'FFA'};
+const PUB_MODE_LABEL={single:'1v1',double:'2v2',ffa:'FFA',triple_ffa:'TRIPLE FFA'};
 const HOME_ROOMS_MAX=3;   // Home-Vorschau bewusst kompakt — volle Liste auf der Online-Seite
 function buildRoomRow(code,view,fromHome){
   const row=document.createElement('div'); row.className='proom';
@@ -2477,7 +2514,7 @@ function validateRoom(d){
   if(!d||typeof d!=='object')return{ok:false,reason:'Raumdaten ungültig.'};
   if(d.v!==ONLINE_PROTOCOL_VERSION)return{ok:false,reason:'Versionen stimmen nicht überein — bitte beide Seite neu laden.'};
   const cfg=d.config;
-  if(!cfg||typeof cfg!=='object'||(cfg.winTarget!==3&&cfg.winTarget!==5)||(cfg.fmt!=='single'&&cfg.fmt!=='double'&&cfg.fmt!=='ffa'))
+  if(!cfg||typeof cfg!=='object'||(cfg.winTarget!==3&&cfg.winTarget!==5)||(cfg.fmt!=='single'&&cfg.fmt!=='double'&&cfg.fmt!=='ffa'&&cfg.fmt!=='triple_ffa'))
     return{ok:false,reason:'Raum-Konfiguration ungültig.'};
   // Public-Lobby (feature/public-lobby-mvp): visibility ist Pflicht und exakt
   // 'private' | 'public'. Fehlend/ungueltig -> Ablehnung (kein stiller Default).
@@ -2488,11 +2525,11 @@ function validateRoom(d){
     return{ok:false,reason:'Raum-Konfiguration ungültig.'};
   const p=d.p;
   if(!p||typeof p!=='object'||!(p[0]&&p[0].on===true))return{ok:false,reason:'Raum ist verwaist.'};
-  if(cfg.fmt==='ffa'){
-    // FFA-Raum (live seit M8-T3c): Beitritt nur solange die Lobby offen ist
-    // und ein Seat 1-4 frei ist.
+  if(cfg.fmt==='ffa'||cfg.fmt==='triple_ffa'){
+    // FFA-Raum (live seit M8-T3c) / TRIPLE FFA (exakt 3 Sitze): Beitritt nur
+    // solange die Lobby offen ist und ein Gast-Seat frei ist.
     if(d.state!=='lobby')return{ok:false,reason:'Match läuft bereits.'};
-    const seat=pickFreeSeat(p,FFA_MAX_SEATS);
+    const seat=pickFreeSeat(p,cfg.fmt==='triple_ffa'?3:FFA_MAX_SEATS);
     if(seat<0)return{ok:false,reason:'Raum ist schon voll.'};
     return{ok:true,winTarget:cfg.winTarget,fmt:cfg.fmt,gen:d.gen,freeSeat:seat};
   }
@@ -2518,14 +2555,14 @@ function publicListingView(d,now){
   if(d.v!==ONLINE_PROTOCOL_VERSION)return{show:false,remove:true};
   const cfg=d.config;
   if(!cfg||typeof cfg!=='object'||cfg.visibility!=='public')return{show:false,remove:true};
-  if(cfg.fmt!=='single'&&cfg.fmt!=='double'&&cfg.fmt!=='ffa')return{show:false,remove:true};
+  if(cfg.fmt!=='single'&&cfg.fmt!=='double'&&cfg.fmt!=='ffa'&&cfg.fmt!=='triple_ffa')return{show:false,remove:true};
   if(!Number.isFinite(d.created)||(now-d.created)>=ROOM_MAX_AGE_MS)return{show:false,remove:true};
   if(d.state!=='lobby')return{show:false,remove:true};   // match started/finished -> stale
   // From here the listing itself is valid; it is only HIDDEN (not removed) for transient
   // reasons that may recover: a host reload, or a currently full room.
   const p=d.p;
   if(!(p&&p[0]&&p[0].on===true))return{show:false,remove:false};   // host offline (maybe reloading)
-  const capacity=cfg.fmt==='ffa'?FFA_MAX_SEATS:2;
+  const capacity=cfg.fmt==='ffa'?FFA_MAX_SEATS:cfg.fmt==='triple_ffa'?3:2;
   let active=0; for(let s=0;s<capacity;s++)if(p&&p[s]&&p[s].on===true)active++;
   if(active>=capacity)return{show:false,remove:false};             // full -> hide, may free up
   const players=d.players;
@@ -2545,15 +2582,16 @@ function seatsContiguous(p,n){for(let s=0;s<n;s++)if(!seatActive(p,s))return fal
 // versuchen. Ein fehlgeschlagener Roster-Write nach dem Presence-Gewinn rollt den
 // Sitz zurueck und bricht den Join ab (claimSeatSlot wirft — kein Ghost-Seat).
 // Rueckgabe: {seat,dc} bei Erfolg, {seat:-1} wenn kein Raum/kein freier Sitz.
-async function claimSeat(code,op){
-  for(let t=0;t<FFA_MAX_SEATS;t++){
+async function claimSeat(code,op,maxSeats){
+  maxSeats=maxSeats||FFA_MAX_SEATS;   // TRIPLE FFA: exakt 3 Sitze (Rules-gesichert)
+  for(let t=0;t<maxSeats;t++){
     if(!joinOpCurrent(op))return {seat:-1,dc:null,stale:true};
     const s=await window.FB.get(window.FB.ref(window.FB.db,'rooms/'+code));
     if(!joinOpCurrent(op))return {seat:-1,dc:null,stale:true};
     if(!s.exists())return {seat:-1,dc:null};
     const d=s.val()||{};
     if(d.state!=='lobby')return {seat:-1,dc:null};   // Lobby geschlossen -> Match laeuft bereits
-    const seat=pickFreeSeat(d.p,FFA_MAX_SEATS);
+    const seat=pickFreeSeat(d.p,maxSeats);
     if(seat<0)return {seat:-1,dc:null};
     // KEIN Vorab-Loeschen fremder Records: ein verwaister Fremd-Record wird
     // ausschliesslich INNERHALB des atomaren Claims (Multi-Path p+players) recycelt.
@@ -2589,13 +2627,13 @@ function joinRoom(){
       // roomPublic residue. The displayed room is never authoritative — the seat
       // arbiter decides the actual join, not the list.
       const isPublic=!!(d.config&&d.config.visibility==='public');
-      if(v.fmt==='ffa'){   // M8-T3c: Seat per atomaren write-once-Claim statt fix p/1
-        const c=await claimSeat(code,op);   // rolls its own writes back if the op goes stale
+      if(v.fmt==='ffa'||v.fmt==='triple_ffa'){   // M8-T3c: Seat per atomaren write-once-Claim statt fix p/1
+        const c=await claimSeat(code,op,v.fmt==='triple_ffa'?3:FFA_MAX_SEATS);   // rolls its own writes back if the op goes stale
         if(c.stale)return;                  // op superseded -> globals stay untouched (offline)
         if(c.seat<0){ setStatus(T('roomFull')); return; }
         // remote claim complete -> NOW commit the globals + UI + listeners
         roomCode=code; myPlayer=c.seat; online=true; mode='ffa'; runningGen=-1; gameStarted=false; seatLeft=[]; seatGone=[]; playersRoster=d.players||{};
-        winTarget=v.winTarget; fmt='ffa'; gen=v.gen; roomPublic=isPublic;
+        winTarget=v.winTarget; fmt=v.fmt; gen=v.gen; roomPublic=isPublic;
         rememberRoom(code,c.seat);
         hidePublicUI();   // entered a room -> stop the listener, hide the public UI
         setOnTitle(true);
@@ -2625,6 +2663,7 @@ function joinRoom(){
 // newData.parent().child('state') und saehe den neuen state dort nicht.
 function startFfaMatch(){
   const n=seatCount(lobbyP);
+  if(fmt==='triple_ffa'&&n!==3){toast('TRIPLE FFA braucht genau 3 Spieler.');return;}
   if(n<2){toast('Mindestens 2 Spieler nötig.');return;}
   if(!seatsContiguous(lobbyP,n)){toast('Warte auf freien Sitz / Spieler soll neu beitreten.');return;}
   $('lobbyStart').disabled=true;
@@ -2669,7 +2708,7 @@ async function attemptRejoin(code){
     if(d.v!==ONLINE_PROTOCOL_VERSION){ forgetRoom(); setStatus(T('noRoom')); return false; }
     const seat=findOwnSeat(d.players,onlinePid);
     if(seat<0){ forgetRoom(); setStatus(T('noRoom')); return false; }   // identity no longer holds a seat here
-    const ffa=d.config&&d.config.fmt==='ffa';
+    const ffa=d.config&&(d.config.fmt==='ffa'||d.config.fmt==='triple_ffa');
     if(!roomRejoinableState(d,seat)){ forgetRoom(); setStatus(T('rejoinNoLobby')); return false; }
     if(d.p&&seatActive(d.p,seat)){ setStatus(T('rejoinTab')); return false; }
     // v3 note (B1 scope): this call site is unreachable (no UI path triggers
@@ -2730,9 +2769,9 @@ function attachRoomListeners(){
   presUnsub=window.FB.onValue(rRef('p'), snap=>{
     if(!isCurrentRoom())return;
     const p=snap.val()||{};
-    // Auto-Start nur 1v1/2v2; FFA startet per Host-Start ueber state+seats (M8-T3c)
-    if(fmt!=='ffa' && seatActive(p,0) && seatActive(p,1) && !gameStarted) maybeStart();
-    if(fmt==='ffa' && !gameStarted){
+    // Auto-Start nur 1v1/2v2; FFA/TRIPLE startet per Host-Start ueber state+seats (M8-T3c)
+    if(!ffaRoom() && seatActive(p,0) && seatActive(p,1) && !gameStarted) maybeStart();
+    if(ffaRoom() && !gameStarted){
       renderLobby(p);
       // Host presence gone is no longer an instant close: a reload keeps players/0,
       // so evalLobbyHostPresence holds the lobby open during a short host grace and
@@ -2761,7 +2800,7 @@ function attachRoomListeners(){
   rosterUnsub=window.FB.onValue(rRef('players'), snap=>{
     if(!isCurrentRoom())return;
     playersRoster=snap.val()||{};
-    if(fmt==='ffa' && !gameStarted){ renderLobby(lobbyP); evalLobbyHostPresence(); }
+    if(ffaRoom() && !gameStarted){ renderLobby(lobbyP); evalLobbyHostPresence(); }
     else if(gameStarted) updateHud();
   });
   genUnsub=window.FB.onValue(rRef('gen'), snap=>{
@@ -2771,10 +2810,11 @@ function attachRoomListeners(){
   });
   // FFA-Startsignal: seats existiert (Rule-gesichert) erst NACH state='playing' —
   // ein einziger Listener reicht daher als synchroner Start fuer Host UND Gaeste.
-  if(fmt==='ffa') seatsUnsub=window.FB.onValue(rRef('seats'), snap=>{
+  if(ffaRoom()) seatsUnsub=window.FB.onValue(rRef('seats'), snap=>{
     if(!isCurrentRoom())return;
     const n=snap.val();
     if(gameStarted||!Number.isInteger(n)||n<2||n>FFA_MAX_SEATS)return;
+    if(fmt==='triple_ffa'&&n!==3)return;   // Rules erzwingen seats===3 — alles andere ist manipuliert
     if(myPlayer>=n){   // Race: Seat erst nach dem Host-Kopfzaehlen geclaimt -> sauber aussteigen
       leaveOnline(); openOnline(); setStatus('Das Match ist ohne dich gestartet — tritt einem neuen Raum bei.');
       return;
@@ -2847,7 +2887,9 @@ function writeTurnSlot(s,payload,opts){
 // automatische Retries nach einem echten Transaction-Fehler (s. scheduleSentinelRetry).
 function writeLeaveSentinel(s,attempt){
   if(!online||mode!=='ffa'||!gameStarted||phase!=='aim'||aimSet[s]||pendingSlot[s]||!aliveCount(s))return;
-  writeTurnSlot(s,{idx:(s+1)%FFA_MAX_SEATS,dx:0,dy:0,sp:0},{sentinel:true,attempt:attempt||0});
+  // Sentinel-idx = garantiert KEINE eigene Kugel des Seats: ffa -> fremder Seat-Index,
+  // triple_ffa -> Kugel des naechsten Owners ((s+1)%3, owner!==s). Rules-schemakonform.
+  writeTurnSlot(s,{idx:fmt==='triple_ffa'?(s+1)%3:(s+1)%FFA_MAX_SEATS,dx:0,dy:0,sp:0},{sentinel:true,attempt:attempt||0});
 }
 // P0-Nachbesserung: automatischer, kontextgebundener Retry NUR fuer den system-
 // generierten Leave-Sentinel (ein haengengebliebener Sentinel wuerde den Turn sonst
@@ -2914,7 +2956,10 @@ function processSlot(s,c){
   if(isOnlineTerminated())return;   // Match terminal abgebrochen -> aimSet/commit*/seatGone nicht mehr veraendern
   if(!c||aimSet[s])return;
   clearSentinelRetry(s);   // autoritativer Wert da -> ein evtl. noch wartender Sentinel-Retry ist sofort gegenstandslos
-  if(mode==='ffa'&&c.idx!==s)seatGone[s]=true;   // Leave-Sentinel erkannt (auch fuer den eigenen Seat) -> Ejection bei beginReveal
+  // Leave-Sentinel erkannt (auch fuer den eigenen Seat) -> Ejection bei beginReveal.
+  // Echte Commits tragen im ffa idx===seat, im triple_ffa eine EIGENE Kugel (owner
+  // idx%3===seat); jeder andere idx ist per Konvention der Stand-still-Sentinel.
+  if(mode==='ffa'&&(fmt==='triple_ffa'?!(Number.isInteger(c.idx)&&c.idx%3===s):c.idx!==s))seatGone[s]=true;
   const m=sanitizeMove(s,c.idx,c.dx,c.dy,c.sp);
   commitIdx[s]=m.idx; commitAim[s]={dx:m.dx,dy:m.dy}; commitSpin[s]=m.sp; aimSet[s]=true; updateHud(); setPhaseText();
 }
@@ -3216,8 +3261,8 @@ function draw(){
   ctx.globalAlpha=1;
   if(r3dActive&&fx3.length)drawFx3();
 
-  // selection highlight (Doppel: zeig die waehlbaren eigenen Kugeln)
-  if(fmt==='double'&&mode!=='ffa'&&!dragging){const aimer=whoCanAim();
+  // selection highlight (Doppel/TRIPLE FFA: zeig die waehlbaren eigenen Kugeln)
+  if(((fmt==='double'&&mode!=='ffa')||fmt==='triple_ffa')&&!dragging){const aimer=whoCanAim();
     if(aimer>=0){const col='rgba('+PCOLS[aimer].rgb+',';const a=0.35+0.35*puls;
       for(const b of balls){if(b.alive&&b.owner===aimer){const q=OP(b.x,b.y,0);ctx.beginPath();ctx.arc(q.x,q.y,BR*1.5*q.s,0,7);ctx.lineWidth=Math.max(1.5,BR*0.16*q.s);ctx.setLineDash([BR*0.5*q.s,BR*0.4*q.s]);ctx.strokeStyle=col+a.toFixed(2)+')';ctx.stroke();ctx.setLineDash([]);}}}}
 

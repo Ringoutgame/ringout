@@ -15,16 +15,16 @@ const path = require('path'), { spawnSync } = require('child_process');
 const SUITES = [
   { name: 'Syntax',           file: 'test_syntax.js',         expectPassed: null },
   { name: 'Golden-Physik',    file: 'test_physics_golden.js', expectPassed: 13 },
-  { name: 'r3d-Mapping',      file: 'test_r3d_mapping.js',    expectPassed: 48 },
-  { name: 'Sanitize',         file: 'test_sanitize.js',       expectPassed: 19 },
+  { name: 'r3d-Mapping',      file: 'test_r3d_mapping.js',    expectPassed: 52 },
+  { name: 'Sanitize',         file: 'test_sanitize.js',       expectPassed: 24 },
   { name: 'Identity',         file: 'test_identity.js',       expectPassed: 45 },
   { name: 'ValidateRoom',     file: 'test_validateroom.js',   expectPassed: 45 },
   { name: 'Lockstep',         file: 'test_lockstep.js',       expectPassed: 24 },
   { name: 'FFA-Kern',         file: 'test_ffa.js',            expectPassed: 18 },
-  { name: 'FFA-Online-Prep',  file: 'test_ffa_online.js',     expectPassed: 44 },
+  { name: 'FFA-Online-Prep',  file: 'test_ffa_online.js',     expectPassed: 53 },
   { name: 'FFA-Online-Flow',  file: 'test_ffa_flow.js',       expectPassed: 134 },
   { name: 'FFA-Online-Race',  file: 'test_ffa_race.js',       expectPassed: 115 },
-  { name: 'Rules',            file: 'test_rules.js',          expectPassed: 134 },
+  { name: 'Rules',            file: 'test_rules.js',          expectPassed: 154 },
   { name: 'Public-Lobby',     file: 'test_public_lobby.js',   expectPassed: 30 },
 ];
 

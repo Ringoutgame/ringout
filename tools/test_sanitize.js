@@ -77,6 +77,16 @@ setBalls([{ alive: true, owner: 0 }, { alive: true, owner: 1 }]);
   t('2v2 fallback = first alive of owner', sanitizeMove(1, 2, 0, 0, 0).idx === 3);
   t('2v2 valid second ball accepted', sanitizeMove(0, 1, 0, 0, 0).idx === 1);
 }
+// 7. triple_ffa: 6 balls, owners 0,1,2,0,1,2 — only own balls selectable
+{
+  setBalls([0, 1, 2, 0, 1, 2].map(o => ({ alive: true, owner: o })));
+  t('triple own first ball accepted', sanitizeMove(1, 1, 0, 0, 0).idx === 1);
+  t('triple own second ball accepted', sanitizeMove(1, 4, 0, 0, 0).idx === 4);
+  t('triple foreign ball -> fallback to first own', sanitizeMove(1, 2, 0, 0, 0).idx === 1);
+  t('triple foreign ball of seat 0 -> fallback', sanitizeMove(0, 5, 0, 0, 0).idx === 0);
+  setBalls([{ alive: false, owner: 0 }, { alive: true, owner: 1 }, { alive: true, owner: 2 }, { alive: true, owner: 0 }, { alive: true, owner: 1 }, { alive: true, owner: 2 }]);
+  t('triple first ball dead -> fallback = remaining own ball', sanitizeMove(0, 0, 0, 0, 0).idx === 3);
+}
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

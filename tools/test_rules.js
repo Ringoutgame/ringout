@@ -313,5 +313,32 @@ allow('pub stale delete: both host anchors gone (deliberate host leave)', pubDb(
 deny('pub delete blocked: only p/0 gone (players/0 remains -> not a leave)', pubDb({ p: {} }, LISTING), 'publicRooms/KX7P', null);
 deny('pub delete blocked: only players/0 gone (p/0 remains -> not a leave)', pubDb({ players: {} }, LISTING), 'publicRooms/KX7P', null);
 
+// ── (15) triple_ffa — additive v3 format: seats 0-2 only, seats === 3, idx 0-5.
+//        Ball OWNERSHIP (idx belongs to the committing seat) is deliberately NOT a
+//        rules concern (same as ffa, where a foreign idx is the leave-sentinel) —
+//        it is enforced client-side by sanitizeMove (tools/test_sanitize.js). ──
+const G3_TAB = 'GTAB0003';
+allow('triple create room', { rooms: {} }, 'rooms/KX7P', mkRoom('triple_ffa'));
+allow('triple players/2 create by presence holder (lobby)', db1({ p: { 0: P(H_TAB, false), 2: P(G2_TAB, false) } }, 'triple_ffa'), 'rooms/KX7P/players/2', REC('GUEST002', G2_TAB));
+allow('triple ACTIVATE p/2 (lobby, independent)', db1({ p: { 0: P(H_TAB, true), 2: P(G2_TAB, false) }, players: { 0: HOST, 2: REC('GUEST002', G2_TAB) } }, 'triple_ffa'), 'rooms/KX7P/p/2', P(G2_TAB, true));
+allow('triple start: lobby->playing', db1({ p: { 0: P(H_TAB, true), 1: P(G_TAB, true), 2: P(G2_TAB, true) } }, 'triple_ffa'), 'rooms/KX7P/state', 'playing');
+allow('triple seats=3 after start', db1({ state: 'playing', p: { 0: P(H_TAB, true), 1: P(G_TAB, true), 2: P(G2_TAB, true) } }, 'triple_ffa'), 'rooms/KX7P/seats', 3);
+deny('triple seats=2', db1({ state: 'playing', p: { 0: P(H_TAB, true), 1: P(G_TAB, true), 2: P(G2_TAB, true) } }, 'triple_ffa'), 'rooms/KX7P/seats', 2);
+deny('triple seats=4', db1({ state: 'playing', p: { 0: P(H_TAB, true), 1: P(G_TAB, true), 2: P(G2_TAB, true) } }, 'triple_ffa'), 'rooms/KX7P/seats', 4);
+deny('triple seats while still lobby', db1({ p: { 0: P(H_TAB, true), 1: P(G_TAB, true), 2: P(G2_TAB, true) } }, 'triple_ffa'), 'rooms/KX7P/seats', 3);
+const tripleMatch = playing({ p: { 0: P(H_TAB, true), 1: P(G_TAB, true), 2: P(G2_TAB, true) }, seats: 3 }, 'triple_ffa');
+allow('triple move pl 0 idx 0', tripleMatch, 'rooms/KX7P/g/0/t/0/0', { idx: 0, dx: 10, dy: 10, sp: 0 });
+allow('triple move pl 0 idx 3 (own second ball)', tripleMatch, 'rooms/KX7P/g/0/t/0/0', { idx: 3, dx: 10, dy: 10, sp: 0 });
+allow('triple move pl 1 idx 4', tripleMatch, 'rooms/KX7P/g/0/t/0/1', { idx: 4, dx: 10, dy: 10, sp: 0 });
+allow('triple move pl 2 idx 5', tripleMatch, 'rooms/KX7P/g/0/t/0/2', { idx: 5, dx: 10, dy: 10, sp: 0 });
+deny('triple move idx 6 (out of range)', tripleMatch, 'rooms/KX7P/g/0/t/0/0', { idx: 6, dx: 0, dy: 0, sp: 0 });
+deny('triple move pl 3 (seat gate, presence pre-seeded)', playing({ p: { 0: P(H_TAB, true), 1: P(G_TAB, true), 2: P(G2_TAB, true), 3: P(G3_TAB, true) }, seats: 3 }, 'triple_ffa'), 'rooms/KX7P/g/0/t/0/3', MOVE);
+deny('triple RESERVE seat 3 (seat gate)', db1({}, 'triple_ffa'), 'rooms/KX7P/p/3', P(G3_TAB, false));
+deny('triple ACTIVATE p/3 (seat gate, pre-seeded)', db1({ p: { 0: P(H_TAB, true), 3: P(G3_TAB, false) }, players: { 0: HOST, 3: REC('GUEST003', G3_TAB) } }, 'triple_ffa'), 'rooms/KX7P/p/3', P(G3_TAB, true));
+deny('triple players/3 create (seat gate)', db1({ p: { 0: P(H_TAB, false), 3: P(G3_TAB, false) } }, 'triple_ffa'), 'rooms/KX7P/players/3', REC('GUEST003', G3_TAB));
+deny('triple players/4 create (seat gate)', db1({ p: { 0: P(H_TAB, false), 4: P('GTAB0004', false) } }, 'triple_ffa'), 'rooms/KX7P/players/4', REC('GUEST004', 'GTAB0004'));
+deny('idx 5 in single', playing({ p: { 0: P(H_TAB, true), 1: P(G_TAB, true) } }), 'rooms/KX7P/g/0/t/0/0', { idx: 5, dx: 0, dy: 0, sp: 0 });
+deny('idx 5 in ffa (unchanged)', ffaMatch, 'rooms/KX7P/g/0/t/0/1', { idx: 5, dx: 0, dy: 0, sp: 0 });
+
 console.log('\nRules-Suite (lokal, echte firebase.rules.json): ' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);
