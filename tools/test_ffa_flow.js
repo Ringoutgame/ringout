@@ -90,6 +90,16 @@ const SRC = [
   grab(/function clearLobbyHostGrace\(\)\{[^\n]*/, 'clearLobbyHostGrace'),
   grab(/function startLobbyHostGrace\(\)\{[\s\S]*?\n\}/, 'startLobbyHostGrace'),
   grab(/function evalLobbyHostPresence\(\)\{[\s\S]*?\n\}/, 'evalLobbyHostPresence'),
+  // B2 same-seat reclaim + in-match grace + canonical rehydration
+  grab(/async function reclaimSeat\(code,seat,keepName\)\{[\s\S]*?\n\}/, 'reclaimSeat'),
+  grab(/async function releaseReclaim\(code,seat,dc\)\{[\s\S]*?\n\}/, 'releaseReclaim'),
+  grab(/async function reclaimSeatSlot\(code,seat,op,keepName\)\{[\s\S]*?\n\}/, 'reclaimSeatSlot'),
+  grab(/function validateRejoinRoom\(d\)\{[\s\S]*?\n\}/, 'validateRejoinRoom'),
+  grab(/function clearMatchGrace\(s\)\{[^\n]*/, 'clearMatchGrace'),
+  grab(/function clearAllMatchGrace\(\)\{[^\n]*/, 'clearAllMatchGrace'),
+  grab(/function startMatchGrace\(s\)\{[\s\S]*?\n\}/, 'startMatchGrace'),
+  grab(/function seatFinallyGone\(s\)\{[\s\S]*?\n\}/, 'seatFinallyGone'),
+  grab(/function fastForwardMatch\(turns\)\{[\s\S]*?\n\}/, 'fastForwardMatch'),
   grab(/async function attemptRejoin\(code\)\{[\s\S]*?\n\}/, 'attemptRejoin'),
 ].join('\n');
 
@@ -97,6 +107,9 @@ const SRC = [
 function makeDB() {
   const data = { rooms: {} };
   const listeners = new Set();
+  // B2: advanceable fake server time — the reclaim clauses below compare against
+  // it exactly like the real rules compare (now - data.t) >= 15000.
+  let nowMs = 1751900000000;
   // Failure injection: the next `times` writes whose path starts with `prefix`
   // fail like a transport error (before any data change) — used by the negative
   // claim-lifecycle scenarios (R3/R4).
@@ -180,9 +193,21 @@ function makeDB() {
         if (cur.on === false && val.on === false) return;   // same-token refresh (unused by B1 client)
         throw new Error('PERMISSION_DENIED: p on transition');
       }
-      // Different token than the current holder: recycle/takeover — out of B1
-      // scope (no automatic recycling/takeover implemented), rejected here too.
-      throw new Error('PERMISSION_DENIED: p token mismatch (recycle/takeover not in B1 scope)');
+      // Different token than the current holder — B2 reclaim: identity-bound
+      // re-take of an OFFLINE seat with a new tab token. playing: immediately
+      // (unless the seat is rules-eliminated via g/<gen>/e); lobby: only after
+      // the 15s stale window. The matching players/<seat> write must ride in the
+      // SAME update (merged view) — its same-id rule below keeps the identity
+      // immutable on this path. Everything else stays rejected.
+      if (cur.on === false && val.on === false) {
+        const pl = merged.players(seat);
+        if (pl && pl.tab === val.s) {
+          const ge = room.g && room.g[room.gen];
+          if (room.state === 'playing' && !(ge && ge.e && ge.e[seat] === true)) return;
+          if (room.state === 'lobby' && (nowMs - cur.t) >= 15000) return;
+        }
+      }
+      throw new Error('PERMISSION_DENIED: p token mismatch (reclaim gate)');
     }
     if (key === 'state') {
       // lobby->playing: ffa host-start OR 1v1/2v2 guest claim; p/1 must already be
@@ -291,9 +316,9 @@ function makeDB() {
       set: async (val) => { const key = ref.join('/'); for (let i = ui.onDrop.length - 1; i >= 0; i--) if (ui.onDrop[i].ref.join('/') === key) ui.onDrop.splice(i, 1); ui.onDrop.push({ ref, val }); },
       cancel: async () => { const key = ref.join('/'); for (let i = ui.onDrop.length - 1; i >= 0; i--) if (ui.onDrop[i].ref.join('/') === key) ui.onDrop.splice(i, 1); }
     }),
-    serverTimestamp: () => 1751900000000
+    serverTimestamp: () => nowMs
   });
-  return { data, FBfor, failWrite };
+  return { data, FBfor, failWrite, advance: (ms) => { nowMs += ms; }, now: () => nowMs };
 }
 
 // ── one sandboxed client = the real functions + inert UI/game stubs ──
@@ -326,6 +351,20 @@ function makeClient(db, code, forcePid) {
     const NAME_MAX=16, NAME_MAX_UNITS=48, LOBBY_HOST_GRACE_MS=12000;
     let onlinePid=${JSON.stringify(pid)}, onlineTab=${JSON.stringify(tab)}, onlineName='';
     let playersRoster={}, rosterUnsub=null, lobbyHostGraceTimer=null, joinOpSeq=0;
+    // B2: In-Match-Grace laeuft hier mit ECHTEN Timern, aber 0ms — sie feuert im
+    // naechsten tick() (setImmediate pumpt die Timer-Phase), sodass die zeitfreien
+    // Vor-B2-Disconnect-Asserts (Sofort-Sentinel nach drop) unveraendert gelten.
+    // Das 15s-Reclaim-Fenster ist davon unabhaengig (Fake-DB-Zeit via db.advance).
+    let roomP={}, matchGraceTimer={};
+    const SEAT_STALE_MS=0;
+    // fastForwardMatch-Umgebung: Physik ist hier gestubbt (Flow-Suite testet den
+    // Online-FLOW; die bit-identische Replay-Physik deckt test_reconnect ab).
+    // stepSim-Stub = natuerlicher Turn-Abschluss ohne Ringout: Commits zuruecksetzen,
+    // naechster Turn wird gearmt — exakt der !moving-Zweig des echten stepSim.
+    let soundOn=false, particles=[], fx3=[];
+    function applyLaunch(){setPhase('sim');}
+    function stepSim(){for(let i=0;i<np();i++){aimSet[i]=false;commitIdx[i]=-1;commitAim[i]={dx:0,dy:0};commitSpin[i]=0;}setPhase('aim');if(online){curAimer=myPlayer;onlineArmTurn();}}
+    function afterResult(){}
     // Public-Lobby (feature/public-lobby-mvp): the discovery index itself is not backed
     // by the fake DB, but writePublicListing/removePublicListing RECORD their calls so the
     // create-race + host-leave order can be asserted. bumpAfterListing lets a test make the
@@ -405,7 +444,14 @@ function makeClient(db, code, forcePid) {
 
 let pass = 0, fail = 0;
 const t = (name, cond) => { cond ? pass++ : (fail++, console.error('FAIL: ' + name)); };
-const tick = async (n = 4) => { for (let i = 0; i < n; i++) await new Promise(r => setImmediate(r)); };
+// B2: tick pumpt zusaetzlich EINE reale Timer-Runde (2ms) — die 0ms-Grace-Timer
+// der Sandbox (SEAT_STALE_MS=0) feuern damit deterministisch innerhalb eines
+// tick(), und ihre Folgewrites propagieren in der zweiten setImmediate-Serie.
+const tick = async (n = 4) => {
+  for (let i = 0; i < n; i++) await new Promise(r => setImmediate(r));
+  await new Promise(r => setTimeout(r, 2));
+  for (let i = 0; i < n; i++) await new Promise(r => setImmediate(r));
+};
 // External presence-flap simulation (server-observed disconnect from OUTSIDE any
 // sandboxed client): v3 onDisconnect only ever writes {s,on:false,t} on the SAME
 // token, never removes — this mirrors that for scenarios that flap a seat without
@@ -637,13 +683,11 @@ async function dropSeat(db, code, seat) {
     t('N1 nameFor falls back to color for empty roster name', h.nameFor(1) === 'col1');
   }
 
-  // ── R1 (B1-revised): guest reload in the lobby — presence goes inactive
-  //    (on:false, never removed) but the roster record lingers. B1 deliberately
-  //    implements NO automatic recycling/takeover: a fresh join by a DIFFERENT
-  //    identity claims the NEXT free seat (2), not the stale one, and the
-  //    original identity's own direct rejoin attempt is safely rejected (dead
-  //    code path — attemptRejoin/roomRejoinableState stay schema-compatible but
-  //    unreachable from the UI; real same-seat rejoin is Paket B/B2). ──
+  // ── R1 (B2): guest reload in the lobby — presence goes inactive (on:false,
+  //    never removed) but the roster record lingers. A fresh join by a DIFFERENT
+  //    identity still claims the NEXT free seat. The original identity reclaims
+  //    its OWN seat via attemptRejoin: rejected while the rules' 15s stale
+  //    window is closed (rejoinWait), restored once it opens. ──
   {
     const db = makeDB();
     const h = makeClient(db, 'RJN1'); h.setMenu('ffa', 3); h.create(); await tick();
@@ -656,16 +700,18 @@ async function dropSeat(db, code, seat) {
     t('R1 no recycling: a new guest claims the NEXT free seat, not the stale one', g2.st().myPlayer === 2);
     t('R1 stale seat 1 untouched by the new joiner', db.data.rooms.RJN1.p[1].on === false && db.data.rooms.RJN1.players[1].id === gpid);
     const g3 = makeClient(db, 'X', gpid); g3.setMenu('online');
-    const ok = await g3.rejoin('RJN1');
-    t('R1 direct rejoin of the stale seat by the SAME identity is safely rejected', ok === false && g3.st().online === false);
-    t('R1 rejected rejoin left the stale seat exactly as-is', db.data.rooms.RJN1.p[1].on === false && db.data.rooms.RJN1.players[1].id === gpid);
+    const early = await g3.rejoin('RJN1'); await tick();
+    t('R1 rejoin before the 15s stale window is rejected (rejoinWait)', early === false && g3.st().online === false && g3.status() === 'rejoinWait');
+    t('R1 early attempt left the stale seat exactly as-is', db.data.rooms.RJN1.p[1].on === false && db.data.rooms.RJN1.players[1].id === gpid);
+    db.advance(15001);
+    const ok = await g3.rejoin('RJN1'); await tick();
+    t('R1 rejoin after the stale window restores the SAME seat', ok === true && g3.st().online === true && g3.st().myPlayer === 1 && g3.st().mode === 'ffa' && g3.st().fmt === 'ffa');
+    t('R1 seat re-activated, id preserved, no extra seat created', db.data.rooms.RJN1.p[1].on === true && db.data.rooms.RJN1.players[1].id === gpid && db.data.rooms.RJN1.p[3] == null);
   }
 
-  // ── R2 (B1-revised): host reload does NOT close the FFA lobby at once (grace) —
-  //    that part of Paket A is a presence-tolerance feature, not a rejoin, and
-  //    stays active. Actually reclaiming seat 0 during the grace still needs the
-  //    recycling this task deliberately does not implement, so a direct host
-  //    rejoin attempt is safely rejected. ──
+  // ── R2 (B2): host reload does NOT close the FFA lobby at once (grace, which
+  //    now outlasts the rules' 15s reclaim window). The host reclaims seat 0 via
+  //    attemptRejoin once the stale window opens; the guest's grace clears. ──
   {
     const db = makeDB();
     const h = makeClient(db, 'RJN2'); h.setMenu('ffa', 3); h.create(); await tick();
@@ -674,9 +720,13 @@ async function dropSeat(db, code, seat) {
     h.drop(); await tick();                              // host reload: p/0 on:false, players/0 kept
     t('R2 guest keeps the lobby open during the host grace', g.st().online === true && g.hasGrace() === true);
     const h2 = makeClient(db, 'X', hpid); h2.setMenu('ffa');
+    const early = await h2.rejoin('RJN2'); await tick();
+    t('R2 host rejoin before the stale window is rejected (rejoinWait)', early === false && h2.st().online === false && h2.status() === 'rejoinWait');
+    t('R2 host seat left inactive by the early attempt', db.data.rooms.RJN2.p[0].on === false);
+    db.advance(15001);
     const ok = await h2.rejoin('RJN2'); await tick();
-    t('R2 direct host rejoin during the grace is rejected (no recycling in B1)', ok === false && h2.st().online === false);
-    t('R2 host seat left inactive, not restored by the rejected rejoin', db.data.rooms.RJN2.p[0].on === false);
+    t('R2 host rejoin after the stale window restores seat 0', ok === true && h2.st().myPlayer === 0 && h2.st().online === true && db.data.rooms.RJN2.p[0].on === true);
+    t('R2 guest grace cleared once the host is back', g.st().online === true && g.hasGrace() === false);
   }
 
   // ── R3: one path of the ATOMIC claim (players/1) fails -> the whole multi-path
@@ -756,11 +806,10 @@ async function dropSeat(db, code, seat) {
     t('R6 record creation during a running match denied', denied && !(db.data.rooms.ATK1.players && db.data.rooms.ATK1.players[2]));
   }
 
-  // ── R7: host rejoin during a RUNNING ffa match is rejected by the CLIENT
-  //    boundary (roomRejoinableState requires state==='lobby') — maybeStart can
-  //    never locally restart a running room. This is a client-side gate check
-  //    only; the exact rule-level permission matrix for p/<seat> is covered by
-  //    test_rules.js directly against the real firebase.rules.json. ──
+  // ── R7 (B2): host rejoin during a RUNNING ffa match SUCCEEDS — identity-bound
+  //    mid-match reclaim (immediate, no stale window) + canonical rehydration.
+  //    gameStarted is set BEFORE the listeners attach, so maybeStart/seats can
+  //    never locally restart the running room. ──
   {
     const db = makeDB();
     const h = makeClient(db, 'RUN1'); h.setMenu('ffa', 3); h.create(); await tick();
@@ -770,16 +819,15 @@ async function dropSeat(db, code, seat) {
     h.drop(); await tick();                       // host reload mid-match
     const h2 = makeClient(db, 'X', hpid); h2.setMenu('ffa');
     const ok = await h2.rejoin('RUN1'); await tick();
-    t('R7 host rejoin during running ffa match rejected', ok === false && h2.st().online === false && h2.st().gameStarted === false && h2.status() === 'rejoinNoLobby');
-    t('R7 host presence left inactive, untouched by the rejected rejoin', db.data.rooms.RUN1.p[0].on === false);
+    t('R7 host rejoin during running ffa match succeeds (B2)', ok === true && h2.st().online === true && h2.st().gameStarted === true && h2.st().myPlayer === 0);
+    t('R7 canonical config rehydrated (fmt/ffaN from the room)', h2.st().fmt === 'ffa' && h2.st().mode === 'ffa' && h2.st().ffaN === 2 && h2.st().phase === 'aim');
+    t('R7 host presence re-activated on the same seat, id preserved', db.data.rooms.RUN1.p[0].on === true && db.data.rooms.RUN1.players[0].id === hpid);
   }
 
-  // ── R8 (B1-revised): 1v1 — host reload while still waiting for a guest leaves
-  //    the host presence inactive (no recycling => the room reads as orphaned to
-  //    new joiners, exactly like validateRoom is supposed to reject an inactive
-  //    host); a direct host rejoin attempt is rejected too. Separately, once a
-  //    match is running NORMALLY (no reload involved), rejoin (host or guest) is
-  //    rejected by the client-side lobby-only boundary. ──
+  // ── R8 (B2): 1v1 — host reload while still waiting for a guest: reclaim only
+  //    after the lobby stale window (rejoinWait before; the room reads as
+  //    orphaned to NEW joiners meanwhile — unchanged). Once a match is RUNNING,
+  //    host AND guest reclaim their seats immediately (identity-bound). ──
   {
     const db = makeDB();
     const h = makeClient(db, 'SGL2'); h.setMenu('online'); h.create(); await tick();
@@ -787,11 +835,14 @@ async function dropSeat(db, code, seat) {
     h.drop(); await tick();                       // host reload while waiting
     const h2 = makeClient(db, 'X', hpid); h2.setMenu('online');
     const okWait = await h2.rejoin('SGL2'); await tick();
-    t('R8 1v1 host rejoin while waiting rejected (no recycling in B1)', okWait === false && h2.st().online === false);
+    t('R8 1v1 host rejoin before the stale window rejected (rejoinWait)', okWait === false && h2.st().online === false && h2.status() === 'rejoinWait');
     const gOrphan = makeClient(db, 'X'); gOrphan.setMenu('online'); gOrphan.join('SGL2'); await tick();
     t('R8 1v1 room reads as orphaned to joiners while host is inactive', gOrphan.status() === 'Raum ist verwaist.' && gOrphan.st().online === false);
+    db.advance(15001);
+    const okLate = await h2.rejoin('SGL2'); await tick();
+    t('R8 1v1 host reclaims seat 0 after the stale window', okLate === true && h2.st().myPlayer === 0 && h2.st().mode === 'online' && h2.st().fmt === 'single' && db.data.rooms.SGL2.p[0].on === true);
 
-    // Separate room: a normal 1v1 match (no reload) running -> rejoin rejected.
+    // Separate room: a RUNNING 1v1 match -> mid-match reclaim is immediate.
     const db2 = makeDB();
     const h3 = makeClient(db2, 'SGL3'); h3.setMenu('online'); h3.create(); await tick();
     const h3pid = h3.pid();
@@ -800,15 +851,16 @@ async function dropSeat(db, code, seat) {
     h3.drop(); await tick();                      // host reload mid-match
     const h4 = makeClient(db2, 'X', h3pid); h4.setMenu('online');
     const okRun = await h4.rejoin('SGL3'); await tick();
-    t('R8 1v1 host rejoin after match start rejected', okRun === false && h4.st().online === false && h4.status() === 'rejoinNoLobby' && db2.data.rooms.SGL3.p[0].on === false);
+    t('R8 1v1 host match rejoin succeeds immediately (B2)', okRun === true && h4.st().online === true && h4.st().gameStarted === true && h4.st().myPlayer === 0 && db2.data.rooms.SGL3.p[0].on === true);
     const g3pid = g3.pid();
     g3.drop(); await tick();
     const g4 = makeClient(db2, 'X', g3pid); g4.setMenu('online');
     const okG = await g4.rejoin('SGL3'); await tick();
-    t('R8 1v1 guest rejoin rejected (their join started the match)', okG === false && g4.status() === 'rejoinNoLobby');
+    t('R8 1v1 guest match rejoin succeeds on the same seat (B2)', okG === true && g4.st().myPlayer === 1 && g4.st().gameStarted === true && db2.data.rooms.SGL3.p[1].on === true);
   }
 
-  // ── R9: 2v2 — same boundary: match rejoin rejected ──
+  // ── R9 (B2): 2v2 — mid-match host reclaim succeeds and keeps fmt 'double'
+  //    (the canonical config is never normalized to 'ffa' — the historic B2 bug). ──
   {
     const db = makeDB();
     const h = makeClient(db, 'DBL1'); h.setMenu('online'); h.setFmt('double'); h.create(); await tick();
@@ -818,7 +870,7 @@ async function dropSeat(db, code, seat) {
     h.drop(); await tick();
     const h2 = makeClient(db, 'X', hpid); h2.setMenu('online');
     const ok = await h2.rejoin('DBL1'); await tick();
-    t('R9 2v2 host match rejoin rejected', ok === false && h2.status() === 'rejoinNoLobby' && db.data.rooms.DBL1.p[0].on === false);
+    t('R9 2v2 host match rejoin succeeds with fmt double (never normalized)', ok === true && h2.st().fmt === 'double' && h2.st().mode === 'online' && h2.st().gameStarted === true && db.data.rooms.DBL1.p[0].on === true);
   }
 
   // ── R10 (B1-revised, replaces old R10/RN1): a stale (disconnected) seat is

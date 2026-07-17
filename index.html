@@ -894,7 +894,15 @@ let onlinePid='', onlineTab='', onlineName='';
 let playersRoster={};      // last players/<seat> snapshot -> lobby + HUD names
 let rosterUnsub=null;
 let lobbyHostGraceTimer=null;
-const LOBBY_HOST_GRACE_MS=12000;   // lobby-only: a host reload must not close the room at once
+// B2: client mirror of the rules' 15s stale-reservation window — a p/<seat> node
+// holding a FOREIGN token may only be re-taken in the lobby after this long
+// without a presence write. The same value paces the in-match disconnect grace,
+// so a short reload can never eliminate a seat before its player could return.
+const SEAT_STALE_MS=15000;
+// lobby-only: a host reload must not close the room at once. Must OUTLAST the
+// reclaim window above, or guests close the lobby before the host is even
+// ALLOWED to re-take seat 0 under the rules.
+const LOBBY_HOST_GRACE_MS=SEAT_STALE_MS+5000;
 // Random url-safe token in [A-Za-z0-9_-] (matches the rules charset). Uses the
 // Web Crypto RNG; falls back to Math.random only where getRandomValues is absent.
 function genToken(n){
@@ -1054,6 +1062,51 @@ async function claimSeatSlot(code,seat,op,extra){
   if(op!=null&&!joinOpCurrent(op)){ await releaseReservation(code,seat,dc); return {ok:false,stale:true,dc:null}; }
   return {ok:true,dc:dc};
 }
+// ════ B2 same-seat reclaim: RECLAIM -> ARM -> ACTIVATE ════
+// Counterpart of claimSeatSlot for a seat whose p/<seat> node ALREADY exists
+// (a previous session's token). The atomic p+players write carries the NEW tab
+// token with the SAME durable id — exactly the shape the v3 rules accept
+// immediately while state==='playing' (identity-bound re-take of an offline
+// seat) and in the lobby once the SEAT_STALE_MS window has passed. Foreign
+// seats are rules-rejected: this path can never change players/<seat>/id.
+// keepName restores the roster name the seat already carries when no locally
+// persisted name exists (rules require name length>=1).
+async function reclaimSeat(code,seat,keepName){
+  const rec=playerRecord(seat);
+  if(!onlineName&&keepName)rec.name=keepName;
+  const upd={}; upd['p/'+seat]={s:onlineTab,on:false,t:window.FB.serverTimestamp()}; upd['players/'+seat]=rec;
+  try{ await window.FB.update(window.FB.ref(window.FB.db,'rooms/'+code),upd); return {ok:true}; }
+  catch(e){
+    if(/permission[_ ]?denied/i.test(String((e&&(e.code||e.message))||e)))return {ok:false,lost:true};
+    throw e;
+  }
+}
+// Rollback of a stale/failed reclaim: NEVER deletes the records (they existed
+// before this op — deleting would free the seat for strangers). Just drops the
+// own presence back to on:false and disarms the onDisconnect. Best-effort: a
+// rejected drop (e.g. another own tab already re-took the seat) stays harmless.
+async function releaseReclaim(code,seat,dc){
+  try{ await window.FB.set(window.FB.ref(window.FB.db,'rooms/'+code+'/p/'+seat),{s:onlineTab,on:false,t:window.FB.serverTimestamp()}); }
+  catch(e){ console.error('[online] reclaim rollback failed (seat '+seat+'):',e); }
+  if(dc){ try{ await dc.cancel(); }catch(e){ console.error('[online] onDisconnect cancel failed (seat '+seat+'):',e); } }
+}
+// Orchestrates the reclaim lifecycle under the join-op guard, mirroring
+// claimSeatSlot. Outcomes: {ok:true,dc} re-activated · {lost:true} rules denied
+// (foreign tab active / stale window not open / seat re-assigned) · {stale:true}
+// op superseded (own presence dropped again, records kept).
+async function reclaimSeatSlot(code,seat,op,keepName){
+  const r=await reclaimSeat(code,seat,keepName);
+  if(!r.ok)return {ok:false,lost:true,dc:null};
+  if(op!=null&&!joinOpCurrent(op)){ await releaseReclaim(code,seat,null); return {ok:false,stale:true,dc:null}; }
+  let dc=null;
+  try{ dc=await armPresence(code,seat); }
+  catch(e){ await releaseReclaim(code,seat,null); throw e; }
+  if(op!=null&&!joinOpCurrent(op)){ await releaseReclaim(code,seat,dc); return {ok:false,stale:true,dc:null}; }
+  try{ await activateSeat(code,seat); }
+  catch(e){ await releaseReclaim(code,seat,dc); throw e; }
+  if(op!=null&&!joinOpCurrent(op)){ await releaseReclaim(code,seat,dc); return {ok:false,stale:true,dc:null}; }
+  return {ok:true,dc:dc};
+}
 // Best-effort teardown of a just-created room whose create/arm/activate flow
 // failed or went stale. Nobody else can know the code yet (it is only revealed
 // in the UI after a successful ACTIVATE), so a full room removal is safe.
@@ -1206,6 +1259,7 @@ en:{tagline:'PULL BACK · RELEASE · KNOCK THEM OUT',chip:'ACTIVE',
   nameYou:'YOU',nameOpp:'OPPONENT',namePlayer:'Player',youAre:'YOU ARE',
   nameLbl:'YOUR NAME',namePh:'Name',rejoinBtn:'Rejoin',rejoinAsk:'Rejoin room {code}?',
   rejoinNoLobby:'Room is no longer in the lobby.',rejoinTab:'Seat is active in another tab.',rejoinOk:'Rejoined.',
+  rejoinWait:'Seat still reserved — try again in a few seconds.',
   visLbl:'VISIBILITY',visPriv:'Private',visPub:'Public',pubTitle:'PUBLIC ROOMS',pubJoin:'Join',
   pubLoading:'Loading rooms…',pubEmpty:'No public rooms right now.',pubError:'Couldn’t load rooms.'},
 de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'AKTIV',
@@ -1243,6 +1297,7 @@ de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'AKTIV',
   nameYou:'DU',nameOpp:'GEGNER',namePlayer:'Spieler',youAre:'DU BIST',
   nameLbl:'DEIN NAME',namePh:'Name',rejoinBtn:'Wieder beitreten',rejoinAsk:'Raum {code} wieder beitreten?',
   rejoinNoLobby:'Raum ist nicht mehr in der Lobby.',rejoinTab:'Sitz ist in einem anderen Tab aktiv.',rejoinOk:'Wieder beigetreten.',
+  rejoinWait:'Sitz ist noch reserviert — versuche es in ein paar Sekunden erneut.',
   visLbl:'SICHTBARKEIT',visPriv:'Privat',visPub:'Öffentlich',pubTitle:'ÖFFENTLICHE RÄUME',pubJoin:'Beitreten',
   pubLoading:'Räume werden geladen…',pubEmpty:'Gerade keine öffentlichen Räume.',pubError:'Räume konnten nicht geladen werden.'},
 tr:{tagline:'GERİ ÇEK · BIRAK · DIŞARI İT',chip:'AKTİF',
@@ -1280,6 +1335,7 @@ tr:{tagline:'GERİ ÇEK · BIRAK · DIŞARI İT',chip:'AKTİF',
   nameYou:'SEN',nameOpp:'RAKİP',namePlayer:'Oyuncu',youAre:'RENGİN',
   nameLbl:'ADIN',namePh:'Ad',rejoinBtn:'Tekrar katıl',rejoinAsk:'{code} odasına tekrar katıl?',
   rejoinNoLobby:'Oda artık lobide değil.',rejoinTab:'Koltuk başka bir sekmede etkin.',rejoinOk:'Yeniden katıldın.',
+  rejoinWait:'Koltuk hâlâ ayrılmış — birkaç saniye sonra tekrar dene.',
   visLbl:'GÖRÜNÜRLÜK',visPriv:'Özel',visPub:'Herkese açık',pubTitle:'AÇIK ODALAR',pubJoin:'Katıl',
   pubLoading:'Odalar yükleniyor…',pubEmpty:'Şu an açık oda yok.',pubError:'Odalar yüklenemedi.'}
 };
@@ -1419,7 +1475,10 @@ $('nameInput').addEventListener('input',e=>{ setOnlineName(e.target.value);
   // Live same-id refresh; a denied/failed push leaves the old (valid) record —
   // consistent state, so log only (no rollback needed).
   if(online&&roomCode){ try{ window.FB.set(rRef('players/'+myPlayer),playerRecord(myPlayer)).catch(err=>console.warn('[online] name push failed:',err)); }catch(err){} } });
-$('rejoinBtn').onclick=()=>{ const sr=savedRoom(); if(!sr)return; $('onRejoin').style.display='none'; attemptRejoin(sr.code); };
+// B2: ein fehlgeschlagener Versuch (z. B. Lobby-Stale-Fenster noch zu, siehe
+// rejoinWait) zeigt die Bar wieder — ausser der Raum ist tot (savedRoom weg).
+$('rejoinBtn').onclick=()=>{ const sr=savedRoom(); if(!sr)return; $('onRejoin').style.display='none';
+  attemptRejoin(sr.code).then(ok=>{ if(!ok&&savedRoom()&&!online)$('onRejoin').style.display=''; }); };
 function showMenu(){menuVisible=true;$('menu').style.display='flex';$('game').style.display='none';updateMenuPreview();resize();
   whenFB(()=>{if(fbReady()&&menuVisible)startPublicListing();});updScrollHint();}   // Home-Rooms-Vorschau reaktivieren
 function showGame(){menuVisible=false;$('menu').style.display='none';$('game').style.display='flex';stopPublicListing();updScrollHint();}   // Gameplay-Framing kommt via newGame()->resize()
@@ -2417,10 +2476,12 @@ function openOnline(){
   createVisibility='private';   // safe default on every open — no accidental public create
   setOn('onVisGrp','onVisPriv');
   $('onCode').textContent='';$('onInput').value='';$('nameInput').value=onlineName;setStatus('');
-  // Lobby-Rejoin bleibt bis B2 deaktiviert (v3 braucht dafuer Stale-Reservierungs-
-  // Recycling, das hier bewusst nicht implementiert ist — siehe attemptRejoin).
-  // Die Affordance wird deshalb nie gezeigt, auch wenn ein savedRoom() existiert.
-  $('onRejoin').style.display='none';
+  // B2: Lobby- UND Match-Rejoin sind aktiv — die Affordance erscheint, sobald
+  // ein frischer savedRoom existiert. attemptRejoin verifiziert Identitaet,
+  // Seat und Raumzustand; ein toter Raum raeumt den savedRoom dort selbst ab.
+  const sr=savedRoom();
+  if(sr){ $('onRejoinTxt').textContent=T('rejoinAsk').replace('{code}',sr.code); $('onRejoin').style.display=''; }
+  else $('onRejoin').style.display='none';
   // Public-Room-Liste: Listener beim Oeffnen starten (best-effort; ohne FB nur Hinweis).
   whenFB(()=>{ if(!fbReady()){setStatus(T('noFb'));return;} startPublicListing(); });
 }
@@ -2615,6 +2676,30 @@ function validateRoom(d){
 }
 // Niedrigster freier Gast-Seat (1..max-1); -1 = voll. Pure Funktion (Node-getestet).
 function pickFreeSeat(p,max){for(let s=1;s<max;s++)if(!p||!p[s])return s;return -1;}
+// B2: pure validator for a room snapshot the REJOINER is about to trust. Unlike
+// validateRoom (fresh joins) it accepts BOTH the lobby and a running match; a
+// running FFA-family room must already carry its canonical seats count. The
+// format is taken 1:1 from the canonical config — never normalized/guessed.
+// Reasons are i18n keys. No globals, no side effects (Node-testable).
+function validateRejoinRoom(d){
+  if(!d||typeof d!=='object')return{ok:false,reason:'noRoom'};
+  if(d.v!==ONLINE_PROTOCOL_VERSION)return{ok:false,reason:'noRoom'};
+  const cfg=d.config;
+  if(!cfg||typeof cfg!=='object'||(cfg.winTarget!==3&&cfg.winTarget!==5))return{ok:false,reason:'noRoom'};
+  if(cfg.fmt!=='single'&&cfg.fmt!=='double'&&cfg.fmt!=='ffa'&&cfg.fmt!=='triple_ffa'&&cfg.fmt!=='team_duel')return{ok:false,reason:'noRoom'};
+  if(cfg.visibility!=='private'&&cfg.visibility!=='public')return{ok:false,reason:'noRoom'};
+  if(!Number.isSafeInteger(d.gen)||d.gen<0||d.gen>GEN_MAX)return{ok:false,reason:'noRoom'};
+  if(d.state!=='lobby'&&d.state!=='playing')return{ok:false,reason:'rejoinNoLobby'};
+  const ffa=cfg.fmt==='ffa'||cfg.fmt==='triple_ffa'||cfg.fmt==='team_duel';
+  let seats=0;
+  if(d.state==='playing'&&ffa){
+    seats=d.seats;
+    if(!Number.isInteger(seats)||seats<2||seats>FFA_MAX_SEATS)return{ok:false,reason:'noRoom'};
+    if(cfg.fmt==='triple_ffa'&&seats!==3)return{ok:false,reason:'noRoom'};
+    if(cfg.fmt==='team_duel'&&seats!==4)return{ok:false,reason:'noRoom'};
+  }
+  return{ok:true,fmt:cfg.fmt,winTarget:cfg.winTarget,gen:d.gen,state:d.state,seats:seats};
+}
 const ROOM_MAX_AGE_MS=7200000;   // 2h — older public rooms are never shown or listed
 // Public-Lobby (feature/public-lobby-mvp): pure decision for ONE discovery listing,
 // given the room snapshot d (read live from rooms/<code>) and the current time now.
@@ -2690,9 +2775,9 @@ function joinRoom(){
       if(!joinOpCurrent(op))return;
       if(!s.exists()){ setStatus(T('noRoom')); return; }
       const d=s.val();
-      // Lobby-Rejoin ist bis B2 deaktiviert (siehe attemptRejoin): eine wiedererkannte
-      // eigene Identitaet loest hier bewusst KEINEN Rejoin aus, sondern durchlaeuft den
-      // normalen Claim-Flow unten wie jeder andere Beitritt.
+      // Rejoin laeuft ausschliesslich ueber die sichtbare Rejoin-Bar (attemptRejoin,
+      // B2) — ein manueller Join durchlaeuft hier bewusst den normalen Claim-Flow
+      // wie jeder andere Beitritt (kein stiller Seat-Reclaim auf diesem Pfad).
       const v=validateRoom(d);
       if(!v.ok){ setStatus(v.reason); return; }
       // Capture whether the room carries a discovery listing, but commit it to the
@@ -2754,22 +2839,21 @@ function onLobbyClosed(){
   openOnline();
   setStatus('Host hat die Lobby geschlossen.');
 }
-// Paket-A boundary check: a room is rejoinable ONLY while it is really in its
-// lobby state — reconnect into a RUNNING match is Paket B. With the unified
-// room-state this is a single truth for ALL modes: state==='lobby'. For 1v1/2v2
-// the guest claim flips the room to 'playing', so a lobby room can only hold the
-// host (seat 0) waiting for an opponent — a guest is never seated in a lobby, and
-// a running match is never rejoinable here (client- and rule-enforced alike).
+// B2 boundary check: a room is rejoinable in its lobby AND in a running match
+// (canonical reconnect). Every other state (finished/unknown) is rejected here
+// and by the rules alike.
 function roomRejoinableState(d,seat){
-  return !!d && d.state==='lobby';
+  return !!d && (d.state==='lobby' || d.state==='playing');
 }
-// Same-seat rejoin into a still-open lobby (host seat 0 or a guest seat). Requires
-// a visible user action (Join tap / rejoin button) — never silent. Runs under the
-// join-op guard: globals are committed only after the remote claim succeeded, a
-// stale op releases its own presence again (the durable record stays — it existed
-// before this op). maybeStart() can never restart a running room after a rejoin:
-// the lobby-only boundary above rejects every running-match state, and the rules
-// enforce the same server-side (lobby-only p/<seat> restore).
+// Same-seat rejoin — lobby AND running match (B2). Requires a visible user
+// action (rejoin button) — never silent. Identity-bound: only the seat whose
+// players/<seat>/id equals the OWN pid is ever reclaimed; a released seat
+// (records gone) or a re-assigned seat (foreign id) is rejected here AND by the
+// rules. Runs under the join-op guard: globals are committed only after the
+// remote reclaim succeeded. Lobby note: the rules open a foreign-token p/<seat>
+// rewrite in the lobby only after SEAT_STALE_MS without a presence write, so a
+// very fresh reload may need another tap — the rejoin bar stays visible for
+// exactly that case (rejoinWait).
 async function attemptRejoin(code){
   if(TUNE){toast('Tuning aktiv — Online deaktiviert');return false;}
   if(!fbReady()){ setStatus(T('noFb')); return false; }
@@ -2780,57 +2864,105 @@ async function attemptRejoin(code){
     if(!joinOpCurrent(op))return false;
     if(!snap.exists()){ forgetRoom(); setStatus(T('noRoom')); return false; }
     const d=snap.val();
-    if(d.v!==ONLINE_PROTOCOL_VERSION){ forgetRoom(); setStatus(T('noRoom')); return false; }
+    const v=validateRejoinRoom(d);
+    if(!v.ok){ forgetRoom(); setStatus(T(v.reason)); return false; }
     const seat=findOwnSeat(d.players,onlinePid);
-    if(seat<0){ forgetRoom(); setStatus(T('noRoom')); return false; }   // identity no longer holds a seat here
-    const ffa=d.config&&(d.config.fmt==='ffa'||d.config.fmt==='triple_ffa'||d.config.fmt==='team_duel');
-    if(!roomRejoinableState(d,seat)){ forgetRoom(); setStatus(T('rejoinNoLobby')); return false; }
+    if(seat<0){ forgetRoom(); setStatus(T('noRoom')); return false; }   // identity no longer holds a seat here — NEVER take a foreign one
+    const ffa=v.fmt==='ffa'||v.fmt==='triple_ffa'||v.fmt==='team_duel';
+    if(v.state==='playing'&&ffa&&seat>=v.seats){ forgetRoom(); setStatus(T('rejoinNoLobby')); return false; }   // match started without this seat
     if(d.p&&seatActive(d.p,seat)){ setStatus(T('rejoinTab')); return false; }
-    // v3 note (B1 scope): this call site is unreachable (no UI path triggers
-    // attemptRejoin) — kept schema-compatible only, not functionally extended.
-    // claimSeatSlot's RESERVE targets a seat whose p/<seat> already exists here
-    // (an earlier session's reservation), which the rules only allow to be
-    // re-claimed via the 15s stale-reservation recycling case — not implemented
-    // in B1 (no automatic recycling/takeover). This therefore realistically
-    // resolves to {lost:true} until B2 adds that recycling path. The old
-    // "keepRecordOnRollback" (drop presence, keep the durable record) is no
-    // longer expressible under v3 either: the rules require p/<seat> and
-    // players/<seat> to be deleted together, never one without the other.
-    const claim=await claimSeatSlot(code,seat,op);
-    if(claim.stale)return false;   // op superseded -> own writes already rolled back
+    const oldRec=d.players&&d.players[seat];
+    const claim=await reclaimSeatSlot(code,seat,op,oldRec&&typeof oldRec.name==='string'?sanitizeName(oldRec.name):'');
+    if(claim.stale)return false;   // op superseded -> own presence already dropped again
     if(claim.lost){
-      // Presence write denied: either another tab re-took the seat, or the room
-      // left the lobby between the snapshot and the claim (the rules reject a
-      // presence restore outside the lobby). Re-read once for the right message.
+      // Reclaim denied by the rules: another tab re-took the seat, the lobby
+      // stale window has not opened yet, or the seat was legitimately recycled.
+      // Re-read once for the right message; the rejoin bar stays available.
       let otherTab=true;
       try{ const s2=await window.FB.get(window.FB.ref(window.FB.db,'rooms/'+code+'/p/'+seat)); const v2=s2.val(); otherTab=!!(v2&&v2.on===true); }catch(e){}
-      setStatus(T(otherTab?'rejoinTab':'rejoinNoLobby'));
+      setStatus(T(otherTab?'rejoinTab':'rejoinWait'));
       return false;
     }
-    // remote claim complete -> NOW commit the globals + UI + listeners
-    roomCode=code; myPlayer=seat; online=true; gen=(typeof d.gen==='number'?d.gen:0); runningGen=-1; gameStarted=false;
+    // remote reclaim complete -> NOW commit the globals from the CANONICAL
+    // room config: fmt is never normalized (triple_ffa/team_duel keep their
+    // format, seats/teams/ball counts all derive from it).
+    roomCode=code; myPlayer=seat; online=true; gen=v.gen; runningGen=-1; gameStarted=false;
     seatLeft=[]; seatGone=[]; playersRoster=d.players||{};
-    winTarget=(d.config&&d.config.winTarget)||3; fmt=ffa?'ffa':((d.config&&d.config.fmt)||'single'); mode=ffa?'ffa':'online';
+    winTarget=v.winTarget; fmt=v.fmt; mode=ffa?'ffa':'online';
     roomPublic=!!(d.config&&d.config.visibility==='public');   // commit only after a successful claim
     rememberRoom(code,seat);
     hidePublicUI();   // entered a room -> stop the listener, hide the public UI
+    $('onRejoin').style.display='none';
     $('onActions').style.display='none';
     setOnTitle(ffa);
-    if(ffa){ $('onLobby').style.display=''; }
-    else { $('onWait').style.display=''; }
     $('onCode').textContent=code;
-    setStatus(T('rejoinOk'));
+    if(v.state==='lobby'){
+      if(ffa){ $('onLobby').style.display=''; }
+      else { $('onWait').style.display=''; }
+      setStatus(T('rejoinOk'));
+      attachRoomListeners();
+      return true;
+    }
+    // Running match: canonical rehydration from the DB. ffaN BEFORE anything
+    // that calls np(); gameStarted BEFORE attachRoomListeners so neither the
+    // lobby paths (renderLobby/host grace/onLobbyClosed) nor the auto-start
+    // (maybeStart/seats listener) can fire for an already-running room.
+    if(ffa)ffaN=v.seats;
+    gameStarted=true;
     attachRoomListeners();
+    let turns={};
+    try{ const ts=await window.FB.get(window.FB.ref(window.FB.db,'rooms/'+code+'/g/'+v.gen+'/t')); turns=ts.val()||{}; }catch(e){}
+    if(!joinOpCurrent(op))return false;   // superseded during the read -> the newer op owns all state now
+    $('online').classList.remove('show');
+    showGame();
+    fastForwardMatch(turns);
+    setStatus(T('rejoinOk'));
     return true;
   }catch(e){
-    // claimSeatSlot already rolled its own partial writes back on a roster failure
+    // reclaimSeatSlot already rolled its own partial writes back on a failure
     if(joinOpCurrent(op))setStatus(T('err')+(e.message||e));
     return false;
   }
 }
+// ════ B2 in-match disconnect grace ════
+// A seat whose p/<seat> node is GONE has deliberately left (leaveOnline deletes
+// p+players atomically) -> the existing leave handling fires immediately. A seat
+// that is merely on:false (onDisconnect after a reload/network flap) keeps its
+// records, so its player may reclaim it — the leave sentinel / opponent-left
+// overlay therefore waits SEAT_STALE_MS first. Timers are per seat, context-
+// bound, and cancelled the moment the seat comes back on:true.
+let roomP={}, matchGraceTimer={};
+function clearMatchGrace(s){ if(matchGraceTimer[s]){clearTimeout(matchGraceTimer[s]);matchGraceTimer[s]=null;} }
+function clearAllMatchGrace(){ for(const s in matchGraceTimer)clearMatchGrace(s); }
+function startMatchGrace(s){
+  if(matchGraceTimer[s])return;
+  const ctx={sid:onlineSessionId,room:roomCode};
+  matchGraceTimer[s]=setTimeout(()=>{
+    matchGraceTimer[s]=null;
+    if(ctx.sid!==onlineSessionId||ctx.room!==roomCode||isOnlineTerminated())return;
+    if(!gameStarted||seatActive(roomP,s))return;   // came back within the grace
+    seatFinallyGone(s);
+  },SEAT_STALE_MS);
+}
+// Final leave handling — identical to the pre-B2 immediate behavior: FFA-family
+// seats are eliminated via the deterministic move sentinel (TEAM DUEL: only the
+// leaver's own ball — the partner plays on, the team only loses once both team
+// balls are out, all via the existing stepSim team logic); 1v1/2v2 ends the
+// match through the opponent-left overlay.
+function seatFinallyGone(s){
+  clearMatchGrace(s);
+  if(mode==='ffa'){
+    if(seatLeft[s])return;
+    seatLeft[s]=true;
+    toast('Spieler '+(s+1)+' hat das Match verlassen.');
+    writeLeaveSentinel(s);
+  }
+  else onOppLeft();
+}
 function attachRoomListeners(){
   onlineSessionId++;   // P0-Fix: neue Session je Raumbeitritt/-erstellung -> Transaction-/Listener-Ergebnisse einer fruehreren Session werden ungueltig
   onlineTerminatedSession=-1;   // neue Session startet nie im terminalen Abbruchzustand
+  clearAllMatchGrace(); roomP={};   // B2: Grace-Timer einer frueheren Session sind gegenstandslos
   // P0-Nachbesserung: presUnsub/genUnsub/seatsUnsub sind reine Praesenz-/Metadaten-
   // Listener, keine Turn-Slot-Callbacks — sie brauchen deshalb KEINE Generation/
   // Turnnummer als Identitaet (der Gen-Listener MUSS legitime Generationswechsel
@@ -2855,18 +2987,19 @@ function attachRoomListeners(){
     }
     // 1v1/2v2: fremder Seat weg -> Match-Ende fuer alle. Online-FFA: Verlassene
     // werden per Move-Sentinel eliminiert, die Uebrigen spielen weiter (M8-T3c).
-    // v3: "weg" heisst nicht mehr aktiv verbunden (on!==true) — das deckt sowohl
-    // den deliberate Leave (p geloescht) als auch onDisconnect (on:false) ab.
+    // B2: p/<seat> GELOESCHT = bewusstes Leave -> sofort wie bisher. p/<seat>
+    // nur on:false = Disconnect/Reload -> SEAT_STALE_MS Grace, damit der Spieler
+    // seinen Seat reclaimen kann, bevor Sentinel/Overlay greifen. Kommt der Seat
+    // innerhalb der Grace zurueck (on:true), passiert nichts.
+    roomP=p;
     if(gameStarted){
-      if(mode==='ffa'){
-        for(let s=0;s<np();s++){
-          if(s===myPlayer||seatActive(p,s)||seatLeft[s])continue;
-          seatLeft[s]=true;
-          toast('Spieler '+(s+1)+' hat das Match verlassen.');
-          writeLeaveSentinel(s);
-        }
+      for(let s=0;s<np();s++){
+        if(s===myPlayer)continue;
+        if(seatActive(p,s)){ clearMatchGrace(s); continue; }
+        if(mode==='ffa'&&seatLeft[s])continue;
+        if(p&&p[s])startMatchGrace(s);
+        else seatFinallyGone(s);
       }
-      else for(let s=0;s<np();s++){if(s!==myPlayer&&!seatActive(p,s)){onOppLeft();break;}}
     }
   });
   // Roster listener: durable player identities/names (id,name,tab). Keeps
@@ -2900,6 +3033,38 @@ function attachRoomListeners(){
 }
 function maybeStart(){ if(gameStarted)return; gameStarted=true; if(roomPublic&&myPlayer===0){removePublicListing(roomCode);roomPublic=false;} $('online').classList.remove('show'); showGame(); startOnlineGame(); toast(T('youAre')+' '+(fmt==='team_duel'?T(teamOf(myPlayer)===0?'teamBlue':'teamRed'):T('col'+myPlayer))); }
 function startOnlineGame(){ replaying=false;repPlaying=false;$('replay').classList.remove('show'); runningGen=gen; turnNo=-1; if(turnUnsub){turnUnsub();turnUnsub=null;} $('ov').classList.remove('show'); newGame(); }
+// ════ B2 canonical match rehydration ════
+// Rebuilds a RUNNING match purely from the turn history under
+// rooms/<code>/g/<gen>/t. The lockstep sim is deterministic, so replaying every
+// COMPLETE turn through the real pipeline (processSlot -> beginReveal ->
+// applyLaunch -> stepSim -> afterResult) lands this client on bit-identical
+// balls/score/alive/turnNo/phase — including team elimination, round-R shrink
+// and the game-over/rematch overlay. The first incomplete (or absent) turn
+// stays live: startRound/onlineArmTurn already armed its listener, existing
+// foreign commits arrive as normal turn echoes, and an OWN pre-reload commit is
+// applied from the DB — never re-sent (pendingSlot starts empty; a move that
+// was only prepared locally before the reload is gone by design). Sounds stay
+// muted during the whole replay; leftover FX particles are dropped afterwards.
+function fastForwardMatch(turns){
+  const snd=soundOn; soundOn=false;
+  try{
+    startOnlineGame();
+    let iter=0;
+    while(phase==='aim'&&iter++<=GEN_MAX){
+      const slots=turns&&turns[turnNo];
+      if(!slots)break;
+      for(let s=0;s<np();s++)if(slots[s]!=null)processSlot(s,slots[s]);
+      if(!allAliveCommitted())break;   // current turn still open -> the live listener takes over
+      if(turnUnsub){turnUnsub();turnUnsub=null;}
+      beginReveal();
+      applyLaunch();
+      let g=0; while(phase==='sim'&&g++<20000)stepSim();
+      if(phase==='result')afterResult();   // score/round/game-over exactly like live play
+      else if(phase!=='aim')break;         // safety net: unexpected phase -> stop the replay
+    }
+  } finally { soundOn=snd; particles=[]; fx3=[]; }
+  updateHud(); setPhaseText();
+}
 // Opponent presence lost: reuse the end overlay as a clear way back to the
 // menu — rematch/replay are pointless without a peer, so only "Menü" remains.
 function onOppLeft(){
@@ -2999,6 +3164,7 @@ function onlineConnectionLost(ctx){
   if(isOnlineTerminated())return;                 // idempotent: nur der erste gueltige Aufruf dieser Session bricht ab
   onlineTerminatedSession=onlineSessionId;         // ab hier sind alle async Pfade dieser Session wirkungslos
   clearAllSentinelRetries();
+  clearAllMatchGrace();
   pendingSlot={};                                  // Pending-State entwerten: spaete Transaction-Callbacks laufen ins Leere (settleSlot: p!==ctx)
   // Alle Raum-Listener sauber loesen (Rueckweg ins Menue via Overlay -> leaveOnline
   // raeumt den Rest ab). Die isOnlineTerminated-Guards fangen zusaetzlich jeden
@@ -3101,6 +3267,7 @@ function leaveOnline(){
   onlineTerminatedSession=-1;   // terminalen Abbruchzustand sicher zuruecksetzen (die neue Session ist ohnehin != gespeicherter Session)
   clearAllSentinelRetries();   // P0-Nachbesserung: Raum wird verlassen -> kein Sentinel-Retry darf danach noch feuern
   clearLobbyHostGrace();       // deliberate leave -> no pending lobby grace may fire afterwards
+  clearAllMatchGrace(); roomP={};   // B2: in-match grace timers of this room are void as well
   try{ if(turnUnsub)turnUnsub(); }catch(e){} try{ if(genUnsub)genUnsub(); }catch(e){} try{ if(presUnsub)presUnsub(); }catch(e){} try{ if(seatsUnsub)seatsUnsub(); }catch(e){} try{ if(rosterUnsub)rosterUnsub(); }catch(e){}
   turnUnsub=genUnsub=presUnsub=seatsUnsub=rosterUnsub=null;
   // Deliberate leave is immediate: drop own presence AND own roster record (frees
@@ -3130,6 +3297,23 @@ function leaveOnline(){
   online=false; gameStarted=false; roomPublic=false; roomCode=''; lobbyP={}; seatLeft=[]; seatGone=[]; playersRoster={};
   mode=menuMode; ffaN=ffaNMenu;   // Online-FFA stellt mode/ffaN um — Menue-Auswahl wiederherstellen
 }
+// B2: after a reload with a fresh saved room, surface the rejoin affordance
+// immediately — the room is probed FIRST (exists, v3, own identity still holds a
+// seat), so the overlay never opens for a dead room or a foreign seat. The
+// rejoin itself stays behind the visible button — never silent.
+async function offerRejoinOnBoot(){
+  try{
+    if(!fbReady()||TUNE)return;
+    const sr=savedRoom(); if(!sr||online||roomCode)return;
+    const s=await window.FB.get(window.FB.ref(window.FB.db,'rooms/'+sr.code));
+    if(online||roomCode)return;   // user entered a room while the probe was in flight
+    if(!s.exists()){ forgetRoom(); return; }
+    const d=s.val();
+    if(!validateRejoinRoom(d).ok||findOwnSeat(d.players,onlinePid)<0){ forgetRoom(); return; }
+    if(!$('online').classList.contains('show'))openOnline();
+  }catch(e){}
+}
+whenFB(()=>{ offerRejoinOnBoot(); });
 
 // ════ PARTICLES ════
 function spawn(x,y,n,cols,speed,sizeMul){for(let i=0;i<n;i++){const a=Math.random()*Math.PI*2,sp=speed*(0.25+Math.random()*0.85);

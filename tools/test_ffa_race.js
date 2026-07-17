@@ -98,6 +98,7 @@ const SRC = [
   grab(/function clearLobbyHostGrace\(\)\{[^\n]*/, 'clearLobbyHostGrace'),
   grab(/function startLobbyHostGrace\(\)\{[\s\S]*?\n\}/, 'startLobbyHostGrace'),
   grab(/function evalLobbyHostPresence\(\)\{[\s\S]*?\n\}/, 'evalLobbyHostPresence'),
+  grab(/function seatFinallyGone\(s\)\{[\s\S]*?\n\}/, 'seatFinallyGone'),
   grab(/async function attemptRejoin\(code\)\{[\s\S]*?\n\}/, 'attemptRejoin'),
 ].join('\n');
 
@@ -392,6 +393,14 @@ function makeClient(db, code, forcePid) {
     let __timers=[];
     const setTimeout=(fn,ms)=>{ const h={fn,ms}; __timers.push(h); return h; };
     const clearTimeout=(h)=>{ const i=__timers.indexOf(h); if(i!==-1)__timers.splice(i,1); };
+    // B2-Sandbox: die In-Match-Grace ist hier bewusst SYNCHRON (kein Timer) — dieses
+    // Harness testet den Turn-/Claim-Arbiter, nicht die Grace-Zeitsteuerung (die
+    // decken test_ffa_flow und test_reconnect ab). startMatchGrace feuert sofort,
+    // damit alle Vor-B2-Disconnect-Asserts (Sofort-Sentinel/Overlay) unveraendert
+    // gelten und timerCount() weiterhin NUR Sentinel-Retries zaehlt.
+    let roomP={};
+    function clearMatchGrace(){} function clearAllMatchGrace(){}
+    function startMatchGrace(s){seatFinallyGone(s);}
     function newGame(){ ui.log.push('newGame:'+np()); balls=[];aimSet=[];commitIdx=[];commitAim=[];commitSpin=[];
       for(let i=0;i<np();i++){aimSet.push(false);commitIdx.push(-1);commitAim.push({dx:0,dy:0});commitSpin.push(0);}
       if(mode!=='ffa'&&fmt==='double'){
