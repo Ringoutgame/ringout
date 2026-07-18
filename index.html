@@ -1752,6 +1752,8 @@ let bgPulse=0,bgPulseRGB='255,201,64';
 // rgb=Pulse, c/lt/dk/gl=2D-Kugelkoerper, m3=3D-Material. Slots 0/1 exakt die bisherigen
 // Werte. MUSS eine Zeile bleiben: tools/test_physics_golden.js extrahiert sie per Regex.
 const PCOLS=[{ui:'#00d4ff',rgb:'0,212,255',c:'#00c8ff',lt:'#80eeff',dk:'#00304a',gl:'0,190,255',m3:0x0a6db8},{ui:'#ff4d4d',rgb:'255,77,77',c:'#ff2200',lt:'#ff8855',dk:'#550008',gl:'255,40,0',m3:0xa81e0e},{ui:'#39e07a',rgb:'57,224,122',c:'#1fca5f',lt:'#8af5b4',dk:'#043d1c',gl:'40,220,110',m3:0x0e7c3a},{ui:'#ffc940',rgb:'255,201,64',c:'#ffb400',lt:'#ffe28a',dk:'#4d3300',gl:'255,190,40',m3:0xc9971c},{ui:'#aab4c8',rgb:'170,180,200',c:'#20242e',lt:'#9fb0c8',dk:'#05070c',gl:'150,165,190',m3:0x14161c}];
+// Gedaempfte Edelstein-Variante je Spielerfarbe, nur fuer die Namenslabels (drawBall) — bewusst dunkler/entsaettigt statt Neon.
+const NAME_COL=['#3f7fab','#a8434b','#3c9067','#c99a3f','#c7cdd8'];
 
 const MAXPULL_FRAC=0.40, LAUNCH=0.034, FRICTION=0.992, FEND=0.992, SLOWV=0.35, REST=0.25, STOPV=0.10;
 const SPIN_K=0.004, SPIN_DECAY=0.985, SPIN_SCALE=R0*0.18, SPIN_INPUT=R0*0.45;   // SPIN_INPUT: horizontale Wischweite des 2. Fingers fuer vollen Drall (+/-1)
@@ -3618,6 +3620,28 @@ function drawBall(b){
       ctx.save();ctx.translate(b.x,b.y+BR*.06);ctx.rotate(-val);ctx.fillText(lbl,0,0);ctx.restore();
     }else ctx.fillText(lbl,b.x,b.y+BR*.06);
     ctx.shadowBlur=0;
+  }
+
+  // ── 6. Spielername unter der Kugel — 2D+3D via OP(), nur im Stillstand/Aiming ──
+  // Premium-Stil: gedaempfte Edelstein-Farbe (NAME_COL) statt Neon, nur dezenter Schlagschatten fuer Lesbarkeit.
+  if(phase!=='sim'){
+    const q=OP(b.x,b.y,0),name=pName(b.owner);
+    ctx.save();
+    const fs=Math.max(9,BR*.52*q.s);
+    ctx.font='600 '+fs+'px system-ui';
+    ctx.textAlign='center';ctx.textBaseline='top';
+    try{ctx.letterSpacing='0.2px';}catch(e){}
+    const maxW=BR*3.6*q.s;
+    let txt=name;
+    if(ctx.measureText(txt).width>maxW){
+      while(txt.length>1&&ctx.measureText(txt+'…').width>maxW)txt=txt.slice(0,-1);
+      txt+='…';
+    }
+    const ly=q.y+BR*1.08*q.s;
+    ctx.shadowColor='rgba(0,0,0,.40)';ctx.shadowBlur=fs*.20;ctx.shadowOffsetY=fs*.07;
+    ctx.fillStyle=NAME_COL[colorSlot(b.owner)];ctx.fillText(txt,q.x,ly);
+    ctx.shadowBlur=0;
+    ctx.restore();
   }
 }
 function drawSpinPreview(b,fx,fy,spin){
