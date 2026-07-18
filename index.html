@@ -58,16 +58,16 @@ body.r3d #menu{z-index:2;background:linear-gradient(180deg,rgba(6,10,18,.55) 0%,
 .mlink:active{color:#e6c46c}
 .mlink svg{width:12px;height:12px}
 /* Modus-Karten: grosse Premium-Karten (Icon-Medaillon, Titel, Gold-Untertitel,
-   Beschreibung). Desktop/Tablet: 3er-Grid. Mobil: Snap-Karussell mit grossen,
-   voll lesbaren Karten (bewusst KEINE drei Mini-Spalten nebeneinander). */
+   Beschreibung). Desktop/Tablet: 3er-Grid. Mobil: schlanke, nebeneinanderliegende
+   Modus-Leiste (Snap-Scroll) mit Pfeilen + Punkten — kompakte Premium-Wirkung. */
 .mcards{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;width:100%}
 .mcard{position:relative;display:flex;flex-direction:column;align-items:center;gap:8px;padding:22px 10px 16px;border-radius:20px;cursor:pointer;font:inherit;
   border:1.5px solid rgba(122,142,180,.3);background:linear-gradient(180deg,rgba(28,38,60,.6),rgba(13,19,32,.9));
-  box-shadow:0 12px 28px rgba(5,9,18,.35);transition:transform .18s,border-color .18s,box-shadow .18s}
+  box-shadow:0 12px 28px rgba(5,9,18,.35);transition:transform .18s cubic-bezier(.22,1,.36,1),border-color .18s cubic-bezier(.22,1,.36,1),box-shadow .18s cubic-bezier(.22,1,.36,1),background .18s cubic-bezier(.22,1,.36,1)}
 .mcard.on{border-color:rgba(255,201,64,.95);background:linear-gradient(180deg,rgba(38,47,66,.75),rgba(20,26,42,.95));
   box-shadow:0 0 0 1px rgba(255,201,64,.35),0 14px 40px rgba(255,178,40,.22),inset 0 0 30px rgba(255,201,64,.05)}
 .mcard .chip{position:absolute;top:-11px;right:14px;font-size:8px;font-weight:900;letter-spacing:.16em;padding:4px 11px;border-radius:999px;color:#241800;background:linear-gradient(180deg,#ffd97a,#f0a92e);box-shadow:0 2px 12px rgba(255,180,40,.55),inset 0 1px 0 rgba(255,255,255,.5);display:none}
-.mcard.on .chip{display:block}
+/* Badge entfernt: aktive Karte wird nur ueber Rahmen/Akzentlinie markiert (kein Badge) */
 .mcard .mic{width:60px;height:60px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex:0 0 auto;
   border:1.5px solid rgba(255,201,64,.5);background:radial-gradient(circle at 35% 28%,#232f4c,#0d1528 74%);
   color:#d9b96a;box-shadow:0 0 0 4px rgba(9,14,25,.55),inset 0 0 12px rgba(0,0,0,.5)}
@@ -78,18 +78,75 @@ body.r3d #menu{z-index:2;background:linear-gradient(180deg,rgba(6,10,18,.55) 0%,
 .mcard .msub{font-size:9.5px;font-weight:900;letter-spacing:.14em;color:#d9b96a;text-transform:uppercase}
 .mcard .ms{font-size:11px;font-weight:600;line-height:1.45;color:#93a2bd;text-align:center;max-width:190px}
 .mcard.on .ms{color:#aab7cd}
+/* Aktive Karte: nur Styling (Rahmen/Hintergrund/Schatten) + dezente Gold-Akzentlinie
+   unten — NIE eine Groessen-/Layout-Aenderung (gilt Desktop wie Mobil). */
+.mcard.on::after{content:"";position:absolute;left:24%;right:24%;bottom:7px;height:2px;border-radius:2px;
+  background:linear-gradient(90deg,transparent,var(--gold),transparent);opacity:.9}
+/* Basis (Desktop/Tablet): 3er-Grid zeigt alle Modi — Pfeile/Punkte nur mobil noetig */
+.mbar{position:relative;width:100%}
+.marrow{display:none}
+.mdots{display:none}
+.mdot{width:4.5px;height:4.5px;padding:0;border:0;border-radius:50%;background:rgba(150,170,210,.28);cursor:pointer;transition:background .15s,width .15s,border-radius .15s}
+.mdot.on{width:13px;height:2.5px;border-radius:2px;background:linear-gradient(90deg,#ffd97a,#f0a92e)}
 @media(max-width:559px){
-  .mcards{display:flex;overflow-x:auto;overscroll-behavior-x:contain;scroll-snap-type:x mandatory;scrollbar-width:none;
-    margin:0 -16px;width:calc(100% + 32px);padding:12px 16px 4px}
+  /* Mobil: alle 5 Moduskarten mit IDENTISCHEN festen Maszen in einem horizontalen
+     Swipe-Carousel (Scroll-Snap). Eine Karte voll sichtbar, die naechste ~1/3 peekend.
+     Auswahl aendert NUR Styling — nie Groesse/Layout. */
+  .mcards{display:flex;align-items:stretch;overflow-x:auto;overscroll-behavior-x:contain;
+    scroll-snap-type:x mandatory;scrollbar-width:none;gap:9px;width:100%;margin:0;padding:4px 2px 6px}
   .mcards::-webkit-scrollbar{display:none}
-  /* #menu-Praefix noetig: muss die #menu-* pan-y-Subtree-Regel (hoehere Spezifitaet) schlagen */
+  /* #menu-Praefix noetig: schlaegt die #menu-* pan-y-Subtree-Regel (hoehere Spezifitaet) */
   #menu .mcards,#menu .mcards *{touch-action:pan-x pan-y}
-  .mcard{flex:0 0 70%;scroll-snap-align:center}
+  .mcard{flex:0 0 47%;min-width:0;height:auto;scroll-snap-align:start;justify-content:flex-start;
+    padding:16px 12px 15px;gap:7px;border-radius:18px}
+  .mcard .mic{width:39px;height:39px}
+  .mcard .mic svg{width:20px;height:20px}
+  .mcard .mt{font-size:13px;letter-spacing:.03em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;line-height:1.2;margin-top:2px}
+  .mcard .msub{display:block;font-size:9px;letter-spacing:.12em}
+  .mcard .ms{display:block;font-size:10.5px;line-height:1.4;max-width:none}
+  .mcard .chip{display:none}
+  .marrow{display:none}
+  .mdots{display:flex;justify-content:center;gap:5px;margin-top:12px}
+  /* Uebergang Hero -> Menue: Arena dominant sichtbar lassen, Sheet nicht zu hoch ziehen */
+  #menuHero{height:clamp(220px,36vh,320px);margin-bottom:0}
+  .msheet{padding-top:12px}
+  .mcta{padding:15px 30px}
+  .mquick{margin-top:10px}
 }
-.mcta{width:100%;margin-top:18px;position:relative;border:0;border-radius:18px;padding:19px 44px;font:inherit;font-size:clamp(14px,4.2vw,16px);font-weight:900;letter-spacing:.16em;cursor:pointer;color:#2b1c00;text-shadow:0 1px 0 rgba(255,235,180,.5);background:linear-gradient(180deg,#ffe197 0%,#f7ba3e 52%,#dd961e 100%);box-shadow:0 10px 36px rgba(255,185,50,.38),inset 0 1.5px 0 rgba(255,255,255,.65),inset 0 -3px 8px rgba(150,85,0,.38);transition:transform .1s}
+/* CTA: hochwertiges goldenes Banner mit sanft gekappten Ecken — feine Kontur,
+   Innenlicht und Metallwirkung durch mittige Glanzkante, statt flachem Verlauf. */
+.mcta{width:100%;margin-top:14px;position:relative;display:flex;align-items:center;justify-content:center;
+  border:0;border-radius:14px;clip-path:polygon(12px 0,calc(100% - 12px) 0,100% 12px,100% calc(100% - 12px),calc(100% - 12px) 100%,12px 100%,0 calc(100% - 12px),0 12px);
+  padding:17px 22px;font:inherit;font-size:clamp(14px,4.2vw,16px);font-weight:900;letter-spacing:.16em;cursor:pointer;color:#2b1c00;
+  text-shadow:0 1px 0 rgba(255,246,214,.7);background:linear-gradient(180deg,#ffe9ad 0%,#f6c24e 46%,#e7a52e 54%,#c9861a 100%);
+  box-shadow:0 8px 26px rgba(230,160,40,.4),inset 0 1.5px 0 rgba(255,248,220,.85),inset 0 -3px 7px rgba(140,80,0,.4),inset 0 0 0 1px rgba(255,222,150,.5);transition:transform .1s}
 .mcta:active{transform:scale(.97)}
-.mcta::after{content:"›";position:absolute;right:22px;top:50%;transform:translateY(-54%);font-size:24px;font-weight:800}
-.mfoot{align-self:center;margin-top:12px;font-size:8.5px;font-weight:800;letter-spacing:.26em;color:#dfe7f3;background:rgba(7,12,22,.5);border:1px solid rgba(150,170,210,.22);padding:8px calc(18px - .26em) 8px 18px;border-radius:999px;backdrop-filter:blur(4px)}
+.mfoot{align-self:center;margin-top:10px;font-size:8.5px;font-weight:800;letter-spacing:.26em;color:#dfe7f3;background:rgba(7,12,22,.5);border:1px solid rgba(150,170,210,.22);padding:8px calc(18px - .26em) 8px 18px;border-radius:999px;backdrop-filter:blur(4px)}
+@media(max-width:559px){.msec{margin:15px 2px 9px}.mfoot{display:none}}
+/* Schnellaktionen unter dem CTA: nur echte Funktionen (Create-Room / Join-Code) —
+   Icon-Medaillon oben, Label + kurzer Sub-Text darunter (Referenz-Anmutung). */
+.mquick{display:grid;grid-template-columns:1fr 1fr;gap:10px;width:100%;margin-top:12px}
+.qbtn{display:flex;flex-direction:row;align-items:center;gap:10px;border:1px solid rgba(150,170,210,.32);border-radius:13px;text-align:left;
+  background:linear-gradient(180deg,rgba(20,29,48,.5),rgba(12,18,30,.7));color:#dfe7f3;font:inherit;padding:11px 13px;cursor:pointer;transition:border-color .15s}
+.qbtn .qi{width:32px;height:32px;flex:0 0 auto;border-radius:10px;display:flex;align-items:center;justify-content:center;color:var(--gold);
+  border:1px solid rgba(255,201,64,.35);background:radial-gradient(circle at 35% 28%,#232f4c,#0d1528 74%)}
+.qbtn .qi svg{width:17px;height:17px}
+.qbtn .qtx{min-width:0;display:flex;flex-direction:column;gap:1px}
+.qbtn .qt{font-size:11px;font-weight:900;letter-spacing:.06em;text-transform:uppercase;color:#dfe7f3;white-space:nowrap}
+.qbtn .qs{font-size:9.5px;font-weight:600;color:#8b99b4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+/* How-to-play: kompakte Zeile, klappt die bestehenden 3 Schritte auf/zu */
+.howrow{width:100%;display:flex;align-items:center;gap:13px;border:1px solid rgba(122,142,180,.24);border-radius:16px;
+  background:linear-gradient(180deg,rgba(19,27,45,.6),rgba(10,15,26,.75));padding:14px 16px;cursor:pointer;font:inherit;text-align:left;transition:border-color .15s}
+.howrow-ic{width:34px;height:34px;flex:0 0 auto;border-radius:50%;display:flex;align-items:center;justify-content:center;color:var(--gold);
+  border:1px solid rgba(255,201,64,.4);background:radial-gradient(circle at 35% 28%,#232f4c,#0d1528 74%)}
+.howrow-ic svg{width:19px;height:19px}
+.howrow-tx{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.howrow-t{font-size:12px;font-weight:900;letter-spacing:.14em;color:#e6c46c}
+.howrow-s{font-size:11px;font-weight:600;color:#93a2bd;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.howrow-cv{flex:0 0 auto;color:#93a2bd;display:flex;transition:transform .2s}
+.howrow-cv svg{width:16px;height:16px}
+.howrow[aria-expanded="true"] .howrow-cv{transform:rotate(90deg)}
+#howPanel{margin-top:10px}
 /* Home-Rooms: Live-Vorschau der oeffentlichen Raeume + Create-Aktion */
 .mstate{font-size:11px;color:#7688a6;text-align:center;padding:6px 0 10px;font-weight:600}
 .ghostbtn{width:100%;display:flex;align-items:center;justify-content:center;gap:8px;border:1px solid rgba(150,170,210,.32);border-radius:999px;
@@ -131,7 +188,9 @@ body.r3d #menu{z-index:2;background:linear-gradient(180deg,rgba(6,10,18,.55) 0%,
   .mcard:not(.on):hover{border-color:rgba(255,201,64,.45);transform:translateY(-3px)}
   .mcta:hover,.cbtn:hover,.pr-join:hover,.start:hover{filter:brightness(1.07)}
   .mico:hover,.ibtn:hover,.obk:hover{border-color:rgba(255,201,64,.55);color:#ffd97a}
-  .ghostbtn:hover,.proom:hover{border-color:rgba(255,201,64,.45)}
+  .ghostbtn:hover,.proom:hover,.qbtn:hover,.howrow:hover{border-color:rgba(255,201,64,.45)}
+  .pr-join:hover{background:rgba(255,201,64,.16);border-color:rgba(255,201,64,.8)}
+  .marrow:hover{color:#ffd97a;border-color:rgba(255,201,64,.55)}
   .mlink:hover{color:#e6c46c}
 }
 #menu button:focus-visible,#online button:focus-visible,.cover button:focus-visible,.ov button:focus-visible{outline:2px solid rgba(255,201,64,.8);outline-offset:2px}
@@ -162,13 +221,18 @@ body.r3d #menu{z-index:2;background:linear-gradient(180deg,rgba(6,10,18,.55) 0%,
 .pills button.on{background:#1a2840;color:var(--text)}
 /* Public-Room-Zeilen (Home-Vorschau + Online-Seite): Live-Punkt, Hostname,
    Modus/Belegung, goldener Join-Pill — identische Zeile an beiden Orten. */
-.proom{display:flex;align-items:center;gap:11px;background:linear-gradient(180deg,rgba(23,32,52,.72),rgba(13,19,32,.9));
-  border:1px solid rgba(122,142,180,.26);border-radius:16px;padding:11px 13px;margin-bottom:9px;transition:border-color .15s}
+.proom{display:flex;align-items:center;gap:10px;background:linear-gradient(180deg,rgba(23,32,52,.72),rgba(13,19,32,.9));
+  border:1px solid rgba(122,142,180,.26);border-radius:16px;padding:9px 13px;margin-bottom:9px;transition:border-color .15s}
 .pr-dot{width:9px;height:9px;border-radius:50%;background:var(--green);box-shadow:0 0 9px rgba(57,224,122,.7);flex:0 0 auto}
+/* Modus-Medaillon je Raumzeile: dezenter Gold-/Navy-Rahmen mit dem vorhandenen
+   Modus-Icon (kein Punkte-/Fake-Arena-Preview mehr) — statisches SVG, kein 3D. */
+.pr-prev{width:34px;height:34px;border-radius:11px;flex:0 0 auto;display:flex;align-items:center;justify-content:center;color:var(--gold);
+  border:1px solid rgba(255,201,64,.4);background:radial-gradient(circle at 35% 28%,#232f4c,#0d1528 74%);box-shadow:0 0 0 1px rgba(9,14,25,.5)}
+.pr-prev svg{width:19px;height:19px;display:block}
 .proom .pr-main{flex:1;min-width:0;display:flex;align-items:baseline;gap:10px}
 .proom .pr-host{flex:1;min-width:0;font-size:14px;font-weight:800;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .proom .pr-meta{flex:0 0 auto;font-size:11px;color:#8b99b4;letter-spacing:.05em;font-weight:700}
-.proom .pr-join{border:0;border-radius:999px;padding:9px 18px;font:inherit;font-size:11px;font-weight:900;letter-spacing:.1em;cursor:pointer;color:#2b1c00;text-transform:uppercase;background:linear-gradient(180deg,#ffe197 0%,#f7ba3e 52%,#dd961e 100%);box-shadow:0 4px 14px rgba(255,185,50,.25),inset 0 1px 0 rgba(255,255,255,.5)}
+.proom .pr-join{border:1px solid rgba(255,201,64,.55);border-radius:999px;padding:8px 17px;font:inherit;font-size:11px;font-weight:900;letter-spacing:.1em;cursor:pointer;color:#ffd97a;text-transform:uppercase;background:rgba(255,201,64,.08);transition:border-color .15s,background .15s}
 #modeGrp{flex-direction:column;border-radius:14px;padding:4px;gap:3px}
 #modeGrp button{padding:11px;border-radius:10px;font-size:12px;letter-spacing:.03em}
 #modeGrp button.on{box-shadow:inset 0 0 0 1px #2a3850}
@@ -415,7 +479,9 @@ body:not(.r3d) .ohero{height:12px}
        in einem app-artigen Bottom-Sheet unter dem Arena-Hero -->
   <div class="msheet">
    <div class="msec"><span id="secPlayT">PLAY</span><i class="hr"></i></div>
-   <div class="mcards">
+   <div class="mbar">
+    <button class="marrow marrow-l" id="modePrev" type="button" aria-label="Previous mode" tabindex="-1">‹</button>
+    <div class="mcards">
     <button class="mcard on" id="cardFfa">
       <span class="chip">ACTIVE</span>
       <span class="mic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="12" r="8"/><ellipse cx="12" cy="12" rx="3.4" ry="8"/><path d="M4.6 12h14.8"/></svg></span>
@@ -451,19 +517,32 @@ body:not(.r3d) .ohero{height:12px}
       <span class="msub">VS AI</span>
       <span class="ms">Practice against AI and improve your skills.</span>
     </button>
+    </div>
+    <button class="marrow marrow-r" id="modeNext" type="button" aria-label="Next mode" tabindex="-1">›</button>
    </div>
-   <button class="mcta" id="ctaBtn">PLAY ONLINE FFA</button>
+   <div class="mdots" id="modeDots" aria-hidden="true"></div>
+   <button class="mcta" id="ctaBtn"><span id="ctaBtnT">PLAY ONLINE FFA</span></button>
    <div class="mfoot" id="ctaInfo">2–5 PLAYERS · HOST STARTS</div>
+   <!-- Schnellaktionen: nur echte Funktionen — CREATE ROOM + JOIN CODE fuehren beide
+        in den bestehenden openOnline-Flow (Erstellen bzw. Code-Beitreten). Kein Fake. -->
+   <div class="mquick">
+    <button class="qbtn" id="homeCreate" type="button"><span class="qi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M15 19c0-3.3-2.7-5-6-5s-6 1.7-6 5"/><circle cx="9" cy="8" r="3.2"/><path d="M18 8v6M15 11h6"/></svg></span><span class="qtx"><span class="qt" id="homeCreateT">CREATE ROOM</span><span class="qs" id="homeCreateS">Invite your friends</span></span></button>
+    <button class="qbtn" id="homeJoinCode" type="button"><span class="qi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="3.5" width="7" height="7" rx="1.2"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.2"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.2"/><path d="M14 14.5h3M18 14.5h2.5M14 18.5h2.5M19 18.5h1.5M14 21.5h6.5v-4.7"/></svg></span><span class="qtx"><span class="qt" id="homeJoinT">JOIN CODE</span><span class="qs" id="homeJoinS">Enter room code</span></span></button>
+   </div>
 
    <!-- Online-Rooms-Vorschau: dieselben Live-Daten wie die Public-Liste der Online-Seite
         (ein geteilter Listener, gekappt auf 3 Zeilen). Join nutzt den echten joinRoom()-Pfad. -->
    <div class="msec"><span id="secRoomsT">ONLINE ROOMS</span><i class="hr"></i><button class="mlink" id="homeViewAll"><span id="viewAllT">VIEW ALL</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></button></div>
    <div id="homeRoomsList"></div>
    <div id="homeRoomsState" class="mstate"></div>
-   <button class="ghostbtn" id="homeCreate"><span class="plus">+</span><span id="homeCreateT">CREATE ROOM</span></button>
 
-   <div class="msec"><span id="secHowT">HOW TO PLAY</span><i class="hr"></i></div>
-   <div class="howp">
+   <!-- HOW TO PLAY: kompakte Zeile; klappt die bestehenden 3 Schritte auf/zu -->
+   <button class="howrow" id="howToggle" type="button" aria-expanded="false" aria-controls="howPanel">
+    <span class="howrow-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H11v15H5.5A1.5 1.5 0 0 0 4 20.5z"/><path d="M20 5.5A1.5 1.5 0 0 0 18.5 4H13v15h5.5a1.5 1.5 0 0 1 1.5 1.5z"/></svg></span>
+    <span class="howrow-tx"><span class="howrow-t" id="secHowT">HOW TO PLAY</span><span class="howrow-s" id="howLeadT">Learn the rules and master the ring.</span></span>
+    <span class="howrow-cv"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></span>
+   </button>
+   <div class="howp" id="howPanel" style="display:none">
     <div class="hstep"><span class="hico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="15.5" cy="8.5" r="3.2"/><path d="M12.9 11.1 6.2 17.8"/><path d="M9.6 18H6v-3.6"/></svg></span><div class="hst how1T">1. PULL BACK</div><div class="hss how1S">Pull back to aim and set your power.</div></div>
     <div class="hstep"><span class="hico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="8.5" cy="15.5" r="3.2"/><path d="M11.1 12.9l6.7-6.7"/><path d="M14.4 6H18v3.6"/></svg></span><div class="hst how2T">2. RELEASE</div><div class="hss how2S">Let go to launch your marble.</div></div>
     <div class="hstep"><span class="hico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="14.5" r="3.4"/><circle cx="16.8" cy="8.8" r="2.6"/><path d="M12.1 12.2l1.5-1.3"/><path d="M20 5.6l1.7-1.7"/></svg></span><div class="hst how3T">3. KNOCK OUT</div><div class="hss how3S">Push your opponents off the arena.</div></div>
@@ -1212,19 +1291,35 @@ const MENU_SEL={
 function selectMenuMode(m){
   menuSel=m;
   for(const k of Object.keys(MENU_SEL))$(MENU_SEL[k].card).classList.toggle('on',k===m);
-  $('ctaBtn').textContent=T(MENU_SEL[m].cta);
+  $('ctaBtnT').textContent=T(MENU_SEL[m].cta);
   $('ctaInfo').textContent=T(MENU_SEL[m].info);
-  // Mobil-Karussell: gewaehlte Karte in die Mitte holen (nur wenn horizontal scrollbar)
+  updateModeDots(m);
+  // Mobil-Carousel: Active-State sofort gesetzt (oben). Danach nur den Scroll-Container
+  // zur gewaehlten Karte bewegen (native Smooth-Scroll) — keine Groessen-/Layout-Animation.
   const card=$(MENU_SEL[m].card),row=card.parentElement;
-  if(row.scrollWidth>row.clientWidth+4)card.scrollIntoView({block:'nearest',inline:'center',behavior:'smooth'});
+  if(row&&row.scrollWidth>row.clientWidth+4){
+    const cr=card.getBoundingClientRect(),rr=row.getBoundingClientRect();
+    row.scrollBy({left:cr.left-rr.left-2,behavior:'smooth'});   // Karte an den Leisten-Anfang holen
+  }
   updateMenuPreview();
 }
+// Mobil-Navigation der Modusleiste: Punkte spiegeln die Auswahl (Reihenfolge = Karten);
+// Klick auf einen Punkt waehlt den Modus direkt. Lazy aufgebaut beim ersten Aufruf.
+const MODE_ORDER=['ffa','triple','team','vs','bot'];
+function updateModeDots(m){
+  const box=$('modeDots'); if(!box)return;
+  if(!box.childElementCount)MODE_ORDER.forEach(k=>{const d=document.createElement('button');d.type='button';d.className='mdot';
+    d.setAttribute('aria-label',T(MENU_SEL[k].cta));d.onclick=()=>selectMenuMode(k);box.appendChild(d);});
+  const i=MODE_ORDER.indexOf(m);
+  [...box.children].forEach((d,idx)=>d.classList.toggle('on',idx===i));
+}
+function stepMenuMode(dir){const i=MODE_ORDER.indexOf(menuSel);selectMenuMode(MODE_ORDER[(i+dir+MODE_ORDER.length)%MODE_ORDER.length]);}
 // ── v1-Localization (EN default, DE, TR) — nur Player-facing UI: Hauptmenue, Settings,
 //    Online-Dialog-Grundtexte, Leave-/End-Overlay-Buttons. BEWUSST Deutsch bleiben:
 //    testgebundene Texte in extrahierten Funktionen (validateRoom-Reasons, renderLobby-
 //    Hints, startFfaMatch-/Leave-Toasts, onLobbyClosed, onOppLeft) und In-Game-Texte. ──
 const I18N={
-en:{tagline:'PULL BACK · RELEASE · KNOCK THEM OUT',chip:'ACTIVE',
+en:{tagline:'PULL BACK · RELEASE · KNOCK THEM OUT',chip:'FEATURED',
   ffaT:'ONLINE FFA',ffaS:'2–5 PLAYERS',ffaD:'Play in a free-for-all with players worldwide.',
   tripleT:'TRIPLE FFA',tripleS:'3 PLAYERS',tripleD:'2 balls per player — free-for-all.',
   ctaTriple:'PLAY TRIPLE FFA',infoTriple:'3 PLAYERS · 2 BALLS EACH · HOST STARTS',
@@ -1236,6 +1331,8 @@ en:{tagline:'PULL BACK · RELEASE · KNOCK THEM OUT',chip:'ACTIVE',
   vsT:'ONLINE VERSUS',vsS:'2 PLAYERS · 2 BALLS EACH',vsD:'Challenge other players in head-to-head matches.',
   botT:'BOT TRAINING',botS:'VS AI',botD:'Practice against AI and improve your skills.',
   secPlay:'PLAY',secRooms:'ONLINE ROOMS',secHow:'HOW TO PLAY',viewAll:'VIEW ALL',
+  joinCodeBtn:'JOIN CODE',howLead:'Learn the rules and master the ring.',
+  createRoomSub:'Invite your friends',joinCodeSub:'Enter room code',
   scrollHint:'SCROLL TO EXPLORE',soonT:'MORE COMING SOON',soonS:'New modes and features are in the works.',
   how1T:'1. PULL BACK',how1S:'Pull back to aim and set your power.',
   how2T:'2. RELEASE',how2S:'Let go to launch your marble.',
@@ -1262,7 +1359,7 @@ en:{tagline:'PULL BACK · RELEASE · KNOCK THEM OUT',chip:'ACTIVE',
   rejoinWait:'Seat still reserved — try again in a few seconds.',
   visLbl:'VISIBILITY',visPriv:'Private',visPub:'Public',pubTitle:'PUBLIC ROOMS',pubJoin:'Join',
   pubLoading:'Loading rooms…',pubEmpty:'No public rooms right now.',pubError:'Couldn’t load rooms.'},
-de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'AKTIV',
+de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'FEATURED',
   ffaT:'ONLINE FFA',ffaS:'2–5 SPIELER',ffaD:'Spiel ein Free-for-all gegen Spieler weltweit.',
   tripleT:'TRIPLE FFA',tripleS:'3 SPIELER',tripleD:'2 Kugeln pro Spieler — jeder gegen jeden.',
   ctaTriple:'TRIPLE FFA SPIELEN',infoTriple:'3 SPIELER · 2 KUGELN JE SPIELER · HOST STARTET',
@@ -1275,6 +1372,8 @@ de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'AKTIV',
   botT:'BOT-TRAINING',botS:'GEGEN KI',botD:'Trainiere gegen die KI und verbessere dein Spiel.',
   secPlay:'SPIELEN',secRooms:'ONLINE-RÄUME',secHow:'SO WIRD GESPIELT',viewAll:'ALLE ANZEIGEN',
   scrollHint:'SCROLLEN FÜR MEHR',soonT:'BALD MEHR',soonS:'Neue Modi und Features sind in Arbeit.',
+  joinCodeBtn:'CODE BEITRETEN',howLead:'Lerne die Regeln und meistere den Ring.',
+  createRoomSub:'Lade deine Freunde ein',joinCodeSub:'Raumcode eingeben',
   how1T:'1. ZIEH ZURÜCK',how1S:'Ziehe zurück, ziele und bestimme die Kraft.',
   how2T:'2. LASS LOS',how2S:'Loslassen — die Kugel schießt los.',
   how3T:'3. RAUSWERFEN',how3S:'Schieb deine Gegner von der Platte.',
@@ -1300,7 +1399,7 @@ de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'AKTIV',
   rejoinWait:'Sitz ist noch reserviert — versuche es in ein paar Sekunden erneut.',
   visLbl:'SICHTBARKEIT',visPriv:'Privat',visPub:'Öffentlich',pubTitle:'ÖFFENTLICHE RÄUME',pubJoin:'Beitreten',
   pubLoading:'Räume werden geladen…',pubEmpty:'Gerade keine öffentlichen Räume.',pubError:'Räume konnten nicht geladen werden.'},
-tr:{tagline:'GERİ ÇEK · BIRAK · DIŞARI İT',chip:'AKTİF',
+tr:{tagline:'GERİ ÇEK · BIRAK · DIŞARI İT',chip:'FEATURED',
   ffaT:'ONLINE FFA',ffaS:'2–5 OYUNCU',ffaD:'Dünya çapında oyunculara karşı serbest mücadele.',
   tripleT:'TRIPLE FFA',tripleS:'3 OYUNCU',tripleD:'Oyuncu başına 2 top — herkes tek.',
   ctaTriple:'TRIPLE FFA OYNA',infoTriple:'3 OYUNCU · HERKESE 2 TOP · HOST BAŞLATIR',
@@ -1313,6 +1412,8 @@ tr:{tagline:'GERİ ÇEK · BIRAK · DIŞARI İT',chip:'AKTİF',
   botT:'BOT ANTRENMANI',botS:'YAPAY ZEKÂYA KARŞI',botD:'Yapay zekâya karşı antrenman yap, ustalaş.',
   secPlay:'OYNA',secRooms:'ONLINE ODALAR',secHow:'NASIL OYNANIR',viewAll:'TÜMÜNÜ GÖR',
   scrollHint:'KAYDIR VE KEŞFET',soonT:'ÇOK YAKINDA DAHA FAZLASI',soonS:'Yeni modlar ve özellikler yolda.',
+  joinCodeBtn:'KODLA KATIL',howLead:'Kuralları öğren ve ringe hâkim ol.',
+  createRoomSub:'Arkadaşlarını davet et',joinCodeSub:'Oda kodunu gir',
   how1T:'1. GERİ ÇEK',how1S:'Geri çek, nişan al ve gücü ayarla.',
   how2T:'2. BIRAK',how2S:'Bırak — misket fırlasın.',
   how3T:'3. DIŞARI İT',how3S:'Rakiplerini arenadan dışarı it.',
@@ -1365,6 +1466,8 @@ function applyLang(){
   $('secPlayT').textContent=T('secPlay');$('secRoomsT').textContent=T('secRooms');
   $('secHowT').textContent=T('secHow');$('onHowLbl').textContent=T('secHow');
   $('viewAllT').textContent=T('viewAll');$('homeCreateT').textContent=T('createRoom');
+  $('homeJoinT').textContent=T('joinCodeBtn');$('howLeadT').textContent=T('howLead');
+  $('homeCreateS').textContent=T('createRoomSub');$('homeJoinS').textContent=T('joinCodeSub');
   $('soonT').textContent=T('soonT');$('soonS').textContent=T('soonS');
   $('scrollHintT').textContent=T('scrollHint');
   for(const k of ['how1T','how1S','how2T','how2S','how3T','how3S'])
@@ -1410,6 +1513,8 @@ $('cardTriple').onclick=()=>selectMenuMode('triple');
 $('cardTeam').onclick=()=>selectMenuMode('team');
 $('card2v2').onclick=()=>selectMenuMode('vs');
 $('cardBot').onclick=()=>selectMenuMode('bot');
+$('modePrev').onclick=()=>stepMenuMode(-1);
+$('modeNext').onclick=()=>stepMenuMode(1);
 $('ctaBtn').onclick=()=>{
   SFX.unlock();
   if(menuSel==='bot'){if(SFX.click())vibrateMs(VIBE_CLICK_MS);$('botOv').classList.add('show');return;}       // Format-Auswahl: 1v1 / 2v2 Duo vs Bot
@@ -1447,6 +1552,10 @@ $('lobbyStart').onclick=()=>startFfaMatch();
 // openOnline-Flow (Erstellen erst nach Name/Sichtbarkeit dort). Kein Fake-Quick-Match.
 $('homeViewAll').onclick=()=>{SFX.unlock();mode='ffa';fmt='ffa';openOnline();};
 $('homeCreate').onclick=()=>{SFX.unlock();mode='ffa';fmt='ffa';openOnline();};
+// JOIN CODE: gleicher Online-Flow — die Beitreten-Karte (Code-Feld) ist dort direkt sichtbar.
+$('homeJoinCode').onclick=()=>{SFX.unlock();mode='ffa';fmt='ffa';openOnline();try{setTimeout(()=>$('onInput').focus(),80);}catch(e){}};
+// HOW TO PLAY: kompakte Zeile klappt die bestehenden 3 Schritte auf/zu.
+$('howToggle').onclick=()=>{const p=$('howPanel'),b=$('howToggle'),open=p.style.display==='none';p.style.display=open?'':'none';b.setAttribute('aria-expanded',open?'true':'false');};
 // Public-Liste manuell auffrischen (Listener ist ohnehin live; Refresh startet ihn neu)
 $('pubRefresh').onclick=()=>{whenFB(()=>{if(fbReady())startPublicListing();});};
 $('startBtn').onclick=()=>{SFX.unlock();if(mode==='online'){openOnline();return;}online=false;showGame();newGame();};
@@ -1700,7 +1809,7 @@ function wireBtnFx(el,withSound){
 function wireMenuClickFeedback(){
   const IDS=['cardFfa','card2v2','cardBot','ctaBtn',
     'bot1v1','bot2v2','botBack','ffaOnline','onCreate','onJoin','onBack','onBack2','lobbyStart',
-    'homeViewAll','homeCreate','pubRefresh','onVisPriv','onVisPub',
+    'homeViewAll','homeCreate','homeJoinCode','pubRefresh','onVisPriv','onVisPub',
     'menuSet','setClose','langEn','langDe','langTr','vibeOnBtn','vibeOffBtn','menuBtn',
     'startBtn','rematchBtn','ovMenuBtn','leaveCancel','leaveGo'];
   const SOUND_IDS=new Set(IDS.filter(id=>id!=='ctaBtn'));
@@ -2594,9 +2703,18 @@ async function renderPublicList(codes){
   setPublicState(shown.length?'':T('pubEmpty'));
 }
 const PUB_MODE_LABEL={single:'1v1',double:'2v2',ffa:'FFA',triple_ffa:'TRIPLE FFA',team_duel:'TEAM DUEL'};
+// Modus-Medaillon je Raumzeile: nutzt das vorhandene Icon der passenden Modus-Karte
+// (kein Punkte-Preview mehr, keine neue Icon-Duplikation). Reines statisches SVG.
+const ROOM_MODE_CARD={ffa:'cardFfa',triple_ffa:'cardTriple',team_duel:'cardTeam',single:'card2v2',double:'card2v2'};
+function roomModeIcon(mode){
+  const el=$(ROOM_MODE_CARD[mode]||'cardFfa');
+  const svg=el&&el.querySelector('.mic svg');
+  return svg?svg.outerHTML:'';
+}
 const HOME_ROOMS_MAX=3;   // Home-Vorschau bewusst kompakt — volle Liste auf der Online-Seite
 function buildRoomRow(code,view,fromHome){
   const row=document.createElement('div'); row.className='proom';
+  const prev=document.createElement('div'); prev.className='pr-prev'; prev.innerHTML=roomModeIcon(view.mode);
   const dot=document.createElement('span'); dot.className='pr-dot';
   const main=document.createElement('div'); main.className='pr-main';
   const host=document.createElement('div'); host.className='pr-host';
@@ -2610,7 +2728,7 @@ function buildRoomRow(code,view,fromHome){
   // unveraenderte joinPublicRoom->joinRoom-Pfad — keine zweite Join-Implementierung.
   btn.onclick=fromHome?()=>{mode='ffa';openOnline();joinPublicRoom(code);}:()=>joinPublicRoom(code);
   wireBtnFx(btn,true);
-  row.appendChild(dot); row.appendChild(main); row.appendChild(btn);
+  row.appendChild(prev); row.appendChild(dot); row.appendChild(main); row.appendChild(btn);
   return row;
 }
 function renderPublicRows(shown){
