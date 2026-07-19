@@ -680,7 +680,7 @@ body:not(.r3d) .ohero{height:12px}
     </div>
     <div class="lbl" id="setEnvLbl" style="text-align:left;margin-top:6px">Environment</div>
     <div class="pills" id="envGrp" style="margin-bottom:16px">
-      <button id="envDawnBtn" aria-pressed="true">Dawn Airy</button><button id="envGoldenBtn" aria-pressed="false">Dawn Golden</button><button id="envDayBtn" aria-pressed="false">Day</button>
+      <button id="envDawnBtn" aria-pressed="true">Dawn</button><button id="envDayBtn" aria-pressed="false">Day</button>
     </div>
     <button class="wbtn primary" id="setClose">OK</button>
   </div>
@@ -912,11 +912,17 @@ const VIBE_CLICK_MS=10, VIBE_CONFIRM_MS=25;   // normaler Klick vs. Play-Online-
 // Environment-Profil (rein lokale, rein visuelle Praeferenz — kein Netzwerk/Physik/Firebase).
 // Gueltige Werte ausschliesslich 'dawn'|'day'; alles andere/fehlend -> 'dawn'. Versionierter Key.
 const ENV_PROFILE_KEY='ringout_environment_profile_v1';
-// Drei finale Profile: 'dawn' (Dawn Airy, Default), 'dawnGolden' (Dawn Golden), 'day' (Day).
-// 'dawn' bleibt unveraendert gueltig -> keine bestehende Auswahl geht verloren.
-const ENV_PROFILE_VALUES=['dawn','dawnGolden','day'];
+// Zwei finale Profile: 'dawn' (Default), 'day'. Alte Werte wie 'dawnGolden' migrieren auf 'dawn'.
+const ENV_PROFILE_VALUES=['dawn','day'];
 function normEnvProfile(v){return ENV_PROFILE_VALUES.indexOf(v)>=0?v:'dawn';}
-function readEnvProfile(){try{return normEnvProfile(localStorage.getItem(ENV_PROFILE_KEY));}catch(e){return 'dawn';}}
+function readEnvProfile(){
+  try{
+    const raw=localStorage.getItem(ENV_PROFILE_KEY);
+    const v=normEnvProfile(raw);
+    if(raw!==v)writeEnvProfile(v);   // z.B. altes 'dawnGolden' -> Storage einmalig auf 'dawn' korrigieren
+    return v;
+  }catch(e){return 'dawn';}
+}
 function writeEnvProfile(v){const k=normEnvProfile(v);try{localStorage.setItem(ENV_PROFILE_KEY,k);}catch(e){}return k;}
 let envProfile=readEnvProfile();   // vor der 3D-Init gelesen -> nur der korrekte Himmel wird geladen (kein Flash)
 function vibrateMs(ms){
@@ -1357,7 +1363,7 @@ en:{tagline:'PULL BACK · RELEASE · KNOCK THEM OUT',chip:'FEATURED',
   infoFfa:'2–5 PLAYERS · HOST STARTS',infoVs:'2 PLAYERS · 2 BALLS EACH',infoBot:'VS AI · SOLO PRACTICE',
   bot1v1T:'1v1 VS BOT',bot1v1S:'1 BALL EACH',bot2v2T:'2v2 DUO VS BOT',bot2v2S:'2 BALLS EACH',comingSoon:'COMING SOON',
   setTitle:'SETTINGS',setLang:'Language',vibeLbl:'Vibration',vibeUnsupported:' (not available)',
-  env:'Environment',envDawn:'Dawn Airy',envDawnGolden:'Dawn Golden',envDay:'Day',
+  env:'Environment',envDawn:'Dawn',envDay:'Day',
   onSubFfa:'Free for all · 2 to 5 players',onSubVs:'Versus · 2 players',
   createBtn:'Create',createSub:'Create a room and invite your friends.',
   joinTitle:'Join room',joinSub:'Join with the 4-letter room code.',orLbl:'OR',refresh:'REFRESH',
@@ -1398,7 +1404,7 @@ de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'FEATURED',
   infoFfa:'2–5 SPIELER · HOST STARTET',infoVs:'2 SPIELER · 2 KUGELN PRO SPIELER',infoBot:'GEGEN KI · SOLO-TRAINING',
   bot1v1T:'1v1 GEGEN BOT',bot1v1S:'1 KUGEL PRO SEITE',bot2v2T:'2v2 DUO GEGEN BOT',bot2v2S:'2 KUGELN PRO SEITE',comingSoon:'BALD VERFÜGBAR',
   setTitle:'EINSTELLUNGEN',setLang:'Sprache',vibeLbl:'Vibration',vibeUnsupported:' (nicht verfügbar)',
-  env:'Umgebung',envDawn:'Dämmerung Luftig',envDawnGolden:'Dämmerung Golden',envDay:'Tag',
+  env:'Umgebung',envDawn:'Dämmerung',envDay:'Tag',
   onSubFfa:'Free for all · 2 bis 5 Spieler',onSubVs:'Versus · 2 Spieler',
   createBtn:'Erstellen',createSub:'Erstelle einen Raum und lade Freunde ein.',
   joinTitle:'Raum beitreten',joinSub:'Tritt mit dem 4-stelligen Code bei.',orLbl:'ODER',refresh:'AKTUALISIEREN',
@@ -1439,7 +1445,7 @@ tr:{tagline:'GERİ ÇEK · BIRAK · DIŞARI İT',chip:'FEATURED',
   infoFfa:'2–5 OYUNCU · HOST BAŞLATIR',infoVs:'2 OYUNCU · HERKESE 2 TOP',infoBot:'YAPAY ZEKÂYA KARŞI · SOLO ANTRENMAN',
   bot1v1T:'BOTA KARŞI 1v1',bot1v1S:'HERKESE 1 TOP',bot2v2T:'BOTA KARŞI 2v2 DUO',bot2v2S:'HERKESE 2 TOP',comingSoon:'ÇOK YAKINDA',
   setTitle:'AYARLAR',setLang:'Dil',vibeLbl:'Titreşim',vibeUnsupported:' (desteklenmiyor)',
-  env:'Ortam',envDawn:'Şafak Ferah',envDawnGolden:'Şafak Altın',envDay:'Gündüz',
+  env:'Ortam',envDawn:'Şafak',envDay:'Gündüz',
   onSubFfa:'Herkes tek · 2–5 oyuncu',onSubVs:'Karşılıklı · 2 oyuncu',
   createBtn:'Oda kur',createSub:'Bir oda kur ve arkadaşlarını davet et.',
   joinTitle:'Odaya katıl',joinSub:'4 haneli oda koduyla katıl.',orLbl:'VEYA',refresh:'YENİLE',
@@ -1501,8 +1507,8 @@ function applyLang(){
   setOn('langGrp',{en:'langEn',de:'langDe',tr:'langTr'}[LANG]);
   $('setVibeLbl').textContent=T('vibeLbl')+(VIBE_SUPPORTED?'':T('vibeUnsupported'));
   setOn('vibeGrp',vibrationOn?'vibeOnBtn':'vibeOffBtn');
-  $('setEnvLbl').textContent=T('env');$('envDawnBtn').textContent=T('envDawn');$('envGoldenBtn').textContent=T('envDawnGolden');$('envDayBtn').textContent=T('envDay');
-  setOnAria('envGrp',envProfile==='day'?'envDayBtn':envProfile==='dawnGolden'?'envGoldenBtn':'envDawnBtn');
+  $('setEnvLbl').textContent=T('env');$('envDawnBtn').textContent=T('envDawn');$('envDayBtn').textContent=T('envDay');
+  setOnAria('envGrp',envProfile==='day'?'envDayBtn':'envDawnBtn');
   // Online-Seite: Karten-Titel/-Texte, Toggle-Labels (nur der Text-Span — Icons bleiben)
   $('onCreate').textContent=T('createBtn');$('onJoin').textContent=T('join');$('onBack2').textContent=T('back');
   $('onCreateT').textContent=T('createRoom');$('onCreateS').textContent=T('createSub');
@@ -1531,7 +1537,7 @@ for(const[id,on]of[['vibeOnBtn',true],['vibeOffBtn',false]])
   $(id).onclick=()=>{vibrationOn=on;try{localStorage.setItem('ringout_vibe',on?'1':'0');}catch(e){}setOn('vibeGrp',id);};
 // Environment-Auswahl: Wahl sofort lokal speichern + UI aktualisieren; sichtbare Anwendung
 // uebernimmt der 3D-Layer (live nur im sicheren Idle, sonst beim naechsten Menue-Wechsel).
-for(const[id,key]of[['envDawnBtn','dawn'],['envGoldenBtn','dawnGolden'],['envDayBtn','day']])
+for(const[id,key]of[['envDawnBtn','dawn'],['envDayBtn','day']])
   $(id).onclick=()=>{envProfile=writeEnvProfile(key);setOnAria('envGrp',id);if(r3dActive&&r3d&&r3d.setEnvProfile)r3d.setEnvProfile(key);};
 $('cardFfa').onclick=()=>selectMenuMode('ffa');
 $('cardTriple').onclick=()=>selectMenuMode('triple');
@@ -1836,7 +1842,7 @@ function wireMenuClickFeedback(){
   const IDS=['cardFfa','card2v2','cardBot','ctaBtn',
     'bot1v1','bot2v2','botBack','ffaOnline','onCreate','onJoin','onBack','onBack2','lobbyStart',
     'homeViewAll','homeCreate','homeJoinCode','pubRefresh','onVisPriv','onVisPub',
-    'menuSet','setClose','langEn','langDe','langTr','vibeOnBtn','vibeOffBtn','envDawnBtn','envGoldenBtn','envDayBtn','menuBtn',
+    'menuSet','setClose','langEn','langDe','langTr','vibeOnBtn','vibeOffBtn','envDawnBtn','envDayBtn','menuBtn',
     'startBtn','rematchBtn','ovMenuBtn','leaveCancel','leaveGo'];
   const SOUND_IDS=new Set(IDS.filter(id=>id!=='ctaBtn'));
   for(const id of IDS){ const el=$(id); if(el)wireBtnFx(el,SOUND_IDS.has(id)); }
@@ -3930,16 +3936,10 @@ $('repS3').onclick=()=>{repSpeed=0.25;updateRepBtns();};
 //   (haelt die sichtbare Sonne konsistent mit der Environment-Rotation).
 //   Night folgt spaeter als eigener Datensatz derselben Struktur — kein Codeumbau noetig.
 const ENVIRONMENT_PROFILES={
-  dawn:{ hdri:'assets/hdri/qwantani_sunset_puresky_2k.hdr',   // "Dawn Airy" — freigegebener Stand, NICHT anfassen
+  dawn:{ hdri:'assets/hdri/qwantani_sunset_puresky_2k.hdr',   // freigegebener Stand, NICHT anfassen
     rotationY:2.286, exposure:0.88, envIntensity:1.1,
     sunColor:0xffc27f, sunIntensity:3.0, sunAzimuth:0.6283, sunElevation:0.3142,
     fogColor:0xecc9a0 },
-  // "Dawn Golden" — eigenstaendige finale Variante (gleiches HDRI wie Dawn Airy): goldener Horizont
-  // + kuehler bleibender oberer Himmel, weniger milchig, satteres Gold.
-  dawnGolden:{ hdri:'assets/hdri/qwantani_sunset_puresky_2k.hdr',
-    rotationY:2.286, exposure:0.82, envIntensity:1.35,
-    sunColor:0xffab4f, sunIntensity:3.4, sunAzimuth:0.6283, sunElevation:0.3142,
-    fogColor:0xe0a35e },
   day:{ hdri:'assets/hdri/qwantani_puresky_2k.hdr',
     rotationY:0, exposure:1.05, envIntensity:1.0,
     sunColor:0xffd9a0, sunIntensity:2.7, sunAzimuth:2.9121, sunElevation:0.3997,
@@ -3992,7 +3992,7 @@ async function initR3D(){
       const p=ENVIRONMENT_PROFILES[key]||ENVIRONMENT_PROFILES.dawn;
       const gen=++envGen,t0=performance.now();
       let tex,texPath;
-      if(scene.environment&&envTexPath===p.hdri){    // gleiches HDRI (z. B. Dawn Airy <-> Dawn Golden): Resource wiederverwenden, kein neuer Load
+      if(scene.environment&&envTexPath===p.hdri){    // gleiches HDRI wie aktuell geladen: Resource wiederverwenden, kein neuer Load
         tex=scene.environment;texPath=envTexPath;
       }else{
         const chain=[p.hdri,...ENV_FALLBACKS].filter((v,i,a)=>a.indexOf(v)===i);
