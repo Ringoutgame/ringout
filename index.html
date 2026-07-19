@@ -3905,15 +3905,23 @@ async function initR3D(){
     const renderer=new THREE.WebGLRenderer({canvas:c3,antialias:true});
     renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,2));
     renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;
-    renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.05;
+    renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=0.88;   // Qwantani-Sunset: tiefer belichtet -> sattere, edlere Farben statt milchig ausgewaschen
     renderer.outputColorSpace=THREE.SRGBColorSpace;
     const scene=new THREE.Scene();
-    scene.fog=new THREE.Fog(0xdfd9c6,2600,8000);            // warmer Dunst wie im Prototyp (x57.7)
+    scene.fog=new THREE.Fog(0xecc9a0,2600,8000);            // warmer Amber-Sunset-Dunst (Wolkenmeer/Ferne golden statt neutral-blass)
     const camera=new THREE.PerspectiveCamera(45,1,10,20000);
     // Licht: tiefe warme Sonne + kuehles Gegenlicht (Prototyp-Setup, LOGICAL-Skala)
     scene.add(new THREE.HemisphereLight(0xcfe2f5,0x7d8fa2,0.22));
-    const sun=new THREE.DirectionalLight(0xffd9a0,2.7);   // Prototyp-Werte: weicher, goldener
-    sun.position.set(cx-1730,750,cy+404);sun.target.position.set(cx,0,cy);scene.add(sun.target);
+    // Environment-Rotation: dreht das warme Sonnenband der Default-Kamera zu (Blickrichtung -z).
+    // Dieselbe Rotation gilt fuer Background, Environment (IBL) UND die Key-Light-Richtung -> sichtbare
+    // Sonne und Schattenwurf bleiben konsistent. three.js Y-Rotation: sichtbarer Azimut = Basis - ENV_ROT_Y.
+    const ENV_ROT_Y=2.286;   // sichtbare Sonne ~ -95deg: warmes Sonnenband zentral hinter der Arena
+    const sun=new THREE.DirectionalLight(0xffc27f,3.0);   // Qwantani-Sunset: waermer/satter goldener Key
+    // Basis-Sonne im HDR: Azimut 36deg (0.6283 rad, atan2(z,x)), Elevation von echten 6deg auf 18deg
+    // (0.3142 rad) angehoben, damit Murmel-Schatten nicht ueber die ganze Arena schmieren. dir*1800 ab Ziel.
+    {const azVis=0.6283-ENV_ROT_Y,el=0.3142,D=1800;
+     sun.position.set(cx+Math.cos(el)*Math.cos(azVis)*D, Math.sin(el)*D, cy+Math.cos(el)*Math.sin(azVis)*D);}
+    sun.target.position.set(cx,0,cy);scene.add(sun.target);
     sun.castShadow=true;sun.shadow.mapSize.set(2048,2048);
     sun.shadow.camera.left=-620;sun.shadow.camera.right=620;   // enger = schaerfere Schatten, weniger Last
     sun.shadow.camera.top=620;sun.shadow.camera.bottom=-620;sun.shadow.camera.far=6000;
@@ -3922,11 +3930,14 @@ async function initR3D(){
     // HDRI: Himmel + IBL (Kette; Totalausfall -> Fallback 2D). Perspektivkamera zeigt den Horizont.
     const hdrT0=performance.now();
     const hdr=await new Promise((res,rej)=>{const l=new RGBELoader();
-      l.load('assets/hdri/kloofendal_48d_partly_cloudy_puresky_2k.hdr',res,undefined,
-        ()=>l.load('assets/hdri/qwantani_puresky_2k.hdr',res,undefined,rej));});
+      l.load('assets/hdri/qwantani_sunset_puresky_2k.hdr',res,undefined,
+        ()=>l.load('assets/hdri/kloofendal_48d_partly_cloudy_puresky_2k.hdr',res,undefined,
+          ()=>l.load('assets/hdri/qwantani_puresky_2k.hdr',res,undefined,rej)));});
     perfHdrMs=Math.round(performance.now()-hdrT0);
     hdr.mapping=THREE.EquirectangularReflectionMapping;
-    scene.environment=hdr;scene.environmentIntensity=1.0;scene.background=hdr;
+    scene.environment=hdr;scene.environmentIntensity=1.1;scene.background=hdr;   // etwas sattere Gold/Marmor-Reflexe aus dem Sunset-IBL
+    scene.environmentRotation=new THREE.Euler(0,ENV_ROT_Y,0);   // warmes Sonnenband der Default-Kamera zudrehen (IBL + Sichtbar)
+    scene.backgroundRotation=new THREE.Euler(0,ENV_ROT_Y,0);
     // Wolkenmeer-Sprites unter der Arena (Prototyp-Baender, x57.7 skaliert)
     const puff=document.createElement('canvas');puff.width=puff.height=256;
     {const g=puff.getContext('2d');
