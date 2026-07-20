@@ -143,11 +143,11 @@ for (const [vw, vh] of [[800, 600], [390, 780], [1400, 900]]) {   // Landscape, 
     const a = Math.PI / 2 + p * 2 * Math.PI / n + va('ffa', p, n);   // Bildschirmwinkel der eigenen Kugel
     t(`viewAngle ffa N=${n} Seat ${p}: eigene Kugel unten`, Math.abs(Math.sin(a) - 1) < 1e-9 && Math.abs(Math.cos(a)) < 1e-9);
   }
-  // TRIPLE FFA: 6 Positionen (ffaN*teamCap=6), erste eigene Kugel (Ballindex=Seat)
-  // liegt fuer jeden der 3 Seats nach der Rotation exakt unten.
+  // TRIPLE FFA: 3 Sektoren (120° Abstand), der Sektor-Mittelpunkt des eigenen
+  // Kugelpaars liegt fuer jeden der 3 Seats nach der Rotation exakt unten.
   for (let p = 0; p < 3; p++) {
-    const a = Math.PI / 2 + p * 2 * Math.PI / 6 + va('ffa', p, 3, 'triple_ffa');
-    t(`viewAngle triple_ffa Seat ${p}: erste eigene Kugel unten`, Math.abs(Math.sin(a) - 1) < 1e-9 && Math.abs(Math.cos(a)) < 1e-9);
+    const a = Math.PI / 2 + p * 2 * Math.PI / 3 + va('ffa', p, 3, 'triple_ffa');
+    t(`viewAngle triple_ffa Seat ${p}: eigenes Paar unten`, Math.abs(Math.sin(a) - 1) < 1e-9 && Math.abs(Math.cos(a)) < 1e-9);
   }
   t('viewAngle 1v1 P0 exakt 0', va('online', 0, 3) === 0);
   t('viewAngle 1v1 P1 exakt PI (Spiegel-Kontrakt)', va('online', 1, 3) === Math.PI);
