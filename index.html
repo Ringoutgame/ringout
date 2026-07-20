@@ -1269,7 +1269,7 @@ loadOnlineIdentity();   // stable pid + fresh tab token + persisted name, once p
 //   PI/2+seat*2*PI/N wird auf PI/2 zurueckgedreht (Seat 0: 0, wie lokal).
 function viewAngle(){
   if(!online)return 0;
-  if(mode==='ffa')return -(myPlayer*2*Math.PI/(ffaN*teamCap()));   // TRIPLE FFA: /6 — erste eigene Kugel vorne/unten
+  if(mode==='ffa')return -(myPlayer*2*Math.PI/ffaN);   // TRIPLE FFA: 3 Sektoren — eigenes Paar vorne/unten
   return myPlayer===1?Math.PI:0;
 }
 
@@ -1945,12 +1945,21 @@ function colorSlot(owner){return fmt==='team_duel'?teamOf(owner):owner;}
 
 function placeBalls(){
   balls=[];
-  if(mode==='ffa'){                                  // FFA: gleichmaessig im Kreis, Spieler 1 unten.
-    // TRIPLE FFA (teamCap 2): 6 Positionen, Owner alternierend 0,1,2,0,1,2 —
-    // die beiden Kugeln eines Spielers liegen sich dadurch exakt gegenueber.
-    // Klassisches FFA (teamCap 1): i%ffaN === i -> bit-identisch zu vorher.
-    const rr=R*0.57,tot=ffaN*teamCap();
-    for(let i=0;i<tot;i++){const a=Math.PI/2+i*2*Math.PI/tot;balls.push(mkBall(cx+Math.cos(a)*rr,cy+Math.sin(a)*rr,i%ffaN));}
+  if(mode==='ffa'&&fmt==='triple_ffa'){
+    // TRIPLE FFA: 3 Sektoren im 120°-Abstand (Spieler 1 unten, wie klassisches FFA).
+    // Pro Sektor stehen die 2 Kugeln eines Spielers nebeneinander (kleiner tangentialer
+    // Versatz um den Sektor-Mittelpunkt) statt sich gegenueberzustehen — das Paar bleibt
+    // zur Arenamitte ausgerichtet.
+    const rr=R*0.57,half=BR*1.4;
+    for(let i=0;i<ffaN;i++){
+      const a=Math.PI/2+i*2*Math.PI/ffaN;
+      const px=cx+Math.cos(a)*rr,py=cy+Math.sin(a)*rr;
+      const tx=-Math.sin(a),ty=Math.cos(a);
+      balls.push(mkBall(px-tx*half,py-ty*half,i),mkBall(px+tx*half,py+ty*half,i));
+    }
+  }else if(mode==='ffa'){                            // Klassisches FFA: gleichmaessig im Kreis, Spieler 1 unten.
+    const rr=R*0.57,tot=ffaN;
+    for(let i=0;i<tot;i++){const a=Math.PI/2+i*2*Math.PI/tot;balls.push(mkBall(cx+Math.cos(a)*rr,cy+Math.sin(a)*rr,i));}
   }else if(fmt==='double'){const ox=R*0.30,oy=R*0.55;
     balls.push(mkBall(cx-ox,cy+oy,0),mkBall(cx+ox,cy+oy,0));
     balls.push(mkBall(cx-ox,cy-oy,1),mkBall(cx+ox,cy-oy,1));
