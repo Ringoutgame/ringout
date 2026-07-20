@@ -76,8 +76,6 @@ body.r3d #menu{z-index:2;background:linear-gradient(180deg,rgba(6,10,18,.55) 0%,
 .mcard .mt{font-size:14px;font-weight:900;letter-spacing:.05em;color:#eef2f9;white-space:nowrap;margin-top:3px}
 .mcard.on .mt{color:#fff}
 .mcard .msub{font-size:9.5px;font-weight:900;letter-spacing:.14em;color:#d9b96a;text-transform:uppercase}
-.mcard .ms{font-size:11px;font-weight:600;line-height:1.45;color:#93a2bd;text-align:center;max-width:190px}
-.mcard.on .ms{color:#aab7cd}
 /* Aktive Karte: nur Styling (Rahmen/Hintergrund/Schatten) + dezente Gold-Akzentlinie
    unten — NIE eine Groessen-/Layout-Aenderung (gilt Desktop wie Mobil). */
 .mcard.on::after{content:"";position:absolute;left:24%;right:24%;bottom:7px;height:2px;border-radius:2px;
@@ -103,7 +101,6 @@ body.r3d #menu{z-index:2;background:linear-gradient(180deg,rgba(6,10,18,.55) 0%,
   .mcard .mic svg{width:20px;height:20px}
   .mcard .mt{font-size:13px;letter-spacing:.03em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;line-height:1.2;margin-top:2px}
   .mcard .msub{display:block;font-size:9px;letter-spacing:.12em}
-  .mcard .ms{display:block;font-size:10.5px;line-height:1.4;max-width:none}
   .mcard .chip{display:none}
   .marrow{display:none}
   .mdots{display:flex;justify-content:center;gap:5px;margin-top:12px}
@@ -180,7 +177,6 @@ body.r3d #menu{z-index:2;background:linear-gradient(180deg,rgba(6,10,18,.55) 0%,
   .msheet{width:min(100% - 48px,780px);padding:24px 28px 36px}
   #menuHero{max-width:640px;height:clamp(240px,36vh,340px)}
   .mcard{padding:26px 14px 20px;gap:9px}
-  .mcard .ms{font-size:11.5px}
   .howp .hss{font-size:10.5px}
 }
 /* Desktop-Hover + Tastatur-Fokus: konsistente Premium-States (Touch nutzt .press-fx) */
@@ -487,35 +483,30 @@ body:not(.r3d) .ohero{height:12px}
       <span class="mic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="12" r="8"/><ellipse cx="12" cy="12" rx="3.4" ry="8"/><path d="M4.6 12h14.8"/></svg></span>
       <span class="mt">ONLINE FFA</span>
       <span class="msub">2–5 PLAYERS</span>
-      <span class="ms">Play in a free-for-all with players worldwide.</span>
     </button>
     <button class="mcard" id="cardTriple">
       <span class="chip">ACTIVE</span>
       <span class="mic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="6.4" r="2.5"/><circle cx="6.4" cy="16.6" r="2.5"/><circle cx="17.6" cy="16.6" r="2.5"/><path d="M10.6 8.6l-2.9 5.3M13.4 8.6l2.9 5.3M9 16.6h6"/></svg></span>
       <span class="mt">TRIPLE FFA</span>
-      <span class="msub">3 PLAYERS</span>
-      <span class="ms">2 balls per player — free-for-all.</span>
+      <span class="msub">3 PLAYERS · 2 BALLS EACH</span>
     </button>
     <button class="mcard" id="cardTeam">
       <span class="chip">ACTIVE</span>
       <span class="mic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="7.2" cy="7.2" r="2.4"/><circle cx="16.8" cy="7.2" r="2.4"/><circle cx="7.2" cy="16.8" r="2.4"/><circle cx="16.8" cy="16.8" r="2.4"/><path d="M9.6 12h4.8M12 9.6v4.8"/></svg></span>
       <span class="mt">TEAM DUEL</span>
-      <span class="msub">4 PLAYERS</span>
-      <span class="ms">2 teams · 1 ball per player — win together.</span>
+      <span class="msub">4 PLAYERS · 2 TEAMS</span>
     </button>
     <button class="mcard" id="card2v2">
       <span class="chip">ACTIVE</span>
       <span class="mic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="9" cy="8.6" r="3"/><path d="M3.4 19c0-3.1 2.6-4.8 5.6-4.8s5.6 1.7 5.6 4.8"/><circle cx="16.6" cy="9.4" r="2.4"/><path d="M16 14.4c2.6.3 4.7 1.9 4.7 4.4"/></svg></span>
       <span class="mt">ONLINE VERSUS</span>
       <span class="msub">2 PLAYERS · 2 BALLS EACH</span>
-      <span class="ms">Challenge other players in head-to-head matches.</span>
     </button>
     <button class="mcard" id="cardBot">
       <span class="chip">ACTIVE</span>
       <span class="mic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="6" y="8.5" width="12" height="8.5" rx="2.6"/><circle cx="10" cy="12.6" r="1" fill="currentColor" stroke="none"/><circle cx="14" cy="12.6" r="1" fill="currentColor" stroke="none"/><path d="M12 8.5V6"/><circle cx="12" cy="4.8" r="1.1"/></svg></span>
       <span class="mt">BOT TRAINING</span>
       <span class="msub">VS AI</span>
-      <span class="ms">Practice against AI and improve your skills.</span>
     </button>
     </div>
     <button class="marrow marrow-r" id="modeNext" type="button" aria-label="Next mode" tabindex="-1">›</button>
@@ -1342,16 +1333,16 @@ function stepMenuMode(dir){const i=MODE_ORDER.indexOf(menuSel);selectMenuMode(MO
 //    Hints, startFfaMatch-/Leave-Toasts, onLobbyClosed, onOppLeft) und In-Game-Texte. ──
 const I18N={
 en:{tagline:'PULL BACK · RELEASE · KNOCK THEM OUT',chip:'FEATURED',
-  ffaT:'ONLINE FFA',ffaS:'2–5 PLAYERS',ffaD:'Play in a free-for-all with players worldwide.',
-  tripleT:'TRIPLE FFA',tripleS:'3 PLAYERS',tripleD:'2 balls per player — free-for-all.',
+  ffaT:'ONLINE FFA',ffaS:'2–5 PLAYERS',
+  tripleT:'TRIPLE FFA',tripleS:'3 PLAYERS · 2 BALLS EACH',
   ctaTriple:'PLAY TRIPLE FFA',infoTriple:'3 PLAYERS · 2 BALLS EACH · HOST STARTS',
   onSubTriple:'Triple FFA · exactly 3 players',tripleShare:'TRIPLE FFA · Share the code with 2 friends.',
-  teamT:'TEAM DUEL',teamS:'4 PLAYERS',teamD:'2 teams · 1 ball per player — win together.',
+  teamT:'TEAM DUEL',teamS:'4 PLAYERS · 2 TEAMS',
   ctaTeam:'PLAY TEAM DUEL',infoTeam:'4 PLAYERS · 2 TEAMS · 1 BALL PER PLAYER',
   onSubTeam:'Team Duel · exactly 4 players · 2 vs 2',teamShare:'TEAM DUEL · Share the code with 3 friends.',
   teamBlue:'TEAM BLUE',teamRed:'TEAM RED',teamBlueWins:'TEAM BLUE WINS',teamRedWins:'TEAM RED WINS',teamDraw:'DRAW',
-  vsT:'ONLINE VERSUS',vsS:'2 PLAYERS · 2 BALLS EACH',vsD:'Challenge other players in head-to-head matches.',
-  botT:'BOT TRAINING',botS:'VS AI',botD:'Practice against AI and improve your skills.',
+  vsT:'ONLINE VERSUS',vsS:'2 PLAYERS · 2 BALLS EACH',
+  botT:'BOT TRAINING',botS:'VS AI',
   secPlay:'PLAY',secRooms:'ONLINE ROOMS',secHow:'HOW TO PLAY',viewAll:'VIEW ALL',
   joinCodeBtn:'JOIN CODE',howLead:'Learn the rules and master the ring.',
   createRoomSub:'Invite your friends',joinCodeSub:'Enter room code',
@@ -1383,16 +1374,16 @@ en:{tagline:'PULL BACK · RELEASE · KNOCK THEM OUT',chip:'FEATURED',
   visLbl:'VISIBILITY',visPriv:'Private',visPub:'Public',pubTitle:'PUBLIC ROOMS',pubJoin:'Join',
   pubLoading:'Loading rooms…',pubEmpty:'No public rooms right now.',pubError:'Couldn’t load rooms.'},
 de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'FEATURED',
-  ffaT:'ONLINE FFA',ffaS:'2–5 SPIELER',ffaD:'Spiel ein Free-for-all gegen Spieler weltweit.',
-  tripleT:'TRIPLE FFA',tripleS:'3 SPIELER',tripleD:'2 Kugeln pro Spieler — jeder gegen jeden.',
+  ffaT:'ONLINE FFA',ffaS:'2–5 SPIELER',
+  tripleT:'TRIPLE FFA',tripleS:'3 SPIELER · 2 KUGELN JE SPIELER',
   ctaTriple:'TRIPLE FFA SPIELEN',infoTriple:'3 SPIELER · 2 KUGELN JE SPIELER · HOST STARTET',
   onSubTriple:'Triple FFA · genau 3 Spieler',tripleShare:'TRIPLE FFA · Schick den Code an 2 Freunde.',
-  teamT:'TEAM DUEL',teamS:'4 SPIELER',teamD:'2 Teams · 1 Kugel pro Spieler — gewinnt zusammen.',
+  teamT:'TEAM DUEL',teamS:'4 SPIELER · 2 TEAMS',
   ctaTeam:'TEAM DUEL SPIELEN',infoTeam:'4 SPIELER · 2 TEAMS · 1 KUGEL PRO SPIELER',
   onSubTeam:'Team Duel · genau 4 Spieler · 2 gegen 2',teamShare:'TEAM DUEL · Schick den Code an 3 Freunde.',
   teamBlue:'TEAM BLAU',teamRed:'TEAM ROT',teamBlueWins:'TEAM BLAU GEWINNT',teamRedWins:'TEAM ROT GEWINNT',teamDraw:'UNENTSCHIEDEN',
-  vsT:'ONLINE VERSUS',vsS:'2 SPIELER · 2 KUGELN PRO SPIELER',vsD:'Fordere andere Spieler im direkten Duell heraus.',
-  botT:'BOT-TRAINING',botS:'GEGEN KI',botD:'Trainiere gegen die KI und verbessere dein Spiel.',
+  vsT:'ONLINE VERSUS',vsS:'2 SPIELER · 2 KUGELN PRO SPIELER',
+  botT:'BOT-TRAINING',botS:'GEGEN KI',
   secPlay:'SPIELEN',secRooms:'ONLINE-RÄUME',secHow:'SO WIRD GESPIELT',viewAll:'ALLE ANZEIGEN',
   scrollHint:'SCROLLEN FÜR MEHR',soonT:'BALD MEHR',soonS:'Neue Modi und Features sind in Arbeit.',
   joinCodeBtn:'CODE BEITRETEN',howLead:'Lerne die Regeln und meistere den Ring.',
@@ -1424,16 +1415,16 @@ de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'FEATURED',
   visLbl:'SICHTBARKEIT',visPriv:'Privat',visPub:'Öffentlich',pubTitle:'ÖFFENTLICHE RÄUME',pubJoin:'Beitreten',
   pubLoading:'Räume werden geladen…',pubEmpty:'Gerade keine öffentlichen Räume.',pubError:'Räume konnten nicht geladen werden.'},
 tr:{tagline:'GERİ ÇEK · BIRAK · DIŞARI İT',chip:'FEATURED',
-  ffaT:'ONLINE FFA',ffaS:'2–5 OYUNCU',ffaD:'Dünya çapında oyunculara karşı serbest mücadele.',
-  tripleT:'TRIPLE FFA',tripleS:'3 OYUNCU',tripleD:'Oyuncu başına 2 top — herkes tek.',
+  ffaT:'ONLINE FFA',ffaS:'2–5 OYUNCU',
+  tripleT:'TRIPLE FFA',tripleS:'3 OYUNCU · KİŞİ BAŞI 2 TOP',
   ctaTriple:'TRIPLE FFA OYNA',infoTriple:'3 OYUNCU · HERKESE 2 TOP · HOST BAŞLATIR',
   onSubTriple:'Triple FFA · tam 3 oyuncu',tripleShare:'TRIPLE FFA · Kodu 2 arkadaşına gönder.',
-  teamT:'TEAM DUEL',teamS:'4 OYUNCU',teamD:'2 takım · oyuncu başına 1 top — birlikte kazanın.',
+  teamT:'TEAM DUEL',teamS:'4 OYUNCU · 2 TAKIM',
   ctaTeam:'TEAM DUEL OYNA',infoTeam:'4 OYUNCU · 2 TAKIM · OYUNCU BAŞINA 1 TOP',
   onSubTeam:'Team Duel · tam 4 oyuncu · 2\'ye 2',teamShare:'TEAM DUEL · Kodu 3 arkadaşına gönder.',
   teamBlue:'MAVİ TAKIM',teamRed:'KIRMIZI TAKIM',teamBlueWins:'MAVİ TAKIM KAZANDI',teamRedWins:'KIRMIZI TAKIM KAZANDI',teamDraw:'BERABERE',
-  vsT:'ONLINE VERSUS',vsS:'2 OYUNCU · HERKESE 2 TOP',vsD:'Diğer oyunculara kafa kafaya meydan oku.',
-  botT:'BOT ANTRENMANI',botS:'YAPAY ZEKÂYA KARŞI',botD:'Yapay zekâya karşı antrenman yap, ustalaş.',
+  vsT:'ONLINE VERSUS',vsS:'2 OYUNCU · KİŞİ BAŞI 2 TOP',
+  botT:'BOT ANTRENMANI',botS:'YAPAY ZEKÂYA KARŞI',
   secPlay:'OYNA',secRooms:'ONLINE ODALAR',secHow:'NASIL OYNANIR',viewAll:'TÜMÜNÜ GÖR',
   scrollHint:'KAYDIR VE KEŞFET',soonT:'ÇOK YAKINDA DAHA FAZLASI',soonS:'Yeni modlar ve özellikler yolda.',
   joinCodeBtn:'KODLA KATIL',howLead:'Kuralları öğren ve ringe hâkim ol.',
@@ -1473,20 +1464,15 @@ function applyLang(){
   document.querySelectorAll('.mcard .chip').forEach(e=>{e.textContent=T('chip');});
   document.querySelector('#cardFfa .mt').textContent=T('ffaT');
   document.querySelector('#cardFfa .msub').textContent=T('ffaS');
-  document.querySelector('#cardFfa .ms').textContent=T('ffaD');
   document.querySelector('#cardTriple .mt').textContent=T('tripleT');
   document.querySelector('#cardTriple .msub').textContent=T('tripleS');
-  document.querySelector('#cardTriple .ms').textContent=T('tripleD');
   document.querySelector('#cardTeam .mt').textContent=T('teamT');
   document.querySelector('#cardTeam .msub').textContent=T('teamS');
-  document.querySelector('#cardTeam .ms').textContent=T('teamD');
   $('lobbyTeamBlue').textContent=T('teamBlue');$('lobbyTeamRed').textContent=T('teamRed');
   document.querySelector('#card2v2 .mt').textContent=T('vsT');
   document.querySelector('#card2v2 .msub').textContent=T('vsS');
-  document.querySelector('#card2v2 .ms').textContent=T('vsD');
   document.querySelector('#cardBot .mt').textContent=T('botT');
   document.querySelector('#cardBot .msub').textContent=T('botS');
-  document.querySelector('#cardBot .ms').textContent=T('botD');
   // Home-Sektionen + Online-Rooms-Vorschau + How-to (Klassen: Home UND Online-Seite)
   $('secPlayT').textContent=T('secPlay');$('secRoomsT').textContent=T('secRooms');
   $('secHowT').textContent=T('secHow');$('onHowLbl').textContent=T('secHow');
