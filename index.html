@@ -366,6 +366,24 @@ body.booting #menu{opacity:0;visibility:hidden}
 @keyframes scp{0%,100%{transform:scale(1);box-shadow:0 8px 22px rgba(5,9,18,.3)}30%{transform:scale(1.07);box-shadow:0 0 0 1px rgba(255,201,64,.6),0 0 30px rgba(255,201,64,.45)}}
 .scorebox.pulse{animation:scp .8s cubic-bezier(.3,1.4,.4,1)}
 @media(prefers-reduced-motion:reduce){.wb{animation:none}#rov,#rov .rw{transition:opacity .2s}#rov .rw{transform:none;filter:none}#koChip.show{animation:none;opacity:1}.scorebox.pulse{animation:none}}
+/* ── Ring-Collapse-Timer (nur lokales Bot Training) ── */
+.ctimer{position:absolute;top:6px;left:50%;transform:translateX(-50%);z-index:4;pointer-events:none;
+  font:900 15px/1 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.14em;color:#dfe7f3;
+  background:rgba(7,12,22,.62);border:1px solid rgba(150,170,210,.28);border-radius:999px;
+  padding:6px 14px;backdrop-filter:blur(4px);box-shadow:0 4px 14px rgba(5,9,18,.35);transition:color .2s,border-color .2s,background .2s}
+.ctimer.danger{color:#ffd0c4;border-color:rgba(255,90,60,.7);background:rgba(60,12,8,.6);
+  box-shadow:0 0 16px rgba(255,70,40,.4);animation:ctPulse .9s ease-in-out infinite}
+.ctimer.collapsed{color:#ffb59f;border-color:rgba(255,110,70,.55);background:rgba(40,12,10,.55);animation:none}
+@keyframes ctPulse{0%,100%{opacity:.78}50%{opacity:1}}
+/* --cc-y wird pro Frame aus der projizierten oberen Arenakante gesetzt (updateCollapseCountPos);
+   Verankerung ueber die Unterkante (-100%) haelt die Zahl formatunabhaengig ueber der Arena. */
+.ccount{position:fixed;left:50%;top:var(--cc-y,32%);transform:translate(-50%,-100%);transform-origin:50% 100%;
+  z-index:95;pointer-events:none;opacity:0;transition:opacity .15s ease;
+  font:900 clamp(100px,25vw,205px)/1 system-ui;color:#fff;
+  text-shadow:0 0 3px rgba(0,0,0,.9),0 0 9px rgba(0,0,0,.65),0 0 22px rgba(255,80,45,.5),0 0 10px rgba(255,170,110,.5),0 4px 14px rgba(0,0,0,.6)}
+.ccount.show{opacity:.82;animation:ccPop .2s cubic-bezier(.2,1.3,.4,1)}   /* opacity bleibt .82, solange sichtbar -> Arena bleibt darunter erkennbar */
+@keyframes ccPop{0%{transform:translate(-50%,-100%) scale(.55)}60%{transform:translate(-50%,-100%) scale(1.08)}100%{transform:translate(-50%,-100%) scale(1)}}
+@media(prefers-reduced-motion:reduce){.ctimer.danger{animation:none}.ccount.show{animation:none;opacity:.82}}
 /* ── ONLINE als eigene App-Seite (nach Referenzbild 2): Header mit Back/Titel/Badge,
       Arena-Fenster, Panel-Sheet mit Name+Sichtbarkeit, Create-ODER-Join-Karten,
       Public Rooms und How-to — vertikal scrollbar wie die Startseite. ── */
@@ -588,6 +606,9 @@ body:not(.r3d) .ohero{height:12px}
     <div class="ffabar" id="ffaBar"></div>
   </div>
   <div class="arena-wrap"><canvas id="cv"></canvas></div>
+  <!-- Ring-Collapse-Timer (nur lokales Bot Training): kleine Matchzeit + grosser 5..1-Countdown -->
+  <div class="ctimer" id="collapseTimer" style="display:none" aria-hidden="true">02:00</div>
+  <div class="ccount" id="collapseCount" aria-hidden="true"></div>
   <div class="phase" id="phase"></div>
   <div class="botbar">
     <button class="btn ghost" id="resetBtn">↺</button>
@@ -1766,6 +1787,16 @@ const SFX=(()=>{
       const wn=c.createBufferSource();wn.buffer=noise(c);wn.loop=true;wn.connect(wg);wn.start(t);wn.stop(t+.5);});},
     round(pi){go(c=>{const a=pi===0?[523,784,1047]:[440,659,880];a.forEach((f,i)=>{const d=i*.07,g=c.createGain();g.gain.setValueAtTime(0,c.currentTime+d);g.gain.linearRampToValueAtTime(.25,c.currentTime+d+.03);g.gain.exponentialRampToValueAtTime(.001,c.currentTime+d+.4);g.connect(c.destination);const o=c.createOscillator();o.type='sine';o.frequency.value=f;o.connect(g);o.start(c.currentTime+d);o.stop(c.currentTime+d+.4);});});},
     win(){go(c=>{[523,659,784,1047,1318].forEach((f,i)=>{const d=i*.09,g=c.createGain();g.gain.setValueAtTime(0,c.currentTime+d);g.gain.linearRampToValueAtTime(.22,c.currentTime+d+.04);g.gain.exponentialRampToValueAtTime(.001,c.currentTime+d+.6);g.connect(c.destination);const o=c.createOscillator();o.type='sine';o.frequency.value=f;o.connect(g);o.start(c.currentTime+d);o.stop(c.currentTime+d+.6);});});},
+    // Ring-Collapse-Timer (synthetisch, keine externen Assets):
+    // warn = dezentes 10s-Vorwarnsignal, tick = klarer 5..1-Countdown-Beep, collapse = kurzer Alarm.
+    warn(){go(c=>{const t=c.currentTime;const g=c.createGain();g.gain.setValueAtTime(.0001,t);g.gain.linearRampToValueAtTime(.08,t+.02);g.gain.exponentialRampToValueAtTime(.0006,t+.5);g.connect(c.destination);const o=c.createOscillator();o.type='triangle';o.frequency.setValueAtTime(430,t);o.frequency.exponentialRampToValueAtTime(300,t+.45);o.connect(g);o.start(t);o.stop(t+.5);});},
+    tick(){go(c=>{const t=c.currentTime;const g=c.createGain();g.gain.setValueAtTime(.0001,t);g.gain.linearRampToValueAtTime(.13,t+.008);g.gain.exponentialRampToValueAtTime(.0006,t+.14);g.connect(c.destination);const o=c.createOscillator();o.type='square';o.frequency.setValueAtTime(880,t);o.connect(g);o.start(t);o.stop(t+.15);});},
+    collapse(){go(c=>{const t=c.currentTime;
+      const bp=c.createBiquadFilter();bp.type='bandpass';bp.frequency.setValueAtTime(600,t);bp.frequency.exponentialRampToValueAtTime(90,t+.7);bp.Q.value=1.0;bp.connect(c.destination);
+      const wg=c.createGain();wg.gain.setValueAtTime(.0001,t);wg.gain.linearRampToValueAtTime(.26,t+.05);wg.gain.exponentialRampToValueAtTime(.001,t+.8);wg.connect(bp);
+      const wn=c.createBufferSource();wn.buffer=noise(c);wn.loop=true;wn.connect(wg);wn.start(t);wn.stop(t+.85);
+      const g2=c.createGain();g2.gain.setValueAtTime(.0001,t);g2.gain.linearRampToValueAtTime(.16,t+.04);g2.gain.exponentialRampToValueAtTime(.001,t+.7);g2.connect(c.destination);
+      const o=c.createOscillator();o.type='sawtooth';o.frequency.setValueAtTime(160,t);o.frequency.exponentialRampToValueAtTime(45,t+.6);o.connect(g2);o.start(t);o.stop(t+.75);});},
     // Trockener UI-Klick: fest vorgerendertes Buffer (siehe makeClickBuf), pro Wiedergabe
     // ein FRISCHES Gain- + Filter-Node mit FESTEN (nicht automatisierten) Werten -> kein
     // Zufall, keine Rampen, keine geteilte/weiterlaufende Huellkurve zwischen Aufrufen.
@@ -1886,6 +1917,197 @@ const MAXPULL_FRAC=0.40, LAUNCH=0.034, FRICTION=0.992, FEND=0.992, SLOWV=0.35, R
 const SPIN_K=0.004, SPIN_DECAY=0.985, SPIN_SCALE=R0*0.18, SPIN_INPUT=R0*0.45;   // SPIN_INPUT: horizontale Wischweite des 2. Fingers fuer vollen Drall (+/-1)
 const REVEAL_MS=600, RESULT_MS=950;
 const RESULT_SLOWMUL=0.7, RESULT_FR=0.99;
+// ══════ RING-COLLAPSE-TIMER — lokaler Gameplay-Prototyp, NUR Bot Training ══════
+// Passive Matches gehen nach fester Planungszeit in ein dramatisches Finale ueber:
+// Timer laeuft nur in der Planungsphase (phase==='aim'), pausiert waehrend Physik/
+// Menue/Matchende. Bei 0 werden offene Zuege auf "Stehen bleiben" gesetzt, der letzte
+// simultane Zug laeuft regulaer, und ERST nach vollstaendigem Physics-Settlement wird
+// der Arenaradius EINMALIG per COLLAPSE_RADIUS_FACTOR verkleinert. Die bestehende
+// Ring-out-Logik (stepSim) behandelt danach Kugeln ausserhalb des neuen Radius.
+// Keine Online-/Firebase-/Netzwerk-Beruehrung — alle Pfade sind hart auf Bot-Local
+// gated (collapseEnabled && mode==='bot' && !online). ── ==COLLAPSE-CORE-START==
+const MATCH_COLLAPSE_SECONDS=120, COLLAPSE_WARNING_SECONDS=10, FINAL_COUNTDOWN_SECONDS=5, COLLAPSE_RADIUS_FACTOR=0.82;
+// Obergrenze fuer EIN Zeit-Delta eines sichtbaren Frames. Ein langer Main-Thread-Stall
+// (GC-Pause, Debugger, Tab-Wechsel ohne visibilitychange) darf nicht mehrere Entscheidungs-
+// sekunden auf einmal verbrauchen und dabei Countdown-Stufen ueberspringen. Der Wert liegt
+// deutlich ueber jedem regulaeren Frame (60 fps = 16.7 ms, 30 fps = 33.3 ms) und unter einer
+// Countdown-Stufe (1000 ms) -> normaler Betrieb bleibt zeitlich exakt, eine Stufe kann nie
+// uebersprungen werden. Bewusst KEINE allgemeine Pause-Engine, nur diese eine Klemmung.
+const MAX_COLLAPSE_TICK_DELTA_MS=250;
+let collapseEnabled=false;        // true nur im lokalen Bot-Training-Match
+let collapseState='running';      // 'running' -> 'expired' (0 erreicht) -> 'collapsed' (einmalig)
+let matchElapsedMs=0;             // aufsummierte Planungsphasen-Zeit
+let matchTimerAnchor=null;        // performance.now() des letzten zaehlenden Frames (null=pausiert)
+let collapseRadius=0;             // Arenaradius unmittelbar nach dem Collapse (Schrumpf-Floor)
+let collapseOuterR=0;             // Radius VOR dem Collapse (fuer die entfernte Aussenzone im Overlay)
+let collapseCountShown=-1;        // zuletzt angezeigte Countdown-Zahl (Beep-Entprellung)
+let collapseCountVisible=false;   // ist die grosse Zahl gerade eingeblendet
+let collapseWarned=false;         // 10s-Warnsignal genau einmal
+let collapseFlash=0;              // Zeitstempel fuer den kurzen Collapse-Alarm-Blink
+function collapseActive(){return collapseEnabled&&mode==='bot'&&!online;}
+function collapseRemainMs(){return Math.max(0,MATCH_COLLAPSE_SECONDS*1000-matchElapsedMs);}
+// Eingabesperre ab Timerablauf: kein Spieler- oder Bot-Zug darf mehr beginnen, bis der
+// Collapse ausgewertet ist. Die Auswertung selbst laeuft in phase==='sim' und ist damit
+// bereits ueber die normale Phasenpruefung gesperrt.
+function inputLocked(){return collapseActive()&&collapseState==='expired';}
+// Zentrale Freigabe fuer JEDEN lokalen Benutzer-Commit (Stand-Button, Pointer-/Drall-Zug).
+// Verhindert Doppelwertungen: ein spaetes pointerup nach dem automatischen Stand-Commit
+// darf weder den bestaetigten Zug ueberschreiben noch einen zweiten Bot-Zug erzeugen.
+// Ab Timerablauf ist zusaetzlich JEDE Benutzereingabe gesperrt — nur der interne
+// commitAutoStand() passiert die Sperre, und der setzt ausschliesslich "stehen bleiben".
+// Online bleibt unberuehrt — dort ist die DB der Write-once-Arbiter (s. commit()).
+function canCommitInput(who){
+  if(online)return true;
+  if(phase!=='aim')return false;
+  if(inputLocked())return false;
+  return who>=0&&!aimSet[who];
+}
+// Interner Auto-Stand bei Timerablauf — der EINZIGE Commit-Pfad an der Eingabesperre vorbei.
+// Kein allgemeines Schlupfloch: er setzt nur den noch offenen Zug einmalig auf dx=dy=0 und
+// laeuft danach durch den regulaeren Zugablauf (applyCommit -> Bot-Zug -> Reveal).
+function commitAutoStand(who,shooterIdx){
+  if(online)return;                                    // Online kennt keinen lokalen Auto-Stand
+  if(!inputLocked())return;                            // nur nach regulaerem Timerablauf
+  if(phase!=='aim'||who<0||aimSet[who])return;         // genau einmal, nie ueberschreibend
+  applyCommit(who,shooterIdx,0,0,0);
+}
+// Dynamischer Rundenschrumpf-Floor: normal R0*0.80 (bit-identisch), nach dem Collapse
+// eingefroren auf collapseRadius -> Rundenschrumpf hebt/senkt den Collapse nicht mehr.
+function shrinkFloor(){return (collapseActive()&&collapseState==='collapsed')?collapseRadius:R0*0.80;}
+function resetCollapseTimer(){
+  collapseEnabled=(mode==='bot'&&!online);   // nur lokales Bot-Training aktiviert den Timer
+  collapseState='running';matchElapsedMs=0;matchTimerAnchor=null;
+  collapseRadius=0;collapseOuterR=0;collapseCountShown=-1;collapseWarned=false;collapseFlash=0;
+  // Neues Match/Rematch startet ohne Eingabesperre und ohne Drag-Reste aus dem alten Match.
+  if(typeof cancelAimDrag==='function')cancelAimDrag();
+  hideCollapseCount();updateCollapseHud();
+}
+// 0 erreicht: offene (nicht bestaetigte, lebende) Eingaben einmalig auf "Stehen bleiben"
+// setzen. In Bot Training ist das ausschliesslich der menschliche Spieler (Seat 0);
+// commitAutoStand() loest darueber den regulaeren simultanen Zug aus (Bot-Zug + beginReveal).
+function onCollapseExpire(){
+  if(collapseState!=='running')return;      // genau einmal
+  collapseState='expired';hideCollapseCount();
+  // Laufenden Aim-/Drall-Drag hart beenden, BEVOR der Auto-Stand gesetzt wird: sonst
+  // koennte das spaetere pointerup den soeben bestaetigten Zug noch ueberschreiben.
+  if(typeof cancelAimDrag==='function')cancelAimDrag();
+  if(phase==='aim'&&!aimSet[0]&&aliveCount(0)){
+    const own=aliveBalls(0),idx=own.length?balls.indexOf(own[0]):-1;
+    commitAutoStand(0,idx);                  // interner Pfad: dx=dy=0 -> Kugel bleibt stehen
+  }
+}
+// Ring Collapse: genau EINMAL je Match, deterministisch im Settlement-Uebergang des letzten
+// erzwungenen Zuges. Er hat zwei Ausgaenge, weil stepSim zwei Ausgaenge hat:
+//   settleCollapse()   — Zug kam bewegungslos zur Ruhe, Runde laeuft weiter
+//   collapseRoundEnd() — Zug beendete die Runde (phase='result'), aufgerufen aus afterResult
+// Beide teilen sich applyCollapseRadius(); danach existiert nie eine Planungsphase mit
+// abgelaufenem Timer. Hart gegated: jeder Aufruf ausserhalb eines laufenden lokalen
+// Bot-Matches ist wirkungslos (s. collapsePending).
+// ── Einmalige Radiusverkleinerung inkl. Zustandswechsel, Alarm und HUD ──
+function applyCollapseRadius(){
+  collapseOuterR=R;                            // alte Grenze merken (entfernte Aussenzone im Overlay)
+  R=Math.max(BR*4,R*COLLAPSE_RADIUS_FACTOR);
+  collapseRadius=R;collapseState='collapsed';
+  collapseFlash=performance.now();SFX.collapse();
+  updateCollapseHud();
+}
+// Faelliger Collapse? Gemeinsame Vorbedingung beider Ausgaenge.
+function collapsePending(){return collapseActive()&&collapseState==='expired'&&phase!=='over';}
+function doCollapse(){
+  if(!collapsePending())return;                // gated: lokales Bot-Training, regulaer abgelaufen, Match offen
+  applyCollapseRadius();
+  // Restbewegung deterministisch neutralisieren: die Collapse-Auswertung darf
+  // AUSSCHLIESSLICH von der Position beim Settlement und dem neuen Radius abhaengen.
+  // Positionen bleiben exakt unveraendert; normale Physikparameter sind unberuehrt.
+  for(const b of balls){if(b.alive){b.vx=0;b.vy=0;b.spin=0;}}
+  // Positionsreine Auswertung gegen den neuen Radius — KEIN zusaetzlicher Physikframe.
+  // Die Settlement-Positionen sind autoritativ: es wird nichts integriert, keine Kollision
+  // erneut geloest und keine Restueberlappung korrigiert (ein zweiter stepSim-Lauf koennte
+  // Kugeln einer Kontaktgruppe verschieben und damit das Ring-out-Ergebnis veraendern).
+  // Nur die bereits jetzt ausserhalb liegenden Kugeln laufen durch die BESTEHENDE
+  // Ring-out-Verarbeitung — Drop bzw. Rundenende/Sieger nach den normalen Rundenregeln.
+  const outside=ballsOutside();
+  if(outside.length)resolveRingOuts(outside);
+}
+// Settlement-Hook aus stepSim: die letzte regulaere Simulation ist zur Ruhe gekommen.
+// Ein faelliger Collapse wird NOCH IN DIESEM synchronen Uebergang verarbeitet statt erst
+// im naechsten Frame — dadurch existiert zu keinem Zeitpunkt eine freigegebene Planungs-
+// phase, in der Spieler oder Bot einen weiteren Zug starten koennten.
+// true = die Auswertung hat die Runde beendet; der Aufrufer oeffnet dann KEINE Aim-Phase.
+function settleCollapse(){
+  if(!collapsePending())return false;
+  doCollapse();
+  // true nur, wenn die Collapse-Auswertung die Runde beendet hat — dann uebernimmt der
+  // Result-Pfad. Ueberlebt die Runde, faellt stepSim regulaer in die neue Planungsphase.
+  return phase==='result';
+}
+// Zweiter Settlement-Ausgang: der letzte erzwungene Zug hat die RUNDE beendet, stepSim ist
+// deshalb ueber phase='result' verlassen worden und hat settleCollapse() nie erreicht.
+// afterResult() ruft diesen Hook vor dem normalen Rundenschrumpf und vor startRound() auf.
+// Bewusst OHNE zweite Ring-out-Auswertung: die Runde ist mit dem Ergebnis dieses Zuges
+// bereits entschieden und gewertet — ein weiterer sim/result-Durchlauf wuerde denselben
+// Punkt ein zweites Mal vergeben. Der Collapse ersetzt hier den normalen Rundenschrumpf,
+// der Radius faellt also genau einmal auf R*COLLAPSE_RADIUS_FACTOR.
+// true = Collapse verarbeitet; der Aufrufer ueberspringt den normalen Schrumpf.
+function collapseRoundEnd(){
+  if(!collapsePending())return false;
+  applyCollapseRadius();
+  return true;
+}
+// Tab-/Fensterwechsel: Zeitanker loeschen. Verlorene Hintergrundzeit wird bewusst NICHT
+// nachberechnet — sonst addiert der erste Frame nach der Rueckkehr ein grosses Delta und
+// ueberspringt Countdown-Stufen.
+function pauseCollapseTimer(){matchTimerAnchor=null;}
+// Hintergrund-Tab: solange die Seite nicht sichtbar ist, darf KEIN Frame Zeit verbrauchen —
+// auch dann nicht, wenn nach dem visibilitychange noch rAF-Callbacks nachlaufen. Beide
+// Merkmale werden geprueft, weil aeltere Engines nur eines davon zuverlaessig pflegen.
+function collapseHidden(){
+  if(typeof document==='undefined'||!document)return false;
+  return document.hidden===true||(document.visibilityState!=null&&document.visibilityState!=='visible');
+}
+function tickCollapse(now){
+  if(!collapseActive()){matchTimerAnchor=null;return;}
+  // Defensive Recovery gegen Stillstand: regulaer wird ein faelliger Collapse bereits im
+  // Settlement (settleCollapse) oder im Rundenende (collapseRoundEnd) verarbeitet — kein
+  // normaler Ablauf erreicht diese Zeile mehr. Bleibt der Zustand dennoch in aim stehen
+  // (kein Zug, auf dessen Physik zu warten waere), wird hier ausgewertet; die Eingabe ist
+  // dabei ueber inputLocked() gesperrt, es entsteht also keine nutzbare Aim-Phase.
+  if(collapseState==='expired'&&phase==='aim')doCollapse();
+  if(phase==='aim'&&!menuVisible&&collapseState==='running'&&!collapseHidden()){
+    if(matchTimerAnchor==null)matchTimerAnchor=now;   // erster zaehlender Frame ankert nur, Delta 0
+    matchElapsedMs+=Math.min(Math.max(0,now-matchTimerAnchor),MAX_COLLAPSE_TICK_DELTA_MS);
+    matchTimerAnchor=now;
+    const rem=collapseRemainMs()/1000;
+    if(rem<=COLLAPSE_WARNING_SECONDS&&!collapseWarned){collapseWarned=true;SFX.warn();}
+    if(rem<=FINAL_COUNTDOWN_SECONDS){const n=Math.max(1,Math.ceil(rem));
+      if(n!==collapseCountShown){collapseCountShown=n;showCollapseCount(n);SFX.tick();}
+      else if(!collapseCountVisible)showCollapseCount(n);   // nach Phasenwechsel/Tab-Pause wieder einblenden — ohne zweiten Beep
+      // Position folgt der Arenakante (Render-/DOM-Layer, im reinen State-Test nicht vorhanden)
+      if(typeof updateCollapseCountPos==='function')updateCollapseCountPos();}
+    if(collapseRemainMs()<=0)onCollapseExpire();
+  }else{
+    matchTimerAnchor=null;                    // Pause: Anker loeschen -> kein Delta-Sprung
+    // Die grosse Zahl gehoert ausschliesslich zur aktiven Planungsphase: waehrend
+    // reveal/sim/result/over, im Menue und bei inaktivem Tab ist sie verborgen.
+    // collapseCountShown bleibt erhalten -> beim Zurueckkehren kein erneuter Beep.
+    if(collapseCountVisible)hideCollapseCount();
+  }
+  updateCollapseHud();
+}
+function showCollapseCount(n){collapseCountVisible=true;const el=$('collapseCount');if(!el)return;
+  el.textContent=n;el.classList.remove('show');void el.offsetWidth;el.classList.add('show');}
+function hideCollapseCount(){collapseCountVisible=false;const el=$('collapseCount');if(el)el.classList.remove('show');}
+function updateCollapseHud(){
+  const el=$('collapseTimer');if(!el)return;
+  if(!collapseActive()){el.style.display='none';el.classList.remove('danger','collapsed');return;}
+  el.style.display='';
+  const rem=collapseState==='running'?Math.ceil(collapseRemainMs()/1000):0;
+  const m=Math.floor(rem/60),s=rem%60;
+  el.textContent=(m<10?'0':'')+m+':'+(s<10?'0':'')+s;
+  el.classList.toggle('danger',collapseState==='running'&&rem<=COLLAPSE_WARNING_SECONDS);
+  el.classList.toggle('collapsed',collapseState==='collapsed');
+}
+// ══════ ==COLLAPSE-CORE-END== ══════
 // ── Offline-Tuning-Harness (M5-T1, ?tune=br:28,fend:0.9895,stopv:0.12): NUR lokal/Bot.
 //    Werte werden validiert und geklemmt; bei aktivem TUNE ist Online hart blockiert
 //    (openOnline/createRoom/joinRoom). Ohne Flag ist jeder Pfad bit-identisch zum Default. ──
@@ -1954,6 +2176,7 @@ function placeBalls(){
 }
 
 function newGame(){resize();R=R0;score=[];for(let p=0;p<np();p++)score.push(0);roundNo=1;particles=[];fx3=[];recFrames=[];
+  resetCollapseTimer();                              // Rematch/neues Match: Timer 2:00, Collapse-State + Radius zuruecksetzen
   const ffa=mode==='ffa';                            // FFA: kompakte Chip-Leiste statt der 2 Spielerkarten
   $('card0').style.display=ffa?'none':'';$('card1').style.display=ffa?'none':'';
   document.querySelector('.scorebox').style.display=ffa?'none':'';
@@ -1969,7 +2192,7 @@ function newGame(){resize();R=R0;score=[];for(let p=0;p<np();p++)score.push(0);r
 function resetCommits(){aimSet=[];commitIdx=[];commitAim=[];commitSpin=[];
   for(let p=0;p<np();p++){aimSet.push(false);commitIdx.push(-1);commitAim.push({dx:0,dy:0});commitSpin.push(0);}}
 function startRound(){placeBalls();resetCommits();roundWinner=-1;
-  dragging=false;dragShooter=-1;dragOwner=-1;outBall=-1;setPhase('aim');updateHud();
+  cancelAimDrag();outBall=-1;setPhase('aim');updateHud();   // vollstaendiger Drag-Reset inkl. Pointer-Capture
   if(online){curAimer=myPlayer;onlineArmTurn();}
   else if(mode==='pvp'||mode==='ffa'){curAimer=0;openCover(0);}else curAimer=0;
   setPhaseText();}
@@ -2067,7 +2290,9 @@ $('actBtn').onclick=()=>{if(r3dOrbit)return;if(phase!=='aim')return;const who=on
 function localPt(e){
   if(r3dActive)return r3d.s2w(e.clientX,e.clientY);   // 3D: Ray-Ebene-Schnitt -> LOGICAL (P2 steckt in der Kamera)
   const r=cv.getBoundingClientRect();const sc=LOGICAL/(r.width||dispS);let x=(e.clientX-r.left)*sc,y=(e.clientY-r.top)*sc;const va=viewAngle();if(va===Math.PI){x=2*cx-x;y=2*cy-y;}else if(va){const dx=x-cx,dy=y-cy,c=Math.cos(va),s=Math.sin(va);x=cx+dx*c+dy*s;y=cy-dx*s+dy*c;}return{x:x,y:y};}
-function whoCanAim(){if(r3dOrbit)return -1;if(phase!=='aim')return -1;if(online)return (aimSet[myPlayer]||!aliveCount(myPlayer))?-1:myPlayer;if(mode==='bot')return aimSet[0]?-1:0;return aimSet[curAimer]?-1:curAimer;}
+function whoCanAim(){if(r3dOrbit)return -1;if(phase!=='aim')return -1;
+  if(inputLocked())return -1;   // Timer abgelaufen: kein neuer Zug, bis der Collapse ausgewertet ist
+  if(online)return (aimSet[myPlayer]||!aliveCount(myPlayer))?-1:myPlayer;if(mode==='bot')return aimSet[0]?-1:0;return aimSet[curAimer]?-1:curAimer;}
 function pickOwnBall(who,p){let best=-1,bd=1e9;balls.forEach((b,i)=>{if(b.alive&&b.owner===who){const d=Math.hypot(p.x-b.x,p.y-b.y);if(d<bd){bd=d;best=i;}}});const reach=teamCap()===2?BR*2.8:BR*5;return bd<=reach?best:-1;}
 // 3D: Screen-space-Trefferzone — projizierter Kugelmittelpunkt + grosszuegiger Touch-Radius
 // (mind. 52 CSS-px). Die Welt-Pruefung am Ray-Bodenpunkt verfehlt die sichtbare Kugel bei
@@ -2088,6 +2313,15 @@ function startAim(who,idx,p,e){try{cv.setPointerCapture(e.pointerId);}catch(_){}
   // sonst entsteht beim Antippen ein Phantom-Offset). 2D unveraendert: relativ zum Kugelmittelpunkt.
   dragStart=r3dActive?{x:p.x,y:p.y}:{x:balls[idx].x,y:balls[idx].y};
   dragCur=p;dragPull={x:0,y:0};dragSpin=0;SFX.charge.start();}
+// Laufenden Aim-/Drall-Drag hart beenden (Timerablauf, Rundenstart, Rematch). Das Pointer-
+// Capture wird freigegeben und aimPid/spinPid zurueckgesetzt, damit ein spaeteres pointerup
+// im Handler sauber ins Leere laeuft und keinen zweiten Commit ausloest.
+function cancelAimDrag(){
+  if(aimPid>=0||dragging)SFX.charge.stop();
+  for(const pid of [aimPid,spinPid]){if(pid>=0){try{cv.releasePointerCapture(pid);}catch(_){}}}
+  dragging=false;aimPid=-1;spinPid=-1;dragShooter=-1;dragOwner=-1;
+  dragStart={x:0,y:0};dragCur={x:0,y:0};dragPull={x:0,y:0};dragSpin=0;
+}
 cv.addEventListener('pointerdown',e=>{
   if(!r3dActive){                                   // ── 2D: Originalverhalten, unveraendert ──
     const who=whoCanAim();if(who<0)return;const p=localPt(e);
@@ -2182,7 +2416,18 @@ function sanitizeMove(who,idx,dx,dy,sp){
 // Eliminierte Seats zaehlen nicht (FFA); in 1v1/2v2 haben in der Aim-Phase immer
 // beide Spieler lebende Kugeln -> identisch zum frueheren aimSet[0]&&aimSet[1].
 function allAliveCommitted(){for(let s=0;s<np();s++){if(aliveCount(s)>0&&!aimSet[s])return false;}return true;}
+// Einziger Choke-Point fuer BENUTZER-Eingaben: Stand-Button, Pointer-Commit, Drall-Commit
+// und jeder weitere lokale Eingabepfad laufen hier durch. canCommitInput() sperrt Zuege
+// ausserhalb einer gueltigen Planungsphase, das Ueberschreiben eines bestaetigten Zuges
+// (und damit einen zweiten Bot-Zug) sowie jede Eingabe ab Timerablauf.
+// Online bleibt bewusst ungefiltert (DB ist der Arbiter).
 function commit(who,shooterIdx,fx,fy,spin){
+  if(!canCommitInput(who))return;
+  applyCommit(who,shooterIdx,fx,fy,spin);
+}
+// Zugausfuehrung OHNE Freigabepruefung. Nur zwei Aufrufer: commit() (Benutzer, geprueft)
+// und commitAutoStand() (interner Auto-Stand bei Timerablauf, eigene Guards).
+function applyCommit(who,shooterIdx,fx,fy,spin){
   const m=sanitizeMove(who,shooterIdx,fx,fy,spin||0);
   if(online){
     // P0-Desync-Fix (2026-07-10): Lockstep-Wahrheit ist AUSSCHLIESSLICH die DB
@@ -2383,6 +2628,61 @@ function winnerRGB(loserOwner){
   const w=roundWinner>=0?roundWinner:1-loserOwner;return PCOLS[w].rgb;}
 function popBall(b){if(r3dActive)fx3Dust(b.x,b.y,b.vx,b.vy);else spawn(b.x,b.y,26,[PCOLS[colorSlot(b.owner)].ui,'#ffffff'],Math.max(5,Math.hypot(b.vx,b.vy))*0.9,1.1);}
 
+// ── RING-OUT: positionsreine Ermittlung + gemeinsame Verarbeitung ──
+// Beide Aufrufer teilen sich exakt diese Logik: der normale Sub-Step in stepSim und die
+// Collapse-Auswertung (doCollapse). Es gibt bewusst KEINEN zweiten Eliminierungspfad.
+// Indizes aller lebenden Kugeln, die AKTUELL ausserhalb des gueltigen Radius liegen.
+// Liest ausschliesslich x/y — keine Integration, keine Kollisionsaufloesung, keine
+// Ueberlappungskorrektur. Aufsteigende Ballindizes -> deterministische Reihenfolge.
+function ballsOutside(){
+  const out=[];
+  for(let i=0;i<balls.length;i++){const b=balls[i];
+    if(b.alive&&Math.sqrt((b.x-cx)*(b.x-cx)+(b.y-cy)*(b.y-cy))>R+BR*0.1)out.push(i);}
+  return out;
+}
+// Verarbeitet die uebergebenen Grenzueberschreitungen nach den Rundenregeln.
+// Erwartet aufsteigende, duplikatfreie Indizes (s. ballsOutside) — jede Kugel wird
+// dadurch hoechstens einmal verarbeitet. Rueckgabe true = Runde beendet (phase='result');
+// der Aufrufer bricht dann ab und oeffnet keine Planungsphase.
+function resolveRingOuts(crossed){
+  const willDie=new Set(crossed);
+  const left=o=>{let n=0;for(let k=0;k<balls.length;k++){const b=balls[k];if(b.alive&&!willDie.has(k)&&b.owner===o)n++;}return n;};
+  // Rundenende, wenn hoechstens noch EIN Spieler lebende Kugeln haette
+  // (2 Spieler: identisch zu left(0)<=0||left(1)<=0; FFA: Last-Man-Standing).
+  const survivors=new Set();
+  for(let k=0;k<balls.length;k++){const b=balls[k];if(b.alive&&!willDie.has(k))survivors.add(b.owner);}
+  // TEAM DUEL: Rundenende erst, wenn hoechstens noch EIN TEAM lebende Kugeln hat —
+  // ein einzelner Ausgeschiedener beendet die Runde nicht, solange sein Teammitglied lebt.
+  const roundOver=fmt==='team_duel'?new Set([...survivors].map(o=>o%2)).size<=1:survivors.size<=1;   // Team = Seat%2 — bewusst inline (kein teamOf()): laeuft auch extrahiert in den Test-Harnessen
+  if(roundOver){
+    let decisive=-1,dmax=-1;
+    for(const i of crossed){const o=balls[i].owner;if(left(o)<=0){const dd=Math.sqrt((balls[i].x-cx)*(balls[i].x-cx)+(balls[i].y-cy)*(balls[i].y-cy));if(dd>dmax){dmax=dd;decisive=i;}}}
+    // Rundensieger deterministisch: der Ueberlebende; sind ALLE Verbliebenen gleichzeitig
+    // raus, gewinnt der Besitzer der am wenigsten weit draussen liegenden Kugel
+    // (nicht der Verlierer-Besitzer). Fuer 2 Spieler immer identisch zu 1-loser.
+    roundWinner=-1;
+    for(let k=0;k<balls.length;k++){const b=balls[k];if(b.alive&&!willDie.has(k)){roundWinner=fmt==='team_duel'?b.owner%2:b.owner;break;}}
+    if(fmt==='team_duel'){
+      // TEAM DUEL: roundWinner = TEAM-Index des Ueberlebenden. Kein Ueberlebender ->
+      // beide Teams gleichzeitig vollstaendig raus: deterministisches Unentschieden
+      // (-2, kein Punkt) — NIE eine Exit-Reihenfolge-Heuristik.
+      if(roundWinner<0)roundWinner=-2;
+    }else{
+    if(roundWinner<0){let md=Infinity;for(const i of crossed){if(balls[i].owner===balls[decisive].owner)continue;const dd=Math.sqrt((balls[i].x-cx)*(balls[i].x-cx)+(balls[i].y-cy)*(balls[i].y-cy));if(dd<md){md=dd;roundWinner=balls[i].owner;}}}
+    if(roundWinner<0)roundWinner=1-balls[decisive].owner;
+    }
+    for(const i of crossed){if(i===decisive)continue;balls[i].alive=false;popBall(balls[i]);}
+    const lb=balls[decisive];
+    if(r3dActive)fx3Dust(lb.x,lb.y,lb.vx,lb.vy);
+    else spawn(lb.x,lb.y,40,[PCOLS[fmt==='team_duel'?lb.owner%2:lb.owner].ui,'#ffffff'],Math.max(6,Math.hypot(lb.vx,lb.vy))*1.1,1.4);
+    SFX.ringout();bgPulse=1;bgPulseRGB=winnerRGB(lb.owner);
+    outBall=decisive;setPhase('result');return true;
+  }
+  for(const i of crossed){balls[i].alive=false;popBall(balls[i]);}
+  SFX.drop();bgPulse=Math.max(bgPulse,0.4);bgPulseRGB=PCOLS[fmt==='team_duel'?balls[crossed[0]].owner%2:balls[crossed[0]].owner].rgb;
+  return false;
+}
+
 function stepSim(){
   const FR=curFR(),FE=curFE();
   for(let s=0;s<2;s++){
@@ -2402,53 +2702,19 @@ function stepSim(){
         }
       }
     }
-    // ring-out: alle Grenzueberschreitungen dieses Sub-Steps sammeln
-    const crossed=[];
-    for(let i=0;i<balls.length;i++){const b=balls[i];if(b.alive&&Math.sqrt((b.x-cx)*(b.x-cx)+(b.y-cy)*(b.y-cy))>R+BR*0.1)crossed.push(i);}
-    if(crossed.length){
-      const willDie=new Set(crossed);
-      const left=o=>{let n=0;for(let k=0;k<balls.length;k++){const b=balls[k];if(b.alive&&!willDie.has(k)&&b.owner===o)n++;}return n;};
-      // Rundenende, wenn hoechstens noch EIN Spieler lebende Kugeln haette
-      // (2 Spieler: identisch zu left(0)<=0||left(1)<=0; FFA: Last-Man-Standing).
-      const survivors=new Set();
-      for(let k=0;k<balls.length;k++){const b=balls[k];if(b.alive&&!willDie.has(k))survivors.add(b.owner);}
-      // TEAM DUEL: Rundenende erst, wenn hoechstens noch EIN TEAM lebende Kugeln hat —
-      // ein einzelner Ausgeschiedener beendet die Runde nicht, solange sein Teammitglied lebt.
-      const roundOver=fmt==='team_duel'?new Set([...survivors].map(o=>o%2)).size<=1:survivors.size<=1;   // Team = Seat%2 — bewusst inline (kein teamOf()): stepSim laeuft auch extrahiert in den Test-Harnessen
-      if(roundOver){
-        let decisive=-1,dmax=-1;
-        for(const i of crossed){const o=balls[i].owner;if(left(o)<=0){const dd=Math.sqrt((balls[i].x-cx)*(balls[i].x-cx)+(balls[i].y-cy)*(balls[i].y-cy));if(dd>dmax){dmax=dd;decisive=i;}}}
-        // Rundensieger deterministisch: der Ueberlebende; sind ALLE Verbliebenen im selben
-        // Sub-Step raus, gewinnt der Besitzer der am wenigsten weit draussen liegenden Kugel
-        // (nicht der Verlierer-Besitzer). Fuer 2 Spieler immer identisch zu 1-loser.
-        roundWinner=-1;
-        for(let k=0;k<balls.length;k++){const b=balls[k];if(b.alive&&!willDie.has(k)){roundWinner=fmt==='team_duel'?b.owner%2:b.owner;break;}}
-        if(fmt==='team_duel'){
-          // TEAM DUEL: roundWinner = TEAM-Index des Ueberlebenden. Kein Ueberlebender ->
-          // beide Teams im selben Sub-Step vollstaendig raus: deterministisches
-          // Unentschieden (-2, kein Punkt) — NIE eine Exit-Reihenfolge-Heuristik.
-          if(roundWinner<0)roundWinner=-2;
-        }else{
-        if(roundWinner<0){let md=Infinity;for(const i of crossed){if(balls[i].owner===balls[decisive].owner)continue;const dd=Math.sqrt((balls[i].x-cx)*(balls[i].x-cx)+(balls[i].y-cy)*(balls[i].y-cy));if(dd<md){md=dd;roundWinner=balls[i].owner;}}}
-        if(roundWinner<0)roundWinner=1-balls[decisive].owner;
-        }
-        for(const i of crossed){if(i===decisive)continue;balls[i].alive=false;popBall(balls[i]);}
-        const lb=balls[decisive];
-        if(r3dActive)fx3Dust(lb.x,lb.y,lb.vx,lb.vy);
-        else spawn(lb.x,lb.y,40,[PCOLS[fmt==='team_duel'?lb.owner%2:lb.owner].ui,'#ffffff'],Math.max(6,Math.hypot(lb.vx,lb.vy))*1.1,1.4);
-        SFX.ringout();bgPulse=1;bgPulseRGB=winnerRGB(lb.owner);
-        outBall=decisive;setPhase('result');return;
-      }else{
-        for(const i of crossed){balls[i].alive=false;popBall(balls[i]);}
-        SFX.drop();bgPulse=Math.max(bgPulse,0.4);bgPulseRGB=PCOLS[fmt==='team_duel'?balls[crossed[0]].owner%2:balls[crossed[0]].owner].rgb;
-      }
-    }
+    // ring-out: alle Grenzueberschreitungen dieses Sub-Steps ueber den gemeinsamen Pfad
+    const crossed=ballsOutside();
+    if(crossed.length&&resolveRingOuts(crossed))return;
   }
   let moving=false;for(const b of balls){if(b.alive&&Math.sqrt(b.vx*b.vx+b.vy*b.vy)>curST()){moving=true;break;}}
   if(!moving){
     const n=mode==='ffa'?ffaN:2;   // bewusst inline (kein np()): stepSim laeuft auch im Golden-Harness
     aimSet=[];commitIdx=[];commitAim=[];commitSpin=[];
     for(let p=0;p<n;p++){aimSet.push(false);commitIdx.push(-1);commitAim.push({dx:0,dy:0});commitSpin.push(0);}
+    // Ring-Collapse (nur lokales Bot-Training): ein faelliger Collapse wird NOCH IN DIESEM
+    // Settlement verarbeitet — sonst laege dazwischen ein Frame mit freigegebener Aim-Phase.
+    // typeof-Guard: stepSim laeuft auch im Golden-Physics-Harness ohne Collapse-Modul.
+    if(typeof settleCollapse==='function'&&settleCollapse())return;
     setPhase('aim');updateHud();setPhaseText();
     if(online){curAimer=myPlayer;onlineArmTurn();}
     else if(mode==='pvp'){curAimer=0;openCover(0);}
@@ -2468,9 +2734,16 @@ function afterResult(){
   }
   const loser=balls[outBall].owner,winner=roundWinner>=0?roundWinner:1-loser;
   roundWinner=-1;score[winner]++;SFX.round(winner);
-  if(score[winner]>=winTarget){gameOver(winner);return;}
+  if(score[winner]>=winTarget){gameOver(winner);return;}   // Matchende hat Vorrang vor jedem Collapse
   showRoundEnd(winner);roundNo++;
-  R=Math.max(R0*0.80,R-R0*0.030);startRound();
+  // Ring-Collapse (nur lokales Bot-Training): hat der letzte erzwungene Zug die Runde
+  // beendet, verliess stepSim die Simulation ueber phase='result' und erreichte das
+  // Settlement nie. Der faellige Collapse wird deshalb HIER verarbeitet — vor startRound(),
+  // damit nie eine Planungsphase mit abgelaufenem Timer entsteht. Er ERSETZT den normalen
+  // Rundenschrumpf: der Radius faellt genau einmal auf R*COLLAPSE_RADIUS_FACTOR
+  // (1000 -> 820), nicht zusaetzlich um R0*0.030 (kein 0.97*0.82).
+  if(collapseRoundEnd()){startRound();return;}
+  R=Math.max(shrinkFloor(),R-R0*0.030);startRound();   // shrinkFloor()=R0*0.80 (unveraendert), nach Collapse eingefroren auf collapseRadius
 }
 // Spielerfarbe als ikonischer Kurzname (BLAU/ROT/... via i18n) — sofort erkennbar,
 // modusunabhaengig (1v1: blau/rot, 2v2: Teamfarben, FFA: Seatfarben).
@@ -3629,6 +3902,68 @@ arenaImg.onload=()=>{arenaImgReady=true;};
 arenaImg.onerror=()=>{arenaImgReady=false;};
 // arenaImg.src='arena.jpg';  // top-down Gold-Arena aktiv; fuer Foto-Hintergrund Zeile reaktivieren
 // ════ RENDER ════
+// ── Ring-Collapse-Overlay (2D+3D via OP-Projektion): markiert die kommende
+//    Gefahrenzone (waehrend der 10s-Warnung) bzw. die neue, kleinere Spielgrenze
+//    (nach dem Collapse). Rein visuell, keine Physik-/Zustandsaenderung. ──
+function collapseRingPath(radius){const N=72;for(let i=0;i<=N;i++){const a=i/N*Math.PI*2;const q=OP(cx+Math.cos(a)*radius,cy+Math.sin(a)*radius,0);if(i)ctx.lineTo(q.x,q.y);else ctx.moveTo(q.x,q.y);}ctx.closePath();}
+function collapseStrokeRing(radius,style,w){ctx.beginPath();collapseRingPath(radius);ctx.lineWidth=Math.max(1.5,w*(r3dActive?OP(cx,cy,0).s:1));ctx.strokeStyle=style;ctx.stroke();}
+function collapseFillZone(inner,outer,style){ctx.beginPath();collapseRingPath(outer);collapseRingPath(inner);ctx.fillStyle=style;ctx.fill('evenodd');}
+function drawCollapseOverlay(){
+  if(!collapseActive())return;
+  const warn=collapseState==='running'&&collapseRemainMs()<=COLLAPSE_WARNING_SECONDS*1000;
+  const collapsed=collapseState==='collapsed';
+  if(!warn&&!collapsed)return;
+  const p=.5+.5*Math.sin(performance.now()/1000*4.5);
+  if(warn){                                        // gefaehrdeter Aussenbereich (wird beim Collapse entfernt)
+    const inner=R*COLLAPSE_RADIUS_FACTOR;
+    collapseFillZone(inner,R,'rgba(255,70,45,'+(0.07+0.035*p).toFixed(3)+')');               // dezente Flaeche, Marmor bleibt sichtbar
+    collapseStrokeRing(R,'rgba(255,140,100,'+(0.22+0.10*p).toFixed(2)+')',BR*0.05);          // aktuelle Grenze: nur unterstuetzend
+    collapseStrokeRing(inner,'rgba(255,120,70,'+(0.20+0.10*p).toFixed(2)+')',BR*0.22);       // weicher Glow um die zukuenftige Grenze
+    collapseStrokeRing(inner,'rgba(255,100,55,'+(0.66+0.16*p).toFixed(2)+')',BR*0.11);       // klare helle Grenzlinie (am deutlichsten)
+    collapseStrokeRing(inner*0.99,'rgba(255,215,160,'+(0.40+0.14*p).toFixed(2)+')',BR*0.045); // feine innere Sekundaerlinie
+  }else if(collapsed){                             // neue, kleinere Grenze klar markieren; Aussenzone nur DEZENT ausblenden
+    if(collapseOuterR>R)collapseFillZone(R,collapseOuterR,'rgba(10,16,28,0.16)');   // ungueltige Zone nur leicht abgedunkelt (kein massiver Ring)
+    let a=0.60+0.14*p;
+    if(collapseFlash){const dt=(performance.now()-collapseFlash)/650;if(dt<1)a=Math.max(a,0.60+0.40*(1-dt));else collapseFlash=0;}
+    collapseStrokeRing(R,'rgba(255,110,70,'+a.toFixed(2)+')',BR*0.16);          // klare Hauptgrenze
+    collapseStrokeRing(R,'rgba(255,214,150,'+(0.35+0.2*p).toFixed(2)+')',BR*0.05); // feine helle Innenkante
+  }
+}
+// ── Countdown-Verankerung: die grosse Zahl steht ueber der SICHTBAREN oberen Arenakante
+//    statt auf einer festen Viewport-Prozentposition. Nutzt die bestehende OP-Projektion
+//    (2D-Identitaet / 3D-Kamera), folgt damit Resize, Format und Kamera-Bob automatisch. ──
+const CCOUNT_RIM=1.32;                      // Plattform-Aussenrand relativ zur Out-Kante R (Deko-Rand der GLB)
+const CCOUNT_GAP_MIN=12, CCOUNT_GAP_MAX=24; // responsiver Abstand Glyphen-Unterkante -> Arenakante (CSS-px)
+function arenaTopClientY(){                 // oberster projizierter Punkt des Plattformrands, in Viewport-px
+  const rect=cv.getBoundingClientRect(), k=rect.width/W;
+  let top=Infinity;
+  for(let i=0;i<48;i++){const a=i/48*Math.PI*2;
+    const q=OP(cx+Math.cos(a)*R*CCOUNT_RIM,cy+Math.sin(a)*R*CCOUNT_RIM,0);
+    if(q.y<top)top=q.y;}
+  return rect.top+top*k;
+}
+// Die Zeilenbox ist deutlich hoeher als die sichtbare Ziffer. Fuer einen echten optischen
+// Abstand wird die GLYPHE verankert, nicht die Box -> Metriken einmal je Schriftgroesse messen.
+let ccMetricsFor=-1, ccDrop=0, ccCap=0;
+function ccMetrics(fs){
+  if(fs===ccMetricsFor)return;
+  ccMetricsFor=fs;
+  ctx.save();ctx.font='900 '+fs+'px system-ui';const m=ctx.measureText('5');ctx.restore();
+  const asc=m.fontBoundingBoxAscent,desc=m.fontBoundingBoxDescent;
+  ccDrop=(asc&&desc)?fs-((fs-(asc+desc))/2+asc):fs*0.20;   // Zeilenbox-Unterkante -> Grundlinie
+  ccCap=m.actualBoundingBoxAscent||fs*0.72;                // Grundlinie -> Ziffern-Oberkante
+}
+function updateCollapseCountPos(){
+  const el=$('collapseCount');if(!el)return;
+  const fs=parseFloat(getComputedStyle(el).fontSize)||0;if(!fs)return;
+  ccMetrics(fs);
+  const gap=Math.max(CCOUNT_GAP_MIN,Math.min(CCOUNT_GAP_MAX,innerHeight*0.022));
+  let y=arenaTopClientY()-gap+ccDrop;                                  // y = Unterkante der Zeilenbox
+  const st=document.querySelector('#game .status');                    // nicht ins HUD rutschen
+  const floorY=(st?st.getBoundingClientRect().bottom:0)+8+ccDrop+ccCap;
+  if(y<floorY)y=floorY;
+  el.style.setProperty('--cc-y',y.toFixed(1)+'px');
+}
 function draw(){
   const tnow=performance.now()/1000, puls=.5+.5*Math.sin(tnow*1.6);
   ctx.clearRect(0,0,W,H);
@@ -3663,6 +3998,8 @@ function draw(){
       drawCrystalRim(tnow);
     }
   }
+
+  drawCollapseOverlay();   // Ring-Collapse: Gefahrenzone / neue Grenze (Bodenmarkierung, unter den Kugeln)
 
   // particles UNDER balls (3D: auf die Bodenebene projiziert)
   for(const p of particles){const q=OP(p.x,p.y,0);ctx.globalAlpha=Math.max(0,p.life);ctx.beginPath();ctx.arc(q.x,q.y,p.size*q.s,0,7);ctx.fillStyle=p.col;ctx.fill();}
@@ -4277,10 +4614,17 @@ function finishBoot(){
   if(b){b.classList.add('done');setTimeout(()=>{try{b.remove();}catch(e){}},700);}
 }
 
+// Hintergrund-Tab/Fensterwechsel: requestAnimationFrame pausiert, der stehengebliebene
+// Zeitanker wuerde beim Zurueckkehren die gesamte Pause auf einmal addieren und die
+// Countdown-Stufen 5..1 ueberspringen. Anker loeschen + grosse Zahl ausblenden; die
+// verlorene Zeit wird bewusst nicht nachberechnet.
+document.addEventListener('visibilitychange',()=>{pauseCollapseTimer();if(document.hidden)hideCollapseCount();});
+
 // ════ MAIN LOOP ════
 function loop(now){
   if(PERF)perfTick(now);
   if(replaying){ SFX.rollUpdate(null,false); repTick(); if(r3dActive)r3d.render(); requestAnimationFrame(loop); return; }
+  tickCollapse(now);   // Ring-Collapse-Timer (nur Bot Training): zaehlt nur in der Planungsphase, loest Auto-Stand + Collapse aus
   if(phase==='reveal'&&now-phaseStart>REVEAL_MS)applyLaunch();
   else if(phase==='sim')stepSim();
   else if(phase==='result'){resultDrift();if(now-phaseStart>RESULT_MS)afterResult();}

@@ -25,6 +25,9 @@ function grab(re, name) {
 }
 // top-level functions in index.html close with "}" at column 0
 const stepSimSrc = grab(/function stepSim\(\)\{[\s\S]*?\n\}/, 'stepSim');
+// stepSim delegates the ring-out handling to these two shared helpers (Phase 1.6)
+const ballsOutsideSrc = grab(/function ballsOutside\(\)\{[\s\S]*?\n\}/, 'ballsOutside');
+const resolveRingOutsSrc = grab(/function resolveRingOuts\(crossed\)\{[\s\S]*?\n\}/, 'resolveRingOuts');
 const simExchangeSrc = grab(/function simExchange\(pA,pB,aA,aB\)\{[\s\S]*?\n\}/, 'simExchange');
 const simSnapSrc = grab(/function simSnap\(a,horizon\)\{[\s\S]*?\n\}/, 'simSnap');
 const constSrc1 = grab(/const MAXPULL_FRAC=[^\n]*/, 'physics constants');
@@ -53,6 +56,8 @@ function buildEnv(frictionOverride) {
     let r3dActive=false; function fx3Hit(){} function fx3Dust(){}
     function setPhase(p){phase=p;}
     function updateHud(){} function setPhaseText(){} function onlineArmTurn(){} function openCover(){}
+    ${ballsOutsideSrc}
+    ${resolveRingOutsSrc}
     ${stepSimSrc}
     ${simExchangeSrc}
     ${simSnapSrc}
