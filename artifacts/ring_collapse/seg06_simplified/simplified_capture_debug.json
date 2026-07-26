@@ -1,0 +1,92 @@
+{
+ "before": {
+  "shots": {},
+  "three": "r170",
+  "side": "before",
+  "tex_mode": "png",
+  "glb_bytes": 22844888,
+  "intact_roots_found": 6,
+  "cracked_roots_found": 6,
+  "visible_triangles": 28092,
+  "materials": [
+   "M_ArenaTop_Val",
+   "M_ArenaMarble",
+   "M_ArenaDark",
+   "M_ArenaGold",
+   "M_Fracture",
+   "M_Fracture_Cracked_B",
+   "M_Fracture_Cracked",
+   "M_Fracture_Cracked_C"
+  ],
+  "draw_calls": 31,
+  "ktx2_texture_count": 0,
+  "webgl_errors": [],
+  "state": "intact",
+  "view": "gameplay",
+  "load_ms": 159,
+  "external_requests": [],
+  "active_cracked": [],
+  "console_errors": []
+ },
+ "after": {
+  "shots": {},
+  "three": "r170",
+  "side": "after",
+  "tex_mode": "png",
+  "glb_bytes": 22854960,
+  "intact_roots_found": 6,
+  "cracked_roots_found": 6,
+  "visible_triangles": 28092,
+  "materials": [
+   "M_ArenaTop_Val",
+   "M_ArenaMarble",
+   "M_ArenaDark",
+   "M_ArenaGold",
+   "M_Fracture",
+   "M_Fracture_Cracked_B",
+   "M_Fracture_Cracked",
+   "M_Fracture_Cracked_C"
+  ],
+  "draw_calls": 31,
+  "ktx2_texture_count": 0,
+  "webgl_errors": [],
+  "state": "intact",
+  "view": "gameplay",
+  "load_ms": 166,
+  "external_requests": [],
+  "active_cracked": [],
+  "console_errors": []
+ },
+ "pixel_diffs": {
+  "cracked_gameplay": {
+   "mean": 0.06031298225308642,
+   "pixels_gt10": 2456,
+   "max": 218,
+   "total_pixels": 2073600
+  },
+  "cracked_seg06crack": {
+   "mean": 0.20723042052469134,
+   "pixels_gt10": 8874,
+   "max": 219,
+   "total_pixels": 2073600
+  },
+  "cracked_seg06close": {
+   "mean": 1.4222535686728395,
+   "pixels_gt10": 63547,
+   "max": 238,
+   "total_pixels": 2073600
+  },
+  "cracked_seam010": {
+   "mean": 0.17868007330246913,
+   "pixels_gt10": 8633,
+   "max": 224,
+   "total_pixels": 2073600
+  },
+  "intact_gameplay": {
+   "mean": 0,
+   "pixels_gt10": 0,
+   "max": 0,
+   "total_pixels": 2073600
+  }
+ }
+}

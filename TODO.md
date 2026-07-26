@@ -1,6 +1,6 @@
 # TODO.md — RingOut
 
-**Zuletzt aktualisiert:** 2026-07-14 (Paket A — letzte Blocker-Korrektur: einheitlicher Room-State + atomarer Seat-Claim — lokal, kein Cutover)
+**Zuletzt aktualisiert:** 2026-07-26 (Ring-Collapse: sechs Cracked-Segmente fertig, Segment-06-Stand visuell freigegeben; KTX2-/HQ-Finalisierung und Produktionsintegration offen)
 
 Offene Aufgaben nach Priorität. Abgeschlossene Aufgaben werden nach `CHANGELOG.md` verschoben.
 
@@ -45,6 +45,14 @@ Offene Aufgaben nach Priorität. Abgeschlossene Aufgaben werden nach `CHANGELOG.
 ---
 
 ## P2 — Mittel (Spieler-Erfahrung)
+
+- [x] ~~**Ring-Collapse: Cracked-Varianten für alle sechs Segmente**~~ → **abgeschlossen & visuell freigegeben (2026-07-26)**: verbindlicher Stand `assets/ring_collapse/validation/six_segment_rollout/ring_collapse_six_segment_simplified.glb` (12 Roots), Segment 06 als Dark-Facet-Removal-Stand eingefroren. 1 Insel, Thin-Groups 0, Weld-Open-Edges 94, Segment 03 + 10 geschützte Roots byte-identisch, Intact-Pixeldiff exakt 0; Gate 17/17, Rollout 29/29, Validator 14/14, Browser 0 Fehler / 0 externe Requests. Siehe CHANGELOG und `PROJECT.md`.
+
+- [ ] **Ring-Collapse: KTX2-/HQ-Finalisierung (Folgetask, nachgelagert):** Der committete Final-GLB (`ring_collapse_six_segment_simplified.glb`) enthält **18 PNG-Bilder und 0 KTX2** — es gibt für diesen freigegebenen Stand noch keine KTX2-Variante. (Eine ältere `*_all_ktx2.glb`-Variante mit 15 KTX2 + 3 PNG existiert nur als unkommitteter historischer Zwischenstand des Vorgänger-Rollouts; der Loader verarbeitete diese Mischform nachweislich fehlerfrei.) Der Folgetask erzeugt die KTX2-Variante des freigegebenen Stands per Encoder-Lauf; die Prüfung ist im finalen Validator bereits vorbereitet (`CHECK_KTX2=1`, Pfad via `KTX_GLB`). **Keine Geometrie-, Material- oder Atlasänderung** — der visuelle Stand ist eingefroren.
+
+- [ ] **Ring-Collapse: Render-only-Stages vom mutierenden Build trennen (Wartung, P3):** `tools/build_ring_collapse_blender.py` schreibt in ALLEN Stages (auch `stills`/`video`) Build-Ausgaben (Blend/GLB/Stats) — die Stages sind keine isolierten Render-Stufen. Später: reine Render-Stages ohne Schreib-Seiteneffekte abspalten; bis dahin warnen Kopfkommentar/CLI-Hilfe und die Asset-README davor.
+
+- [ ] **Ring-Collapse: Produktionsintegration (nachgelagert, nach KTX2-Parität):** Der Stand ist ein Asset-Prototyp; `index.html`, Physik, Lockstep, Online und Firebase sind unberührt. Integration = reiner Render-/Visual-Adapter über der unveränderten Gameplay-Radius-Wahrheit (`COLLAPSE_RADIUS_FACTOR`), Segmente bleiben rein visuell ohne Kollision. Eigener Task mit eigenem Briefing.
 
 - [x] ~~**Rollsound-Asset besorgen**~~ → **abgeschlossen & Hörprüfung bestanden (2026-07-10)**: `assets/sfx/marble_roll_loop.m4a` (CC0 „Bowling Ball Rolling" von qubodup/OpenGameArt, 24 KB, nahtloser 1,85-s-Loop, Lizenzdoku in `assets/sfx/README.md`), Gain-Kennlinie nach Hörtest +6 dB. Siehe CHANGELOG.
 

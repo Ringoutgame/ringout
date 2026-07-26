@@ -1,0 +1,263 @@
+{
+  "timings": {
+    "total_s": 36.7
+  },
+  "fix": {
+    "seg06": {
+      "frac_slot": 5,
+      "frac_faces": 1316,
+      "slot0_growth": 76
+    }
+  },
+  "geometry": {
+    "seg06": {
+      "tris_intact": 4880,
+      "tris_cracked": 9471,
+      "tris_added": 4591,
+      "fracture_faces": 1316,
+      "frac_slot": 5,
+      "slot_faces_after": {
+        "M_ArenaTop_Val": 426,
+        "M_ArenaMarble": 1191,
+        "M_ArenaDark": 246,
+        "M_Fracture": 354,
+        "M_Frac_BALANCED_bakeSrc": 1316,
+        "M_ArenaGold": 445
+      }
+    }
+  },
+  "cleanup": {
+    "seg06": {
+      "islands_before": 3,
+      "islands_after": 1,
+      "islands_removed": [
+        {
+          "faces": 2,
+          "bbox_dim": [
+            0.002,
+            0.003,
+            0.002
+          ],
+          "centroid": [
+            9.06,
+            -1.979,
+            -0.069
+          ]
+        },
+        {
+          "faces": 2,
+          "bbox_dim": [
+            0.037,
+            0.039,
+            0.012
+          ],
+          "centroid": [
+            9.025,
+            -2.502,
+            -0.066
+          ]
+        }
+      ],
+      "boundary_edges_before": 18,
+      "boundary_edges_after": 3,
+      "nonmanifold_before": 175,
+      "nonmanifold_after": 159,
+      "artifact_groups_open_before": 2,
+      "artifact_groups_open_after": 0,
+      "artifact_groups_tail_before": 2,
+      "artifact_groups_tail_after": 2,
+      "artifact_groups_outside_zone_before": 3,
+      "artifact_groups_outside_zone_after": 3,
+      "consume_cuts": [
+        {
+          "round": 0,
+          "faces": 16,
+          "centroid": [
+            8.981,
+            -3.798,
+            0.039
+          ],
+          "bbox_dim": [
+            0.392,
+            0.828,
+            0.026
+          ]
+        },
+        {
+          "round": 0,
+          "faces": 24,
+          "centroid": [
+            8.679,
+            -2.532,
+            0.039
+          ],
+          "bbox_dim": [
+            0.423,
+            0.446,
+            0.024
+          ]
+        },
+        {
+          "round": 1,
+          "faces": 11,
+          "centroid": [
+            8.991,
+            -3.828,
+            0.039
+          ],
+          "bbox_dim": [
+            0.378,
+            0.782,
+            0.024
+          ]
+        }
+      ],
+      "intact_max_z": 0.062,
+      "cracked_max_z": 0.062,
+      "tip_floor": 0.3
+    }
+  },
+  "atlas": {
+    "resolution": 2048,
+    "pair3_halves": {
+      "seg03": [
+        0.01,
+        0.485
+      ],
+      "seg06": [
+        0.515,
+        0.99
+      ]
+    },
+    "maps": [
+      "seg36_frac_basecolor.png",
+      "seg36_frac_orm.png",
+      "seg36_frac_normal.png"
+    ],
+    "note": "identical recipe/structure as the approved pair-1/2 atlases"
+  },
+  "glb": {
+    "bytes": 12454568,
+    "bytes_patched": 12454584,
+    "check": {
+      "nodes": [
+        "Segment06_Cracked_BALANCED"
+      ],
+      "materials": [
+        "M_ArenaDark",
+        "M_ArenaGold",
+        "M_ArenaMarble",
+        "M_ArenaTop_Val",
+        "M_Fracture",
+        "M_Fracture_Cracked_C"
+      ],
+      "images": 12,
+      "image_names": [
+        "rc_body_basecolor",
+        "rc_body_normal",
+        "rc_body_orm",
+        "rc_fracture_basecolor",
+        "rc_fracture_normal",
+        "rc_fracture_orm",
+        "rc_top_basecolor_clean",
+        "rc_top_normal",
+        "rc_top_orm_clean",
+        "seg36_frac_basecolor",
+        "seg36_frac_normal",
+        "seg36_frac_orm"
+      ],
+      "occlusion_strengths": [
+        0.5
+      ]
+    }
+  },
+  "regression": {},
+  "assertions": [
+    {
+      "name": "seg06_single_island_after_cleanup",
+      "ok": true,
+      "detail": "3 -> 1 islands (removed: [2, 2])"
+    },
+    {
+      "name": "seg06_no_open_borders_added",
+      "ok": true,
+      "detail": "boundary edges 18 -> 3 (intact baseline 0)"
+    },
+    {
+      "name": "seg06_no_nonmanifold_added",
+      "ok": true,
+      "detail": "non-manifold edges 175 -> 159"
+    },
+    {
+      "name": "seg06_artifact_thin_groups_zero",
+      "ok": true,
+      "detail": "open plate/spike/clump groups 2 -> 0 (hard gate 0; tail-protected: 2 -> 2, tip floor 0.30)"
+    },
+    {
+      "name": "seg06_intact_architecture_untouched",
+      "ok": true,
+      "detail": "thin features outside the crack zone (trim/pillars/side faces): 3 -> 3 (must be untouched)"
+    },
+    {
+      "name": "seg06_silhouette_not_above_intact",
+      "ok": true,
+      "detail": "cracked max z 0.0620 vs intact 0.0620"
+    },
+    {
+      "name": "seg06_fix_frac_slot_exists",
+      "ok": true,
+      "detail": "slot 5"
+    },
+    {
+      "name": "seg06_fix_frac_faces_present",
+      "ok": true,
+      "detail": "1316 cut faces carry the fracture material"
+    },
+    {
+      "name": "seg06_fix_diverts_interior_off_top",
+      "ok": true,
+      "detail": "fix: 1316 interior faces -> fracture slot; slot0 grew only +76; approved cleanup neg-control reference: +155"
+    },
+    {
+      "name": "seg06_original_materials_kept",
+      "ok": true,
+      "detail": "before={'M_ArenaTop_Val': 350, 'M_ArenaMarble': 1111, 'M_ArenaDark': 200, 'M_Fracture': 292, 'M_ArenaGold': 546} after={'M_ArenaTop_Val': 426, 'M_ArenaMarble': 1191, 'M_ArenaDark': 246, 'M_Fracture': 354, 'M_Frac_BALANCED_bakeSrc': 1316, 'M_ArenaGold': 445}"
+    },
+    {
+      "name": "seg06_uv_inside_atlas_half",
+      "ok": true,
+      "detail": "U range 0.5196..0.8480 in half 0.515..0.990"
+    },
+    {
+      "name": "seg06_same_world_scale",
+      "ok": true,
+      "detail": "intact (1.0, 1.0, 1.0) cracked (1.0, 1.0, 1.0)"
+    },
+    {
+      "name": "glb_one_root",
+      "ok": true,
+      "detail": "['Segment06_Cracked_BALANCED']"
+    },
+    {
+      "name": "glb_one_fracture_material",
+      "ok": true,
+      "detail": "['M_ArenaDark', 'M_ArenaGold', 'M_ArenaMarble', 'M_ArenaTop_Val', 'M_Fracture', 'M_Fracture_Cracked_C']"
+    },
+    {
+      "name": "glb_occlusion_strength_patched",
+      "ok": true,
+      "detail": "strengths=[0.5]"
+    },
+    {
+      "name": "glb_no_studio_content",
+      "ok": true,
+      "detail": "['Segment06_Cracked_BALANCED']"
+    },
+    {
+      "name": "glb_twelve_images",
+      "ok": true,
+      "detail": "images=12 ['rc_body_basecolor', 'rc_body_normal', 'rc_body_orm', 'rc_fracture_basecolor', 'rc_fracture_normal', 'rc_fracture_orm', 'rc_top_basecolor_clean', 'rc_top_normal', 'rc_top_orm_clean', 'seg36_frac_basecolor', 'seg36_frac_normal', 'seg36_frac_orm']"
+    }
+  ],
+  "all_asserts_ok": true
+}

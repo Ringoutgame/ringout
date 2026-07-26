@@ -1,0 +1,7 @@
+# Vendored third-party code: three.js r170, byte-identical to the upstream
+# npm package (hashes in VENDOR_MANIFEST.json). Upstream whitespace quirks
+# must not count as our own errors — this ONLY disables git's whitespace
+# flagging for the vendor tree (git diff --check / diff coloring). It is NOT
+# a text/eol attribute: no line-ending or content conversion happens, the
+# vendored bytes stay exactly as fetched.
+assets/ring_collapse/validation/two_segment_pilot/vendor/three-r170/** -whitespace

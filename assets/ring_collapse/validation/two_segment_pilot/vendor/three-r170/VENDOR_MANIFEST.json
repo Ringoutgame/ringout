@@ -1,0 +1,25 @@
+{
+  "package": "three",
+  "version": "0.170.0",
+  "npm_integrity": "sha512-FQK+LEpYc0fBD+J8g6oSEyyNzjp+Q7Ks1C568WWaoMRLW+TkNNWmenWeGgJjV105Gd+p/2ql1ZcjYvNiPZBhuQ==",
+  "tarball_sha512_verified": true,
+  "source": "https://registry.npmjs.org/three/-/three-0.170.0.tgz (official npm registry, fetched via `npm pack three@0.170.0`)",
+  "fetched": "2026-07-23",
+  "version_rationale": "Exact version already used by both the pilot harness and the production index.html importmap (cdn.jsdelivr.net/npm/three@0.170.0). No upgrade, no mixing.",
+  "scope": "Validation-only vendor copy for the two-segment ring-collapse pilot harness. Not a project dependency; package.json/lockfiles untouched.",
+  "files": [
+    { "path": "build/three.module.js", "bytes": 1314681, "sha256": "ce1fa418de16a19495a9f72495580e3015d7745c296d3ce0485897f902ddedfb", "purpose": "three.js core ES module (importmap target 'three')" },
+    { "path": "examples/jsm/loaders/GLTFLoader.js", "bytes": 110273, "sha256": "45139faddd5aaf48ed2d62203d976e5cbd703db1a592de40527f9f6cf58abd44", "purpose": "loads the pilot GLB" },
+    { "path": "examples/jsm/loaders/KTX2Loader.js", "bytes": 27164, "sha256": "fbf80e9b0237ffe2e58132d3fcb124a4a62fbd17f9716418ccf865708c2344df", "purpose": "KTX2/Basis texture loading" },
+    { "path": "examples/jsm/loaders/RGBELoader.js", "bytes": 11377, "sha256": "f0e87d0008d9484d31358b32befd1bf80e4301f77573cc9a7cf7d871cc3f64b4", "purpose": "loads the HDRI environment used by the harness" },
+    { "path": "examples/jsm/utils/BufferGeometryUtils.js", "bytes": 31768, "sha256": "c25b7930e570e9ec56173cd3b866ec8d2e10016630db3937efb439daf1cedbf6", "purpose": "static import of GLTFLoader (toTrianglesDrawMode)" },
+    { "path": "examples/jsm/utils/WorkerPool.js", "bytes": 1712, "sha256": "94ff7b608caf3b827ffa95bd6092b9d174732b856915b38ed006b4f049f95675", "purpose": "static import of KTX2Loader (transcode worker pool)" },
+    { "path": "examples/jsm/libs/ktx-parse.module.js", "bytes": 19440, "sha256": "34a3a68f08db30a353802c5a762c5dcd89a168a1b56567019ef4a7563ceaf4d4", "purpose": "static import of KTX2Loader (KTX2 container parsing)" },
+    { "path": "examples/jsm/libs/zstddec.module.js", "bytes": 39754, "sha256": "5cbf818e842628a4464e748594a6deae18ceddda3c2f541e7b3a0ff5fc7611e2", "purpose": "static import of KTX2Loader (Zstd decoder for raw KTX2 paths)" },
+    { "path": "examples/jsm/math/ColorSpaces.js", "bytes": 2462, "sha256": "56981604d66cccc26558c710afe08a15177030f8dd3842255d1cc53b4c9b7f3b", "purpose": "static import of KTX2Loader (Display-P3 color space defs)" },
+    { "path": "examples/jsm/libs/basis/basis_transcoder.js", "bytes": 57529, "sha256": "8478b5b6d6b74e7d3082b89f6417321d8d1dc0307f2b30d4484bb11b441696a1", "purpose": "Basis Universal transcoder JS glue (KTX2Loader.setTranscoderPath)" },
+    { "path": "examples/jsm/libs/basis/basis_transcoder.wasm", "bytes": 527333, "sha256": "6cf17dc889352c42e9acf8897107978d127005fe3386c36a0e3845e27967630a", "purpose": "Basis Universal transcoder WASM binary" },
+    { "path": "THREE_LICENSE.txt", "bytes": 1081, "sha256": "4c40a1ef62450b857c3b2aaf294936304cd552d965fbcd9d32d4c5bcf4ba4454", "purpose": "MIT license of the three.js package (unmodified copy of LICENSE)" }
+  ],
+  "import_graph_note": "File set = closure of real static imports of harness.html (three, GLTFLoader, RGBELoader, KTX2Loader) in three@0.170.0. ColorSpaces.js, WorkerPool.js, ktx-parse, zstddec, BufferGeometryUtils are transitive static imports and therefore mandatory."
+}

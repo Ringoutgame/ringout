@@ -1,0 +1,55 @@
+{
+ "profile": [
+  {
+   "r": 8.736,
+   "tilt_deg": -10.139
+  },
+  {
+   "r": 8.765,
+   "tilt_deg": -7.358
+  },
+  {
+   "r": 8.795,
+   "tilt_deg": -3.661
+  },
+  {
+   "r": 8.825,
+   "tilt_deg": -0.906
+  },
+  {
+   "r": 10.072,
+   "tilt_deg": 5.734
+  },
+  {
+   "r": 10.088,
+   "tilt_deg": 28.366
+  }
+ ],
+ "segments": {
+  "Segment03_Cracked_BALANCED": {
+   "changed_loops": 598,
+   "kept_damage_adjacent": 70,
+   "mean_change_deg": 6.854,
+   "max_change_deg": 117.372
+  },
+  "Segment06_Cracked_BALANCED": {
+   "changed_loops": 603,
+   "kept_damage_adjacent": 72,
+   "mean_change_deg": 7.321,
+   "max_change_deg": 130.127
+  }
+ },
+ "graft": {
+  "appended_bufferViews": 51,
+  "appended_accessors": 48,
+  "appended_images": 3,
+  "appended_textures": 3,
+  "appended_materials": 1
+ },
+ "seg06_census_snap": {
+  "open_edges_before": 102,
+  "open_edges_after": 94,
+  "vert_instances_moved": 8,
+  "pairs_snapped": 3
+ }
+}

@@ -1,0 +1,86 @@
+{
+ "assertions": [
+  {
+   "name": "approved_bin_is_prefix",
+   "ok": true,
+   "detail": "approved bin 18097584 bytes verbatim at offset 0 of the new bin"
+  },
+  {
+   "name": "approved_json_arrays_are_prefixes",
+   "ok": true,
+   "detail": "all approved bufferViews/accessors/materials/textures/images/meshes/nodes verbatim -> the 10 approved roots are byte-identical"
+  },
+  {
+   "name": "twelve_roots",
+   "ok": true,
+   "detail": "['Segment01_Cracked_BALANCED', 'Segment01_Intact', 'Segment02_Cracked_BALANCED', 'Segment02_Intact', 'Segment03_Cracked_BALANCED', 'Segment03_Intact', 'Segment04_Cracked_BALANCED', 'Segment04_Intact', 'Segment05_Cracked_BALANCED', 'Segment05_Intact', 'Segment06_Cracked_BALANCED', 'Segment06_Intact']"
+  },
+  {
+   "name": "new_roots_translation_matches_intact",
+   "ok": true,
+   "detail": "Segment03/06 cracked translations equal their intact twins"
+  },
+  {
+   "name": "one_new_material_occ05",
+   "ok": true,
+   "detail": "new=['M_Fracture_Cracked_C'] occ=[('M_Fracture_Cracked_B', 0.5), ('M_Fracture_Cracked', 0.5), ('M_Fracture_Cracked_C', 0.5)]"
+  },
+  {
+   "name": "three_new_atlas_images",
+   "ok": true,
+   "detail": "['seg36_frac_basecolor', 'seg36_frac_normal', 'seg36_frac_orm']"
+  },
+  {
+   "name": "new_fracture_normals_match_harmonized_pair",
+   "ok": true,
+   "detail": "fracture prim normals byte-equal to the seg36 rollout output (field pass touched only pure-horizontal top loops)"
+  },
+  {
+   "name": "new_roots_single_island",
+   "ok": true,
+   "detail": "islands: {'Segment03_Cracked_BALANCED': 1, 'Segment06_Cracked_BALANCED': 1}"
+  },
+  {
+   "name": "new_roots_open_edges_documented",
+   "ok": true,
+   "detail": "weld-metric open edges seg03=80 seg06=94 (same class as the approved cracked roots: 107-109 incl. approved gold-lip separations; corrected seg06 bar 150: stepped spalls+seam breaks add canal slits)"
+  },
+  {
+   "name": "new_plateau_normals_exact_field",
+   "ok": true,
+   "detail": "pure-horizontal plateau verts on exact intact radial field: {'Segment03_Cracked_BALANCED': 628, 'Segment06_Cracked_BALANCED': 637} \u00b7 max deviation 0.0050 deg"
+  },
+  {
+   "name": "bpy_import_12_roots",
+   "ok": true,
+   "detail": "12 mesh objects"
+  },
+  {
+   "name": "bpy_transforms_ok",
+   "ok": true,
+   "detail": "all 12 translations correct"
+  },
+  {
+   "name": "bpy_counts_match_glb",
+   "ok": true,
+   "detail": "vertex counts match GLB"
+  },
+  {
+   "name": "bpy_mesh_validate_clean",
+   "ok": true,
+   "detail": "mesh.validate() clean on all roots"
+  }
+ ],
+ "weld_metrics": {
+  "Segment03_Cracked_BALANCED": {
+   "open": 80,
+   "nonmanifold": 210,
+   "islands": 1
+  },
+  "Segment06_Cracked_BALANCED": {
+   "open": 94,
+   "nonmanifold": 179,
+   "islands": 1
+  }
+ }
+}
