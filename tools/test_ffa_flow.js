@@ -34,7 +34,9 @@ const SRC = [
   grab(/function colorSlot\(owner\)\{[^\n]*/, 'colorSlot'),
   grab(/function aliveCount\(owner\)\{[^\n]*/, 'aliveCount'),
   grab(/function allAliveCommitted\(\)\{[^\n]*/, 'allAliveCommitted'),
-  grab(/function whoCanAim\(\)\{[^\n]*/, 'whoCanAim'),
+  // multi-line since the collapse refactor — same greedy-safe pattern the other
+  // multi-line functions in this list use, so future line breaks stay covered
+  grab(/function whoCanAim\(\)\{[\s\S]*?\n\}/, 'whoCanAim'),
   grab(/function whenFB\(cb\)\{[^\n]*/, 'whenFB'),
   grab(/function fbReady\(\)\{[^\n]*/, 'fbReady'),
   grab(/function rRef\(p\)\{[^\n]*/, 'rRef'),
@@ -389,6 +391,10 @@ function makeClient(db, code, forcePid) {
         balls.push({owner:i,alive:true,x:cx+Math.cos(a)*300,y:cy+Math.sin(a)*300,vx:0,vy:0});
         aimSet.push(false);commitIdx.push(-1);commitAim.push({dx:0,dy:0});commitSpin.push(0);}
       phase='aim'; if(online){curAimer=myPlayer;onlineArmTurn();} }
+    // whoCanAim consults the collapse input lock. collapseActive() is
+    // collapseEnabled && mode==='bot' && !online — always false in this online
+    // harness, so production returns false here too.
+    function inputLocked(){return false;}
     ${SRC}
     function drop(){   // browser-close simulation: listeners die, onDisconnect fires
       try{if(turnUnsub)turnUnsub();}catch(e){} try{if(genUnsub)genUnsub();}catch(e){}

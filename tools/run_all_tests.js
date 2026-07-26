@@ -28,6 +28,7 @@ const SUITES = [
   { name: 'Rules',            file: 'test_rules.js',          expectPassed: 174 },
   { name: 'Public-Lobby',     file: 'test_public_lobby.js',   expectPassed: 30 },
   { name: 'Team-Duel',        file: 'test_team_duel.js',      expectPassed: 36 },
+  { name: 'Ring-Collapse',    file: 'test_collapse.js',       expectPassed: 235 },
 ];
 
 const lastLine = (s) => {

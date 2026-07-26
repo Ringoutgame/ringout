@@ -19,6 +19,10 @@ function grab(re, name) {
   return m[0];
 }
 const stepSimSrc = grab(/function stepSim\(\)\{[\s\S]*?\n\}/, 'stepSim');
+// stepSim delegates the ring-out handling to these two shared helpers — they are
+// round logic and are extracted verbatim, never stubbed (same as test_physics_golden.js).
+const ballsOutsideSrc = grab(/function ballsOutside\(\)\{[\s\S]*?\n\}/, 'ballsOutside');
+const resolveRingOutsSrc = grab(/function resolveRingOuts\(crossed\)\{[\s\S]*?\n\}/, 'resolveRingOuts');
 const afterResultSrc = grab(/function afterResult\(\)\{[\s\S]*?\n\}/, 'afterResult');
 const placeBallsSrc = grab(/function placeBalls\(\)\{[\s\S]*?\n\}/, 'placeBalls');
 const sanitizeSrc = grab(/function sanitizeMove\(who,idx,dx,dy,sp\)\{[\s\S]*?\n\}/, 'sanitizeMove');
@@ -66,6 +70,14 @@ function buildEnv() {
     ${placeBallsSrc}
     ${sanitizeSrc}
     ${allCommittedSrc}
+    // Collapse hooks in afterResult: the ring-collapse timer runs only in local bot
+    // training (collapseActive() = collapseEnabled && mode==='bot' && !online). This
+    // harness runs mode='ffa'/fmt='team_duel', so both are provably inert here and the
+    // stubs return exactly what production returns in that state.
+    function collapseRoundEnd(){return false;}
+    function shrinkFloor(){return R0*0.80;}
+    ${ballsOutsideSrc}
+    ${resolveRingOutsSrc}
     ${stepSimSrc}
     ${afterResultSrc}
     return {

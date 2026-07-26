@@ -44,6 +44,10 @@ const SRC = [
   grab(/function simHash\(\)\{[\s\S]*?\n\}/, 'simHash'),
   grab(/function applyLaunch\(\)\{[\s\S]*?\n\}/, 'applyLaunch'),
   grab(/function stepSim\(\)\{[\s\S]*?\n\}/, 'stepSim'),
+  // stepSim delegates the ring-out handling to these two shared helpers — they are
+  // round logic and are extracted verbatim, never stubbed (same as test_physics_golden.js).
+  grab(/function ballsOutside\(\)\{[\s\S]*?\n\}/, 'ballsOutside'),
+  grab(/function resolveRingOuts\(crossed\)\{[\s\S]*?\n\}/, 'resolveRingOuts'),
   grab(/function afterResult\(\)\{[\s\S]*?\n\}/, 'afterResult'),
   // ── real online layer ──
   grab(/function whenFB\(cb\)\{[^\n]*/, 'whenFB'),
@@ -358,6 +362,16 @@ function makeClient(db, code, forcePid) {
     let replaying=false, repPlaying=false, recFrames=[];
     function setPhase(p){phase=p;phaseStart=0;}
     const rrand=()=>ui.code;
+    // Pointer-drag reset called from startRound(): touches only aim-drag/pointer-capture
+    // state, which this headless harness never builds up. No game, lockstep or DB state.
+    function cancelAimDrag(){}
+    // Ring-collapse timer surface reached from newGame/afterResult/whoCanAim. The timer
+    // runs only in local bot training (collapseActive() = collapseEnabled && mode==='bot'
+    // && !online); every client here is online, so production takes exactly these paths:
+    function inputLocked(){return false;}          // no collapse -> input never locked
+    function resetCollapseTimer(){}                // collapseEnabled stays false
+    function collapseRoundEnd(){return false;}     // no pending collapse at round end
+    function shrinkFloor(){return R0*0.80;}        // unchanged default shrink floor
     ${SRC}
     function drop(){
       try{if(turnUnsub)turnUnsub();}catch(e){} try{if(genUnsub)genUnsub();}catch(e){}
