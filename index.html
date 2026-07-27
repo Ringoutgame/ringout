@@ -366,7 +366,7 @@ body.booting #menu{opacity:0;visibility:hidden}
 @keyframes scp{0%,100%{transform:scale(1);box-shadow:0 8px 22px rgba(5,9,18,.3)}30%{transform:scale(1.07);box-shadow:0 0 0 1px rgba(255,201,64,.6),0 0 30px rgba(255,201,64,.45)}}
 .scorebox.pulse{animation:scp .8s cubic-bezier(.3,1.4,.4,1)}
 @media(prefers-reduced-motion:reduce){.wb{animation:none}#rov,#rov .rw{transition:opacity .2s}#rov .rw{transform:none;filter:none}#koChip.show{animation:none;opacity:1}.scorebox.pulse{animation:none}}
-/* ── Ring-Collapse-Timer (nur lokales Bot Training) ── */
+/* ── Action-Clock: globale Matchuhr (oben) + Zugtimer-Pill (darunter), alle Modi ── */
 .ctimer{position:absolute;top:6px;left:50%;transform:translateX(-50%);z-index:4;pointer-events:none;
   font:900 15px/1 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.14em;color:#dfe7f3;
   background:rgba(7,12,22,.62);border:1px solid rgba(150,170,210,.28);border-radius:999px;
@@ -374,6 +374,7 @@ body.booting #menu{opacity:0;visibility:hidden}
 .ctimer.danger{color:#ffd0c4;border-color:rgba(255,90,60,.7);background:rgba(60,12,8,.6);
   box-shadow:0 0 16px rgba(255,70,40,.4);animation:ctPulse .9s ease-in-out infinite}
 .ctimer.collapsed{color:#ffb59f;border-color:rgba(255,110,70,.55);background:rgba(40,12,10,.55);animation:none}
+.ctimer.tturn{top:38px;font-size:12px;padding:4px 11px;letter-spacing:.10em;opacity:.92}
 @keyframes ctPulse{0%,100%{opacity:.78}50%{opacity:1}}
 /* --cc-y wird pro Frame aus der projizierten oberen Arenakante gesetzt (updateCollapseCountPos);
    Verankerung ueber die Unterkante (-100%) haelt die Zahl formatunabhaengig ueber der Arena. */
@@ -607,7 +608,8 @@ body:not(.r3d) .ohero{height:12px}
   </div>
   <div class="arena-wrap"><canvas id="cv"></canvas></div>
   <!-- Ring-Collapse-Timer (nur lokales Bot Training): kleine Matchzeit + grosser 5..1-Countdown -->
-  <div class="ctimer" id="collapseTimer" style="display:none" aria-hidden="true">02:00</div>
+  <div class="ctimer" id="collapseTimer" style="display:none" aria-hidden="true">01:00</div>
+  <div class="ctimer tturn" id="turnTimer" style="display:none" aria-hidden="true">⏱ 7</div>
   <div class="ccount" id="collapseCount" aria-hidden="true"></div>
   <div class="phase" id="phase"></div>
   <div class="botbar">
@@ -825,6 +827,7 @@ body:not(.r3d) .ohero{height:12px}
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js";
   import { getDatabase, ref, set, get, update, remove, onValue, onDisconnect, serverTimestamp, runTransaction, query, orderByChild, limitToLast } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-database.js";
+  const AUTH_MODULE_URL = "https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js";
   const firebaseConfig = {
     apiKey: "AIzaSyDVQNTYoJ3bAUbv4gmcJvjuSVE6vKylZM0",
     authDomain: "ringout-87fbb.firebaseapp.com",
@@ -839,6 +842,20 @@ body:not(.r3d) .ohero{height:12px}
     const db = getDatabase(app);
     window.FB = { db, ref, set, get, update, remove, onValue, onDisconnect, serverTimestamp, runTransaction, query, orderByChild, limitToLast };
     window.__FB_READY = true;
+    // ── Anonymous Auth (Identity-Grundlage fuer Protokoll v4 / Server-Arbiter) ──
+    // BEWUSST dynamisch importiert und strikt nachgelagert: ein STATISCHER Import
+    // von firebase-auth.js wuerde bei blockiertem/nicht ladbarem Modul die GESAMTE
+    // Modulauswertung abbrechen — window.FB waere nie gesetzt und das bestehende
+    // v3-Online-Spiel damit tot. So bleibt der Datenbank-Boot oben unabhaengig:
+    // faellt Auth aus (Modul nicht erreichbar, Anonymous-Provider deaktiviert),
+    // bleibt window.__FB_UID leer, v3 laeuft unveraendert und nur v4-Features
+    // sind inaktiv. Keine sichtbare Fehlermeldung fuer normale v3-Nutzer.
+    window.__FB_UID = '';
+    import(AUTH_MODULE_URL).then(m=>{
+      const auth = m.getAuth(app);
+      m.onAuthStateChanged(auth, u=>{ window.__FB_UID = (u && u.uid) || ''; window.dispatchEvent(new Event('fb-auth')); });
+      m.signInAnonymously(auth).catch(()=>{});
+    }).catch(()=>{});
   }catch(e){ window.__FB_ERR = String(e && e.message || e); }
   window.dispatchEvent(new Event('fb-ready'));
 </script>
@@ -1393,7 +1410,8 @@ en:{tagline:'PULL BACK · RELEASE · KNOCK THEM OUT',chip:'FEATURED',
   rejoinNoLobby:'Room is no longer in the lobby.',rejoinTab:'Seat is active in another tab.',rejoinOk:'Rejoined.',
   rejoinWait:'Seat still reserved — try again in a few seconds.',
   visLbl:'VISIBILITY',visPriv:'Private',visPub:'Public',pubTitle:'PUBLIC ROOMS',pubJoin:'Join',
-  pubLoading:'Loading rooms…',pubEmpty:'No public rooms right now.',pubError:'Couldn’t load rooms.'},
+  pubLoading:'Loading rooms…',pubEmpty:'No public rooms right now.',pubError:'Couldn’t load rooms.',
+  turnTimeout:'Time up – no move'},
 de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'FEATURED',
   ffaT:'ONLINE FFA',ffaS:'2–5 SPIELER',
   tripleT:'TRIPLE FFA',tripleS:'3 SPIELER · 2 KUGELN JE SPIELER',
@@ -1434,7 +1452,8 @@ de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'FEATURED',
   rejoinNoLobby:'Raum ist nicht mehr in der Lobby.',rejoinTab:'Sitz ist in einem anderen Tab aktiv.',rejoinOk:'Wieder beigetreten.',
   rejoinWait:'Sitz ist noch reserviert — versuche es in ein paar Sekunden erneut.',
   visLbl:'SICHTBARKEIT',visPriv:'Privat',visPub:'Öffentlich',pubTitle:'ÖFFENTLICHE RÄUME',pubJoin:'Beitreten',
-  pubLoading:'Räume werden geladen…',pubEmpty:'Gerade keine öffentlichen Räume.',pubError:'Räume konnten nicht geladen werden.'},
+  pubLoading:'Räume werden geladen…',pubEmpty:'Gerade keine öffentlichen Räume.',pubError:'Räume konnten nicht geladen werden.',
+  turnTimeout:'Zeit abgelaufen – kein Zug'},
 tr:{tagline:'GERİ ÇEK · BIRAK · DIŞARI İT',chip:'FEATURED',
   ffaT:'ONLINE FFA',ffaS:'2–5 OYUNCU',
   tripleT:'TRIPLE FFA',tripleS:'3 OYUNCU · KİŞİ BAŞI 2 TOP',
@@ -1475,7 +1494,8 @@ tr:{tagline:'GERİ ÇEK · BIRAK · DIŞARI İT',chip:'FEATURED',
   rejoinNoLobby:'Oda artık lobide değil.',rejoinTab:'Koltuk başka bir sekmede etkin.',rejoinOk:'Yeniden katıldın.',
   rejoinWait:'Koltuk hâlâ ayrılmış — birkaç saniye sonra tekrar dene.',
   visLbl:'GÖRÜNÜRLÜK',visPriv:'Özel',visPub:'Herkese açık',pubTitle:'AÇIK ODALAR',pubJoin:'Katıl',
-  pubLoading:'Odalar yükleniyor…',pubEmpty:'Şu an açık oda yok.',pubError:'Odalar yüklenemedi.'}
+  pubLoading:'Odalar yükleniyor…',pubEmpty:'Şu an açık oda yok.',pubError:'Odalar yüklenemedi.',
+  turnTimeout:'Süre doldu – hamle yok'}
 };
 let LANG=(()=>{try{const l=localStorage.getItem('ringout_lang');return I18N[l]?l:'en';}catch(e){return 'en';}})();
 function T(k){return (I18N[LANG]&&I18N[LANG][k])||I18N.en[k]||k;}
@@ -1917,16 +1937,28 @@ const MAXPULL_FRAC=0.40, LAUNCH=0.034, FRICTION=0.992, FEND=0.992, SLOWV=0.35, R
 const SPIN_K=0.004, SPIN_DECAY=0.985, SPIN_SCALE=R0*0.18, SPIN_INPUT=R0*0.45;   // SPIN_INPUT: horizontale Wischweite des 2. Fingers fuer vollen Drall (+/-1)
 const REVEAL_MS=600, RESULT_MS=950;
 const RESULT_SLOWMUL=0.7, RESULT_FR=0.99;
-// ══════ RING-COLLAPSE-TIMER — lokaler Gameplay-Prototyp, NUR Bot Training ══════
-// Passive Matches gehen nach fester Planungszeit in ein dramatisches Finale ueber:
-// Timer laeuft nur in der Planungsphase (phase==='aim'), pausiert waehrend Physik/
-// Menue/Matchende. Bei 0 werden offene Zuege auf "Stehen bleiben" gesetzt, der letzte
-// simultane Zug laeuft regulaer, und ERST nach vollstaendigem Physics-Settlement wird
-// der Arenaradius EINMALIG per COLLAPSE_RADIUS_FACTOR verkleinert. Die bestehende
-// Ring-out-Logik (stepSim) behandelt danach Kugeln ausserhalb des neuen Radius.
-// Keine Online-/Firebase-/Netzwerk-Beruehrung — alle Pfade sind hart auf Bot-Local
-// gated (collapseEnabled && mode==='bot' && !online). ── ==COLLAPSE-CORE-START==
-const MATCH_COLLAPSE_SECONDS=120, COLLAPSE_WARNING_SECONDS=10, FINAL_COUNTDOWN_SECONDS=5, COLLAPSE_RADIUS_FACTOR=0.82;
+// ══════ ACTION-CLOCK — globale 60s-Matchuhr + 7s-Zuglimit (OFFLINE-Vertrag) ══════
+// Vertrag: Die globale Uhr laeuft AUSSCHLIESSLICH waehrend einer aktiven
+// Entscheidungsphase (phase==='aim') und pausiert waehrend Reveal/Physik/Result/
+// Rundenwechsel/Menue/Matchende. Jedes Entscheidungsfenster ist auf TURN_LIMIT_MS
+// begrenzt; bei Ablauf wird der offene Zug verbindlich als No-Shot (Impuls exakt 0)
+// abgeschlossen — Position und Geschwindigkeit der Kugeln bleiben unangetastet.
+// Bei <=CRACK_REMAIN_MS globaler Restzeit wird EINMALIG der Cracked-State gesetzt,
+// bei 0 der Expired-Trigger (collapseState='expired'). Die sichtbare Arena-
+// Konsequenz (Radius-Schrumpf) bleibt wie bisher auf lokales Bot-Training begrenzt
+// (collapseActive); ein Segment-Fallen existiert noch nicht.
+// ONLINE ist diese Uhr bewusst INAKTIV (clockActive() && !online): die Online-
+// Autoritaet ist der serverseitige Clock-Arbiter (functions/clock-core.js, Knoten
+// rooms/<code>/g/<gen>/clock — fuer Clients read-only, Rules verweigern jeden Write).
+// Die Client-Anbindung an den Server-Arbiter folgt in Phase IV; eine client-
+// autoritative Online-Uhr darf hier nie wieder entstehen.
+// ── ==COLLAPSE-CORE-START==
+const MATCH_CLOCK_MS=60000;      // globale aktive Matchzeit
+const TURN_LIMIT_MS=7000;        // maximale Entscheidungszeit je Fenster
+const CRACK_REMAIN_MS=10000;     // Cracked-State-Schwelle (globale Restzeit)
+const TURN_WARN_MS=3000;         // Zugtimer-Warnzustand
+const TURN_COUNT_MS=2000;        // grosser numerischer Zug-Countdown (letzte Sekunden)
+const COLLAPSE_RADIUS_FACTOR=0.82;
 // Obergrenze fuer EIN Zeit-Delta eines sichtbaren Frames. Ein langer Main-Thread-Stall
 // (GC-Pause, Debugger, Tab-Wechsel ohne visibilitychange) darf nicht mehrere Entscheidungs-
 // sekunden auf einmal verbrauchen und dabei Countdown-Stufen ueberspringen. Der Wert liegt
@@ -1934,40 +1966,51 @@ const MATCH_COLLAPSE_SECONDS=120, COLLAPSE_WARNING_SECONDS=10, FINAL_COUNTDOWN_S
 // Countdown-Stufe (1000 ms) -> normaler Betrieb bleibt zeitlich exakt, eine Stufe kann nie
 // uebersprungen werden. Bewusst KEINE allgemeine Pause-Engine, nur diese eine Klemmung.
 const MAX_COLLAPSE_TICK_DELTA_MS=250;
-let collapseEnabled=false;        // true nur im lokalen Bot-Training-Match
-let collapseState='running';      // 'running' -> 'expired' (0 erreicht) -> 'collapsed' (einmalig)
-let matchElapsedMs=0;             // aufsummierte Planungsphasen-Zeit
+let clockEnabled=false;           // true, solange ein Match mit Action-Clock laeuft
+let collapseState='running';      // 'running' -> 'expired' (0 erreicht) -> 'collapsed' (nur Bot-Arena)
+let matchElapsedMs=0;             // aufsummierte aktive Entscheidungszeit (offline kanonisch)
 let matchTimerAnchor=null;        // performance.now() des letzten zaehlenden Frames (null=pausiert)
-let collapseRadius=0;             // Arenaradius unmittelbar nach dem Collapse (Schrumpf-Floor)
+let crackedState=false;           // Cracked-State: genau einmal je Match
+let collapseRadius=0;             // Arenaradius unmittelbar nach dem Collapse (Schrumpf-Floor, nur Bot)
 let collapseOuterR=0;             // Radius VOR dem Collapse (fuer die entfernte Aussenzone im Overlay)
-let collapseCountShown=-1;        // zuletzt angezeigte Countdown-Zahl (Beep-Entprellung)
+let collapseCountShown=-1;        // zuletzt angezeigte Countdown-Zahl (Beep-Entprellung, je Fenster)
 let collapseCountVisible=false;   // ist die grosse Zahl gerade eingeblendet
-let collapseWarned=false;         // 10s-Warnsignal genau einmal
 let collapseFlash=0;              // Zeitstempel fuer den kurzen Collapse-Alarm-Blink
-function collapseActive(){return collapseEnabled&&mode==='bot'&&!online;}
-function collapseRemainMs(){return Math.max(0,MATCH_COLLAPSE_SECONDS*1000-matchElapsedMs);}
-// Eingabesperre ab Timerablauf: kein Spieler- oder Bot-Zug darf mehr beginnen, bis der
-// Collapse ausgewertet ist. Die Auswertung selbst laeuft in phase==='sim' und ist damit
-// bereits ueber die normale Phasenpruefung gesperrt.
-function inputLocked(){return collapseActive()&&collapseState==='expired';}
+let turnWindowSeat=-1;            // Seat des aktiven Entscheidungsfensters (-1 = keins)
+let turnWindowEndEl=null;         // Fensterende in matchElapsedMs-Koordinaten
+// Offline/lokal aktiv; online ist die Uhr bis zur Server-Arbiter-Anbindung (Phase IV)
+// bewusst aus — es existiert KEIN clientautoritativer Online-Zeitpfad mehr.
+function clockActive(){return clockEnabled&&!online;}
+// Arena-Konsequenz (Radius-Schrumpf) unveraendert NUR im lokalen Bot-Training.
+function collapseActive(){return clockEnabled&&mode==='bot'&&!online;}
+// Kanonische globale Restzeit der lokalen Uhr.
+function clockRemainMs(){return Math.max(0,MATCH_CLOCK_MS-matchElapsedMs);}
+// Ist die Deadline des AKTUELLEN Entscheidungsfensters ueberschritten?
+function turnDeadlinePassed(){
+  if(!clockActive()||phase!=='aim')return false;
+  return turnWindowEndEl!=null&&matchElapsedMs>=turnWindowEndEl;
+}
+// Eingabesperre: ab Fenster-Deadline und (Bot-Arena) ab Timerablauf bis zur
+// Collapse-Auswertung. whoCanAim() und canCommitInput() konsultieren sie.
+function inputLocked(){return clockEnabled&&(turnDeadlinePassed()||(collapseActive()&&collapseState==='expired'));}
 // Zentrale Freigabe fuer JEDEN lokalen Benutzer-Commit (Stand-Button, Pointer-/Drall-Zug).
-// Verhindert Doppelwertungen: ein spaetes pointerup nach dem automatischen Stand-Commit
+// Verhindert Doppelwertungen: ein spaetes pointerup nach dem automatischen No-Shot
 // darf weder den bestaetigten Zug ueberschreiben noch einen zweiten Bot-Zug erzeugen.
-// Ab Timerablauf ist zusaetzlich JEDE Benutzereingabe gesperrt — nur der interne
-// commitAutoStand() passiert die Sperre, und der setzt ausschliesslich "stehen bleiben".
-// Online bleibt unberuehrt — dort ist die DB der Write-once-Arbiter (s. commit()).
+// Online bleibt bewusst ungefiltert — dort ist die DB der Write-once-Arbiter; die
+// Server-Deadline-Sperre kommt mit der Phase-IV-Anbindung an rooms/<code>/g/<gen>/clock.
 function canCommitInput(who){
   if(online)return true;
   if(phase!=='aim')return false;
   if(inputLocked())return false;
   return who>=0&&!aimSet[who];
 }
-// Interner Auto-Stand bei Timerablauf — der EINZIGE Commit-Pfad an der Eingabesperre vorbei.
-// Kein allgemeines Schlupfloch: er setzt nur den noch offenen Zug einmalig auf dx=dy=0 und
-// laeuft danach durch den regulaeren Zugablauf (applyCommit -> Bot-Zug -> Reveal).
+// Interner Auto-No-Shot — der EINZIGE Commit-Pfad an der Eingabesperre vorbei.
+// Kein allgemeines Schlupfloch: er setzt nur den noch offenen Zug einmalig auf
+// dx=dy=0 (Impuls 0) und laeuft danach durch den regulaeren Zugablauf
+// (applyCommit -> Bot-Zug -> Reveal bzw. naechster Hotseat-Aimer).
 function commitAutoStand(who,shooterIdx){
-  if(online)return;                                    // Online kennt keinen lokalen Auto-Stand
-  if(!inputLocked())return;                            // nur nach regulaerem Timerablauf
+  if(online)return;                                    // Online-No-Shots setzt der Server-Arbiter
+  if(!inputLocked())return;                            // nur nach abgelaufener Deadline
   if(phase!=='aim'||who<0||aimSet[who])return;         // genau einmal, nie ueberschreibend
   applyCommit(who,shooterIdx,0,0,0);
 }
@@ -1975,29 +2018,42 @@ function commitAutoStand(who,shooterIdx){
 // eingefroren auf collapseRadius -> Rundenschrumpf hebt/senkt den Collapse nicht mehr.
 function shrinkFloor(){return (collapseActive()&&collapseState==='collapsed')?collapseRadius:R0*0.80;}
 function resetCollapseTimer(){
-  collapseEnabled=(mode==='bot'&&!online);   // nur lokales Bot-Training aktiviert den Timer
+  clockEnabled=true;                         // Action-Clock gilt fuer jedes lokale Match
   collapseState='running';matchElapsedMs=0;matchTimerAnchor=null;
-  collapseRadius=0;collapseOuterR=0;collapseCountShown=-1;collapseWarned=false;collapseFlash=0;
+  crackedState=false;
+  collapseRadius=0;collapseOuterR=0;collapseCountShown=-1;collapseFlash=0;
+  turnWindowSeat=-1;turnWindowEndEl=null;
   // Neues Match/Rematch startet ohne Eingabesperre und ohne Drag-Reste aus dem alten Match.
   if(typeof cancelAimDrag==='function')cancelAimDrag();
-  hideCollapseCount();updateCollapseHud();
+  hideCollapseCount();hideTurnTimer();updateCollapseHud();
 }
-// 0 erreicht: offene (nicht bestaetigte, lebende) Eingaben einmalig auf "Stehen bleiben"
-// setzen. In Bot Training ist das ausschliesslich der menschliche Spieler (Seat 0);
-// commitAutoStand() loest darueber den regulaeren simultanen Zug aus (Bot-Zug + beginReveal).
+// Cracked-State: exakt einmal je Match (idempotent).
+function setCracked(){
+  if(crackedState)return;
+  crackedState=true;SFX.warn();
+}
+// Globale Restzeit 0 erreicht: Expired-Trigger genau einmal setzen und alle noch
+// offenen lebenden Zuege verbindlich auf No-Shot stellen. Beginnend beim aktiven
+// Fenster-Seat reicht applyCommit die Zugfolge selbst weiter (Hotseat) bzw. loest
+// Bot-Zug + Reveal aus (Bot-Training). Danach existiert keine getimte Planungs-
+// phase mehr — Folgerunden laufen ohne Deadline (Matchlogik bricht nicht ab).
 function onCollapseExpire(){
   if(collapseState!=='running')return;      // genau einmal
-  collapseState='expired';hideCollapseCount();
-  // Laufenden Aim-/Drall-Drag hart beenden, BEVOR der Auto-Stand gesetzt wird: sonst
+  collapseState='expired';hideCollapseCount();hideTurnTimer();
+  // Laufenden Aim-/Drall-Drag hart beenden, BEVOR der No-Shot gesetzt wird: sonst
   // koennte das spaetere pointerup den soeben bestaetigten Zug noch ueberschreiben.
   if(typeof cancelAimDrag==='function')cancelAimDrag();
-  if(phase==='aim'&&!aimSet[0]&&aliveCount(0)){
-    const own=aliveBalls(0),idx=own.length?balls.indexOf(own[0]):-1;
-    commitAutoStand(0,idx);                  // interner Pfad: dx=dy=0 -> Kugel bleibt stehen
+  for(let p=0;p<np();p++){
+    if(phase!=='aim')break;                  // Zugfolge bereits in den Reveal uebergegangen
+    if(mode==='bot'&&p>0)continue;           // Bot-Zug kommt ausschliesslich ueber applyCommit (synchron zum Spielerzug)
+    if(aimSet[p]||!aliveCount(p))continue;
+    const own=aliveBalls(p),idx=own.length?balls.indexOf(own[0]):-1;
+    commitAutoStand(p,idx);                  // interner Pfad: dx=dy=0 -> Kugel bleibt stehen
   }
 }
-// Ring Collapse: genau EINMAL je Match, deterministisch im Settlement-Uebergang des letzten
-// erzwungenen Zuges. Er hat zwei Ausgaenge, weil stepSim zwei Ausgaenge hat:
+// Ring Collapse (nur Bot-Arena): genau EINMAL je Match, deterministisch im Settlement-
+// Uebergang des letzten erzwungenen Zuges. Er hat zwei Ausgaenge, weil stepSim zwei
+// Ausgaenge hat:
 //   settleCollapse()   — Zug kam bewegungslos zur Ruhe, Runde laeuft weiter
 //   collapseRoundEnd() — Zug beendete die Runde (phase='result'), aufgerufen aus afterResult
 // Beide teilen sich applyCollapseRadius(); danach existiert nie eine Planungsphase mit
@@ -2065,47 +2121,98 @@ function collapseHidden(){
   if(typeof document==='undefined'||!document)return false;
   return document.hidden===true||(document.visibilityState!=null&&document.visibilityState!=='visible');
 }
+// Seat des aktiven Entscheidungsfensters: Bot-Training = Spieler 0,
+// Hotseat = der verdeckt zielende curAimer. -1, wenn niemand entscheiden darf.
+function clockWindowSeat(){
+  if(phase!=='aim')return -1;
+  const who=mode==='bot'?0:curAimer;
+  return (who>=0&&who<np()&&!aimSet[who]&&aliveCount(who)>0)?who:-1;
+}
+// Fensterablauf: Drag abbrechen, Rueckmeldung, verbindlicher No-Shot.
+function fireTurnWindowTimeout(){
+  const who=turnWindowSeat;
+  if(who<0)return;
+  if(typeof cancelAimDrag==='function')cancelAimDrag();
+  toast(T('turnTimeout'));
+  const own=aliveBalls(who),idx=own.length?balls.indexOf(own[0]):-1;
+  commitAutoStand(who,idx);
+}
+// Zugtimer-Anzeige: Pill fuer den berechtigten Spieler (Warnung ab TURN_WARN_MS),
+// grosse Zahl + Beep in den letzten TURN_COUNT_MS. Entprellt ueber collapseCountShown.
+function updateTurnCountdown(leftMs){
+  const el=$('turnTimer');
+  if(el){
+    el.style.display='';
+    el.textContent='⏱ '+Math.max(0,Math.ceil(leftMs/1000));
+    el.classList.toggle('danger',leftMs<=TURN_WARN_MS);
+  }
+  if(leftMs<=TURN_COUNT_MS&&leftMs>0){
+    const n=Math.max(1,Math.ceil(leftMs/1000));
+    if(n!==collapseCountShown){collapseCountShown=n;showCollapseCount(n);SFX.tick();}
+    else if(!collapseCountVisible)showCollapseCount(n);   // nach Phasenwechsel/Tab-Pause wieder einblenden — ohne zweiten Beep
+    // Position folgt der Arenakante (Render-/DOM-Layer, im reinen State-Test nicht vorhanden)
+    if(typeof updateCollapseCountPos==='function')updateCollapseCountPos();
+  }else if(collapseCountVisible)hideCollapseCount();
+}
+function hideTurnTimer(){const el=$('turnTimer');if(!el)return;el.style.display='none';el.classList.remove('danger');}
+// Fensterverwaltung: (Re-)Armierung beim Seat-Wechsel, dann Countdown/Timeout.
+// Fensterende = Armierungszeitpunkt + min(TURN_LIMIT_MS, globale Restzeit) — die
+// globale Uhr kann daher nie unter 0 fallen und das letzte Fenster endet exakt bei 0.
+function tickTurnWindow(){
+  const who=clockWindowSeat();
+  if(who!==turnWindowSeat){
+    turnWindowSeat=who;collapseCountShown=-1;
+    turnWindowEndEl=who<0?null:matchElapsedMs+Math.min(TURN_LIMIT_MS,clockRemainMs());
+    if(who<0)hideTurnTimer();
+  }
+  if(who<0||turnWindowEndEl==null)return;
+  const left=turnWindowEndEl-matchElapsedMs;
+  updateTurnCountdown(Math.max(0,left));
+  if(left<=0)fireTurnWindowTimeout();
+}
 function tickCollapse(now){
-  if(!collapseActive()){matchTimerAnchor=null;return;}
-  // Defensive Recovery gegen Stillstand: regulaer wird ein faelliger Collapse bereits im
-  // Settlement (settleCollapse) oder im Rundenende (collapseRoundEnd) verarbeitet — kein
-  // normaler Ablauf erreicht diese Zeile mehr. Bleibt der Zustand dennoch in aim stehen
-  // (kein Zug, auf dessen Physik zu warten waere), wird hier ausgewertet; die Eingabe ist
-  // dabei ueber inputLocked() gesperrt, es entsteht also keine nutzbare Aim-Phase.
-  if(collapseState==='expired'&&phase==='aim')doCollapse();
+  if(!clockActive()){matchTimerAnchor=null;return;}
+  // Defensive Recovery gegen Stillstand (nur Bot-Arena): regulaer wird ein faelliger
+  // Collapse bereits im Settlement (settleCollapse) oder im Rundenende (collapseRoundEnd)
+  // verarbeitet — kein normaler Ablauf erreicht diese Zeile mehr. Bleibt der Zustand
+  // dennoch in aim stehen, wird hier ausgewertet; die Eingabe ist dabei ueber
+  // inputLocked() gesperrt, es entsteht also keine nutzbare Aim-Phase.
+  if(collapseState==='expired'&&phase==='aim'&&collapseActive())doCollapse();
   if(phase==='aim'&&!menuVisible&&collapseState==='running'&&!collapseHidden()){
     if(matchTimerAnchor==null)matchTimerAnchor=now;   // erster zaehlender Frame ankert nur, Delta 0
     matchElapsedMs+=Math.min(Math.max(0,now-matchTimerAnchor),MAX_COLLAPSE_TICK_DELTA_MS);
     matchTimerAnchor=now;
-    const rem=collapseRemainMs()/1000;
-    if(rem<=COLLAPSE_WARNING_SECONDS&&!collapseWarned){collapseWarned=true;SFX.warn();}
-    if(rem<=FINAL_COUNTDOWN_SECONDS){const n=Math.max(1,Math.ceil(rem));
-      if(n!==collapseCountShown){collapseCountShown=n;showCollapseCount(n);SFX.tick();}
-      else if(!collapseCountVisible)showCollapseCount(n);   // nach Phasenwechsel/Tab-Pause wieder einblenden — ohne zweiten Beep
-      // Position folgt der Arenakante (Render-/DOM-Layer, im reinen State-Test nicht vorhanden)
-      if(typeof updateCollapseCountPos==='function')updateCollapseCountPos();}
-    if(collapseRemainMs()<=0)onCollapseExpire();
+    if(clockRemainMs()<=CRACK_REMAIN_MS)setCracked();
+    tickTurnWindow();
+    if(clockRemainMs()<=0)onCollapseExpire();
   }else{
     matchTimerAnchor=null;                    // Pause: Anker loeschen -> kein Delta-Sprung
-    // Die grosse Zahl gehoert ausschliesslich zur aktiven Planungsphase: waehrend
-    // reveal/sim/result/over, im Menue und bei inaktivem Tab ist sie verborgen.
+    turnWindowSeat=-1;turnWindowEndEl=null;   // Fenster gehoert ausschliesslich zur Planungsphase
+    // Grosse Zahl und Zug-Pill gehoeren ausschliesslich zur aktiven Planungsphase.
     // collapseCountShown bleibt erhalten -> beim Zurueckkehren kein erneuter Beep.
     if(collapseCountVisible)hideCollapseCount();
+    hideTurnTimer();
   }
   updateCollapseHud();
+}
+// Aim-Phase endet (beginReveal): Anzeige-/Fensterzustaende der Planungsphase schliessen.
+function clockAimEnded(){
+  matchTimerAnchor=null;
+  turnWindowSeat=-1;turnWindowEndEl=null;
+  hideCollapseCount();hideTurnTimer();
 }
 function showCollapseCount(n){collapseCountVisible=true;const el=$('collapseCount');if(!el)return;
   el.textContent=n;el.classList.remove('show');void el.offsetWidth;el.classList.add('show');}
 function hideCollapseCount(){collapseCountVisible=false;const el=$('collapseCount');if(el)el.classList.remove('show');}
 function updateCollapseHud(){
   const el=$('collapseTimer');if(!el)return;
-  if(!collapseActive()){el.style.display='none';el.classList.remove('danger','collapsed');return;}
+  if(!clockActive()){el.style.display='none';el.classList.remove('danger','collapsed');return;}
   el.style.display='';
-  const rem=collapseState==='running'?Math.ceil(collapseRemainMs()/1000):0;
+  const rem=Math.ceil(clockRemainMs()/1000);
   const m=Math.floor(rem/60),s=rem%60;
   el.textContent=(m<10?'0':'')+m+':'+(s<10?'0':'')+s;
-  el.classList.toggle('danger',collapseState==='running'&&rem<=COLLAPSE_WARNING_SECONDS);
-  el.classList.toggle('collapsed',collapseState==='collapsed');
+  el.classList.toggle('danger',crackedState&&collapseState==='running');
+  el.classList.toggle('collapsed',collapseState!=='running');
 }
 // ══════ ==COLLAPSE-CORE-END== ══════
 // ── Offline-Tuning-Harness (M5-T1, ?tune=br:28,fend:0.9895,stopv:0.12): NUR lokal/Bot.
@@ -2176,7 +2283,7 @@ function placeBalls(){
 }
 
 function newGame(){resize();R=R0;score=[];for(let p=0;p<np();p++)score.push(0);roundNo=1;particles=[];fx3=[];recFrames=[];
-  resetCollapseTimer();                              // Rematch/neues Match: Timer 2:00, Collapse-State + Radius zuruecksetzen
+  resetCollapseTimer();                              // Rematch/neues Match: Action-Clock 60s, Fenster-, Crack- und Collapse-State zuruecksetzen
   const ffa=mode==='ffa';                            // FFA: kompakte Chip-Leiste statt der 2 Spielerkarten
   $('card0').style.display=ffa?'none':'';$('card1').style.display=ffa?'none':'';
   document.querySelector('.scorebox').style.display=ffa?'none':'';
@@ -2583,7 +2690,7 @@ function bot2v2(){const a=snap(),me=1,opp=0,mine=aliveIdx(a,me);if(!mine.length)
   return best?{idx:best.i,dx:best.dx,dy:best.dy}:{idx:mine[0],dx:0,dy:0};}
 
 // ════ REVEAL → SIM ════
-function beginReveal(){if(online&&mode==='ffa')ejectGoneSeats();setPhase('reveal');setPhaseText();updateHud();}
+function beginReveal(){if(typeof clockAimEnded==='function')clockAimEnded();if(online&&mode==='ffa')ejectGoneSeats();setPhase('reveal');setPhaseText();updateHud();}
 // Online-FFA: verlassene Seats (ueber den Move-Sentinel fuer ALLE Clients
 // deterministisch bekannt, s. onlineTurnValue) werden vor dem Sim-Start knapp
 // hinter die Ringkante gesetzt — der normale Ring-Out-Pfad in stepSim eliminiert
@@ -3910,7 +4017,7 @@ function collapseStrokeRing(radius,style,w){ctx.beginPath();collapseRingPath(rad
 function collapseFillZone(inner,outer,style){ctx.beginPath();collapseRingPath(outer);collapseRingPath(inner);ctx.fillStyle=style;ctx.fill('evenodd');}
 function drawCollapseOverlay(){
   if(!collapseActive())return;
-  const warn=collapseState==='running'&&collapseRemainMs()<=COLLAPSE_WARNING_SECONDS*1000;
+  const warn=collapseState==='running'&&crackedState;   // Cracked-State = Warnzone sichtbar (nur Bot-Arena, s. collapseActive)
   const collapsed=collapseState==='collapsed';
   if(!warn&&!collapsed)return;
   const p=.5+.5*Math.sin(performance.now()/1000*4.5);
@@ -4624,7 +4731,7 @@ document.addEventListener('visibilitychange',()=>{pauseCollapseTimer();if(docume
 function loop(now){
   if(PERF)perfTick(now);
   if(replaying){ SFX.rollUpdate(null,false); repTick(); if(r3dActive)r3d.render(); requestAnimationFrame(loop); return; }
-  tickCollapse(now);   // Ring-Collapse-Timer (nur Bot Training): zaehlt nur in der Planungsphase, loest Auto-Stand + Collapse aus
+  tickCollapse(now);   // Action-Clock (alle Modi): zaehlt nur in der Planungsphase, treibt Zug-Deadline, No-Shot, Crack/Expired (+ Bot-Collapse)
   if(phase==='reveal'&&now-phaseStart>REVEAL_MS)applyLaunch();
   else if(phase==='sim')stepSim();
   else if(phase==='result'){resultDrift();if(now-phaseStart>RESULT_MS)afterResult();}

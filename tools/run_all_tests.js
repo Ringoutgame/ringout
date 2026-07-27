@@ -25,11 +25,16 @@ const SUITES = [
   { name: 'FFA-Online-Flow',  file: 'test_ffa_flow.js',       expectPassed: 140 },
   { name: 'FFA-Online-Race',  file: 'test_ffa_race.js',       expectPassed: 115 },
   { name: 'Reconnect-B2',     file: 'test_reconnect.js',      expectPassed: 53 },
-  { name: 'Rules',            file: 'test_rules.js',          expectPassed: 174 },
+  { name: 'Rules',            file: 'test_rules.js',          expectPassed: 241 },
   { name: 'Public-Lobby',     file: 'test_public_lobby.js',   expectPassed: 30 },
   { name: 'Team-Duel',        file: 'test_team_duel.js',      expectPassed: 36 },
-  { name: 'Ring-Collapse',    file: 'test_collapse.js',       expectPassed: 235 },
+  { name: 'Ring-Collapse',    file: 'test_collapse.js',       expectPassed: 251 },
+  { name: 'Auth-Boot',        file: 'test_auth_boot.js',      expectPassed: 15 },
 ];
+// Bewusst NICHT hier registriert (wie tools/e2e/): tools/test_action_clock.js —
+// der Server-Arbiter-Beweis gegen den echten RTDB-Emulator braucht JDK 21 +
+// globales firebase-tools und liefe in der reinen Node-CI rot.
+// Aufruf: npm run test:arbiter
 
 const lastLine = (s) => {
   const lines = String(s).split('\n').map((l) => l.trim()).filter(Boolean);

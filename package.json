@@ -5,6 +5,7 @@
   "description": "RingOut — competitive browser game (dev tooling only)",
   "scripts": {
     "test": "node tools/run_all_tests.js",
+    "test:arbiter": "node tools/test_action_clock.js",
     "test:e2e:ffa": "node tools/e2e/run-ffa-e2e.js",
     "test:e2e:spike": "node tools/e2e/spike.js"
   },
