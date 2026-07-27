@@ -33,6 +33,7 @@ const wrap = (fn) => onCall(async (req) => {
   try {
     return await fn({
       room: data.room, phaseId: data.phaseId, hash: data.hash, next: data.next,
+      gen: data.gen,
       uid: req.auth.uid,
     });
   } catch (e) {

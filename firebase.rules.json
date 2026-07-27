@@ -6,7 +6,7 @@
       "$code": {
         ".read": true,
         ".write": "(!data.exists() && newData.hasChildren(['v','config','gen','state','p','players','created'])) || (data.exists() && !newData.exists() && !data.child('p').exists() && !data.child('players').exists())",
-        ".validate": "data.exists() || ($code.matches(/^[A-HJKMNP-Z2-9]{4}$/) && newData.hasChildren(['v','config','gen','state','p','players','created']) && newData.child('gen').val() === 0 && newData.child('state').val() === 'lobby' && newData.child('p/0').hasChildren(['s','on','t']) && newData.child('p/0/on').val() === false && !newData.child('p/1').exists() && !newData.child('p/2').exists() && !newData.child('p/3').exists() && !newData.child('p/4').exists() && newData.child('players/0').hasChildren(['id','name','tab']) && newData.child('players/0/tab').val() === newData.child('p/0/s').val() && !newData.child('players/1').exists() && !newData.child('players/2').exists() && !newData.child('players/3').exists() && !newData.child('players/4').exists() && !newData.child('g').exists() && !newData.child('seats').exists() && (newData.child('v').val() !== 4 || (auth != null && newData.child('players/0/uid').val() === auth.uid)))",
+        ".validate": "data.exists() || ($code.matches(/^[A-HJKMNP-Z2-9]{4}$/) && newData.hasChildren(['v','config','gen','state','p','players','created']) && newData.child('gen').val() === 0 && newData.child('state').val() === 'lobby' && newData.child('p/0').hasChildren(['s','on','t']) && newData.child('p/0/on').val() === false && !newData.child('p/1').exists() && !newData.child('p/2').exists() && !newData.child('p/3').exists() && !newData.child('p/4').exists() && newData.child('players/0').hasChildren(['id','name','tab']) && newData.child('players/0/tab').val() === newData.child('p/0/s').val() && !newData.child('players/1').exists() && !newData.child('players/2').exists() && !newData.child('players/3').exists() && !newData.child('players/4').exists() && !newData.child('g').exists() && !newData.child('seats').exists() && !newData.child('seatByUid').exists() && (newData.child('v').val() !== 4 || (auth != null && newData.child('players/0/uid').val() === auth.uid)))",
         "v": { ".validate": "newData.val() === 3 || newData.val() === 4" },
         "created": { ".validate": "newData.val() === now" },
         "config": {
@@ -17,7 +17,7 @@
           "$other": { ".validate": false }
         },
         "gen": {
-          ".write": "data.parent().exists() && newData.exists() && (root.child('rooms').child($code).child('v').val() !== 4 || (auth != null && (root.child('rooms').child($code).child('players').child('0').child('uid').val() === auth.uid || root.child('rooms').child($code).child('players').child('1').child('uid').val() === auth.uid || root.child('rooms').child($code).child('players').child('2').child('uid').val() === auth.uid || root.child('rooms').child($code).child('players').child('3').child('uid').val() === auth.uid || root.child('rooms').child($code).child('players').child('4').child('uid').val() === auth.uid)))",
+          ".write": "data.parent().exists() && newData.exists() && root.child('rooms').child($code).child('v').val() !== 4",
           ".validate": "newData.isNumber() && newData.val() >= 0 && newData.val() <= 10000 && (!data.exists() || newData.val() === data.val() + 1 || newData.val() === data.val())"
         },
         "state": {
@@ -49,12 +49,17 @@
             "$other": { ".validate": false }
           }
         },
+        "seatByUid": {
+          ".write": false,
+          ".validate": false,
+          "$uid": { ".validate": false }
+        },
         "g": {
           "$gen": {
             "t": {
               "$turn": {
                 "$pl": {
-                  ".write": "!data.exists() && newData.exists() && $gen === root.child('rooms').child($code).child('gen').val() + '' && root.child('rooms').child($code).child('p').child($pl).child('on').val() === true && root.child('rooms').child($code).child('g').child($gen).child('e').child($pl).val() !== true && (root.child('rooms').child($code).child('v').val() !== 4 || (auth != null && root.child('rooms').child($code).child('players').child($pl).child('uid').val() === auth.uid && root.child('rooms').child($code).child('g').child($gen).child('clock').child('phase').val() === 'aim' && root.child('rooms').child($code).child('g').child($gen).child('clock').child('turn').val() + '' === $turn && (',' + root.child('rooms').child($code).child('g').child($gen).child('clock').child('eligibleSeats').val() + ',').contains(',' + $pl + ',') && (!root.child('rooms').child($code).child('g').child($gen).child('clock').child('deadlineAt').exists() || now <= root.child('rooms').child($code).child('g').child($gen).child('clock').child('deadlineAt').val())))",
+                  ".write": "!data.exists() && newData.exists() && root.child('rooms').child($code).child('v').val() !== 4 && $gen === root.child('rooms').child($code).child('gen').val() + '' && root.child('rooms').child($code).child('p').child($pl).child('on').val() === true && root.child('rooms').child($code).child('g').child($gen).child('e').child($pl).val() !== true",
                   ".validate": "($pl === '0' || $pl === '1' || ($pl === '2' && (root.child('rooms').child($code).child('config/fmt').val() === 'ffa' || root.child('rooms').child($code).child('config/fmt').val() === 'triple_ffa')) || (($pl === '3' || $pl === '4') && root.child('rooms').child($code).child('config/fmt').val() === 'ffa') || (($pl === '2' || $pl === '3') && root.child('rooms').child($code).child('config/fmt').val() === 'team_duel')) && $turn.matches(/^[0-9]{1,4}$/) && newData.hasChildren(['idx','dx','dy','sp'])",
                   "idx": { ".validate": "newData.val() === 0 || newData.val() === 1 || newData.val() === 2 || newData.val() === 3 || (newData.val() === 4 && root.child('rooms').child($code).child('config/fmt').val() === 'ffa') || ((newData.val() === 4 || newData.val() === 5) && root.child('rooms').child($code).child('config/fmt').val() === 'triple_ffa')" },
                   "dx": { ".validate": "newData.isNumber() && newData.val() >= -195 && newData.val() <= 195" },
@@ -73,6 +78,25 @@
             "clock": {
               ".write": "false",
               ".validate": false
+            },
+            "live": {
+              "clock": {
+                ".write": "false",
+                ".validate": false
+              },
+              "slots": {
+                "$pl": {
+                  ".write": "!data.exists() && newData.exists() && root.child('rooms').child($code).child('v').val() === 4 && auth != null && root.child('rooms').child($code).child('seatByUid').child(auth.uid).val() + '' === $pl && root.child('rooms').child($code).child('players').child($pl).child('uid').val() === auth.uid && $gen === root.child('rooms').child($code).child('gen').val() + '' && root.child('rooms').child($code).child('g').child($gen).child('live').child('clock').child('phase').val() === 'aim' && (',' + root.child('rooms').child($code).child('g').child($gen).child('live').child('clock').child('eligibleSeats').val() + ',').contains(',' + $pl + ',') && (!root.child('rooms').child($code).child('g').child($gen).child('live').child('clock').child('deadlineAt').exists() || now <= root.child('rooms').child($code).child('g').child($gen).child('live').child('clock').child('deadlineAt').val())",
+                  ".validate": "$pl.matches(/^[0-4]$/) && newData.hasChildren(['idx','dx','dy','sp','t'])",
+                  "idx": { ".validate": "newData.val() === 0 || newData.val() === 1 || newData.val() === 2 || newData.val() === 3 || (newData.val() === 4 && root.child('rooms').child($code).child('config/fmt').val() === 'ffa') || ((newData.val() === 4 || newData.val() === 5) && root.child('rooms').child($code).child('config/fmt').val() === 'triple_ffa')" },
+                  "dx": { ".validate": "newData.isNumber() && newData.val() >= -195 && newData.val() <= 195" },
+                  "dy": { ".validate": "newData.isNumber() && newData.val() >= -195 && newData.val() <= 195" },
+                  "sp": { ".validate": "newData.isNumber() && newData.val() >= -1 && newData.val() <= 1" },
+                  "t": { ".validate": "newData.isNumber() && newData.val() === root.child('rooms').child($code).child('g').child($gen).child('live').child('clock').child('turn').val()" },
+                  "$other": { ".validate": false }
+                }
+              },
+              "$other": { ".validate": false }
             }
           }
         },

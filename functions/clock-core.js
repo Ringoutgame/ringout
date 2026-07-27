@@ -10,21 +10,55 @@
 //   - Cracked bei <= 10 s Restzeit genau einmal, Expired bei 0 genau einmal
 //   - nach Expired laufen Folgephasen OHNE Deadline weiter (kein Match-Abbruch)
 //
-// ── Datenlage: der Clock-Anker liegt bei rooms/<code>/g/<gen>/clock ────────────
-// Bewusst NICHT unter rooms/<code>/clock: Clock und Turn-Slots derselben
-// Generation muessen im selben atomar transaktionierbaren Subtree liegen, sonst
-// ist "fehlende Slots fuellen UND Phase schliessen" zwangslaeufig zweistufig und
-// damit fuer Beobachter (und fuer einen Absturz zwischen den Schritten) partiell
-// sichtbar. Der niedrigste gemeinsame Knoten von clock und t/<turn> ist g/<gen>
-// — genau darauf laeuft clockClose() in EINER Transaction.
+// ── Datenlage (Phase IIIA): begrenzter aktiver Live-State ────────────────────
+//   rooms/<code>/seatByUid/<uid> = <seat>   server-owned UID->Seat-Index
+//   rooms/<code>/g/<gen>/live = { clock, slots }   NUR die aktuelle Phase
+//   rooms/<code>/g/<gen>/t/<turn>           unveraenderliche Turn-Historie
 //
-// Autoritaet: AUSSCHLIESSLICH dieser Arbiter schreibt g/<gen>/clock — die Rules
-// verweigern jeden Client-Write (".write": false); der Admin-SDK-Zugriff hier
-// umgeht die Rules. Alle Zeitpunkte (startedAt/deadlineAt/crackAt/expiresAt/
-// closedAt/settleDeadlineAt) sind absolute, vorberechnete SERVER-Zeiten: der
-// Arbiter braucht keine Timer und keinen Scheduler — jeder Client darf close/
-// settle jederzeit "anstossen", der Server validiert lazy gegen seine eigene Uhr
-// und die Transaction erzwingt Idempotenz (genau ein Abschluss je Phase).
+// live enthaelt ausschliesslich die aktuelle Phase (eine Clock, hoechstens
+// fuenf Slots, hoechstens fuenf Settlement-Reports) und waechst NICHT mit der
+// Matchdauer. clockClose() transaktioniert AUSSCHLIESSLICH live — nie mehr den
+// gesamten Generations-Subtree mit seiner wachsenden Turn-Historie. Clock und
+// aktive Slots liegen im selben Knoten, damit "fehlende Slots fuellen UND
+// Phase schliessen" weiterhin EIN atomarer Schreibvorgang ist.
+//
+// ── Crash-sichere Historienarchivierung ──────────────────────────────────────
+// Weil live und t/<turn> getrennte Knoten sind, ist der Phasenabschluss ein
+// idempotenter Zwei-Schritt mit explizitem Zwischenzustand:
+//   1. clockClose: EINE Transaction auf live — finalisiert alle Slots,
+//      wechselt auf 'resolving' und markiert archived:false (archivePending).
+//   2. ensureArchived: schreibt die finalisierten Slots write-once nach
+//      t/<turn> (identischer Retry ist idempotent, abweichender Inhalt ist ein
+//      kontrollierter Desync) und bestaetigt danach archived:true in live.
+// Bricht der Prozess zwischen den Schritten ab, repariert der NAECHSTE
+// clockClose()- oder clockSettle()-Aufruf den Zustand: beide pruefen auf
+// phase 'resolving' + archived!==true und holen die Archivierung nach. Eine
+// Folgephase wird NIE ohne bestaetigte Archivierung eroeffnet (Guard in der
+// Settle-Transaction) — kein doppelter, kein verlorener History-Turn.
+//
+// ── UID-/Seat-Eindeutigkeit: rooms/<code>/seatByUid ──────────────────────────
+// seatOfUid() waehlt NIE mehr "den niedrigsten passenden Seat": der server-
+// owned Index seatByUid/<uid> ist die einzige Quelle der Seat-Zuordnung. Ein
+// Besitz gilt nur, wenn Indexeintrag UND players/<seat>/uid uebereinstimmen
+// und die UID in keinem weiteren Seat vorkommt — jeder inkonsistente oder
+// mehrdeutige Zustand ist fail-closed (permission/failed-precondition). Der
+// Index ist fuer Clients vollstaendig read-only; seine Erstellung uebernehmen
+// die Room-Create-/Join-Callables in Phase IIIB.
+//
+// ── Gen-Haertung ─────────────────────────────────────────────────────────────
+// room.gen ist bei Protokoll v4 fuer Clients gesperrt (Rules). clockStart
+// akzeptiert ausschliesslich die aktuelle room.gen (ein mitgesendetes gen-
+// Argument muss exakt passen) und setzt eine bestehende Clock derselben
+// Generation NIEMALS zurueck — remainingMs/cracked/expired bleiben erhalten.
+// Der legitime Rematch-/New-Generation-Uebergang folgt serverseitig in IIIB/IV.
+//
+// Autoritaet: AUSSCHLIESSLICH dieser Arbiter schreibt live/clock, t/<turn>
+// (v4) und seatByUid — die Rules verweigern jeden Client-Write; der Admin-SDK-
+// Zugriff hier umgeht die Rules. Alle Zeitpunkte (startedAt/deadlineAt/crackAt/
+// expiresAt/closedAt/settleDeadlineAt) sind absolute, vorberechnete SERVER-
+// Zeiten: der Arbiter braucht keine Timer und keinen Scheduler — jeder Client
+// darf close/settle jederzeit "anstossen", der Server validiert lazy gegen
+// seine eigene Uhr und die Transactions erzwingen Idempotenz.
 //
 // ── Zugberechtigung: clock.eligibleSeats ─────────────────────────────────────
 // Welche Seats eine Phase ueberhaupt betrifft, entscheidet der Server und nur er:
@@ -33,10 +67,9 @@
 // fortgeschrieben (jeder Report traegt nextEligibleSeats). Damit blockiert ein
 // eliminierter, aber noch verbundener Seat die naechste Runde nicht, bekommt
 // keinen Timeout-No-Shot und kostet die globale Uhr keine 7 Sekunden.
-// WICHTIG: Presence entscheidet hier NICHTS mehr. Ein vor der Transaction
-// gelesener Presence-Snapshot ist per Definition veraltbar; ein Reconnect
-// zwischen Read und Write haette sonst einen fremden 'left'-Sentinel erzeugt.
-// Fehlende Slots werden deshalb IMMER als {ns:'stand'} gebucht.
+// WICHTIG: Presence entscheidet hier NICHTS. Ein vor der Transaction gelesener
+// Presence-Snapshot ist per Definition veraltbar; fehlende Slots werden IMMER
+// als {ns:'stand'} gebucht.
 //
 // Grenze des Verfahrens: Settlement-Konsens ERKENNT Desyncs (abweichende Hashes
 // oder abweichende nextEligibleSeats -> phase 'finished'/reason 'desync'), er ist
@@ -55,7 +88,7 @@ const CRACK_REMAIN_MS = 10000;  // Cracked-Schwelle (globale Restzeit)
 const SETTLE_GRACE_MS = 15000;  // Settlement-Quorum-Fallback gegen tote Phasen
 const MAX_SEATS = 5;
 const ROOM_RE = /^[A-HJKMNP-Z2-9]{4}$/;
-const CLOCK_V = 2;              // v2: eligibleSeats + settleDeadlineAt + Reports {hash,next}
+const CLOCK_V = 3;              // v3: bounded live-State + archived-Marker + seatByUid
 
 class ArbiterError extends Error {
   constructor(code, msg) { super(msg || code); this.code = code; }
@@ -72,13 +105,23 @@ function seatCount(room) {
   return 2;
 }
 
-// Seat des Aufrufers ueber die vertrauenswuerdige Auth-Identitaet (players/<s>/uid).
+// Seat des Aufrufers ueber den server-owned Index seatByUid/<uid>. Fail-closed:
+// gueltig ist ein Besitz NUR, wenn (1) der Indexeintrag ein Seat im gueltigen
+// Bereich ist, (2) players/<seat>/uid exakt zur UID passt und (3) die UID in
+// keinem weiteren players-Seat vorkommt. Fehlender Eintrag, falsches Ziel,
+// Widerspruch oder Mehrdeutigkeit ergeben -1 — niemals "den niedrigsten Seat".
 function seatOfUid(room, uid) {
+  if (typeof uid !== 'string' || !uid) return -1;
   const players = (room && room.players) || {};
+  const index = (room && room.seatByUid) || {};
+  const seat = index[uid];
+  if (!Number.isInteger(seat) || seat < 0 || seat >= MAX_SEATS) return -1;
+  const p = players[seat];
+  if (!p || p.uid !== uid) return -1;
   for (let s = 0; s < MAX_SEATS; s++) {
-    if (players[s] && players[s].uid === uid) return s;
+    if (s !== seat && players[s] && players[s].uid === uid) return -1;
   }
-  return -1;
+  return seat;
 }
 
 // eligibleSeats werden als normalisierter CSV-Schluessel gespeichert ('0,1,3'):
@@ -119,6 +162,16 @@ function normalizeSeats(input, allowed) {
   return seatKey(seen);
 }
 
+// Kanonische Serialisierung fuer den Archiv-Gleichheitsvergleich. RTDB liefert
+// dichte 0..n-Schluessel als Array und laesst Luecken als null — beides wird
+// auf dieselbe Objektform normalisiert, damit "identischer Inhalt" nicht an
+// der Snapshot-Repraesentation scheitert.
+function canonical(v) {
+  if (v === null || v === undefined || typeof v !== 'object') return JSON.stringify(v === undefined ? null : v);
+  const keys = Object.keys(v).filter((k) => v[k] !== null && v[k] !== undefined).sort();
+  return '{' + keys.map((k) => JSON.stringify(k) + ':' + canonical(v[k])).join(',') + '}';
+}
+
 // Aim-Anker: ALLE Zeitpunkte absolut und vorberechnet. remaining<=0 (nach
 // Expired) oeffnet eine UNGETIMTE Phase (kein deadlineAt) — die Matchlogik
 // laeuft weiter, es entsteht nie eine negative Restzeit.
@@ -135,6 +188,7 @@ function aimAnchor(gen, turn, remainingMs, at, eligibleSeats, flags) {
     expired: !!(flags && flags.expired),
     closedAt: null, settleDeadlineAt: null, settled: null, reason: null,
     deadlineAt: null, crackAt: null, expiresAt: null,
+    archived: null,
   };
   if (timed) {
     a.deadlineAt = at + win;
@@ -150,8 +204,10 @@ function createArbiter(opts) {
   const db = opts.db;
   const nowMs = typeof opts.now === 'function' ? opts.now : () => Date.now();
 
-  const genRef = (room, gen) => db.ref('rooms/' + room + '/g/' + gen);
-  const clockRef = (room, gen) => db.ref('rooms/' + room + '/g/' + gen + '/clock');
+  // Transaction-Ziele: NUR der konstant kleine live-Knoten und der einzelne
+  // Turn-Knoten der Archivierung — nie ein wachsender Subtree.
+  const liveRef = (room, gen) => db.ref('rooms/' + room + '/g/' + gen + '/live');
+  const turnRef = (room, gen, turn) => db.ref('rooms/' + room + '/g/' + gen + '/t/' + turn);
 
   // Gemeinsame Eingangspruefung. Liest GEZIELT nur die benoetigten Felder — nie
   // den ganzen Raum inklusive wachsender g/<gen>-Historie (Kosten + Latenz).
@@ -159,54 +215,111 @@ function createArbiter(opts) {
     if (typeof room !== 'string' || !ROOM_RE.test(room)) throw new ArbiterError('invalid', 'Ungueltiger Raumcode.');
     if (typeof uid !== 'string' || !uid) throw new ArbiterError('permission', 'Auth erforderlich.');
     const base = db.ref('rooms/' + room);
-    const [v, state, fmt, seats, gen, players] = await Promise.all([
+    const [v, state, fmt, seats, gen, players, seatIdx] = await Promise.all([
       base.child('v').get(), base.child('state').get(), base.child('config/fmt').get(),
       base.child('seats').get(), base.child('gen').get(), base.child('players').get(),
+      base.child('seatByUid').get(),
     ]);
     if (!v.exists()) throw new ArbiterError('not-found', 'Raum existiert nicht.');
     if (v.val() !== 4) throw new ArbiterError('invalid', 'Action-Clock erfordert Protokoll v4.');
     if (state.val() !== 'playing') throw new ArbiterError('failed', 'Match laeuft nicht.');
-    const meta = { config: { fmt: fmt.val() }, seats: seats.val(), players: players.val() || {} };
+    const meta = {
+      config: { fmt: fmt.val() }, seats: seats.val(),
+      players: players.val() || {}, seatByUid: seatIdx.val() || {},
+    };
     const seat = seatOfUid(meta, uid);
-    if (seat < 0) throw new ArbiterError('permission', 'Aufrufer sitzt nicht in diesem Raum.');
+    if (seat < 0) throw new ArbiterError('permission', 'Kein eindeutiger Seat fuer diese UID.');
     return { meta, seat, gen: gen.val() | 0 };
   }
 
   // Zugberechtigte Seats der ERSTEN Phase: alle besetzten v4-Roster-Plaetze.
+  // Rueckgabe null, sobald IRGENDEIN besetzter Seat oder Indexeintrag der
+  // UID-/Seat-Eindeutigkeit widerspricht — dann startet keine Clock.
   function rosterSeats(meta) {
     const n = seatCount(meta);
     const out = [];
     for (let s = 0; s < n; s++) {
       const p = meta.players[s];
-      if (p && typeof p.uid === 'string' && p.uid) out.push(s);
+      if (!p || typeof p.uid !== 'string' || !p.uid) continue;
+      if (seatOfUid(meta, p.uid) !== s) return null;
+      out.push(s);
+    }
+    for (const uid of Object.keys(meta.seatByUid || {})) {
+      if (seatOfUid(meta, uid) < 0) return null;
     }
     return out;
   }
 
-  // A) Matchstart/Rematch: erste Aim-Phase der aktuellen Generation eroeffnen.
-  //    Write-once je Generation — ein zweiter Aufruf ist ein No-op (Echo zaehlt).
+  // Historienarchivierung — idempotent und wiederholbar (Crash-Recovery).
+  // Schritt 1: finalisierte live-Slots write-once nach t/<turn>. Ein identischer
+  //            Retry ist ein No-op; abweichender Inhalt ist ein kontrollierter
+  //            Desync (bestehende Historie wird NIE ueberschrieben).
+  // Schritt 2: archived:true in live bestaetigen (Transaction, phasengebunden).
+  // Rueckgabe: der frische live-Wert nach der Reparatur.
+  async function ensureArchived(room, gen, live) {
+    const clock = live && live.clock;
+    if (!clock || clock.phase !== 'resolving' || clock.archived === true) return live;
+    const turn = clock.turn;
+    const slots = live.slots || {};
+    let mismatch = false;
+    await turnRef(room, gen, turn).transaction((cur) => {
+      if (cur == null) return slots;                 // write-once Erstschreibung
+      mismatch = canonical(cur) !== canonical(slots);
+      return;                                        // Historie ist unantastbar
+    });
+    const lref = liveRef(room, gen);
+    if (mismatch) {
+      // t/<turn> widerspricht den finalisierten Slots -> kontrolliertes Ende;
+      // aus diesem Zustand wird NIE eine Folgephase eroeffnet.
+      await lref.transaction((cur) => {
+        if (cur == null) cur = live;
+        const c = cur && cur.clock;
+        if (!c || c.gen !== gen || c.turn !== turn || c.phase !== 'resolving') return;
+        return Object.assign({}, cur, { clock: Object.assign({}, c, { phase: 'finished', reason: 'desync' }) });
+      });
+    } else {
+      await lref.transaction((cur) => {
+        if (cur == null) cur = live;
+        const c = cur && cur.clock;
+        if (!c || c.gen !== gen || c.turn !== turn || c.phase !== 'resolving' || c.archived === true) return;
+        return Object.assign({}, cur, { clock: Object.assign({}, c, { archived: true }) });
+      });
+    }
+    return (await lref.get()).val();
+  }
+
+  // A) Matchstart: erste Aim-Phase der aktuellen Generation eroeffnen.
+  //    Write-once je Generation — ein zweiter Aufruf ist ein No-op (Echo zaehlt),
+  //    setzt also NIE remainingMs/cracked/expired einer bestehenden Clock zurueck.
+  //    Gen-Haertung: ausschliesslich room.gen; ein mitgesendetes gen-Argument
+  //    mit alter oder zukuenftiger Generation wird fail-closed abgelehnt.
   async function clockStart(args) {
     const { meta, gen } = await loadRoom(args.room, args.uid);
+    if (args.gen !== undefined && args.gen !== null && args.gen !== gen)
+      throw new ArbiterError('failed', 'ClockStart nur fuer die aktuelle Generation (room.gen).');
     if (!seatCount(meta)) throw new ArbiterError('failed', 'Seat-Anzahl unbekannt (seats fehlt).');
     const seats = rosterSeats(meta);
+    if (seats == null) throw new ArbiterError('failed', 'UID-/Seat-Zuordnung inkonsistent.');
     if (seats.length < 2) throw new ArbiterError('failed', 'Zu wenige besetzte Seats.');
     const at = nowMs();
-    const res = await clockRef(args.room, gen).transaction((cur) => {
-      if (cur && cur.gen === gen) return;            // bereits eroeffnet -> Echo uebernimmt
-      return aimAnchor(gen, 0, MATCH_CLOCK_MS, at, seatKey(seats), {});
+    const res = await liveRef(args.room, gen).transaction((cur) => {
+      if (cur && cur.clock && cur.clock.gen === gen) return;   // bereits eroeffnet -> Echo
+      return { clock: aimAnchor(gen, 0, MATCH_CLOCK_MS, at, seatKey(seats), {}) };
     });
-    return { status: res.committed ? 'started' : 'exists', clock: res.snapshot.val() };
+    const live = res.snapshot.val();
+    return { status: res.committed ? 'started' : 'exists', clock: (live && live.clock) || null };
   }
 
   // C) Aim-Phase abschliessen: vorzeitig (alle Commits da) oder ab Deadline.
-  //    EINE Transaction auf g/<gen> — dem niedrigsten gemeinsamen Knoten von
-  //    clock und t/<turn>. Slots lesen, fehlende Slots fuellen und die Phase
-  //    schliessen passieren damit als EIN Schreibvorgang: es gibt keinen
-  //    beobachtbaren Zwischenzustand mit halb gebuchten No-Shots, und zwei
-  //    parallele Aufrufe konvergieren (einer schliesst, der andere ist No-op).
+  //    EINE Transaction AUSSCHLIESSLICH auf g/<gen>/live: Slots lesen, fehlende
+  //    Slots fuellen und die Phase schliessen passieren als EIN Schreibvorgang —
+  //    kein beobachtbarer Zwischenzustand, und zwei parallele Aufrufe
+  //    konvergieren (einer schliesst, der andere ist No-op). Danach wird die
+  //    Historie archiviert; ein stale-Aufruf holt eine ausstehende
+  //    Archivierung nach (Crash-Recovery).
   async function clockClose(args) {
     const { gen } = await loadRoom(args.room, args.uid);
-    const ref = genRef(args.room, gen);
+    const ref = liveRef(args.room, gen);
     const pre = (await ref.get()).val();
     const t = nowMs();
     let outcome = 'stale';
@@ -220,8 +333,7 @@ function createArbiter(opts) {
       if (!clock || clock.gen !== gen || clock.phaseId !== args.phaseId || clock.phase !== 'aim') return;
       const eligible = parseSeatKey(clock.eligibleSeats);
       if (eligible == null) { outcome = 'corrupt'; return; }
-      const turnKey = String(clock.turn);
-      const slots = (cur.t && cur.t[turnKey]) || {};
+      const slots = (cur && cur.slots) || {};
       const open = eligible.filter((s) => slots[s] == null);
       const deadline = typeof clock.deadlineAt === 'number' ? clock.deadlineAt : null;
       if (open.length && (deadline == null || t < deadline)) { outcome = 'too-early'; return; }
@@ -229,29 +341,35 @@ function createArbiter(opts) {
       // Kein Presence-Blick: 'left' waere aus einem veraltbaren Snapshot geraten.
       const nextSlots = Object.assign({}, slots);
       for (const s of open) nextSlots[s] = { ns: 'stand' };
-      const nextTurns = Object.assign({}, cur.t || {});
-      nextTurns[turnKey] = nextSlots;
       const eff = Math.min(t, deadline == null ? t : deadline);
       const used = Math.max(0, Math.min(eff - clock.startedAt, Math.min(TURN_LIMIT_MS, clock.remainingMs)));
       const rem = Math.max(0, clock.remainingMs - used);
       outcome = 'closed';
-      return Object.assign({}, cur, {
-        t: nextTurns,
+      return {
         clock: Object.assign({}, clock, {
           phase: 'resolving', closedAt: t, settleDeadlineAt: t + SETTLE_GRACE_MS,
           remainingMs: rem,
           cracked: clock.cracked === true || rem <= CRACK_REMAIN_MS,
           expired: clock.expired === true || rem <= 0,
           settled: null,
+          archived: false,                           // archivePending — Schritt 2 folgt
         }),
-      });
+        slots: nextSlots,
+      };
     });
     if (!res.committed && outcome === 'too-early')
       throw new ArbiterError('too-early', 'Noch offene Commits und Deadline nicht erreicht.');
     if (!res.committed && outcome === 'corrupt')
       throw new ArbiterError('failed', 'Clock-Anker unbrauchbar (eligibleSeats).');
-    const val = res.snapshot.val();
-    return { status: res.committed ? 'closed' : 'stale', clock: (val && val.clock) || null };
+    // Archivierung: nach dem eigenen Close ODER als Reparatur eines frueheren
+    // Abbruchs (stale-Aufruf trifft resolving + archived:false). Ein auf dem
+    // ersten Lauf abgebrochener Transaction-Snapshot kann leer sein — dann
+    // gilt der Vorab-Read (ensureArchived validiert ohnehin phasengebunden).
+    let live = res.snapshot.val();
+    if (live == null) live = pre;
+    if (live && live.clock && live.clock.phase === 'resolving' && live.clock.archived !== true)
+      live = await ensureArchived(args.room, gen, live);
+    return { status: res.committed ? 'closed' : 'stale', clock: (live && live.clock) || null };
   }
 
   // E/F) Settlement: jeder zugberechtigte Seat meldet sein deterministisches
@@ -259,66 +377,83 @@ function createArbiter(opts) {
   //      Phase (next). Der erste Report eines Seats ist write-once; eine
   //      identische Wiederholung ist idempotent, eine abweichende ist Desync.
   //      NUR ein vollstaendiges, widerspruchsfreies Quorum aus eligibleSeats
-  //      oeffnet die naechste Phase — GENAU EINMAL (Transaction auf dem Clock-
-  //      Knoten, dem einzigen von diesem Aufruf beruehrten Teilbaum).
+  //      oeffnet die naechste Phase — GENAU EINMAL, und NUR nachdem die
+  //      Historie des geschlossenen Turns bestaetigt archiviert ist. Die neue
+  //      Folgephase ersetzt den gesamten live-Knoten (frische Clock, leere
+  //      Slots, keine alten Reports) — live bleibt konstant klein.
   //      Nach settleDeadlineAt gilt: ein unvollstaendiges Quorum wird NIE aus
   //      Teilreports fortgesetzt, sondern endet deterministisch als
-  //      finished/settlement_timeout. Vorher konnte nach der Grace ein
-  //      einzelner (auch manipulierter) Report die Folgephase samt
-  //      nextEligibleSeats bestimmen und damit ehrliche Seats ausschliessen —
-  //      das Ergebnis hing von der Transaction-Reihenfolge ab. Jetzt ist das
-  //      Post-Grace-Ergebnis reihenfolgeunabhaengig; die Entscheidung faellt
+  //      finished/settlement_timeout — reihenfolgeunabhaengig, entschieden
   //      vollstaendig INNERHALB der Transaction (kein Vorab-Read entscheidet).
   async function clockSettle(args) {
     const { gen, seat } = await loadRoom(args.room, args.uid);
     if (typeof args.hash !== 'string' || !args.hash || args.hash.length > 64)
       throw new ArbiterError('invalid', 'Settlement-Hash fehlt oder ist ungueltig.');
-    const ref = clockRef(args.room, gen);
-    const pre = (await ref.get()).val();
+    const ref = liveRef(args.room, gen);
+    let pre = (await ref.get()).val();
+    // Crash-Recovery: eine ausstehende Archivierung wird VOR dem Settle
+    // nachgeholt (idempotent). Ergibt sie einen Historien-Desync, ist die
+    // Phase terminal und der Settle unten laeuft als stale aus.
+    if (pre && pre.clock && pre.clock.phase === 'resolving' && pre.clock.archived !== true)
+      pre = await ensureArchived(args.room, gen, pre);
     const t = nowMs();
     let outcome = 'stale';
     const res = await ref.transaction((cur) => {
       if (cur == null) cur = pre;                    // Null-First-Run: s. clockClose
       outcome = 'stale';
-      if (!cur || cur.gen !== gen || cur.phaseId !== args.phaseId || cur.phase !== 'resolving') return;
-      const eligible = parseSeatKey(cur.eligibleSeats);
+      const clock = cur && cur.clock;
+      if (!clock || clock.gen !== gen || clock.phaseId !== args.phaseId || clock.phase !== 'resolving') return;
+      // Keine Folgephase (und kein Terminal-Uebergang) ohne archivierten
+      // Vorgaenger — der Guard sitzt bewusst IN der Transaction.
+      if (clock.archived !== true) { outcome = 'unarchived'; return; }
+      const eligible = parseSeatKey(clock.eligibleSeats);
       if (eligible == null) { outcome = 'corrupt'; return; }
       if (eligible.indexOf(seat) < 0) { outcome = 'permission'; return; }
       const next = normalizeSeats(args.next, eligible);
       if (next == null) { outcome = 'invalid'; return; }
-      const settled = Object.assign({}, cur.settled || {});
+      const settled = Object.assign({}, clock.settled || {});
       const prev = settled[seat];
       if (prev && (prev.hash !== args.hash || prev.next !== next)) {
         outcome = 'desync';                          // write-once verletzt -> kontrolliertes Ende
-        return Object.assign({}, cur, { phase: 'finished', reason: 'desync' });
+        return Object.assign({}, cur, { clock: Object.assign({}, clock, { phase: 'finished', reason: 'desync' }) });
       }
       settled[seat] = { hash: args.hash, next };
       const missing = eligible.filter((s) => settled[s] == null);
       if (missing.length) {
-        const graceUp = typeof cur.settleDeadlineAt === 'number' && t >= cur.settleDeadlineAt;
+        const graceUp = typeof clock.settleDeadlineAt === 'number' && t >= clock.settleDeadlineAt;
         if (!graceUp) {
           outcome = 'pending';                       // Quorum offen, Grace laeuft
-          return Object.assign({}, cur, { settled });
+          return Object.assign({}, cur, { clock: Object.assign({}, clock, { settled }) });
         }
         // Post-Grace ohne vollstaendiges Quorum: deterministisch terminal.
         // Kein Teilreport darf eine Folgephase (und deren eligibleSeats)
         // bestimmen; turn/phaseId bleiben unveraendert.
         outcome = 'timeout';
-        return Object.assign({}, cur, { settled, phase: 'finished', reason: 'settlement_timeout' });
+        return Object.assign({}, cur, {
+          clock: Object.assign({}, clock, { settled, phase: 'finished', reason: 'settlement_timeout' }),
+        });
       }
       const reports = eligible.map((s) => settled[s]);
       const head = reports[0];
       if (!reports.every((r) => r.hash === head.hash && r.next === head.next)) {
         outcome = 'desync';
-        return Object.assign({}, cur, { settled, phase: 'finished', reason: 'desync' });
+        return Object.assign({}, cur, {
+          clock: Object.assign({}, clock, { settled, phase: 'finished', reason: 'desync' }),
+        });
       }
       if (head.next === '') {                        // niemand mehr zugberechtigt -> Partie vorbei
         outcome = 'finished';
-        return Object.assign({}, cur, { settled, phase: 'finished', reason: 'complete' });
+        return Object.assign({}, cur, {
+          clock: Object.assign({}, clock, { settled, phase: 'finished', reason: 'complete' }),
+        });
       }
       outcome = 'opened';
-      return aimAnchor(cur.gen, cur.turn + 1, cur.remainingMs, t, head.next,
-        { cracked: cur.cracked, expired: cur.expired });
+      // Folgephase = frischer live-Knoten: turn/phaseId exakt einmal erhoeht,
+      // neue eligibleSeats, KEINE alten Slots, KEINE alten Reports.
+      return {
+        clock: aimAnchor(clock.gen, clock.turn + 1, clock.remainingMs, t, head.next,
+          { cracked: clock.cracked, expired: clock.expired }),
+      };
     });
     if (!res.committed && outcome === 'permission')
       throw new ArbiterError('permission', 'Seat ist in dieser Phase nicht zugberechtigt.');
@@ -326,9 +461,13 @@ function createArbiter(opts) {
       throw new ArbiterError('invalid', 'nextEligibleSeats fehlt oder ist ungueltig.');
     if (!res.committed && outcome === 'corrupt')
       throw new ArbiterError('failed', 'Clock-Anker unbrauchbar (eligibleSeats).');
+    if (!res.committed && outcome === 'unarchived')
+      throw new ArbiterError('failed', 'Turn-Historie noch nicht archiviert.');
+    let live = res.snapshot.val();
+    if (live == null) live = pre;                    // leerer Abort-Snapshot: s. clockClose
     const status = !res.committed ? 'stale'
       : (outcome === 'pending' || outcome === 'timeout') ? outcome : 'settled';
-    return { status, clock: res.snapshot.val() };
+    return { status, clock: (live && live.clock) || null };
   }
 
   return { clockStart, clockClose, clockSettle };
@@ -336,6 +475,6 @@ function createArbiter(opts) {
 
 module.exports = {
   createArbiter, ArbiterError, aimAnchor, seatCount, seatOfUid,
-  seatKey, parseSeatKey, normalizeSeats,
+  seatKey, parseSeatKey, normalizeSeats, canonical,
   MATCH_CLOCK_MS, TURN_LIMIT_MS, CRACK_REMAIN_MS, SETTLE_GRACE_MS, CLOCK_V,
 };
