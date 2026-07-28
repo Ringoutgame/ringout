@@ -1,12 +1,14 @@
 # TODO.md — RingOut
 
-**Zuletzt aktualisiert:** 2026-07-26 (Ring-Collapse: sechs Cracked-Segmente fertig, Segment-06-Stand visuell freigegeben; KTX2-/HQ-Finalisierung und Produktionsintegration offen)
+**Zuletzt aktualisiert:** 2026-07-28 (Online-Timer 60s/7s + Online-Collapse fertig implementiert und getestet — Commit/Push/Rules-Deploy stehen aus)
 
 Offene Aufgaben nach Priorität. Abgeschlossene Aufgaben werden nach `CHANGELOG.md` verschoben.
 
 ---
 
 ## P0 — Kritisch (Sicherheit / Stabilität)
+
+- [ ] **Online-Timer 60s/7s: Commit + Rules-Deploy + Live-Validierung (2026-07-28):** Implementierung auf `feature/online-timer-60s-7s` ist fertig und vollständig getestet (Runner 16/16, Emulator-Probe der Rules 25/25) — es fehlen: Owner-Freigabe für Commit/Push, **gebündeltes Publish der geänderten `firebase.rules.json`** (Deadline-Gate + ts-Pflicht greifen erst nach Deploy; alte Rules → Clients fallen automatisch ins v3-Verhalten ohne Uhr zurück, kein Deadlock) und ein Zwei-Geräte-Live-Test über echte Netze (gemeinsame Deadline, Timeout, Collapse-Turn identisch).
 
 - [ ] **Live-Validierung: FFA-Desync-Fix mit 4–5 echten Handys (2026-07-10):** Der Fix (`commit()`/`onlineTurnValue` DB-authoritativ für eigene Moves) ist automatisiert (Flow-Suite F5 + F6, 4- und 5-Client-Regression, 64/64) und lokal am PC mit mehreren simulierten Clients verifiziert — identische Commit-Slots, gone-/alive-Flags, Reveal-Phase, Ballzustände, Gewinner, Scores und State-Hashes, kein Hänger. **Noch offen:** Realgeräte-Test mit 4–5 echten Handys über echte Mobilfunk-/WLAN-Netze, inkl. gezieltem Presence-Flap (Bildschirm sperren / App wechseln während der Aim-Phase) auf einem Gerät. Erst nach bestandenem Live-Test gilt der P0 als vollständig geschlossen.
 

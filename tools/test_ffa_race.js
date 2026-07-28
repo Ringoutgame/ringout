@@ -359,6 +359,12 @@ function makeClient(db, code, forcePid) {
     let lobbyP={}, seatLeft=[], seatGone=[];
     let pendingSlot={}, onlineSessionId=0;
     let sentinelRetryTimer={};
+    // Online-Uhr (Timer-Branch): Zustand echt, damit die extrahierten Funktionen
+    // (writeTurnSlot/processSlot/onlineTurnValue/maybeReveal/...) ihn pflegen koennen.
+    let srvOffsetMs=0, onTurnStamp={}, onTurnTs={}, onStampProbe={}, onlineTimeoutTried={};
+    let onCollapsedGen=-1, onlineRemainMs=60000, onlineHasClock=false;
+    function serverNow(){return Date.now()+srvOffsetMs;}
+    function onlineResetClock(){onTurnStamp={};onTurnTs={};onStampProbe={};onlineTimeoutTried={};onlineRemainMs=60000;onlineHasClock=false;}
     const SENTINEL_RETRY_BASE_MS=300, SENTINEL_RETRY_MAX_MS=2000;
     const SENTINEL_RETRY_MAX_ATTEMPTS=11;
     let onlineTerminatedSession=-1;

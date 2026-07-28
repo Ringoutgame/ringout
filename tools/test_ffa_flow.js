@@ -358,6 +358,12 @@ function makeClient(db, code, forcePid) {
     // Vor-B2-Disconnect-Asserts (Sofort-Sentinel nach drop) unveraendert gelten.
     // Das 15s-Reclaim-Fenster ist davon unabhaengig (Fake-DB-Zeit via db.advance).
     let roomP={}, matchGraceTimer={};
+    // Online-Uhr (Timer-Branch): Zustand echt, damit die extrahierten Funktionen
+    // (writeTurnSlot/processSlot/onlineTurnValue/maybeReveal/...) ihn pflegen koennen.
+    let srvOffsetMs=0, onTurnStamp={}, onTurnTs={}, onStampProbe={}, onlineTimeoutTried={};
+    let onCollapsedGen=-1, onlineRemainMs=60000, onlineHasClock=false;
+    function serverNow(){return Date.now()+srvOffsetMs;}
+    function onlineResetClock(){onTurnStamp={};onTurnTs={};onStampProbe={};onlineTimeoutTried={};onlineRemainMs=60000;onlineHasClock=false;}
     const SEAT_STALE_MS=0;
     // fastForwardMatch-Umgebung: Physik ist hier gestubbt (Flow-Suite testet den
     // Online-FLOW; die bit-identische Replay-Physik deckt test_reconnect ab).

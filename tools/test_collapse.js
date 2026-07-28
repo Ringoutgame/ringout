@@ -49,6 +49,13 @@ const prefix = `
   let outBall=-1, roundWinner=-1, bgPulse=0, bgPulseRGB='';
   let score=[0,0], roundNo=1, winTarget=3;
   let r3dActive=false, r3dOrbit=false, seatGone=[false,false];
+  // Online-Globals: der COLLAPSE-Block enthaelt seit dem Online-Zeitgeber auch die
+  // abgeleitete Serveruhr. Getestet werden hier ausschliesslich ihre reinen
+  // Ableitungsfunktionen; die DB-Anbindung ist gestubbt (kein Netzwerk im Test).
+  let gameStarted=false, roomCode='', turnNo=0, gen=0;
+  const GEN_MAX=10000;
+  const pendingSlot={};
+  function writeTurnSlot(){}
   // Pointer-/Drag-Stubs: exakt so viel, wie das echte cancelAimDrag() und der
   // nachgebildete pointerup-Pfad benoetigen.
   let dragging=false, dragShooter=-1, dragOwner=-1;
@@ -161,6 +168,10 @@ const suffix = `
     get state(){return {collapseEnabled,collapseState,matchElapsedMs,collapseRadius,collapseOuterR,collapseCountShown,collapseCountVisible,collapseWarned};},
     get sfx(){return sfx;},
     turnRemainMs, turnDeadlinePassed, onTurnExpire, openAimSeats, allOpenSeats,
+    onlineClock, onlineTurnUsedMs, onlineCollapseTurn, onlineCollapsePending,
+    settleOnlineCollapse, onlineCollapseRoundEnd,
+    setGameStarted(v){gameStarted=v;}, setTurnNo(v){turnNo=v;},
+    pushStamp(t2,v){onTurnStamp[t2]=v;}, pushTs(t2,v){onTurnTs[t2]=v;},
     dismissCover(){coverOpen=false;},                   // entspricht dem coverBtn-Handler
     isCoverOpen(){return coverOpen;},
     getAimer(){return curAimer;}, setAimer(v){curAimer=v;},
@@ -915,6 +926,112 @@ const advanceCover = (e, fromMs, toMs, step = FRAME_MS) => {
   e.setPhase('aim'); e.tickCollapse(200000);             // Settlement -> Collapse
   t('Hotseat 60 s: Collapse ausgeloest', near(e.getR(), 820) && e.state.collapseState === 'collapsed');
 }
+// ══════════════════════════════════════════════════════════════════════════════
+// ONLINE-UHR — reine Ableitung aus Serverstempeln. Dieselben Eingaben ergeben auf
+// jedem Client bit-identische Werte; es gibt keine lokale Online-Uhr.
+// ══════════════════════════════════════════════════════════════════════════════
+{
+  const e = make();
+  const T0 = 1700000000000;
+  // Frischer Match: Phase 0 gerade gestempelt.
+  const c0 = e.onlineClock({ 0: T0 }, {}, 0, T0);
+  t('online: Start mit voller Matchzeit 60 s', c0.remainingMs === 60000 && c0.usedMs === 0);
+  t('online: Zugfenster 7 s, gemeinsame Deadline', c0.windowMs === 7000 && c0.deadlineAt === T0 + 7000);
+  // Zwei Clients mit unterschiedlicher lokaler Uhr sehen DIESELBE Deadline.
+  const a = e.onlineClock({ 0: T0 }, {}, 0, T0 + 1234);
+  const b = e.onlineClock({ 0: T0 }, {}, 0, T0 + 5678);
+  t('online: zwei Clients, identische Deadline', a.deadlineAt === b.deadlineAt && a.deadlineAt === T0 + 7000);
+  t('online: Restzeit folgt der Serverzeit', a.remainingMs === 60000 - 1234 && b.remainingMs === 60000 - 5678);
+  // Abgeschlossene Phase: gezaehlt wird die Spanne Phasenstempel -> letzter Zug-ts.
+  const c1 = e.onlineClock({ 0: T0, 1: T0 + 900000 }, { 0: T0 + 3000 }, 1, T0 + 900000);
+  t('online: Physik-/Revealzeit verbraucht keine Matchzeit', c1.usedMs === 3000 && c1.remainingMs === 57000);
+  t('online: neue Phase erhaelt wieder volle 7 s', c1.windowMs === 7000 && c1.deadlineAt === T0 + 900000 + 7000);
+  // Ueberzogene Phase wird auf das Fenster geklemmt (nie mehr als 7 s je Zug).
+  const c2 = e.onlineClock({ 0: T0 }, { 0: T0 + 12000 }, 1, T0 + 12000);
+  t('online: verbrauchte Zugzeit ist auf 7 s geklemmt', c2.usedMs === 7000 && c2.remainingMs === 53000);
+  // Abgeschlossene Phase ohne ts (Altbestand): konservativ das volle Fenster.
+  const c3 = e.onlineClock({ 0: T0 }, {}, 1, T0);
+  t('online: Phase ohne Commit-ts wird mit vollem Fenster verrechnet', c3.usedMs === 7000);
+  // Matchende: das letzte Fenster wird auf die Restzeit gekuerzt.
+  const stampsEnd = {}, tsEnd = {};
+  for (let k = 0; k < 8; k++) { stampsEnd[k] = T0 + k * 100000; tsEnd[k] = T0 + k * 100000 + 7000; }
+  stampsEnd[8] = T0 + 800000;
+  const c4 = e.onlineClock(stampsEnd, tsEnd, 8, T0 + 800000);
+  t('online: nach 8 vollen Zuegen bleiben 4 s', c4.usedMs === 56000 && c4.remainingMs === 4000);
+  t('online: letztes Fenster auf die Restzeit gekuerzt', c4.windowMs === 4000 && c4.deadlineAt === T0 + 800000 + 4000);
+  const c5 = e.onlineClock(stampsEnd, tsEnd, 8, T0 + 800000 + 4000);
+  t('online: Restzeit erreicht exakt 0', c5.remainingMs === 0 && c5.usedMs === 60000);
+  const c6 = e.onlineClock(stampsEnd, tsEnd, 8, T0 + 800000 + 99999);
+  t('online: Restzeit wird nie negativ', c6.remainingMs === 0 && c6.usedMs === 60000);
+  // Ohne Serverstempel laeuft nichts (v3-Bestandsraum ohne Uhr).
+  const c7 = e.onlineClock({}, {}, 0, T0);
+  t('online: ohne Phasenstempel keine Deadline und keine Zeit', c7.deadlineAt === null && c7.usedMs === 0 && c7.remainingMs === 60000);
+  // Nach aufgebrauchter Matchzeit laeuft jede weitere Phase mit vollem 7-s-Fenster
+  // weiter (Rules-Grenze je Zug) — die Matchuhr bleibt bei 0.
+  const stamps9 = Object.assign({}, stampsEnd, { 8: T0 + 800000, 9: T0 + 900000 });
+  const ts9 = Object.assign({}, tsEnd, { 8: T0 + 800000 + 4000 });
+  const c8 = e.onlineClock(stamps9, ts9, 9, T0 + 900000);
+  t('online: Phase nach Matchende laeuft mit 7-s-Fenster weiter', c8.windowMs === 7000 && c8.remainingMs === 0);
+  // Einzelphasen-Helfer.
+  t('online: Helfer klemmt auf das Fenster', e.onlineTurnUsedMs(T0, T0 + 9000, 7000) === 7000);
+  t('online: Helfer ohne Stempel = 0', e.onlineTurnUsedMs(undefined, T0, 7000) === 0);
+  t('online: Helfer ohne ts = volles Fenster', e.onlineTurnUsedMs(T0, undefined, 7000) === 7000);
+
+  // ── Collapse-Turn: deterministisch aus gespeicherten Stempeln, ohne Wanduhr ──
+  t('collapse-turn: nach 9 vollen 7-s-Zuegen faellt Turn 8 (60 s erreicht)',
+    e.onlineCollapseTurn(stamps9, Object.assign({}, ts9, { 8: T0 + 800000 + 4000 })) === 8);
+  t('collapse-turn: identische Daten -> identischer Turn auf jedem Client',
+    e.onlineCollapseTurn(stamps9, ts9) === e.onlineCollapseTurn(JSON.parse(JSON.stringify(stamps9)), JSON.parse(JSON.stringify(ts9))));
+  t('collapse-turn: offener Turn -> noch kein Ergebnis (-1)',
+    e.onlineCollapseTurn({ 0: T0 }, {}) === -1);
+  t('collapse-turn: ohne Uhr nie ein Collapse', e.onlineCollapseTurn({}, {}) === -1);
+  t('collapse-turn: Restzeit-Klemmung — Ueberziehen des letzten Zuges verschiebt nichts',
+    e.onlineCollapseTurn(Object.assign({}, stampsEnd, { 8: T0 + 800000 }), Object.assign({}, tsEnd, { 8: T0 + 800000 + 999999 })) === 8);
+  t('collapse-turn: schnelle Zuege verschieben den Collapse nach hinten',
+    e.onlineCollapseTurn({ 0: T0, 1: T0 + 50000 }, { 0: T0 + 2000, 1: T0 + 50000 + 2000 }) === -1);
+}
+
+// ── Online-Collapse-Anwendung: exakt an der Rundengrenze, exakt einmal ──
+{
+  const e = make(); e.setMode('bot'); e.setOnline(true); e.setBalls(twoBalls()); e.resetCollapseTimer();
+  e.setR(1000); e.setGameStarted(true);
+  const T0 = 1700000000000;
+  // Uhr aufgebraucht: 9 volle Zuege (8x7s + 4s), Turn 8 ist der Collapse-Turn.
+  for (let k = 0; k < 8; k++) { e.pushStamp(k, T0 + k * 100000); e.pushTs(k, T0 + k * 100000 + 7000); }
+  e.pushStamp(8, T0 + 800000); e.pushTs(8, T0 + 800000 + 4000);
+  e.setTurnNo(8);
+  t('online-collapse: pending am aufgeloesten Collapse-Turn', e.onlineCollapsePending() === true);
+  e.setPhase('sim');
+  // Kugel ausserhalb des neuen Radius: die Auswertung nutzt die BESTEHENDE Ring-out-Logik.
+  e.setBalls([ball(0, 900, 0), ball(1, -100, 0)]);
+  const ended = e.settleOnlineCollapse();
+  t('online-collapse: Radius faellt exakt einmal auf R*0.82', near(e.getR(), 820));
+  t('online-collapse: Aussenkugel ueber bestehende Ring-out-Logik gewertet', ended === true && e.getPhase() === 'result');
+  t('online-collapse: exakt einmal (Latch)', e.onlineCollapsePending() === false && e.settleOnlineCollapse() === false);
+  const rAfter = e.getR();
+  e.settleOnlineCollapse(); e.settleOnlineCollapse();
+  t('online-collapse: verspaetete Doppel-Aufrufe bleiben wirkungslos', e.getR() === rAfter);
+  t('online-collapse: shrinkFloor friert auf collapseRadius ein', near(e.shrinkFloor(), 820));
+}
+{
+  // Rundenende-Ausgang: der Collapse ersetzt den normalen Rundenschrumpf.
+  const e = make(); e.setMode('bot'); e.setOnline(true); e.setBalls(twoBalls()); e.resetCollapseTimer();
+  e.setR(1000); e.setGameStarted(true);
+  const T0 = 1700000000000;
+  for (let k = 0; k < 8; k++) { e.pushStamp(k, T0 + k * 100000); e.pushTs(k, T0 + k * 100000 + 7000); }
+  e.pushStamp(8, T0 + 800000); e.pushTs(8, T0 + 800000 + 4000);
+  e.setTurnNo(8);
+  t('online-collapse: Rundenende-Ausgang wendet den Collapse an', e.onlineCollapseRoundEnd() === true && near(e.getR(), 820));
+  t('online-collapse: zweiter Rundenende-Aufruf ist ein No-op', e.onlineCollapseRoundEnd() === false);
+}
+{
+  // Lokale Modi bleiben strikt getrennt: der Online-Pfad ist offline wirkungslos.
+  const e = make(); e.setMode('bot'); e.setBalls(twoBalls()); e.resetCollapseTimer(); e.setR(1000);
+  e.setGameStarted(true); e.setTurnNo(8);
+  const T0 = 1700000000000;
+  for (let k = 0; k < 9; k++) { e.pushStamp(k, T0 + k * 100000); e.pushTs(k, T0 + k * 100000 + 7000); }
+  t('online-collapse: offline nie pending', e.onlineCollapsePending() === false && e.settleOnlineCollapse() === false && e.getR() === 1000);
+}
 {
   // Online bleibt komplett unberuehrt: keine Matchzeit, keine Zugzeit, keine Sperre.
   for (const setup of [(x) => { x.setMode('bot'); x.setOnline(true); },
@@ -1070,11 +1187,11 @@ const posOf = (e) => e.getBalls().map(b => ({ x: b.x, y: b.y, alive: b.alive }))
   t('doCollapse nutzt die gemeinsame Verarbeitung', /resolveRingOuts\(/.test(doCollapseSrc));
   t('stepSim nutzt dieselbe Ermittlung', /ballsOutside\(\)/.test(stepSimSrc));
   t('stepSim nutzt dieselbe Verarbeitung', /resolveRingOuts\(/.test(stepSimSrc));
-  // Keine zweite abweichende Ring-out-Logik: genau eine Definition und genau zwei
-  // Aufrufer (stepSim, doCollapse). Die Bot-Vorhersage (simExchange/simSnap) ist ein
-  // eigenstaendiger, bestandsgeschuetzter Predictor und beruehrt den Spielzustand nie.
-  t('resolveRingOuts: eine Definition + zwei Aufrufer', (HTML.match(/resolveRingOuts/g) || []).length === 3);
-  t('ballsOutside: eine Definition + drei Nutzungen', (HTML.match(/ballsOutside/g) || []).length === 4);
+  // Keine zweite abweichende Ring-out-Logik: genau eine Definition und genau drei
+  // Aufrufer (stepSim, doCollapse, settleOnlineCollapse). Die Bot-Vorhersage
+  // (simExchange/simSnap) ist ein eigenstaendiger Predictor und beruehrt nichts.
+  t('resolveRingOuts: eine Definition + drei Aufrufer', (HTML.match(/resolveRingOuts/g) || []).length === 4);
+  t('ballsOutside: eine Definition + vier Nutzungen', (HTML.match(/ballsOutside/g) || []).length === 5);
   t('Rundenende-Uebergang existiert genau einmal',
     (HTML.match(/outBall=decisive;setPhase\('result'\)/g) || []).length === 1);
 }

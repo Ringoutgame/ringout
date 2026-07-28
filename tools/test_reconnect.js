@@ -81,6 +81,19 @@ const SRC = [
   grab(/function clearSentinelRetry\(s\)\{[\s\S]*?\n\}/, 'clearSentinelRetry'),
   grab(/function clearAllSentinelRetries\(\)\{[\s\S]*?\n\}/, 'clearAllSentinelRetries'),
   grab(/function processSlot\(s,c\)\{[\s\S]*?\n\}/, 'processSlot'),
+  // Online-Uhr + deterministischer Collapse (Timer-Branch)
+  grab(/const TURN_LIMIT_SECONDS=[^\n]*/, 'TURN_LIMIT_SECONDS'),
+  grab(/const MATCH_COLLAPSE_SECONDS=[^\n]*/, 'MATCH_COLLAPSE_SECONDS'),
+  grab(/function onlineResetClock\(\)\{[\s\S]*?\n[^\n]*onlineHasClock=false;\}/, 'onlineResetClock'),
+  grab(/function onlineTurnUsedMs\(sVal,maxTs,capMs\)\{[\s\S]*?\n\}/, 'onlineTurnUsedMs'),
+  grab(/function onlineClock\(stamps,tsMap,curTurn,nowSrv\)\{[\s\S]*?\n\}/, 'onlineClock'),
+  grab(/function onlineCollapseTurn\(stamps,tsMap\)\{[\s\S]*?\n\}/, 'onlineCollapseTurn'),
+  grab(/function onlineCollapsePending\(\)\{[\s\S]*?\n\}/, 'onlineCollapsePending'),
+  grab(/function applyOnlineCollapseRadius\(\)\{[\s\S]*?\n\}/, 'applyOnlineCollapseRadius'),
+  grab(/function settleOnlineCollapse\(\)\{[\s\S]*?\n\}/, 'settleOnlineCollapse'),
+  grab(/function onlineCollapseRoundEnd\(\)\{[\s\S]*?\n\}/, 'onlineCollapseRoundEnd'),
+  grab(/function stampOnlinePhase\(ctx\)\{[\s\S]*?\n\}/, 'stampOnlinePhase'),
+  grab(/function onlineRevealBlocked\(\)\{[\s\S]*?\n\}/, 'onlineRevealBlocked'),
   grab(/function settleSlot\(s,ctx,result,err\)\{[\s\S]*?\n\}/, 'settleSlot'),
   grab(/function maybeReveal\(\)\{[\s\S]*?\n\}/, 'maybeReveal'),
   grab(/function onlineTurnValue\(val\)\{[\s\S]*?\n\}/, 'onlineTurnValue'),
@@ -320,7 +333,7 @@ function makeClient(db, code, forcePid) {
     const document={querySelector:()=>({textContent:'',style:{}})};
     const els={}; function $(id){return els[id]||(els[id]={style:{},classList:{add(){},remove(){},toggle(){}},textContent:'',innerHTML:'',value:'',disabled:false,querySelector:()=>({textContent:'',style:{}})});}
     let toastT; const toast=m=>{ui.log.push('toast:'+m);};
-    const SFX={hit(){},drop(){},ringout(){},launch(){},round(){},win(){},rollUpdate(){},unlock(){},charge:{start(){},stop(){},update(){}}};
+    const SFX={hit(){},drop(){},ringout(){},launch(){},round(){},win(){},rollUpdate(){},unlock(){},collapse(){},charge:{start(){},stop(){},update(){}}};
     let soundOn=false, particles=[], fx3=[], bgPulse=0, bgPulseRGB='';
     function spawn(){} function popBall(){} function fx3Hit(){} function fx3Dust(){}
     function winnerRGB(){return '';} function devSync(){}
@@ -355,6 +368,12 @@ function makeClient(db, code, forcePid) {
     // der Grace selbst (Sentinel nach Ablauf) decken test_ffa_flow/test_ffa_race ab.
     const SEAT_STALE_MS=60000;
     let roomP={}, matchGraceTimer={};
+    // Online-Uhr (Timer-Branch): Zustand echt, damit die extrahierten Funktionen
+    // (writeTurnSlot/processSlot/onlineTurnValue/maybeReveal/...) ihn pflegen koennen.
+    let srvOffsetMs=0, onTurnStamp={}, onTurnTs={}, onStampProbe={}, onlineTimeoutTried={};
+    let onCollapsedGen=-1, onlineRemainMs=60000, onlineHasClock=false;
+    function serverNow(){return Date.now()+srvOffsetMs;}
+    function onlineResetClock(){onTurnStamp={};onTurnTs={};onStampProbe={};onlineTimeoutTried={};onlineRemainMs=60000;onlineHasClock=false;}
     let onlinePid=${JSON.stringify(pid)}, onlineTab=${JSON.stringify(tab)}, onlineName='';
     let playersRoster={}, rosterUnsub=null, lobbyHostGraceTimer=null, joinOpSeq=0;
     let phase='over', phaseStart=0, curAimer=0, balls=[], aimSet=[], commitIdx=[], commitAim=[], commitSpin=[], score=[];
@@ -371,7 +390,12 @@ function makeClient(db, code, forcePid) {
     function inputLocked(){return false;}          // no collapse -> input never locked
     function resetCollapseTimer(){}                // collapseEnabled stays false
     function collapseRoundEnd(){return false;}     // no pending collapse at round end
-    function shrinkFloor(){return R0*0.80;}        // unchanged default shrink floor
+    // Online-Collapse friert den Rundenschrumpf-Floor auf collapseRadius ein —
+    // exakt die relevante Haelfte des echten shrinkFloor() (lokaler Timer ist hier aus).
+    function shrinkFloor(){return (online&&onCollapsedGen===gen)?collapseRadius:R0*0.80;}
+    let collapseRadius=0, collapseOuterR=0, collapseFlash=0;
+    function updateCollapseHud(){}
+    const performance={now:()=>0};
     ${SRC}
     function drop(){
       try{if(turnUnsub)turnUnsub();}catch(e){} try{if(genUnsub)genUnsub();}catch(e){}
@@ -408,6 +432,24 @@ function makeClient(db, code, forcePid) {
       pid(){return onlinePid;},
       status(){return $('onStatus').textContent;},
       pendingCount(){return Object.keys(pendingSlot).length;},
+      clockView(){return {stamps:JSON.parse(JSON.stringify(onTurnStamp)),ts:JSON.parse(JSON.stringify(onTurnTs)),
+        collapseTurn:onlineCollapseTurn(onTurnStamp,onTurnTs),collapsedGen:onCollapsedGen,R:R};},
+      async slotRaw(turn,seat){const sn=await FB.get(['rooms',roomCode,'g',String(gen),'t',String(turn),String(seat)]);return sn.val();},
+      async turnRaw(turn){const sn=await FB.get(['rooms',roomCode,'g',String(gen),'t',String(turn)]);return sn.val();},
+      timeoutPoke(nowSrv){
+        // Spiegel des tickOnlineClock-Feuerzweigs mit injizierter Serverzeit (kein Date.now):
+        // VOR der Deadline darf nichts passieren, danach je offenem Seat genau eine Anfrage.
+        const c=onlineClock(onTurnStamp,onTurnTs,turnNo,nowSrv);
+        if(phase!=='aim'||c.deadlineAt==null||nowSrv<c.deadlineAt)return 'early';
+        for(let s2=0;s2<np();s2++){
+          if(aimSet[s2]||!aliveCount(s2)||pendingSlot[s2])continue;
+          const key=gen+':'+turnNo+':'+s2;
+          if(onlineTimeoutTried[key])continue;
+          onlineTimeoutTried[key]=true;
+          writeTurnSlot(s2,{idx:(s2+1)%np(),dx:0,dy:0,sp:0},{sentinel:true});
+        }
+        return 'fired';
+      },
       commitMove(dx,dy,idx){
         if(phase!=='aim'||aimSet[myPlayer]||!aliveCount(myPlayer))return false;
         const own=idx!=null?idx:balls.findIndex(b=>b.alive&&b.owner===myPlayer);
@@ -677,6 +719,124 @@ async function playTurn(clients, moves) {
     t('RC11 leave after reconnect releases p+players together', !(db.data.rooms.CLN1 && db.data.rooms.CLN1.p && db.data.rooms.CLN1.p[1]) && !(db.data.rooms.CLN1 && db.data.rooms.CLN1.players && db.data.rooms.CLN1.players[1]));
     h.leave(); await tick();
     t('RC11 last leave removes the empty room (cleanup intact)', db.data.rooms.CLN1 == null);
+  }
+
+  // ══ OC: Online-Uhr + deterministischer Collapse (echte Physik, echte Pipeline) ══
+  // Der Mock-Server stempelt mit db.now(); zwischen den Zuegen wird die Serverzeit
+  // vorgerueckt. Jeder Turn kostet damit exakt sein volles 7-s-Fenster: nach 8 vollen
+  // Zuegen (56 s) beginnt Turn 8 mit einem 4-s-Restfenster — Turn 8 IST der
+  // Collapse-Turn. Physikzeit wird nie mitgezaehlt (die Stempel liegen im Turn).
+  const runClockedTurn = async (clients, db, moves) => {
+    db.advance(300000);                       // lange "Physik-/Denkpause" VOR den Commits
+    for (const c of clients) { const m = moves[c.st().myPlayer]; if (m) c.commitMove(m[0], m[1], m[2]); }
+    await tick();
+    for (const c of clients) c.drive();
+    await tick();
+  };
+  // ── OC1: Online 1v1 — gemeinsamer Collapse-Turn, exakt einmal, danach Weiterspiel ──
+  {
+    const db = makeDB();
+    const h = makeClient(db, 'OCA1'); h.setMenu('online'); h.setFmt('single'); h.create(); await tick();
+    const g = makeClient(db, 'X'); g.setMenu('online'); g.join('OCA1'); await tick();
+    t('OC1 Match gestartet', h.st().gameStarted && g.st().gameStarted);
+    // Atomarer Zug: Slot traegt idx/dx/dy/sp UND numerisches ts — nie getrennt.
+    await runClockedTurn([h, g], db, { 0: [10, -60], 1: [-15, 40] });
+    const slot0 = await h.slotRaw(0, 0);
+    t('OC1 Slot atomar inkl. Serverzeit-ts', slot0 && typeof slot0.ts === 'number' && typeof slot0.idx === 'number'
+      && typeof slot0.dx === 'number' && typeof slot0.sp === 'number');
+    const turn0 = await h.turnRaw(0);
+    t('OC1 Phasenstempel liegt im Turn-Knoten', turn0 && typeof turn0.s === 'number' && turn0.s <= slot0.ts);
+    t('OC1 beide Clients sehen dieselben Stempel',
+      JSON.stringify(h.clockView().stamps) === JSON.stringify(g.clockView().stamps)
+      && JSON.stringify(h.clockView().ts) === JSON.stringify(g.clockView().ts));
+    // 8 weitere volle Fenster (Turn 1..7 je 7 s) -> 56 s verbraucht, Turn 8 = Collapse-Turn.
+    for (let k = 1; k < 8; k++) await runClockedTurn([h, g], db, { 0: [0, 0], 1: [0, 0] });
+    t('OC1 vor dem letzten Turn: Collapse-Turn noch offen', h.clockView().collapseTurn === -1);
+    const rBefore = h.clockView().R;
+    await runClockedTurn([h, g], db, { 0: [0, 0], 1: [0, 0] });   // Turn 8: Restfenster 4 s
+    const hv = h.clockView(), gv = g.clockView();
+    t('OC1 beide Clients bestimmen denselben Collapse-Turn (8)', hv.collapseTurn === 8 && gv.collapseTurn === 8);
+    t('OC1 Collapse exakt einmal, an der Rundengrenze angewendet',
+      hv.collapsedGen === h.st().gen && gv.collapsedGen === g.st().gen);
+    t('OC1 Radius fiel exakt einmal auf R*0.82', Math.abs(hv.R - rBefore * 0.82) < 1e-6 && Math.abs(gv.R - hv.R) < 1e-9);
+    t('OC1 Lockstep nach dem Collapse bit-identisch', h.hash() === g.hash() && h.st().turnNo === g.st().turnNo);
+    t('OC1 danach beginnt eine NORMALE Folgephase (lokale Collapse-Semantik)',
+      h.st().phase === 'aim' && h.st().turnNo === 9);
+    // Weiterspiel nach dem Collapse: kein zweiter Collapse, Sim bleibt synchron.
+    await runClockedTurn([h, g], db, { 0: [0, 0], 1: [0, 0] });
+    t('OC1 kein zweiter Collapse im Folgeturn', Math.abs(h.clockView().R - hv.R) < 1e-9 && h.hash() === g.hash());
+  }
+  // ── OC2: Timeout — verfrueht wirkungslos, danach genau ein No-Shot, idempotent ──
+  {
+    const db = makeDB();
+    const h = makeClient(db, 'OCB1'); h.setMenu('online'); h.setFmt('single'); h.create(); await tick();
+    const g = makeClient(db, 'X'); g.setMenu('online'); g.join('OCB1'); await tick();
+    db.advance(3000);
+    h.commitMove(10, -60); await tick();               // Host committet, Gast laesst die Zeit ablaufen
+    t('OC2 verfruehter Timeout-Aufruf feuert nicht', h.timeoutPoke(db.now()) === 'early');
+    t('OC2 verfruehter Aufruf hinterlaesst nichts', (await h.slotRaw(0, 1)) == null);
+    db.advance(7100);                                  // Deadline (s+7000) ueberschritten
+    // Parallele Timeout-Anfragen: der erste Client feuert; der zweite hat den
+    // bestaetigten Slot (synchroner Mock-Listener) bereits gesehen und feuert
+    // gegen einen bestaetigten Slot NIE — genau das ist der Idempotenz-Vertrag.
+    const r1 = h.timeoutPoke(db.now()), r2 = g.timeoutPoke(db.now());
+    t('OC2 Timeout feuert nach der Deadline genau einmal', r1 === 'fired' && r2 === 'early',
+      { r1, r2, hPhase: h.st().phase, gPhase: g.st().phase });
+    await tick();
+    const slot1 = await h.slotRaw(0, 1);
+    t('OC2 genau EIN No-Shot fuer den offenen Seat', slot1 && slot1.dx === 0 && slot1.dy === 0 && slot1.sp === 0 && typeof slot1.ts === 'number');
+    const slot0b = await h.slotRaw(0, 0);
+    t('OC2 bestaetigter Zug blieb byte-identisch erhalten', slot0b && slot0b.dx === 10 && slot0b.dy === -60);
+    // Echter RACER: eine konkurrierende Timeout-Anfrage, die den Write noch nicht
+    // gesehen hat, laeuft direkt gegen die Write-once-Transaction — kein zweiter Write.
+    const FBrace = db.FBfor({ onDrop: [] });
+    const race = await FBrace.runTransaction(['rooms', 'OCB1', 'g', '0', 't', '0', '1'],
+      cur => cur == null ? { idx: 0, dx: 0, dy: 0, sp: 0, ts: db.now() } : undefined, { applyLocally: false });
+    t('OC2 parallele Timeout-Anfrage prallt an Write-once ab',
+      race.committed === false && JSON.stringify(await h.slotRaw(0, 1)) === JSON.stringify(slot1));
+    t('OC2 doppelte Timeout-Aufrufe bleiben idempotent',
+      await (async () => { h.timeoutPoke(db.now()); g.timeoutPoke(db.now()); await tick();
+        const again = await h.slotRaw(0, 1); return JSON.stringify(again) === JSON.stringify(slot1); })());
+    for (const c of [h, g]) c.drive(); await tick();
+    t('OC2 Turn nach Timeout regulaer aufgeloest, Sims synchron', h.st().turnNo === 1 && h.hash() === g.hash());
+  }
+  // ── OC3: Replay/Rehydration — dieselbe Rundengrenze, derselbe Collapse ──
+  {
+    const db = makeDB();
+    const h = makeClient(db, 'OCC1'); h.setMenu('online'); h.setFmt('single'); h.create(); await tick();
+    const g = makeClient(db, 'X'); g.setMenu('online'); g.join('OCC1'); await tick();
+    for (let k = 0; k < 9; k++) await runClockedTurn([h, g], db, { 0: [0, 0], 1: [0, 0] });
+    t('OC3 Collapse im Live-Spiel gefallen', h.clockView().collapsedGen === h.st().gen);
+    const liveHash = h.hash(), liveR = h.clockView().R, liveTurn = h.st().turnNo;
+    const gpid = g.pid(); g.drop(); await tick();
+    const g2 = makeClient(db, 'X', gpid); g2.setMenu('online');
+    const ok = await g2.rejoin('OCC1'); await tick();
+    t('OC3 Replay reproduziert dieselbe Rundengrenze und denselben Radius',
+      ok === true && g2.clockView().collapsedGen === g2.st().gen
+      && Math.abs(g2.clockView().R - liveR) < 1e-9 && g2.st().turnNo === liveTurn);
+    t('OC3 Replay-Hash bit-identisch zum Live-Client', g2.hash() === liveHash && g2.hash() === h.hash());
+    await runClockedTurn([h, g2], db, { 0: [0, 0], 1: [0, 0] });
+    t('OC3 Weiterspiel nach Rehydration synchron, kein zweiter Collapse',
+      h.hash() === g2.hash() && Math.abs(h.clockView().R - liveR) < 1e-9);
+  }
+  // ── OC4: Online-FFA (3 und 5 Seats) + 2v2 — derselbe Vertrag in allen Formaten ──
+  for (const [label, fmtSel, n] of [['OC4 ffa3', 'ffa', 3], ['OC4 ffa5', 'ffa', 5], ['OC4 double', 'double', 2]]) {
+    const db = makeDB();
+    const code = 'OC' + (fmtSel === 'double' ? 'D' : 'F') + n;
+    const h = makeClient(db, code); h.setMenu(fmtSel === 'double' ? 'online' : 'ffa', fmtSel === 'double' ? undefined : n);
+    if (fmtSel === 'double') h.setFmt('double');
+    h.create(); await tick();
+    const guests = [];
+    for (let k = 1; k < n; k++) { const c = makeClient(db, 'X'); c.setMenu(fmtSel === 'double' ? 'online' : 'ffa'); c.join(code); await tick(); guests.push(c); }
+    if (fmtSel !== 'double') { h.clickStart(); await tick(); }
+    const all = [h, ...guests];
+    t(label + ' gestartet', all.every(c => c.st().gameStarted));
+    const zero = {}; for (let k = 0; k < n; k++) zero[k] = [0, 0];
+    for (let k = 0; k < 9 && h.clockView().collapsedGen !== h.st().gen; k++) await runClockedTurn(all, db, zero);
+    const views = all.map(c => c.clockView());
+    t(label + ' alle Clients: derselbe Collapse-Turn', views.every(v => v.collapseTurn === views[0].collapseTurn && views[0].collapseTurn >= 0));
+    t(label + ' alle Clients: derselbe Radius nach dem Collapse', views.every(v => Math.abs(v.R - views[0].R) < 1e-9 && v.collapsedGen === h.st().gen));
+    t(label + ' Sims synchron', all.every(c => c.hash() === h.hash()));
   }
 
   console.log(`\nReconnect-B2: ${pass} passed, ${fail} failed`);

@@ -2015,9 +2015,112 @@ function commitAutoStand(who,shooterIdx){
   if(phase!=='aim'||who<0||aimSet[who])return;         // genau einmal, nie ueberschreibend
   applyCommit(who,shooterIdx,0,0,0);
 }
+// ══════ ONLINE-UHR — rein abgeleitet, ausschliesslich aus Serverzeit ══════
+// Es gibt online KEINE lokale Uhr. Beide Zeitquellen stempelt der RTDB-Server und
+// die Rules erzwingen sie auf exakt `now` und beide liegen IM Turn-Knoten selbst:
+//   g/<gen>/t/<turn>/s        — Beginn der Planungsphase, write-once
+//   g/<gen>/t/<turn>/<seat>/ts — Commit-Zeitpunkt, ATOMAR im Zugobjekt (dieselbe
+//                                Write-once-Transaction wie der Zug selbst)
+// Slot und Serverzeit koennen dadurch NIE getrennt erscheinen: entweder existiert der
+// vollstaendige gestempelte Zug oder gar keiner. Daraus rechnet JEDER Client dieselben
+// Werte: verbrauchte Matchzeit, Restzeit, gemeinsame Zug-Deadline und den Collapse-Turn.
+// Ein Client kann die Stempel weder vordatieren noch verlaengern (=== now, write-once);
+// ein verfruehter Timeout-Schreibversuch scheitert an den Rules — der Server entscheidet
+// anhand seiner eigenen Uhr, der Client fragt nur an. Physik/Reveal/Ergebnis verbrauchen
+// keine Zeit: gezaehlt wird ausschliesslich die Spanne Phasenstempel -> letzter Commit.
+// Serverzeit fuer Anzeige/Timeout-Anfrage: .info/serverTimeOffset (RTDB-Bordmittel).
+let srvOffsetMs=0;
+function serverNow(){return Date.now()+srvOffsetMs;}
+// Deterministischer Uhr-Zustand — gespeist AUSSCHLIESSLICH aus gespeicherten Daten
+// (Turn-Listener, eigener Stempel-Nachlese-Read, Replay-Historie). Keine lokale Uhr.
+let onTurnStamp={};               // turn -> Phasenstart s (Serverzeit)
+let onTurnTs={};                  // turn -> spaetester Commit-Stempel ts (Serverzeit)
+let onStampProbe={};              // turn -> 'pending'|'done' (eigene Stempel-Nachlese)
+let onlineTimeoutTried={};        // je gen:turn:seat hoechstens EIN Timeout-Schreibversuch
+let onCollapsedGen=-1;            // Online-Collapse je Generation genau einmal (Latch)
+let onlineRemainMs=MATCH_COLLAPSE_SECONDS*1000;   // abgeleitete Restzeit (Anzeige)
+let onlineHasClock=false;         // Raum fuehrt Serverstempel (Altbestand: false)
+function onlineResetClock(){onTurnStamp={};onTurnTs={};onStampProbe={};onlineTimeoutTried={};
+  onlineRemainMs=MATCH_COLLAPSE_SECONDS*1000;onlineHasClock=false;}
+// Aktive Zeit EINER abgeschlossenen Phase: Spanne Phasenstart -> letzter Commit,
+// geklemmt auf das Fenster. Fehlt der Stempel (Altbestand ohne Uhr) -> 0; fehlt nur
+// der Commit-Stempel (kann bei aktiver Uhr nicht passieren, Rules erzwingen ts) ->
+// konservativ das volle Fenster, die Matchzeit wird dadurch nie laenger.
+function onlineTurnUsedMs(sVal,maxTs,capMs){
+  if(typeof sVal!=='number')return 0;
+  if(typeof maxTs!=='number')return capMs;
+  return Math.max(0,Math.min(capMs,maxTs-sVal));
+}
+// Gemeinsame Uhr aller Clients: identische Eingaben -> identische Werte. Das Fenster
+// der laufenden Phase ist min(7 s, Restzeit); nach aufgebrauchter Matchzeit laeuft
+// jede weitere Phase mit dem vollen 7-s-Fenster weiter (die Rules erzwingen ohnehin
+// hoechstens 7 s je Zug) — die Matchuhr selbst bleibt bei 0 stehen.
+function onlineClock(stamps,tsMap,curTurn,nowSrv){
+  const lim=TURN_LIMIT_SECONDS*1000;
+  let used=0;
+  for(let i=0;i<curTurn;i++)used+=onlineTurnUsedMs(stamps?stamps[i]:undefined,tsMap?tsMap[i]:undefined,lim);
+  const before=Math.max(0,MATCH_COLLAPSE_SECONDS*1000-used);
+  const win=before>0?Math.min(lim,before):lim;
+  const started=(stamps&&typeof stamps[curTurn]==='number')?stamps[curTurn]:null;
+  const openUsed=started==null?0:Math.max(0,Math.min(win,nowSrv-started));
+  return {startedAt:started,windowMs:win,deadlineAt:started==null?null:started+win,
+          usedMs:used+Math.min(openUsed,before),remainingMs:Math.max(0,before-openUsed)};
+}
+// Der Collapse-Turn: der erste Turn, nach dessen VOLLSTAENDIGEM Abschluss die
+// kumulierte aktive Zeit 60 s erreicht — ausschliesslich aus gespeicherten Stempeln,
+// ohne jede lokale Browserzeit. -1 = noch nicht bestimmbar (Turn offen/ohne Uhr).
+function onlineCollapseTurn(stamps,tsMap){
+  const lim=TURN_LIMIT_SECONDS*1000,total=MATCH_COLLAPSE_SECONDS*1000;
+  let used=0;
+  for(let i=0;i<=GEN_MAX;i++){
+    const s=stamps?stamps[i]:undefined,ts=tsMap?tsMap[i]:undefined;
+    if(typeof s!=='number'||typeof ts!=='number')return -1;
+    used+=Math.max(0,Math.min(Math.min(lim,total-used),ts-s));
+    if(used>=total)return i;
+  }
+  return -1;
+}
 // Dynamischer Rundenschrumpf-Floor: normal R0*0.80 (bit-identisch), nach dem Collapse
-// eingefroren auf collapseRadius -> Rundenschrumpf hebt/senkt den Collapse nicht mehr.
-function shrinkFloor(){return (collapseActive()&&collapseState==='collapsed')?collapseRadius:R0*0.80;}
+// eingefroren auf collapseRadius — lokal wie online (identische Semantik).
+function shrinkFloor(){return ((collapseActive()&&collapseState==='collapsed')||(online&&onCollapsedGen===gen))?collapseRadius:R0*0.80;}
+// ── Online-Collapse: dieselbe Rundengrenze wie lokal, exakt einmal je Generation ──
+// Faellig, sobald der Collapse-Turn aus den gespeicherten Daten bestimmbar und
+// vollstaendig aufgeloest ist. turnNo steht am Settlement noch AUF dem aufgeloesten
+// Turn (onlineArmTurn erhoeht erst fuer die Folgephase) — ct<=turnNo deckt auch den
+// Fall, dass ein Client die Stempel eines frueheren Turns verspaetet vervollstaendigt.
+function onlineCollapsePending(){
+  if(!online||!gameStarted||phase==='over')return false;
+  if(onCollapsedGen===gen)return false;
+  const ct=onlineCollapseTurn(onTurnStamp,onTurnTs);
+  return ct>=0&&ct<=turnNo;
+}
+// Einmalige Radiusverkleinerung — Spiegel von applyCollapseRadius() fuer online,
+// OHNE den lokalen collapseState anzufassen (der gehoert dem lokalen Timer).
+function applyOnlineCollapseRadius(){
+  onCollapsedGen=gen;
+  collapseOuterR=R;
+  R=Math.max(BR*4,R*COLLAPSE_RADIUS_FACTOR);
+  collapseRadius=R;
+  collapseFlash=performance.now();SFX.collapse();
+  updateCollapseHud();
+}
+// Settlement-Ausgang (stepSim, Kugeln ruhen): Collapse VOR der naechsten Aim-Phase —
+// identisch zur lokalen settleCollapse-Semantik inkl. positionsreiner Auswertung.
+// true = die Auswertung hat die Runde beendet (Result-Pfad uebernimmt).
+function settleOnlineCollapse(){
+  if(!onlineCollapsePending())return false;
+  applyOnlineCollapseRadius();
+  for(const b of balls){if(b.alive){b.vx=0;b.vy=0;b.spin=0;}}
+  const outside=ballsOutside();
+  if(outside.length)resolveRingOuts(outside);
+  return phase==='result';
+}
+// Rundenende-Ausgang (afterResult): der Collapse ERSETZT den normalen Rundenschrumpf.
+function onlineCollapseRoundEnd(){
+  if(!onlineCollapsePending())return false;
+  applyOnlineCollapseRadius();
+  return true;
+}
 function resetCollapseTimer(){
   collapseEnabled=!online;                   // alle lokalen Modi: Bot, Hotseat (pvp) und lokales FFA
   collapseState='running';matchElapsedMs=0;matchTimerAnchor=null;turnWindowEndEl=null;turnWindowSeat=-1;
@@ -2159,11 +2262,88 @@ function tickCollapse(now){
   }
   updateCollapseHud();
 }
+// ── Online-Uhr: Phasenstempel, Reveal-Sperre, Timeout-Anforderung ───────────
+// Beginn einer Online-Planungsphase serverseitig stempeln — write-once direkt IM
+// Turn-Knoten (g/<gen>/t/<turn>/s), den der Turn-Listener ohnehin beobachtet.
+// serverTimestamp() loest der Server auf; der Client kann den Wert nicht bestimmen.
+// Nach dem Schreibversuch (Erfolg ODER write-once-Niederlage gegen einen schnelleren
+// Client) wird der tatsaechliche Serverwert einmalig NACHGELESEN: der Stempel ist
+// damit deterministisch bekannt, unabhaengig von jeder Listener-Verzoegerung. Liefert
+// die Nachlese nichts (alte Rules ohne Uhr-Pfad), laeuft der Turn als v3 ohne Uhr.
+function stampOnlinePhase(ctx){
+  if(!online||!window.FB)return;
+  onStampProbe[ctx.turnNo]='pending';
+  const ref=window.FB.ref(window.FB.db,'rooms/'+ctx.room+'/g/'+ctx.gen+'/t/'+ctx.turnNo+'/s');
+  const adopt=()=>{
+    window.FB.get(ref).then(snap=>{
+      if(!isCurrentCtx(ctx))return;
+      const v=snap&&snap.val?snap.val():null;
+      if(typeof v==='number')onTurnStamp[ctx.turnNo]=v;
+      onStampProbe[ctx.turnNo]='done';
+      if(typeof maybeReveal==='function')maybeReveal();   // evtl. wartenden Reveal freigeben
+    }).catch(()=>{ if(isCurrentCtx(ctx))onStampProbe[ctx.turnNo]='done'; });
+  };
+  try{ window.FB.set(ref,window.FB.serverTimestamp()).then(adopt).catch(adopt); }catch(e){ onStampProbe[ctx.turnNo]='done'; }
+}
+// Reveal-Sperre: solange die eigene Stempel-Nachlese des laufenden Turns aussteht,
+// beginnt KEINE neue Phase auf halbfertigem Stempelzustand. Die Sperre loest sich
+// garantiert selbst (adopt() ruft maybeReveal) und haengt an keinem Mitspieler.
+function onlineRevealBlocked(){
+  if(!online||!gameStarted)return false;
+  return onStampProbe[turnNo]==='pending'&&onTurnStamp[turnNo]==null;
+}
+// Noch offene, lebende Seats der laufenden Online-Phase.
+function onlineOpenSeats(){
+  const out=[];
+  if(!online||phase!=='aim')return out;
+  for(let s=0;s<np();s++)if(!aimSet[s]&&aliveCount(s)>0&&!pendingSlot[s])out.push(s);
+  return out;
+}
+// Online-Takt: Anzeige und Timeout-Anforderung. Der Client ENTSCHEIDET nichts — er
+// fragt nach Ablauf der abgeleiteten Deadline einen No-Shot an; ob der zulaessig ist,
+// prueft der Server anhand seiner eigenen Uhr (Rules: nach s+7000 nur noch Stand).
+function tickOnlineClock(){
+  if(!online||!gameStarted){updateCollapseHud();return;}
+  const c=onlineClock(onTurnStamp,onTurnTs,turnNo,serverNow());
+  onlineRemainMs=c.remainingMs;
+  onlineHasClock=c.startedAt!=null||onCollapsedGen===gen;
+  updateCollapseHud();
+  if(phase!=='aim'||c.deadlineAt==null)return;
+  if(serverNow()<c.deadlineAt)return;                 // Deadline noch nicht erreicht
+  // Deadline ueberschritten: fuer jeden noch offenen Seat GENAU EINEN No-Shot
+  // anfragen. Der Write-once-Slot ist der Schiedsrichter — parallele Anfragen
+  // mehrerer Clients koennen keinen Doppelzug erzeugen, ein bereits bestaetigter
+  // Zug wird nie ueberschrieben.
+  for(const s of onlineOpenSeats()){
+    const key=gen+':'+turnNo+':'+s;
+    if(onlineTimeoutTried[key])continue;
+    onlineTimeoutTried[key]=true;
+    writeTurnSlot(s,{idx:onlineNoShotIdx(s),dx:0,dy:0,sp:0},{sentinel:true});
+  }
+}
+// No-Shot-Index je Format: in der FFA-Familie markiert ein fremder idx den
+// System-Sentinel (echte Commits tragen dort immer den eigenen Seat-Index),
+// in 1v1/2v2 ist der eigene Index korrekt und ausreichend.
+function onlineNoShotIdx(s){
+  if(mode!=='ffa')return s;
+  return fmt==='triple_ffa'?(s+1)%3:fmt==='team_duel'?(s+1)%4:(s+1)%FFA_MAX_SEATS;
+}
 function showCollapseCount(n){collapseCountVisible=true;const el=$('collapseCount');if(!el)return;
   el.textContent=n;el.classList.remove('show');void el.offsetWidth;el.classList.add('show');}
 function hideCollapseCount(){collapseCountVisible=false;const el=$('collapseCount');if(el)el.classList.remove('show');}
 function updateCollapseHud(){
   const el=$('collapseTimer');if(!el)return;
+  // Online: dieselbe Anzeige, gespeist aus der abgeleiteten Serveruhr. Ein Raum ohne
+  // Serverstempel (Altbestand) zeigt keinen Timer.
+  if(online){
+    if(!gameStarted||!onlineHasClock){el.style.display='none';el.classList.remove('danger','collapsed');return;}
+    el.style.display='';
+    const orem=Math.ceil(onlineRemainMs/1000),om=Math.floor(orem/60),os=orem%60;
+    el.textContent=(om<10?'0':'')+om+':'+(os<10?'0':'')+os;
+    el.classList.toggle('danger',orem<=COLLAPSE_WARNING_SECONDS);
+    el.classList.toggle('collapsed',onlineRemainMs<=0);
+    return;
+  }
   if(!collapseActive()){el.style.display='none';el.classList.remove('danger','collapsed');return;}
   el.style.display='';
   const rem=collapseState==='running'?Math.ceil(collapseRemainMs()/1000):0;
@@ -2781,6 +2961,9 @@ function stepSim(){
     // Settlement verarbeitet — sonst laege dazwischen ein Frame mit freigegebener Aim-Phase.
     // typeof-Guard: stepSim laeuft auch im Golden-Physics-Harness ohne Collapse-Modul.
     if(typeof settleCollapse==='function'&&settleCollapse())return;
+    // Online-Collapse: dieselbe Rundengrenze, gespeist aus den gespeicherten
+    // Serverstempeln — nie mitten in der Physik, nie vor dem Settlement.
+    if(typeof settleOnlineCollapse==='function'&&settleOnlineCollapse())return;
     setPhase('aim');updateHud();setPhaseText();
     if(online){curAimer=myPlayer;onlineArmTurn();}
     else if(mode==='pvp'){curAimer=0;openCover(0);}
@@ -2809,6 +2992,8 @@ function afterResult(){
   // Rundenschrumpf: der Radius faellt genau einmal auf R*COLLAPSE_RADIUS_FACTOR
   // (1000 -> 820), nicht zusaetzlich um R0*0.030 (kein 0.97*0.82).
   if(collapseRoundEnd()){startRound();return;}
+  // Online-Collapse am Rundenende: ersetzt wie lokal den normalen Rundenschrumpf.
+  if(typeof onlineCollapseRoundEnd==='function'&&onlineCollapseRoundEnd()){startRound();return;}
   R=Math.max(shrinkFloor(),R-R0*0.030);startRound();   // shrinkFloor()=R0*0.80 (unveraendert), nach Collapse eingefroren auf collapseRadius
 }
 // Spielerfarbe als ikonischer Kurzname (BLAU/ROT/... via i18n) — sofort erkennbar,
@@ -3518,7 +3703,7 @@ function attachRoomListeners(){
   });
 }
 function maybeStart(){ if(gameStarted)return; gameStarted=true; if(roomPublic&&myPlayer===0){removePublicListing(roomCode);roomPublic=false;} $('online').classList.remove('show'); showGame(); startOnlineGame(); toast(T('youAre')+' '+(fmt==='team_duel'?T(teamOf(myPlayer)===0?'teamBlue':'teamRed'):T('col'+myPlayer))); }
-function startOnlineGame(){ replaying=false;repPlaying=false;$('replay').classList.remove('show'); runningGen=gen; turnNo=-1; if(turnUnsub){turnUnsub();turnUnsub=null;} $('ov').classList.remove('show'); newGame(); }
+function startOnlineGame(){ replaying=false;repPlaying=false;$('replay').classList.remove('show'); runningGen=gen; turnNo=-1; if(turnUnsub){turnUnsub();turnUnsub=null;} if(typeof onlineResetClock==='function')onlineResetClock(); $('ov').classList.remove('show'); newGame(); }
 // ════ B2 canonical match rehydration ════
 // Rebuilds a RUNNING match purely from the turn history under
 // rooms/<code>/g/<gen>/t. The lockstep sim is deterministic, so replaying every
@@ -3539,6 +3724,10 @@ function fastForwardMatch(turns){
     while(phase==='aim'&&iter++<=GEN_MAX){
       const slots=turns&&turns[turnNo];
       if(!slots)break;
+      // Online-Uhr: Phasenstempel des historischen Turns VOR dem Replay dieses Turns
+      // uebernehmen — der Collapse faellt damit im Replay auf exakt dieselbe
+      // Rundengrenze wie im Live-Spiel (ts-Werte liefert processSlot).
+      if(typeof slots.s==='number'){onTurnStamp[turnNo]=slots.s;onStampProbe[turnNo]='done';}
       for(let s=0;s<np();s++)if(slots[s]!=null)processSlot(s,slots[s]);
       if(!allAliveCommitted())break;   // current turn still open -> the live listener takes over
       if(turnUnsub){turnUnsub();turnUnsub=null;}
@@ -3576,6 +3765,9 @@ function onlineArmTurn(){
   // weiterbewegt haben (turnUnsub() garantiert das nicht zwingend synchron gegen
   // bereits zugestellte Firebase-Events), darf den jetzigen Zustand nie beruehren.
   turnUnsub=window.FB.onValue(ref, snap=>{ if(isCurrentCtx(ctx)&&!isOnlineTerminated()) onlineTurnValue(snap.val()); });
+  // typeof-Guard wie bei cancelAimDrag: die Online-Testharnessen extrahieren nur
+  // benannte Funktionen aus dieser Datei — der Lockstep-Pfad bleibt dort unberuehrt.
+  if(typeof stampOnlinePhase==='function')stampOnlinePhase(ctx);  // Phasenbeginn serverseitig stempeln (write-once)
   if(mode==='ffa')for(let s=0;s<np();s++)if(seatLeft[s])writeLeaveSentinel(s);   // offene Slots Verlassener fuellen
 }
 function isCurrentCtx(ctx){ return ctx.sid===onlineSessionId && ctx.room===roomCode && ctx.gen===gen && ctx.turnNo===turnNo; }
@@ -3598,9 +3790,14 @@ function writeTurnSlot(s,payload,opts){
   opts=opts||{};
   const ctx={sid:onlineSessionId,room:roomCode,gen:gen,turnNo:turnNo,sentinel:!!opts.sentinel,attempt:opts.attempt||0};
   pendingSlot[s]=ctx;
+  // Online-Uhr aktiv (Phasenstempel bekannt): der Zug traegt seinen Serverzeit-
+  // Stempel ATOMAR in derselben Write-once-Transaction — Slot und ts koennen nie
+  // getrennt erscheinen. Ohne Stempel (Altbestand/alte Rules) bleibt das exakte
+  // v3-Zugschema; die Rules verlangen dann ausdruecklich KEIN ts.
+  const full=(onTurnStamp[ctx.turnNo]!=null)?Object.assign({},payload,{ts:window.FB.serverTimestamp()}):payload;
   const slotRef=window.FB.ref(window.FB.db,'rooms/'+ctx.room+'/g/'+ctx.gen+'/t/'+ctx.turnNo+'/'+s);
   try{
-    window.FB.runTransaction(slotRef, current=>current==null?payload:undefined, {applyLocally:false})
+    window.FB.runTransaction(slotRef, current=>current==null?full:undefined, {applyLocally:false})
       .then(result=>settleSlot(s,ctx,result,null))
       .catch(err=>settleSlot(s,ctx,null,err));
   }catch(err){ settleSlot(s,ctx,null,err); }
@@ -3683,6 +3880,9 @@ function clearAllSentinelRetries(){
 // Transaction fuer denselben Slot noch pending ist).
 function processSlot(s,c){
   if(isOnlineTerminated())return;   // Match terminal abgebrochen -> aimSet/commit*/seatGone nicht mehr veraendern
+  // Online-Uhr: Commit-Stempel VOR jedem Early-Return erfassen (auch Duplikate) —
+  // onTurnTs[turn] ist der spaeteste ts des Turns und speist Uhr + Collapse-Turn.
+  if(c&&typeof c.ts==='number'&&(onTurnTs[turnNo]==null||c.ts>onTurnTs[turnNo]))onTurnTs[turnNo]=c.ts;
   if(!c||aimSet[s])return;
   clearSentinelRetry(s);   // autoritativer Wert da -> ein evtl. noch wartender Sentinel-Retry ist sofort gegenstandslos
   // Leave-Sentinel erkannt (auch fuer den eigenen Seat) -> Ejection bei beginReveal.
@@ -3719,11 +3919,14 @@ function settleSlot(s,ctx,result,err){
     maybeReveal();
     return;
   }
-  processSlot(s,result.snapshot.val());
+  processSlot(s,result.snapshot.val());   // ts reist im Zugobjekt selbst mit (atomar)
   maybeReveal();
 }
 function maybeReveal(){
   if(isOnlineTerminated())return;   // Match terminal abgebrochen -> kein Reveal mehr starten
+  // Keine neue Phase auf halbfertigem Stempelzustand: die eigene Stempel-Nachlese
+  // (stampOnlinePhase.adopt) loest die Sperre garantiert selbst wieder aus.
+  if(typeof onlineRevealBlocked==='function'&&onlineRevealBlocked())return;
   if(allAliveCommitted()&&phase==='aim'&&!Object.keys(pendingSlot).length){
     if(turnUnsub){turnUnsub();turnUnsub=null;} beginReveal();
   }
@@ -3737,6 +3940,8 @@ function maybeReveal(){
 // lange blockiert (s. dort).
 function onlineTurnValue(val){
   if(!val)return;
+  // Phasenstempel reist im selben Turn-Knoten mit — jede Zustellung traegt ihn.
+  if(typeof val.s==='number'){onTurnStamp[turnNo]=val.s;onStampProbe[turnNo]='done';}
   for(let s=0;s<np();s++) processSlot(s,val[s]);   // ALLE Seats inkl. des eigenen: die DB ist der alleinige Arbiter
   maybeReveal();
 }
@@ -3754,6 +3959,8 @@ function leaveOnline(){
   clearAllSentinelRetries();   // P0-Nachbesserung: Raum wird verlassen -> kein Sentinel-Retry darf danach noch feuern
   clearLobbyHostGrace();       // deliberate leave -> no pending lobby grace may fire afterwards
   clearAllMatchGrace(); roomP={};   // B2: in-match grace timers of this room are void as well
+  if(typeof onlineResetClock==='function')onlineResetClock();   // Online-Uhr dieser Session zuruecksetzen
+  if(typeof onCollapsedGen!=='undefined')onCollapsedGen=-1;     // Collapse-Latch gehoert zum verlassenen Raum
   try{ if(turnUnsub)turnUnsub(); }catch(e){} try{ if(genUnsub)genUnsub(); }catch(e){} try{ if(presUnsub)presUnsub(); }catch(e){} try{ if(seatsUnsub)seatsUnsub(); }catch(e){} try{ if(rosterUnsub)rosterUnsub(); }catch(e){}
   turnUnsub=genUnsub=presUnsub=seatsUnsub=rosterUnsub=null;
   // Deliberate leave is immediate: drop own presence AND own roster record (frees
@@ -3800,6 +4007,13 @@ async function offerRejoinOnBoot(){
   }catch(e){}
 }
 whenFB(()=>{ offerRejoinOnBoot(); });
+// Serverzeit-Offset des eingebauten RTDB-Feldes .info/serverTimeOffset. Reine
+// Leseanbindung — kein Backend, keine Function, keine Auth. Damit rechnet jeder
+// Client die gemeinsame Deadline gegen dieselbe Serveruhr.
+whenFB(()=>{ try{
+  window.FB.onValue(window.FB.ref(window.FB.db,'.info/serverTimeOffset'),
+    snap=>{ const v=snap.val(); if(typeof v==='number'&&isFinite(v))srvOffsetMs=v; },()=>{});
+}catch(e){} });
 
 // ════ PARTICLES ════
 function spawn(x,y,n,cols,speed,sizeMul){for(let i=0;i<n;i++){const a=Math.random()*Math.PI*2,sp=speed*(0.25+Math.random()*0.85);
@@ -4690,7 +4904,8 @@ document.addEventListener('visibilitychange',()=>{pauseCollapseTimer();if(docume
 function loop(now){
   if(PERF)perfTick(now);
   if(replaying){ SFX.rollUpdate(null,false); repTick(); if(r3dActive)r3d.render(); requestAnimationFrame(loop); return; }
-  tickCollapse(now);   // Ring-Collapse-Timer (nur Bot Training): zaehlt nur in der Planungsphase, loest Auto-Stand + Collapse aus
+  tickCollapse(now);   // lokale Modi: zaehlt nur in der Planungsphase, loest Auto-Stand + Collapse aus
+  tickOnlineClock();   // Online: abgeleitete Serveruhr — Anzeige, Timeout-Anfrage, Matchende
   if(phase==='reveal'&&now-phaseStart>REVEAL_MS)applyLaunch();
   else if(phase==='sim')stepSim();
   else if(phase==='result'){resultDrift();if(now-phaseStart>RESULT_MS)afterResult();}

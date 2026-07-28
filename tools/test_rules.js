@@ -255,6 +255,55 @@ deny('zero leave-sentinel for offline seat past grace (deferred)', playing({ p: 
 deny('zero leave-sentinel for fully-absent seat (deferred, no anchor)', playing({ p: { 0: P(H_TAB, true) } }, 'ffa'), 'rooms/KX7P/g/0/t/0/1', { idx: 1, dx: 0, dy: 0, sp: 0 });
 deny('move for eliminated seat (e pre-seeded)', playing({ p: { 0: P(H_TAB, true), 1: P(G_TAB, false, NOW - 16000) }, g: { 0: { e: { 1: true } } } }), 'rooms/KX7P/g/0/t/1/1', MOVE);
 
+// ── (10b) Online-Zeitgeber: Phasenstempel g/<gen>/t/<turn>/s + atomarer Zug-ts ──
+// Der Phasenstempel ist die einzige Startzeitquelle der Online-Uhr: write-once und
+// exakt Serverzeit (newData.val() === now). Der Commit-Zeitpunkt reist ATOMAR im
+// Zugobjekt selbst (Feld ts, ebenfalls === now) — Slot und Serverzeit koennen nie
+// getrennt erscheinen. Ein Client kann weder Deadline noch Zugzeit faelschen.
+const twoOn = { p: { 0: P(H_TAB, true), 1: P(G_TAB, true) } };
+const stamped = (dt, over) => playing(Object.assign({ g: { 0: Object.assign({ t: Object.assign({ 0: { s: NOW - dt } }, (over && over.t) || {}) } ) } }, twoOn));
+const stampedWith = (dt, slots) => playing(Object.assign({ g: { 0: { t: Object.assign({ 0: Object.assign({ s: NOW - dt }, slots) }) } } }, twoOn));
+allow('clock: Phasenstempel mit Serverzeit', playing(twoOn), 'rooms/KX7P/g/0/t/0/s', NOW);
+deny('clock: Phasenstempel vordatiert', playing(twoOn), 'rooms/KX7P/g/0/t/0/s', NOW - 5000);
+deny('clock: Phasenstempel in der Zukunft', playing(twoOn), 'rooms/KX7P/g/0/t/0/s', NOW + 5000);
+deny('clock: Phasenstempel write-once', stamped(1000), 'rooms/KX7P/g/0/t/0/s', NOW);
+deny('clock: Phasenstempel in fremder Generation', playing(twoOn), 'rooms/KX7P/g/5/t/0/s', NOW);
+deny('clock: Phasenstempel vor Matchstart (Lobby)', db1(twoOn), 'rooms/KX7P/g/0/t/0/s', NOW);
+
+// Atomarer Zug: bei aktiver Uhr (Stempel vorhanden) ist ts PFLICHT und exakt now;
+// ohne Stempel gilt unveraendert das v3-Schema (und ts ist dort verboten).
+const MOVETS = Object.assign({ ts: NOW }, MOVE);
+allow('clock: Zug mit atomarem Serverzeit-ts', stamped(3000), 'rooms/KX7P/g/0/t/0/0', MOVETS);
+deny('clock: Zug OHNE ts bei aktiver Uhr abgewiesen', stamped(3000), 'rooms/KX7P/g/0/t/0/0', MOVE);
+deny('clock: ts vordatiert (gefaelschte Zugzeit)', stamped(3000), 'rooms/KX7P/g/0/t/0/0', Object.assign({}, MOVE, { ts: NOW - 2000 }));
+deny('clock: ts in der Zukunft', stamped(3000), 'rooms/KX7P/g/0/t/0/0', Object.assign({}, MOVE, { ts: NOW + 2000 }));
+deny('clock: ts kein Zahlenwert', stamped(3000), 'rooms/KX7P/g/0/t/0/0', Object.assign({}, MOVE, { ts: 'x' }));
+deny('clock: ts ohne aktive Uhr verboten (v3-Schema)', playing(twoOn), 'rooms/KX7P/g/0/t/0/0', MOVETS);
+allow('clock: ohne Phasenstempel bleibt v3-Verhalten unveraendert', playing(twoOn), 'rooms/KX7P/g/0/t/0/0', MOVE);
+
+// Deadline-Gate: bis zur Deadline zaehlt jeder Zug, danach NUR noch der No-Shot.
+// Damit kann kein Client einen Timeout verfruehen — der Server entscheidet anhand
+// seiner eigenen Uhr (now), nicht der Client.
+const NOSHOT = { idx: 1, dx: 0, dy: 0, sp: 0, ts: NOW };
+allow('clock: echter Zug vor der Deadline', stamped(3000), 'rooms/KX7P/g/0/t/0/0', MOVETS);
+allow('clock: echter Zug exakt auf der Deadline', stamped(7000), 'rooms/KX7P/g/0/t/0/0', MOVETS);
+deny('clock: echter Zug nach der Deadline abgewiesen', stamped(7001), 'rooms/KX7P/g/0/t/0/0', MOVETS);
+allow('clock: No-Shot nach der Deadline erlaubt', stamped(7001), 'rooms/KX7P/g/0/t/0/1', NOSHOT);
+// BESTANDSGRENZE (unveraendert, nicht durch diesen Timer verursacht): v3 kennt keine
+// Authentifizierung, die Rules koennen einen fremden Stand-Zug vor der Deadline nicht
+// vom eigenen Stand-Button unterscheiden. Genau darauf beruht schon der bestehende
+// Leave-Sentinel. Der Timer verschaerft das NICHT — er verbietet nach der Deadline
+// zusaetzlich jeden echten Zug und macht die Deadline selbst faelschungssicher.
+allow('clock: Stand vor der Deadline bleibt erlaubt (v3-Bestand, Stand-Button)', stamped(3000), 'rooms/KX7P/g/0/t/0/1', NOSHOT);
+allow('clock: No-Shot bleibt write-once geschuetzt (erster gewinnt)', stamped(7001), 'rooms/KX7P/g/0/t/0/0', { idx: 0, dx: 0, dy: 0, sp: 0, ts: NOW });
+deny('clock: bestaetigter Zug wird auch nach der Deadline nicht ueberschrieben',
+  stampedWith(7001, { 0: MOVETS }), 'rooms/KX7P/g/0/t/0/0', { idx: 0, dx: 0, dy: 0, sp: 0, ts: NOW });
+deny('clock: getarnter Fremdzug nach der Deadline (dx!=0) abgewiesen', stamped(7001), 'rooms/KX7P/g/0/t/0/1', Object.assign({}, MOVETS, { idx: 1, dx: 100, dy: 0 }));
+// Ein isolierter Kind-Write auf t/<turn>/<seat>/ts (Vorstempeln ohne Zug) scheitert an
+// der $pl-.validate (hasChildren idx/dx/dy/sp/ts). Die lokale Mock-Engine wertet
+// Ancestor-Validates bei Kind-Writes nicht aus — dieser Fall wird deshalb gegen den
+// ECHTEN RTDB-Emulator geprueft (siehe Emulator-Protokoll im Abschlussbericht).
+
 // ── (11) elimination latch g/<gen>/e/<seat> — DEFERRED (Fund 2). Until the
 //        authoritative turn-pointer lands (later match-reconnect package), EVERY
 //        write to e is rejected: no grace path, no Slot-belegt e-only, nothing. The
