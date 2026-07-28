@@ -83,7 +83,9 @@ const prefix = `
   function gameOver(w){gameOverCalls.push(w);setPhase('over');}
   function showRoundEnd(){roundEnds++;} function showTeamDraw(){roundEnds++;}
   function setPhase(p){phase=p;phaseStart=_t;phaseLog.push(p+':'+collapseState);}
-  function updateHud(){} function setPhaseText(){} function onlineArmTurn(){} function openCover(){}
+  function updateHud(){} function setPhaseText(){} function onlineArmTurn(){}
+  // Spiegelt die Produktzeile: openCover() setzt coverOpen (verdeckte Uebergabe = Pause).
+  function openCover(pi){coverOpen=true;}
   function spawn(){} function popBall(){} function winnerRGB(){return '';}
   function fx3Hit(){} function fx3Dust(){}
   const sfx={warn:0,tick:0,collapse:0,ringout:0,drop:0,launch:0,round:0};
@@ -129,7 +131,7 @@ const suffix = `
     standButton(){_els.actBtn.onclick();},             // echter Stand-Button-Handler
     setTime(v){_t=v;}, setMode(m){mode=m;}, setOnline(o){online=o;}, setPhase(p){phase=p;},
     setMenu(m){menuVisible=m;}, setAim(a){aimSet=a;}, setBalls(b){balls=b;}, setR(v){R=v;},
-    setFmt(f){fmt=f;}, setScore(s){score=s;}, setWinTarget(v){winTarget=v;}, setBotShot(dx,dy){botShot={dx,dy};},
+    setFmt(f){fmt=f;}, setFfaN(v){ffaN=v;}, setScore(s){score=s;}, setWinTarget(v){winTarget=v;}, setBotShot(dx,dy){botShot={dx,dy};},
     setHidden(h){document.hidden=h;document.visibilityState=h?'hidden':'visible';},
     setVel(i,vx,vy,sp){balls[i].vx=vx;balls[i].vy=vy;balls[i].spin=sp;},
     getR(){return R;}, getR0(){return R0;}, getPhase(){return phase;}, getBalls(){return balls;},
@@ -158,7 +160,11 @@ const suffix = `
     getDrag(){return {dragging,aimPid,spinPid,dragShooter,dragOwner,dragPull:{x:dragPull.x,y:dragPull.y},dragSpin};},
     get state(){return {collapseEnabled,collapseState,matchElapsedMs,collapseRadius,collapseOuterR,collapseCountShown,collapseCountVisible,collapseWarned};},
     get sfx(){return sfx;},
-    consts(){return {MATCH_COLLAPSE_SECONDS,COLLAPSE_WARNING_SECONDS,FINAL_COUNTDOWN_SECONDS,COLLAPSE_RADIUS_FACTOR,MAX_COLLAPSE_TICK_DELTA_MS};}
+    turnRemainMs, turnDeadlinePassed, onTurnExpire, openAimSeats, allOpenSeats,
+    dismissCover(){coverOpen=false;},                   // entspricht dem coverBtn-Handler
+    isCoverOpen(){return coverOpen;},
+    getAimer(){return curAimer;}, setAimer(v){curAimer=v;},
+    consts(){return {MATCH_COLLAPSE_SECONDS,TURN_LIMIT_SECONDS,COLLAPSE_WARNING_SECONDS,FINAL_COUNTDOWN_SECONDS,COLLAPSE_RADIUS_FACTOR,MAX_COLLAPSE_TICK_DELTA_MS};}
   };
 `;
 const make = () => new Function(prefix + core + suffix)();
@@ -176,11 +182,33 @@ const advance = (e, fromMs, toMs, step = FRAME_MS) => {
   for (let tt = fromMs + step; tt < toMs; tt += step) { e.setTime(tt); e.tickCollapse(tt); }
   e.setTime(toMs); e.tickCollapse(toMs);
 };
-// Faehrt den Timer aus der Planungsphase heraus bis auf 0 (Auto-Stand inklusive).
-const runOutTimer = (e) => {
+// Wie advance(), aber turn-bewusst: laeuft die Zugzeit ab, endet die Planungsphase
+// (Auto-Stand -> Reveal). Fuer Tests, die die MATCHUHR ueber mehr als 7 s fahren,
+// wird danach — wie im echten Ablauf — die naechste Planungsphase eroeffnet.
+const advanceTurns = (e, fromMs, toMs, step = FRAME_MS) => {
+  for (let tt = fromMs + step; tt <= toMs; tt += step) {
+    e.setTime(tt); e.tickCollapse(tt);
+    if (e.isCoverOpen()) e.dismissCover();               // Hotseat-Uebergabe: naechster Spieler uebernimmt
+    if (e.getPhase() !== 'aim' && e.state.collapseState === 'running') { e.setPhase('aim'); e.setAim([false,false]); }
+  }
+};
+// Faehrt die Matchuhr aus der Planungsphase heraus bis auf 0 (Auto-Stand inklusive).
+// Seit der Zugzeit (TURN_LIMIT_SECONDS) endet eine Planungsphase spaetestens nach 7 s
+// Zugzeit — die Matchuhr laeuft also ueber MEHRERE Planungsphasen aus. Der Helfer
+// simuliert genau das: nach jedem Zugende beginnt die naechste Planungsphase, wie im
+// echten Ablauf (Auto-Stand -> Reveal/Physik -> neue Aim-Phase). Gezaehlt wird dabei
+// weiterhin ausschliesslich Aim-Zeit.
+const runOutTimer = (e, maxMs = 200000) => {
   e.setPhase('aim'); e.setAim([false,false]);
   e.setTime(0); e.tickCollapse(0);
-  advance(e, 0, 120000);
+  let tt = 0;
+  while (e.state.collapseState === 'running' && tt < maxMs) {
+    tt += FRAME_MS; e.setTime(tt); e.tickCollapse(tt);
+    if (e.isCoverOpen()) e.dismissCover();               // Hotseat-Uebergabe (Cover) wie im echten Ablauf wegtippen
+    // Zug beendet (Auto-Stand -> Reveal): naechste Planungsphase eroeffnen.
+    if (e.getPhase() !== 'aim' && e.state.collapseState === 'running') { e.setPhase('aim'); e.setAim([false,false]); }
+  }
+  return tt;
 };
 // Treibt ein lokales Bot-Match ueber die ECHTEN Uebergaenge bis in die Simulation des
 // letzten Zuges: aim -> Timer 0 -> Auto-Stand via commitAutoStand() -> reveal
@@ -191,7 +219,8 @@ const runToExpiry = (e) => { runOutTimer(e); e.applyLaunch(); };
 // ── 0) Konstanten exakt (unveraendert) ──
 {
   const c = make().consts();
-  t('MATCH_COLLAPSE_SECONDS=120', c.MATCH_COLLAPSE_SECONDS === 120);
+  t('MATCH_COLLAPSE_SECONDS=60', c.MATCH_COLLAPSE_SECONDS === 60);
+  t('TURN_LIMIT_SECONDS=7', c.TURN_LIMIT_SECONDS === 7);
   t('COLLAPSE_WARNING_SECONDS=10', c.COLLAPSE_WARNING_SECONDS === 10);
   t('FINAL_COUNTDOWN_SECONDS=5', c.FINAL_COUNTDOWN_SECONDS === 5);
   t('COLLAPSE_RADIUS_FACTOR=0.82', near(c.COLLAPSE_RADIUS_FACTOR, 0.82));
@@ -219,18 +248,22 @@ const runToExpiry = (e) => { runOutTimer(e); e.applyLaunch(); };
   const e = make(); e.setMode('bot'); e.setBalls(twoBalls()); e.resetCollapseTimer();
   runOutTimer(e);
   const c = e.getCommits();
-  t('Auto-Stand: genau ein ausgefuehrter Zug', e.getBotMoves() === 1);
+  // 60 s Matchzeit / 7 s Zugzeit -> die Uhr laeuft ueber mehrere Planungsphasen aus;
+  // JEDE davon endet mit demselben Auto-Stand, der letzte faellt mit dem Matchende zusammen.
+  const moves = e.getBotMoves();
+  t('Auto-Stand: ein Zug je abgelaufener Planungsphase', moves === Math.ceil(60 / 7));
   t('Auto-Stand: Spieler 0 bestaetigt', c.aimSet[0] === true);
   t('Auto-Stand: Stehen bleiben (dx=dy=0)', c.aim[0].dx === 0 && c.aim[0].dy === 0);
   t('Auto-Stand: State=expired', e.state.collapseState === 'expired');
   e.tickCollapse(120000);
-  t('Auto-Stand nur einmal', e.getBotMoves() === 1);
+  t('Auto-Stand nach Matchende nicht erneut', e.getBotMoves() === moves);
 }
 {
   const e = make(); e.setMode('bot'); e.setBalls(twoBalls()); e.resetCollapseTimer();
+  // Bereits bestaetigter Zug: weder Zugzeit noch Matchende duerfen ihn ueberschreiben.
   e.setPhase('aim'); e.setAim([true,false]);
   e.setTime(0); e.tickCollapse(0);
-  advance(e, 0, 120000);
+  advance(e, 0, 60000);
   t('Bestaetigter Zug wird NICHT ueberschrieben', e.getBotMoves() === 0);
   t('Bestaetigt: State=expired', e.state.collapseState === 'expired');
 }
@@ -331,11 +364,13 @@ const runToExpiry = (e) => { runOutTimer(e); e.applyLaunch(); };
   t('Collapse nach Matchende verhindert', e.getR() === 1000 && e.state.collapseState === 'expired');
 }
 
-// ── 10) Andere Modi/Online unberuehrt ──
+// ── 10) Lokale Modi aktiv, Online unberuehrt ──
 {
   const e = make(); e.setMode('pvp'); e.resetCollapseTimer();
-  t('PvP: collapseActive=false', e.collapseActive() === false);
-  t('PvP: shrinkFloor = R0*0.80', near(e.shrinkFloor(), 800));
+  t('PvP: collapseActive=true (lokaler Modus)', e.collapseActive() === true);
+  t('PvP: shrinkFloor vor dem Collapse = R0*0.80', near(e.shrinkFloor(), 800));
+  const f = make(); f.setMode('ffa'); f.resetCollapseTimer();
+  t('FFA lokal: collapseActive=true', f.collapseActive() === true);
   const o = make(); o.setMode('bot'); o.setOnline(true); o.resetCollapseTimer();
   t('Online: collapseActive=false', o.collapseActive() === false);
   o.setPhase('aim'); o.setTime(0); o.tickCollapse(0); advance(o, 0, 120000);
@@ -347,13 +382,13 @@ const runToExpiry = (e) => { runOutTimer(e); e.applyLaunch(); };
   const e = make(); e.setMode('bot'); e.setBalls(twoBalls()); e.resetCollapseTimer();
   e.setPhase('aim'); e.setAim([false,false]);
   e.setTime(0); e.tickCollapse(0);
-  advance(e, 0, 110000);                     // remain 10 -> warn
+  advanceTurns(e, 0, 50000);                 // remain 10 -> warn
   t('10s-Warnung genau einmal', e.sfx.warn === 1);
   t('Bei 10s noch kein Countdown-Beep', e.sfx.tick === 0);
-  advance(e, 110000, 115000);                // remain 5 -> Beep 5
-  e.tickCollapse(115000);                    // gleiche Sekunde -> kein Doppel-Beep
+  advanceTurns(e, 50000, 55000);             // remain 5 -> Beep 5
+  e.tickCollapse(55000);                     // gleiche Sekunde -> kein Doppel-Beep
   t('Countdown 5: ein Beep', e.sfx.tick === 1);
-  advance(e, 115000, 119990);                // 4,3,2,1 in normalen Frames
+  advanceTurns(e, 55000, 59990);             // 4,3,2,1 in normalen Frames
   t('Countdown 5..1: genau 5 Beeps', e.sfx.tick === 5);
   t('Warnung bleibt einmalig', e.sfx.warn === 1);
 }
@@ -395,7 +430,7 @@ const runToExpiry = (e) => { runOutTimer(e); e.applyLaunch(); };
   t('Aim-Luecke: Collapse direkt aus dem Settlement (sim:expired)', log.includes('sim:expired'));
   t('Aim-Luecke: Collapse abgeschlossen', e.state.collapseState === 'collapsed');
   t('Aim-Luecke: neue Planungsphase erst nach dem Collapse', log.indexOf('aim:collapsed') > log.indexOf('sim:expired'));
-  t('Aim-Luecke: genau ein ausgefuehrter Zug (Auto-Stand)', e.getBotMoves() === 1);
+  t('Aim-Luecke: ein Auto-Stand je abgelaufener Planungsphase', e.getBotMoves() === Math.ceil(60 / 7));
 }
 {
   // Solange expired gilt, wird JEDER Benutzer-Commitpfad tatsaechlich abgewiesen —
@@ -405,7 +440,7 @@ const runToExpiry = (e) => { runOutTimer(e); e.applyLaunch(); };
   e.setPhase('aim'); e.setAim([false,false]);
   e.setTime(0); e.tickCollapse(0);
   t('Eingabe vor Ablauf frei', e.inputLocked() === false && e.canCommitInput(0) === true);
-  advance(e, 0, 120000);
+  advanceTurns(e, 0, 60000);
   t('Eingabe nach Ablauf gesperrt', e.inputLocked() === true);
   t('Kein zweiter Commit nach Auto-Stand', e.canCommitInput(0) === false);
   const moves = e.getBotMoves(), before = e.getCommits();
@@ -444,7 +479,7 @@ const runToExpiry = (e) => { runOutTimer(e); e.applyLaunch(); };
   e.setBalls(twoBalls()); e.setPhase('aim'); e.setAim([false,false]);
   e.startDrag(7, 0, 0);                           // Spieler zieht gerade zurueck
   e.setTime(0); e.tickCollapse(0);
-  advance(e, 0, 120000);                          // Timer 0
+  advance(e, 0, 7100);                            // erste Zugzeit laeuft ab (7 s)
   const d = e.getDrag();
   t('Drag: beim Ablauf abgebrochen', d.dragging === false && d.aimPid === -1);
   t('Drag: Shooter/Owner zurueckgesetzt', d.dragShooter === -1 && d.dragOwner === -1);
@@ -452,6 +487,7 @@ const runToExpiry = (e) => { runOutTimer(e); e.applyLaunch(); };
   t('Drag: Pointer-Capture freigegeben', e.getReleased().includes(7));
   const c0 = e.getCommits();
   t('Drag: Auto-Stand genau einmal', e.getBotMoves() === 1 && c0.aimSet[0] === true);
+  t('Drag: Zugzeit beendet die Phase ohne Matchende', e.state.collapseState === 'running');
   t('Drag: Auto-Stand ist Stehenbleiben', c0.aim[0].dx === 0 && c0.aim[0].dy === 0);
   e.pointerUp(7);                                 // spaetes pointerup nach dem Ablauf
   const c1 = e.getCommits();
@@ -536,7 +572,7 @@ const runToExpiry = (e) => { runOutTimer(e); e.applyLaunch(); };
   e.setBalls([ball(0,100,0), ball(1,-300,0)]);
   e.setPhase('aim'); e.setAim([false,false]);
   e.startDrag(3, 0, 0);
-  e.setTime(0); e.tickCollapse(0); advance(e, 0, 120000);
+  e.setTime(0); e.tickCollapse(0); advanceTurns(e, 0, 60000);
   e.applyLaunch(); e.runSim();
   t('Rematch-Vorbedingung: Collapse gelaufen', e.state.collapseState === 'collapsed');
   e.resetCollapseTimer(); e.setR(1000);
@@ -552,16 +588,21 @@ const runToExpiry = (e) => { runOutTimer(e); e.applyLaunch(); };
 
 // ── 9) Andere Modi: doCollapse ist hart gegated, kein Debug-Hook mehr vorhanden ──
 {
+  // Online bleibt hart gegated; die drei lokalen Modi loesen den Collapse identisch aus.
   const e = make(); e.setMode('bot'); e.setBalls(twoBalls()); e.resetCollapseTimer(); e.setR(1000);
   runOutTimer(e);                                                              // -> expired
   e.setOnline(true); e.doCollapse();
   t('Online: doCollapse wirkungslos', e.getR() === 1000 && e.state.collapseState === 'expired');
-  e.setOnline(false); e.setMode('pvp'); e.doCollapse();
-  t('PvP: doCollapse wirkungslos', e.getR() === 1000 && e.state.collapseState === 'expired');
-  e.setMode('ffa'); e.doCollapse();
-  t('FFA: doCollapse wirkungslos', e.getR() === 1000 && e.state.collapseState === 'expired');
-  e.setMode('bot'); e.setPhase('aim'); e.doCollapse();
+  e.setOnline(false); e.setPhase('over'); e.doCollapse();
+  t('Matchende: doCollapse wirkungslos', e.getR() === 1000 && e.state.collapseState === 'expired');
+  e.setPhase('aim'); e.doCollapse();
   t('Bot lokal: doCollapse wirkt', near(e.getR(), 820) && e.state.collapseState === 'collapsed');
+  for (const m of ['pvp', 'ffa']) {
+    const x = make(); x.setMode(m); x.setBalls(twoBalls()); x.resetCollapseTimer(); x.setR(1000);
+    runOutTimer(x);
+    x.setPhase('aim'); x.doCollapse();
+    t(m + ' lokal: doCollapse wirkt', near(x.getR(), 820) && x.state.collapseState === 'collapsed');
+  }
 }
 t('Kein Debug-Hook __cdbg mehr im Produktcode', !/__cdbg/.test(HTML));
 t('Kein cdbg-Query-Flag mehr im Produktcode', !/cdbg/.test(HTML));
@@ -571,14 +612,14 @@ t('Kein cdbg-Query-Flag mehr im Produktcode', !/cdbg/.test(HTML));
   const e = make(); e.setMode('bot'); e.setBalls(twoBalls()); e.resetCollapseTimer();
   e.setPhase('aim'); e.setAim([false,false]);
   e.setTime(0); e.tickCollapse(0);
-  advance(e, 0, 115000);                                // remain 5 -> Beep 5
+  advanceTurns(e, 0, 55000);                            // remain 5 -> Beep 5
   t('Tab: Countdown startet bei 5', e.state.collapseCountShown === 5 && e.sfx.tick === 1);
   e.pauseCollapseTimer();                               // visibilitychange -> hidden
   e.setTime(200000); e.tickCollapse(200000);            // 85 s Hintergrundzeit
-  t('Tab: kein Zeitdelta-Sprung', near(e.state.matchElapsedMs, 115000));
+  t('Tab: kein Zeitdelta-Sprung', near(e.state.matchElapsedMs, 55000));
   t('Tab: Timer laeuft nicht ab', e.state.collapseState === 'running');
   t('Tab: keine Stufe uebersprungen', e.state.collapseCountShown === 5 && e.sfx.tick === 1);
-  advance(e, 200000, 205000);
+  advanceTurns(e, 200000, 205000);
   t('Tab: 5..1 vollstaendig abgelaufen', e.sfx.tick === 5);
   t('Tab: Timerablauf danach reguler', e.state.collapseState === 'expired');
 }
@@ -588,19 +629,19 @@ t('Kein cdbg-Query-Flag mehr im Produktcode', !/cdbg/.test(HTML));
   const e = make(); e.setMode('bot'); e.setBalls(twoBalls()); e.resetCollapseTimer();
   e.setPhase('aim'); e.setAim([false,false]);
   e.setTime(0); e.tickCollapse(0);
-  advance(e, 0, 116500);                                // remain 3.5 -> Zahl 4
+  advanceTurns(e, 0, 56500);                            // remain 3.5 -> Zahl 4
   t('Countdown: in aim sichtbar', e.state.collapseCountVisible === true && e.state.collapseCountShown === 4);
   const beeps = e.sfx.tick;
   for (const p of ['reveal', 'sim', 'result', 'over']) {
-    e.setPhase(p); e.tickCollapse(116500);
+    e.setPhase(p); e.tickCollapse(56500);
     t('Countdown: in ' + p + ' verborgen', e.state.collapseCountVisible === false);
   }
-  e.setPhase('aim'); e.setMenu(true); e.tickCollapse(116500);
+  e.setPhase('aim'); e.setMenu(true); e.tickCollapse(56500);
   t('Countdown: im Menue verborgen', e.state.collapseCountVisible === false);
-  e.setMenu(false); e.tickCollapse(116500);             // zurueck in die Planungsphase
+  e.setMenu(false); e.tickCollapse(56500);              // zurueck in die Planungsphase
   t('Countdown: in aim wieder sichtbar', e.state.collapseCountVisible === true);
   t('Countdown: Wiedereinblenden ohne zweiten Beep', e.sfx.tick === beeps);
-  t('Countdown: Timerwert unveraendert', near(e.state.matchElapsedMs, 116500));
+  t('Countdown: Timerwert unveraendert', near(e.state.matchElapsedMs, 56500));
   t('Countdown: State unveraendert', e.state.collapseState === 'running');
 }
 
@@ -683,18 +724,18 @@ const roundEndSetup = (e, score = [0,0], winTarget = 3) => {
   const e = make(); e.setMode('bot'); e.setBalls(twoBalls()); e.resetCollapseTimer();
   e.setPhase('aim'); e.setAim([false,false]);
   e.setTime(0); e.tickCollapse(0);
-  advance(e, 0, 115500);                                 // remain 4.5 -> Zahl 5 sichtbar
-  const el = e.state.matchElapsedMs, beeps = e.sfx.tick;
+  advanceTurns(e, 0, 55500);                             // remain 4.5 -> Zahl 5 sichtbar
+  const el = e.state.matchElapsedMs, beeps = e.sfx.tick, movesBefore = e.getBotMoves();
   t('Hidden: Countdown vor dem Wechsel sichtbar', e.state.collapseCountVisible === true);
   e.setHidden(true);
-  e.setTime(115550); e.tickCollapse(115550);             // erster Hintergrund-Tick
+  e.setTime(55550); e.tickCollapse(55550);               // erster Hintergrund-Tick
   t('Hidden: erster Tick verbraucht keine Zeit', near(e.state.matchElapsedMs, el));
   t('Hidden: Countdown ausgeblendet', e.state.collapseCountVisible === false);
-  for (let k = 2; k <= 40; k++) { const tt = 115500 + k * 50; e.setTime(tt); e.tickCollapse(tt); }
+  for (let k = 2; k <= 40; k++) { const tt = 55500 + k * 50; e.setTime(tt); e.tickCollapse(tt); }
   t('Hidden: auch weitere Ticks verbrauchen keine Zeit', near(e.state.matchElapsedMs, el));
   t('Hidden: keine Beeps', e.sfx.tick === beeps);
   t('Hidden: kein Timerablauf', e.state.collapseState === 'running');
-  t('Hidden: kein Auto-Stand', e.getBotMoves() === 0);
+  t('Hidden: kein Auto-Stand', e.getBotMoves() === movesBefore);
   // ── 16) Rueckkehr zu visible: erster Tick setzt nur den Anker ──
   e.setHidden(false);
   e.setTime(400000); e.tickCollapse(400000);             // lange Wanduhrzeit vergangen
@@ -710,18 +751,19 @@ const roundEndSetup = (e, score = [0,0], winTarget = 3) => {
   const e = make(); e.setMode('bot'); e.setBalls(twoBalls()); e.resetCollapseTimer();
   e.setPhase('aim'); e.setAim([false,false]);
   e.setTime(0); e.tickCollapse(0);
-  advance(e, 0, 114800);                                 // remain 5.2 s: Countdown noch nicht gestartet
+  advanceTurns(e, 0, 54800);                             // remain 5.2 s: Countdown noch nicht gestartet
   t('Sprung: vor dem Stall kein Countdown', e.state.collapseCountShown === -1 && e.sfx.tick === 0);
-  const stall = 117800;                                  // 3 s Main-Thread-Stall in EINEM Frame
+  const movesStall = e.getBotMoves();                     // Auto-Stands der bisherigen Zuege
+  const stall = 57800;                                   // 3 s Main-Thread-Stall in EINEM Frame
   e.setTime(stall); e.tickCollapse(stall);
-  t('Sprung: Delta auf MAX_COLLAPSE_TICK_DELTA_MS geklemmt', near(e.state.matchElapsedMs, 114800 + 250));
+  t('Sprung: Delta auf MAX_COLLAPSE_TICK_DELTA_MS geklemmt', near(e.state.matchElapsedMs, 54800 + 250));
   t('Sprung: keine Stufe uebersprungen (5 zuerst)', e.state.collapseCountShown === 5 && e.sfx.tick === 1);
   t('Sprung: kein vorzeitiger Timerablauf', e.state.collapseState === 'running');
-  t('Sprung: kein vorzeitiger Auto-Stand', e.getBotMoves() === 0);
-  advance(e, stall, stall + 6000);                       // weiter in normalen Frames
+  t('Sprung: kein vorzeitiger Auto-Stand', e.getBotMoves() === movesStall);
+  advanceTurns(e, stall, stall + 6000);                  // weiter in normalen Frames
   t('Sprung: alle fuenf Stufen genau einmal', e.sfx.tick === 5);
   t('Sprung: Timerablauf regulaer', e.state.collapseState === 'expired');
-  t('Sprung: genau ein Auto-Stand', e.getBotMoves() === 1);
+  t('Sprung: ein Auto-Stand je abgelaufener Planungsphase', e.getBotMoves() === Math.ceil(60 / 7));
 }
 
 // ── 18) Normale Frameraten bleiben zeitlich exakt (Klemmung ohne Nebenwirkung) ──
@@ -736,6 +778,155 @@ const roundEndSetup = (e, score = [0,0], winTarget = 3) => {
   o.setTime(0); o.tickCollapse(0);
   advance(o, 0, 6000, 33);                               // ~30 fps
   t('30 fps: Zeit exakt', near(o.state.matchElapsedMs, 6000));
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ZUGZEIT (TURN_LIMIT_SECONDS) — dieselbe Zeitbasis, dieselben Pausen, dieselbe
+// Timeout-Reaktion wie die Matchuhr; sie loest KEINEN Collapse aus.
+// ══════════════════════════════════════════════════════════════════════════════
+{
+  const e = make(); e.setMode('bot'); e.setBalls(twoBalls()); e.resetCollapseTimer();
+  e.setPhase('aim'); e.setAim([false,false]);
+  e.setTime(0); e.tickCollapse(0);
+  advance(e, 0, 6900);                                   // knapp unter 7 s
+  t('Zugzeit: vor Ablauf kein Auto-Stand', e.getBotMoves() === 0 && e.getPhase() === 'aim');
+  t('Zugzeit: Eingabe vor Ablauf frei', e.inputLocked() === false && e.canCommitInput(0) === true);
+  t('Zugzeit: Restzeit korrekt', near(e.turnRemainMs(), 7000 - 6900));
+  advance(e, 6900, 7000);                                // 7 s erreicht
+  t('Zugzeit: Auto-Stand bei 7 s', e.getBotMoves() === 1);
+  const c = e.getCommits();
+  t('Zugzeit: bestehende No-Shot-Reaktion (dx=dy=0)', c.aimSet[0] === true && c.aim[0].dx === 0 && c.aim[0].dy === 0);
+  t('Zugzeit: kein Collapse, Matchuhr laeuft weiter', e.state.collapseState === 'running');
+  t('Zugzeit: Matchuhr hat nur 7 s verbraucht', near(e.state.matchElapsedMs, 7000));
+  t('Zugzeit: Phase verlassen (Zug laeuft)', e.getPhase() !== 'aim');
+  // Neue Planungsphase bekommt wieder das volle Fenster.
+  e.setPhase('aim'); e.setAim([false,false]);
+  advance(e, 7000, 13800);
+  t('Zugzeit: Folgephase erhaelt volle 7 s', e.getBotMoves() === 1);
+  advance(e, 13800, 14000);
+  t('Zugzeit: Folgephase laeuft nach 7 s ebenfalls ab', e.getBotMoves() === 2);
+}
+{
+  // Pausen verbrauchen keine Zugzeit — exakt wie bei der Matchuhr.
+  const e = make(); e.setMode('bot'); e.setBalls(twoBalls()); e.resetCollapseTimer();
+  e.setPhase('aim'); e.setAim([false,false]);
+  e.setTime(0); e.tickCollapse(0);
+  advance(e, 0, 4000);
+  e.setPhase('sim');                                     // Physik: keine Zugzeit
+  advance(e, 4000, 20000);
+  t('Zugzeit: Physikphase verbraucht keine Zugzeit', e.getBotMoves() === 0);
+  e.setPhase('aim');
+  advance(e, 20000, 27100);                              // frisches Fenster ab hier
+  t('Zugzeit: nach der Pause laeuft ein volles Fenster', e.getBotMoves() === 1);
+  // Gezaehlt wurden nur die beiden Aim-Abschnitte (3950 ms + 7050 ms) — die 16 s
+  // Physikphase dazwischen sind weder in der Match- noch in der Zugzeit enthalten.
+  t('Zugzeit: Matchuhr zaehlte nur Aim-Zeit', near(e.state.matchElapsedMs, 11000));
+}
+{
+  // Ein bestaetigter Zug wird von der Zugzeit nie ueberschrieben.
+  const e = make(); e.setMode('bot'); e.setBalls(twoBalls()); e.resetCollapseTimer();
+  e.setPhase('aim'); e.setAim([true,false]);
+  e.setTime(0); e.tickCollapse(0);
+  advance(e, 0, 9000);
+  t('Zugzeit: bestaetigter Zug bleibt unangetastet', e.getBotMoves() === 0);
+  t('Zugzeit: kein Collapse durch die Zugzeit', e.state.collapseState === 'running');
+}
+// ── Lokales Hotseat (pvp) und lokales FFA: verdeckte Reihum-Zuege ──
+// Zugberechtigt ist immer genau curAimer; die verdeckte Uebergabe (Cover) ist eine Pause.
+// Hilfsvorlauf: faehrt bis toMs und tippt eine erscheinende Uebergabe weg.
+const advanceCover = (e, fromMs, toMs, step = FRAME_MS) => {
+  for (let tt = fromMs + step; tt <= toMs; tt += step) {
+    e.setTime(tt); e.tickCollapse(tt);
+    if (e.isCoverOpen()) e.dismissCover();
+  }
+  return toMs;
+};
+{
+  const e = make(); e.setMode('pvp'); e.setBalls(twoBalls()); e.resetCollapseTimer();
+  e.setPhase('aim'); e.setAim([false,false]); e.setAimer(0);
+  e.setTime(0); e.tickCollapse(0);
+  t('Hotseat: zugberechtigt ist nur der aktuelle Aimer', e.openAimSeats().join(',') === '0');
+  advance(e, 0, 7000);
+  const c = e.getCommits();
+  t('Hotseat: Auto-Stand fuer Spieler 1 nach 7 s', c.aimSet[0] === true && c.aim[0].dx === 0 && c.aim[0].dy === 0);
+  t('Hotseat: Spieler 2 bleibt offen', c.aimSet[1] !== true);
+  t('Hotseat: Uebergabe-Cover offen, naechster Aimer gesetzt', e.isCoverOpen() === true && e.getAimer() === 1);
+  const elAtCover = e.state.matchElapsedMs;
+  advance(e, 7000, 20000);                               // Cover offen: keine Zeit
+  t('Hotseat: Cover verbraucht keine Matchzeit', near(e.state.matchElapsedMs, elAtCover));
+  t('Hotseat: Cover verbraucht keine Zugzeit', e.getCommits().aimSet[1] !== true);
+  e.dismissCover();                                      // Spieler 2 uebernimmt das Geraet
+  advance(e, 20000, 26900);
+  t('Hotseat: Spieler 2 hat sein volles Fenster', e.getCommits().aimSet[1] !== true);
+  advance(e, 26900, 27100);
+  t('Hotseat: Spieler 2 nach eigenen 7 s auf Stand', e.getCommits().aimSet[1] === true);
+  t('Hotseat: Matchzeit zaehlte nur die beiden Zuege', near(e.state.matchElapsedMs, 14000));
+  t('Hotseat: kein Collapse durch die Zugzeit', e.state.collapseState === 'running');
+}
+{
+  // Lokales FFA mit fuenf Seats: jeder offene Seat kommt der Reihe nach dran und bekommt
+  // sein eigenes 7-s-Fenster; ein bereits bestaetigter Seat wird nie ueberschrieben.
+  const e = make(); e.setMode('ffa'); e.setFfaN(5); e.resetCollapseTimer();
+  e.setBalls([ball(0,-300,0), ball(1,-150,0), ball(2,0,0), ball(3,150,0), ball(4,300,0)]);
+  e.setAim([false,false,true,false,false]);              // Seat 2 hat bereits bestaetigt
+  e.setPhase('aim'); e.setAimer(0);
+  e.setTime(0); e.tickCollapse(0);
+  const tEnd = advanceCover(e, 0, 30000);
+  const c = e.getCommits();
+  t('FFA lokal: alle offenen Seats stehen', [0,1,3,4].every((s) => c.aimSet[s] === true));
+  t('FFA lokal: alle Auto-Stands sind No-Shots', [0,1,3,4].every((s) => c.aim[s].dx === 0 && c.aim[s].dy === 0));
+  t('FFA lokal: bestaetigter Seat 2 wurde nicht ueberschrieben', c.aimSet[2] === true && c.idx[2] == null);
+  t('FFA lokal: vier Fenster a 7 s verbraucht', near(e.state.matchElapsedMs, 28000));
+  t('FFA lokal: Runde laeuft weiter (kein Collapse)', e.state.collapseState === 'running');
+  t('FFA lokal: Runde nach dem letzten Seat abgeschlossen', e.getPhase() !== 'aim' && tEnd === 30000);
+}
+{
+  // Bot 2v2: die Zugzeit trifft nur den Menschen; der Bot committet wie bisher selbst.
+  const e = make(); e.setMode('bot'); e.setFmt('double'); e.setBalls(twoBalls()); e.resetCollapseTimer();
+  e.setPhase('aim'); e.setAim([false,false]);
+  e.setTime(0); e.tickCollapse(0);
+  advance(e, 0, 7000);
+  const c = e.getCommits();
+  t('Bot 2v2: Auto-Stand fuer den Spieler', c.aimSet[0] === true && c.aim[0].dx === 0);
+  t('Bot 2v2: Bot-Zug wie gewohnt ergaenzt', c.aimSet[1] === true && e.getBotMoves() === 1);
+}
+{
+  // Gemeinsame 60-s-Uhr bleibt ueber Rundenwechsel erhalten (nur newGame setzt sie zurueck).
+  const e = make(); e.setMode('pvp'); e.setBalls(twoBalls()); e.resetCollapseTimer();
+  e.setPhase('aim'); e.setAim([false,false]); e.setAimer(0);
+  e.setTime(0); e.tickCollapse(0);
+  advance(e, 0, 5000);
+  const before = e.state.matchElapsedMs;
+  e.startRound();                                        // neue Runde: Commits/Seats zuruecksetzen
+  t('Runde: Matchuhr laeuft weiter (kein Reset)', near(e.state.matchElapsedMs, before));
+  if (e.isCoverOpen()) e.dismissCover();
+  advance(e, 5000, 11900);
+  t('Runde: neue Runde erhaelt wieder volle 7 s', e.getCommits().aimSet[0] !== true);
+  advance(e, 11900, 12100);
+  t('Runde: danach greift der Auto-Stand', e.getCommits().aimSet[0] === true);
+}
+{
+  // 60-s-Ablauf im Hotseat: alle noch offenen Seats stehen, danach der Collapse.
+  const e = make(); e.setMode('pvp'); e.resetCollapseTimer(); e.setR(1000);
+  e.setBalls(twoBalls());
+  runOutTimer(e);
+  t('Hotseat 60 s: Timer abgelaufen', e.state.collapseState !== 'running');
+  t('Hotseat 60 s: kein offener Seat mehr', e.getCommits().aimSet.every((x) => x === true));
+  e.setPhase('aim'); e.tickCollapse(200000);             // Settlement -> Collapse
+  t('Hotseat 60 s: Collapse ausgeloest', near(e.getR(), 820) && e.state.collapseState === 'collapsed');
+}
+{
+  // Online bleibt komplett unberuehrt: keine Matchzeit, keine Zugzeit, keine Sperre.
+  for (const setup of [(x) => { x.setMode('bot'); x.setOnline(true); },
+                       (x) => { x.setMode('pvp'); x.setOnline(true); },
+                       (x) => { x.setMode('ffa'); x.setOnline(true); }]) {
+    const e = make(); setup(e); e.setBalls(twoBalls()); e.resetCollapseTimer();
+    e.setPhase('aim'); e.setAim([false,false]);
+    e.setTime(0); e.tickCollapse(0);
+    advance(e, 0, 20000);
+    t('Zugzeit: online weiterhin inaktiv', e.getBotMoves() === 0 && e.state.matchElapsedMs === 0
+      && e.turnDeadlinePassed() === false && e.inputLocked() === false && e.collapseActive() === false);
+  }
 }
 
 // ══════════════════════════════════════════════════════════════════════════════

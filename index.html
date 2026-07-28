@@ -1926,7 +1926,13 @@ const RESULT_SLOWMUL=0.7, RESULT_FR=0.99;
 // Ring-out-Logik (stepSim) behandelt danach Kugeln ausserhalb des neuen Radius.
 // Keine Online-/Firebase-/Netzwerk-Beruehrung — alle Pfade sind hart auf Bot-Local
 // gated (collapseEnabled && mode==='bot' && !online). ── ==COLLAPSE-CORE-START==
-const MATCH_COLLAPSE_SECONDS=120, COLLAPSE_WARNING_SECONDS=10, FINAL_COUNTDOWN_SECONDS=5, COLLAPSE_RADIUS_FACTOR=0.82;
+const MATCH_COLLAPSE_SECONDS=60, COLLAPSE_WARNING_SECONDS=10, FINAL_COUNTDOWN_SECONDS=5, COLLAPSE_RADIUS_FACTOR=0.82;
+// Maximale Entscheidungszeit je Planungsphase. Sie laeuft in DERSELBEN Zeitbasis wie die
+// Matchzeit (matchElapsedMs) und erbt damit alle vorhandenen Pausenregeln: waehrend
+// Physik, Reveal, Result, Menue und inaktivem Tab vergeht keine Zugzeit. Bei Ablauf wird
+// exakt die bestehende Timeout-Reaktion benutzt (commitAutoStand -> Stehen bleiben);
+// die Matchuhr laeuft normal weiter, es wird KEIN Collapse ausgeloest.
+const TURN_LIMIT_SECONDS=7;
 // Obergrenze fuer EIN Zeit-Delta eines sichtbaren Frames. Ein langer Main-Thread-Stall
 // (GC-Pause, Debugger, Tab-Wechsel ohne visibilitychange) darf nicht mehrere Entscheidungs-
 // sekunden auf einmal verbrauchen und dabei Countdown-Stufen ueberspringen. Der Wert liegt
@@ -1944,12 +1950,50 @@ let collapseCountShown=-1;        // zuletzt angezeigte Countdown-Zahl (Beep-Ent
 let collapseCountVisible=false;   // ist die grosse Zahl gerade eingeblendet
 let collapseWarned=false;         // 10s-Warnsignal genau einmal
 let collapseFlash=0;              // Zeitstempel fuer den kurzen Collapse-Alarm-Blink
-function collapseActive(){return collapseEnabled&&mode==='bot'&&!online;}
+let turnWindowEndEl=null;         // Ende der laufenden Zugzeit in matchElapsedMs-Koordinaten (null=kein Fenster)
+let turnWindowSeat=-1;            // Seat, dem das laufende Fenster gehoert (Aimerwechsel = neues Fenster)
+let coverOpen=false;              // verdeckte Uebergabe im Hotseat: zaehlt wie Menue NICHT als Entscheidungszeit
+function collapseActive(){return collapseEnabled&&!online;}
+// Aktuell zugberechtigte, noch offene Seats — exakt die Ownership-Regel von whoCanAim():
+// Bot-Training steuert nur Seat 0 (die Bot-Seats setzt applyCommit selbst), Hotseat und
+// lokales FFA spielen verdeckt reihum, dort ist genau curAimer an der Reihe.
+function openAimSeats(){
+  if(online)return [];
+  if(mode==='bot')return (!aimSet[0]&&aliveCount(0))?[0]:[];
+  return (curAimer>=0&&!aimSet[curAimer]&&aliveCount(curAimer))?[curAimer]:[];
+}
+// Alle noch offenen, lebenden Seats — beim Matchende wird der Zug fuer jeden von ihnen
+// einmalig auf "Stehen bleiben" gesetzt (bestehende Semantik: der letzte simultane Zug
+// laeuft regulaer, danach folgt der Collapse im Settlement).
+function allOpenSeats(){
+  if(online)return [];
+  const out=[];
+  const cap=(mode==='bot')?1:np();               // im Bot-Training committet applyCommit Seat 1 selbst
+  for(let s=0;s<cap;s++)if(!aimSet[s]&&aliveCount(s))out.push(s);
+  return out;
+}
+// Gemeinsame Timeout-Reaktion: je Seat genau ein bestehender No-Shot/Stand-Commit.
+// Bereits bestaetigte Zuege werden nie ueberschrieben (commitAutoStand ist idempotent);
+// sobald applyCommit den letzten offenen Seat schliesst, laeuft der regulaere Reveal an
+// und die restlichen Schleifendurchlaeufe sind wirkungslose No-ops.
+function autoStandSeats(seats){
+  for(const s of seats){
+    if(phase!=='aim')break;
+    if(aimSet[s]||!aliveCount(s))continue;
+    const own=aliveBalls(s),idx=own.length?balls.indexOf(own[0]):-1;
+    commitAutoStand(s,idx);
+  }
+}
 function collapseRemainMs(){return Math.max(0,MATCH_COLLAPSE_SECONDS*1000-matchElapsedMs);}
+// Restzeit des laufenden Zuges. Das Fenster liegt bewusst in matchElapsedMs-Koordinaten:
+// dieselbe Uhr, dieselben Pausen — eine pausierte Phase verbraucht keine Zugzeit.
+function turnRemainMs(){return turnWindowEndEl==null?TURN_LIMIT_SECONDS*1000:Math.max(0,turnWindowEndEl-matchElapsedMs);}
+function turnDeadlinePassed(){return collapseActive()&&collapseState==='running'&&turnWindowEndEl!=null&&matchElapsedMs>=turnWindowEndEl;}
 // Eingabesperre ab Timerablauf: kein Spieler- oder Bot-Zug darf mehr beginnen, bis der
 // Collapse ausgewertet ist. Die Auswertung selbst laeuft in phase==='sim' und ist damit
-// bereits ueber die normale Phasenpruefung gesperrt.
-function inputLocked(){return collapseActive()&&collapseState==='expired';}
+// bereits ueber die normale Phasenpruefung gesperrt. Dieselbe Sperre gilt ab der
+// Zug-Deadline — nur der interne commitAutoStand() passiert sie (s. u.).
+function inputLocked(){return collapseActive()&&(collapseState==='expired'||turnDeadlinePassed());}
 // Zentrale Freigabe fuer JEDEN lokalen Benutzer-Commit (Stand-Button, Pointer-/Drall-Zug).
 // Verhindert Doppelwertungen: ein spaetes pointerup nach dem automatischen Stand-Commit
 // darf weder den bestaetigten Zug ueberschreiben noch einen zweiten Bot-Zug erzeugen.
@@ -1975,9 +2019,9 @@ function commitAutoStand(who,shooterIdx){
 // eingefroren auf collapseRadius -> Rundenschrumpf hebt/senkt den Collapse nicht mehr.
 function shrinkFloor(){return (collapseActive()&&collapseState==='collapsed')?collapseRadius:R0*0.80;}
 function resetCollapseTimer(){
-  collapseEnabled=(mode==='bot'&&!online);   // nur lokales Bot-Training aktiviert den Timer
-  collapseState='running';matchElapsedMs=0;matchTimerAnchor=null;
-  collapseRadius=0;collapseOuterR=0;collapseCountShown=-1;collapseWarned=false;collapseFlash=0;
+  collapseEnabled=!online;                   // alle lokalen Modi: Bot, Hotseat (pvp) und lokales FFA
+  collapseState='running';matchElapsedMs=0;matchTimerAnchor=null;turnWindowEndEl=null;turnWindowSeat=-1;
+  collapseRadius=0;collapseOuterR=0;collapseCountShown=-1;collapseWarned=false;collapseFlash=0;coverOpen=false;
   // Neues Match/Rematch startet ohne Eingabesperre und ohne Drag-Reste aus dem alten Match.
   if(typeof cancelAimDrag==='function')cancelAimDrag();
   hideCollapseCount();updateCollapseHud();
@@ -1991,10 +2035,20 @@ function onCollapseExpire(){
   // Laufenden Aim-/Drall-Drag hart beenden, BEVOR der Auto-Stand gesetzt wird: sonst
   // koennte das spaetere pointerup den soeben bestaetigten Zug noch ueberschreiben.
   if(typeof cancelAimDrag==='function')cancelAimDrag();
-  if(phase==='aim'&&!aimSet[0]&&aliveCount(0)){
-    const own=aliveBalls(0),idx=own.length?balls.indexOf(own[0]):-1;
-    commitAutoStand(0,idx);                  // interner Pfad: dx=dy=0 -> Kugel bleibt stehen
-  }
+  // Jeder noch offene lebende Seat bekommt einmalig "Stehen bleiben" — im Bot-Training
+  // ist das nur Seat 0, im Hotseat/lokalen FFA jeder Spieler, der noch nicht bestaetigt hat.
+  if(phase==='aim')autoStandSeats(allOpenSeats());
+}
+// Zugzeit abgelaufen: exakt dieselbe Timeout-Reaktion wie beim Matchende — der offene Zug
+// wird einmalig auf "Stehen bleiben" gesetzt und laeuft danach durch den regulaeren
+// Zugablauf (applyCommit -> Bot-Zug -> Reveal). Die Matchuhr laeuft weiter, der
+// Collapse-Zustand bleibt unberuehrt; das Fenster wird fuer die naechste Planungsphase
+// freigegeben (der naechste zaehlende Frame vergibt wieder volle TURN_LIMIT_SECONDS).
+function onTurnExpire(){
+  if(!turnDeadlinePassed()||phase!=='aim')return;
+  if(typeof cancelAimDrag==='function')cancelAimDrag();
+  autoStandSeats(openAimSeats());             // nur die aktuell zugberechtigten offenen Seats
+  turnWindowEndEl=null;turnWindowSeat=-1;    // Sperre loesen, neues Fenster fuer die Folgephase
 }
 // Ring Collapse: genau EINMAL je Match, deterministisch im Settlement-Uebergang des letzten
 // erzwungenen Zuges. Er hat zwei Ausgaenge, weil stepSim zwei Ausgaenge hat:
@@ -2073,8 +2127,16 @@ function tickCollapse(now){
   // (kein Zug, auf dessen Physik zu warten waere), wird hier ausgewertet; die Eingabe ist
   // dabei ueber inputLocked() gesperrt, es entsteht also keine nutzbare Aim-Phase.
   if(collapseState==='expired'&&phase==='aim')doCollapse();
-  if(phase==='aim'&&!menuVisible&&collapseState==='running'&&!collapseHidden()){
+  // Die verdeckte Uebergabe im Hotseat (Cover) ist wie das Menue eine Pause: der naechste
+  // Spieler hat das Geraet noch nicht — es darf weder Match- noch Zugzeit vergehen.
+  if(phase==='aim'&&!menuVisible&&!coverOpen&&collapseState==='running'&&!collapseHidden()){
     if(matchTimerAnchor==null)matchTimerAnchor=now;   // erster zaehlender Frame ankert nur, Delta 0
+    // Neue Entscheidungsphase: Zugfenster auf volle TURN_LIMIT_SECONDS setzen. Neu ist
+    // sie, wenn kein Fenster laeuft (Rundenstart/Pause) oder ein anderer Seat an der
+    // Reihe ist (Hotseat/lokales FFA ziehen verdeckt reihum).
+    const actSeat=openAimSeats()[0];
+    const actS=(actSeat===undefined)?-1:actSeat;
+    if(turnWindowEndEl==null||turnWindowSeat!==actS){turnWindowEndEl=matchElapsedMs+TURN_LIMIT_SECONDS*1000;turnWindowSeat=actS;}
     matchElapsedMs+=Math.min(Math.max(0,now-matchTimerAnchor),MAX_COLLAPSE_TICK_DELTA_MS);
     matchTimerAnchor=now;
     const rem=collapseRemainMs()/1000;
@@ -2084,9 +2146,12 @@ function tickCollapse(now){
       else if(!collapseCountVisible)showCollapseCount(n);   // nach Phasenwechsel/Tab-Pause wieder einblenden — ohne zweiten Beep
       // Position folgt der Arenakante (Render-/DOM-Layer, im reinen State-Test nicht vorhanden)
       if(typeof updateCollapseCountPos==='function')updateCollapseCountPos();}
+    // Matchende hat Vorrang: es setzt ohnehin denselben Auto-Stand und danach den Collapse.
     if(collapseRemainMs()<=0)onCollapseExpire();
+    else if(turnDeadlinePassed())onTurnExpire();
   }else{
     matchTimerAnchor=null;                    // Pause: Anker loeschen -> kein Delta-Sprung
+    turnWindowEndEl=null;                     // Zugfenster gilt nur in der aktiven Planungsphase
     // Die grosse Zahl gehoert ausschliesslich zur aktiven Planungsphase: waehrend
     // reveal/sim/result/over, im Menue und bei inaktivem Tab ist sie verborgen.
     // collapseCountShown bleibt erhalten -> beim Zurueckkehren kein erneuter Beep.
@@ -2176,7 +2241,7 @@ function placeBalls(){
 }
 
 function newGame(){resize();R=R0;score=[];for(let p=0;p<np();p++)score.push(0);roundNo=1;particles=[];fx3=[];recFrames=[];
-  resetCollapseTimer();                              // Rematch/neues Match: Timer 2:00, Collapse-State + Radius zuruecksetzen
+  resetCollapseTimer();                              // Rematch/neues Match: Timer 1:00, Collapse-State + Radius zuruecksetzen
   const ffa=mode==='ffa';                            // FFA: kompakte Chip-Leiste statt der 2 Spielerkarten
   $('card0').style.display=ffa?'none':'';$('card1').style.display=ffa?'none':'';
   document.querySelector('.scorebox').style.display=ffa?'none':'';
@@ -2190,6 +2255,7 @@ function newGame(){resize();R=R0;score=[];for(let p=0;p<np();p++)score.push(0);r
   }
   startRound();}
 function resetCommits(){aimSet=[];commitIdx=[];commitAim=[];commitSpin=[];
+  turnWindowEndEl=null;turnWindowSeat=-1;   // neue Runde = neue Entscheidungsphase -> volle Zugzeit
   for(let p=0;p<np();p++){aimSet.push(false);commitIdx.push(-1);commitAim.push({dx:0,dy:0});commitSpin.push(0);}}
 function startRound(){placeBalls();resetCommits();roundWinner=-1;
   cancelAimDrag();outBall=-1;setPhase('aim');updateHud();   // vollstaendiger Drag-Reset inkl. Pointer-Capture
@@ -2280,8 +2346,8 @@ function setPhaseText(){const p=$('phase');
 
 let toastT;function toast(m){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove('show'),2200);}
 
-function openCover(pi){const c=$('cover');$('coverWho').textContent='Spieler '+(pi+1);$('coverWho').className='who';$('coverWho').style.color=PCOLS[pi].ui;c.classList.add('show');}
-$('coverBtn').onclick=()=>{$('cover').classList.remove('show');setPhaseText();updateHud();};
+function openCover(pi){coverOpen=true;const c=$('cover');$('coverWho').textContent='Spieler '+(pi+1);$('coverWho').className='who';$('coverWho').style.color=PCOLS[pi].ui;c.classList.add('show');}
+$('coverBtn').onclick=()=>{coverOpen=false;$('cover').classList.remove('show');setPhaseText();updateHud();};
 
 $('actBtn').onclick=()=>{if(r3dOrbit)return;if(phase!=='aim')return;const who=online?myPlayer:(mode==='bot'?0:curAimer);if(aimSet[who]||!aliveCount(who))return;
   const own=aliveBalls(who);const idx=own.length?balls.indexOf(own[0]):-1;commit(who,idx,0,0);};
