@@ -95,8 +95,14 @@ const prefix = `
   function openCover(pi){coverOpen=true;}
   function spawn(){} function popBall(){} function winnerRGB(){return '';}
   function fx3Hit(){} function fx3Dust(){}
-  const sfx={warn:0,tick:0,collapse:0,ringout:0,drop:0,launch:0,round:0};
-  const SFX={warn(){sfx.warn++;},tick(){sfx.tick++;},collapse(){sfx.collapse++;},hit(){},drop(){sfx.drop++;},ringout(){sfx.ringout++;},launch(){sfx.launch++;},round(){sfx.round++;},win(){},rollUpdate(){},unlock(){},charge:{start(){},stop(){},update(){}}};
+  const sfx={warn:0,tick:0,collapse:0,ringout:0,drop:0,launch:0,round:0,strain:0,strainLast:null,collapseStop:0,colvEvent:0};
+  // collapse/strain bleiben als WAECHTER-Zaehler im Mock: der Core-Block darf sie
+  // NIE aufrufen — Collapse-Hoerereignisse entstehen ausschliesslich read-only im
+  // visuellen Adapter (colvTick -> SFX.colvEvent, eigene Suite test_collapse_sfx.js).
+  const SFX={warn(){sfx.warn++;},tick(){sfx.tick++;},collapse(){sfx.collapse++;},hit(){},drop(){sfx.drop++;},ringout(){sfx.ringout++;},launch(){sfx.launch++;},round(){sfx.round++;},win(){},rollUpdate(){},unlock(){},
+    strain(rem){sfx.strain++;sfx.strainLast=rem;},collapseStop(){sfx.collapseStop++;},
+    colvEvent(){sfx.colvEvent++;},colPreload(){},
+    charge:{start(){},stop(){},update(){}}};
   // Element-Registry statt Wegwerf-Objekten: der extrahierte Stand-Button-Handler wird
   // dadurch auf _els.actBtn.onclick abgelegt und ist im Test echt aufrufbar.
   const _els={};
@@ -288,11 +294,40 @@ const runToExpiry = (e) => { runOutTimer(e); e.applyLaunch(); };
   e.setPhase('aim'); e.tickCollapse(120000); // Settlement -> Collapse (setzt danach phase='sim')
   t('Collapse-Radius = R*0.82', near(e.getR(), 820));
   t('Collapse-State=collapsed', e.state.collapseState === 'collapsed');
-  t('Collapse-Alarm genau einmal', e.sfx.collapse === 1);
+  t('Collapse-Core ruft KEINEN Direktsound (Hoerereignis kommt read-only aus dem visuellen Adapter)', e.sfx.collapse === 0);
   t('Collapse wertet ohne zusaetzlichen Sim-Frame aus', e.getPhase() === 'aim');
   e.runSim();                                 // nichts mehr zu simulieren
   e.setPhase('aim'); e.tickCollapse(120000);  // erneut -> kein zweiter Collapse
-  t('Collapse nur einmal (Radius stabil)', near(e.getR(), 820) && e.sfx.collapse === 1);
+  t('Collapse nur einmal (Radius stabil)', near(e.getR(), 820) && e.sfx.collapse === 0);
+}
+
+// ── Collapse-Sound: der Core-Block ist SOUNDFREI. Warnrisse, Hauptbruch, Segment-
+// brueche und Nachbroeckeln entstehen ausschliesslich read-only aus den sichtbaren
+// Zustandswechseln des visuellen Adapters (colvTick -> SFX.colvEvent); Kausalitaet
+// und Zeitplanung prueft die eigene Suite tools/test_collapse_sfx.js. Hier wird
+// gesichert, dass der Timer-Core KEINE gespiegelte Sound-Zuleitung mehr besitzt —
+// nur die bestehenden Beeps (warn/tick) und collapseStop bleiben seine Sache.
+{
+  const e = make(); e.setMode('bot'); e.setBalls(twoBalls()); e.resetCollapseTimer();
+  e.setPhase('aim'); e.setMenu(false);
+  e.setTime(0); e.tickCollapse(0);
+  advance(e, 0, 5000);                          // 5 s Planungsphase
+  t('Sound: Core speist KEINE Warnriss-Engine mehr (kein zweiter Zeitpfad)', e.sfx.strain === 0);
+  e.setPhase('reveal');
+  advance(e, 5000, 7000);                       // Physik: Uhr pausiert
+  e.setPhase('aim'); e.setMenu(true);
+  advance(e, 7000, 9000);                       // Menue: Uhr pausiert
+  t('Sound: auch ueber Phasen/Menue hinweg keine Core-Sounds ausser Beeps', e.sfx.strain === 0 && e.sfx.collapse === 0);
+}
+{
+  const e = make(); e.setMode('bot'); e.setBalls(twoBalls()); e.resetCollapseTimer();
+  e.setR(1000); runOutTimer(e);
+  e.setPhase('aim'); e.tickCollapse(120000);    // Settlement -> Collapse
+  t('Sound: Collapse-Uebergang loest im Core keinen Direktsound aus', e.sfx.collapse === 0);
+  const stops = e.sfx.collapseStop;
+  e.resetCollapseTimer();                        // neues Match/Rematch
+  t('Sound: neues Match beendet die Bruch-/Truemmersequenz', e.sfx.collapseStop === stops + 1);
+  t('Sound: Reset loest keinen Bruch-Sound aus', e.sfx.collapse === 0);
 }
 
 // ── NEU: Sofortige Eliminierung ausserhalb des neuen Radius (Rundenende) ──
@@ -551,10 +586,10 @@ const runToExpiry = (e) => { runOutTimer(e); e.applyLaunch(); };
   runToExpiry(e); e.runSim();
   const results = e.getPhaseLog().filter(p => p.startsWith('result:')).length;
   t('Doppelwertung: genau ein result-Uebergang', results === 1);
-  t('Doppelwertung: genau ein Collapse-Alarm', e.sfx.collapse === 1);
+  t('Doppelwertung: kein Core-Direktsound (Kopplung im visuellen Adapter)', e.sfx.collapse === 0);
   // Weitere Frames duerfen nichts erneut ausloesen.
   e.tickCollapse(120000); e.runSim(); e.tickCollapse(121000);
-  t('Doppelwertung: kein zweiter Collapse', e.sfx.collapse === 1 && near(e.getR(), 820));
+  t('Doppelwertung: kein zweiter Collapse', e.sfx.collapse === 0 && near(e.getR(), 820));
   t('Doppelwertung: kein zweites Ringout', e.sfx.ringout === 1);
   t('Doppelwertung: outBall stabil', e.getOutBall() === 0);
   t('Doppelwertung: Sieger stabil', e.getRoundWinner() === 1);
@@ -688,7 +723,7 @@ const roundEndSetup = (e, score = [0,0], winTarget = 3) => {
   t('Result: kein aim+expired', !log.includes('aim:expired'));
   t('Result: neue Runde in aim+collapsed', e.getPhase() === 'aim' && log[log.length - 1] === 'aim:collapsed');
   t('Result: Eingabesperre aufgehoben', e.inputLocked() === false);
-  t('Result: Collapse-Alarm genau einmal', e.sfx.collapse === 1);
+  t('Result: kein Core-Direktsound (Kopplung im visuellen Adapter)', e.sfx.collapse === 0);
   t('Result: Punkt an Spieler 0', e.getScore()[0] === 1 && e.getScore()[1] === 0);
   t('Result: kein Fallback-Tick noetig', e.state.collapseRadius === 820);
 }
@@ -709,7 +744,7 @@ const roundEndSetup = (e, score = [0,0], winTarget = 3) => {
   t('Doppel: Punktestand stabil', e.getScore()[0] === score[0] && e.getScore()[1] === score[1]);
   t('Doppel: kein zweites startRound', e.getRoundStarts() === starts);
   t('Doppel: kein zweites afterResult', e.getAfterResultCalls() === ars);
-  t('Doppel: kein zweiter Collapse', e.sfx.collapse === 1 && near(e.getR(), 820));
+  t('Doppel: kein zweiter Collapse', e.sfx.collapse === 0 && near(e.getR(), 820));
   t('Doppel: Rundenzaehler genau einmal erhoeht', e.getRoundNo() === 2);
 }
 

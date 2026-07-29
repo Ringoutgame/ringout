@@ -1626,7 +1626,7 @@ $('nameInput').addEventListener('input',e=>{ setOnlineName(e.target.value);
 // rejoinWait) zeigt die Bar wieder — ausser der Raum ist tot (savedRoom weg).
 $('rejoinBtn').onclick=()=>{ const sr=savedRoom(); if(!sr)return; $('onRejoin').style.display='none';
   attemptRejoin(sr.code).then(ok=>{ if(!ok&&savedRoom()&&!online)$('onRejoin').style.display=''; }); };
-function showMenu(){menuVisible=true;$('menu').style.display='flex';$('game').style.display='none';updateMenuPreview();resize();
+function showMenu(){menuVisible=true;$('menu').style.display='flex';$('game').style.display='none';SFX.collapseStop();updateMenuPreview();resize();
   if(r3dActive&&r3d&&r3d.flushEnvProfile)r3d.flushEnvProfile();   // waehrend des Matches aufgeschobenen Env-Wechsel jetzt (sicherer Idle) anwenden
   whenFB(()=>{if(fbReady()&&menuVisible)startPublicListing();});updScrollHint();}   // Home-Rooms-Vorschau reaktivieren
 function showGame(){menuVisible=false;$('menu').style.display='none';$('game').style.display='flex';stopPublicListing();updScrollHint();}   // Gameplay-Framing kommt via newGame()->resize()
@@ -1644,6 +1644,15 @@ $('menu').addEventListener('scroll',updScrollHint,{passive:true});
 window.addEventListener('resize',()=>updScrollHint());
 
 // ════ SOUND ════
+// Read-only-Kopplung Bild -> Collapse-Sound: der visuelle Collapse-Adapter
+// (colvTick in initR3D) meldet jeden TATSAECHLICH sichtbar geschalteten
+// Zustandswechsel (Warnriss erscheint, Segment beginnt die Abloese-/Fall-
+// bewegung, Sockel verliert Material, aktives Weiterfallen) im selben Frame
+// einmalig an SFX.colvEvent. Der Sound konsumiert diese Ereignisse nur; es
+// gibt KEINE zweite Schwellen-/Zeittabelle, keinen eigenen Timer und kein
+// nachtraegliches Cue-Sheet. Ohne 3D-Adapter (2D-Modus, GLB-Ladefehler)
+// existieren die sichtbaren Ereignisse nicht — der Collapse bleibt dort
+// bewusst kontrolliert still (Assetfehler = Stille, nie Ersatz).
 const SFX=(()=>{
   let c=null,noiseBuf=null,clickBuf=null;
   function ac(){if(!c)c=new(window.AudioContext||window.webkitAudioContext)();if(c.state==='suspended')c.resume();return c;}
@@ -1721,6 +1730,87 @@ const SFX=(()=>{
     const g=cc.createGain();g.gain.value=0;g.connect(cc.destination);
     const s=cc.createBufferSource();s.buffer=rollBuf;s.loop=true;s.connect(g);s.start();
     return{g,s};}
+  // ── Ring-Collapse-Sound: ausschliesslich ECHTE CC0-Aufnahmen (Derivate unter
+  //    assets/sfx/ring_collapse/, Quellen + Schnitte s. assets/sfx/README.md und
+  //    tools/sfx/build_ring_collapse_sfx.js). KEINE Synthese, keine Oszillatoren.
+  //    Alle Schnitte sind onset-korrigiert (Haupttransient <= 10 ms nach Sample-
+  //    beginn, Auto-Trim im Build) — ein gestartetes Buffer klingt SOFORT.
+  //    Vorladen: colPreload() ab Matchstart (~50-60 s vor dem Warnfenster);
+  //    fetch+decodeAudioData sind damit lange vor dem ersten sichtbaren Riss
+  //    abgeschlossen. Fehlen Assets oder laeuft das Laden noch, bleibt das
+  //    einzelne Ereignis STILL und wird NIE nachgeholt — es gibt bewusst
+  //    keinen Rueckfall auf den frueheren prozeduralen Alarm. ──
+  const COL_DIR='assets/sfx/ring_collapse/';
+  const COL_FMTS=['wav'];   // ausgeliefert: WAV (ueberall via decodeAudioData dekodierbar, keine 2. Lossy-Generation); m4a/mp3 koennen spaeter vorn ergaenzt werden
+  const COL_SET={crack:['crack_1','crack_2','crack_3','crack_4'],seg:['seg_1','seg_2','seg_3'],main:['break_main'],
+                 fragc:['fragc_1','fragc_2','fragc_3'],fragf:['fragf_1','fragf_2','fragf_3']};
+  let colBufs=null,colLoad=0;                 // 0=nie versucht 1=laedt 2=bereit 3=fehlt->still
+  let colLastCrack=-1,colLastSeg=-1,colLastFrag=-1,colTail=null,colFragLast=0;
+  function loadCollapseSfx(cc){
+    colLoad=1;
+    (async()=>{
+      try{
+        const out={};
+        for(const k of Object.keys(COL_SET)){
+          out[k]=[];
+          for(const n of COL_SET[k]){
+            let buf=null;
+            for(const f of COL_FMTS){
+              try{
+                const r=await fetch(COL_DIR+n+'.'+f);if(!r.ok)continue;   // fehlendes Format -> naechstes
+                buf=await cc.decodeAudioData(await r.arrayBuffer());break;
+              }catch(e){}
+            }
+            if(buf)out[k].push(buf);
+          }
+        }
+        if(out.crack.length&&out.seg.length&&out.main.length&&out.fragc.length&&out.fragf.length){colBufs=out;colLoad=2;}
+        else colLoad=3;                       // unvollstaendig -> bewusst still, kein weiterer Versuch
+      }catch(e){colLoad=3;}
+    })();
+  }
+  function colPan(cc,pan,out){                // optionale leichte Stereo-Position; ohne API direkt ans Ziel
+    if(!cc.createStereoPanner||!pan)return out;
+    const p=cc.createStereoPanner();p.pan.value=Math.max(-1,Math.min(1,pan));p.connect(out);return p;
+  }
+  function colPlay(cc,buf,o,dest){            // eine Aufnahme abspielen: Quelle -> Gain -> (Pan) -> Ziel; endet von selbst
+    const t=o.when!=null?o.when:cc.currentTime;
+    const g=cc.createGain();g.gain.setValueAtTime(o.gain||1,t);
+    g.connect(colPan(cc,o.pan||0,dest||cc.destination));
+    const s=cc.createBufferSource();s.buffer=buf;if(o.rate)s.playbackRate.value=o.rate;
+    s.connect(g);s.start(t);
+  }
+  function pickVar(arr,last){                 // Varianten-Wahl ohne direkte Wiederholung (kein Maschinengewehr)
+    let i=Math.floor(Math.random()*arr.length);
+    if(arr.length>1&&i===last)i=(i+1)%arr.length;
+    return i;
+  }
+  // ── Gemeinsame Bild/Ton-Zielzeit (zentrale, gemessene Kalibrierung) ──
+  // Der Adapter setzt einen visuellen Zustand IM Frame N; sichtbar wird er mit
+  // der Praesentation dieses Frames (naechster Vsync, ~1 Frame spaeter). Ein ab
+  // AudioContext.currentTime gestartetes Buffer wird erst nach der GEMESSENEN
+  // Geraete-Ausgabelatenz hoerbar (outputLatency, Fallback baseLatency). Ziel:
+  // hoerbarer Transient == Frame-Praesentation, also
+  //   when = currentTime + max(0, COL_FRAME_S - outputLatency)
+  // Auf ueblicher Hardware ist outputLatency >= 1 Frame -> when = currentTime
+  // (fruehestmoeglich); der verbleibende Nachlauf (outputLatency-COL_FRAME_S)
+  // liegt im einstelligen bis niedrigen zweistelligen ms-Bereich, weit unter
+  // der Wahrnehmungsschwelle (~45 ms). KEINE pauschale Zusatzverzoegerung —
+  // 0,1-0,3 s Versatz sind konstruktiv ausgeschlossen, weil weder Timer noch
+  // Cue-Tabelle existieren und die Samples onset-korrigiert sind.
+  const COL_FRAME_S=1/60;                     // erwarteter Abstand Zustandssetzung -> Praesentation
+  function colWhen(cc){
+    const lat=cc.outputLatency||cc.baseLatency||0;
+    return cc.currentTime+Math.max(0,COL_FRAME_S-lat);
+  }
+  function colDest(cc){                       // gemeinsamer Abriss-Bus: von collapseStop schlagartig stummschaltbar
+    if(!colTail){colTail=cc.createGain();colTail.gain.setValueAtTime(1,cc.currentTime);colTail.connect(cc.destination);}
+    return colTail;
+  }
+  function collapseStop(){                    // laufende Bruch-/Truemmersequenz sofort beenden (Menue, neues Match)
+    const g=colTail;colTail=null;if(!g)return;
+    try{const cc=ac();g.gain.cancelScheduledValues(cc.currentTime);g.gain.setTargetAtTime(0,cc.currentTime,.05);}catch(e){}
+  }
   return{
     charge,
     // Erzwingt Context-Erzeugung/-Resume aus einer User-Geste (Mobile-Autoplay-Unlock)
@@ -1791,12 +1881,47 @@ const SFX=(()=>{
     // warn = dezentes 10s-Vorwarnsignal, tick = klarer 5..1-Countdown-Beep, collapse = kurzer Alarm.
     warn(){go(c=>{const t=c.currentTime;const g=c.createGain();g.gain.setValueAtTime(.0001,t);g.gain.linearRampToValueAtTime(.08,t+.02);g.gain.exponentialRampToValueAtTime(.0006,t+.5);g.connect(c.destination);const o=c.createOscillator();o.type='triangle';o.frequency.setValueAtTime(430,t);o.frequency.exponentialRampToValueAtTime(300,t+.45);o.connect(g);o.start(t);o.stop(t+.5);});},
     tick(){go(c=>{const t=c.currentTime;const g=c.createGain();g.gain.setValueAtTime(.0001,t);g.gain.linearRampToValueAtTime(.13,t+.008);g.gain.exponentialRampToValueAtTime(.0006,t+.14);g.connect(c.destination);const o=c.createOscillator();o.type='square';o.frequency.setValueAtTime(880,t);o.connect(g);o.start(t);o.stop(t+.15);});},
-    collapse(){go(c=>{const t=c.currentTime;
-      const bp=c.createBiquadFilter();bp.type='bandpass';bp.frequency.setValueAtTime(600,t);bp.frequency.exponentialRampToValueAtTime(90,t+.7);bp.Q.value=1.0;bp.connect(c.destination);
-      const wg=c.createGain();wg.gain.setValueAtTime(.0001,t);wg.gain.linearRampToValueAtTime(.26,t+.05);wg.gain.exponentialRampToValueAtTime(.001,t+.8);wg.connect(bp);
-      const wn=c.createBufferSource();wn.buffer=noise(c);wn.loop=true;wn.connect(wg);wn.start(t);wn.stop(t+.85);
-      const g2=c.createGain();g2.gain.setValueAtTime(.0001,t);g2.gain.linearRampToValueAtTime(.16,t+.04);g2.gain.exponentialRampToValueAtTime(.001,t+.7);g2.connect(c.destination);
-      const o=c.createOscillator();o.type='sawtooth';o.frequency.setValueAtTime(160,t);o.frequency.exponentialRampToValueAtTime(45,t+.6);o.connect(g2);o.start(t);o.stop(t+.75);});},
+    // Vorladen der Collapse-Aufnahmen: wird vom visuellen Adapter ab Matchstart
+    // pro Frame aufgerufen (billiger Guard) — fetch + decodeAudioData sind damit
+    // ~50-60 s VOR dem Warnfenster fertig. Zum Ereigniszeitpunkt findet kein
+    // Fetch/Decode/Promise-Warten mehr statt (colvEvent liest nur colBufs).
+    colPreload(){if(colLoad===0&&soundOn)try{loadCollapseSfx(ac());}catch(e){}},
+    // ── Hoerereignisse des visuellen Collapse-Adapters (einzige Quelle) ──
+    // colvTick meldet hier im SELBEN Frame, in dem es einen Zustand sichtbar
+    // schaltet: {k:'crack'} Warnriss erscheint, {k:'break'} Abrissstufe wird
+    // sichtbar, {k:'seg'} Segment beginnt die sichtbare Abloese-/Fallbewegung,
+    // {k:'frag'} sichtbarer Materialverlust/aktives Weiterfallen. pan kommt aus
+    // der TATSAECHLICHEN Ringposition (x-Anteil), n/g aus dem sichtbaren
+    // Fortschritt. Nicht geladene Buffer (colLoad!==2): das einzelne Ereignis
+    // bleibt still und wird NIE nachgeholt — kein Sound nach dem Bild.
+    colvEvent(ev){
+      if(menuVisible)return;                  // Menue = Pause der Hoerprobe (wie collapseStop beim Menuewechsel)
+      if(colLoad!==2)return;                  // nicht bereit -> dieses Ereignis entfaellt ersatzlos
+      go(cc=>{
+        const t=colWhen(cc);
+        if(ev.k==='crack'){                   // sichtbarer Warnriss dieses Frames — trocken, kurz
+          const i=colLastCrack=pickVar(colBufs.crack,colLastCrack);
+          colPlay(cc,colBufs.crack[i],{when:t,gain:.11+.13*(ev.n||0),pan:(ev.pan||0)*.6,rate:.97+Math.random()*.06});
+        }else if(ev.k==='break'){             // Abriss wird sichtbar: Hauptbruch, exakt einmal (Latch im Adapter)
+          collapseStop();                     // nie zwei Sequenzen gleichzeitig
+          colPlay(cc,colBufs.main[0],{when:t,gain:.5},colDest(cc));
+        }else if(ev.k==='seg'){               // Segment loest sich sichtbar: kurzer Materialbruch + kleiner Steinabgang
+          const d=colDest(cc);
+          const i=colLastSeg=pickVar(colBufs.seg,colLastSeg);
+          colPlay(cc,colBufs.seg[i],{when:t,gain:Math.max(.10,.22-.02*(ev.n||0)),pan:(ev.pan||0)*.75,rate:.97+Math.random()*.06},d);
+          const j=colLastFrag=pickVar(colBufs.fragc,colLastFrag);
+          colPlay(cc,colBufs.fragc[j],{when:t+.05,gain:.09,pan:(ev.pan||0)*.7,rate:.95+Math.random()*.1},d);
+        }else if(ev.k==='frag'){              // sichtbarer Materialverlust: einzelnes kurzes Truemmerfragment
+          const now=performance.now();
+          if(now-colFragLast<55)return;       // Backstop gegen Fragment-Spam (Adapter drosselt bereits)
+          colFragLast=now;
+          const set=ev.kind==='c'?colBufs.fragc:colBufs.fragf;
+          const i=colLastFrag=pickVar(set,colLastFrag);
+          colPlay(cc,set[i],{when:t,gain:(ev.kind==='c'?.13:.08)*(ev.g!=null?ev.g:1),pan:(ev.pan||0)*.7,rate:.95+Math.random()*.1},colDest(cc));
+        }
+      });
+    },
+    collapseStop,
     // Trockener UI-Klick: fest vorgerendertes Buffer (siehe makeClickBuf), pro Wiedergabe
     // ein FRISCHES Gain- + Filter-Node mit FESTEN (nicht automatisierten) Werten -> kein
     // Zufall, keine Rampen, keine geteilte/weiterlaufende Huellkurve zwischen Aufrufen.
@@ -2101,7 +2226,7 @@ function applyOnlineCollapseRadius(){
   collapseOuterR=R;
   R=Math.max(BR*4,R*COLLAPSE_RADIUS_FACTOR);
   collapseRadius=R;
-  collapseFlash=performance.now();SFX.collapse();
+  collapseFlash=performance.now();   // Sound: read-only aus dem SICHTBAREN Stufenwechsel (colvTick -> SFX.colvEvent)
   updateCollapseHud();
 }
 // Settlement-Ausgang (stepSim, Kugeln ruhen): Collapse VOR der naechsten Aim-Phase —
@@ -2127,6 +2252,7 @@ function resetCollapseTimer(){
   collapseRadius=0;collapseOuterR=0;collapseCountShown=-1;collapseWarned=false;collapseFlash=0;coverOpen=false;
   // Neues Match/Rematch startet ohne Eingabesperre und ohne Drag-Reste aus dem alten Match.
   if(typeof cancelAimDrag==='function')cancelAimDrag();
+  SFX.collapseStop();   // laufende Bruch-/Truemmersequenz des alten Matches sofort beenden
   hideCollapseCount();updateCollapseHud();
 }
 // 0 erreicht: offene (nicht bestaetigte, lebende) Eingaben einmalig auf "Stehen bleiben"
@@ -2165,7 +2291,7 @@ function applyCollapseRadius(){
   collapseOuterR=R;                            // alte Grenze merken (entfernte Aussenzone im Overlay)
   R=Math.max(BR*4,R*COLLAPSE_RADIUS_FACTOR);
   collapseRadius=R;collapseState='collapsed';
-  collapseFlash=performance.now();SFX.collapse();
+  collapseFlash=performance.now();   // Sound: read-only aus dem SICHTBAREN Stufenwechsel (colvTick -> SFX.colvEvent)
   updateCollapseHud();
 }
 // Faelliger Collapse? Gemeinsame Vorbedingung beider Ausgaenge.
@@ -2243,6 +2369,8 @@ function tickCollapse(now){
     matchElapsedMs+=Math.min(Math.max(0,now-matchTimerAnchor),MAX_COLLAPSE_TICK_DELTA_MS);
     matchTimerAnchor=now;
     const rem=collapseRemainMs()/1000;
+    // Warnrisse: Sound haengt NICHT mehr an dieser Uhr, sondern read-only an den
+    // sichtbaren Rissstufenwechseln des visuellen Adapters (colvTick -> SFX.colvEvent).
     if(rem<=COLLAPSE_WARNING_SECONDS&&!collapseWarned){collapseWarned=true;SFX.warn();}
     if(rem<=FINAL_COUNTDOWN_SECONDS){const n=Math.max(1,Math.ceil(rem));
       if(n!==collapseCountShown){collapseCountShown=n;showCollapseCount(n);SFX.tick();}
@@ -2307,6 +2435,8 @@ function tickOnlineClock(){
   const c=onlineClock(onTurnStamp,onTurnTs,turnNo,serverNow());
   onlineRemainMs=c.remainingMs;
   onlineHasClock=c.startedAt!=null||onCollapsedGen===gen;
+  // Warnrisse: Sound haengt read-only an den sichtbaren Rissstufenwechseln des
+  // visuellen Adapters (colvTick -> SFX.colvEvent), nicht mehr an dieser Uhr.
   updateCollapseHud();
   if(phase!=='aim'||c.deadlineAt==null)return;
   if(serverNow()<c.deadlineAt)return;                 // Deadline noch nicht erreicht
@@ -4683,9 +4813,14 @@ async function initR3D(){
     //    Segmente + die auf ihnen liegenden Goldringe + die Grenz-Deko loesen sich
     //    aus ihrer sichtbaren Position und stuerzen — kein Shrink/Settle/Snap.
     //    Ladefehler -> exakt das bisherige Verhalten (uniformes Mitschrumpfen).
-    const COLV_WALK_TOP=.165, COLV_FALL_S=2.6;
+    const COLV_WALK_TOP=.165, COLV_FALL_S=2.6, COLV_TREMOR_S=.3;   // Tremor-Dauer vor dem Abkippen (auch Basis des Sound-Timings)
     const COLV_SEG_LIFT=COLV_WALK_TOP-.04;   // Arena-v2-Bandhoehe (.04) -> V1-Walkway-Hoehe (.165)
-    const colv={state:0,load:0,group:null,pairs:[],swap:false,t0:0,instant:false,lift:COLV_WALK_TOP,div:GLB_R};
+    const colv={state:0,load:0,group:null,pairs:[],swap:false,t0:0,instant:false,lift:COLV_WALK_TOP,div:GLB_R,
+                crackMask:0,lastNow:0,pedSnd:false,fragNext:0,segSndN:0};   // Hoerereignis-Latches (read-only-Kopplung an SFX)
+    // Read-only-Meldung eines soeben SICHTBAR geschalteten Zustandswechsels an
+    // den Sound — dieselbe Codezeile, die den Zustand schaltet, fordert das
+    // Hoerereignis an. Audiofehler duerfen die Animation nie beruehren.
+    function colvSnd(ev){try{SFX.colvEvent(ev);}catch(e){}}
     // Bandtausch-Inventar: Walkway + V1-Drum-Deko + die beiden DURCHGEHENDEN Goldringe
     // werden im Uhr-Match durch die Segment-Vollkoerper ersetzt — Gold liegt dann nur
     // noch als segmentgebundene Bogen auf dem Band (endet an den Rissen, bricht und
@@ -4727,6 +4862,7 @@ async function initR3D(){
           const pr=byNum[n],ord=[3,0,4,1,5,2][i];
           const ud=pr.cracked.userData.colv;
           ud.delay=ord*.16;ud.tumble=.9+(i%3)*.5;    // gestaffelter Abriss (deterministisch)
+          ud.fellSnd=false;                          // Hoerereignis-Latch: sichtbarer Abloese-Beginn genau einmal
           pr.crackAt=ord*.16;                        // Riss-Erscheinung im Warnfenster, gleiche Ordnung
           return pr;});
         grp.visible=false;glb.scene.add(grp);colv.group=grp;
@@ -4756,12 +4892,19 @@ async function initR3D(){
       colvCracks(-1);
       for(const o of colvPed){o.visible=true;o.position.y=o.userData.colv.hy;}
       colv.instant=false;
+      colv.crackMask=0;colv.pedSnd=false;colv.fragNext=0;colv.segSndN=0;   // Hoerereignis-Latches mit der Ruhelage loesen
+      for(const pr of colv.pairs)pr.cracked.userData.colv.fellSnd=false;
     }
     const colvAx=new THREE.Vector3(),colvQ=new THREE.Quaternion();
     function colvTick(nowS){
       const want=colvStage();
       const clockMatch=(collapseActive()&&!menuVisible)||(online&&gameStarted&&onlineHasClock);
       if(colv.load===0&&clockMatch)colvLoad();     // laedt beim Matchstart (~60s Vorlauf)
+      if(clockMatch&&colv.load!==3)SFX.colPreload();   // Audio-Buffer parallel vorladen/dekodieren (~50-60s Vorlauf)
+      // Frame-Luecke (Hintergrund-Tab): dazwischen umgeschaltete Zustaende sind
+      // laengst sichtbar gewesen bzw. uebersprungen — nie verspaetet vertonen.
+      const gapSnd=colv.lastNow>0&&nowS-colv.lastNow>.25;
+      colv.lastNow=nowS;
       if(colv.load!==2){colv.lift=COLV_WALK_TOP;colv.div=GLB_R;return;}   // Fallback = bisheriges Verhalten
       if(want===0){
         if(colv.state!==0){colvResetFall();colv.state=0;}
@@ -4771,40 +4914,81 @@ async function initR3D(){
       }
       colvSwap(true);                              // Warn-/Collapse-Stufe setzt das Band voraus (auch nach spaetem Laden)
       if(want===1){
+        const freshSnd=colv.state!==1;             // Einstieg in die Warnstufe in DIESEM Frame
         colv.state=1;colv.lift=COLV_WALK_TOP;colv.div=GLB_R;
         const rem=collapseActive()?collapseRemainMs():onlineRemainMs;
-        colvCracks(1-rem/(COLLAPSE_WARNING_SECONDS*1000));   // nur echte Risse, schrittweise mehr
+        const prog=1-rem/(COLLAPSE_WARNING_SECONDS*1000);
+        colvCracks(prog);                          // nur echte Risse, schrittweise mehr
+        // Hoerereignis = exakt der Rissstufenwechsel dieses Frames: dieselbe
+        // crackAt-Wahrheit, die colvCracks soeben sichtbar geschaltet hat —
+        // kein zweiter Schwellensatz, kein Timer. Bestand beim Einstieg mit
+        // fortgeschrittenem Fenster (spaeter Online-Beitritt, Menue-/Tab-
+        // Rueckkehr) wird stumm uebernommen: vorhandene Risse sind kein neues
+        // Ereignis, und nachgeholt wird grundsaetzlich nicht.
+        const muteSnd=(freshSnd&&prog>.03)||gapSnd;
+        for(let i=0;i<colv.pairs.length;i++){
+          const pr=colv.pairs[i];
+          if(prog>=pr.crackAt&&!(colv.crackMask&(1<<i))){
+            colv.crackMask|=1<<i;
+            if(!muteSnd)colvSnd({k:'crack',pan:pr.cracked.userData.colv.ux,n:prog});
+          }
+        }
         return;
       }
       if(colv.state!==2){                          // Abriss startet exakt einmal (Spiel-Latch + eigener Zustand)
         colv.instant=(colv.state===0);             // Rehydration/Replay: Endzustand sofort, ohne Animation
         colvCracks(1);                             // bei 0s sind alle sechs Segmente gerissen
         colv.t0=nowS;colv.state=2;
+        colv.pedSnd=false;colv.fragNext=0;colv.segSndN=0;
+        for(const pr of colv.pairs)pr.cracked.userData.colv.fellSnd=false;
+        // Hauptbruch-Hoerereignis = exakt dieses sichtbare Umschalten in die
+        // Abrissstufe; durch die beiden Latches genau EINMAL pro Collapse.
+        // instant (Rehydration/Replay: Endzustand ohne Animation) bleibt stumm.
+        if(!colv.instant)colvSnd({k:'break'});
       }
       // Divisor 8.282 = 10.1*0.82: R ist im selben Frame x0.82 geschrumpft -> die
       // Plattformgroesse bleibt exakt stetig; der Restkoerper bewegt sich NIE.
       colv.div=8.282;colv.lift=0;
       const t=colv.instant?COLV_FALL_S+9:nowS-colv.t0;
+      let fragW=0,fragPan=0;                       // sichtbare aktive Fallbewegung dieses Frames (Truemmerdichte)
       for(const pr of colv.pairs){
         const s=pr.cracked,h=s.userData.colv,ts=t-h.delay;
         if(ts<=0)continue;
         if(colv.instant||ts>COLV_FALL_S+2){s.visible=false;continue;}
         colvAx.set(h.tx,0,h.tz);
-        if(ts<.3){                                 // kurzes Loesen an den Rissen (Tremor)
+        if(ts<COLV_TREMOR_S){                      // kurzes Loesen an den Rissen (Tremor)
           colvQ.setFromAxisAngle(colvAx,Math.sin(ts*55)*.012);
           s.quaternion.copy(colvQ);s.position.set(h.hx,h.hy,h.hz);
         }else{                                     // Abkippen nach aussen, dann freier Fall mit Taumeln
-          const tf=ts-.3,hinge=Math.min(1,tf/.35)*.14,fall=15*tf*tf,drift=1.1*tf;
+          const tf=ts-COLV_TREMOR_S,hinge=Math.min(1,tf/.35)*.14,fall=15*tf*tf,drift=1.1*tf;
+          if(!h.fellSnd){h.fellSnd=true;           // ERSTER Frame der sichtbaren Abloese-/Fallbewegung dieses Segments
+            // Hoerereignis Segmentbruch aus GENAU diesem Uebergang (Tremor ->
+            // Fallbewegung); verpasst (Frame-Luecke > Toleranz) -> dauerhaft still.
+            if(tf<=.25)colvSnd({k:'seg',pan:h.ux,n:colv.segSndN++});}
           colvQ.setFromAxisAngle(colvAx,-(hinge+tf*h.tumble*.8));
           s.quaternion.copy(colvQ);
           s.position.set(h.hx+h.ux*drift,h.hy-fall,h.hz+h.uz*drift);
           if(h.hy-fall<-60)s.visible=false;
+          if(s.visible&&tf<1.4){fragW+=1-tf/1.4;fragPan=h.ux;}   // traegt zur sichtbaren Truemmerdichte bei
         }
       }
       // Breite Sockelteile unter dem Band stuerzen MIT (leicht verzoegert, gerade nach
       // unten) — uebrig bleibt der ueber dem Kelchstumpf auskragende Bruchrest.
       const td=t-.45,drop=td>0?15*td*td:0;
+      if(!colv.instant&&td>0&&!colv.pedSnd){colv.pedSnd=true;   // Sockel verliert SICHTBAR ab jetzt Material
+        if(td<=.25)colvSnd({k:'frag',kind:'c',pan:0,g:1});}
+      if(!colv.instant&&td>0&&drop<40)fragW+=.5;   // aktiver Sockelfall broeckelt mit
       for(const o of colvPed){o.visible=!colv.instant&&drop<60;o.position.y=o.userData.colv.hy-drop;}
+      // Nachbroeckeln: einzelne kurze Truemmerfragmente NUR solange in DIESEM
+      // Frame sichtbar Material faellt (fragW>0). Dichte, Anteil grober
+      // Fragmente und Lautstaerke folgen fragW und duennen mit dem sichtbaren
+      // Fortschritt aus. Fragmente sind <=0.31 s lang und der letzte Ausloeser
+      // liegt deutlich vor dem Ende der sichtbaren Bewegung -> beim ruhigen
+      // Endzustand herrscht bereits vollstaendige Ruhe (kein spaeter Track).
+      if(!colv.instant&&fragW>0&&nowS>=colv.fragNext){
+        colv.fragNext=nowS+.12+.5*(1-Math.min(1,fragW/3))+Math.random()*.15;
+        colvSnd({k:'frag',kind:Math.random()<Math.min(.5,fragW*.25)?'c':'f',pan:fragPan,g:Math.min(1,.4+fragW/3)});
+      }
     }
     // langsamer Gold-Ring unter der Spitze (Prototyp), rein dekorativ
     const ringG=new THREE.Group();

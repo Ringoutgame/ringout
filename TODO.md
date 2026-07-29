@@ -1,6 +1,6 @@
 # TODO.md — RingOut
 
-**Zuletzt aktualisiert:** 2026-07-28 (Ring-Collapse visuell integriert auf `feature/ring-collapse-visual` — Sichtprüfung Owner + Commit ausstehend; Online-Timer 60s/7s ist committet, released und live deployt)
+**Zuletzt aktualisiert:** 2026-07-29 (Ring-Collapse-Sound: Live-Hörprobe vom Owner klanglich freigegeben, Preview-/Diagnoseschalter entfernt — nur noch Commit-Freigabe ausstehend)
 
 Offene Aufgaben nach Priorität. Abgeschlossene Aufgaben werden nach `CHANGELOG.md` verschoben.
 
@@ -9,6 +9,8 @@ Offene Aufgaben nach Priorität. Abgeschlossene Aufgaben werden nach `CHANGELOG.
 ## P0 — Kritisch (Sicherheit / Stabilität)
 
 - [x] ~~**Online-Timer 60s/7s: Commit + Rules-Deploy + Live-Validierung**~~ → **abgeschlossen (2026-07-28):** Commit `4a62bfb` per Fast-Forward auf main (Release-Worktree, Runner 16/16, Emulator-Probe 25/25), `firebase.rules.json` auf `ringout-87fbb` publiziert, GitHub-Pages-Client live verifiziert, Zwei-Client-Produktions-Smoke 17/17 (gemeinsame Uhr/Deadline, Timeout-No-Shot, Write-once, Lockstep, Collapse-Turn 8 identisch, Test-Räume abgeräumt). Offen bleibt nur der nachgelagerte Realgeräte-Test (s. FFA-Desync-Punkt).
+
+- [ ] **Ring-Collapse-Sound: Commit-Freigabe (2026-07-29):** Nach Ablehnung der drei Offline-Varianten (A/B/C, Versatz bis ~0,3 s) auf `feature/ring-collapse-sound` komplett auf bild-synchrone Runtime-Kopplung umgebaut (Bild und Ton aus demselben sichtbaren Zustandswechsel via `colvTick → SFX.colvEvent`; onset-korrigierte Samples 4 ms). **Live-Hörprobe direkt im lokalen Spiel vom Owner klanglich freigegeben** (`npm run serve`, Bot-Training 1v1). Die dafür nur temporär eingebauten Preview-/Diagnoseschalter (`?colfast`-Timerverkürzung, `?sfxdebug`-Overlay, zugehöriger Diagnose-Hook in der SFX-IIFE, der darauf aufbauende Live-Test `tools/test_collapse_sfx_live.js`) sind nach der Abnahme vollständig entfernt — das Produkt kennt nur noch das feste 60-s-Matchverhalten. Runner 17/17, Kausalitäts-Suite `test_collapse_sfx.js` 111 (inkl. Prüfung, dass keine Preview-Schalter mehr im Code sind). Es fehlt nur noch: Commit-Freigabe durch den Owner. Beobachtung (Bestand, separat): der bestehende Hit-Sound kann bei sehr harten Treffern über Vollaussteuerung summieren (gemessen Peak ~1,07) — Kandidat für einen kleinen Mix-Task.
 
 - [ ] **Ring-Collapse-Visual: Sichtprüfung + Commit (2026-07-28):** Implementierung auf `feature/ring-collapse-visual` fertig (Runner 16/16, headed-Smoke komplett, Screenshots in `artifacts/ring_collapse_visual/`). Es fehlen: Owner-Sichtprüfung (Warnband-Look, Segment-Sturz, Endzustand, Mobile-Performance mit +6 Draw-Calls und 23-MB-Lazy-Asset) und Commit-Freigabe. Beobachtung dabei (separat, NICHT visual): im headless SwiftShader-Chromium stirbt `requestAnimationFrame` beim ersten Launch eines lokalen Matches (auch am unveränderten Release-Stand reproduziert; headed/Produktion ok) — für Browser-Automationstests lokaler Modi headed testen.
 
