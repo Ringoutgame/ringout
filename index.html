@@ -4182,33 +4182,9 @@ arenaImg.onload=()=>{arenaImgReady=true;};
 arenaImg.onerror=()=>{arenaImgReady=false;};
 // arenaImg.src='arena.jpg';  // top-down Gold-Arena aktiv; fuer Foto-Hintergrund Zeile reaktivieren
 // ════ RENDER ════
-// ── Ring-Collapse-Overlay (2D+3D via OP-Projektion): markiert die kommende
-//    Gefahrenzone (waehrend der 10s-Warnung) bzw. die neue, kleinere Spielgrenze
-//    (nach dem Collapse). Rein visuell, keine Physik-/Zustandsaenderung. ──
-function collapseRingPath(radius){const N=72;for(let i=0;i<=N;i++){const a=i/N*Math.PI*2;const q=OP(cx+Math.cos(a)*radius,cy+Math.sin(a)*radius,0);if(i)ctx.lineTo(q.x,q.y);else ctx.moveTo(q.x,q.y);}ctx.closePath();}
-function collapseStrokeRing(radius,style,w){ctx.beginPath();collapseRingPath(radius);ctx.lineWidth=Math.max(1.5,w*(r3dActive?OP(cx,cy,0).s:1));ctx.strokeStyle=style;ctx.stroke();}
-function collapseFillZone(inner,outer,style){ctx.beginPath();collapseRingPath(outer);collapseRingPath(inner);ctx.fillStyle=style;ctx.fill('evenodd');}
-function drawCollapseOverlay(){
-  if(!collapseActive())return;
-  const warn=collapseState==='running'&&collapseRemainMs()<=COLLAPSE_WARNING_SECONDS*1000;
-  const collapsed=collapseState==='collapsed';
-  if(!warn&&!collapsed)return;
-  const p=.5+.5*Math.sin(performance.now()/1000*4.5);
-  if(warn){                                        // gefaehrdeter Aussenbereich (wird beim Collapse entfernt)
-    const inner=R*COLLAPSE_RADIUS_FACTOR;
-    collapseFillZone(inner,R,'rgba(255,70,45,'+(0.07+0.035*p).toFixed(3)+')');               // dezente Flaeche, Marmor bleibt sichtbar
-    collapseStrokeRing(R,'rgba(255,140,100,'+(0.22+0.10*p).toFixed(2)+')',BR*0.05);          // aktuelle Grenze: nur unterstuetzend
-    collapseStrokeRing(inner,'rgba(255,120,70,'+(0.20+0.10*p).toFixed(2)+')',BR*0.22);       // weicher Glow um die zukuenftige Grenze
-    collapseStrokeRing(inner,'rgba(255,100,55,'+(0.66+0.16*p).toFixed(2)+')',BR*0.11);       // klare helle Grenzlinie (am deutlichsten)
-    collapseStrokeRing(inner*0.99,'rgba(255,215,160,'+(0.40+0.14*p).toFixed(2)+')',BR*0.045); // feine innere Sekundaerlinie
-  }else if(collapsed){                             // neue, kleinere Grenze klar markieren; Aussenzone nur DEZENT ausblenden
-    if(collapseOuterR>R)collapseFillZone(R,collapseOuterR,'rgba(10,16,28,0.16)');   // ungueltige Zone nur leicht abgedunkelt (kein massiver Ring)
-    let a=0.60+0.14*p;
-    if(collapseFlash){const dt=(performance.now()-collapseFlash)/650;if(dt<1)a=Math.max(a,0.60+0.40*(1-dt));else collapseFlash=0;}
-    collapseStrokeRing(R,'rgba(255,110,70,'+a.toFixed(2)+')',BR*0.16);          // klare Hauptgrenze
-    collapseStrokeRing(R,'rgba(255,214,150,'+(0.35+0.2*p).toFixed(2)+')',BR*0.05); // feine helle Innenkante
-  }
-}
+// ── Ring-Collapse: KEIN Overlay mehr (nach Owner-Review entfernt) — weder Warn-
+//    noch Endzustands-Markierung. Warnung = echte Risse des 3D-Segment-Bands,
+//    Endzustand = echter Restkoerper, dessen Boden-Kante exakt auf R liegt. ──
 // ── Countdown-Verankerung: die grosse Zahl steht ueber der SICHTBAREN oberen Arenakante
 //    statt auf einer festen Viewport-Prozentposition. Nutzt die bestehende OP-Projektion
 //    (2D-Identitaet / 3D-Kamera), folgt damit Resize, Format und Kamera-Bob automatisch. ──
@@ -4278,8 +4254,6 @@ function draw(){
       drawCrystalRim(tnow);
     }
   }
-
-  drawCollapseOverlay();   // Ring-Collapse: Gefahrenzone / neue Grenze (Bodenmarkierung, unter den Kugeln)
 
   // particles UNDER balls (3D: auf die Bodenebene projiziert)
   for(const p of particles){const q=OP(p.x,p.y,0);ctx.globalAlpha=Math.max(0,p.life);ctx.beginPath();ctx.arc(q.x,q.y,p.size*q.s,0,7);ctx.fillStyle=p.col;ctx.fill();}
@@ -4697,6 +4671,141 @@ async function initR3D(){
      main.rotation.x=Math.PI/2;main.position.y=WALK_Y+.006;bGroup.add(main);mainBMat=main.material;
      const g=new THREE.Mesh(new THREE.TorusGeometry(9.5,.02,10,160),goldM);  // innerer Gold-Rahmen der Warnzone
      g.rotation.x=Math.PI/2;g.position.y=WALK_Y+.005;bGroup.add(g);}
+    // ── Ring-Collapse-Visual (verbindliches Modell): Im Uhr-Match bildet das
+    //    freigegebene Sechs-Segment-Band von ANFANG AN das komplette aeussere
+    //    Ringband der Arena — die Segment-Roots sind Vollkoerper (Top-Platte +
+    //    Drum-Wand bis zur Kelch-Oberkante) und tragen die ECHTEN Plattform-
+    //    Materialien (Marmor/Gold identisch uebernommen). Der innere Restkoerper
+    //    (Boden + Kelch) steht von Anfang an in endgueltiger Groesse und wird NIE
+    //    skaliert, verschoben oder getauscht. Warnfenster: Segmente wechseln
+    //    gestaffelt intakt -> gerissen (identische Silhouette, es erscheinen nur
+    //    die echten Risse der Bruchgeometrie). Abriss: AUSSCHLIESSLICH die sechs
+    //    Segmente + die auf ihnen liegenden Goldringe + die Grenz-Deko loesen sich
+    //    aus ihrer sichtbaren Position und stuerzen — kein Shrink/Settle/Snap.
+    //    Ladefehler -> exakt das bisherige Verhalten (uniformes Mitschrumpfen).
+    const COLV_WALK_TOP=.165, COLV_FALL_S=2.6;
+    const COLV_SEG_LIFT=COLV_WALK_TOP-.04;   // Arena-v2-Bandhoehe (.04) -> V1-Walkway-Hoehe (.165)
+    const colv={state:0,load:0,group:null,pairs:[],swap:false,t0:0,instant:false,lift:COLV_WALK_TOP,div:GLB_R};
+    // Bandtausch-Inventar: Walkway + V1-Drum-Deko + die beiden DURCHGEHENDEN Goldringe
+    // werden im Uhr-Match durch die Segment-Vollkoerper ersetzt — Gold liegt dann nur
+    // noch als segmentgebundene Bogen auf dem Band (endet an den Rissen, bricht und
+    // faellt mit jedem Segment). Die breiten Sockelteile direkt unter dem Band
+    // (TierBridge/Tier1/Rippen/Goldband) stuerzen beim Abriss mit — uebrig bleibt der
+    // Boden, der ueber dem schmaleren Kelchstumpf auskragt (echter Bruchrest statt
+    // sauber ausgeschnittenem Stueck auf komplettem Aussensockel).
+    const colvBandParts=[],colvPed=[];
+    let colvMatWalk=null,colvMatGold=null;
+    glb.scene.traverse(o=>{
+      if(!o.isMesh)return;
+      if(o.name==='Walkway'){colvMatWalk=o.material;colvBandParts.push(o);return;}
+      if(/^(GoldStepEdge|GoldWalkRing)$/.test(o.name)){if(!colvMatGold)colvMatGold=o.material;colvBandParts.push(o);return;}
+      if(/^(Cornice|GoldCornice|GoldCapital|WallRing|Pillar)/.test(o.name)){colvBandParts.push(o);return;}
+      if(o.name==='TierBridge'||o.name==='Tier1'||o.name==='GoldTier1'||/^(TierRib|TierStud)/.test(o.name))
+        {o.userData.colv={hy:o.position.y};colvPed.push(o);}
+    });
+    function colvLoad(){
+      colv.load=1;
+      new GLTFLoader().load('assets/ring_collapse/validation/six_segment_rollout/ring_collapse_six_segment_simplified.glb',g2=>{
+        const grp=new THREE.Group(),byNum={};
+        for(const r of [...g2.scene.children]){
+          const m=/^Segment(\d+)_/.exec(r.name);if(!m)continue;
+          // ECHTE Arena-Materialien uebernehmen (identische Maps/Parameter, kein
+          // "aehnlicher" Ton): Top + Waende = Plattform-Marmor, Gold-Trims =
+          // Plattform-Gold; nur die Riss-/Bruchflaechen behalten ihr Bruchmaterial.
+          r.traverse(o=>{if(!o.isMesh)return;o.castShadow=o.receiveShadow=true;
+            const mn=(o.material&&o.material.name)||'';
+            if(/^M_Arena(Top|Marble)/.test(mn)&&colvMatWalk)o.material=colvMatWalk;
+            else if(mn==='M_ArenaGold'&&colvMatGold)o.material=colvMatGold;});
+          r.position.y+=COLV_SEG_LIFT;              // Bandoberkante exakt auf Walkway-Hoehe
+          const p=r.position,rr=Math.hypot(p.x,p.z)||1;
+          r.userData.colv={hx:p.x,hy:p.y,hz:p.z,ux:p.x/rr,uz:p.z/rr,tx:-p.z/rr,tz:p.x/rr};
+          r.visible=false;grp.add(r);
+          if(!byNum[m[1]])byNum[m[1]]={};
+          byNum[m[1]][/_Cracked/i.test(r.name)?'cracked':'intact']=r;
+        }
+        colv.pairs=Object.keys(byNum).sort().map((n,i)=>{
+          const pr=byNum[n],ord=[3,0,4,1,5,2][i];
+          const ud=pr.cracked.userData.colv;
+          ud.delay=ord*.16;ud.tumble=.9+(i%3)*.5;    // gestaffelter Abriss (deterministisch)
+          pr.crackAt=ord*.16;                        // Riss-Erscheinung im Warnfenster, gleiche Ordnung
+          return pr;});
+        grp.visible=false;glb.scene.add(grp);colv.group=grp;
+        colv.state=0;colv.swap=false;colv.load=2;    // Stufe wird pro Frame neu abgeleitet
+      },undefined,()=>{colv.load=3;});
+    }
+    function colvStage(){
+      // Stufe 2 = exakt die shrinkFloor-Wahrheit (lokal UND online), nie eine eigene Entscheidung
+      if((collapseActive()&&collapseState==='collapsed')||(online&&onCollapsedGen===gen))return 2;
+      if(collapseActive()&&!menuVisible&&(collapseState==='expired'||(collapseState==='running'&&collapseRemainMs()<=COLLAPSE_WARNING_SECONDS*1000)))return 1;
+      if(online&&gameStarted&&onlineHasClock&&onlineRemainMs<=COLLAPSE_WARNING_SECONDS*1000)return 1;
+      return 0;
+    }
+    function colvCracks(prog){   // gestaffelt intakt -> gerissen; prog<0 = alles intakt
+      for(const pr of colv.pairs){const c=prog>=pr.crackAt;pr.intact.visible=!c;pr.cracked.visible=c;}
+    }
+    function colvSwap(on){       // Band = Segmente (Uhr-Match) bzw. Original (Menue/ohne Uhr)
+      if(colv.load!==2||colv.swap===on)return;
+      for(const o of colvBandParts)o.visible=!on;
+      if(colv.group)colv.group.visible=on;
+      if(on)colvCracks(-1);
+      colv.swap=on;
+    }
+    function colvResetFall(){    // Segmente/Sockelteile zurueck in die sichtbare Ruhelage
+      for(const pr of colv.pairs)for(const r of [pr.intact,pr.cracked]){
+        const h=r.userData.colv;r.position.set(h.hx,h.hy,h.hz);r.quaternion.identity();}
+      colvCracks(-1);
+      for(const o of colvPed){o.visible=true;o.position.y=o.userData.colv.hy;}
+      colv.instant=false;
+    }
+    const colvAx=new THREE.Vector3(),colvQ=new THREE.Quaternion();
+    function colvTick(nowS){
+      const want=colvStage();
+      const clockMatch=(collapseActive()&&!menuVisible)||(online&&gameStarted&&onlineHasClock);
+      if(colv.load===0&&clockMatch)colvLoad();     // laedt beim Matchstart (~60s Vorlauf)
+      if(colv.load!==2){colv.lift=COLV_WALK_TOP;colv.div=GLB_R;return;}   // Fallback = bisheriges Verhalten
+      if(want===0){
+        if(colv.state!==0){colvResetFall();colv.state=0;}
+        colvSwap(clockMatch);
+        colv.lift=COLV_WALK_TOP;colv.div=GLB_R;
+        return;
+      }
+      colvSwap(true);                              // Warn-/Collapse-Stufe setzt das Band voraus (auch nach spaetem Laden)
+      if(want===1){
+        colv.state=1;colv.lift=COLV_WALK_TOP;colv.div=GLB_R;
+        const rem=collapseActive()?collapseRemainMs():onlineRemainMs;
+        colvCracks(1-rem/(COLLAPSE_WARNING_SECONDS*1000));   // nur echte Risse, schrittweise mehr
+        return;
+      }
+      if(colv.state!==2){                          // Abriss startet exakt einmal (Spiel-Latch + eigener Zustand)
+        colv.instant=(colv.state===0);             // Rehydration/Replay: Endzustand sofort, ohne Animation
+        colvCracks(1);                             // bei 0s sind alle sechs Segmente gerissen
+        colv.t0=nowS;colv.state=2;
+      }
+      // Divisor 8.282 = 10.1*0.82: R ist im selben Frame x0.82 geschrumpft -> die
+      // Plattformgroesse bleibt exakt stetig; der Restkoerper bewegt sich NIE.
+      colv.div=8.282;colv.lift=0;
+      const t=colv.instant?COLV_FALL_S+9:nowS-colv.t0;
+      for(const pr of colv.pairs){
+        const s=pr.cracked,h=s.userData.colv,ts=t-h.delay;
+        if(ts<=0)continue;
+        if(colv.instant||ts>COLV_FALL_S+2){s.visible=false;continue;}
+        colvAx.set(h.tx,0,h.tz);
+        if(ts<.3){                                 // kurzes Loesen an den Rissen (Tremor)
+          colvQ.setFromAxisAngle(colvAx,Math.sin(ts*55)*.012);
+          s.quaternion.copy(colvQ);s.position.set(h.hx,h.hy,h.hz);
+        }else{                                     // Abkippen nach aussen, dann freier Fall mit Taumeln
+          const tf=ts-.3,hinge=Math.min(1,tf/.35)*.14,fall=15*tf*tf,drift=1.1*tf;
+          colvQ.setFromAxisAngle(colvAx,-(hinge+tf*h.tumble*.8));
+          s.quaternion.copy(colvQ);
+          s.position.set(h.hx+h.ux*drift,h.hy-fall,h.hz+h.uz*drift);
+          if(h.hy-fall<-60)s.visible=false;
+        }
+      }
+      // Breite Sockelteile unter dem Band stuerzen MIT (leicht verzoegert, gerade nach
+      // unten) — uebrig bleibt der ueber dem Kelchstumpf auskragende Bruchrest.
+      const td=t-.45,drop=td>0?15*td*td:0;
+      for(const o of colvPed){o.visible=!colv.instant&&drop<60;o.position.y=o.userData.colv.hy-drop;}
+    }
     // langsamer Gold-Ring unter der Spitze (Prototyp), rein dekorativ
     const ringG=new THREE.Group();
     {const r1=new THREE.Mesh(new THREE.TorusGeometry(358,5.2,10,96),goldM);
@@ -4781,9 +4890,15 @@ async function initR3D(){
         camP.ex=camera.position.x;camP.ey=camera.position.y;camP.ez=camera.position.z;
         camP.tx=orbitCtl.target.x;camP.ty=orbitCtl.target.y;camP.tz=orbitCtl.target.z;
         math=r3dCamMath(camP);}
-      const sc=R/GLB_R;
+      colvTick(nowS);
+      // Plattform: Divisor 10.1 -> 8.282 im Collapse-Frame (stetig, da R gleichzeitig
+      // x0.82 schrumpft) — der Restkoerper bewegt sich dadurch NIE. Im Uhr-Match ist
+      // die helle Grenz-Deko (bGroup) komplett aus: bis zum Bruch reine Marmor-Arena,
+      // die Warnung tragen ausschliesslich die echten Risse.
+      const sc=R/colv.div, scB=R/GLB_R;
       platform.scale.setScalar(sc);platform.position.y=bob;
-      bGroup.scale.setScalar(sc);bGroup.position.y=bob;
+      bGroup.visible=!colv.swap;
+      bGroup.scale.setScalar(scB);bGroup.position.y=bob;
       ringG.rotation.y=nowS*.07;ringG.position.y=-646+bob;
       cloudG.rotation.y=nowS*.006;                    // Wolken driften
       island.position.y=-404+Math.sin(nowS*.3+2.3)*35;
@@ -4811,7 +4926,7 @@ async function initR3D(){
           const drift=60*t/(1+1.2*t);                  // Schwung laeuft weiter, klingt weich ab
           const px=b.alive?b.x:f.x+f.vx*drift, pz=b.alive?b.y:f.y+f.vy*drift;   // Out-Ball driftet live (resultDrift)
           const rrF=Math.hypot(px-cx,pz-cy)/sc;
-          const liftF=rrF>8.55?Math.min(1,(rrF-8.55)/.3)*.165*sc:0;
+          const liftF=rrF>8.55?Math.min(1,(rrF-8.55)/.3)*colv.lift*sc:0;   // Stufenhoehe folgt der Collapse-Stufe
           m.visible=true;m.position.set(px,bob+liftF+BR-drop,pz);
           m.rotation.set((f.vy*60*t)/BR,0,-(f.vx*60*t)/BR);   // rollt sichtbar beim Fallen
           d.visible=drop<300;
@@ -4822,9 +4937,10 @@ async function initR3D(){
           // aus dem Render-Delta abgeleitet, Simulation/stepSim bleibt byte-unangetastet.
           if(prevP[i]){const rdx=b.x-prevP[i].x,rdy=b.y-prevP[i].y,rd=Math.hypot(rdx,rdy);
             if(rd>1e-3){rollAx.set(rdy/rd,0,-rdx/rd);rollQ.setFromAxisAngle(rollAx,rd/BR);m.quaternion.premultiply(rollQ);}}
-          // Kosmetische Auffahrt auf die Randweg-Stufe (GLB: Stufe bei 8.7, Hoehe 0.165)
+          // Kosmetische Auffahrt auf die Randweg-Stufe (GLB: Stufe bei 8.7; Hoehe folgt
+          // der Collapse-Stufe: Walkway .165 -> gerissenes Band .04 -> nach Collapse 0)
           const rrG=Math.hypot(b.x-cx,b.y-cy)/sc;
-          const lift=rrG>8.55?Math.min(1,(rrG-8.55)/.3)*.165*sc:0;
+          const lift=rrG>8.55?Math.min(1,(rrG-8.55)/.3)*colv.lift*sc:0;
           m.visible=true;m.position.set(b.x,bob+lift+BR,b.y);
           d.visible=true;d.material.opacity=.85;d.position.set(b.x,bob+lift+.6,b.y);
           if(!prevP[i])prevP[i]={x:b.x,y:b.y};else{prevP[i].x=b.x;prevP[i].y=b.y;}

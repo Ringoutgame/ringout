@@ -1,6 +1,6 @@
 # TODO.md — RingOut
 
-**Zuletzt aktualisiert:** 2026-07-28 (Online-Timer 60s/7s + Online-Collapse fertig implementiert und getestet — Commit/Push/Rules-Deploy stehen aus)
+**Zuletzt aktualisiert:** 2026-07-28 (Ring-Collapse visuell integriert auf `feature/ring-collapse-visual` — Sichtprüfung Owner + Commit ausstehend; Online-Timer 60s/7s ist committet, released und live deployt)
 
 Offene Aufgaben nach Priorität. Abgeschlossene Aufgaben werden nach `CHANGELOG.md` verschoben.
 
@@ -8,7 +8,9 @@ Offene Aufgaben nach Priorität. Abgeschlossene Aufgaben werden nach `CHANGELOG.
 
 ## P0 — Kritisch (Sicherheit / Stabilität)
 
-- [ ] **Online-Timer 60s/7s: Commit + Rules-Deploy + Live-Validierung (2026-07-28):** Implementierung auf `feature/online-timer-60s-7s` ist fertig und vollständig getestet (Runner 16/16, Emulator-Probe der Rules 25/25) — es fehlen: Owner-Freigabe für Commit/Push, **gebündeltes Publish der geänderten `firebase.rules.json`** (Deadline-Gate + ts-Pflicht greifen erst nach Deploy; alte Rules → Clients fallen automatisch ins v3-Verhalten ohne Uhr zurück, kein Deadlock) und ein Zwei-Geräte-Live-Test über echte Netze (gemeinsame Deadline, Timeout, Collapse-Turn identisch).
+- [x] ~~**Online-Timer 60s/7s: Commit + Rules-Deploy + Live-Validierung**~~ → **abgeschlossen (2026-07-28):** Commit `4a62bfb` per Fast-Forward auf main (Release-Worktree, Runner 16/16, Emulator-Probe 25/25), `firebase.rules.json` auf `ringout-87fbb` publiziert, GitHub-Pages-Client live verifiziert, Zwei-Client-Produktions-Smoke 17/17 (gemeinsame Uhr/Deadline, Timeout-No-Shot, Write-once, Lockstep, Collapse-Turn 8 identisch, Test-Räume abgeräumt). Offen bleibt nur der nachgelagerte Realgeräte-Test (s. FFA-Desync-Punkt).
+
+- [ ] **Ring-Collapse-Visual: Sichtprüfung + Commit (2026-07-28):** Implementierung auf `feature/ring-collapse-visual` fertig (Runner 16/16, headed-Smoke komplett, Screenshots in `artifacts/ring_collapse_visual/`). Es fehlen: Owner-Sichtprüfung (Warnband-Look, Segment-Sturz, Endzustand, Mobile-Performance mit +6 Draw-Calls und 23-MB-Lazy-Asset) und Commit-Freigabe. Beobachtung dabei (separat, NICHT visual): im headless SwiftShader-Chromium stirbt `requestAnimationFrame` beim ersten Launch eines lokalen Matches (auch am unveränderten Release-Stand reproduziert; headed/Produktion ok) — für Browser-Automationstests lokaler Modi headed testen.
 
 - [ ] **Live-Validierung: FFA-Desync-Fix mit 4–5 echten Handys (2026-07-10):** Der Fix (`commit()`/`onlineTurnValue` DB-authoritativ für eigene Moves) ist automatisiert (Flow-Suite F5 + F6, 4- und 5-Client-Regression, 64/64) und lokal am PC mit mehreren simulierten Clients verifiziert — identische Commit-Slots, gone-/alive-Flags, Reveal-Phase, Ballzustände, Gewinner, Scores und State-Hashes, kein Hänger. **Noch offen:** Realgeräte-Test mit 4–5 echten Handys über echte Mobilfunk-/WLAN-Netze, inkl. gezieltem Presence-Flap (Bildschirm sperren / App wechseln während der Aim-Phase) auf einem Gerät. Erst nach bestandenem Live-Test gilt der P0 als vollständig geschlossen.
 
