@@ -94,6 +94,9 @@ Offene Aufgaben nach Priorität. Abgeschlossene Aufgaben werden nach `CHANGELOG.
 
 ## P3 — Niedrig (Nice to have)
 
+- [ ] **Night-Profil (falls gewünscht): Umschalt-API wieder einziehen.** Seit „Dawn only" (2026-07-31) gibt es genau ein Environment-Profil; die Laufzeit-Umschaltung (`setEnvProfile`/`flushEnvProfile`/`envPending`) wurde als unerreichbar entfernt. Ein zweiter Look braucht sie zurück (Git-Historie: `feature/dawn-only-environment`) — die Map-Struktur `ENVIRONMENT_PROFILES` und der Loader `applyEnvProfile` sind dafür unverändert vorbereitet.
+- [ ] **Kleine Altlast im Environment-Loader (Beobachtung, kein Fehler):** `applyEnvProfile` wird nur noch mit `initial=true` aufgerufen — der Live-Zweig (`return` statt `throw`) sowie `envGen` (Async-Race-Token), `envTexPath` (Texture-Reuse) und das nur geschriebene `envApplied` sind derzeit inert. Bewusst unangetastet gelassen (Fallback-Kette = Garantie gegen schwarzen Himmel); aufräumen oder mit dem Night-Profil wieder aktivieren.
+
 - [ ] **Mehrsprachigkeit vorbereiten:** Alle deutschen Strings in ein Übersetzungs-Objekt auslagern (`de`, `en`), um i18n später ohne Refaktorierung des Markups zu ermöglichen.
 - [ ] **PWA-Manifest hinzufügen:** `manifest.json` mit App-Name, Icon, Themenfarbe, damit das Spiel auf Mobile als App installierbar ist.
 - [ ] **Tastatursteuerung (Bot-Modus):** Einfache Keyboard-Shortcuts für Desktop-Spieler (z. B. Pfeiltasten für Richtung, Leertaste für Abschuss).

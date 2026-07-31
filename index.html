@@ -690,10 +690,6 @@ body:not(.r3d) .ohero{height:12px}
     <div class="pills" id="vibeGrp" style="margin-bottom:16px">
       <button id="vibeOnBtn">ON</button><button id="vibeOffBtn">OFF</button>
     </div>
-    <div class="lbl" id="setEnvLbl" style="text-align:left;margin-top:6px">Environment</div>
-    <div class="pills" id="envGrp" style="margin-bottom:16px">
-      <button id="envDawnBtn" aria-pressed="true">Dawn</button><button id="envDayBtn" aria-pressed="false">Day</button>
-    </div>
     <button class="wbtn primary" id="setClose">OK</button>
   </div>
 </div>
@@ -921,17 +917,18 @@ let mode='bot',diff='hard',winTarget=3,soundOn=true;   // Bot ist hard-only im S
 const VIBE_SUPPORTED=typeof navigator!=='undefined'&&'vibrate' in navigator;
 let vibrationOn=(()=>{try{const v=localStorage.getItem('ringout_vibe');return v===null?true:v==='1';}catch(e){return true;}})();
 const VIBE_CLICK_MS=10, VIBE_CONFIRM_MS=25;   // normaler Klick vs. Play-Online-FFA-Start (deutlicher)
-// Environment-Profil (rein lokale, rein visuelle Praeferenz — kein Netzwerk/Physik/Firebase).
-// Gueltige Werte ausschliesslich 'dawn'|'day'; alles andere/fehlend -> 'dawn'. Versionierter Key.
+// Environment-Profil (rein lokal, rein visuell — kein Netzwerk/Physik/Firebase).
+// 'dawn' ist der einzige oeffentliche Look; es gibt bewusst keine Auswahl in den Settings.
+// Der versionierte Storage-Key bleibt: Altwerte frueherer Looks ('day', 'dawnGolden')
+// normalisieren beim Start auf 'dawn' und werden einmalig im Storage korrigiert.
 const ENV_PROFILE_KEY='ringout_environment_profile_v1';
-// Zwei finale Profile: 'dawn' (Default), 'day'. Alte Werte wie 'dawnGolden' migrieren auf 'dawn'.
-const ENV_PROFILE_VALUES=['dawn','day'];
+const ENV_PROFILE_VALUES=['dawn'];
 function normEnvProfile(v){return ENV_PROFILE_VALUES.indexOf(v)>=0?v:'dawn';}
 function readEnvProfile(){
   try{
     const raw=localStorage.getItem(ENV_PROFILE_KEY);
     const v=normEnvProfile(raw);
-    if(raw!==v)writeEnvProfile(v);   // z.B. altes 'dawnGolden' -> Storage einmalig auf 'dawn' korrigieren
+    if(raw!==v)writeEnvProfile(v);   // z.B. alter Wert 'day' -> Storage einmalig auf 'dawn' korrigieren
     return v;
   }catch(e){return 'dawn';}
 }
@@ -1375,7 +1372,6 @@ en:{tagline:'PULL BACK · RELEASE · KNOCK THEM OUT',chip:'FEATURED',
   infoFfa:'2–5 PLAYERS · HOST STARTS',infoVs:'2 PLAYERS · 2 BALLS EACH',infoBot:'VS AI · SOLO PRACTICE',
   bot1v1T:'1v1 VS BOT',bot1v1S:'1 BALL EACH',bot2v2T:'2v2 DUO VS BOT',bot2v2S:'2 BALLS EACH',comingSoon:'COMING SOON',
   setTitle:'SETTINGS',setLang:'Language',vibeLbl:'Vibration',vibeUnsupported:' (not available)',
-  env:'Environment',envDawn:'Dawn',envDay:'Day',
   onSubFfa:'Free for all · 2 to 5 players',onSubVs:'Versus · 2 players',
   createBtn:'Create',createSub:'Create a room and invite your friends.',
   joinTitle:'Join room',joinSub:'Join with the 4-letter room code.',orLbl:'OR',refresh:'REFRESH',
@@ -1416,7 +1412,6 @@ de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'FEATURED',
   infoFfa:'2–5 SPIELER · HOST STARTET',infoVs:'2 SPIELER · 2 KUGELN PRO SPIELER',infoBot:'GEGEN KI · SOLO-TRAINING',
   bot1v1T:'1v1 GEGEN BOT',bot1v1S:'1 KUGEL PRO SEITE',bot2v2T:'2v2 DUO GEGEN BOT',bot2v2S:'2 KUGELN PRO SEITE',comingSoon:'BALD VERFÜGBAR',
   setTitle:'EINSTELLUNGEN',setLang:'Sprache',vibeLbl:'Vibration',vibeUnsupported:' (nicht verfügbar)',
-  env:'Umgebung',envDawn:'Dämmerung',envDay:'Tag',
   onSubFfa:'Free for all · 2 bis 5 Spieler',onSubVs:'Versus · 2 Spieler',
   createBtn:'Erstellen',createSub:'Erstelle einen Raum und lade Freunde ein.',
   joinTitle:'Raum beitreten',joinSub:'Tritt mit dem 4-stelligen Code bei.',orLbl:'ODER',refresh:'AKTUALISIEREN',
@@ -1457,7 +1452,6 @@ tr:{tagline:'GERİ ÇEK · BIRAK · DIŞARI İT',chip:'FEATURED',
   infoFfa:'2–5 OYUNCU · HOST BAŞLATIR',infoVs:'2 OYUNCU · HERKESE 2 TOP',infoBot:'YAPAY ZEKÂYA KARŞI · SOLO ANTRENMAN',
   bot1v1T:'BOTA KARŞI 1v1',bot1v1S:'HERKESE 1 TOP',bot2v2T:'BOTA KARŞI 2v2 DUO',bot2v2S:'HERKESE 2 TOP',comingSoon:'ÇOK YAKINDA',
   setTitle:'AYARLAR',setLang:'Dil',vibeLbl:'Titreşim',vibeUnsupported:' (desteklenmiyor)',
-  env:'Ortam',envDawn:'Şafak',envDay:'Gündüz',
   onSubFfa:'Herkes tek · 2–5 oyuncu',onSubVs:'Karşılıklı · 2 oyuncu',
   createBtn:'Oda kur',createSub:'Bir oda kur ve arkadaşlarını davet et.',
   joinTitle:'Odaya katıl',joinSub:'4 haneli oda koduyla katıl.',orLbl:'VEYA',refresh:'YENİLE',
@@ -1514,8 +1508,6 @@ function applyLang(){
   setOn('langGrp',{en:'langEn',de:'langDe',tr:'langTr'}[LANG]);
   $('setVibeLbl').textContent=T('vibeLbl')+(VIBE_SUPPORTED?'':T('vibeUnsupported'));
   setOn('vibeGrp',vibrationOn?'vibeOnBtn':'vibeOffBtn');
-  $('setEnvLbl').textContent=T('env');$('envDawnBtn').textContent=T('envDawn');$('envDayBtn').textContent=T('envDay');
-  setOnAria('envGrp',envProfile==='day'?'envDayBtn':'envDawnBtn');
   // Online-Seite: Karten-Titel/-Texte, Toggle-Labels (nur der Text-Span — Icons bleiben)
   $('onCreate').textContent=T('createBtn');$('onJoin').textContent=T('join');$('onBack2').textContent=T('back');
   $('onCreateT').textContent=T('createRoom');$('onCreateS').textContent=T('createSub');
@@ -1542,10 +1534,6 @@ for(const[id,lg]of[['langEn','en'],['langDe','de'],['langTr','tr']])
 $('vibeOnBtn').disabled=$('vibeOffBtn').disabled=!VIBE_SUPPORTED;
 for(const[id,on]of[['vibeOnBtn',true],['vibeOffBtn',false]])
   $(id).onclick=()=>{vibrationOn=on;try{localStorage.setItem('ringout_vibe',on?'1':'0');}catch(e){}setOn('vibeGrp',id);};
-// Environment-Auswahl: Wahl sofort lokal speichern + UI aktualisieren; sichtbare Anwendung
-// uebernimmt der 3D-Layer (live nur im sicheren Idle, sonst beim naechsten Menue-Wechsel).
-for(const[id,key]of[['envDawnBtn','dawn'],['envDayBtn','day']])
-  $(id).onclick=()=>{envProfile=writeEnvProfile(key);setOnAria('envGrp',id);if(r3dActive&&r3d&&r3d.setEnvProfile)r3d.setEnvProfile(key);};
 $('cardFfa').onclick=()=>selectMenuMode('ffa');
 $('cardTriple').onclick=()=>selectMenuMode('triple');
 $('cardTeam').onclick=()=>selectMenuMode('team');
@@ -1627,7 +1615,6 @@ $('nameInput').addEventListener('input',e=>{ setOnlineName(e.target.value);
 $('rejoinBtn').onclick=()=>{ const sr=savedRoom(); if(!sr)return; $('onRejoin').style.display='none';
   attemptRejoin(sr.code).then(ok=>{ if(!ok&&savedRoom()&&!online)$('onRejoin').style.display=''; }); };
 function showMenu(){menuVisible=true;$('menu').style.display='flex';$('game').style.display='none';SFX.collapseStop();updateMenuPreview();resize();
-  if(r3dActive&&r3d&&r3d.flushEnvProfile)r3d.flushEnvProfile();   // waehrend des Matches aufgeschobenen Env-Wechsel jetzt (sicherer Idle) anwenden
   whenFB(()=>{if(fbReady()&&menuVisible)startPublicListing();});updScrollHint();}   // Home-Rooms-Vorschau reaktivieren
 function showGame(){menuVisible=false;$('menu').style.display='none';$('game').style.display='flex';stopPublicListing();updScrollHint();}   // Gameplay-Framing kommt via newGame()->resize()
 // Scroll-Cue der Startseite: transienter Onboarding-Hinweis — sichtbar nur solange
@@ -1984,7 +1971,7 @@ function wireMenuClickFeedback(){
   const IDS=['cardFfa','card2v2','cardBot','ctaBtn',
     'bot1v1','bot2v2','botBack','ffaOnline','onCreate','onJoin','onBack','onBack2','lobbyStart',
     'homeViewAll','homeCreate','homeJoinCode','pubRefresh','onVisPriv','onVisPub',
-    'menuSet','setClose','langEn','langDe','langTr','vibeOnBtn','vibeOffBtn','envDawnBtn','envDayBtn','menuBtn',
+    'menuSet','setClose','langEn','langDe','langTr','vibeOnBtn','vibeOffBtn','menuBtn',
     'startBtn','rematchBtn','ovMenuBtn','leaveCancel','leaveGo'];
   const SOUND_IDS=new Set(IDS.filter(id=>id!=='ctaBtn'));
   for(const id of IDS){ const el=$(id); if(el)wireBtnFx(el,SOUND_IDS.has(id)); }
@@ -4649,7 +4636,7 @@ $('repS3').onclick=()=>{repSpeed=0.25;updateRepBtns();};
 // Rein visuelle Himmel-/Licht-Presets. KEIN Einfluss auf Physik, Simulation,
 // Determinismus, Netzwerk oder Firebase — nur HDRI, Rotation, Exposure, IBL-
 // Intensitaet, Sonnenfarbe/-intensitaet/-richtung und Fog-Farbe.
-//   dawn = freigegebener Stand (Commit 94d17fc), day = neutraler Produktionslook (15a1a18).
+//   dawn = freigegebener Stand (Commit 94d17fc) und einziger oeffentlicher Look.
 //   sunAzimuth/sunElevation liegen im HDR-Raum; angewendeter Azimut = sunAzimuth - rotationY
 //   (haelt die sichtbare Sonne konsistent mit der Environment-Rotation).
 //   Night folgt spaeter als eigener Datensatz derselben Struktur — kein Codeumbau noetig.
@@ -4657,11 +4644,7 @@ const ENVIRONMENT_PROFILES={
   dawn:{ hdri:'assets/hdri/qwantani_sunset_puresky_2k.hdr',   // freigegebener Stand, NICHT anfassen
     rotationY:2.286, exposure:0.88, envIntensity:1.1,
     sunColor:0xffc27f, sunIntensity:3.0, sunAzimuth:0.6283, sunElevation:0.3142,
-    fogColor:0xecc9a0 },
-  day:{ hdri:'assets/hdri/qwantani_puresky_2k.hdr',
-    rotationY:0, exposure:1.05, envIntensity:1.0,
-    sunColor:0xffd9a0, sunIntensity:2.7, sunAzimuth:2.9121, sunElevation:0.3997,
-    fogColor:0xdfd9c6 }
+    fogColor:0xecc9a0 }
 };
 // Gemeinsame Fallback-Kette: jedes Profil probiert zuerst sein eigenes HDRI, dann diese
 // (deduped im Loader). Erhaelt die bisherige stabile Kette -> nie schwarzer Himmel.
@@ -4702,7 +4685,6 @@ async function initR3D(){
       next();});
     let envGen=0;            // Async-Race-Token: nur das jeweils neueste Ladeergebnis darf angewendet werden
     let envApplied=null;     // aktuell sichtbares Profil
-    let envPending=null;     // waehrend eines Matches gewaehlt, aber noch nicht sicher angewendet
     let envTexPath=null;     // Pfad der aktuell angewendeten HDR-Texture (fuer Reuse bei gleichem HDRI)
     // Laedt + wendet ein Profil an. Alte Environment-Ressource wird ERST nach erfolgreichem Apply
     // entsorgt; ueberholte (veraltete) Ladeergebnisse werden verworfen und sauber disposed.
@@ -5146,12 +5128,7 @@ async function initR3D(){
         zoom(f){camDistFT=Math.min(1.5,Math.max(.75,camDistFT*f));},
         reset(){camYawT=0;camPolarT=POLAR0;camDistFT=1;}
       },
-      render(){sync();renderer.render(scene,camera);},
-      // Profilwechsel aus den Settings: im sicheren Idle (Menue) live anwenden, waehrend eines
-      // Matches nur vormerken (kein HDRI-Swap in aktiver Simulation) -> flushEnvProfile beim Menue.
-      setEnvProfile(key){const k=ENVIRONMENT_PROFILES[key]?key:'dawn';
-        if(menuVisible){envPending=null;applyEnvProfile(k,false);}else{envPending=k;}},
-      flushEnvProfile(){if(envPending){const k=envPending;envPending=null;applyEnvProfile(k,false);}}
+      render(){sync();renderer.render(scene,camera);}
     };
     frame();
     // Optionaler Orbit-Testmodus (?r3d=1&orbit=1): NUR Ansicht, Zielen komplett deaktiviert
