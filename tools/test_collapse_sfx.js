@@ -100,6 +100,19 @@ const COLV_ALL = COLV_CONST_SRC + COLV_OBJ_SRC + COLV_TICK_SRC;
     !/NICHT[ -]COMMITTEN/.test(HTML));
   t('A: MATCH_COLLAPSE_SECONDS ist eine feste Ableitung (kein Preview-Ternary, Stufen x Zyklus)',
     /const MATCH_COLLAPSE_SECONDS=COLLAPSE_STAGE_COUNT\*COLLAPSE_CYCLE_SECONDS, COLLAPSE_WARNING_SECONDS=10/.test(HTML));
+  // ── Stufenbezogene Latch-Resets (Two-Stage-Vertrag): fuer Zyklus 2 werden
+  //    AUSSCHLIESSLICH die bestehenden Latches zurueckgesetzt — Warnsignal im
+  //    Core (collapseWarned/collapseCountShown in der nicht-terminalen Stufe von
+  //    applyCollapseRadius), Riss-/Bruch-/Segment-/Sockel-Latches als EIGENER
+  //    Satz je Ring (colv2), geloest ueber denselben colvRingReset-Pfad. ──
+  t('A: applyCollapseRadius loest Warn-/Countdown-Latches je nicht-terminaler Stufe',
+    /else\{collapseState='running';matchElapsedMs=0;matchTimerAnchor=null;[\s\S]*?collapseWarned=false;collapseCountShown=-1;\}/.test(HTML));
+  t('A: Ring 2 traegt einen EIGENEN Latch-Satz (crackMask/pedSnd/fragNext/segSndN)',
+    /const colv2=\{state:0,group:null,pairs:\[\],t0:0,instant:false,\s*crackMask:0,pedSnd:false,fragNext:0,segSndN:0\}/.test(HTML));
+  t('A: colvRingReset loest die Hoerereignis-Latches EINES Rings mit der Ruhelage',
+    /function colvRingReset\(Rr\)\{[\s\S]*?Rr\.crackMask=0;Rr\.pedSnd=false;Rr\.fragNext=0;Rr\.segSndN=0;[\s\S]*?fellSnd=false;\n\s*\}/.test(HTML));
+  t('A: keine neuen Sounddateien fuer Zyklus 2 (unveraendertes COL_SET-Inventar)',
+    /crack_1/.test(HTML) && !/crack_5|seg_4|break_main2|stage2_/.test(HTML));
 }
 
 // ══ B) ECHTER visueller Adapter frameweise (Kausalitaets-Simulation) ══
@@ -301,6 +314,31 @@ function makeColv(opts) {
   const nQuiet = events.length;
   for (let i = 0; i < 60 * 5; i++) step(1 / 60);
   t('B: nach Collapse 2 herrscht endgueltige Ruhe (kein drittes Ereignis)', events.length === nQuiet);
+  t('B: Ring-1-Latches bleiben verbraucht (kein Leck zwischen den Ringen)',
+    env.get('colv.crackMask') === 63 && env.get('colv2.crackMask') === 63 && env.get('colv2.segSndN') === 6);
+}
+{
+  // ── Menue-Unterbrechung MITTEN im Warnfenster 2: Bestand stumm, neue Risse klingen ──
+  const { env, events, pairs, step } = makeColv();
+  env.set('collapseStage', 1);                     // Stufe 1 instant (Zyklus 2 laeuft)
+  env.colv2.pairs = pairs.map((p) => {
+    const mk = () => ({ visible: false, position: { set() {} }, quaternion: { copy() {}, identity() {} }, userData: {}, traverse(cb) { cb(this); } });
+    const cracked = mk(); cracked.userData.colv = Object.assign({}, p.cracked.userData.colv, { fellSnd: false });
+    const intact = mk(); intact.visible = true; intact.userData.colv = { hx: 0, hy: 0, hz: 0 };
+    return { intact, cracked, crackAt: p.crackAt };
+  });
+  step(1 / 60);
+  env.set('remainMs', 10017);
+  for (let i = 0; i < 60 * 4; i++) step(1 / 60);   // ~3 Risse des zweiten Zyklus sind sichtbar+vertont
+  const n0 = events.filter(e => e.k === 'crack').length;
+  t('B: Warnfenster 2 laeuft (erste Risse vertont)', n0 >= 2 && n0 < 6, n0);
+  env.set('menuVisible', true); step(1 / 60); step(1 / 60);
+  env.set('menuVisible', false); step(1 / 60);     // Rueckkehr: Bestand wird STUMM uebernommen
+  const n1 = events.filter(e => e.k === 'crack').length;
+  t('B: Menue-Rueckkehr in Zyklus 2 vertont den Riss-Bestand NICHT erneut', n1 === n0, { n0, n1 });
+  for (let i = 0; i < 60 * 11 && env.get('remainMs') > 0; i++) step(1 / 60);
+  const n2 = events.filter(e => e.k === 'crack').length;
+  t('B: NEUE Risse nach der Rueckkehr klingen wieder (nur der Bestand war stumm)', n2 > n1, { n1, n2 });
 }
 
 // ══ C) ECHTE SFX-IIFE gegen Mock-AudioContext ══
