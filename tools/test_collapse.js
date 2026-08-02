@@ -234,10 +234,13 @@ const runOutTimer = (e, maxMs = 200000) => {
 // alles Folgende muss allein ueber die Settlement-/Result-Hooks laufen.
 const runToExpiry = (e) => { runOutTimer(e); e.applyLaunch(); };
 
-// ── 0) Konstanten exakt (unveraendert) ──
+// ── 0) Konstanten exakt (Two-Stage-Vertrag) ──
 {
   const c = make().consts();
-  t('MATCH_COLLAPSE_SECONDS=60', c.MATCH_COLLAPSE_SECONDS === 60);
+  t('COLLAPSE_STAGE_COUNT=2', c.COLLAPSE_STAGE_COUNT === 2);
+  t('COLLAPSE_CYCLE_SECONDS=30', c.COLLAPSE_CYCLE_SECONDS === 30);
+  t('MATCH_COLLAPSE_SECONDS=60 (Stufen x Zyklus)', c.MATCH_COLLAPSE_SECONDS === 60
+    && c.MATCH_COLLAPSE_SECONDS === c.COLLAPSE_STAGE_COUNT * c.COLLAPSE_CYCLE_SECONDS);
   t('TURN_LIMIT_SECONDS=7', c.TURN_LIMIT_SECONDS === 7);
   t('COLLAPSE_WARNING_SECONDS=10', c.COLLAPSE_WARNING_SECONDS === 10);
   t('FINAL_COUNTDOWN_SECONDS=5', c.FINAL_COUNTDOWN_SECONDS === 5);
@@ -266,10 +269,10 @@ const runToExpiry = (e) => { runOutTimer(e); e.applyLaunch(); };
   const e = make(); e.setMode('bot'); e.setBalls(twoBalls()); e.resetCollapseTimer();
   runOutTimer(e);
   const c = e.getCommits();
-  // 60 s Matchzeit / 7 s Zugzeit -> die Uhr laeuft ueber mehrere Planungsphasen aus;
-  // JEDE davon endet mit demselben Auto-Stand, der letzte faellt mit dem Matchende zusammen.
+  // 30 s Zyklus 1 / 7 s Zugzeit -> die Uhr laeuft ueber mehrere Planungsphasen aus;
+  // JEDE davon endet mit demselben Auto-Stand, der letzte faellt mit dem Zyklusende zusammen.
   const moves = e.getBotMoves();
-  t('Auto-Stand: ein Zug je abgelaufener Planungsphase', moves === Math.ceil(60 / 7));
+  t('Auto-Stand: ein Zug je abgelaufener Planungsphase', moves === Math.ceil(30 / 7));
   t('Auto-Stand: Spieler 0 bestaetigt', c.aimSet[0] === true);
   t('Auto-Stand: Stehen bleiben (dx=dy=0)', c.aim[0].dx === 0 && c.aim[0].dy === 0);
   t('Auto-Stand: State=expired', e.state.collapseState === 'expired');
@@ -283,7 +286,9 @@ const runToExpiry = (e) => { runOutTimer(e); e.applyLaunch(); };
   e.setTime(0); e.tickCollapse(0);
   advance(e, 0, 60000);
   t('Bestaetigter Zug wird NICHT ueberschrieben', e.getBotMoves() === 0);
-  t('Bestaetigt: State=expired', e.state.collapseState === 'expired');
+  // Zyklus 1 lief mit bestaetigtem Zug ab; der defensive tickCollapse-Pfad hat die
+  // Stufe ausgewertet und Zyklus 2 laeuft (kein Auto-Stand, kein zweiter Ablauf).
+  t('Bestaetigt: Stufe 1 ausgewertet, Zyklus 2 laeuft', e.state.collapseStage === 1 && e.state.collapseState === 'running');
 }
 
 // ── 5+6+7) Collapse erst nach Physik-Settlement, genau einmal, Faktor 0.82 ──
@@ -292,14 +297,15 @@ const runToExpiry = (e) => { runOutTimer(e); e.applyLaunch(); };
   e.setR(1000); runOutTimer(e);              // expired, Auto-Stand -> phase 'reveal'
   e.setPhase('sim'); e.tickCollapse(120000); // Physik laeuft: KEIN Collapse
   t('Kein Collapse waehrend Physik', e.getR() === 1000 && e.state.collapseState === 'expired');
-  e.setPhase('aim'); e.tickCollapse(120000); // Settlement -> Collapse (setzt danach phase='sim')
+  e.setPhase('aim'); e.tickCollapse(120000); // Settlement -> Collapse 1 (Stufe 1)
   t('Collapse-Radius = R*0.82', near(e.getR(), 820));
-  t('Collapse-State=collapsed', e.state.collapseState === 'collapsed');
+  t('Collapse 1: Stufe 1, Zyklus 2 laeuft wieder', e.state.collapseStage === 1 && e.state.collapseState === 'running');
+  t('Collapse 1: Timer fuer Zyklus 2 neu gestartet', e.state.matchElapsedMs === 0);
   t('Collapse-Core ruft KEINEN Direktsound (Hoerereignis kommt read-only aus dem visuellen Adapter)', e.sfx.collapse === 0);
   t('Collapse wertet ohne zusaetzlichen Sim-Frame aus', e.getPhase() === 'aim');
   e.runSim();                                 // nichts mehr zu simulieren
-  e.setPhase('aim'); e.tickCollapse(120000);  // erneut -> kein zweiter Collapse
-  t('Collapse nur einmal (Radius stabil)', near(e.getR(), 820) && e.sfx.collapse === 0);
+  e.setPhase('aim'); e.tickCollapse(120000);  // erneut -> kein zweiter Collapse ohne weitere 30 s Planungszeit
+  t('Kein zweiter Collapse ohne neuen Zyklusablauf (Radius stabil)', near(e.getR(), 820) && e.sfx.collapse === 0);
 }
 
 // ── Collapse-Sound: der Core-Block ist SOUNDFREI. Warnrisse, Hauptbruch, Segment-
@@ -388,6 +394,7 @@ const runToExpiry = (e) => { runOutTimer(e); e.applyLaunch(); };
   e.setPhase('aim'); e.tickCollapse(120000); e.runSim();
   e.resetCollapseTimer(); e.setR(1000);
   t('Rematch: State=running', e.state.collapseState === 'running');
+  t('Rematch: Stufe 0', e.state.collapseStage === 0);
   t('Rematch: elapsed=0', e.state.matchElapsedMs === 0);
   t('Rematch: collapseRadius=0', e.state.collapseRadius === 0);
   t('Rematch: collapseOuterR=0', e.state.collapseOuterR === 0);
@@ -429,13 +436,13 @@ const runToExpiry = (e) => { runOutTimer(e); e.applyLaunch(); };
   const e = make(); e.setMode('bot'); e.setBalls(twoBalls()); e.resetCollapseTimer();
   e.setPhase('aim'); e.setAim([false,false]);
   e.setTime(0); e.tickCollapse(0);
-  advanceTurns(e, 0, 50000);                 // remain 10 -> warn
+  advanceTurns(e, 0, 20000);                 // remain 10 -> warn
   t('10s-Warnung genau einmal', e.sfx.warn === 1);
   t('Bei 10s noch kein Countdown-Beep', e.sfx.tick === 0);
-  advanceTurns(e, 50000, 55000);             // remain 5 -> Beep 5
-  e.tickCollapse(55000);                     // gleiche Sekunde -> kein Doppel-Beep
+  advanceTurns(e, 20000, 25000);             // remain 5 -> Beep 5
+  e.tickCollapse(25000);                     // gleiche Sekunde -> kein Doppel-Beep
   t('Countdown 5: ein Beep', e.sfx.tick === 1);
-  advanceTurns(e, 55000, 59990);             // 4,3,2,1 in normalen Frames
+  advanceTurns(e, 25000, 29990);             // 4,3,2,1 in normalen Frames
   t('Countdown 5..1: genau 5 Beeps', e.sfx.tick === 5);
   t('Warnung bleibt einmalig', e.sfx.warn === 1);
 }
@@ -456,7 +463,7 @@ const runToExpiry = (e) => { runOutTimer(e); e.applyLaunch(); };
   e.stepSim();                                   // Settlement -> settleCollapse -> doCollapse
   const b = e.getBalls();
   const snap = b.map(o => ({ x: o.x, y: o.y }));
-  t('Rest: Collapse im Settlement ausgeloest', e.state.collapseState === 'collapsed');
+  t('Rest: Collapse im Settlement ausgeloest', e.state.collapseStage === 1);
   t('Rest: vx/vy/spin aller lebenden Kugeln = 0',
     b.every(o => !o.alive || (o.vx === 0 && o.vy === 0 && o.spin === 0)));
   e.runSim();                                    // Auswertung gegen den neuen Radius
@@ -475,9 +482,10 @@ const runToExpiry = (e) => { runOutTimer(e); e.applyLaunch(); };
   const log = e.getPhaseLog();
   t('Aim-Luecke: kein Phasenzustand aim+expired', !log.includes('aim:expired'));
   t('Aim-Luecke: Collapse direkt aus dem Settlement (sim:expired)', log.includes('sim:expired'));
-  t('Aim-Luecke: Collapse abgeschlossen', e.state.collapseState === 'collapsed');
-  t('Aim-Luecke: neue Planungsphase erst nach dem Collapse', log.indexOf('aim:collapsed') > log.indexOf('sim:expired'));
-  t('Aim-Luecke: ein Auto-Stand je abgelaufener Planungsphase', e.getBotMoves() === Math.ceil(60 / 7));
+  t('Aim-Luecke: Collapse abgeschlossen', e.state.collapseStage === 1);
+  t('Aim-Luecke: neue Planungsphase erst nach dem Collapse',
+    log.slice(log.indexOf('sim:expired') + 1).some(p => p.startsWith('aim:')) && !log.includes('aim:expired'));
+  t('Aim-Luecke: ein Auto-Stand je abgelaufener Planungsphase', e.getBotMoves() === Math.ceil(30 / 7));
 }
 {
   // Solange expired gilt, wird JEDER Benutzer-Commitpfad tatsaechlich abgewiesen —
@@ -621,7 +629,7 @@ const runToExpiry = (e) => { runOutTimer(e); e.applyLaunch(); };
   e.startDrag(3, 0, 0);
   e.setTime(0); e.tickCollapse(0); advanceTurns(e, 0, 60000);
   e.applyLaunch(); e.runSim();
-  t('Rematch-Vorbedingung: Collapse gelaufen', e.state.collapseState === 'collapsed');
+  t('Rematch-Vorbedingung: Collapse gelaufen', e.state.collapseStage === 1);
   e.resetCollapseTimer(); e.setR(1000);
   const d = e.getDrag();
   t('Rematch: Eingabesperre aufgehoben', e.inputLocked() === false);
@@ -643,12 +651,12 @@ const runToExpiry = (e) => { runOutTimer(e); e.applyLaunch(); };
   e.setOnline(false); e.setPhase('over'); e.doCollapse();
   t('Matchende: doCollapse wirkungslos', e.getR() === 1000 && e.state.collapseState === 'expired');
   e.setPhase('aim'); e.doCollapse();
-  t('Bot lokal: doCollapse wirkt', near(e.getR(), 820) && e.state.collapseState === 'collapsed');
+  t('Bot lokal: doCollapse wirkt', near(e.getR(), 820) && e.state.collapseStage === 1);
   for (const m of ['pvp', 'ffa']) {
     const x = make(); x.setMode(m); x.setBalls(twoBalls()); x.resetCollapseTimer(); x.setR(1000);
     runOutTimer(x);
     x.setPhase('aim'); x.doCollapse();
-    t(m + ' lokal: doCollapse wirkt', near(x.getR(), 820) && x.state.collapseState === 'collapsed');
+    t(m + ' lokal: doCollapse wirkt', near(x.getR(), 820) && x.state.collapseStage === 1);
   }
 }
 t('Kein Debug-Hook __cdbg mehr im Produktcode', !/__cdbg/.test(HTML));
@@ -659,11 +667,11 @@ t('Kein cdbg-Query-Flag mehr im Produktcode', !/cdbg/.test(HTML));
   const e = make(); e.setMode('bot'); e.setBalls(twoBalls()); e.resetCollapseTimer();
   e.setPhase('aim'); e.setAim([false,false]);
   e.setTime(0); e.tickCollapse(0);
-  advanceTurns(e, 0, 55000);                            // remain 5 -> Beep 5
+  advanceTurns(e, 0, 25000);                            // remain 5 -> Beep 5
   t('Tab: Countdown startet bei 5', e.state.collapseCountShown === 5 && e.sfx.tick === 1);
   e.pauseCollapseTimer();                               // visibilitychange -> hidden
-  e.setTime(200000); e.tickCollapse(200000);            // 85 s Hintergrundzeit
-  t('Tab: kein Zeitdelta-Sprung', near(e.state.matchElapsedMs, 55000));
+  e.setTime(200000); e.tickCollapse(200000);            // lange Hintergrundzeit
+  t('Tab: kein Zeitdelta-Sprung', near(e.state.matchElapsedMs, 25000));
   t('Tab: Timer laeuft nicht ab', e.state.collapseState === 'running');
   t('Tab: keine Stufe uebersprungen', e.state.collapseCountShown === 5 && e.sfx.tick === 1);
   advanceTurns(e, 200000, 205000);
@@ -676,19 +684,19 @@ t('Kein cdbg-Query-Flag mehr im Produktcode', !/cdbg/.test(HTML));
   const e = make(); e.setMode('bot'); e.setBalls(twoBalls()); e.resetCollapseTimer();
   e.setPhase('aim'); e.setAim([false,false]);
   e.setTime(0); e.tickCollapse(0);
-  advanceTurns(e, 0, 56500);                            // remain 3.5 -> Zahl 4
+  advanceTurns(e, 0, 26500);                            // remain 3.5 -> Zahl 4
   t('Countdown: in aim sichtbar', e.state.collapseCountVisible === true && e.state.collapseCountShown === 4);
   const beeps = e.sfx.tick;
   for (const p of ['reveal', 'sim', 'result', 'over']) {
-    e.setPhase(p); e.tickCollapse(56500);
+    e.setPhase(p); e.tickCollapse(26500);
     t('Countdown: in ' + p + ' verborgen', e.state.collapseCountVisible === false);
   }
-  e.setPhase('aim'); e.setMenu(true); e.tickCollapse(56500);
+  e.setPhase('aim'); e.setMenu(true); e.tickCollapse(26500);
   t('Countdown: im Menue verborgen', e.state.collapseCountVisible === false);
-  e.setMenu(false); e.tickCollapse(56500);              // zurueck in die Planungsphase
+  e.setMenu(false); e.tickCollapse(26500);              // zurueck in die Planungsphase
   t('Countdown: in aim wieder sichtbar', e.state.collapseCountVisible === true);
   t('Countdown: Wiedereinblenden ohne zweiten Beep', e.sfx.tick === beeps);
-  t('Countdown: Timerwert unveraendert', near(e.state.matchElapsedMs, 56500));
+  t('Countdown: Timerwert unveraendert', near(e.state.matchElapsedMs, 26500));
   t('Countdown: State unveraendert', e.state.collapseState === 'running');
 }
 
@@ -718,11 +726,11 @@ const roundEndSetup = (e, score = [0,0], winTarget = 3) => {
   e.runLoop();                                 // sim -> result -> afterResult -> startRound
   const log = e.getPhaseLog();
   t('Result: Runde endet ueber den echten Ring-out-Pfad', log.filter(p => p.startsWith('result:')).length === 1);
-  t('Result: Collapse VOR startRound verarbeitet', e.state.collapseState === 'collapsed');
+  t('Result: Collapse VOR startRound verarbeitet', e.state.collapseStage === 1);
   t('Result: Radius exakt R*0.82 (kein doppelter Schrumpf)', near(e.getR(), 820));
   t('Result: kein 0.97*0.82', !near(e.getR(), 795.4, 1e-3));
   t('Result: kein aim+expired', !log.includes('aim:expired'));
-  t('Result: neue Runde in aim+collapsed', e.getPhase() === 'aim' && log[log.length - 1] === 'aim:collapsed');
+  t('Result: neue Runde in aim (Zyklus 2 laeuft)', e.getPhase() === 'aim' && log[log.length - 1] === 'aim:running');
   t('Result: Eingabesperre aufgehoben', e.inputLocked() === false);
   t('Result: kein Core-Direktsound (Kopplung im visuellen Adapter)', e.sfx.collapse === 0);
   t('Result: Punkt an Spieler 0', e.getScore()[0] === 1 && e.getScore()[1] === 0);
@@ -771,14 +779,14 @@ const roundEndSetup = (e, score = [0,0], winTarget = 3) => {
   const e = make(); e.setMode('bot'); e.setBalls(twoBalls()); e.resetCollapseTimer();
   e.setPhase('aim'); e.setAim([false,false]);
   e.setTime(0); e.tickCollapse(0);
-  advanceTurns(e, 0, 55500);                             // remain 4.5 -> Zahl 5 sichtbar
+  advanceTurns(e, 0, 25500);                             // remain 4.5 -> Zahl 5 sichtbar
   const el = e.state.matchElapsedMs, beeps = e.sfx.tick, movesBefore = e.getBotMoves();
   t('Hidden: Countdown vor dem Wechsel sichtbar', e.state.collapseCountVisible === true);
   e.setHidden(true);
-  e.setTime(55550); e.tickCollapse(55550);               // erster Hintergrund-Tick
+  e.setTime(25550); e.tickCollapse(25550);               // erster Hintergrund-Tick
   t('Hidden: erster Tick verbraucht keine Zeit', near(e.state.matchElapsedMs, el));
   t('Hidden: Countdown ausgeblendet', e.state.collapseCountVisible === false);
-  for (let k = 2; k <= 40; k++) { const tt = 55500 + k * 50; e.setTime(tt); e.tickCollapse(tt); }
+  for (let k = 2; k <= 40; k++) { const tt = 25500 + k * 50; e.setTime(tt); e.tickCollapse(tt); }
   t('Hidden: auch weitere Ticks verbrauchen keine Zeit', near(e.state.matchElapsedMs, el));
   t('Hidden: keine Beeps', e.sfx.tick === beeps);
   t('Hidden: kein Timerablauf', e.state.collapseState === 'running');
@@ -798,19 +806,19 @@ const roundEndSetup = (e, score = [0,0], winTarget = 3) => {
   const e = make(); e.setMode('bot'); e.setBalls(twoBalls()); e.resetCollapseTimer();
   e.setPhase('aim'); e.setAim([false,false]);
   e.setTime(0); e.tickCollapse(0);
-  advanceTurns(e, 0, 54800);                             // remain 5.2 s: Countdown noch nicht gestartet
+  advanceTurns(e, 0, 24800);                             // remain 5.2 s: Countdown noch nicht gestartet
   t('Sprung: vor dem Stall kein Countdown', e.state.collapseCountShown === -1 && e.sfx.tick === 0);
   const movesStall = e.getBotMoves();                     // Auto-Stands der bisherigen Zuege
-  const stall = 57800;                                   // 3 s Main-Thread-Stall in EINEM Frame
+  const stall = 27800;                                   // 3 s Main-Thread-Stall in EINEM Frame
   e.setTime(stall); e.tickCollapse(stall);
-  t('Sprung: Delta auf MAX_COLLAPSE_TICK_DELTA_MS geklemmt', near(e.state.matchElapsedMs, 54800 + 250));
+  t('Sprung: Delta auf MAX_COLLAPSE_TICK_DELTA_MS geklemmt', near(e.state.matchElapsedMs, 24800 + 250));
   t('Sprung: keine Stufe uebersprungen (5 zuerst)', e.state.collapseCountShown === 5 && e.sfx.tick === 1);
   t('Sprung: kein vorzeitiger Timerablauf', e.state.collapseState === 'running');
   t('Sprung: kein vorzeitiger Auto-Stand', e.getBotMoves() === movesStall);
   advanceTurns(e, stall, stall + 6000);                  // weiter in normalen Frames
   t('Sprung: alle fuenf Stufen genau einmal', e.sfx.tick === 5);
   t('Sprung: Timerablauf regulaer', e.state.collapseState === 'expired');
-  t('Sprung: ein Auto-Stand je abgelaufener Planungsphase', e.getBotMoves() === Math.ceil(60 / 7));
+  t('Sprung: ein Auto-Stand je abgelaufener Planungsphase', e.getBotMoves() === Math.ceil(30 / 7));
 }
 
 // ── 18) Normale Frameraten bleiben zeitlich exakt (Klemmung ohne Nebenwirkung) ──
@@ -953,14 +961,59 @@ const advanceCover = (e, fromMs, toMs, step = FRAME_MS) => {
   t('Runde: danach greift der Auto-Stand', e.getCommits().aimSet[0] === true);
 }
 {
-  // 60-s-Ablauf im Hotseat: alle noch offenen Seats stehen, danach der Collapse.
+  // Zyklusablauf im Hotseat: alle noch offenen Seats stehen, danach der Collapse.
   const e = make(); e.setMode('pvp'); e.resetCollapseTimer(); e.setR(1000);
   e.setBalls(twoBalls());
   runOutTimer(e);
-  t('Hotseat 60 s: Timer abgelaufen', e.state.collapseState !== 'running');
-  t('Hotseat 60 s: kein offener Seat mehr', e.getCommits().aimSet.every((x) => x === true));
-  e.setPhase('aim'); e.tickCollapse(200000);             // Settlement -> Collapse
-  t('Hotseat 60 s: Collapse ausgeloest', near(e.getR(), 820) && e.state.collapseState === 'collapsed');
+  t('Hotseat 30 s: Timer abgelaufen', e.state.collapseState !== 'running');
+  t('Hotseat 30 s: kein offener Seat mehr', e.getCommits().aimSet.every((x) => x === true));
+  e.setPhase('aim'); e.tickCollapse(200000);             // Settlement -> Collapse 1
+  t('Hotseat 30 s: Collapse ausgeloest', near(e.getR(), 820) && e.state.collapseStage === 1);
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// TWO-STAGE — zwei Zyklen a 30 s: Warnfenster 20-30 s und 50-60 s, Collapse 1
+// bei 30 s, Timer-Neustart, Collapse 2 bei 60 s (terminal), kein dritter Collapse,
+// warn-/tick-Beeps je Zyklus exakt einmal je Stufe.
+// ══════════════════════════════════════════════════════════════════════════════
+{
+  const e = make(); e.setMode('bot'); e.setBalls(twoBalls()); e.resetCollapseTimer(); e.setR(1000);
+  // Zyklus 1: Warnung exakt bei 20 s (10 s Rest), Collapse 1 bei 30 s.
+  e.setPhase('aim'); e.setAim([false,false]); e.setTime(0); e.tickCollapse(0);
+  advanceTurns(e, 0, 19900);
+  t('2S: vor 20 s keine Warnung', e.sfx.warn === 0);
+  advanceTurns(e, 19900, 20100);
+  t('2S: Warnfenster 1 beginnt bei 20 s', e.sfx.warn === 1);
+  advanceTurns(e, 20100, 30000);
+  t('2S: Zyklus 1 laeuft bei 30 s ab', e.state.collapseState === 'expired');
+  e.applyLaunch(); e.runSim();
+  t('2S: Collapse 1 -> Radius 820, Stufe 1', near(e.getR(), 820) && e.state.collapseStage === 1);
+  t('2S: Timer-Neustart fuer Zyklus 2', e.state.collapseState === 'running' && e.state.matchElapsedMs === 0);
+  t('2S: Warn-/Countdown-Latches fuer Zyklus 2 geloest', e.state.collapseWarned === false && e.state.collapseCountShown === -1);
+  t('2S: Kugeln/Score unangetastet', e.getBalls().every(b => b.alive) && e.getScore()[0] === 0 && e.getScore()[1] === 0);
+  t('2S: Countdown-Beeps Zyklus 1 = 5', e.sfx.tick === 5);
+  // Zyklus 2: erneut exakt 30 s, Warnung wieder exakt einmal, Collapse 2 terminal.
+  const t0 = 60000;                                      // neue Zeitbasis, Anker ist geloest
+  e.setPhase('aim'); e.setAim([false,false]); e.setTime(t0); e.tickCollapse(t0);
+  advanceTurns(e, t0, t0 + 19900);
+  t('2S: Zyklus 2 ohne fruehe Warnung', e.sfx.warn === 1);
+  advanceTurns(e, t0 + 19900, t0 + 20100);
+  t('2S: Warnfenster 2 beginnt bei 50 s Gesamtplanungszeit', e.sfx.warn === 2);
+  advanceTurns(e, t0 + 20100, t0 + 30000);
+  t('2S: Zyklus 2 laeuft bei 60 s Gesamtplanungszeit ab', e.state.collapseState === 'expired');
+  e.applyLaunch(); e.runSim();
+  t('2S: Collapse 2 -> Radius 672.4, Stufe 2 terminal',
+    near(e.getR(), 672.4) && e.state.collapseStage === 2 && e.state.collapseState === 'collapsed');
+  t('2S: shrinkFloor friert auf 672.4 ein', near(e.shrinkFloor(), 672.4));
+  t('2S: Countdown-Beeps beider Zyklen = 2x5', e.sfx.tick === 10);
+  t('2S: Warnsignal je Zyklus exakt einmal (2)', e.sfx.warn === 2);
+  // Kein dritter Collapse: weitere Planungszeit laeuft nie wieder ab.
+  e.setPhase('aim'); e.setAim([false,false]);
+  const t1 = 200000; e.setTime(t1); e.tickCollapse(t1);
+  advanceTurns(e, t1, t1 + 45000);
+  t('2S: kein dritter Collapse (Radius stabil, terminal)',
+    near(e.getR(), 672.4) && e.state.collapseState === 'collapsed' && e.state.collapseStage === 2);
+  t('2S: keine weiteren Beeps im terminalen Zustand', e.sfx.tick === 10 && e.sfx.warn === 2);
 }
 // ══════════════════════════════════════════════════════════════════════════════
 // ONLINE-UHR — reine Ableitung aus Serverstempeln. Dieselben Eingaben ergeben auf
@@ -971,20 +1024,30 @@ const advanceCover = (e, fromMs, toMs, step = FRAME_MS) => {
   const T0 = 1700000000000;
   // Frischer Match: Phase 0 gerade gestempelt.
   const c0 = e.onlineClock({ 0: T0 }, {}, 0, T0);
-  t('online: Start mit voller Matchzeit 60 s', c0.remainingMs === 60000 && c0.usedMs === 0);
+  t('online: Start mit voller Zykluszeit 30 s', c0.remainingMs === 30000 && c0.usedMs === 0);
   t('online: Zugfenster 7 s, gemeinsame Deadline', c0.windowMs === 7000 && c0.deadlineAt === T0 + 7000);
   // Zwei Clients mit unterschiedlicher lokaler Uhr sehen DIESELBE Deadline.
   const a = e.onlineClock({ 0: T0 }, {}, 0, T0 + 1234);
   const b = e.onlineClock({ 0: T0 }, {}, 0, T0 + 5678);
   t('online: zwei Clients, identische Deadline', a.deadlineAt === b.deadlineAt && a.deadlineAt === T0 + 7000);
-  t('online: Restzeit folgt der Serverzeit', a.remainingMs === 60000 - 1234 && b.remainingMs === 60000 - 5678);
+  t('online: Restzeit folgt der Serverzeit', a.remainingMs === 30000 - 1234 && b.remainingMs === 30000 - 5678);
   // Abgeschlossene Phase: gezaehlt wird die Spanne Phasenstempel -> letzter Zug-ts.
   const c1 = e.onlineClock({ 0: T0, 1: T0 + 900000 }, { 0: T0 + 3000 }, 1, T0 + 900000);
-  t('online: Physik-/Revealzeit verbraucht keine Matchzeit', c1.usedMs === 3000 && c1.remainingMs === 57000);
+  t('online: Physik-/Revealzeit verbraucht keine Matchzeit', c1.usedMs === 3000 && c1.remainingMs === 27000);
   t('online: neue Phase erhaelt wieder volle 7 s', c1.windowMs === 7000 && c1.deadlineAt === T0 + 900000 + 7000);
   // Ueberzogene Phase wird auf das Fenster geklemmt (nie mehr als 7 s je Zug).
   const c2 = e.onlineClock({ 0: T0 }, { 0: T0 + 12000 }, 1, T0 + 12000);
-  t('online: verbrauchte Zugzeit ist auf 7 s geklemmt', c2.usedMs === 7000 && c2.remainingMs === 53000);
+  t('online: verbrauchte Zugzeit ist auf 7 s geklemmt', c2.usedMs === 7000 && c2.remainingMs === 23000);
+  // Zyklusgrenze 1: das letzte Fenster VOR 30 s wird auf die Zyklus-Restzeit gekuerzt.
+  const stampsCyc = {}, tsCyc = {};
+  for (let k = 0; k < 4; k++) { stampsCyc[k] = T0 + k * 100000; tsCyc[k] = T0 + k * 100000 + 7000; }
+  stampsCyc[4] = T0 + 400000;
+  const cc = e.onlineClock(stampsCyc, tsCyc, 4, T0 + 400000);
+  t('online: Fenster vor der 30-s-Grenze auf Zyklusrest gekuerzt (2 s)', cc.windowMs === 2000 && cc.remainingMs === 2000);
+  // Nach der Zyklusgrenze zeigt die Uhr die Restzeit des ZWEITEN Zyklus.
+  const tsCyc2 = Object.assign({}, tsCyc, { 4: T0 + 400000 + 2000 });
+  const cc2 = e.onlineClock(Object.assign({}, stampsCyc, { 5: T0 + 500000 }), tsCyc2, 5, T0 + 500000);
+  t('online: nach der 30-s-Grenze laeuft der zweite 30-s-Zyklus', cc2.remainingMs === 30000 && cc2.windowMs === 7000);
   // Abgeschlossene Phase ohne ts (Altbestand): konservativ das volle Fenster.
   const c3 = e.onlineClock({ 0: T0 }, {}, 1, T0);
   t('online: Phase ohne Commit-ts wird mit vollem Fenster verrechnet', c3.usedMs === 7000);
@@ -999,9 +1062,9 @@ const advanceCover = (e, fromMs, toMs, step = FRAME_MS) => {
   t('online: Restzeit erreicht exakt 0', c5.remainingMs === 0 && c5.usedMs === 60000);
   const c6 = e.onlineClock(stampsEnd, tsEnd, 8, T0 + 800000 + 99999);
   t('online: Restzeit wird nie negativ', c6.remainingMs === 0 && c6.usedMs === 60000);
-  // Ohne Serverstempel laeuft nichts (v3-Bestandsraum ohne Uhr).
+  // Ohne Serverstempel laeuft nichts (Bestandsraum ohne Uhr).
   const c7 = e.onlineClock({}, {}, 0, T0);
-  t('online: ohne Phasenstempel keine Deadline und keine Zeit', c7.deadlineAt === null && c7.usedMs === 0 && c7.remainingMs === 60000);
+  t('online: ohne Phasenstempel keine Deadline und keine Zeit', c7.deadlineAt === null && c7.usedMs === 0 && c7.remainingMs === 30000);
   // Nach aufgebrauchter Matchzeit laeuft jede weitere Phase mit vollem 7-s-Fenster
   // weiter (Rules-Grenze je Zug) — die Matchuhr bleibt bei 0.
   const stamps9 = Object.assign({}, stampsEnd, { 8: T0 + 800000, 9: T0 + 900000 });
@@ -1025,6 +1088,14 @@ const advanceCover = (e, fromMs, toMs, step = FRAME_MS) => {
     e.onlineCollapseTurn(Object.assign({}, stampsEnd, { 8: T0 + 800000 }), Object.assign({}, tsEnd, { 8: T0 + 800000 + 999999 })) === 8);
   t('collapse-turn: schnelle Zuege verschieben den Collapse nach hinten',
     e.onlineCollapseTurn({ 0: T0, 1: T0 + 50000 }, { 0: T0 + 2000, 1: T0 + 50000 + 2000 }) === -1);
+  // ── Stufenschwellen: 30 000 ms und 60 000 ms aus DENSELBEN Stempeln ──
+  t('collapse-turn: erste Schwelle 30 s faellt auf Turn 4 (7-s-Zuege)',
+    e.onlineCollapseTurn(stamps9, ts9, 30000) === 4);
+  t('collapse-turn: zweite Schwelle 60 s faellt auf Turn 8 (7-s-Zuege + 4 s)',
+    e.onlineCollapseTurn(stamps9, ts9, 60000) === 8);
+  t('collapse-turn: Schwelle 2 vor vollstaendigen Daten nicht bestimmbar',
+    e.onlineCollapseTurn(stampsCyc, tsCyc2, 60000) === -1
+    && e.onlineCollapseTurn(stampsCyc, tsCyc2, 30000) === 4);
 }
 
 // ── Online-Collapse-Anwendung: exakt an der Rundengrenze, exakt einmal ──
@@ -1036,18 +1107,39 @@ const advanceCover = (e, fromMs, toMs, step = FRAME_MS) => {
   for (let k = 0; k < 8; k++) { e.pushStamp(k, T0 + k * 100000); e.pushTs(k, T0 + k * 100000 + 7000); }
   e.pushStamp(8, T0 + 800000); e.pushTs(8, T0 + 800000 + 4000);
   e.setTurnNo(8);
-  t('online-collapse: pending am aufgeloesten Collapse-Turn', e.onlineCollapsePending() === true);
+  t('online-collapse: pending am aufgeloesten Collapse-Turn (Schwelle 1)', e.onlineCollapsePending() === true);
   e.setPhase('sim');
   // Kugel ausserhalb des neuen Radius: die Auswertung nutzt die BESTEHENDE Ring-out-Logik.
   e.setBalls([ball(0, 900, 0), ball(1, -100, 0)]);
   const ended = e.settleOnlineCollapse();
-  t('online-collapse: Radius faellt exakt einmal auf R*0.82', near(e.getR(), 820));
+  t('online-collapse: Stufe 1 faellt exakt auf R*0.82', near(e.getR(), 820) && e.onlineCollapseCount() === 1);
   t('online-collapse: Aussenkugel ueber bestehende Ring-out-Logik gewertet', ended === true && e.getPhase() === 'result');
-  t('online-collapse: exakt einmal (Latch)', e.onlineCollapsePending() === false && e.settleOnlineCollapse() === false);
+  // Diese Stempel haben auch die 60-s-Schwelle bereits erreicht: Stufe 2 ist faellig.
+  t('online-collapse: Stufe 2 danach faellig (60 s ebenfalls erreicht)', e.onlineCollapsePending() === true);
+  e.setPhase('sim');
+  e.settleOnlineCollapse();
+  t('online-collapse: Stufe 2 faellt erneut auf x0.82 (672.4)', near(e.getR(), 672.4) && e.onlineCollapseCount() === 2);
+  t('online-collapse: keine dritte Stufe (COLLAPSE_STAGE_COUNT-Latch)',
+    e.onlineCollapsePending() === false && e.settleOnlineCollapse() === false);
   const rAfter = e.getR();
   e.settleOnlineCollapse(); e.settleOnlineCollapse();
   t('online-collapse: verspaetete Doppel-Aufrufe bleiben wirkungslos', e.getR() === rAfter);
-  t('online-collapse: shrinkFloor friert auf collapseRadius ein', near(e.shrinkFloor(), 820));
+  t('online-collapse: shrinkFloor friert auf collapseRadius (672.4) ein', near(e.shrinkFloor(), 672.4));
+}
+{
+  // Nur Schwelle 1 erreicht: genau EINE Stufe faellt, die zweite bleibt offen.
+  const e = make(); e.setMode('bot'); e.setOnline(true); e.setBalls(twoBalls()); e.resetCollapseTimer();
+  e.setR(1000); e.setGameStarted(true);
+  const T0 = 1700000000000;
+  for (let k = 0; k < 4; k++) { e.pushStamp(k, T0 + k * 100000); e.pushTs(k, T0 + k * 100000 + 7000); }
+  e.pushStamp(4, T0 + 400000); e.pushTs(4, T0 + 400000 + 7000);
+  e.setTurnNo(4);
+  e.setPhase('sim'); e.setBalls([ball(0, 100, 0), ball(1, -100, 0)]);
+  t('online-collapse: Schwelle 1 allein -> pending', e.onlineCollapsePending() === true);
+  e.settleOnlineCollapse();
+  t('online-collapse: Zwischenstand Stufe 1 (820), Stufe 2 offen',
+    near(e.getR(), 820) && e.onlineCollapseCount() === 1 && e.onlineCollapsePending() === false);
+  t('online-collapse: shrinkFloor haelt den Zwischenstand', near(e.shrinkFloor(), 820));
 }
 {
   // Rundenende-Ausgang: der Collapse ersetzt den normalen Rundenschrumpf.
@@ -1057,8 +1149,9 @@ const advanceCover = (e, fromMs, toMs, step = FRAME_MS) => {
   for (let k = 0; k < 8; k++) { e.pushStamp(k, T0 + k * 100000); e.pushTs(k, T0 + k * 100000 + 7000); }
   e.pushStamp(8, T0 + 800000); e.pushTs(8, T0 + 800000 + 4000);
   e.setTurnNo(8);
-  t('online-collapse: Rundenende-Ausgang wendet den Collapse an', e.onlineCollapseRoundEnd() === true && near(e.getR(), 820));
-  t('online-collapse: zweiter Rundenende-Aufruf ist ein No-op', e.onlineCollapseRoundEnd() === false);
+  t('online-collapse: Rundenende-Ausgang wendet Stufe 1 an', e.onlineCollapseRoundEnd() === true && near(e.getR(), 820));
+  t('online-collapse: Rundenende-Ausgang wendet Stufe 2 an', e.onlineCollapseRoundEnd() === true && near(e.getR(), 672.4));
+  t('online-collapse: dritter Rundenende-Aufruf ist ein No-op', e.onlineCollapseRoundEnd() === false);
 }
 {
   // Lokale Modi bleiben strikt getrennt: der Online-Pfad ist offline wirkungslos.
@@ -1169,7 +1262,7 @@ const posOf = (e) => e.getBalls().map(b => ({ x: b.x, y: b.y, alive: b.alive }))
   e.setBalls(chain()); runToExpiry(e); e.runLoop();
   const cp = posOf(c), ep = posOf(e);
   t('Kette: Kontrolllauf ohne Collapse', c.state.collapseState === 'running' && near(c.getR(), 1000));
-  t('Kette: echter Lauf mit Collapse', e.state.collapseState === 'collapsed' && near(e.getR(), 820));
+  t('Kette: echter Lauf mit Collapse', e.state.collapseStage === 1 && near(e.getR(), 820));
   t('Kette: Restueberlappung im Settlement vorhanden', Math.hypot(ep[1].x - ep[0].x, ep[1].y - ep[0].y) < 64);
   t('Kette: Positionen bit-identisch zum Lauf ohne Collapse',
     ep.every((o, i) => o.x === cp[i].x && o.y === cp[i].y));

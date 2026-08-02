@@ -2042,7 +2042,7 @@ const RESULT_SLOWMUL=0.7, RESULT_FR=0.99;
 // COLLAPSE_CYCLE_SECONDS Planungssekunden; am Ende jedes Zyklus faellt genau ein
 // Collapse (Radius x COLLAPSE_RADIUS_FACTOR). MATCH_COLLAPSE_SECONDS bleibt die
 // GESAMT-Planungszeit (Produkt beider Werte) und damit das Online-Budget.
-const COLLAPSE_STAGE_COUNT=1, COLLAPSE_CYCLE_SECONDS=60;
+const COLLAPSE_STAGE_COUNT=2, COLLAPSE_CYCLE_SECONDS=30;
 const MATCH_COLLAPSE_SECONDS=COLLAPSE_STAGE_COUNT*COLLAPSE_CYCLE_SECONDS, COLLAPSE_WARNING_SECONDS=10, FINAL_COUNTDOWN_SECONDS=5, COLLAPSE_RADIUS_FACTOR=0.82;
 // Maximale Entscheidungszeit je Planungsphase. Sie laeuft in DERSELBEN Zeitbasis wie die
 // Matchzeit (matchElapsedMs) und erbt damit alle vorhandenen Pausenregeln: waehrend
@@ -2160,10 +2160,10 @@ let onCollapseCount=0;            // vollzogene Online-Collapse-Stufen DIESER Ge
 // Stufenzahl der AKTUELLEN Generation — eine fremde/alte Generation zaehlt 0
 // (Rematch erhoeht gen und neutralisiert damit beide Stufen automatisch).
 function onlineCollapseCount(){return onCollapsedGen===gen?onCollapseCount:0;}
-let onlineRemainMs=MATCH_COLLAPSE_SECONDS*1000;   // abgeleitete Restzeit (Anzeige)
+let onlineRemainMs=COLLAPSE_CYCLE_SECONDS*1000;   // abgeleitete Restzeit des laufenden Zyklus (Anzeige)
 let onlineHasClock=false;         // Raum fuehrt Serverstempel (Altbestand: false)
 function onlineResetClock(){onTurnStamp={};onTurnTs={};onStampProbe={};onlineTimeoutTried={};
-  onlineRemainMs=MATCH_COLLAPSE_SECONDS*1000;onlineHasClock=false;}
+  onlineRemainMs=COLLAPSE_CYCLE_SECONDS*1000;onlineHasClock=false;}
 // Aktive Zeit EINER abgeschlossenen Phase: Spanne Phasenstart -> letzter Commit,
 // geklemmt auf das Fenster. Fehlt der Stempel (Altbestand ohne Uhr) -> 0; fehlt nur
 // der Commit-Stempel (kann bei aktiver Uhr nicht passieren, Rules erzwingen ts) ->
@@ -2174,14 +2174,17 @@ function onlineTurnUsedMs(sVal,maxTs,capMs){
   return Math.max(0,Math.min(capMs,maxTs-sVal));
 }
 // Gemeinsame Uhr aller Clients: identische Eingaben -> identische Werte. Das Fenster
-// der laufenden Phase ist min(7 s, Restzeit); nach aufgebrauchter Matchzeit laeuft
-// jede weitere Phase mit dem vollen 7-s-Fenster weiter (die Rules erzwingen ohnehin
-// hoechstens 7 s je Zug) — die Matchuhr selbst bleibt bei 0 stehen.
+// der laufenden Phase ist min(7 s, Restzeit des LAUFENDEN Zyklus) — die Deadline
+// faellt damit wie lokal auf jedes Zyklusende (30 s / 60 s). remainingMs ist die
+// Restzeit des laufenden 30-s-Zyklus (HUD-Vertrag); nach aufgebrauchter Gesamtzeit
+// laeuft jede weitere Phase mit dem vollen 7-s-Fenster weiter (die Rules erzwingen
+// ohnehin hoechstens 7 s je Zug) — die Matchuhr selbst bleibt bei 0 stehen.
 function onlineClock(stamps,tsMap,curTurn,nowSrv){
-  const lim=TURN_LIMIT_SECONDS*1000;
+  const lim=TURN_LIMIT_SECONDS*1000,total=MATCH_COLLAPSE_SECONDS*1000,cyc=COLLAPSE_CYCLE_SECONDS*1000;
   let used=0;
   for(let i=0;i<curTurn;i++)used+=onlineTurnUsedMs(stamps?stamps[i]:undefined,tsMap?tsMap[i]:undefined,lim);
-  const before=Math.max(0,MATCH_COLLAPSE_SECONDS*1000-used);
+  const boundary=Math.min(total,(Math.floor(used/cyc)+1)*cyc);   // Ende des laufenden Zyklus
+  const before=Math.max(0,boundary-used);
   const win=before>0?Math.min(lim,before):lim;
   const started=(stamps&&typeof stamps[curTurn]==='number')?stamps[curTurn]:null;
   const openUsed=started==null?0:Math.max(0,Math.min(win,nowSrv-started));
@@ -2441,7 +2444,10 @@ function onlineOpenSeats(){
 function tickOnlineClock(){
   if(!online||!gameStarted){updateCollapseHud();return;}
   const c=onlineClock(onTurnStamp,onTurnTs,turnNo,serverNow());
-  onlineRemainMs=c.remainingMs;
+  // Schwelle erreicht, Stufe aber noch nicht angewendet (wartet auf die Rundengrenze):
+  // Anzeige bei 0 halten — sonst spraenge das HUD (und die Warnstufe des visuellen
+  // Adapters) schon VOR dem sichtbaren Collapse in den naechsten Zyklus.
+  onlineRemainMs=onlineCollapsePending()?0:c.remainingMs;
   onlineHasClock=c.startedAt!=null||onlineCollapseCount()>0;
   // Warnrisse: Sound haengt read-only an den sichtbaren Rissstufenwechseln des
   // visuellen Adapters (colvTick -> SFX.colvEvent), nicht mehr an dieser Uhr.

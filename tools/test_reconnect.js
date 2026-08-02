@@ -428,6 +428,7 @@ function makeClient(db, code, forcePid) {
       create(){createRoom();},
       join(c){$('onInput').value=c;joinRoom();},
       clickStart(){startFfaMatch();},
+      rematch(){onlineRematch();},
       hash(){return simHash();},
       aliveOf(o){return aliveCount(o);},
       gone(o){return !!seatGone[o];},
@@ -435,7 +436,9 @@ function makeClient(db, code, forcePid) {
       status(){return $('onStatus').textContent;},
       pendingCount(){return Object.keys(pendingSlot).length;},
       clockView(){return {stamps:JSON.parse(JSON.stringify(onTurnStamp)),ts:JSON.parse(JSON.stringify(onTurnTs)),
-        collapseTurn:onlineCollapseTurn(onTurnStamp,onTurnTs),collapsedGen:onCollapsedGen,R:R};},
+        collapseTurn:onlineCollapseTurn(onTurnStamp,onTurnTs),
+        collapseTurn1:onlineCollapseTurn(onTurnStamp,onTurnTs,30000),
+        collapseCount:onlineCollapseCount(),collapsedGen:onCollapsedGen,R:R};},
       async slotRaw(turn,seat){const sn=await FB.get(['rooms',roomCode,'g',String(gen),'t',String(turn),String(seat)]);return sn.val();},
       async turnRaw(turn){const sn=await FB.get(['rooms',roomCode,'g',String(gen),'t',String(turn)]);return sn.val();},
       timeoutPoke(nowSrv){
@@ -834,11 +837,45 @@ async function playTurn(clients, moves) {
     const all = [h, ...guests];
     t(label + ' gestartet', all.every(c => c.st().gameStarted));
     const zero = {}; for (let k = 0; k < n; k++) zero[k] = [0, 0];
-    for (let k = 0; k < 9 && h.clockView().collapsedGen !== h.st().gen; k++) await runClockedTurn(all, db, zero);
+    // Stufe 1 (kumuliert >= 30 s): gemeinsamer Collapse-Turn, ein Radius-Schritt.
+    for (let k = 0; k < 9 && h.clockView().collapseCount < 1; k++) await runClockedTurn(all, db, zero);
     const views = all.map(c => c.clockView());
-    t(label + ' alle Clients: derselbe Collapse-Turn', views.every(v => v.collapseTurn === views[0].collapseTurn && views[0].collapseTurn >= 0));
-    t(label + ' alle Clients: derselbe Radius nach dem Collapse', views.every(v => Math.abs(v.R - views[0].R) < 1e-9 && v.collapsedGen === h.st().gen));
-    t(label + ' Sims synchron', all.every(c => c.hash() === h.hash()));
+    t(label + ' alle Clients: derselbe Collapse-Turn (Stufe 1)', views.every(v => v.collapseTurn1 === views[0].collapseTurn1 && views[0].collapseTurn1 >= 0));
+    t(label + ' alle Clients: derselbe Radius nach Stufe 1', views.every(v => Math.abs(v.R - views[0].R) < 1e-9 && v.collapseCount === 1 && v.collapsedGen === h.st().gen));
+    t(label + ' Sims synchron nach Stufe 1', all.every(c => c.hash() === h.hash()));
+    // Stufe 2 (kumuliert >= 60 s): erneut x0.82, danach terminal.
+    for (let k = 0; k < 9 && h.clockView().collapseCount < 2; k++) await runClockedTurn(all, db, zero);
+    const views2 = all.map(c => c.clockView());
+    t(label + ' alle Clients: derselbe Collapse-Turn (Stufe 2)', views2.every(v => v.collapseTurn === views2[0].collapseTurn && views2[0].collapseTurn >= 0));
+    t(label + ' alle Clients: derselbe Radius nach Stufe 2 (x0.82 erneut)', views2.every(v => Math.abs(v.R - views[0].R * 0.82) < 1e-6 && v.collapseCount === 2));
+    t(label + ' Sims synchron nach Stufe 2', all.every(c => c.hash() === h.hash()));
+  }
+  // ── OC5: Reconnect mitten in Zyklus 2 + Rematch nach Collapse 2 ──
+  {
+    const db = makeDB();
+    const h = makeClient(db, 'OCE1'); h.setMenu('online'); h.setFmt('single'); h.create(); await tick();
+    const g = makeClient(db, 'X'); g.setMenu('online'); g.join('OCE1'); await tick();
+    // Turns 0..5 (je volles 7-s-Fenster): Stufe 1 faellt am Turn-4-Settlement,
+    // danach laeuft Zyklus 2 — genau der geforderte "mitten in Zyklus 2"-Zustand.
+    for (let k = 0; k < 6; k++) await runClockedTurn([h, g], db, { 0: [0, 0], 1: [0, 0] });
+    t('OC5 mitten in Zyklus 2: genau eine Stufe gefallen', h.clockView().collapseCount === 1);
+    const midR = h.clockView().R, midHash = h.hash();
+    const gpid = g.pid(); g.drop(); await tick();
+    const g2 = makeClient(db, 'X', gpid); g2.setMenu('online');
+    const ok = await g2.rejoin('OCE1'); await tick();
+    t('OC5 Reconnect mitten in Zyklus 2 rekonstruiert Stufe 1 + Radius',
+      ok === true && g2.clockView().collapseCount === 1 && Math.abs(g2.clockView().R - midR) < 1e-9);
+    t('OC5 Replay-Hash bit-identisch zum Live-Client', g2.hash() === midHash && g2.hash() === h.hash());
+    // Weiter bis Collapse 2 (terminal), dann Rematch: beide Stufen sauber neutralisiert.
+    for (let k = 0; k < 9 && h.clockView().collapseCount < 2; k++) await runClockedTurn([h, g2], db, { 0: [0, 0], 1: [0, 0] });
+    t('OC5 Stufe 2 terminal erreicht, Sims synchron',
+      h.clockView().collapseCount === 2 && g2.clockView().collapseCount === 2 && h.hash() === g2.hash());
+    const rTerm = h.clockView().R;
+    h.rematch(); await tick();
+    t('OC5 Rematch neutralisiert beide Stufen (neue Generation)',
+      h.st().gen === 1 && h.clockView().collapseCount === 0 && g2.clockView().collapseCount === 0);
+    t('OC5 Rematch: Radius wieder voll, Sims synchron',
+      h.clockView().R > rTerm + 1 && h.hash() === g2.hash());
   }
 
   console.log(`\nReconnect-B2: ${pass} passed, ${fail} failed`);
