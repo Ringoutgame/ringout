@@ -171,17 +171,18 @@ const suffix = `
       commit(who,sh,fx,fy,spin);
     },
     getDrag(){return {dragging,aimPid,spinPid,dragShooter,dragOwner,dragPull:{x:dragPull.x,y:dragPull.y},dragSpin};},
-    get state(){return {collapseEnabled,collapseState,matchElapsedMs,collapseRadius,collapseOuterR,collapseCountShown,collapseCountVisible,collapseWarned};},
+    get state(){return {collapseEnabled,collapseState,collapseStage,matchElapsedMs,collapseRadius,collapseOuterR,collapseCountShown,collapseCountVisible,collapseWarned};},
     get sfx(){return sfx;},
     turnRemainMs, turnDeadlinePassed, onTurnExpire, openAimSeats, allOpenSeats,
     onlineClock, onlineTurnUsedMs, onlineCollapseTurn, onlineCollapsePending,
-    settleOnlineCollapse, onlineCollapseRoundEnd,
+    settleOnlineCollapse, onlineCollapseRoundEnd, onlineCollapseCount,
+    setGen(v){gen=v;},
     setGameStarted(v){gameStarted=v;}, setTurnNo(v){turnNo=v;},
     pushStamp(t2,v){onTurnStamp[t2]=v;}, pushTs(t2,v){onTurnTs[t2]=v;},
     dismissCover(){coverOpen=false;},                   // entspricht dem coverBtn-Handler
     isCoverOpen(){return coverOpen;},
     getAimer(){return curAimer;}, setAimer(v){curAimer=v;},
-    consts(){return {MATCH_COLLAPSE_SECONDS,TURN_LIMIT_SECONDS,COLLAPSE_WARNING_SECONDS,FINAL_COUNTDOWN_SECONDS,COLLAPSE_RADIUS_FACTOR,MAX_COLLAPSE_TICK_DELTA_MS};}
+    consts(){return {MATCH_COLLAPSE_SECONDS,TURN_LIMIT_SECONDS,COLLAPSE_WARNING_SECONDS,FINAL_COUNTDOWN_SECONDS,COLLAPSE_RADIUS_FACTOR,MAX_COLLAPSE_TICK_DELTA_MS,COLLAPSE_STAGE_COUNT,COLLAPSE_CYCLE_SECONDS};}
   };
 `;
 const make = () => new Function(prefix + core + suffix)();

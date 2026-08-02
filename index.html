@@ -2038,7 +2038,12 @@ const RESULT_SLOWMUL=0.7, RESULT_FR=0.99;
 // Ring-out-Logik (stepSim) behandelt danach Kugeln ausserhalb des neuen Radius.
 // Keine Online-/Firebase-/Netzwerk-Beruehrung — alle Pfade sind hart auf Bot-Local
 // gated (collapseEnabled && mode==='bot' && !online). ── ==COLLAPSE-CORE-START==
-const MATCH_COLLAPSE_SECONDS=60, COLLAPSE_WARNING_SECONDS=10, FINAL_COUNTDOWN_SECONDS=5, COLLAPSE_RADIUS_FACTOR=0.82;
+// Stufenmodell: das Match besteht aus COLLAPSE_STAGE_COUNT Zyklen zu je
+// COLLAPSE_CYCLE_SECONDS Planungssekunden; am Ende jedes Zyklus faellt genau ein
+// Collapse (Radius x COLLAPSE_RADIUS_FACTOR). MATCH_COLLAPSE_SECONDS bleibt die
+// GESAMT-Planungszeit (Produkt beider Werte) und damit das Online-Budget.
+const COLLAPSE_STAGE_COUNT=1, COLLAPSE_CYCLE_SECONDS=60;
+const MATCH_COLLAPSE_SECONDS=COLLAPSE_STAGE_COUNT*COLLAPSE_CYCLE_SECONDS, COLLAPSE_WARNING_SECONDS=10, FINAL_COUNTDOWN_SECONDS=5, COLLAPSE_RADIUS_FACTOR=0.82;
 // Maximale Entscheidungszeit je Planungsphase. Sie laeuft in DERSELBEN Zeitbasis wie die
 // Matchzeit (matchElapsedMs) und erbt damit alle vorhandenen Pausenregeln: waehrend
 // Physik, Reveal, Result, Menue und inaktivem Tab vergeht keine Zugzeit. Bei Ablauf wird
@@ -2053,8 +2058,9 @@ const TURN_LIMIT_SECONDS=7;
 // uebersprungen werden. Bewusst KEINE allgemeine Pause-Engine, nur diese eine Klemmung.
 const MAX_COLLAPSE_TICK_DELTA_MS=250;
 let collapseEnabled=false;        // true nur im lokalen Bot-Training-Match
-let collapseState='running';      // 'running' -> 'expired' (0 erreicht) -> 'collapsed' (einmalig)
-let matchElapsedMs=0;             // aufsummierte Planungsphasen-Zeit
+let collapseState='running';      // je Zyklus: 'running' -> 'expired' (0 erreicht) -> Collapse; nach der LETZTEN Stufe terminal 'collapsed'
+let collapseStage=0;              // Anzahl vollzogener Collapses (0..COLLAPSE_STAGE_COUNT)
+let matchElapsedMs=0;             // aufsummierte Planungsphasen-Zeit des LAUFENDEN Zyklus
 let matchTimerAnchor=null;        // performance.now() des letzten zaehlenden Frames (null=pausiert)
 let collapseRadius=0;             // Arenaradius unmittelbar nach dem Collapse (Schrumpf-Floor)
 let collapseOuterR=0;             // Radius VOR dem Collapse (fuer die entfernte Aussenzone im Overlay)
@@ -2096,7 +2102,7 @@ function autoStandSeats(seats){
     commitAutoStand(s,idx);
   }
 }
-function collapseRemainMs(){return Math.max(0,MATCH_COLLAPSE_SECONDS*1000-matchElapsedMs);}
+function collapseRemainMs(){return Math.max(0,COLLAPSE_CYCLE_SECONDS*1000-matchElapsedMs);}
 // Restzeit des laufenden Zuges. Das Fenster liegt bewusst in matchElapsedMs-Koordinaten:
 // dieselbe Uhr, dieselben Pausen — eine pausierte Phase verbraucht keine Zugzeit.
 function turnRemainMs(){return turnWindowEndEl==null?TURN_LIMIT_SECONDS*1000:Math.max(0,turnWindowEndEl-matchElapsedMs);}
@@ -2149,7 +2155,11 @@ let onTurnStamp={};               // turn -> Phasenstart s (Serverzeit)
 let onTurnTs={};                  // turn -> spaetester Commit-Stempel ts (Serverzeit)
 let onStampProbe={};              // turn -> 'pending'|'done' (eigene Stempel-Nachlese)
 let onlineTimeoutTried={};        // je gen:turn:seat hoechstens EIN Timeout-Schreibversuch
-let onCollapsedGen=-1;            // Online-Collapse je Generation genau einmal (Latch)
+let onCollapsedGen=-1;            // Generation, zu der onCollapseCount gehoert (-1 = keine)
+let onCollapseCount=0;            // vollzogene Online-Collapse-Stufen DIESER Generation (0..COLLAPSE_STAGE_COUNT)
+// Stufenzahl der AKTUELLEN Generation — eine fremde/alte Generation zaehlt 0
+// (Rematch erhoeht gen und neutralisiert damit beide Stufen automatisch).
+function onlineCollapseCount(){return onCollapsedGen===gen?onCollapseCount:0;}
 let onlineRemainMs=MATCH_COLLAPSE_SECONDS*1000;   // abgeleitete Restzeit (Anzeige)
 let onlineHasClock=false;         // Raum fuehrt Serverstempel (Altbestand: false)
 function onlineResetClock(){onTurnStamp={};onTurnTs={};onStampProbe={};onlineTimeoutTried={};
@@ -2178,11 +2188,12 @@ function onlineClock(stamps,tsMap,curTurn,nowSrv){
   return {startedAt:started,windowMs:win,deadlineAt:started==null?null:started+win,
           usedMs:used+Math.min(openUsed,before),remainingMs:Math.max(0,before-openUsed)};
 }
-// Der Collapse-Turn: der erste Turn, nach dessen VOLLSTAENDIGEM Abschluss die
-// kumulierte aktive Zeit 60 s erreicht — ausschliesslich aus gespeicherten Stempeln,
-// ohne jede lokale Browserzeit. -1 = noch nicht bestimmbar (Turn offen/ohne Uhr).
-function onlineCollapseTurn(stamps,tsMap){
-  const lim=TURN_LIMIT_SECONDS*1000,total=MATCH_COLLAPSE_SECONDS*1000;
+// Der Collapse-Turn einer Stufe: der erste Turn, nach dessen VOLLSTAENDIGEM Abschluss
+// die kumulierte aktive Zeit die Stufenschwelle totalMs erreicht (Default: Gesamt-
+// Budget) — ausschliesslich aus gespeicherten Stempeln, ohne jede lokale Browserzeit.
+// -1 = noch nicht bestimmbar (Turn offen/ohne Uhr).
+function onlineCollapseTurn(stamps,tsMap,totalMs){
+  const lim=TURN_LIMIT_SECONDS*1000,total=totalMs==null?MATCH_COLLAPSE_SECONDS*1000:totalMs;
   let used=0;
   for(let i=0;i<=GEN_MAX;i++){
     const s=stamps?stamps[i]:undefined,ts=tsMap?tsMap[i]:undefined;
@@ -2192,9 +2203,9 @@ function onlineCollapseTurn(stamps,tsMap){
   }
   return -1;
 }
-// Dynamischer Rundenschrumpf-Floor: normal R0*0.80 (bit-identisch), nach dem Collapse
-// eingefroren auf collapseRadius — lokal wie online (identische Semantik).
-function shrinkFloor(){return ((collapseActive()&&collapseState==='collapsed')||(online&&onCollapsedGen===gen))?collapseRadius:R0*0.80;}
+// Dynamischer Rundenschrumpf-Floor: normal R0*0.80 (bit-identisch), nach jedem Collapse
+// eingefroren auf collapseRadius (Radius nach der JUENGSTEN Stufe) — lokal wie online.
+function shrinkFloor(){return ((collapseActive()&&collapseStage>0)||(online&&onlineCollapseCount()>0))?collapseRadius:R0*0.80;}
 // ── Online-Collapse: dieselbe Rundengrenze wie lokal, exakt einmal je Generation ──
 // Faellig, sobald der Collapse-Turn aus den gespeicherten Daten bestimmbar und
 // vollstaendig aufgeloest ist. turnNo steht am Settlement noch AUF dem aufgeloesten
@@ -2202,14 +2213,16 @@ function shrinkFloor(){return ((collapseActive()&&collapseState==='collapsed')||
 // Fall, dass ein Client die Stempel eines frueheren Turns verspaetet vervollstaendigt.
 function onlineCollapsePending(){
   if(!online||!gameStarted||phase==='over')return false;
-  if(onCollapsedGen===gen)return false;
-  const ct=onlineCollapseTurn(onTurnStamp,onTurnTs);
+  const cnt=onlineCollapseCount();
+  if(cnt>=COLLAPSE_STAGE_COUNT)return false;
+  const ct=onlineCollapseTurn(onTurnStamp,onTurnTs,(cnt+1)*COLLAPSE_CYCLE_SECONDS*1000);
   return ct>=0&&ct<=turnNo;
 }
-// Einmalige Radiusverkleinerung — Spiegel von applyCollapseRadius() fuer online,
+// Radiusverkleinerung je Stufe — Spiegel von applyCollapseRadius() fuer online,
 // OHNE den lokalen collapseState anzufassen (der gehoert dem lokalen Timer).
 function applyOnlineCollapseRadius(){
-  onCollapsedGen=gen;
+  if(onCollapsedGen!==gen){onCollapsedGen=gen;onCollapseCount=0;}
+  onCollapseCount++;
   collapseOuterR=R;
   R=Math.max(BR*4,R*COLLAPSE_RADIUS_FACTOR);
   collapseRadius=R;
@@ -2235,7 +2248,7 @@ function onlineCollapseRoundEnd(){
 }
 function resetCollapseTimer(){
   collapseEnabled=!online;                   // alle lokalen Modi: Bot, Hotseat (pvp) und lokales FFA
-  collapseState='running';matchElapsedMs=0;matchTimerAnchor=null;turnWindowEndEl=null;turnWindowSeat=-1;
+  collapseState='running';collapseStage=0;matchElapsedMs=0;matchTimerAnchor=null;turnWindowEndEl=null;turnWindowSeat=-1;
   collapseRadius=0;collapseOuterR=0;collapseCountShown=-1;collapseWarned=false;collapseFlash=0;coverOpen=false;
   // Neues Match/Rematch startet ohne Eingabesperre und ohne Drag-Reste aus dem alten Match.
   if(typeof cancelAimDrag==='function')cancelAimDrag();
@@ -2273,11 +2286,19 @@ function onTurnExpire(){
 // Beide teilen sich applyCollapseRadius(); danach existiert nie eine Planungsphase mit
 // abgelaufenem Timer. Hart gegated: jeder Aufruf ausserhalb eines laufenden lokalen
 // Bot-Matches ist wirkungslos (s. collapsePending).
-// ── Einmalige Radiusverkleinerung inkl. Zustandswechsel, Alarm und HUD ──
+// ── Radiusverkleinerung je Stufe inkl. Zustandswechsel, Alarm und HUD ──
+// Nicht-terminale Stufe: NUR Timer- und Warn-/Countdown-Latches fuer den naechsten
+// Zyklus zuruecksetzen — Radius, Score, Spielerzustand und Matchgeneration bleiben
+// unangetastet; collapseState wird wieder 'running'. Letzte Stufe: terminal
+// 'collapsed', exakt das bisherige Verhalten des einzigen Collapses.
 function applyCollapseRadius(){
   collapseOuterR=R;                            // alte Grenze merken (entfernte Aussenzone im Overlay)
   R=Math.max(BR*4,R*COLLAPSE_RADIUS_FACTOR);
-  collapseRadius=R;collapseState='collapsed';
+  collapseRadius=R;collapseStage++;
+  if(collapseStage>=COLLAPSE_STAGE_COUNT){collapseState='collapsed';}
+  else{collapseState='running';matchElapsedMs=0;matchTimerAnchor=null;
+       turnWindowEndEl=null;turnWindowSeat=-1;
+       collapseWarned=false;collapseCountShown=-1;}
   collapseFlash=performance.now();   // Sound: read-only aus dem SICHTBAREN Stufenwechsel (colvTick -> SFX.colvEvent)
   updateCollapseHud();
 }
@@ -2421,7 +2442,7 @@ function tickOnlineClock(){
   if(!online||!gameStarted){updateCollapseHud();return;}
   const c=onlineClock(onTurnStamp,onTurnTs,turnNo,serverNow());
   onlineRemainMs=c.remainingMs;
-  onlineHasClock=c.startedAt!=null||onCollapsedGen===gen;
+  onlineHasClock=c.startedAt!=null||onlineCollapseCount()>0;
   // Warnrisse: Sound haengt read-only an den sichtbaren Rissstufenwechseln des
   // visuellen Adapters (colvTick -> SFX.colvEvent), nicht mehr an dieser Uhr.
   updateCollapseHud();
@@ -4077,7 +4098,7 @@ function leaveOnline(){
   clearLobbyHostGrace();       // deliberate leave -> no pending lobby grace may fire afterwards
   clearAllMatchGrace(); roomP={};   // B2: in-match grace timers of this room are void as well
   if(typeof onlineResetClock==='function')onlineResetClock();   // Online-Uhr dieser Session zuruecksetzen
-  if(typeof onCollapsedGen!=='undefined')onCollapsedGen=-1;     // Collapse-Latch gehoert zum verlassenen Raum
+  if(typeof onCollapsedGen!=='undefined'){onCollapsedGen=-1;onCollapseCount=0;}   // Collapse-Stufen gehoeren zum verlassenen Raum
   try{ if(turnUnsub)turnUnsub(); }catch(e){} try{ if(genUnsub)genUnsub(); }catch(e){} try{ if(presUnsub)presUnsub(); }catch(e){} try{ if(seatsUnsub)seatsUnsub(); }catch(e){} try{ if(rosterUnsub)rosterUnsub(); }catch(e){}
   turnUnsub=genUnsub=presUnsub=seatsUnsub=rosterUnsub=null;
   // Deliberate leave is immediate: drop own presence AND own roster record (frees
@@ -4853,7 +4874,7 @@ async function initR3D(){
     }
     function colvStage(){
       // Stufe 2 = exakt die shrinkFloor-Wahrheit (lokal UND online), nie eine eigene Entscheidung
-      if((collapseActive()&&collapseState==='collapsed')||(online&&onCollapsedGen===gen))return 2;
+      if((collapseActive()&&collapseStage>0)||(online&&onlineCollapseCount()>0))return 2;
       if(collapseActive()&&!menuVisible&&(collapseState==='expired'||(collapseState==='running'&&collapseRemainMs()<=COLLAPSE_WARNING_SECONDS*1000)))return 1;
       if(online&&gameStarted&&onlineHasClock&&onlineRemainMs<=COLLAPSE_WARNING_SECONDS*1000)return 1;
       return 0;

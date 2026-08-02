@@ -83,11 +83,12 @@ const SRC = [
   grab(/function processSlot\(s,c\)\{[\s\S]*?\n\}/, 'processSlot'),
   // Online-Uhr + deterministischer Collapse (Timer-Branch)
   grab(/const TURN_LIMIT_SECONDS=[^\n]*/, 'TURN_LIMIT_SECONDS'),
+  grab(/const COLLAPSE_STAGE_COUNT=[^\n]*/, 'COLLAPSE_STAGE_COUNT'),
   grab(/const MATCH_COLLAPSE_SECONDS=[^\n]*/, 'MATCH_COLLAPSE_SECONDS'),
   grab(/function onlineResetClock\(\)\{[\s\S]*?\n[^\n]*onlineHasClock=false;\}/, 'onlineResetClock'),
   grab(/function onlineTurnUsedMs\(sVal,maxTs,capMs\)\{[\s\S]*?\n\}/, 'onlineTurnUsedMs'),
   grab(/function onlineClock\(stamps,tsMap,curTurn,nowSrv\)\{[\s\S]*?\n\}/, 'onlineClock'),
-  grab(/function onlineCollapseTurn\(stamps,tsMap\)\{[\s\S]*?\n\}/, 'onlineCollapseTurn'),
+  grab(/function onlineCollapseTurn\(stamps,tsMap,totalMs\)\{[\s\S]*?\n\}/, 'onlineCollapseTurn'),
   grab(/function onlineCollapsePending\(\)\{[\s\S]*?\n\}/, 'onlineCollapsePending'),
   grab(/function applyOnlineCollapseRadius\(\)\{[\s\S]*?\n\}/, 'applyOnlineCollapseRadius'),
   grab(/function settleOnlineCollapse\(\)\{[\s\S]*?\n\}/, 'settleOnlineCollapse'),
@@ -371,7 +372,8 @@ function makeClient(db, code, forcePid) {
     // Online-Uhr (Timer-Branch): Zustand echt, damit die extrahierten Funktionen
     // (writeTurnSlot/processSlot/onlineTurnValue/maybeReveal/...) ihn pflegen koennen.
     let srvOffsetMs=0, onTurnStamp={}, onTurnTs={}, onStampProbe={}, onlineTimeoutTried={};
-    let onCollapsedGen=-1, onlineRemainMs=60000, onlineHasClock=false;
+    let onCollapsedGen=-1, onCollapseCount=0, onlineRemainMs=60000, onlineHasClock=false;
+    function onlineCollapseCount(){return onCollapsedGen===gen?onCollapseCount:0;}
     function serverNow(){return Date.now()+srvOffsetMs;}
     function onlineResetClock(){onTurnStamp={};onTurnTs={};onStampProbe={};onlineTimeoutTried={};onlineRemainMs=60000;onlineHasClock=false;}
     let onlinePid=${JSON.stringify(pid)}, onlineTab=${JSON.stringify(tab)}, onlineName='';
@@ -392,7 +394,7 @@ function makeClient(db, code, forcePid) {
     function collapseRoundEnd(){return false;}     // no pending collapse at round end
     // Online-Collapse friert den Rundenschrumpf-Floor auf collapseRadius ein —
     // exakt die relevante Haelfte des echten shrinkFloor() (lokaler Timer ist hier aus).
-    function shrinkFloor(){return (online&&onCollapsedGen===gen)?collapseRadius:R0*0.80;}
+    function shrinkFloor(){return (online&&onlineCollapseCount()>0)?collapseRadius:R0*0.80;}
     let collapseRadius=0, collapseOuterR=0, collapseFlash=0;
     function updateCollapseHud(){}
     const performance={now:()=>0};

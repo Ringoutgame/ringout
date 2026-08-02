@@ -98,8 +98,8 @@ const COLV_ALL = COLV_CONST_SRC + COLV_OBJ_SRC + COLV_TICK_SRC;
     !/setColDiag|colDiagFn|__colSfxLog/.test(HTML));
   t('A: keine "NICHT COMMITTEN"-Markierungen mehr (Preview-Schalter sind entfernt, nicht nur markiert)',
     !/NICHT[ -]COMMITTEN/.test(HTML));
-  t('A: MATCH_COLLAPSE_SECONDS ist eine feste Konstante (kein Preview-Ternary, exakt 60s)',
-    /const MATCH_COLLAPSE_SECONDS=60, COLLAPSE_WARNING_SECONDS=10/.test(HTML));
+  t('A: MATCH_COLLAPSE_SECONDS ist eine feste Ableitung (kein Preview-Ternary, Stufen x Zyklus)',
+    /const MATCH_COLLAPSE_SECONDS=COLLAPSE_STAGE_COUNT\*COLLAPSE_CYCLE_SECONDS, COLLAPSE_WARNING_SECONDS=10/.test(HTML));
 }
 
 // ══ B) ECHTER visueller Adapter frameweise (Kausalitaets-Simulation) ══
@@ -126,8 +126,9 @@ function makeColv(opts) {
   });
   const body = `
     const GLB_R=10.1, COLLAPSE_WARNING_SECONDS=10;
-    let menuVisible=false, online=false, gameStarted=false, onlineHasClock=false, onlineRemainMs=0, onCollapsedGen=-1, gen=0;
-    let collapseEnabled=true, collapseState='running', remainMs=60000;
+    let menuVisible=false, online=false, gameStarted=false, onlineHasClock=false, onlineRemainMs=0, onCollapsedGen=-1, onCollapseCount=0, gen=0;
+    let collapseEnabled=true, collapseState='running', collapseStage=0, remainMs=60000;
+    const onlineCollapseCount=()=>onCollapsedGen===gen?onCollapseCount:0;
     const collapseActive=()=>collapseEnabled&&!online;
     const collapseRemainMs=()=>remainMs;
     const colvBandParts=[],colvPed=[{visible:true,position:{y:0},userData:{colv:{hy:0}}}];
@@ -171,7 +172,7 @@ function makeColv(opts) {
   t('B: Riss-Panorama kommt aus der tatsaechlichen Ringposition (ux) des jeweiligen Segments',
     pans.every((p) => pairs.some((pr) => Math.abs(pr.cracked.userData.colv.ux - p) < 1e-3)) && new Set(pans).size >= 4, pans);
   // ── Abriss: Hauptbruch im Tick des sichtbaren Stufenwechsels, exakt einmal ──
-  env.set('collapseState', 'collapsed');
+  env.set('collapseState', 'collapsed'); env.set('collapseStage', 1);
   const n0 = events.length;
   step(1 / 60);
   const gotBreak = events.slice(n0).filter((e) => e.k === 'break');
@@ -216,7 +217,7 @@ function makeColv(opts) {
 {
   // ── Rehydration/Replay (instant): alles stumm ──
   const { env, events, step } = makeColv();
-  env.set('collapseState', 'collapsed');   // Einstieg direkt im Endzustand (colv.state===0 -> instant)
+  env.set('collapseState', 'collapsed'); env.set('collapseStage', 1);   // Einstieg direkt im Endzustand (colv.state===0 -> instant)
   for (let i = 0; i < 120; i++) step(1 / 60);
   t('B: Rehydration/Replay (instant): kein Hauptbruch, keine Segmente, keine Fragmente',
     events.filter((e) => e.k !== undefined).length === 0, events.length);
@@ -246,7 +247,7 @@ function makeColv(opts) {
   // ── GLB-Fallback (load=3): keine sichtbaren Segmente -> kontrollierte Stille ──
   const { env, events, step } = makeColv({ load: 3 });
   env.set('remainMs', 9000); step(1 / 60);
-  env.set('collapseState', 'collapsed');
+  env.set('collapseState', 'collapsed'); env.set('collapseStage', 1);
   for (let i = 0; i < 120; i++) step(1 / 60);
   t('B: ohne 3D-Adapter (Ladefehler) gibt es keine Hoerereignisse (kontrollierte Stille)', events.length === 0);
 }
