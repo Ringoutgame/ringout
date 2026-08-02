@@ -84,7 +84,7 @@ function tryWrite(db, path, value) {
 }
 
 // ── fixtures (Presence & Reconnect v3: p/<seat> = {s, on, t}) ──
-const V = 3;
+const V = 4;
 const GRACE = 15000;
 const H_TAB = 'HOSTTAB0', G_TAB = 'GTAB0001', G2_TAB = 'GTAB0002';
 // Durable roster records; players/<seat>.tab MUST equal p/<seat>.s (coupling).

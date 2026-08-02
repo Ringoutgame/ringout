@@ -3452,7 +3452,7 @@ function joinPublicRoom(code){
 // disconnect semantics change (lobby host grace; players/<seat> survives a reload),
 // so a mixed v2/v3 room is unsafe — this bump goes live together with the matching
 // firebase.rules.json publish (hard cutover, after Paket B).
-const ONLINE_PROTOCOL_VERSION=3;
+const ONLINE_PROTOCOL_VERSION=4;
 const FFA_MAX_SEATS=5;   // Online-FFA: Seats 0-4 (Host=0), Farben aus PCOLS
 // Pure validator for a room snapshot the joiner is about to trust. No globals,
 // no state, no silent defaults: invalid or missing fields reject the join.

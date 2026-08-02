@@ -480,7 +480,7 @@ async function dropSeat(db, code, seat) {
     const db = makeDB();
     const [h, g1, g2] = [makeClient(db, 'FFA3'), makeClient(db, 'X'), makeClient(db, 'X')];
     h.setMenu('ffa', 3); h.create(); await tick();
-    t('S1 room created ffa lobby v3', db.data.rooms.FFA3.state === 'lobby' && db.data.rooms.FFA3.config.fmt === 'ffa' && db.data.rooms.FFA3.v === 3);
+    t('S1 room created ffa lobby v4', db.data.rooms.FFA3.state === 'lobby' && db.data.rooms.FFA3.config.fmt === 'ffa' && db.data.rooms.FFA3.v === 4);
     t('S1 host roster record written', !!db.data.rooms.FFA3.players && db.data.rooms.FFA3.players[0] && db.data.rooms.FFA3.players[0].id === h.pid());
     g1.setMenu('online'); g1.join('FFA3'); await tick();
     g2.setMenu('online'); g2.join('FFA3'); await tick();

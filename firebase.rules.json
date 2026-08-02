@@ -7,7 +7,7 @@
         ".read": true,
         ".write": "(!data.exists() && newData.exists()) || (data.exists() && !newData.exists() && !data.child('p').exists() && !data.child('players').exists())",
         ".validate": "data.exists() || ($code.matches(/^[A-HJKMNP-Z2-9]{4}$/) && newData.hasChildren(['v','config','gen','state','p','players','created']) && newData.child('gen').val() === 0 && newData.child('state').val() === 'lobby' && newData.child('p/0').hasChildren(['s','on','t']) && newData.child('p/0/on').val() === false && !newData.child('p/1').exists() && !newData.child('p/2').exists() && !newData.child('p/3').exists() && !newData.child('p/4').exists() && newData.child('players/0').hasChildren(['id','name','tab']) && newData.child('players/0/tab').val() === newData.child('p/0/s').val() && !newData.child('players/1').exists() && !newData.child('players/2').exists() && !newData.child('players/3').exists() && !newData.child('players/4').exists() && !newData.child('g').exists() && !newData.child('seats').exists())",
-        "v": { ".validate": "newData.val() === 3" },
+        "v": { ".validate": "newData.val() === 4" },
         "created": { ".validate": "newData.val() === now" },
         "config": {
           ".validate": "newData.hasChildren(['winTarget','fmt','visibility'])",
@@ -83,7 +83,7 @@
       ".read": "query.orderByChild === 'created' && query.limitToLast <= 30",
       ".indexOn": ["created"],
       "$code": {
-        ".write": "(!data.exists() && newData.exists() && root.child('rooms').child($code).child('v').val() === 3 && root.child('rooms').child($code).child('config/visibility').val() === 'public' && root.child('rooms').child($code).child('state').val() === 'lobby' && root.child('rooms').child($code).child('p/0/on').val() === true && (now - root.child('rooms').child($code).child('created').val()) < 7200000) || (data.exists() && !newData.exists() && (!root.child('rooms').child($code).exists() || root.child('rooms').child($code).child('v').val() !== 3 || root.child('rooms').child($code).child('config/visibility').val() !== 'public' || root.child('rooms').child($code).child('state').val() !== 'lobby' || (now - root.child('rooms').child($code).child('created').val()) >= 7200000 || (!root.child('rooms').child($code).child('p/0').exists() && !root.child('rooms').child($code).child('players/0').exists())))",
+        ".write": "(!data.exists() && newData.exists() && root.child('rooms').child($code).child('v').val() === 4 && root.child('rooms').child($code).child('config/visibility').val() === 'public' && root.child('rooms').child($code).child('state').val() === 'lobby' && root.child('rooms').child($code).child('p/0/on').val() === true && (now - root.child('rooms').child($code).child('created').val()) < 7200000) || (data.exists() && !newData.exists() && (!root.child('rooms').child($code).exists() || root.child('rooms').child($code).child('v').val() !== 4 || root.child('rooms').child($code).child('config/visibility').val() !== 'public' || root.child('rooms').child($code).child('state').val() !== 'lobby' || (now - root.child('rooms').child($code).child('created').val()) >= 7200000 || (!root.child('rooms').child($code).child('p/0').exists() && !root.child('rooms').child($code).child('players/0').exists())))",
         ".validate": "$code.matches(/^[A-HJKMNP-Z2-9]{4}$/) && newData.hasChildren(['created']) && newData.child('created').val() === now",
         "created": { ".validate": "newData.isNumber() && newData.val() === now" },
         "$other": { ".validate": false }
