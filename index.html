@@ -4825,8 +4825,7 @@ async function initR3D(){
     const COLV_SEG_LIFT=COLV_WALK_TOP-.04;   // Arena-v2-Bandhoehe (.04) -> V1-Walkway-Hoehe (.165)
     const COLV_S2=COLLAPSE_RADIUS_FACTOR;    // einheitliche Ring-2-/Divisor-Skalierung (0.82) — an die Gameplay-Wahrheit gebunden
     const COLV_RING2_LIFT=.012;              // Ring-2-Bandoberkante buendig zur Stage-2-Bodenflaeche
-    const COLV_TIER3_LIFT=4.10;              // hebt Tier3/Tip im Bewegungsframe von Collapse 2 an die Kern-Unterseite
-    const COLV_LAST_MV=5*.16+COLV_TREMOR_S;  // Bewegungsbeginn des LETZTEN Segments (max. delay + Tremor) — Stage-2-Boden-Regel
+    const COLV_TIER3_LIFT=4.10;              // Endposition des Restsockels (Tier3/GoldTipBand) luftspaltfrei an der Kern-Unterseite — steht dort den GESAMTEN zweiten Zyklus
     const colv={state:0,load:0,group:null,pairs:[],swap:false,t0:0,instant:false,lift:COLV_WALK_TOP,div:GLB_R,
                 crackMask:0,lastNow:0,pedSnd:false,fragNext:0,segSndN:0};   // Ring 1: Hoerereignis-Latches (read-only-Kopplung an SFX)
     // Ring 2: identischer Zustandsvertrag, EIGENE Latches — Zyklus 2 vertont sich
@@ -4842,18 +4841,27 @@ async function initR3D(){
     // Vollkoerper ersetzt. Gesimse, Kapitelle und Pfeiler dekorieren die Sockel-
     // trommel und STUERZEN beim Collapse 1 ueber dieselbe drop-Mathematik mit —
     // kein Ausblenden, kein Pop, keine offenen dunklen Nischen. Stage-2-Inventar:
-    // PlayFloor_Stage2 (faellt erst mit Collapse 2, LAST_MV-Regel), Tier2/GoldTier2
-    // (Trommel des zweiten Zyklus), Tier3/Tip (bleibt und traegt die finale Arena).
-    const colvBandParts=[],colvPed=[],colvPed2=[],colvBase3=[];
-    let colvMatWalk=null,colvMatGold=null,colvFloor2=null;
+    // PlayFloor_Stage2_Wedge_01..06 — der Stage-2-Boden ist im Asset in sechs
+    // Keile mit den Winkelgrenzen der Collapse-Segmente geteilt; jeder Keil faellt
+    // MIT seinem Segment (colvWedge -> pr.wedge), es bleibt also nie eine
+    // geschlossene Restflaeche stehen und nichts wird global ausgeblendet.
+    // Tier2/GoldTier2 und TempleTip/TipGold sind geschlossene Rotationskoerper,
+    // die kein Segment tragen kann: sie duerfen nie sichtbar fallen und werden im
+    // ersten sichtbar bewegten Segment-Frame atomar ausgeblendet (pedHide).
+    // Tier3/GoldTipBand bleiben als kurzer, kompakter Marmorsockel und tragen die
+    // finale Arena.
+    const colvBandParts=[],colvPed=[],colvPed2=[],colvBase3=[],colvWedge={};
+    let colvMatWalk=null,colvMatGold=null;
     glb.scene.traverse(o=>{
       if(!o.isMesh)return;
-      if(o.name==='PlayFloor_Stage2'){colvFloor2=o;return;}
+      const mw=/^PlayFloor_Stage2_Wedge_(\d+)$/.exec(o.name);
+      if(mw){colvWedge[mw[1]]=o;return;}
       if(o.name==='Walkway'){colvMatWalk=o.material;colvBandParts.push(o);return;}
       if(/^(GoldStepEdge|GoldWalkRing)$/.test(o.name)){if(!colvMatGold)colvMatGold=o.material;colvBandParts.push(o);return;}
       if(o.name==='WallRing'){colvBandParts.push(o);return;}
-      if(o.name==='Tier2'||o.name==='GoldTier2'){o.userData.colv={hy:o.position.y};colvPed2.push(o);return;}
-      if(o.name==='Tier3'||o.name==='GoldTipBand'||o.name==='TempleTip'||o.name==='TipGold')
+      if(o.name==='Tier2'||o.name==='GoldTier2'||o.name==='TempleTip'||o.name==='TipGold')
+        {o.userData.colv={hy:o.position.y};colvPed2.push(o);return;}
+      if(o.name==='Tier3'||o.name==='GoldTipBand')
         {o.userData.colv={hy:o.position.y};colvBase3.push(o);return;}
       if(/^(Cornice|GoldCornice|GoldCapital|Pillar)/.test(o.name)
          ||o.name==='TierBridge'||o.name==='Tier1'||o.name==='GoldTier1'||/^(TierRib|TierStud)/.test(o.name))
@@ -4864,7 +4872,7 @@ async function initR3D(){
       new GLTFLoader().load('assets/ring_collapse/validation/six_segment_rollout/ring_collapse_six_segment_simplified.glb',g2=>{
         // Ring-Fabrik: baut aus DEMSELBEN freigegebenen Asset je Stufe eine Instanz
         // (sf=1 fuer Ring 1, sf=COLV_S2 fuer Ring 2 — keine neue Ring-2-Geometrie).
-        const build=(sf,liftY)=>{
+        const build=(sf,liftY,wedges)=>{
           const grp=new THREE.Group(),byNum={};
           for(const r0 of [...g2.scene.children]){
             const m=/^Segment(\d+)_/.exec(r0.name);if(!m)continue;
@@ -4886,17 +4894,32 @@ async function initR3D(){
             if(!byNum[m[1]])byNum[m[1]]={};
             byNum[m[1]][/_Cracked/i.test(r.name)?'cracked':'intact']=r;
           }
+          glb.scene.updateMatrixWorld(true);          // Weltmatrizen vor dem Umhaengen der Keile aktuell
           const pairs=Object.keys(byNum).sort().map((n,i)=>{
             const pr=byNum[n],ord=[3,0,4,1,5,2][i];
             const ud=pr.cracked.userData.colv;
             ud.delay=ord*.16;ud.tumble=.9+(i%3)*.5;    // gestaffelter Abriss (deterministisch)
             ud.fellSnd=false;                          // Hoerereignis-Latch: sichtbarer Abloese-Beginn genau einmal
             pr.crackAt=ord*.16;                        // Riss-Erscheinung im Warnfenster, gleiche Ordnung
+            // Boden-Keil dieses Segments (nur Ring 2): eine Pivot-Gruppe am
+            // Home-Punkt DES SEGMENTS; attach() haengt den Keil um und rechnet
+            // seine lokale Matrix aus den Weltmatrizen zurueck — die sichtbare
+            // Lage bleibt dabei exakt erhalten. Pivot und Keil liegen im selben
+            // Teilbaum wie die Segmente, deshalb kuerzt sich jede Elternskalierung
+            // heraus; die Ring-2-Skalierung wirkt NICHT doppelt auf den Keil.
+            const wm=wedges&&wedges[n];
+            if(wm){
+              const pv=new THREE.Group();
+              pv.position.set(ud.hx,ud.hy,ud.hz);
+              glb.scene.add(pv);pv.updateMatrixWorld(true);
+              pv.attach(wm);
+              pr.wedge=pv;
+            }
             return pr;});
           grp.visible=false;glb.scene.add(grp);
           return {grp,pairs};
         };
-        const r1=build(1,COLV_SEG_LIFT),r2=build(COLV_S2,COLV_RING2_LIFT);
+        const r1=build(1,COLV_SEG_LIFT,null),r2=build(COLV_S2,COLV_RING2_LIFT,colvWedge);
         colv.group=r1.grp;colv.pairs=r1.pairs;
         colv2.group=r2.grp;colv2.pairs=r2.pairs;
         colvRingReset(colv2);          // Ring 2 in die sichtbare Ruhelage (Gruppe bleibt bis mv1 aus)
@@ -4935,8 +4958,13 @@ async function initR3D(){
       colv.swap=on;
     }
     function colvRingReset(Rr){  // EIN Ring zurueck in die sichtbare Ruhelage inkl. Latches
-      for(const pr of Rr.pairs)for(const r of [pr.intact,pr.cracked]){
-        const h=r.userData.colv;r.position.set(h.hx,h.hy,h.hz);r.quaternion.identity();}
+      for(const pr of Rr.pairs){
+        for(const r of [pr.intact,pr.cracked]){
+          const h=r.userData.colv;r.position.set(h.hx,h.hy,h.hz);r.quaternion.identity();}
+        if(pr.wedge){                            // Boden-Keil teilt die Ruhelage seines Segments
+          const h=pr.cracked.userData.colv;
+          pr.wedge.position.set(h.hx,h.hy,h.hz);pr.wedge.quaternion.identity();pr.wedge.visible=true;}
+      }
       colvCracks(-1,Rr);
       Rr.instant=false;Rr.state=0;
       Rr.crackMask=0;Rr.pedSnd=false;Rr.fragNext=0;Rr.segSndN=0;   // Hoerereignis-Latches mit der Ruhelage loesen
@@ -4947,14 +4975,16 @@ async function initR3D(){
       for(const o of colvPed){o.visible=true;o.position.y=o.userData.colv.hy;}
       for(const o of colvPed2){o.visible=true;o.position.y=o.userData.colv.hy;}
       for(const o of colvBase3)o.position.y=o.userData.colv.hy;
-      if(colvFloor2)colvFloor2.visible=true;
       if(colv2.group)colv2.group.visible=false;
     }
     const colvAx=new THREE.Vector3(),colvQ=new THREE.Quaternion();
     // Zentraler Zustandsvertrag EINES Rings — identisch fuer beide Zyklen, keine
     // Sonderpatches pro Zeitstelle. des = Zielstufe DIESES Rings (0 Ruhe / 1 Warn-
-    // fenster / 2 Abriss), ped = die mit diesem Ring stuerzenden Sockelteile.
-    function colvRing(Rr,des,prog,nowS,gapSnd,ped){
+    // fenster / 2 Abriss), ped = die zu diesem Ring gehoerenden Sockelteile.
+    // pedHide=false (Collapse 1): ped stuerzt sichtbar ueber die drop-Mathematik.
+    // pedHide=true (Collapse 2): ped faellt NIE sichtbar — atomares Ausblenden im
+    // ersten sichtbar bewegten Segment-Frame (Vertrag: keine haengende Trommel).
+    function colvRing(Rr,des,prog,nowS,gapSnd,ped,pedHide){
       if(des===0){ if(Rr.state!==0)colvRingReset(Rr); return; }
       if(des===1){
         const freshSnd=Rr.state!==1;             // Einstieg in die Warnstufe in DIESEM Frame
@@ -4990,13 +5020,18 @@ async function initR3D(){
       const t=Rr.instant?COLV_FALL_S+9:nowS-Rr.t0;
       let fragW=0,fragPan=0;                       // sichtbare aktive Fallbewegung dieses Frames (Truemmerdichte)
       for(const pr of Rr.pairs){
-        const s=pr.cracked,h=s.userData.colv,ts=t-h.delay;
+        const s=pr.cracked,h=s.userData.colv,ts=t-h.delay,w=pr.wedge;
+        // w = Boden-Keil unter DIESEM Segment. Er bekommt in jedem Zweig exakt
+        // dieselbe Quaternion und dieselbe Position wie das Segment — dieselbe
+        // Verzoegerung, dasselbe Taumeln, derselbe Drift, derselbe Fall. Es gibt
+        // keinen zweiten Animationspfad und keine eigene Sichtbarkeitsregel.
         if(ts<=0)continue;
-        if(Rr.instant||ts>COLV_FALL_S+2){s.visible=false;pr.intact.visible=false;continue;}
+        if(Rr.instant||ts>COLV_FALL_S+2){s.visible=false;pr.intact.visible=false;if(w)w.visible=false;continue;}
         colvAx.set(h.tx,0,h.tz);
         if(ts<COLV_TREMOR_S){                      // kurzes Loesen an den Rissen (Tremor)
           colvQ.setFromAxisAngle(colvAx,Math.sin(ts*55)*.012);
           s.quaternion.copy(colvQ);s.position.set(h.hx,h.hy,h.hz);
+          if(w){w.quaternion.copy(colvQ);w.position.copy(s.position);}
         }else{                                     // Abkippen nach aussen, dann freier Fall mit Taumeln
           const tf=ts-COLV_TREMOR_S,hinge=Math.min(1,tf/.35)*.14,fall=15*tf*tf,drift=1.1*tf;
           if(!h.fellSnd){h.fellSnd=true;           // ERSTER Frame der sichtbaren Abloese-/Fallbewegung dieses Segments
@@ -5009,17 +5044,29 @@ async function initR3D(){
           colvQ.setFromAxisAngle(colvAx,-(hinge+tf*h.tumble*.8));
           s.quaternion.copy(colvQ);
           s.position.set(h.hx+h.ux*drift,h.hy-fall,h.hz+h.uz*drift);
-          if(h.hy-fall<-60)s.visible=false;
+          if(w){w.quaternion.copy(colvQ);w.position.copy(s.position);}
+          if(h.hy-fall<-60){s.visible=false;if(w)w.visible=false;}
           if(s.visible&&tf<1.4){fragW+=1-tf/1.4;fragPan=h.ux;}   // traegt zur sichtbaren Truemmerdichte bei
         }
       }
-      // Breite Sockelteile unter dem Band stuerzen MIT (leicht verzoegert, gerade nach
-      // unten) — uebrig bleibt der ueber dem Kelchstumpf auskragende Bruchrest.
-      const td=t-.45,drop=td>0?15*td*td:0;
-      if(!Rr.instant&&td>0&&!Rr.pedSnd){Rr.pedSnd=true;   // Sockel verliert SICHTBAR ab jetzt Material
-        if(td<=.25)colvSnd({k:'frag',kind:'c',pan:0,g:1});}
-      if(!Rr.instant&&td>0&&drop<40)fragW+=.5;   // aktiver Sockelfall broeckelt mit
-      for(const o of ped){o.visible=!Rr.instant&&drop<60;o.position.y=o.userData.colv.hy-drop;}
+      if(pedHide){
+        // Collapse-2-Vertrag: der geschlossene Unterbau (Tier2/GoldTier2/TempleTip/
+        // TipGold) darf NIE als runde Trommel/Platte sichtbar fallen. Er wird im
+        // ERSTEN sichtbar bewegten Segment-Frame (Tremor-Ende = fruehester Abkipp-
+        // Frame, delay-Minimum ist 0) atomar ausgeblendet, solange die abkippenden
+        // Aussensegmente den Wechsel verdecken. Kein eigenes Hoerereignis: der
+        // Wechsel ist per Vertrag unsichtbar; vertont sind Hauptbruch und Segmente.
+        const mvPed=Rr.instant||t>COLV_TREMOR_S;
+        for(const o of ped)o.visible=!mvPed;
+      }else{
+        // Breite Sockelteile unter dem Band stuerzen MIT (leicht verzoegert, gerade nach
+        // unten) — uebrig bleibt der ueber dem Kelchstumpf auskragende Bruchrest.
+        const td=t-.45,drop=td>0?15*td*td:0;
+        if(!Rr.instant&&td>0&&!Rr.pedSnd){Rr.pedSnd=true;   // Sockel verliert SICHTBAR ab jetzt Material
+          if(td<=.25)colvSnd({k:'frag',kind:'c',pan:0,g:1});}
+        if(!Rr.instant&&td>0&&drop<40)fragW+=.5;   // aktiver Sockelfall broeckelt mit
+        for(const o of ped){o.visible=!Rr.instant&&drop<60;o.position.y=o.userData.colv.hy-drop;}
+      }
       // Nachbroeckeln: einzelne kurze Truemmerfragmente NUR solange in DIESEM
       // Frame sichtbar Material faellt (fragW>0); duennt mit dem sichtbaren
       // Fortschritt aus und endet vor dem ruhigen Endzustand.
@@ -5052,21 +5099,21 @@ async function initR3D(){
       colv.lift=cnt===0?COLV_WALK_TOP:0;
       const rem=collapseActive()?collapseRemainMs():onlineRemainMs;
       const prog=1-rem/(COLLAPSE_WARNING_SECONDS*1000);
-      // Ring 1: Warnfenster in Zyklus 1, Abriss ab Stufe 1.
-      colvRing(colv,cnt>=1?2:want,prog,nowS,gapSnd,colvPed);
+      // Ring 1: Warnfenster in Zyklus 1, Abriss ab Stufe 1 (Sockel stuerzt sichtbar).
+      colvRing(colv,cnt>=1?2:want,prog,nowS,gapSnd,colvPed,false);
       // Ring 2 erscheint erst im ERSTEN sichtbar bewegten Frame von Collapse 1 (v6);
       // Warnfenster nur im zweiten Zyklus, Abriss ab Stufe 2.
       const mv1=cnt>=1&&(colv.instant||nowS-colv.t0>COLV_TREMOR_S);
       if(colv2.group)colv2.group.visible=mv1;
-      colvRing(colv2,cnt>=2?2:(cnt===1?want:0),prog,nowS,gapSnd,colvPed2);
-      // Stage-2-Boden traegt die Ring-2-Segmente bis zum Bewegungsbeginn des LETZTEN
-      // Segments (sonst klaffte ein Schlitz unter stehenden Segmenten); Tier3 hebt
-      // sich im Bewegungsframe von Collapse 2 — Boden (von oben) und die noch ruhende
-      // Tier2-Trommel (von der Seite) decken den Wechsel sichtbar ab.
-      const c2=cnt>=2?(colv2.instant?COLV_FALL_S+9:nowS-colv2.t0):-1;
-      if(colvFloor2)colvFloor2.visible=!(c2>COLV_LAST_MV);
-      const mv2=cnt>=2&&(colv2.instant||c2>COLV_TREMOR_S);
-      for(const o of colvBase3)o.position.y=o.userData.colv.hy+(mv2?COLV_TIER3_LIFT:0);
+      colvRing(colv2,cnt>=2?2:(cnt===1?want:0),prog,nowS,gapSnd,colvPed2,true);
+      // Der Stage-2-Boden faellt keilweise MIT den Segmenten (pr.wedge in colvRing)
+      // — es gibt keine globale Boden-Sichtbarkeitsregel mehr. Der Restsockel
+      // Tier3/GoldTipBand steht ab Collapse 1 — also den GESAMTEN zweiten Zyklus —
+      // unbewegt an seiner Endposition luftspaltfrei unter dem Kern: kein Lift,
+      // kein Pop, kein Transform-Wechsel bei Collapse 2. Der einmalige Umsprung
+      // liegt IM Collapse-1-Frame, in dem Ring-1-Segmente und Sockelsturz die
+      // Sicht abdecken.
+      for(const o of colvBase3)o.position.y=o.userData.colv.hy+(cnt>=1?COLV_TIER3_LIFT:0);
     }
     // langsamer Gold-Ring unter der Spitze (Prototyp), rein dekorativ
     const ringG=new THREE.Group();
@@ -5161,6 +5208,17 @@ async function initR3D(){
       platform.scale.setScalar(sc);platform.position.y=bob;
       bGroup.visible=!colv.swap;
       bGroup.scale.setScalar(scB);bGroup.position.y=bob;
+      // Deko-Goldring (Halo) unter der Tempelspitze: Teil des Unterbaus, der mit
+      // Collapse 2 verschwindet. Collapse-2-Vertrag: er faellt NIE sichtbar mit —
+      // er wird im ERSTEN sichtbar bewegten Segment-Frame (Tremor-Ende, dieselbe
+      // Schwelle wie der pedHide-Unterbau) atomar ausgeblendet. Sonst bliebe der
+      // feste 358er-Torus nach Collapse 2 (R 326.1 < 358) als verwaister Goldring
+      // unter der finalen Arena haengen. Stufe 0/1 bleiben byte-identisch (Ring
+      // liegt dort verdeckt unter der Arena); instant/restore und GLB-Fallback
+      // zeigen Stufe 2 sofort ohne Ring.
+      const ringC2=colvCount()>=2;
+      const ringMv=colv2.state===2&&!colv2.instant?nowS-colv2.t0>COLV_TREMOR_S:true;
+      ringG.visible=!ringC2||!ringMv;
       ringG.rotation.y=nowS*.07;ringG.position.y=-646+bob;
       cloudG.rotation.y=nowS*.006;                    // Wolken driften
       island.position.y=-404+Math.sin(nowS*.3+2.3)*35;

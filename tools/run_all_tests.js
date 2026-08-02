@@ -28,7 +28,7 @@ const SUITES = [
   { name: 'Rules',            file: 'test_rules.js',          expectPassed: 195 },
   { name: 'Public-Lobby',     file: 'test_public_lobby.js',   expectPassed: 30 },
   { name: 'Team-Duel',        file: 'test_team_duel.js',      expectPassed: 36 },
-  { name: 'Ring-Collapse',    file: 'test_collapse.js',       expectPassed: 357 },
+  { name: 'Ring-Collapse',    file: 'test_collapse.js',       expectPassed: 359 },
   { name: 'Collapse-SFX',     file: 'test_collapse_sfx.js',   expectPassed: 126 },
 ];
 

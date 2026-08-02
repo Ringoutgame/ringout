@@ -1350,15 +1350,26 @@ const posOf = (e) => e.getBalls().map(b => ({ x: b.x, y: b.y, alive: b.alive }))
 
 // ── Stage-2-Arena: Produktpfad + GLB-Knoteninventar (Two-Stage-Visuals) ──
 {
-  t('Stage2: Produkt laedt arena_platform_stage2.glb (v1-Pfad entfernt)',
-    /assets\/arena_platform_stage2\.glb/.test(HTML) && !/assets\/arena_platform\.glb/.test(HTML));
-  const buf = fs.readFileSync(path.join(path.dirname(__dirname), 'assets', 'arena_platform_stage2.glb'));
+  // Geprueft wird immer GENAU das Asset, das das Produkt auch laedt — der Pfad
+  // wird aus index.html gelesen statt hier dupliziert.
+  const asset = (HTML.match(/assets\/arena_platform_stage2\w*\.glb/) || [])[0];
+  t('Stage2: Produkt laedt ein Stage-2-Arena-GLB (v1-Pfad entfernt)',
+    !!asset && !/assets\/arena_platform\.glb/.test(HTML));
+  const buf = fs.readFileSync(path.join(path.dirname(__dirname), asset));
   t('Stage2-GLB: gueltiger glTF-Binary-Header', buf.readUInt32LE(0) === 0x46546C67);
   const jlen = buf.readUInt32LE(12);
   const gltf = JSON.parse(buf.slice(20, 20 + jlen).toString('utf8'));
   const names = new Set((gltf.nodes || []).map(n => n.name));
-  t('Stage2-GLB: PlayFloor_Core + PlayFloor_Stage2 vorhanden', names.has('PlayFloor_Core') && names.has('PlayFloor_Stage2'));
-  t('Stage2-GLB: kein monolithischer PlayFloor mehr', !names.has('PlayFloor'));
+  const wedges = ['01', '02', '03', '04', '05', '06'].map(n => 'PlayFloor_Stage2_Wedge_' + n);
+  t('Stage2-GLB: PlayFloor_Core + sechs Boden-Keile vorhanden',
+    names.has('PlayFloor_Core') && wedges.every(n => names.has(n)));
+  t('Stage2-GLB: kein monolithischer Boden mehr (PlayFloor/PlayFloor_Stage2)',
+    !names.has('PlayFloor') && !names.has('PlayFloor_Stage2'));
+  // Der Boden faellt keilweise mit den Segmenten — es darf keine globale
+  // Boden-Sichtbarkeitsregel und keinen zweiten Animationspfad mehr geben.
+  t('Stage2-Adapter: Keile haengen an ihrem Segment (pr.wedge)', /pr\.wedge/.test(HTML));
+  t('Stage2-Adapter: kein globales Ausblenden des Stage-2-Bodens mehr',
+    !/colvFloor2/.test(HTML) && !/COLV_LAST_MV/.test(HTML));
   t('Stage2-GLB: Collapse-2-Inventar vorhanden (Tier2/GoldTier2/Tier3)', names.has('Tier2') && names.has('GoldTier2') && names.has('Tier3'));
   t('Stage2-GLB: Band-/Sockel-Inventar vorhanden (Walkway/WallRing/Goldringe/Tier1)',
     ['Walkway', 'WallRing', 'GoldStepEdge', 'GoldWalkRing', 'Tier1', 'GoldTier1', 'TierBridge'].every(n => names.has(n)));

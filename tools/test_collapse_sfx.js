@@ -111,8 +111,12 @@ const COLV_ALL = COLV_CONST_SRC + COLV_OBJ_SRC + COLV_TICK_SRC;
     /const colv2=\{state:0,group:null,pairs:\[\],t0:0,instant:false,\s*crackMask:0,pedSnd:false,fragNext:0,segSndN:0\}/.test(HTML));
   t('A: colvRingReset loest die Hoerereignis-Latches EINES Rings mit der Ruhelage',
     /function colvRingReset\(Rr\)\{[\s\S]*?Rr\.crackMask=0;Rr\.pedSnd=false;Rr\.fragNext=0;Rr\.segSndN=0;[\s\S]*?fellSnd=false;\n\s*\}/.test(HTML));
+  // Geprueft wird das Sound-Inventar SELBST (COL_SET-Literal), nicht das ganze
+  // Dokument — sonst schlaegt der Test bereits an, wenn irgendein Asset- oder
+  // Variablenname zufaellig eines der Muster enthaelt.
+  const colSet = (HTML.match(/const COL_SET=\{[\s\S]*?\};/) || [''])[0];
   t('A: keine neuen Sounddateien fuer Zyklus 2 (unveraendertes COL_SET-Inventar)',
-    /crack_1/.test(HTML) && !/crack_5|seg_4|break_main2|stage2_/.test(HTML));
+    /crack_1/.test(colSet) && !/crack_5|seg_4|break_main2|stage2_/.test(colSet));
 }
 
 // ══ B) ECHTER visueller Adapter frameweise (Kausalitaets-Simulation) ══
