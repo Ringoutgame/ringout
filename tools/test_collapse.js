@@ -1348,5 +1348,23 @@ const posOf = (e) => e.getBalls().map(b => ({ x: b.x, y: b.y, alive: b.alive }))
   t('Normal: Kugeln von Spieler 0 leben', b[0].alive === true && b[1].alive === true);
 }
 
+// ── Stage-2-Arena: Produktpfad + GLB-Knoteninventar (Two-Stage-Visuals) ──
+{
+  t('Stage2: Produkt laedt arena_platform_stage2.glb (v1-Pfad entfernt)',
+    /assets\/arena_platform_stage2\.glb/.test(HTML) && !/assets\/arena_platform\.glb/.test(HTML));
+  const buf = fs.readFileSync(path.join(path.dirname(__dirname), 'assets', 'arena_platform_stage2.glb'));
+  t('Stage2-GLB: gueltiger glTF-Binary-Header', buf.readUInt32LE(0) === 0x46546C67);
+  const jlen = buf.readUInt32LE(12);
+  const gltf = JSON.parse(buf.slice(20, 20 + jlen).toString('utf8'));
+  const names = new Set((gltf.nodes || []).map(n => n.name));
+  t('Stage2-GLB: PlayFloor_Core + PlayFloor_Stage2 vorhanden', names.has('PlayFloor_Core') && names.has('PlayFloor_Stage2'));
+  t('Stage2-GLB: kein monolithischer PlayFloor mehr', !names.has('PlayFloor'));
+  t('Stage2-GLB: Collapse-2-Inventar vorhanden (Tier2/GoldTier2/Tier3)', names.has('Tier2') && names.has('GoldTier2') && names.has('Tier3'));
+  t('Stage2-GLB: Band-/Sockel-Inventar vorhanden (Walkway/WallRing/Goldringe/Tier1)',
+    ['Walkway', 'WallRing', 'GoldStepEdge', 'GoldWalkRing', 'Tier1', 'GoldTier1', 'TierBridge'].every(n => names.has(n)));
+  t('Stage2-GLB: Tier3-Traeger der finalen Arena (Tip-Inventar)',
+    ['GoldTipBand', 'TempleTip', 'TipGold'].every(n => names.has(n)));
+}
+
 console.log('\nRing-Collapse: ' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);
