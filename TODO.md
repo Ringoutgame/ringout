@@ -1,12 +1,14 @@
 # TODO.md — RingOut
 
-**Zuletzt aktualisiert:** 2026-07-29 (Ring-Collapse-Sound: Live-Hörprobe vom Owner klanglich freigegeben, Preview-/Diagnoseschalter entfernt — nur noch Commit-Freigabe ausstehend)
+**Zuletzt aktualisiert:** 2026-08-02 (Two-Stage-Collapse lokal fertig implementiert und getestet — Owner-Review, Push und v4-Rules-Publish ausstehend)
 
 Offene Aufgaben nach Priorität. Abgeschlossene Aufgaben werden nach `CHANGELOG.md` verschoben.
 
 ---
 
 ## P0 — Kritisch (Sicherheit / Stabilität)
+
+- [ ] **Two-Stage-Collapse: Review + Cutover (2026-08-02):** Branch `feature/two-stage-collapse` lokal fertig (7 Commits, Runner 17/17; Details s. CHANGELOG [Unreleased] und PROJECT.md „Two-Stage-Collapse — verbindlicher Vertrag"). Ausstehend in dieser Reihenfolge: (1) Owner-Review inkl. Sichtprüfung des Produkt-Vorschauvideos beider Zyklen, (2) Push des Branches, (3) Live-Publish der v4-`firebase.rules.json` auf `ringout-87fbb`, (4) zeitgleicher Client-Cutover (GitHub Pages) — Protocol v4 sperrt Altclients aus neuen Räumen aus, gemischte Räume sind ausgeschlossen; laufende v3-Räume laufen über die 2h-TTL aus, (5) Live-REST-Verifikation (`tools/rest_verify_v3.js --live`) + Zwei-Client-Produktions-Smoke mit beiden Collapse-Stufen.
 
 - [x] ~~**Online-Timer 60s/7s: Commit + Rules-Deploy + Live-Validierung**~~ → **abgeschlossen (2026-07-28):** Commit `4a62bfb` per Fast-Forward auf main (Release-Worktree, Runner 16/16, Emulator-Probe 25/25), `firebase.rules.json` auf `ringout-87fbb` publiziert, GitHub-Pages-Client live verifiziert, Zwei-Client-Produktions-Smoke 17/17 (gemeinsame Uhr/Deadline, Timeout-No-Shot, Write-once, Lockstep, Collapse-Turn 8 identisch, Test-Räume abgeräumt). Offen bleibt nur der nachgelagerte Realgeräte-Test (s. FFA-Desync-Punkt).
 

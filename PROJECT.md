@@ -234,6 +234,8 @@ Ringout/
 
 **Sound:** für Zyklus 2 werden ausschließlich die bestehenden Latches stufenbezogen zurückgesetzt (Warnsignal, sechs Crack-Sounds, Break, Segment-Fall, Sockel/Pedestal — jeweils erneut exakt einmal). Keine neuen Sounddateien, kein verändertes Sounddesign.
 
+**Umsetzungsstand (2026-08-02, lokal fertig):** vollständig implementiert in 7 lokalen Commits auf `feature/two-stage-collapse` (Vertrag → Stufen-Refactor → zweiter Zyklus lokal+online → Stage-2-Visuals inkl. `colvRing()`-Zentralvertrag → stufenbezogene Sound-Latches → Protocol v4 → Doku). Runner 17/17 grün (Ring-Collapse 357, Collapse-SFX 126, Reconnect-B2 103, Rules 195 mit v4-Fixtures). Architektur-Notiz: das v6-Inventar lässt Gesimse/Kapitelle/Pfeiler jetzt SICHTBAR stehen und mit dem Sockel stürzen (vorher ab Matchstart ausgeblendet); `WallRing` bleibt im Swap-Satz. **Offen (nach Owner-Review):** Push, Live-Publish der v4-Rules auf `ringout-87fbb`, Production-Cutover (beide Clients müssen zeitgleich wechseln — v4 sperrt Altclients aus neuen Räumen aus).
+
 ---
 
 ## Systemanalyse
