@@ -24,11 +24,11 @@ const SUITES = [
   { name: 'FFA-Online-Prep',  file: 'test_ffa_online.js',     expectPassed: 53 },
   { name: 'FFA-Online-Flow',  file: 'test_ffa_flow.js',       expectPassed: 140 },
   { name: 'FFA-Online-Race',  file: 'test_ffa_race.js',       expectPassed: 115 },
-  { name: 'Reconnect-B2',     file: 'test_reconnect.js',      expectPassed: 123 },
+  { name: 'Reconnect-B2',     file: 'test_reconnect.js',      expectPassed: 125 },
   { name: 'Rules',            file: 'test_rules.js',          expectPassed: 195 },
   { name: 'Public-Lobby',     file: 'test_public_lobby.js',   expectPassed: 30 },
   { name: 'Team-Duel',        file: 'test_team_duel.js',      expectPassed: 36 },
-  { name: 'Ring-Collapse',    file: 'test_collapse.js',       expectPassed: 359 },
+  { name: 'Ring-Collapse',    file: 'test_collapse.js',       expectPassed: 371 },
   { name: 'Collapse-SFX',     file: 'test_collapse_sfx.js',   expectPassed: 126 },
 ];
 

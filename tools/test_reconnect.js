@@ -87,6 +87,10 @@ const SRC = [
   grab(/const MATCH_COLLAPSE_SECONDS=[^\n]*/, 'MATCH_COLLAPSE_SECONDS'),
   grab(/function onlineResetClock\(\)\{[\s\S]*?\n[^\n]*onlineHasClock=false;\}/, 'onlineResetClock'),
   grab(/function onlineTurnUsedMs\(sVal,maxTs,capMs\)\{[\s\S]*?\n\}/, 'onlineTurnUsedMs'),
+  // Gemeinsame Faltung: Uhr, Stufen, Collapse-Turn und Restzeit stammen aus
+  // DIESER einen Funktion — sie muss mit extrahiert werden, sonst laeuft der
+  // Sandbox-Client auf einer anderen Zeitwahrheit als das Produkt.
+  grab(/function onlineFold\(stamps,tsMap,uptoTurn\)\{[\s\S]*?\n\}/, 'onlineFold'),
   grab(/function onlineClock\(stamps,tsMap,curTurn,nowSrv\)\{[\s\S]*?\n\}/, 'onlineClock'),
   grab(/function onlineCollapseTurn\(stamps,tsMap,totalMs\)\{[\s\S]*?\n\}/, 'onlineCollapseTurn'),
   grab(/function onlineCollapsePending\(\)\{[\s\S]*?\n\}/, 'onlineCollapsePending'),
@@ -438,6 +442,7 @@ function makeClient(db, code, forcePid) {
       clockView(){return {stamps:JSON.parse(JSON.stringify(onTurnStamp)),ts:JSON.parse(JSON.stringify(onTurnTs)),
         collapseTurn:onlineCollapseTurn(onTurnStamp,onTurnTs),
         collapseTurn1:onlineCollapseTurn(onTurnStamp,onTurnTs,30000),
+        remainingMs:onlineFold(onTurnStamp,onTurnTs,turnNo).remainingMs,
         collapseCount:onlineCollapseCount(),collapsedGen:onCollapsedGen,R:R};},
       async slotRaw(turn,seat){const sn=await FB.get(['rooms',roomCode,'g',String(gen),'t',String(turn),String(seat)]);return sn.val();},
       async turnRaw(turn){const sn=await FB.get(['rooms',roomCode,'g',String(gen),'t',String(turn)]);return sn.val();},
@@ -754,19 +759,24 @@ async function playTurn(clients, moves) {
     t('OC1 beide Clients sehen dieselben Stempel',
       JSON.stringify(h.clockView().stamps) === JSON.stringify(g.clockView().stamps)
       && JSON.stringify(h.clockView().ts) === JSON.stringify(g.clockView().ts));
-    // 8 weitere volle Fenster (Turn 1..7 je 7 s) -> 56 s verbraucht, Turn 8 = Collapse-Turn.
-    for (let k = 1; k < 8; k++) await runClockedTurn([h, g], db, { 0: [0, 0], 1: [0, 0] });
+    // Weitere volle Fenster (Turn 1..8 je 7 s). Mit der Stufengrenzen-Klemmung
+    // schliesst Turn 4 den ersten Zyklus bei exakt 30 s ab (sein Ueberhang
+    // verfaellt dort), Zyklus 2 laeuft danach mit vollen 30 s — Turn 9 ist damit
+    // der Collapse-Turn der zweiten Stufe.
+    for (let k = 1; k < 9; k++) await runClockedTurn([h, g], db, { 0: [0, 0], 1: [0, 0] });
     t('OC1 vor dem letzten Turn: Collapse-Turn noch offen', h.clockView().collapseTurn === -1);
+    t('OC1 Stufe 1 faellt auf Turn 4, Ueberhang verkuerzt Zyklus 2 nicht',
+      h.clockView().collapseTurn1 === 4 && g.clockView().collapseTurn1 === 4);
     const rBefore = h.clockView().R;
-    await runClockedTurn([h, g], db, { 0: [0, 0], 1: [0, 0] });   // Turn 8: Restfenster 4 s
+    await runClockedTurn([h, g], db, { 0: [0, 0], 1: [0, 0] });   // Turn 9: Zyklus 2 voll
     const hv = h.clockView(), gv = g.clockView();
-    t('OC1 beide Clients bestimmen denselben Collapse-Turn (8)', hv.collapseTurn === 8 && gv.collapseTurn === 8);
+    t('OC1 beide Clients bestimmen denselben Collapse-Turn (9)', hv.collapseTurn === 9 && gv.collapseTurn === 9);
     t('OC1 Collapse exakt einmal, an der Rundengrenze angewendet',
       hv.collapsedGen === h.st().gen && gv.collapsedGen === g.st().gen);
     t('OC1 Radius fiel exakt einmal auf R*0.82', Math.abs(hv.R - rBefore * 0.82) < 1e-6 && Math.abs(gv.R - hv.R) < 1e-9);
     t('OC1 Lockstep nach dem Collapse bit-identisch', h.hash() === g.hash() && h.st().turnNo === g.st().turnNo);
     t('OC1 danach beginnt eine NORMALE Folgephase (lokale Collapse-Semantik)',
-      h.st().phase === 'aim' && h.st().turnNo === 9);
+      h.st().phase === 'aim' && h.st().turnNo === 10);
     // Weiterspiel nach dem Collapse: kein zweiter Collapse, Sim bleibt synchron.
     await runClockedTurn([h, g], db, { 0: [0, 0], 1: [0, 0] });
     t('OC1 kein zweiter Collapse im Folgeturn', Math.abs(h.clockView().R - hv.R) < 1e-9 && h.hash() === g.hash());
@@ -810,7 +820,9 @@ async function playTurn(clients, moves) {
     const db = makeDB();
     const h = makeClient(db, 'OCC1'); h.setMenu('online'); h.setFmt('single'); h.create(); await tick();
     const g = makeClient(db, 'X'); g.setMenu('online'); g.join('OCC1'); await tick();
-    for (let k = 0; k < 9; k++) await runClockedTurn([h, g], db, { 0: [0, 0], 1: [0, 0] });
+    // 10 Zuege a 7 s: mit der Stufengrenzen-Klemmung sind BEIDE Stufen gefallen
+    // (Turn 4 und Turn 9), der Ueberhang beider Grenzturns ist verfallen.
+    for (let k = 0; k < 10; k++) await runClockedTurn([h, g], db, { 0: [0, 0], 1: [0, 0] });
     t('OC3 Collapse im Live-Spiel gefallen', h.clockView().collapsedGen === h.st().gen);
     const liveHash = h.hash(), liveR = h.clockView().R, liveTurn = h.st().turnNo;
     const gpid = g.pid(); g.drop(); await tick();
@@ -820,6 +832,12 @@ async function playTurn(clients, moves) {
       ok === true && g2.clockView().collapsedGen === g2.st().gen
       && Math.abs(g2.clockView().R - liveR) < 1e-9 && g2.st().turnNo === liveTurn);
     t('OC3 Replay-Hash bit-identisch zum Live-Client', g2.hash() === liveHash && g2.hash() === h.hash());
+    // Rehydration nach Ueberhang-Turns: der wiederhergestellte Client leitet
+    // Stufengrenzen und Restzeit aus DENSELBEN Stempeln ab wie der Live-Client.
+    t('OC3 Rehydration nach Ueberhang: identische Stufengrenzen und Restzeit',
+      g2.clockView().collapseTurn1 === h.clockView().collapseTurn1
+      && g2.clockView().collapseTurn === h.clockView().collapseTurn
+      && g2.clockView().remainingMs === h.clockView().remainingMs);
     await runClockedTurn([h, g2], db, { 0: [0, 0], 1: [0, 0] });
     t('OC3 Weiterspiel nach Rehydration synchron, kein zweiter Collapse',
       h.hash() === g2.hash() && Math.abs(h.clockView().R - liveR) < 1e-9);
@@ -963,6 +981,7 @@ async function playTurn(clients, moves) {
       grab(/const MATCH_COLLAPSE_SECONDS=[^\n]*/, 'match constants'),
       grab(/const TURN_LIMIT_SECONDS=[^\n]*/, 'TURN_LIMIT_SECONDS'),
       grab(/function onlineTurnUsedMs\(sVal,maxTs,capMs\)\{[\s\S]*?\n\}/, 'onlineTurnUsedMs'),
+      grab(/function onlineFold\(stamps,tsMap,uptoTurn\)\{[\s\S]*?\n\}/, 'onlineFold'),
       grab(/function onlineClock\(stamps,tsMap,curTurn,nowSrv\)\{[\s\S]*?\n\}/, 'onlineClock'),
       grab(/function onlineCollapseTurn\(stamps,tsMap,totalMs\)\{[\s\S]*?\n\}/, 'onlineCollapseTurn'),
       grab(/function stampOnlinePhase\(ctx\)\{[\s\S]*?\n\}/, 'stampOnlinePhase'),

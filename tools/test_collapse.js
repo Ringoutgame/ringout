@@ -1051,25 +1051,31 @@ const advanceCover = (e, fromMs, toMs, step = FRAME_MS) => {
   // Abgeschlossene Phase ohne ts (Altbestand): konservativ das volle Fenster.
   const c3 = e.onlineClock({ 0: T0 }, {}, 1, T0);
   t('online: Phase ohne Commit-ts wird mit vollem Fenster verrechnet', c3.usedMs === 7000);
-  // Matchende: das letzte Fenster wird auf die Restzeit gekuerzt.
+  // Stufengrenzen (P1-Fix): ein Turn, der eine 30-s-Grenze ueberzieht, verfaellt
+  // GENAU dort — der Ueberhang wandert nie in den naechsten Zyklus. Bei 7-s-Zuegen
+  // deckt Zyklus 1 damit die Turns 0..4 ab (4x7 s + 2 s Rest), und Zyklus 2 beginnt
+  // mit vollen 30 s. Frueher summierte die Uhr ganze Turns und verkuerzte Zyklus 2
+  // um den Ueberhang (hier: 56 s statt 51 s verbraucht, nur noch 4 s Restzeit).
   const stampsEnd = {}, tsEnd = {};
   for (let k = 0; k < 8; k++) { stampsEnd[k] = T0 + k * 100000; tsEnd[k] = T0 + k * 100000 + 7000; }
   stampsEnd[8] = T0 + 800000;
   const c4 = e.onlineClock(stampsEnd, tsEnd, 8, T0 + 800000);
-  t('online: nach 8 vollen Zuegen bleiben 4 s', c4.usedMs === 56000 && c4.remainingMs === 4000);
-  t('online: letztes Fenster auf die Restzeit gekuerzt', c4.windowMs === 4000 && c4.deadlineAt === T0 + 800000 + 4000);
-  const c5 = e.onlineClock(stampsEnd, tsEnd, 8, T0 + 800000 + 4000);
+  t('online: 8 Zuege = 30 s Zyklus 1 + 21 s Zyklus 2 (Ueberhang verfaellt)', c4.usedMs === 51000 && c4.remainingMs === 9000);
+  t('online: Fenster bleibt 7 s, solange mehr Zyklusrest bleibt', c4.windowMs === 7000 && c4.deadlineAt === T0 + 800000 + 7000);
+  // Volle Ausschoepfung: 10 Zuege a 7 s — Zyklus 1 endet auf Turn 4, Zyklus 2 auf Turn 9.
+  const stampsFull = {}, tsFull = {};
+  for (let k = 0; k < 10; k++) { stampsFull[k] = T0 + k * 100000; tsFull[k] = T0 + k * 100000 + 7000; }
+  const c5 = e.onlineClock(stampsFull, tsFull, 10, T0 + 1000000);
   t('online: Restzeit erreicht exakt 0', c5.remainingMs === 0 && c5.usedMs === 60000);
-  const c6 = e.onlineClock(stampsEnd, tsEnd, 8, T0 + 800000 + 99999);
+  stampsFull[10] = T0 + 1000000;
+  const c6 = e.onlineClock(stampsFull, tsFull, 10, T0 + 1000000 + 99999);
   t('online: Restzeit wird nie negativ', c6.remainingMs === 0 && c6.usedMs === 60000);
   // Ohne Serverstempel laeuft nichts (Bestandsraum ohne Uhr).
   const c7 = e.onlineClock({}, {}, 0, T0);
   t('online: ohne Phasenstempel keine Deadline und keine Zeit', c7.deadlineAt === null && c7.usedMs === 0 && c7.remainingMs === 30000);
   // Nach aufgebrauchter Matchzeit laeuft jede weitere Phase mit vollem 7-s-Fenster
   // weiter (Rules-Grenze je Zug) — die Matchuhr bleibt bei 0.
-  const stamps9 = Object.assign({}, stampsEnd, { 8: T0 + 800000, 9: T0 + 900000 });
-  const ts9 = Object.assign({}, tsEnd, { 8: T0 + 800000 + 4000 });
-  const c8 = e.onlineClock(stamps9, ts9, 9, T0 + 900000);
+  const c8 = e.onlineClock(stampsFull, tsFull, 10, T0 + 1000000);
   t('online: Phase nach Matchende laeuft mit 7-s-Fenster weiter', c8.windowMs === 7000 && c8.remainingMs === 0);
   // Einzelphasen-Helfer.
   t('online: Helfer klemmt auf das Fenster', e.onlineTurnUsedMs(T0, T0 + 9000, 7000) === 7000);
@@ -1077,25 +1083,65 @@ const advanceCover = (e, fromMs, toMs, step = FRAME_MS) => {
   t('online: Helfer ohne ts = volles Fenster', e.onlineTurnUsedMs(T0, undefined, 7000) === 7000);
 
   // ── Collapse-Turn: deterministisch aus gespeicherten Stempeln, ohne Wanduhr ──
-  t('collapse-turn: nach 9 vollen 7-s-Zuegen faellt Turn 8 (60 s erreicht)',
-    e.onlineCollapseTurn(stamps9, Object.assign({}, ts9, { 8: T0 + 800000 + 4000 })) === 8);
+  t('collapse-turn: nach 10 vollen 7-s-Zuegen faellt Turn 9 (60 s erreicht)',
+    e.onlineCollapseTurn(stampsFull, tsFull) === 9);
   t('collapse-turn: identische Daten -> identischer Turn auf jedem Client',
-    e.onlineCollapseTurn(stamps9, ts9) === e.onlineCollapseTurn(JSON.parse(JSON.stringify(stamps9)), JSON.parse(JSON.stringify(ts9))));
+    e.onlineCollapseTurn(stampsFull, tsFull) === e.onlineCollapseTurn(JSON.parse(JSON.stringify(stampsFull)), JSON.parse(JSON.stringify(tsFull))));
   t('collapse-turn: offener Turn -> noch kein Ergebnis (-1)',
     e.onlineCollapseTurn({ 0: T0 }, {}) === -1);
   t('collapse-turn: ohne Uhr nie ein Collapse', e.onlineCollapseTurn({}, {}) === -1);
   t('collapse-turn: Restzeit-Klemmung — Ueberziehen des letzten Zuges verschiebt nichts',
-    e.onlineCollapseTurn(Object.assign({}, stampsEnd, { 8: T0 + 800000 }), Object.assign({}, tsEnd, { 8: T0 + 800000 + 999999 })) === 8);
+    e.onlineCollapseTurn(stampsFull, Object.assign({}, tsFull, { 9: T0 + 900000 + 999999 })) === 9);
   t('collapse-turn: schnelle Zuege verschieben den Collapse nach hinten',
     e.onlineCollapseTurn({ 0: T0, 1: T0 + 50000 }, { 0: T0 + 2000, 1: T0 + 50000 + 2000 }) === -1);
   // ── Stufenschwellen: 30 000 ms und 60 000 ms aus DENSELBEN Stempeln ──
   t('collapse-turn: erste Schwelle 30 s faellt auf Turn 4 (7-s-Zuege)',
-    e.onlineCollapseTurn(stamps9, ts9, 30000) === 4);
-  t('collapse-turn: zweite Schwelle 60 s faellt auf Turn 8 (7-s-Zuege + 4 s)',
-    e.onlineCollapseTurn(stamps9, ts9, 60000) === 8);
+    e.onlineCollapseTurn(stampsFull, tsFull, 30000) === 4);
+  t('collapse-turn: zweite Schwelle 60 s faellt auf Turn 9 (7-s-Zuege)',
+    e.onlineCollapseTurn(stampsFull, tsFull, 60000) === 9);
   t('collapse-turn: Schwelle 2 vor vollstaendigen Daten nicht bestimmbar',
     e.onlineCollapseTurn(stampsCyc, tsCyc2, 60000) === -1
     && e.onlineCollapseTurn(stampsCyc, tsCyc2, 30000) === 4);
+
+  // ── P1-Fix: Turn-Ueberhang zwischen den 30-s-Zyklen ─────────────────────────
+  // Ein Turn darf die Stufengrenze ueberziehen. Der Ueberhang verfaellt GENAU an
+  // dieser Grenze und darf Zyklus 2 nicht verkuerzen — Uhr, Stufen, Collapse-Turn
+  // und Restzeit kommen dafuer aus derselben Faltung (onlineFold).
+  const K = e.consts();
+  // 28 000 ms verbraucht (4 Zuege a 7 s), dann ein 6-s-Zug: Grenze bei 30 000 ms.
+  const sOv = { 0: T0, 1: T0 + 100000, 2: T0 + 200000, 3: T0 + 300000, 4: T0 + 400000 };
+  const xOv = { 0: T0 + 7000, 1: T0 + 107000, 2: T0 + 207000, 3: T0 + 307000, 4: T0 + 406000 };
+  const cOv = e.onlineClock(sOv, xOv, 5, T0 + 500000);
+  t('ueberhang: 28 000 ms + 6 000 ms -> Zyklus 1 exakt bei 30 000 ms beendet', cOv.usedMs === 30000);
+  t('ueberhang: Zyklus 2 startet mit exakt 30 000 ms Restzeit', cOv.remainingMs === 30000);
+  t('ueberhang: Collapse 1 faellt auf den ueberziehenden Turn 4', e.onlineCollapseTurn(sOv, xOv, 30000) === 4);
+  t('zyklusgleichheit: online-Restzeit nach Stufe 1 == lokale Zykluslaenge',
+    cOv.remainingMs === K.COLLAPSE_CYCLE_SECONDS * 1000);
+  // 29 900 ms verbraucht, dann ein voller 7-s-Zug.
+  const s29 = { 0: T0, 1: T0 + 100000, 2: T0 + 200000, 3: T0 + 300000, 4: T0 + 400000, 5: T0 + 500000 };
+  const x29 = { 0: T0 + 7000, 1: T0 + 107000, 2: T0 + 207000, 3: T0 + 307000, 4: T0 + 401900, 5: T0 + 507000 };
+  t('ueberhang: Fenster vor der Grenze auf 100 ms Zyklusrest gekuerzt',
+    e.onlineClock(s29, x29, 5, T0 + 500000).windowMs === 100);
+  const c29 = e.onlineClock(s29, x29, 6, T0 + 600000);
+  t('ueberhang: 29 900 ms + 7 000 ms -> Grenze exakt 30 000, Zyklus 2 voll',
+    c29.usedMs === 30000 && c29.remainingMs === 30000);
+  t('ueberhang: Collapse 1 faellt auf Turn 5', e.onlineCollapseTurn(s29, x29, 30000) === 5);
+  // Exakter Grenzwert: ein Zug, der die Grenze GENAU trifft, schliesst den Zyklus ab.
+  const xEx = Object.assign({}, xOv, { 4: T0 + 402000 });
+  t('grenzwert: exakt 30 000 ms schliessen Zyklus 1 auf diesem Turn ab',
+    e.onlineCollapseTurn(sOv, xEx, 30000) === 4 && e.onlineClock(sOv, xEx, 5, T0 + 500000).remainingMs === 30000);
+  t('grenzwert: exakt 60 000 ms schliessen Zyklus 2 ab',
+    e.onlineCollapseTurn(stampsFull, tsFull, 60000) === 9 && e.onlineClock(stampsFull, tsFull, 10, T0 + 1000000).usedMs === 60000);
+  // Mehrere Ueberhang-Turns: jeder verfaellt an SEINER Grenze.
+  const sM = {}, xM = {};
+  for (let k = 0; k < 10; k++) { sM[k] = T0 + k * 100000; xM[k] = T0 + k * 100000 + 7000; }
+  xM[4] = T0 + 400000 + 999999; xM[9] = T0 + 900000 + 999999;
+  t('ueberhang: mehrere Ueberhang-Turns -> Stufen bleiben auf Turn 4 und Turn 9',
+    e.onlineCollapseTurn(sM, xM, 30000) === 4 && e.onlineCollapseTurn(sM, xM, 60000) === 9);
+  t('ueberhang: Matchzeit bleibt trotz Ueberhaengen exakt 60 000 ms',
+    e.onlineClock(sM, xM, 10, T0 + 1000000).usedMs === 60000);
+  t('kein dritter Zyklus: Restzeit bleibt 0 und es gibt keine dritte Stufe',
+    e.onlineClock(sM, xM, 10, T0 + 1000000).remainingMs === 0 && e.onlineCollapseTurn(sM, xM, 90000) === -1);
 }
 
 // ── Online-Collapse-Anwendung: exakt an der Rundengrenze, exakt einmal ──
@@ -1103,10 +1149,11 @@ const advanceCover = (e, fromMs, toMs, step = FRAME_MS) => {
   const e = make(); e.setMode('bot'); e.setOnline(true); e.setBalls(twoBalls()); e.resetCollapseTimer();
   e.setR(1000); e.setGameStarted(true);
   const T0 = 1700000000000;
-  // Uhr aufgebraucht: 9 volle Zuege (8x7s + 4s), Turn 8 ist der Collapse-Turn.
-  for (let k = 0; k < 8; k++) { e.pushStamp(k, T0 + k * 100000); e.pushTs(k, T0 + k * 100000 + 7000); }
-  e.pushStamp(8, T0 + 800000); e.pushTs(8, T0 + 800000 + 4000);
-  e.setTurnNo(8);
+  // Uhr aufgebraucht: 10 Zuege a 7 s. Mit der Stufengrenzen-Klemmung faellt
+  // Schwelle 1 auf Turn 4 (4x7 s + 2 s) und Schwelle 2 auf Turn 9 — der Ueberhang
+  // beider Grenzturns verfaellt, statt den naechsten Zyklus zu verkuerzen.
+  for (let k = 0; k < 10; k++) { e.pushStamp(k, T0 + k * 100000); e.pushTs(k, T0 + k * 100000 + 7000); }
+  e.setTurnNo(9);
   t('online-collapse: pending am aufgeloesten Collapse-Turn (Schwelle 1)', e.onlineCollapsePending() === true);
   e.setPhase('sim');
   // Kugel ausserhalb des neuen Radius: die Auswertung nutzt die BESTEHENDE Ring-out-Logik.
@@ -1146,9 +1193,10 @@ const advanceCover = (e, fromMs, toMs, step = FRAME_MS) => {
   const e = make(); e.setMode('bot'); e.setOnline(true); e.setBalls(twoBalls()); e.resetCollapseTimer();
   e.setR(1000); e.setGameStarted(true);
   const T0 = 1700000000000;
-  for (let k = 0; k < 8; k++) { e.pushStamp(k, T0 + k * 100000); e.pushTs(k, T0 + k * 100000 + 7000); }
-  e.pushStamp(8, T0 + 800000); e.pushTs(8, T0 + 800000 + 4000);
-  e.setTurnNo(8);
+  // 10 Zuege a 7 s: mit der Stufengrenzen-Klemmung sind beide Schwellen erreicht
+  // (Turn 4 und Turn 9), ohne dass ein Ueberhang in Zyklus 2 wandert.
+  for (let k = 0; k < 10; k++) { e.pushStamp(k, T0 + k * 100000); e.pushTs(k, T0 + k * 100000 + 7000); }
+  e.setTurnNo(9);
   t('online-collapse: Rundenende-Ausgang wendet Stufe 1 an', e.onlineCollapseRoundEnd() === true && near(e.getR(), 820));
   t('online-collapse: Rundenende-Ausgang wendet Stufe 2 an', e.onlineCollapseRoundEnd() === true && near(e.getR(), 672.4));
   t('online-collapse: dritter Rundenende-Aufruf ist ein No-op', e.onlineCollapseRoundEnd() === false);
