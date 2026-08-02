@@ -44,7 +44,10 @@ const V3_PART1 = async () => {
   const CH = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
   const rcode = () => Array.from({ length: 4 }, () => CH[Math.floor(Math.random() * CH.length)]).join('');
   const fresh = async () => { for (let i = 0; i < 12; i++) { const c = rcode(); if ((await read(c)) == null) return c; } throw new Error('no free code'); };
-  const mkRoom = (fmt, visibility) => ({ v: 3, config: { winTarget: 3, fmt, visibility: visibility || 'private' }, gen: 0, state: 'lobby', p: { 0: P('HOSTTAB0', false) }, players: { 0: { id: 'HOST0000', name: 'H', tab: 'HOSTTAB0' } }, created: TS() });
+  // Die Protokollversion MUSS der Rules-Erwartung entsprechen (aktuell v === 4).
+  // Blieb sie beim Bump zurueck, scheitert schon das Anlegen des Raums und JEDER
+  // Folgecheck ist rot — der Emulator-Nachweis waere wertlos.
+  const mkRoom = (fmt, visibility) => ({ v: 4, config: { winTarget: 3, fmt, visibility: visibility || 'private' }, gen: 0, state: 'lobby', p: { 0: P('HOSTTAB0', false) }, players: { 0: { id: 'HOST0000', name: 'H', tab: 'HOSTTAB0' } }, created: TS() });
   const checks = [];
   const c = (kind, name, res) => { checks.push({ kind, name, ok: kind === 'ALLOW' ? res.ok === true : res.ok === false, err: res && res.err || null }); return res; };
   const state = (name, ok) => checks.push({ kind: 'STATE', name, ok: !!ok, err: null });

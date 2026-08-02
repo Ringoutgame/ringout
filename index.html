@@ -2405,24 +2405,46 @@ function tickCollapse(now){
 // Beginn einer Online-Planungsphase serverseitig stempeln — write-once direkt IM
 // Turn-Knoten (g/<gen>/t/<turn>/s), den der Turn-Listener ohnehin beobachtet.
 // serverTimestamp() loest der Server auf; der Client kann den Wert nicht bestimmen.
-// Nach dem Schreibversuch (Erfolg ODER write-once-Niederlage gegen einen schnelleren
-// Client) wird der tatsaechliche Serverwert einmalig NACHGELESEN: der Stempel ist
-// damit deterministisch bekannt, unabhaengig von jeder Listener-Verzoegerung. Liefert
-// die Nachlese nichts (alte Rules ohne Uhr-Pfad), laeuft der Turn als v3 ohne Uhr.
+//
+// P1-Fix (2026-08-03): der Stempel laeuft wie JEDER andere Turn-Write ausschliesslich
+// ueber runTransaction(...,{applyLocally:false}). set() hatte den Wert lokal sofort
+// optimistisch angewendet und damit den eigenen onValue-Listener VOR der Serverantwort
+// gefeuert — onlineTurnValue uebernahm diese reine Client-Schaetzung als autoritativ
+// (Uhr, Deadline, Collapse-Turn, Reveal-Freigabe), und ein danach verlorenes Write-once-
+// Race oder ein Rules-Rollback korrigierte sie erst nachtraeglich. Ohne lokales
+// Zwischenereignis traegt jeder Snapshot auf diesem Pfad ausschliesslich Serverwerte.
+//
+// Autoritativ ist damit der Transaction-Result-Snapshot: er enthaelt in BEIDEN
+// Ausgaengen — eigener Stempel gewonnen ODER write-once gegen einen schnelleren Client
+// verloren — den Serverwert. Nur wenn der Write abgelehnt wurde (permission_denied
+// gegen alte Rules ohne Uhr-Pfad, Netzwerkfehler) gibt es keinen Snapshot; dann
+// entscheidet ein Server-Read, ob der Turn ueberhaupt eine Uhr fuehrt. Ein solcher
+// benigner Verlierer uebernimmt NIE einen selbst geschaetzten Wert: ohne bestaetigte
+// Zahl bleibt onTurnStamp leer und der Turn laeuft wie v3 ohne Uhr weiter.
 function stampOnlinePhase(ctx){
   if(!online||!window.FB)return;
   onStampProbe[ctx.turnNo]='pending';
   const ref=window.FB.ref(window.FB.db,'rooms/'+ctx.room+'/g/'+ctx.gen+'/t/'+ctx.turnNo+'/s');
-  const adopt=()=>{
-    window.FB.get(ref).then(snap=>{
-      if(!isCurrentCtx(ctx))return;
-      const v=snap&&snap.val?snap.val():null;
-      if(typeof v==='number')onTurnStamp[ctx.turnNo]=v;
-      onStampProbe[ctx.turnNo]='done';
-      if(typeof maybeReveal==='function')maybeReveal();   // evtl. wartenden Reveal freigeben
-    }).catch(()=>{ if(isCurrentCtx(ctx))onStampProbe[ctx.turnNo]='done'; });
+  const adopt=v=>{
+    if(!isCurrentCtx(ctx))return;
+    if(typeof v==='number')onTurnStamp[ctx.turnNo]=v;
+    onStampProbe[ctx.turnNo]='done';
+    if(typeof maybeReveal==='function')maybeReveal();   // evtl. wartenden Reveal freigeben
   };
-  try{ window.FB.set(ref,window.FB.serverTimestamp()).then(adopt).catch(adopt); }catch(e){ onStampProbe[ctx.turnNo]='done'; }
+  // Nachlese NUR nach abgelehntem Write — get() liest den Serverstand; da auf diesem
+  // Pfad nichts mehr lokal optimistisch geschrieben wird, kann auch der Cache keinen
+  // unbestaetigten Wert mehr enthalten.
+  const probe=()=>{
+    window.FB.get(ref).then(snap=>adopt(snap&&snap.val?snap.val():null)).catch(()=>adopt(null));
+  };
+  try{
+    window.FB.runTransaction(ref,cur=>cur==null?window.FB.serverTimestamp():undefined,{applyLocally:false})
+      .then(res=>{
+        const v=res&&res.snapshot&&res.snapshot.val?res.snapshot.val():null;
+        if(typeof v==='number')adopt(v); else probe();
+      })
+      .catch(probe);
+  }catch(e){ onStampProbe[ctx.turnNo]='done'; }
 }
 // Reveal-Sperre: solange die eigene Stempel-Nachlese des laufenden Turns aussteht,
 // beginnt KEINE neue Phase auf halbfertigem Stempelzustand. Die Sperre loest sich

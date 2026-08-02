@@ -878,6 +878,158 @@ async function playTurn(clients, moves) {
       h.clockView().R > rTerm + 1 && h.hash() === g2.hash());
   }
 
+  // ── OC6: Phasenstempel — nur SERVERBESTAETIGTE Werte werden autoritativ ─────
+  // Eigener Miniatur-Client mit einem Fake, der die beiden SDK-Semantiken
+  // ausdruecklich unterscheidet:
+  //   set()                              -> feuert SOFORT ein lokales Echo mit einer
+  //                                         CLIENT-Schaetzung (das alte Verhalten)
+  //   runTransaction(..,applyLocally:false) -> kein lokales Zwischenereignis; der Wert
+  //                                         wird erst mit der Serverantwort sichtbar
+  // Damit ist pruefbar, dass der Produktcode keine Schaetzung mehr uebernimmt.
+  {
+    const SRV_BASE = 1700000500000;      // "Serverzeit" — vom Client nicht bestimmbar
+    const CLIENT_SKEW = 4321;            // die lokale Schaetzung liegt bewusst daneben
+    // Ein Stempel-Client: echte Produktfunktionen ueber einem steuerbaren Fake.
+    const makeStamper = (world, tag) => {
+      const body = `
+        let online=true, gameStarted=true, roomCode='RACE', gen=0, turnNo=0;
+        let onlineSessionId=1, onlineTerminatedSession=-1;
+        let phase='aim', np=()=>2;
+        const onTurnStamp={}, onTurnTs={}, onStampProbe={}, pendingSlot={};
+        const revealCalls=[]; const applied=[];
+        function isCurrentCtx(ctx){return ctx.sid===onlineSessionId&&ctx.room===roomCode&&ctx.gen===gen&&ctx.turnNo===turnNo;}
+        function isOnlineTerminated(){return onlineTerminatedSession===onlineSessionId;}
+        function maybeReveal(){revealCalls.push(onStampProbe[turnNo]);}
+        function processSlot(s,c){ if(c&&typeof c.ts==='number'&&(onTurnTs[turnNo]==null||c.ts>onTurnTs[turnNo]))onTurnTs[turnNo]=c.ts; if(c)applied.push([s,c]); }
+        const window={FB:FB};
+        ${SRC_CLOCK}
+        return {
+          arm(){ stampOnlinePhase({sid:onlineSessionId,room:roomCode,gen:gen,turnNo:turnNo}); },
+          echo(val){ onlineTurnValue(val); },
+          stamp(){ return onTurnStamp[turnNo]; },
+          probe(){ return onStampProbe[turnNo]; },
+          blocked(){ return onlineRevealBlocked(); },
+          revealCalls(){ return revealCalls.slice(); },
+          applied(){ return applied.slice(); },
+          clock(nowSrv){ return onlineClock(onTurnStamp,onTurnTs,turnNo,nowSrv); },
+          collapseTurn(){ return onlineCollapseTurn(onTurnStamp,onTurnTs,30000); },
+          pushTurn(i,s,ts){ onTurnStamp[i]=s; onTurnTs[i]=ts; },
+          setTurnNo(v){ turnNo=v; }
+        };`;
+      const cl = new Function('FB', 'SRC_CLOCK', body)(world.fbFor(tag), SRC_CLOCK);
+      // Turn-Listener wie im Produkt: JEDES Ereignis auf dem Turn-Knoten laeuft
+      // durch onlineTurnValue. Faellt der Stempelpfad je wieder auf set() zurueck,
+      // erreicht die Client-Schaetzung genau hier den Zustand — und (1) schlaegt an.
+      world.listeners.push(v => cl.echo(v));
+      return cl;
+    };
+    // Fake-Welt: EIN Serverknoten, write-once, mit steuerbarer Antwortreihenfolge.
+    const makeWorld = () => {
+      const w = { server: null, queue: [], listeners: [], denied: false };
+      w.flush = async () => { while (w.queue.length) { const j = w.queue.shift(); j(); await Promise.resolve(); } };
+      w.fbFor = () => ({
+        db: null,
+        ref: (db, p) => p,
+        serverTimestamp: () => '__SV__',
+        get: async () => ({ val: () => w.server }),
+        // Altes Verhalten: lokales Echo VOR der Serverantwort, mit Client-Schaetzung.
+        set: (ref, val) => {
+          const guess = SRV_BASE + CLIENT_SKEW;
+          w.listeners.forEach(l => l({ s: guess }));
+          return { then: (fn) => { w.queue.push(() => fn()); return { catch: () => {} }; } };
+        },
+        runTransaction: (ref, fn, opts) => {
+          const local = opts && opts.applyLocally === false;
+          if (!local) throw new Error('Stempel MUSS applyLocally:false verwenden');
+          return {
+            then: (onOk) => {
+              w.queue.push(() => {
+                if (w.denied) { if (w.onCatch) w.onCatch(); return; }
+                const cur = w.server;
+                const next = fn(cur);
+                if (next !== undefined) w.server = SRV_BASE;    // Server loest __SV__ auf
+                onOk({ committed: next !== undefined, snapshot: { val: () => w.server } });
+              });
+              return { catch: (onErr) => { w.onCatch = onErr; return undefined; } };
+            }
+          };
+        }
+      });
+      return w;
+    };
+    const SRC_CLOCK = [
+      grab(/const GEN_MAX=[^\n]*/, 'GEN_MAX'),
+      grab(/const COLLAPSE_STAGE_COUNT=[^\n]*/, 'COLLAPSE_STAGE_COUNT'),
+      grab(/const MATCH_COLLAPSE_SECONDS=[^\n]*/, 'match constants'),
+      grab(/const TURN_LIMIT_SECONDS=[^\n]*/, 'TURN_LIMIT_SECONDS'),
+      grab(/function onlineTurnUsedMs\(sVal,maxTs,capMs\)\{[\s\S]*?\n\}/, 'onlineTurnUsedMs'),
+      grab(/function onlineClock\(stamps,tsMap,curTurn,nowSrv\)\{[\s\S]*?\n\}/, 'onlineClock'),
+      grab(/function onlineCollapseTurn\(stamps,tsMap,totalMs\)\{[\s\S]*?\n\}/, 'onlineCollapseTurn'),
+      grab(/function stampOnlinePhase\(ctx\)\{[\s\S]*?\n\}/, 'stampOnlinePhase'),
+      grab(/function onlineRevealBlocked\(\)\{[\s\S]*?\n\}/, 'onlineRevealBlocked'),
+      grab(/function onlineTurnValue\(val\)\{[\s\S]*?\n\}/, 'onlineTurnValue'),
+    ].join('\n');
+
+    // (1) Zwei Clients stempeln gleichzeitig — write-once, beide enden bestaetigt gleich.
+    for (const order of [[0, 1], [1, 0]]) {
+      const w = makeWorld();
+      const A = makeStamper(w, 'A'), B = makeStamper(w, 'B');
+      A.arm(); B.arm();
+      t('OC6 vor der Serverantwort ist kein Stempel bekannt (Reihenfolge ' + order.join('') + ')',
+        A.stamp() === undefined && B.stamp() === undefined);
+      t('OC6 Reveal bleibt bis zur Bestaetigung gesperrt (Reihenfolge ' + order.join('') + ')',
+        A.blocked() === true && B.blocked() === true);
+      // Callback-Reihenfolge bewusst variieren
+      if (order[0] === 1) w.queue.reverse();
+      await w.flush();
+      t('OC6 beide Clients enden mit demselben bestaetigten Stempel (Reihenfolge ' + order.join('') + ')',
+        A.stamp() === SRV_BASE && B.stamp() === SRV_BASE);
+      t('OC6 keine Client-Schaetzung uebernommen (Reihenfolge ' + order.join('') + ')',
+        A.stamp() !== SRV_BASE + CLIENT_SKEW && B.stamp() !== SRV_BASE + CLIENT_SKEW);
+      t('OC6 Reveal-Sperre danach geloest (Reihenfolge ' + order.join('') + ')',
+        A.blocked() === false && B.blocked() === false && A.probe() === 'done' && B.probe() === 'done');
+      const ca = A.clock(SRV_BASE + 1000), cb = B.clock(SRV_BASE + 1000);
+      t('OC6 identische Deadline und Restzeit auf beiden Clients (Reihenfolge ' + order.join('') + ')',
+        ca.deadlineAt === cb.deadlineAt && ca.remainingMs === cb.remainingMs && ca.deadlineAt === SRV_BASE + 7000);
+    }
+
+    // (2) Verlorene Transaction / Rollback: der Verlierer aendert keinen Gameplayzustand.
+    {
+      const w = makeWorld(); w.denied = true;
+      const A = makeStamper(w, 'A');
+      A.arm();
+      await w.flush();
+      // Der abgelehnte Write faellt auf den Server-Read zurueck (Knoten leer).
+      await Promise.resolve(); await Promise.resolve();
+      t('OC6 abgelehnter Stempel-Write uebernimmt keinen Wert', A.stamp() === undefined);
+      t('OC6 abgelehnter Stempel-Write veraendert keinen Zugzustand', A.applied().length === 0);
+      const c = A.clock(SRV_BASE + 1000);
+      t('OC6 ohne bestaetigten Stempel keine Deadline', c.deadlineAt === null && c.startedAt === null);
+      t('OC6 ohne bestaetigten Stempel kein Collapse-Turn', A.collapseTurn() === -1);
+    }
+
+    // (3) Fremdes Turn-Echo bleibt autoritativ: ein per Transaction bestaetigter
+    //     Wert eines anderen Clients wird uebernommen, ein Echo waehrend des
+    //     eigenen Pendings kann keine Schaetzung mehr einschleusen (der Fake
+    //     wuerfe bei set()-Nutzung, s. runTransaction-Guard oben).
+    {
+      const w = makeWorld();
+      const A = makeStamper(w, 'A');
+      A.arm();
+      A.echo({ s: SRV_BASE });                      // bestaetigtes Fremd-Echo
+      t('OC6 bestaetigtes Turn-Echo wird sofort autoritativ', A.stamp() === SRV_BASE && A.probe() === 'done');
+      await w.flush();
+      t('OC6 spaetere eigene Bestaetigung aendert den Stempel nicht', A.stamp() === SRV_BASE);
+    }
+
+    // (4) Quellcode-Wache: der Stempelpfad darf nie wieder auf set() zurueckfallen.
+    t('OC6 Stempel wird per runTransaction(applyLocally:false) geschrieben',
+      /runTransaction\(ref,cur=>cur==null\?window\.FB\.serverTimestamp\(\):undefined,\{applyLocally:false\}\)/
+        .test(grab(/function stampOnlinePhase\(ctx\)\{[\s\S]*?\n\}/, 'stampOnlinePhase')));
+    t('OC6 Stempelpfad benutzt kein set() mehr',
+      !/window\.FB\.set\(ref/.test(grab(/function stampOnlinePhase\(ctx\)\{[\s\S]*?\n\}/, 'stampOnlinePhase')));
+  }
+
   console.log(`\nReconnect-B2: ${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
 })().catch(e => { console.error('SUITE ERROR:', e); process.exit(1); });
