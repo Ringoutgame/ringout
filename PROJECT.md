@@ -316,12 +316,38 @@ Die Offline-Suiten bauen **keinen** eigenen Arbiter nach:
 eine In-Memory-DB, `tools/lib/v4-client-harness.js` bündelt den
 Client-Sandkasten für Flow-, Race- und Reconnect-Suite.
 
-### v3-Kompatibilität
+### v3-Kompatibilität — nur auf Daten- und Rules-Ebene
 
-Bestehende v3-Räume bleiben spielbar: die Rules tragen die v3-Zugpfade samt
-`now <= s + 7000`-Deadline-Gate weiterhin. Nur der Client legt keine v3-Räume
-mehr an. `tools/e2e/run-ffa-e2e.js` ist dadurch abgelöst (es trieb den Client
-dazu, v3-Räume anzulegen) und bricht mit einer eindeutigen Meldung ab.
+**Der v4-Client kann v3-Räume nicht erstellen, anzeigen, betreten oder
+wiederbetreten.** Diese Aussage ist bewusst so scharf formuliert: eine frühere
+Fassung dieses Dokuments behauptete, bestehende v3-Räume blieben spielbar. Das
+ist falsch und wurde im unabhängigen Review widerlegt.
+
+**Was intakt bleibt (Daten- und Rules-Ebene):**
+- `v` akzeptiert weiterhin `3` und `4`.
+- Die v3-Zugpfade `t/<turn>/<seat>` und `t/<turn>/s` existieren unverändert,
+  samt `ts`-Feld und `now <= s + 7000`-Deadline-Gate.
+- Bestehende v3-Daten werden durch Rules oder Functions nicht beschädigt.
+
+**Was der v4-Client tut (`ONLINE_PROTOCOL_VERSION = 4`):**
+
+| Pfad | Verhalten bei `d.v === 3` |
+|---|---|
+| `validateRoom` | Beitritt abgelehnt: „Versionen stimmen nicht überein" |
+| `validateRejoinRoom` | liefert `noRoom`; `attemptRejoin` ruft danach `forgetRoom()` |
+| `publicListingView` | Raum wird ausgeblendet und zum Entfernen markiert |
+
+**Konsequenz für den Release:** Der Cutover erfolgt als **kontrollierter
+Hard-Cutover ohne laufende v3-Partien**. Ein bereits geladener Alt-Client
+spielt seine Partie zu Ende; **lädt er nach dem Cutover neu, verliert er den
+Zugriff auf seinen v3-Raum dauerhaft** (der gespeicherte Raum wird verworfen).
+Verbliebene v3-Räume laufen über die bestehende 2-h-TTL aus.
+
+Ein v3-Browser-Smoke ist deshalb nicht durchführbar und auch nicht sinnvoll —
+es gibt nach dem Cutover keinen Client mehr, der v3 sprechen könnte.
+`tools/e2e/run-ffa-e2e.js` ist aus demselben Grund abgelöst (es trieb den
+Client dazu, v3-Räume anzulegen) und bricht mit einer eindeutigen Meldung ab
+(Exit 3); das npm-Script heißt `test:e2e:ffa:deprecated`.
 
 ## Systemanalyse
 
