@@ -25,12 +25,19 @@ const SUITES = [
   { name: 'FFA-Online-Flow',  file: 'test_ffa_flow.js',       expectPassed: 140 },
   { name: 'FFA-Online-Race',  file: 'test_ffa_race.js',       expectPassed: 115 },
   { name: 'Reconnect-B2',     file: 'test_reconnect.js',      expectPassed: 125 },
-  { name: 'Rules',            file: 'test_rules.js',          expectPassed: 309 },
+  { name: 'Rules',            file: 'test_rules.js',          expectPassed: 331 },
   { name: 'Public-Lobby',     file: 'test_public_lobby.js',   expectPassed: 30 },
   { name: 'Team-Duel',        file: 'test_team_duel.js',      expectPassed: 36 },
   { name: 'Ring-Collapse',    file: 'test_collapse.js',       expectPassed: 371 },
   { name: 'Collapse-SFX',     file: 'test_collapse_sfx.js',   expectPassed: 126 },
+  { name: 'Auth-Boot',        file: 'test_auth_boot.js',      expectPassed: 15 },
 ];
+// Bewusst NICHT hier registriert (wie tools/e2e/): die drei Emulator-Suiten
+// tools/test_action_clock.js (Arbiter), tools/test_room_lifecycle.js (v4-Room-
+// Lifecycle inkl. Callable-Wrapper) und tools/test_harness_cleanup.js
+// (Harness-Selbsttest) brauchen JDK 21 + globales firebase-tools und liefen in
+// der reinen Node-CI rot.
+// Aufruf: npm run test:arbiter · npm run test:lifecycle · npm run test:harness
 
 const lastLine = (s) => {
   const lines = String(s).split('\n').map((l) => l.trim()).filter(Boolean);

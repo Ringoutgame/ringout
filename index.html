@@ -830,12 +830,32 @@ body:not(.r3d) .ohero{height:12px}
     messagingSenderId: "1030534355732",
     appId: "1:1030534355732:web:71cbf283ec2a7b2edd0001"
   };
+  // v4-Identitaet. Bleibt leer, solange keine Anonymous-Auth-UID vorliegt — jeder
+  // v4-Pfad prueft das und faellt sonst gar nicht erst an.
+  window.__FB_UID = '';
+  let app = null;
   try{
-    const app = initializeApp(firebaseConfig);
+    app = initializeApp(firebaseConfig);
     const db = getDatabase(app);
     window.FB = { db, ref, set, get, update, remove, onValue, onDisconnect, serverTimestamp, runTransaction, query, orderByChild, limitToLast };
     window.__FB_READY = true;
   }catch(e){ window.__FB_ERR = String(e && e.message || e); }
+  // Anonymous Auth wird BEWUSST dynamisch geladen und NICHT abgewartet: ein
+  // statischer Import bricht bei einem fehlschlagenden Laden (CDN blockiert,
+  // Adblocker, Offline-Cache) die Auswertung des GANZEN Moduls ab — window.FB
+  // waere nie gesetzt und der produktive v3-Pfad damit tot, obwohl Auth
+  // ausschliesslich v4 betrifft. Scheitert der Import oder der Provider, bleibt
+  // __FB_UID leer: v4 ist dann inaktiv, v3 laeuft unveraendert weiter.
+  if(window.__FB_READY){
+    import("https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js").then(m=>{
+      const auth = m.getAuth(app);
+      m.onAuthStateChanged(auth, user=>{
+        window.__FB_UID = (user && user.uid) || '';
+        if(window.__FB_UID) window.dispatchEvent(new Event('fb-auth'));
+      });
+      return m.signInAnonymously(auth);
+    }).catch(()=>{});
+  }
   window.dispatchEvent(new Event('fb-ready'));
 </script>
 

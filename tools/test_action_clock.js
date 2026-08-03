@@ -112,8 +112,8 @@ function killTree(pid) {
     const k = process.platform === 'win32'
       ? spawn('taskkill', ['/PID', String(pid), '/T', '/F'])
       : spawn('kill', ['-9', String(pid)]);
-    k.on('close', () => resolve());
-    k.on('error', () => resolve());
+    k.on('close', (code) => resolve(code === 0));
+    k.on('error', () => resolve(false));
   });
 }
 
@@ -148,22 +148,26 @@ const BASE = 1751900000000;
 // n besetzte Seats, alle online, KONSISTENTER seatByUid-Index (in Produktion
 // server-owned, hier via Admin-SDK geseedet). seats-Feld nur fuer die FFA-Familie.
 function roomN(n, fmt, over) {
-  const p = {}, players = {}, seatByUid = {};
+  const p = {}, players = {}, seatByUid = {}, sess = {};
   for (let s = 0; s < n; s++) {
     p[s] = { s: TAB[s], on: true, t: BASE };
     players[s] = { id: 'PLAYER0' + s, name: 'P' + s, tab: TAB[s], uid: UID[s] };
     seatByUid[UID[s]] = s;
+    sess[s] = TAB[s];          // Session-Register (Phase IIIB): aktueller Token je Seat
   }
   const r = {
     v: 4, config: { winTarget: 3, fmt: fmt || 'single', visibility: 'private' },
-    gen: 0, state: 'playing', created: BASE - 5000, p, players, seatByUid,
+    gen: 0, state: 'playing', created: BASE - 5000, p, players, seatByUid, sess,
   };
   if (fmt && fmt !== 'single' && fmt !== 'double') r.seats = n;
   return Object.assign(r, over || {});
 }
 const MOVE = { idx: 0, dx: 100, dy: -50, sp: 0.5 };
-const MOVET = (tn) => Object.assign({}, MOVE, { t: tn });   // v4-Live-Move traegt den Turn
+const MOVET = (tn, seat) => Object.assign({}, MOVE, { t: tn, sid: TAB[seat == null ? 0 : seat] });   // v4-Live-Move: Turn + Session
 const LIVE_CLOCK = (anchor) => ({ g: { 0: { live: { clock: anchor } } } });
+// Ein Collapse-Zyklus — Handgesetzte Anker in dieser Suite starten mit der
+// Restzeit EINES Zyklus, nicht mit dem Gesamtbudget (Stufenvertrag, s. clock-core).
+const CYCLE = core.CYCLE_MS;
 
 (async function main() {
   const java = resolveJava();
@@ -185,27 +189,43 @@ const LIVE_CLOCK = (anchor) => ({ g: { 0: { live: { clock: anchor } } } });
   const emu = startEmulator(runDir, java);
   let exitCode = 2;
   try {
-    if (!(await waitReady(emu, 90000))) {
-      console.error('FAIL: Emulator nicht bereit.\n' + emu.getOutput().slice(-2000));
-      process.exit(2);
-    }
+    if (!(await waitReady(emu, 90000)))
+      throw new Error('Emulator nicht bereit.\n' + emu.getOutput().slice(-2000));
     process.env.FIREBASE_DATABASE_EMULATOR_HOST = EMU_HOST + ':' + EMU_PORT;
     const app = admin.initializeApp({ projectId: PROJECT, databaseURL: `http://${EMU_HOST}:${EMU_PORT}?ns=${NS}` });
     const db = admin.database(app);
     let simNow = BASE;                                   // injizierte Serverzeit — keine Sleeps
     const arb = core.createArbiter({ db, now: () => simNow });
-    const seed = (code, val) => db.ref('rooms/' + code).set(val);
+    // Fixture-Injektion (Phase IIIB): jeder v4-Raum erhaelt eine feste iid,
+    // sess-Tokens werden zu {iid, active, pending:null}-Objekten und jeder
+    // vorbefuellte live-Anker traegt die iid (Bindung aller Transactions).
+    const iidF = (code) => 'IIDFIX' + code + '00';
+    const seed = (code, val) => {
+      if (val && val.v === 4) {
+        if (!val.iid) val.iid = iidF(code);
+        if (val.sess) for (const k of Object.keys(val.sess)) {
+          const cur = val.sess[k];
+          val.sess[k] = (cur && typeof cur === 'object') ? Object.assign({ iid: val.iid }, cur)
+            : { iid: val.iid, active: cur, pending: null };
+        }
+        if (val.g) for (const g of Object.keys(val.g)) {
+          if (val.g[g] && val.g[g].live && val.g[g].live.iid === undefined) val.g[g].live.iid = val.iid;
+        }
+      }
+      return db.ref('rooms/' + code).set(val);
+    };
     const liveOf = async (code, g) => (await db.ref(`rooms/${code}/g/${g || 0}/live`).get()).val();
     const clockOf = async (code, g) => (await db.ref(`rooms/${code}/g/${g || 0}/live/clock`).get()).val();
     const lslots = async (code, g) => (await db.ref(`rooms/${code}/g/${g || 0}/live/slots`).get()).val() || {};
     const hist = async (code, g, tn) => (await db.ref(`rooms/${code}/g/${g}/t/${tn}`).get()).val();
     const err = async (fn) => { try { await fn(); return null; } catch (e) { return e.code || 'error'; } };
-    const start = (code, uid) => arb.clockStart({ room: code, uid: uid || UID[0] });
-    const close = (code, phaseId, uid) => arb.clockClose({ room: code, phaseId, uid: uid || UID[0] });
+    const seatIdx = (uid) => Math.max(0, UID.indexOf(uid));
+    const start = (code, uid) => arb.clockStart({ room: code, uid: uid || UID[0], iid: iidF(code), session: TAB[seatIdx(uid || UID[0])] });
+    const close = (code, phaseId, uid) => arb.clockClose({ room: code, phaseId, uid: uid || UID[0], iid: iidF(code), session: TAB[seatIdx(uid || UID[0])] });
     const rep = (code, phaseId, seat, hash, next) =>
-      arb.clockSettle({ room: code, phaseId, uid: UID[seat], hash, next });
+      arb.clockSettle({ room: code, phaseId, uid: UID[seat], hash, next, iid: iidF(code), session: TAB[seat] });
     const commit = (code, g, tn, seat) =>
-      db.ref(`rooms/${code}/g/${g}/live/slots/${seat}`).set(Object.assign({}, MOVET(tn), { idx: seat }));
+      db.ref(`rooms/${code}/g/${g}/live/slots/${seat}`).set(Object.assign({}, MOVET(tn, seat), { idx: seat }));
     // Test-Fassaden um dieselbe db: transaction-Pfade protokollieren bzw.
     // gezielt scheitern lassen (simulierter Function-Absturz zwischen den
     // Archivierungs-Schritten) — der Produktionscode bleibt frei von Seams.
@@ -226,8 +246,8 @@ const LIVE_CLOCK = (anchor) => ({ g: { 0: { live: { clock: anchor } } } });
     // ── 1) clockStart: Ownership, exakter Anker, begrenzter live-Pfad ──
     await seed('ABCD', roomN(2));
     t('start: Fremder abgelehnt', (await err(() => start('ABCD', UX))) === 'permission');
-    t('start: ohne uid abgelehnt', (await err(() => arb.clockStart({ room: 'ABCD', uid: '' }))) === 'permission');
-    t('start: ungueltiger Raumcode abgelehnt', (await err(() => arb.clockStart({ room: 'abcd!', uid: UID[0] }))) === 'invalid');
+    t('start: ohne uid abgelehnt', (await err(() => arb.clockStart({ room: 'ABCD', uid: '', iid: iidF('ABCD'), session: TAB[0] }))) === 'permission');
+    t('start: ungueltiger Raumcode abgelehnt', (await err(() => arb.clockStart({ room: 'abcd!', uid: UID[0], iid: iidF('ABCD'), session: TAB[0] }))) === 'invalid');
     const s1 = await start('ABCD');
     t('start: eroeffnet', s1.status === 'started' && s1.clock.phase === 'aim');
     t('start: Zyklus 1 startet mit exakt 30000 (stage 0)', s1.clock.remainingMs === 30000 && s1.clock.stage === 0);
@@ -236,10 +256,16 @@ const LIVE_CLOCK = (anchor) => ({ g: { 0: { live: { clock: anchor } } } });
     t('start: phaseId gen:turn', s1.clock.phaseId === '0:0');
     t('start: eligibleSeats aus dem v4-Roster', s1.clock.eligibleSeats === '0,1');
     t('start: Anker liegt begrenzt unter g/0/live/clock', (await clockOf('ABCD')).phaseId === '0:0');
-    t('start: live enthaelt vor dem ersten Commit nur clock', Object.keys((await liveOf('ABCD')) || {}).join(',') === 'clock');
+    t('start: live enthaelt vor dem ersten Commit nur clock+iid', Object.keys((await liveOf('ABCD')) || {}).sort().join(',') === 'clock,iid');
     t('start: kein raumweiter clock-Knoten mehr', (await db.ref('rooms/ABCD/clock').get()).val() === null);
     t('start: kein alter Gen-Pfad g/0/clock mehr', (await db.ref('rooms/ABCD/g/0/clock').get()).val() === null);
     t('start: zweiter Aufruf idempotent', (await start('ABCD', UID[1])).status === 'exists');
+    t('session: Clock-Callable mit falscher Session abgelehnt',
+      (await err(() => arb.clockClose({ room: 'ABCD', phaseId: '0:0', uid: UID[0], iid: iidF('ABCD'), session: 'ALTERTOKEN000001' }))) === 'permission');
+    t('session: Clock-Callable ohne Session abgelehnt',
+      (await err(() => arb.clockClose({ room: 'ABCD', phaseId: '0:0', uid: UID[0], iid: iidF('ABCD') }))) === 'invalid');
+    t('iid: Clock-Callable mit fremder iid abgelehnt',
+      (await err(() => arb.clockClose({ room: 'ABCD', phaseId: '0:0', uid: UID[0], iid: 'IIDFREMD00000001', session: TAB[0] }))) === 'failed');
 
     // ── 2) Close: vorzeitig verboten, exakter Zeitabzug, genau ein Abschluss ──
     t('close: vor Deadline mit offenen Commits abgelehnt', (await err(() => close('ABCD', '0:0'))) === 'too-early');
@@ -257,7 +283,7 @@ const LIVE_CLOCK = (anchor) => ({ g: { 0: { live: { clock: anchor } } } });
     // ── 3) Settlement-Grundvertrag ──
     simNow = BASE + 10000;                               // Physik kostet keine Uhrzeit
     t('settle: ohne nextEligibleSeats abgelehnt',
-      (await err(() => arb.clockSettle({ room: 'ABCD', phaseId: '0:0', uid: UID[0], hash: 'h1' }))) === 'invalid');
+      (await err(() => arb.clockSettle({ room: 'ABCD', phaseId: '0:0', uid: UID[0], hash: 'h1', iid: iidF('ABCD'), session: TAB[0] }))) === 'invalid');
     const st1 = await rep('ABCD', '0:0', 0, 'h1', [0, 1]);
     t('settle: erster Report wartet auf Quorum', st1.status === 'pending' && st1.clock.phase === 'resolving');
     t('settle: Report wird als {hash,next} abgelegt',
@@ -268,7 +294,7 @@ const LIVE_CLOCK = (anchor) => ({ g: { 0: { live: { clock: anchor } } } });
     t('settle: neue Deadline = jetzt+7000', st2.clock.startedAt === BASE + 10000 && st2.clock.deadlineAt === BASE + 17000);
     t('settle: eligibleSeats aus dem Konsens uebernommen', st2.clock.eligibleSeats === '0,1');
     t('settle: Folgephase leert live (keine alten Slots, keine alten Reports)',
-      Object.keys((await liveOf('ABCD')) || {}).join(',') === 'clock' && st2.clock.settled == null);
+      Object.keys((await liveOf('ABCD')) || {}).sort().join(',') === 'clock,iid' && st2.clock.settled == null);
     t('settle: alte Phase stale (kein Doppel-Start)', (await rep('ABCD', '0:0', 0, 'h1', [0, 1])).status === 'stale');
 
     // ── 4) Timeout-Close: fehlende Slots als verbindlicher No-Shot ──
@@ -327,7 +353,7 @@ const LIVE_CLOCK = (anchor) => ({ g: { 0: { live: { clock: anchor } } } });
     await commit('ABCQ', 0, 0, 0);
     const boom = core.createArbiter({ db, now: () => { throw new Error('simulierter Ausfall vor der Transaction'); } });
     const beforeBoom = JSON.stringify((await db.ref('rooms/ABCQ/g/0').get()).val());
-    t('atomic: Exception vor der Transaction wirft', (await err(() => boom.clockClose({ room: 'ABCQ', phaseId: '0:0', uid: UID[0] }))) === 'error');
+    t('atomic: Exception vor der Transaction wirft', (await err(() => boom.clockClose({ room: 'ABCQ', phaseId: '0:0', uid: UID[0], iid: iidF('ABCQ'), session: TAB[0] }))) === 'error');
     t('atomic: Exception vor der Transaction aendert nichts',
       JSON.stringify((await db.ref('rooms/ABCQ/g/0').get()).val()) === beforeBoom);
 
@@ -350,10 +376,10 @@ const LIVE_CLOCK = (anchor) => ({ g: { 0: { live: { clock: anchor } } } });
     // ── 6) Commit gegen Timeout ─────────────────────────────────────────────
     //    Rules rechnen mit der ECHTEN Serveruhr (now), daher hier Anker mit
     //    Date.now() statt simNow.
-    await seed('ABCR', roomN(2, 'single', LIVE_CLOCK(core.aimAnchor(0, 0, 30000, Date.now(), '0,1', {}))));
-    t('commit: echter Commit kurz vor der Deadline gewinnt', (await restPut('rooms/ABCR/g/0/live/slots/1', MOVET(0), UID[1])) === true);
-    await seed('ABCS', roomN(2, 'single', LIVE_CLOCK(core.aimAnchor(0, 0, 30000, Date.now() - 60000, '0,1', {}))));
-    t('commit: Commit NACH der Deadline in leeren Slot abgelehnt', (await restPut('rooms/ABCS/g/0/live/slots/0', MOVET(0), UID[0])) === false);
+    await seed('ABCR', roomN(2, 'single', LIVE_CLOCK(core.aimAnchor(0, 0, CYCLE, Date.now(), '0,1', {}))));
+    t('commit: echter Commit kurz vor der Deadline gewinnt', (await restPut('rooms/ABCR/g/0/live/slots/1', MOVET(0, 1), UID[1])) === true);
+    await seed('ABCS', roomN(2, 'single', LIVE_CLOCK(core.aimAnchor(0, 0, CYCLE, Date.now() - 60000, '0,1', {}))));
+    t('commit: Commit NACH der Deadline in leeren Slot abgelehnt', (await restPut('rooms/ABCS/g/0/live/slots/0', MOVET(0, 0), UID[0])) === false);
     // Timeout und echter Commit gleichzeitig: der Slot traegt danach GENAU eine
     // der beiden Formen — nie eine Mischung, nie zwei Abschluesse.
     await seed('ABCT', roomN(2));
@@ -363,7 +389,7 @@ const LIVE_CLOCK = (anchor) => ({ g: { 0: { live: { clock: anchor } } } });
     simNow = BASE + 7000;
     const race = await Promise.all([
       close('ABCT', '0:0'),
-      db.ref('rooms/ABCT/g/0/live/slots/1').transaction((cur) => (cur == null ? Object.assign({}, MOVET(0), { idx: 1 }) : undefined)),
+      db.ref('rooms/ABCT/g/0/live/slots/1').transaction((cur) => (cur == null ? Object.assign({}, MOVET(0, 1), { idx: 1 }) : undefined)),
     ]);
     const slT = (await hist('ABCT', 0, 0))[1];
     t('commit: Timeout und Commit parallel -> genau eine Slot-Form',
@@ -676,17 +702,18 @@ const LIVE_CLOCK = (anchor) => ({ g: { 0: { live: { clock: anchor } } } });
     t('rules: clock-Write mit Auth abgelehnt', (await restPut('rooms/ABDL/g/0/live/clock/deadlineAt', 9999999999999, UID[0])) === false);
     t('rules: alter Raumpfad rooms/<code>/clock bleibt zu', (await restPut('rooms/ABDL/clock', { hack: 1 }, UID[0])) === false);
     t('rules: alter Gen-Pfad g/<gen>/clock bleibt zu', (await restPut('rooms/ABDL/g/0/clock', { hack: 1 }, UID[0])) === false);
-    t('rules: v4-Slot ohne Auth abgelehnt', (await restPut('rooms/ABDL/g/0/live/slots/0', MOVET(0))) === false);
-    t('rules: v4-Slot eigener Seat vor Deadline erlaubt', (await restPut('rooms/ABDL/g/0/live/slots/0', MOVET(0), UID[0])) === true);
-    t('rules: v4-Slot write-once (Retry abgelehnt)', (await restPut('rooms/ABDL/g/0/live/slots/0', MOVET(0), UID[0])) === false);
-    t('rules: v4-Slot fremder Seat abgelehnt', (await restPut('rooms/ABDL/g/0/live/slots/1', MOVET(0), UID[0])) === false);
+    t('rules: v4-Slot ohne Auth abgelehnt', (await restPut('rooms/ABDL/g/0/live/slots/0', MOVET(0, 0))) === false);
+    t('rules: v4-Slot eigener Seat vor Deadline erlaubt', (await restPut('rooms/ABDL/g/0/live/slots/0', MOVET(0, 0), UID[0])) === true);
+    t('rules: v4-Slot write-once (Retry abgelehnt)', (await restPut('rooms/ABDL/g/0/live/slots/0', MOVET(0, 0), UID[0])) === false);
+    t('rules: v4-Slot fremder Seat abgelehnt', (await restPut('rooms/ABDL/g/0/live/slots/1', MOVET(0, 1), UID[0])) === false);
     t('rules: v4-Slot ohne t-Feld abgelehnt (Turn-Bindung)', (await restPut('rooms/ABDL/g/0/live/slots/1', MOVE, UID[1])) === false);
-    t('rules: v4-Slot mit falschem t abgelehnt', (await restPut('rooms/ABDL/g/0/live/slots/1', MOVET(3), UID[1])) === false);
+    t('rules: v4-Slot mit falschem t abgelehnt', (await restPut('rooms/ABDL/g/0/live/slots/1', MOVET(3, 1), UID[1])) === false);
+    t('rules: v4-Slot mit fremder/alter Session (sid) abgelehnt', (await restPut('rooms/ABDL/g/0/live/slots/1', Object.assign({}, MOVET(0, 1), { sid: 'ALTERTOKEN000001' }), UID[1])) === false);
     t('rules: v4-Historie fuer Clients gesperrt (eigener Seat, vor Deadline)',
       (await restPut('rooms/ABDL/g/0/t/0/0', MOVE, UID[0])) === false);
     t('rules: seatByUid fuer Clients gesperrt (eigener Eintrag)', (await restPut('rooms/ABDL/seatByUid/' + UID[0], 0, UID[0])) === false);
     t('rules: seatByUid fuer Fremde gesperrt', (await restPut('rooms/ABDL/seatByUid/' + UX, 1, UX)) === false);
-    t('rules: UID ohne Indexeintrag kommt in keinen Slot', (await restPut('rooms/ABDL/g/0/live/slots/1', MOVET(0), UX)) === false);
+    t('rules: UID ohne Indexeintrag kommt in keinen Slot', (await restPut('rooms/ABDL/g/0/live/slots/1', MOVET(0, 1), UX)) === false);
     t('rules: v4-Presence fremde UID abgelehnt',
       (await restPut('rooms/ABDL/p/1', { s: TAB[1], on: false, t: { '.sv': 'timestamp' } }, UX)) === false);
     t('rules: v4-Presence eigene UID erlaubt',
@@ -696,18 +723,18 @@ const LIVE_CLOCK = (anchor) => ({ g: { 0: { live: { clock: anchor } } } });
     const inc = roomN(2, 'single', LIVE_CLOCK(core.aimAnchor(0, 0, 30000, Date.now(), '0,1', {})));
     inc.seatByUid = {}; inc.seatByUid[UID[0]] = 0; inc.seatByUid[UID[1]] = 0;
     await seed('ABDQ', inc);
-    t('rules: seatByUid zeigt auf fremden Seat -> kein Slot-Write', (await restPut('rooms/ABDQ/g/0/live/slots/1', MOVET(0), UID[1])) === false);
-    t('rules: widerspruechliches Indexziel ebenfalls gesperrt', (await restPut('rooms/ABDQ/g/0/live/slots/0', MOVET(0), UID[1])) === false);
-    await seed('ABDM', roomN(3, 'ffa', LIVE_CLOCK(core.aimAnchor(0, 0, 30000, Date.now(), '0,2', {}))));
-    t('rules: Seat ausserhalb eligibleSeats abgelehnt', (await restPut('rooms/ABDM/g/0/live/slots/1', MOVET(0), UID[1])) === false);
-    t('rules: Seat in eligibleSeats erlaubt', (await restPut('rooms/ABDM/g/0/live/slots/2', Object.assign({}, MOVET(0), { idx: 2 }), UID[2])) === true);
-    await seed('ABDN', roomN(2, 'single', { g: { 1: { live: { clock: core.aimAnchor(1, 0, 30000, Date.now(), '0,1', {}) } } } }));
-    t('rules: Anker fremder Generation deckt g/0 nicht', (await restPut('rooms/ABDN/g/0/live/slots/0', MOVET(0), UID[0])) === false);
-    t('rules: Write in g/1 verlangt room.gen === 1', (await restPut('rooms/ABDN/g/1/live/slots/0', MOVET(0), UID[0])) === false);
+    t('rules: seatByUid zeigt auf fremden Seat -> kein Slot-Write', (await restPut('rooms/ABDQ/g/0/live/slots/1', MOVET(0, 1), UID[1])) === false);
+    t('rules: widerspruechliches Indexziel ebenfalls gesperrt', (await restPut('rooms/ABDQ/g/0/live/slots/0', MOVET(0, 0), UID[1])) === false);
+    await seed('ABDM', roomN(3, 'ffa', LIVE_CLOCK(core.aimAnchor(0, 0, CYCLE, Date.now(), '0,2', {}))));
+    t('rules: Seat ausserhalb eligibleSeats abgelehnt', (await restPut('rooms/ABDM/g/0/live/slots/1', MOVET(0, 1), UID[1])) === false);
+    t('rules: Seat in eligibleSeats erlaubt', (await restPut('rooms/ABDM/g/0/live/slots/2', Object.assign({}, MOVET(0, 2), { idx: 2 }), UID[2])) === true);
+    await seed('ABDN', roomN(2, 'single', { g: { 1: { live: { clock: core.aimAnchor(1, 0, CYCLE, Date.now(), '0,1', {}) } } } }));
+    t('rules: Anker fremder Generation deckt g/0 nicht', (await restPut('rooms/ABDN/g/0/live/slots/0', MOVET(0, 0), UID[0])) === false);
+    t('rules: Write in g/1 verlangt room.gen === 1', (await restPut('rooms/ABDN/g/1/live/slots/0', MOVET(0, 0), UID[0])) === false);
     const v3room = roomN(2);
     v3room.v = 3;
     delete v3room.players[0].uid; delete v3room.players[1].uid;
-    delete v3room.seatByUid;
+    delete v3room.seatByUid; delete v3room.sess;
     await seed('ABDP', v3room);
     t('rules: v3-Slot bleibt ohne Auth erlaubt (Bestand, echter Emulator)',
       (await restPut('rooms/ABDP/g/0/t/0/0', MOVE)) === true);
@@ -724,8 +751,8 @@ const LIVE_CLOCK = (anchor) => ({ g: { 0: { live: { clock: anchor } } } });
     t('P0: Seat-Uebernahme wirkt auch gegen den Arbiter nicht',
       core.seatOfUid((await db.ref('rooms/ABDL').get()).val(), UA) === -1);
     t('P1: live/clock auf freien Raumcode abgelehnt',
-      (await restPut('rooms/ZZZZ/g/0/live/clock', core.aimAnchor(0, 0, 30000, Date.now(), '0,1', {}), UA)) === false);
-    t('P1: live-Slot auf freien Raumcode abgelehnt', (await restPut('rooms/ZZZY/g/0/live/slots/0', MOVET(0), UA)) === false);
+      (await restPut('rooms/ZZZZ/g/0/live/clock', core.aimAnchor(0, 0, CYCLE, Date.now(), '0,1', {}), UA)) === false);
+    t('P1: live-Slot auf freien Raumcode abgelehnt', (await restPut('rooms/ZZZY/g/0/live/slots/0', MOVET(0, 0), UA)) === false);
     t('P1: seatByUid auf freien Raumcode abgelehnt', (await restPut('rooms/ZZZW/seatByUid/' + UA, 0, UA)) === false);
     t('P1: Teil-Raum auf freien Code abgelehnt', (await restPut('rooms/ZZZX/config', { winTarget: 3, fmt: 'single', visibility: 'private' }, UA)) === false);
     t('P1: clock in bestehendem Raum bleibt unbeschreibbar', (await restPut('rooms/ABDL/g/0/live/clock/remainingMs', 30000, UID[0])) === false);
@@ -775,12 +802,12 @@ const LIVE_CLOCK = (anchor) => ({ g: { 0: { live: { clock: anchor } } } });
     const txPaths = [];
     const spy = core.createArbiter({ db: wrapDb((p) => txPaths.push(p)), now: () => simNow });
     simNow = BASE;
-    await spy.clockStart({ room: 'ABFB', uid: UID[0] });
+    await spy.clockStart({ room: 'ABFB', uid: UID[0], iid: iidF('ABFB'), session: TAB[0] });
     await commit('ABFB', 0, 0, 0); await commit('ABFB', 0, 0, 1);
     simNow = BASE + 2000;
-    const cBig = await spy.clockClose({ room: 'ABFB', phaseId: '0:0', uid: UID[0] });
-    await spy.clockSettle({ room: 'ABFB', phaseId: '0:0', uid: UID[0], hash: 'h', next: [0, 1] });
-    await spy.clockSettle({ room: 'ABFB', phaseId: '0:0', uid: UID[1], hash: 'h', next: [0, 1] });
+    const cBig = await spy.clockClose({ room: 'ABFB', phaseId: '0:0', uid: UID[0], iid: iidF('ABFB'), session: TAB[0] });
+    await spy.clockSettle({ room: 'ABFB', phaseId: '0:0', uid: UID[0], hash: 'h', next: [0, 1], iid: iidF('ABFB'), session: TAB[0] });
+    await spy.clockSettle({ room: 'ABFB', phaseId: '0:0', uid: UID[1], hash: 'h', next: [0, 1], iid: iidF('ABFB'), session: TAB[1] });
     t('live: Close/Settle funktionieren unveraendert neben 500 History-Turns',
       cBig.status === 'closed' && (await clockOf('ABFB')).turn === 1);
     t('live: Transactions beruehren AUSSCHLIESSLICH live und t/<turn>',
@@ -788,8 +815,8 @@ const LIVE_CLOCK = (anchor) => ({ g: { 0: { live: { clock: anchor } } } });
     const histAll = (await db.ref('rooms/ABFB/g/0/t').get()).val();
     t('live: grosse Historie bleibt byte-identisch (500 Turns + neuer t/0)',
       Object.keys(histAll).length === 501 && core.canonical(histAll[350]) === core.canonical(bigHist[350]));
-    t('live: live-Groesse unabhaengig von der Historie (nur clock nach Phasenwechsel)',
-      Object.keys((await liveOf('ABFB')) || {}).join(',') === 'clock' && (await clockOf('ABFB')).settled == null);
+    t('live: live-Groesse unabhaengig von der Historie (nur clock+iid nach Phasenwechsel)',
+      Object.keys((await liveOf('ABFB')) || {}).sort().join(',') === 'clock,iid' && (await clockOf('ABFB')).settled == null);
     // (b) Write-once-Historie: eine bereits existierende, ABWEICHENDE t/<turn>
     //     wird nie ueberschrieben — kontrollierter desync.
     const conflict = roomN(2);
@@ -812,7 +839,7 @@ const LIVE_CLOCK = (anchor) => ({ g: { 0: { live: { clock: anchor } } } });
     await commit('ABFD', 0, 0, 0); await commit('ABFD', 0, 0, 1);
     simNow = BASE + 2000;
     const crash1 = core.createArbiter({ db: failDb((p) => /\/t\/0$/.test(p)), now: () => simNow });
-    t('crash: Abbruch direkt nach atomarem Close wirft', (await err(() => crash1.clockClose({ room: 'ABFD', phaseId: '0:0', uid: UID[0] }))) === 'error');
+    t('crash: Abbruch direkt nach atomarem Close wirft', (await err(() => crash1.clockClose({ room: 'ABFD', phaseId: '0:0', uid: UID[0], iid: iidF('ABFD'), session: TAB[0] }))) === 'error');
     const lvD = await liveOf('ABFD');
     t('crash: Close committed, Archiv offen (archived=false, t/0 fehlt)',
       lvD.clock.phase === 'resolving' && lvD.clock.archived === false && (await hist('ABFD', 0, 0)) == null);
@@ -833,7 +860,7 @@ const LIVE_CLOCK = (anchor) => ({ g: { 0: { live: { clock: anchor } } } });
       db: failDb((p) => /\/live$/.test(p) && (++liveTx) === 2),   // 1. live-Txn = Close, 2. = Bestaetigung
       now: () => simNow,
     });
-    t('crash: Abbruch nach History-Write wirft', (await err(() => crash2.clockClose({ room: 'ABFE', phaseId: '0:0', uid: UID[0] }))) === 'error');
+    t('crash: Abbruch nach History-Write wirft', (await err(() => crash2.clockClose({ room: 'ABFE', phaseId: '0:0', uid: UID[0], iid: iidF('ABFE'), session: TAB[0] }))) === 'error');
     const histE = await hist('ABFE', 0, 0);
     t('crash: t/0 geschrieben, Bestaetigung offen', histE != null && (await clockOf('ABFE')).archived === false);
     // Reparatur durch erneuten clockClose (stale-Pfad): idempotenter Archiv-Retry.
@@ -853,9 +880,9 @@ const LIVE_CLOCK = (anchor) => ({ g: { 0: { live: { clock: anchor } } } });
     await commit('ABFF', 0, 0, 0); await commit('ABFF', 0, 0, 1);
     simNow = BASE + 2000;
     const crash3 = core.createArbiter({ db: failDb((p) => /\/t\/0$/.test(p)), now: () => simNow });
-    await err(() => crash3.clockClose({ room: 'ABFF', phaseId: '0:0', uid: UID[0] }));
+    await err(() => crash3.clockClose({ room: 'ABFF', phaseId: '0:0', uid: UID[0], iid: iidF('ABFF'), session: TAB[0] }));
     t('archiv: Settle mit scheiternder Archivierung wirft und oeffnet NICHTS',
-      (await err(() => crash3.clockSettle({ room: 'ABFF', phaseId: '0:0', uid: UID[0], hash: 'h', next: [0, 1] }))) === 'error');
+      (await err(() => crash3.clockSettle({ room: 'ABFF', phaseId: '0:0', uid: UID[0], hash: 'h', next: [0, 1], iid: iidF('ABFF'), session: TAB[0] }))) === 'error');
     const lvF = await liveOf('ABFF');
     t('archiv: keine Folgephase ohne bestaetigte Archivierung',
       lvF.clock.phase === 'resolving' && lvF.clock.turn === 0 && lvF.clock.archived === false && lvF.clock.settled == null);
@@ -867,9 +894,9 @@ const LIVE_CLOCK = (anchor) => ({ g: { 0: { live: { clock: anchor } } } });
     // ── 16) GEN-HAERTUNG: Clients koennen keine frische 60-s-Uhr erzwingen ──
     await seed('ABFG', roomN(2));
     simNow = BASE;
-    t('gen: ClockStart mit zukuenftiger Generation abgelehnt', (await err(() => arb.clockStart({ room: 'ABFG', uid: UID[0], gen: 1 }))) === 'failed');
-    t('gen: ClockStart mit alter Generation abgelehnt', (await err(() => arb.clockStart({ room: 'ABFG', uid: UID[0], gen: -1 }))) === 'failed');
-    const gs = await arb.clockStart({ room: 'ABFG', uid: UID[0], gen: 0 });
+    t('gen: ClockStart mit zukuenftiger Generation abgelehnt', (await err(() => arb.clockStart({ room: 'ABFG', uid: UID[0], gen: 1, iid: iidF('ABFG'), session: TAB[0] }))) === 'failed');
+    t('gen: ClockStart mit alter Generation abgelehnt', (await err(() => arb.clockStart({ room: 'ABFG', uid: UID[0], gen: -1, iid: iidF('ABFG'), session: TAB[0] }))) === 'failed');
+    const gs = await arb.clockStart({ room: 'ABFG', uid: UID[0], gen: 0, iid: iidF('ABFG'), session: TAB[0] });
     t('gen: ClockStart mit exakter room.gen erlaubt', gs.status === 'started');
     await commit('ABFG', 0, 0, 0); await commit('ABFG', 0, 0, 1);
     simNow = BASE + 3000;
@@ -898,10 +925,12 @@ const LIVE_CLOCK = (anchor) => ({ g: { 0: { live: { clock: anchor } } } });
     t('gen: v3-Gen-Bump bleibt ohne Auth erlaubt (Bestand)', (await restPut('rooms/ABDP/gen', 1)) === true);
 
     // ── 17) CREATE-PREFILL-BYPASS: seatByUid ist unter KEINEM Typ client-schreibbar ──
-    //    Review-Blocker: ein SKALARER seatByUid-Wert hat keine Kinder, die
-    //    `$uid`-Kindregel feuerte also nie. Jetzt lehnt die Raum-.validate das Feld
-    //    auf Parent-Ebene ab und der Knoten selbst ist per `.validate: false`
-    //    gesperrt. Geprueft gegen den ECHTEN Emulator ueber die Client-REST-Sicht.
+    //    Review-Blocker (IIIA): ein SKALARER seatByUid-Wert hat keine Kinder, die
+    //    `$uid`-Kindregel feuerte also nie — die Raum-.validate lehnt das Feld
+    //    seither auf Parent-Ebene ab, der Knoten selbst per `.validate: false`.
+    //    Seit Phase IIIB ist zusaetzlich JEDER direkte v4-Client-Create verboten
+    //    (roomCreateV4 uebernimmt; Admin SDK umgeht Rules) — die Typ-Matrix
+    //    bleibt als tiefere Verteidigungslinie bestehen.
     const SV = { '.sv': 'timestamp' };
     const create4 = (uid, over) => Object.assign({
       v: 4, config: { winTarget: 3, fmt: 'single', visibility: 'private' },
@@ -910,8 +939,8 @@ const LIVE_CLOCK = (anchor) => ({ g: { 0: { live: { clock: anchor } } } });
       players: { 0: { id: 'PLAYER00', name: 'P0', tab: TAB[0], uid } },
     }, over || {});
     const noIndex = async (code) => (await db.ref('rooms/' + code + '/seatByUid').get()).val() === null;
-    t('create-bypass: v4-Create OHNE seatByUid bleibt erlaubt (Kontrolle)',
-      (await restPut('rooms/ABHA', create4(UID[0]), UID[0])) === true && (await noIndex('ABHA')));
+    t('create-bypass: v4-Client-Create seit IIIB komplett verboten (auch wohlgeformt)',
+      (await restPut('rooms/ABHA', create4(UID[0]), UID[0])) === false && (await noIndex('ABHA')));
     t('create-bypass: seatByUid als Zahl abgelehnt',
       (await restPut('rooms/ABHB', create4(UID[0], { seatByUid: 0 }), UID[0])) === false && (await noIndex('ABHB')));
     t('create-bypass: seatByUid als String abgelehnt',
@@ -924,16 +953,17 @@ const LIVE_CLOCK = (anchor) => ({ g: { 0: { live: { clock: anchor } } } });
       (await restPut('rooms/ABHF', create4(UID[0], { seatByUid: { [UID[0]]: 0 } }), UID[0])) === false && (await noIndex('ABHF')));
     t('create-bypass: seatByUid mit mehreren Eintraegen abgelehnt',
       (await restPut('rooms/ABHG', create4(UID[0], { seatByUid: { [UID[0]]: 0, [UX]: 1 } }), UID[0])) === false && (await noIndex('ABHG')));
-    // Leere Container ({} / []) sind in RTDB gleichbedeutend mit null und werden
-    // bereits VOR der Regelauswertung verworfen — der Create geht deshalb durch
-    // (am Emulator verifiziert), traegt danach aber kein seatByUid. Ein Deny waere
-    // hier nicht erzwingbar und auch nicht die relevante Eigenschaft; geprueft wird
-    // die Invariante, die zaehlt: es entsteht KEIN vorbefuellter Index.
+    // Leere Container ({} / []) sind in RTDB gleichbedeutend mit null; seit IIIB
+    // scheitert der v4-Create ohnehin komplett. Die Invariante bleibt geprueft:
+    // es entsteht NIE ein vorbefuellter Index (und seit IIIB auch kein Raum).
     await restPut('rooms/ABHJ', create4(UID[0], { seatByUid: {} }), UID[0]);
     t('create-bypass: leeres Objekt plant keinen Index', await noIndex('ABHJ'));
     await restPut('rooms/ABHK', create4(UID[0], { seatByUid: [] }), UID[0]);
     t('create-bypass: leere Liste plant keinen Index', await noIndex('ABHK'));
-    // Spaetere Client-Writes auf den bestehenden Raum: jede Form abgelehnt.
+    // Spaetere Client-Writes auf einen bestehenden (admin-seeded) Raum:
+    // jede Form abgelehnt. ABHA wird dafuer serverseitig angelegt — genau wie
+    // ihn roomCreateV4 in Produktion anlegen wuerde.
+    await seed('ABHA', roomN(2));
     t('create-bypass: spaeterer Write des ganzen Index abgelehnt',
       (await restPut('rooms/ABHA/seatByUid', { [UID[0]]: 0 }, UID[0])) === false);
     t('create-bypass: spaeterer Skalar-Write des Index abgelehnt',
@@ -971,9 +1001,19 @@ const LIVE_CLOCK = (anchor) => ({ g: { 0: { live: { clock: anchor } } } });
     console.error('FAIL: unerwarteter Fehler:', e && e.stack || e);
     exitCode = 2;
   } finally {
-    try { await admin.app().delete(); } catch (e) {}
-    await killTree(emu.child.pid);
-    try { fs.rmSync(runDir, { recursive: true, force: true }); } catch (e) {}
+    // Cleanup-Vertrag: laeuft IMMER (auch bei Testfehlern), meldet Fehler
+    // sichtbar und prueft den tatsaechlichen Emulator-Exit.
+    try { await admin.app().delete(); } catch (e) { console.error('Cleanup: Admin-App-Delete fehlgeschlagen: ' + (e && e.message)); }
+    const killed = await killTree(emu.child.pid);
+    if (!killed) console.error('Cleanup: taskkill meldete Fehler fuer PID ' + emu.child.pid + '.');
+    const exited = await new Promise((resolve) => {
+      if (emu.child.exitCode != null) return resolve(true);
+      const to = setTimeout(() => resolve(emu.child.exitCode != null), 10000);
+      emu.child.once('exit', () => { clearTimeout(to); resolve(true); });
+    });
+    if (!exited) console.error('Cleanup: Emulator-Kindprozess laeuft noch (PID ' + emu.child.pid + ').');
+    try { fs.rmSync(runDir, { recursive: true, force: true }); }
+    catch (e) { console.error('Cleanup: Temp-Verzeichnis nicht entfernt (' + runDir + '): ' + (e && e.message)); }
   }
   console.log('\nAction-Clock-Arbiter (RTDB-Emulator): ' + pass + ' passed, ' + fail + ' failed');
   process.exit(exitCode);

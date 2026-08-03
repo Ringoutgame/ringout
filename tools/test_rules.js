@@ -390,13 +390,19 @@ deny('team move pl 4 (seat gate, presence pre-seeded)', playing({ p: { 0: P(H_TA
 const UID_H = 'uid-host-0001', UID_G = 'uid-guest-0001', UID_X = 'uid-fremd-0001';
 const HOST4 = { id: 'HOST0000', name: 'Host', tab: H_TAB, uid: UID_H };
 const REC4 = (id, tab, uid) => ({ id: id || 'GUEST001', name: 'G', tab: tab || G_TAB, uid: uid || UID_G });
-// Server-owned UID->Seat-Index (in Fixtures nur GELESEN; Erstellung: Phase-IIIB-
-// Callables). Bewusst NICHT Teil des Create-Payloads mkRoom4.
+// Server-owned UID->Seat-Index und Session-Register (in Fixtures nur GELESEN;
+// Erstellung/Rotation: Phase-IIIB-Callables). Bewusst NICHT Teil des
+// Create-Payloads mkRoom4. sess/<seat> ist der AKTUELL gueltige Session-Token:
+// jeder v4-Presence-Write muss ihn tragen (Tokenrotation invalidiert alte Tabs
+// und deren onDisconnect-Handler sofort).
 const SEAT_IDX = { [UID_H]: 0, [UID_G]: 1 };
+// Session-Register (Handshake): active = aktuell gueltiger Token; pending
+// (Join-Reservierung) ist fuer die Rules irrelevant — sie pruefen NUR active.
+const SESS_IDX = { 0: { active: H_TAB }, 1: { active: G_TAB } };
 const mkRoom4 = (fmt, over = {}) => Object.assign(
   { v: 4, config: { winTarget: 3, fmt, visibility: 'private' }, gen: 0, state: 'lobby', p: { 0: P(H_TAB, false) }, players: { 0: HOST4 }, created: NOW },
   over);
-const db4 = (roomOver = {}, fmt = 'single') => ({ rooms: { KX7P: mkRoom4(fmt, Object.assign({ created: NOW - 5000, seatByUid: SEAT_IDX }, roomOver)) } });
+const db4 = (roomOver = {}, fmt = 'single') => ({ rooms: { KX7P: mkRoom4(fmt, Object.assign({ created: NOW - 5000, seatByUid: SEAT_IDX, sess: SESS_IDX }, roomOver)) } });
 // Server-Arbiter-Zustand — der begrenzte aktive Phasen-State liegt unter
 // rooms/<code>/g/<gen>/live/clock. In Tests als Fixture NUR gelesen.
 const CLOCK = (over = {}) => Object.assign(
@@ -415,11 +421,16 @@ const match4 = (clockOver, extra) => {
   }
   return db4(over);
 };
-// v4-Live-Move: traegt den Turn (t) — die Rules binden ihn an live.clock.turn.
-const MOVE4 = Object.assign({}, MOVE, { t: 0 });
+// v4-Live-Move: traegt den Turn (t, an live.clock.turn gebunden) UND die
+// Session (sid, an sess/<seat>/active gebunden — alte Tabs verlieren nach der
+// Rotation jeden Move-Slot).
+const MOVE4 = Object.assign({}, MOVE, { t: 0, sid: H_TAB });     // Seat 0 (Host)
+const MOVE4G = Object.assign({}, MOVE, { t: 0, sid: G_TAB });    // Seat 1 (Gast)
 
-// v4-Raum-Erstellung: nur authentifiziert und nur mit der eigenen uid auf players/0
-allowAs('v4 create mit auth + eigener uid', UID_H, { rooms: {} }, 'rooms/KX7P', mkRoom4('single'));
+// v4-Raum-Erstellung: seit Phase IIIB AUSSCHLIESSLICH serverseitig
+// (roomCreateV4-Callable, Admin SDK umgeht Rules) — jeder direkte
+// Client-Create eines v4-Raums ist verboten, egal wie wohlgeformt.
+denyAs('v4 create durch Client komplett verboten (auch wohlgeformt, eigene uid)', UID_H, { rooms: {} }, 'rooms/KX7P', mkRoom4('single'));
 deny('v4 create OHNE auth', { rooms: {} }, 'rooms/KX7P', mkRoom4('single'));
 denyAs('v4 create mit fremder uid auf players/0', UID_X, { rooms: {} }, 'rooms/KX7P', mkRoom4('single'));
 denyAs('v4 create ohne uid-Feld (v4 verlangt uid)', UID_H, { rooms: {} }, 'rooms/KX7P',
@@ -485,8 +496,8 @@ deny('seatByUid: unauthentifiziert verboten', match4(), 'rooms/KX7P/seatByUid/' 
 // Live-Slots v4 (einziger v4-Client-Schreibpfad): eigener Seat via seatByUid,
 // aim-Phase, gen-Bindung, t===clock.turn, Server-Deadline, write-once
 allowAs('v4 slot: eigener Commit Seat 0 vor Deadline', UID_H, match4(), 'rooms/KX7P/g/0/live/slots/0', MOVE4);
-allowAs('v4 slot: eigener Commit Seat 1 vor Deadline', UID_G, match4(), 'rooms/KX7P/g/0/live/slots/1', MOVE4);
-allowAs('v4 slot: eigener No-Shot (Impuls 0) vor Deadline', UID_H, match4(), 'rooms/KX7P/g/0/live/slots/0', { idx: 0, dx: 0, dy: 0, sp: 0, t: 0 });
+allowAs('v4 slot: eigener Commit Seat 1 vor Deadline', UID_G, match4(), 'rooms/KX7P/g/0/live/slots/1', MOVE4G);
+allowAs('v4 slot: eigener No-Shot (Impuls 0) vor Deadline', UID_H, match4(), 'rooms/KX7P/g/0/live/slots/0', { idx: 0, dx: 0, dy: 0, sp: 0, t: 0, sid: H_TAB });
 denyAs('v4 slot: fremder Seat (Client-Sentinel/No-Shot ist Server-Aufgabe)', UID_G, match4(), 'rooms/KX7P/g/0/live/slots/0', MOVE4);
 deny('v4 slot: unauthentifiziert', match4(), 'rooms/KX7P/g/0/live/slots/0', MOVE4);
 denyAs('v4 slot: NACH Server-Deadline (verspaeteter Move)', UID_H, match4({ deadlineAt: NOW - 1 }), 'rooms/KX7P/g/0/live/slots/0', MOVE4);
@@ -500,24 +511,34 @@ denyAs('v4 slot: ohne Server-Clock kein Commit', UID_H, match4(null), 'rooms/KX7
 denyAs('v4 slot: Anker liegt in fremder Generation (g/1)', UID_H, match4({ gen: 1, phaseId: '1:0' }), 'rooms/KX7P/g/0/live/slots/0', MOVE4);
 denyAs('v4 slot: Write in fremde Generation (room.gen=0, Write g/1)', UID_H, match4({ gen: 1, phaseId: '1:0' }), 'rooms/KX7P/g/1/live/slots/0', MOVE4);
 // eligibleSeats: der Server bestimmt je Phase, wer ueberhaupt ziehen darf.
-denyAs('v4 slot: Seat nicht in eligibleSeats (eliminiert)', UID_G, match4({ eligibleSeats: '0' }), 'rooms/KX7P/g/0/live/slots/1', MOVE4);
+denyAs('v4 slot: Seat nicht in eligibleSeats (eliminiert)', UID_G, match4({ eligibleSeats: '0' }), 'rooms/KX7P/g/0/live/slots/1', MOVE4G);
 allowAs('v4 slot: verbleibender Seat in eligibleSeats zieht weiter', UID_H, match4({ eligibleSeats: '0' }), 'rooms/KX7P/g/0/live/slots/0', MOVE4);
 denyAs('v4 slot: leere eligibleSeats sperren alle Seats', UID_H, match4({ eligibleSeats: '' }), 'rooms/KX7P/g/0/live/slots/0', MOVE4);
 denyAs('v4 slot: eligibleSeats gilt auch in der ungetimten Phase (nach Expiry)', UID_G,
-  match4({ eligibleSeats: '0', deadlineAt: null, remainingMs: 0, expired: true }), 'rooms/KX7P/g/0/live/slots/1', MOVE4);
+  match4({ eligibleSeats: '0', deadlineAt: null, remainingMs: 0, expired: true }), 'rooms/KX7P/g/0/live/slots/1', MOVE4G);
 allowAs('v4 slot: untimed Phase (nach Expiry, keine deadlineAt)', UID_H,
   match4({ deadlineAt: null, remainingMs: 0, expired: true }), 'rooms/KX7P/g/0/live/slots/0', MOVE4);
 denyAs('v4 slot: write-once auch fuer den Eigentuemer', UID_H,
   match4({}, { g: { 0: { live: { slots: { 0: { idx: 0, dx: 0, dy: 0, sp: 0, t: 0 } } } } } }), 'rooms/KX7P/g/0/live/slots/0', MOVE4);
 
+// Session-Bindung der Moves: sid muss der AKTIVEN Session entsprechen — ein
+// alter Tab (rotierter Token) verliert den Move-Slot, ein Move ohne sid ist
+// schematisch ungueltig.
+denyAs('v4 slot: Move ohne sid abgelehnt (Schema)', UID_H, match4(), 'rooms/KX7P/g/0/live/slots/0', Object.assign({}, MOVE, { t: 0 }));
+denyAs('v4 slot: Move mit altem sid nach Rotation abgelehnt', UID_H,
+  match4({}, { sess: { 0: { active: 'ROTATED0TOKEN001' }, 1: { active: G_TAB } } }), 'rooms/KX7P/g/0/live/slots/0', MOVE4);
+allowAs('v4 slot: Move mit rotierter aktiver Session erlaubt', UID_H,
+  match4({}, { sess: { 0: { active: 'ROTATED0TOKEN001' }, 1: { active: G_TAB } } }), 'rooms/KX7P/g/0/live/slots/0',
+  Object.assign({}, MOVE4, { sid: 'ROTATED0TOKEN001' }));
+
 // UID-/Seat-Eindeutigkeit in den Rules: der Index UND players/<seat>/uid muessen
 // exakt auf den Schreiber zeigen — jeder inkonsistente Zustand ist fail-closed.
-denyAs('v4 slot: seatByUid-Eintrag fehlt (kein Besitz)', UID_G, match4({}, { seatByUid: { [UID_H]: 0 } }), 'rooms/KX7P/g/0/live/slots/1', MOVE4);
-denyAs('v4 slot: seatByUid zeigt auf fremden Seat', UID_G, match4({}, { seatByUid: { [UID_H]: 0, [UID_G]: 0 } }), 'rooms/KX7P/g/0/live/slots/1', MOVE4);
+denyAs('v4 slot: seatByUid-Eintrag fehlt (kein Besitz)', UID_G, match4({}, { seatByUid: { [UID_H]: 0 } }), 'rooms/KX7P/g/0/live/slots/1', MOVE4G);
+denyAs('v4 slot: seatByUid zeigt auf fremden Seat', UID_G, match4({}, { seatByUid: { [UID_H]: 0, [UID_G]: 0 } }), 'rooms/KX7P/g/0/live/slots/1', MOVE4G);
 denyAs('v4 slot: seatByUid-Ziel gehoert lt. players einem anderen (Widerspruch)', UID_G,
   match4({}, { seatByUid: { [UID_H]: 0, [UID_G]: 0 } }), 'rooms/KX7P/g/0/live/slots/0', MOVE4);
 denyAs('v4 slot: players.uid passt, aber Index widerspricht (fail-closed)', UID_G,
-  match4({}, { seatByUid: { [UID_H]: 0, [UID_G]: 3 } }), 'rooms/KX7P/g/0/live/slots/1', MOVE4);
+  match4({}, { seatByUid: { [UID_H]: 0, [UID_G]: 3 } }), 'rooms/KX7P/g/0/live/slots/1', MOVE4G);
 denyAs('v4 slot: fremde UID ohne jeden Sitz', UID_X, match4(), 'rooms/KX7P/g/0/live/slots/0', MOVE4);
 
 // Turn-Historie t/<turn>: bei v4 archiviert AUSSCHLIESSLICH der Server-Arbiter —
@@ -530,28 +551,84 @@ denyAs('v4 Historie: archivierten Turn ueberschreiben verboten', UID_H,
 denyAs('v4 Historie: Loeschen eines Turns verboten', UID_H,
   match4({}, { g: { 0: { t: { 0: { 0: MOVE } } } } }), 'rooms/KX7P/g/0/t/0/0', null);
 
-// Seat-Ownership v4: players-/Presence-Writes nur mit eigener uid
-allowAs('v4 players: Claim mit eigener uid', UID_G,
+// Seat-Ownership v4 (Phase IIIB): Seats vergibt AUSSCHLIESSLICH der Server
+// (roomJoinV4). Clients koennen players-Records weder erstellen noch loeschen —
+// erlaubt bleibt nur das Update des EIGENEN Records mit identischer id/tab/uid
+// (Namensaenderung). Presence darf nur nach serverseitiger Seat-Zuweisung
+// (bestehender p-Knoten) geflippt werden — kein Client-Create, kein Delete.
+denyAs('v4 players: Client-Claim verboten (Seat vergibt der Server)', UID_G,
   db4({ p: { 0: P(H_TAB, false), 1: P(G_TAB, false) } }), 'rooms/KX7P/players/1', REC4());
 denyAs('v4 players: Claim mit fremder uid im Record', UID_G,
   db4({ p: { 0: P(H_TAB, false), 1: P(G_TAB, false) } }), 'rooms/KX7P/players/1', REC4('GUEST001', G_TAB, UID_X));
 deny('v4 players: Claim unauthentifiziert', db4({ p: { 0: P(H_TAB, false), 1: P(G_TAB, false) } }), 'rooms/KX7P/players/1', REC4());
+denyAs('v4 players: eigenen Record loeschen verboten (Leave ist Server-Sache)', UID_G,
+  db4({ p: { 0: P(H_TAB, false) }, players: { 0: HOST4, 1: REC4() } }), 'rooms/KX7P/players/1', null);
+denyAs('v4 players: tab-Rotation ohne Server verboten', UID_G,
+  db4({ p: { 0: P(H_TAB, false), 1: P(G_TAB, false) }, players: { 0: HOST4, 1: REC4() } }),
+  'rooms/KX7P/players/1', REC4('GUEST001', 'GTAB0009', UID_G));
 const recon4 = db4({ state: 'playing', p: { 0: P(H_TAB, true), 1: P(G_TAB, false) }, players: { 0: HOST4, 1: REC4() } });
 allowAs('v4 presence: eigener Seat aktivieren (Reconnect-Flip)', UID_G, recon4, 'rooms/KX7P/p/1', P(G_TAB, true));
 denyAs('v4 presence: fremden Seat aktivieren', UID_X, recon4, 'rooms/KX7P/p/1', P(G_TAB, true));
 deny('v4 presence: unauthentifiziert', recon4, 'rooms/KX7P/p/1', P(G_TAB, true));
+denyAs('v4 presence: Create ohne serverseitige Seat-Zuweisung verboten', UID_G,
+  db4({ p: { 0: P(H_TAB, false) }, players: { 0: HOST4 } }), 'rooms/KX7P/p/1', P(G_TAB, false));
+denyAs('v4 presence: Delete verboten (Leave ist Server-Sache)', UID_G,
+  db4({ p: { 0: P(H_TAB, false), 1: P(G_TAB, false) }, players: { 0: HOST4 } }), 'rooms/KX7P/p/1', null);
 
-// Matchsteuerung v4: state/seats nur Host; room.gen ist fuer v4-Clients KOMPLETT
-// gesperrt (Gen-Haertung Phase IIIA) — kein Client darf eine neue Generation und
-// damit eine frische 60-s-Clock erzwingen. Der legitime Rematch-Uebergang kommt
-// serverseitig in Phase IIIB/IV.
+// Session-Tokenrotation (Haertung): sess/<seat> ist das server-owned Register
+// des aktuell gueltigen Tokens. Nach einer Rotation ist der ALTE Token sofort
+// wertlos — der onDisconnect-Handler des alten Tabs kann die neue Presence
+// nicht mehr offline setzen; der neue Token schreibt normal weiter.
+const ROT = 'ROTATED0TOKEN001';
+const rotated4 = db4({
+  state: 'playing',
+  p: { 0: P(H_TAB, true), 1: { s: ROT, on: true, t: NOW - 1000 } },
+  players: { 0: HOST4, 1: REC4() },
+  sess: { 0: { active: H_TAB }, 1: { active: ROT } },
+});
+denyAs('v4 sess: alter onDisconnect (alter Token) nach Rotation wirkungslos', UID_G,
+  rotated4, 'rooms/KX7P/p/1', { s: G_TAB, on: false, t: NOW });
+allowAs('v4 sess: aktueller Token schreibt Presence normal weiter', UID_G,
+  rotated4, 'rooms/KX7P/p/1', { s: ROT, on: false, t: NOW });
+denyAs('v4 sess: Token-Selbstrotation durch Client verboten (nur Server rotiert)', UID_G,
+  db4({ state: 'playing', p: { 0: P(H_TAB, true), 1: P(G_TAB, false, NOW - 3000) }, players: { 0: HOST4, 1: REC4() } }),
+  'rooms/KX7P/p/1', { s: 'GTAB0009', on: false, t: NOW });
+allowAs('v4 players: Namensaenderung trotz rotiertem p.s erlaubt (Kopplung ist v3-Sache)', UID_G,
+  rotated4, 'rooms/KX7P/players/1', { id: 'GUEST001', name: 'Neu', tab: G_TAB, uid: UID_G });
+denyAs('v4 sess: Client-Write auf eigenen Eintrag verboten', UID_G, db4(), 'rooms/KX7P/sess/1', 'HACKTOK00001');
+denyAs('v4 sess: Register komplett ersetzen verboten', UID_H, db4(), 'rooms/KX7P/sess', { 0: 'HACKTOK00001' });
+denyAs('v4 sess: Eintrag loeschen verboten', UID_H, db4(), 'rooms/KX7P/sess/1', null);
+denyAs('v4 create: sess-Prefill verboten', UID_H, { rooms: {} }, 'rooms/KX7P', mkRoom4('single', { sess: { 0: H_TAB } }));
+
+// Public-Listing v4: das Listing muss die iid seines Raums tragen (Cleanup ist
+// dadurch instanzgebunden) und ein provisionaler Raum ist nie listbar.
+const IID4 = 'IIDRULES00000001';
+const pub4 = (roomOver = {}, listing = undefined) => {
+  const db = { rooms: { KX7P: mkRoom4('ffa', Object.assign({ created: NOW - 5000, iid: IID4, seatByUid: SEAT_IDX, sess: SESS_IDX, config: { winTarget: 3, fmt: 'ffa', visibility: 'public' }, p: { 0: P(H_TAB, true) } }, roomOver)) }, publicRooms: {} };
+  if (listing !== undefined) db.publicRooms.KX7P = listing;
+  return db;
+};
+allowAs('pub v4: Listing mit korrekter iid erlaubt', UID_H, pub4(), 'publicRooms/KX7P', { created: NOW, iid: IID4 });
+denyAs('pub v4: Listing OHNE iid abgelehnt', UID_H, pub4(), 'publicRooms/KX7P', { created: NOW });
+denyAs('pub v4: Listing mit fremder iid abgelehnt', UID_H, pub4(), 'publicRooms/KX7P', { created: NOW, iid: 'IIDFREMD00000001' });
+denyAs('pub v4: provisionaler Raum ist nicht listbar', UID_H, pub4({ provisional: true }), 'publicRooms/KX7P', { created: NOW, iid: IID4 });
+allow('pub v3: Listing bleibt ohne iid erlaubt (Bestand)', pubDb(), 'publicRooms/KX7P', LISTING);
+
+// Matchsteuerung v4 (Phase IIIB): state UND seats sind fuer Clients komplett
+// gesperrt — der Matchstart laeuft ausschliesslich ueber roomStartV4 bzw. den
+// atomaren Server-Join (1v1/2v2). room.gen bleibt gesperrt (Gen-Haertung IIIA);
+// der legitime Rematch-Uebergang ist roomRematchV4.
 const lobby4 = db4({ p: { 0: P(H_TAB, true), 1: P(G_TAB, true) }, players: { 0: HOST4, 1: REC4() } });
-allowAs('v4 state: Start durch Host', UID_H, lobby4, 'rooms/KX7P/state', 'playing');
-denyAs('v4 state: Start durch Gast', UID_G, lobby4, 'rooms/KX7P/state', 'playing');
-deny('v4 state: Start unauthentifiziert', lobby4, 'rooms/KX7P/state', 'playing');
+denyAs('v4 state: Client-Start verboten (auch Host — roomStartV4 ist der Weg)', UID_H, lobby4, 'rooms/KX7P/state', 'playing');
+denyAs('v4 state: Start durch Gast verboten', UID_G, lobby4, 'rooms/KX7P/state', 'playing');
+deny('v4 state: Start unauthentifiziert verboten', lobby4, 'rooms/KX7P/state', 'playing');
 const started4 = db4({ state: 'playing', p: { 0: P(H_TAB, true), 1: P(G_TAB, true) }, players: { 0: HOST4, 1: REC4() } }, 'ffa');
-allowAs('v4 seats: Host zaehlt Seats', UID_H, started4, 'rooms/KX7P/seats', 2);
+denyAs('v4 seats: Client-Write verboten (auch Host — der Server schreibt seats)', UID_H, started4, 'rooms/KX7P/seats', 2);
 denyAs('v4 seats: Gast darf nicht', UID_G, started4, 'rooms/KX7P/seats', 2);
+// Server-owned Lifecycle-State: der Create-Idempotency-Marker ist fuer Clients
+// weder les- noch schreibbar (reqs faellt unter Root-Default-Deny + explizite Sperre).
+denyAs('v4 reqs: Idempotency-Marker nicht schreibbar', UID_H, { rooms: {}, reqs: {} }, 'reqs/' + UID_H + '/req-0001-aaaa', { sig: 'x', room: 'KX7P' });
+deny('v4 reqs: unauthentifiziert nicht schreibbar', { rooms: {}, reqs: {} }, 'reqs/' + UID_H + '/req-0001-aaaa', { sig: 'x' });
 denyAs('v4 gen: Gen-Bump durch Mitspieler verboten (gesperrt)', UID_G, match4(), 'rooms/KX7P/gen', 1);
 denyAs('v4 gen: Gen-Bump durch Host verboten (gesperrt)', UID_H, match4(), 'rooms/KX7P/gen', 1);
 denyAs('v4 gen: Gen-Bump durch Fremden verboten', UID_X, match4(), 'rooms/KX7P/gen', 1);
@@ -588,7 +665,7 @@ denyAs('P1: Teil-Raum (nur config) auf freien Code schreiben', UID_A, { rooms: {
   { winTarget: 3, fmt: 'single', visibility: 'private' });
 deny('P1: live/clock auf freien Raumcode ohne auth', { rooms: {} }, 'rooms/QQQQ/g/0/live/clock', CLOCK());
 denyAs('P1: alter Raumpfad clock auf freien Raumcode', UID_A, { rooms: {} }, 'rooms/QQQQ/clock', CLOCK());
-allowAs('P1: vollstaendige v4-Raumerstellung bleibt erlaubt', UID_H, { rooms: {} }, 'rooms/QQQQ', mkRoom4('single'));
+denyAs('P1: v4-Raumerstellung durch Client seit Phase IIIB verboten', UID_H, { rooms: {} }, 'rooms/QQQQ', mkRoom4('single'));
 allow('P1: vollstaendige v3-Raumerstellung bleibt erlaubt', { rooms: {} }, 'rooms/QQQQ', mkRoom('single'));
 
 // v3-Bestand: unveraendert OHNE auth spielbar (Regression neben den Abschnitten oben)
