@@ -230,7 +230,7 @@ const LIVE_CLOCK = (anchor) => ({ g: { 0: { live: { clock: anchor } } } });
     t('start: ungueltiger Raumcode abgelehnt', (await err(() => arb.clockStart({ room: 'abcd!', uid: UID[0] }))) === 'invalid');
     const s1 = await start('ABCD');
     t('start: eroeffnet', s1.status === 'started' && s1.clock.phase === 'aim');
-    t('start: Restzeit exakt 60000', s1.clock.remainingMs === 60000);
+    t('start: Zyklus 1 startet mit exakt 30000 (stage 0)', s1.clock.remainingMs === 30000 && s1.clock.stage === 0);
     t('start: Deadline = start+7000', s1.clock.startedAt === BASE && s1.clock.deadlineAt === BASE + 7000);
     t('start: crackAt/expiresAt in Phase 1 unerreichbar', s1.clock.crackAt == null && s1.clock.expiresAt == null);
     t('start: phaseId gen:turn', s1.clock.phaseId === '0:0');
@@ -247,7 +247,7 @@ const LIVE_CLOCK = (anchor) => ({ g: { 0: { live: { clock: anchor } } } });
     simNow = BASE + 3000;
     const c1 = await close('ABCD', '0:0');
     t('close: alle Commits -> resolving', c1.status === 'closed' && c1.clock.phase === 'resolving');
-    t('close: exakt 3000 aktive ms abgezogen', c1.clock.remainingMs === 57000);
+    t('close: exakt 3000 aktive ms abgezogen', c1.clock.remainingMs === 27000);
     t('close: settleDeadlineAt serverseitig gesetzt', c1.clock.settleDeadlineAt === simNow + core.SETTLE_GRACE_MS);
     t('close: Historie sofort archiviert und bestaetigt', c1.clock.archived === true && (await hist('ABCD', 0, 0)) != null);
     t('close: echte Commits unangetastet (live und Historie)',
@@ -264,7 +264,7 @@ const LIVE_CLOCK = (anchor) => ({ g: { 0: { live: { clock: anchor } } } });
       st1.clock.settled[0].hash === 'h1' && st1.clock.settled[0].next === '0,1');
     const st2 = await rep('ABCD', '0:0', 1, 'h1', [1, 0]);   // unsortiert -> normalisiert
     t('settle: Quorum -> Turn 1 eroeffnet', st2.clock.phase === 'aim' && st2.clock.turn === 1 && st2.clock.phaseId === '0:1');
-    t('settle: Restzeit unveraendert durch Physik (57000)', st2.clock.remainingMs === 57000);
+    t('settle: Restzeit unveraendert durch Physik (27000)', st2.clock.remainingMs === 27000);
     t('settle: neue Deadline = jetzt+7000', st2.clock.startedAt === BASE + 10000 && st2.clock.deadlineAt === BASE + 17000);
     t('settle: eligibleSeats aus dem Konsens uebernommen', st2.clock.eligibleSeats === '0,1');
     t('settle: Folgephase leert live (keine alten Slots, keine alten Reports)',
@@ -278,7 +278,7 @@ const LIVE_CLOCK = (anchor) => ({ g: { 0: { live: { clock: anchor } } } });
     const c2 = await close('ABCD', '0:1');
     const sl2 = await lslots('ABCD', 0);
     t('close: Abschluss exakt auf der Deadline erlaubt', c2.status === 'closed');
-    t('close: voller Fensterverbrauch (57000-7000)', c2.clock.remainingMs === 50000);
+    t('close: voller Fensterverbrauch (27000-7000)', c2.clock.remainingMs === 20000);
     t('close: echter Commit unangetastet', sl2[0].dx === 100);
     t('close: offener Seat -> verbindlicher No-Shot {ns:stand}', sl2[1] && sl2[1].ns === 'stand');
     t('close: No-Shot in der Historie t/1 archiviert', (await hist('ABCD', 0, 1))[1].ns === 'stand');
@@ -338,16 +338,16 @@ const LIVE_CLOCK = (anchor) => ({ g: { 0: { live: { clock: anchor } } } });
     const slQ = await lslots('ABCQ', 0);
     t('atomic: parallele Close hinterlassen konsistente Slots',
       slQ[0].dx === 100 && slQ[1].ns === 'stand' && slQ[2].ns === 'stand');
-    t('atomic: parallele Close ziehen die Zeit nur EINMAL ab', (await clockOf('ABCQ')).remainingMs === 53000);
+    t('atomic: parallele Close ziehen die Zeit nur EINMAL ab', (await clockOf('ABCQ')).remainingMs === 23000);
     t('atomic: parallele Close archivieren genau EINEN History-Turn',
       core.canonical(await hist('ABCQ', 0, 0)) === core.canonical(slQ));
 
     // ── 6) Commit gegen Timeout ─────────────────────────────────────────────
     //    Rules rechnen mit der ECHTEN Serveruhr (now), daher hier Anker mit
     //    Date.now() statt simNow.
-    await seed('ABCR', roomN(2, 'single', LIVE_CLOCK(core.aimAnchor(0, 0, 60000, Date.now(), '0,1', {}))));
+    await seed('ABCR', roomN(2, 'single', LIVE_CLOCK(core.aimAnchor(0, 0, 30000, Date.now(), '0,1', {}))));
     t('commit: echter Commit kurz vor der Deadline gewinnt', (await restPut('rooms/ABCR/g/0/live/slots/1', MOVET(0), UID[1])) === true);
-    await seed('ABCS', roomN(2, 'single', LIVE_CLOCK(core.aimAnchor(0, 0, 60000, Date.now() - 60000, '0,1', {}))));
+    await seed('ABCS', roomN(2, 'single', LIVE_CLOCK(core.aimAnchor(0, 0, 30000, Date.now() - 60000, '0,1', {}))));
     t('commit: Commit NACH der Deadline in leeren Slot abgelehnt', (await restPut('rooms/ABCS/g/0/live/slots/0', MOVET(0), UID[0])) === false);
     // Timeout und echter Commit gleichzeitig: der Slot traegt danach GENAU eine
     // der beiden Formen — nie eine Mischung, nie zwei Abschluesse.
@@ -409,7 +409,7 @@ const LIVE_CLOCK = (anchor) => ({ g: { 0: { live: { clock: anchor } } } });
     }
     const ordW = await clockOf('ABCW'), ordX = await clockOf('ABCX');
     t('presence: Settle-Reihenfolge egal — identischer Folgeanker',
-      JSON.stringify(ordW) === JSON.stringify(ordX) && ordW.turn === 1 && ordW.remainingMs === 58000);
+      JSON.stringify(ordW) === JSON.stringify(ordX) && ordW.turn === 1 && ordW.remainingMs === 28000);
 
     // ── 8) Eliminierung: eligibleSeats statt Presence ───────────────────────
     await seed('ABDA', roomN(3, 'ffa'));
@@ -592,41 +592,58 @@ const LIVE_CLOCK = (anchor) => ({ g: { 0: { live: { clock: anchor } } } });
       await rep('ABDH', c.phaseId, 1, 'h', [0, 1]);
       return clockOf('ABDH');
     };
-    for (let i = 0; i < 7; i++) ck = await advance(ck);      // 60000 -> 11000
-    t('crack: Restzeit 11000 nach 7 Timeout-Turns', ck.remainingMs === 11000 && ck.cracked === false);
-    t('crack: crackAt vorberechnet (start+1000)', ck.crackAt === ck.startedAt + 1000);
+    // Ein Zyklus = 30000 ms = vier volle 7-s-Fenster + ein 2-s-Restfenster. Das
+    // letzte Fenster wird auf die Zyklusrestzeit gekuerzt — ein Turn kann die
+    // Stufengrenze deshalb NICHT ueberziehen; ein Ueberhang ist unmoeglich.
+    t('stage: Start mit Zyklus 1', ck.remainingMs === 30000 && ck.stage === 0 && ck.cracked === false);
+    for (let i = 0; i < 2; i++) ck = await advance(ck);      // 30000 -> 16000
+    t('crack: Restzeit 16000 nach 2 Timeout-Turns', ck.remainingMs === 16000 && ck.cracked === false);
+    t('crack: crackAt vorberechnet (start+6000)', ck.crackAt === ck.startedAt + 6000);
+    ck = await advance(ck);                                  // -> 9000, Warnfenster
+    t('crack: beim Unterschreiten genau einmal gesetzt', ck.cracked === true && ck.remainingMs === 9000);
+    t('crack: crackAt danach nicht erneut gesetzt', ck.crackAt == null);
+    ck = await advance(ck);                                  // -> 2000
+    t('stage: letztes Fenster auf die Zyklusrestzeit gekuerzt (2000)',
+      ck.remainingMs === 2000 && ck.deadlineAt === ck.startedAt + 2000 && ck.expiresAt === ck.deadlineAt);
+    // ── Zyklusgrenze: Stufe 1 faellt, Zyklus 2 beginnt mit exakt 30000 ──────
     simNow = ck.deadlineAt;
     await close('ABDH', ck.phaseId);
-    let ck2 = await clockOf('ABDH');
-    t('crack: beim Unterschreiten genau einmal gesetzt', ck2.cracked === true && ck2.remainingMs === 4000);
+    const stg1 = await clockOf('ABDH');
+    t('stage: Stufe 1 faellt exakt am Zyklusende, nicht terminal',
+      stg1.stage === 1 && stg1.expired === false);
+    t('stage: Zyklus 2 startet mit exakt 30000 und frischem Warnfenster',
+      stg1.remainingMs === 30000 && stg1.cracked === false);
     await rep('ABDH', ck.phaseId, 0, 'h', [0, 1]);
     await rep('ABDH', ck.phaseId, 1, 'h', [0, 1]);
-    ck2 = await clockOf('ABDH');
-    t('expiry: letztes Fenster = Restzeit (deadline=start+4000)', ck2.deadlineAt === ck2.startedAt + 4000);
-    t('expiry: expiresAt = deadline (0 wird exakt erreicht)', ck2.expiresAt === ck2.deadlineAt);
-    t('crack: bleibt true, crackAt nicht erneut gesetzt', ck2.cracked === true && ck2.crackAt == null);
-    simNow = ck2.deadlineAt;
-    await close('ABDH', ck2.phaseId);
-    let ck3 = await clockOf('ABDH');
-    t('expiry: bei 0 genau einmal gesetzt', ck3.expired === true && ck3.remainingMs === 0);
-    await rep('ABDH', ck2.phaseId, 0, 'h', [0, 1]);
-    await rep('ABDH', ck2.phaseId, 1, 'h', [0, 1]);
-    ck3 = await clockOf('ABDH');
-    t('expiry: Folgephase UNGETIMT (kein deadlineAt), Match laeuft weiter',
-      ck3.phase === 'aim' && ck3.deadlineAt == null && ck3.expired === true);
+    ck = await clockOf('ABDH');
+    t('stage: Folgephase traegt Stufe 1 und die vollen 30000 weiter',
+      ck.stage === 1 && ck.remainingMs === 30000 && ck.phase === 'aim');
+    for (let i = 0; i < 4; i++) ck = await advance(ck);      // 30000 -> 2000
+    t('stage: Zyklus 2 verbraucht sich identisch', ck.remainingMs === 2000 && ck.stage === 1);
+    // ── Stufe 2: terminal, kein dritter Zyklus ─────────────────────────────
+    simNow = ck.deadlineAt;
+    await close('ABDH', ck.phaseId);
+    const stg2 = await clockOf('ABDH');
+    t('stage: Stufe 2 terminal — expired, Restzeit 0, KEIN Reset auf 30000',
+      stg2.stage === 2 && stg2.expired === true && stg2.remainingMs === 0);
+    await rep('ABDH', ck.phaseId, 0, 'h', [0, 1]);
+    await rep('ABDH', ck.phaseId, 1, 'h', [0, 1]);
+    const ck3 = await clockOf('ABDH');
+    t('stage: keine dritte Stufe — Folgephase ungetimt, stage bleibt 2',
+      ck3.phase === 'aim' && ck3.deadlineAt == null && ck3.stage === 2 && ck3.expired === true);
     simNow += 500000;
     t('expiry: ungetimte Phase kennt keinen Timeout-Close', (await err(() => close('ABDH', ck3.phaseId))) === 'too-early');
     await commit('ABDH', 0, ck3.turn, 0); await commit('ABDH', 0, ck3.turn, 1);
     const cu = await close('ABDH', ck3.phaseId);
-    t('expiry: ungetimter Close nur nach vollstaendigen Commits, Restzeit bleibt 0',
-      cu.status === 'closed' && cu.clock.remainingMs === 0);
-    t('expiry: gesamte Leiter lueckenlos archiviert (t/0..t/9)',
-      await (async () => { for (let i = 0; i <= 9; i++) if ((await hist('ABDH', 0, i)) == null) return false; return true; })());
+    t('expiry: ungetimter Close nur nach vollstaendigen Commits, Restzeit und Stufe stabil',
+      cu.status === 'closed' && cu.clock.remainingMs === 0 && cu.clock.stage === 2);
+    t('stage: gesamte Leiter lueckenlos archiviert (t/0..t/10)',
+      await (async () => { for (let i = 0; i <= 10; i++) if ((await hist('ABDH', 0, i)) == null) return false; return true; })());
 
     // ── 11) Reconnect-Vollstaendigkeit: alles aus live + Historie ───────────
     const cold = await clockOf('ABCD');
     t('reconnect: alle Vertragsfelder im Anker vorhanden',
-      ['v', 'gen', 'turn', 'phaseId', 'phase', 'startedAt', 'remainingMs', 'eligibleSeats', 'cracked', 'expired']
+      ['v', 'gen', 'turn', 'phaseId', 'phase', 'startedAt', 'remainingMs', 'stage', 'eligibleSeats', 'cracked', 'expired']
         .every((k) => cold[k] !== undefined));
     t('reconnect: abgeschlossene Turns aus t/<turn> rekonstruierbar',
       (await hist('ABCD', 0, 0)) != null && (await hist('ABCD', 0, 1)) != null);
@@ -634,7 +651,7 @@ const LIVE_CLOCK = (anchor) => ({ g: { 0: { live: { clock: anchor } } } });
     // ── 12) Rules gegen den ECHTEN Emulator ────────────────────────────────
     //    created mit ECHTER Wanduhr: die Presence-Validates rechnen mit dem
     //    2-h-Join-Fenster gegen die reale Serverzeit des Emulators.
-    await seed('ABDL', roomN(2, 'single', Object.assign({ created: Date.now() - 5000 }, LIVE_CLOCK(core.aimAnchor(0, 0, 60000, Date.now(), '0,1', {})))));
+    await seed('ABDL', roomN(2, 'single', Object.assign({ created: Date.now() - 5000 }, LIVE_CLOCK(core.aimAnchor(0, 0, 30000, Date.now(), '0,1', {})))));
     t('rules: clock-Write ohne Auth abgelehnt', (await restPut('rooms/ABDL/g/0/live/clock', { hack: 1 })) === false);
     t('rules: clock-Write mit Auth abgelehnt', (await restPut('rooms/ABDL/g/0/live/clock/deadlineAt', 9999999999999, UID[0])) === false);
     t('rules: alter Raumpfad rooms/<code>/clock bleibt zu', (await restPut('rooms/ABDL/clock', { hack: 1 }, UID[0])) === false);
@@ -656,15 +673,15 @@ const LIVE_CLOCK = (anchor) => ({ g: { 0: { live: { clock: anchor } } } });
       (await restPut('rooms/ABDL/p/1', { s: TAB[1], on: false, t: { '.sv': 'timestamp' } }, UID[1])) === true);
     // Inkonsistenter Index: der Slot bleibt fail-closed zu — fuer BEIDE Seiten
     // des Widerspruchs (Index zeigt woandershin / players-uid passt nicht).
-    const inc = roomN(2, 'single', LIVE_CLOCK(core.aimAnchor(0, 0, 60000, Date.now(), '0,1', {})));
+    const inc = roomN(2, 'single', LIVE_CLOCK(core.aimAnchor(0, 0, 30000, Date.now(), '0,1', {})));
     inc.seatByUid = {}; inc.seatByUid[UID[0]] = 0; inc.seatByUid[UID[1]] = 0;
     await seed('ABDQ', inc);
     t('rules: seatByUid zeigt auf fremden Seat -> kein Slot-Write', (await restPut('rooms/ABDQ/g/0/live/slots/1', MOVET(0), UID[1])) === false);
     t('rules: widerspruechliches Indexziel ebenfalls gesperrt', (await restPut('rooms/ABDQ/g/0/live/slots/0', MOVET(0), UID[1])) === false);
-    await seed('ABDM', roomN(3, 'ffa', LIVE_CLOCK(core.aimAnchor(0, 0, 60000, Date.now(), '0,2', {}))));
+    await seed('ABDM', roomN(3, 'ffa', LIVE_CLOCK(core.aimAnchor(0, 0, 30000, Date.now(), '0,2', {}))));
     t('rules: Seat ausserhalb eligibleSeats abgelehnt', (await restPut('rooms/ABDM/g/0/live/slots/1', MOVET(0), UID[1])) === false);
     t('rules: Seat in eligibleSeats erlaubt', (await restPut('rooms/ABDM/g/0/live/slots/2', Object.assign({}, MOVET(0), { idx: 2 }), UID[2])) === true);
-    await seed('ABDN', roomN(2, 'single', { g: { 1: { live: { clock: core.aimAnchor(1, 0, 60000, Date.now(), '0,1', {}) } } } }));
+    await seed('ABDN', roomN(2, 'single', { g: { 1: { live: { clock: core.aimAnchor(1, 0, 30000, Date.now(), '0,1', {}) } } } }));
     t('rules: Anker fremder Generation deckt g/0 nicht', (await restPut('rooms/ABDN/g/0/live/slots/0', MOVET(0), UID[0])) === false);
     t('rules: Write in g/1 verlangt room.gen === 1', (await restPut('rooms/ABDN/g/1/live/slots/0', MOVET(0), UID[0])) === false);
     const v3room = roomN(2);
@@ -687,11 +704,11 @@ const LIVE_CLOCK = (anchor) => ({ g: { 0: { live: { clock: anchor } } } });
     t('P0: Seat-Uebernahme wirkt auch gegen den Arbiter nicht',
       core.seatOfUid((await db.ref('rooms/ABDL').get()).val(), UA) === -1);
     t('P1: live/clock auf freien Raumcode abgelehnt',
-      (await restPut('rooms/ZZZZ/g/0/live/clock', core.aimAnchor(0, 0, 60000, Date.now(), '0,1', {}), UA)) === false);
+      (await restPut('rooms/ZZZZ/g/0/live/clock', core.aimAnchor(0, 0, 30000, Date.now(), '0,1', {}), UA)) === false);
     t('P1: live-Slot auf freien Raumcode abgelehnt', (await restPut('rooms/ZZZY/g/0/live/slots/0', MOVET(0), UA)) === false);
     t('P1: seatByUid auf freien Raumcode abgelehnt', (await restPut('rooms/ZZZW/seatByUid/' + UA, 0, UA)) === false);
     t('P1: Teil-Raum auf freien Code abgelehnt', (await restPut('rooms/ZZZX/config', { winTarget: 3, fmt: 'single', visibility: 'private' }, UA)) === false);
-    t('P1: clock in bestehendem Raum bleibt unbeschreibbar', (await restPut('rooms/ABDL/g/0/live/clock/remainingMs', 60000, UID[0])) === false);
+    t('P1: clock in bestehendem Raum bleibt unbeschreibbar', (await restPut('rooms/ABDL/g/0/live/clock/remainingMs', 30000, UID[0])) === false);
 
     // ── 14) UID-/SEAT-EINDEUTIGKEIT: fail-closed statt "niedrigster Seat" ──
     // Reine Funktionslogik (kein DB-Zugriff noetig):
@@ -842,7 +859,7 @@ const LIVE_CLOCK = (anchor) => ({ g: { 0: { live: { clock: anchor } } } });
     const beforeRestart = await clockOf('ABFG');
     const gs2 = await start('ABFG');
     t('gen: zweiter ClockStart ist exists und setzt remainingMs nicht zurueck',
-      gs2.status === 'exists' && gs2.clock.remainingMs === 57000 && gs2.clock.turn === 1);
+      gs2.status === 'exists' && gs2.clock.remainingMs === 27000 && gs2.clock.turn === 1);
     t('gen: Anker nach erneutem Start byte-identisch', JSON.stringify(await clockOf('ABFG')) === JSON.stringify(beforeRestart));
     const gs3 = await start('ABDH');                     // ABDH ist nach der Leiter expired
     t('gen: ClockStart nach cracked/expired setzt Flags nicht zurueck',
@@ -919,7 +936,7 @@ const LIVE_CLOCK = (anchor) => ({ g: { 0: { live: { clock: anchor } } } });
     t('create-bypass: vorbefuellte Turn-Historie im Create abgelehnt',
       (await restPut('rooms/ABHN', create4(UID[0], { g: { 0: { t: { 0: { 0: MOVE } } } } }), UID[0])) === false);
     t('create-bypass: vorbefuellter live/clock im Create abgelehnt',
-      (await restPut('rooms/ABHP', create4(UID[0], LIVE_CLOCK(core.aimAnchor(0, 0, 60000, Date.now(), '0,1', {}))), UID[0])) === false);
+      (await restPut('rooms/ABHP', create4(UID[0], LIVE_CLOCK(core.aimAnchor(0, 0, 30000, Date.now(), '0,1', {}))), UID[0])) === false);
     t('create-bypass: alter clock-Pfad als Skalar im Create abgelehnt',
       (await restPut('rooms/ABHQ', create4(UID[0], { clock: 1 }), UID[0])) === false);
     // v3 bleibt unveraendert: Create ohne Auth und ohne uid weiterhin erlaubt.

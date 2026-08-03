@@ -82,13 +82,28 @@
 // onCall-Mantel (Auth-Pflicht + Fehlercode-Mapping).
 // ─────────────────────────────────────────────────────────────────────────────
 
-const MATCH_CLOCK_MS = 60000;   // globale aktive Matchzeit
+// ── Zwei-Stufen-Collapse: der Stufenvertrag liegt HIER, nicht im Client ──────
+// Die Matchzeit ist kein einzelnes 60-s-Budget mehr, sondern STAGE_COUNT Zyklen
+// à CYCLE_MS. clock.remainingMs ist immer die Restzeit des LAUFENDEN Zyklus,
+// clock.stage die Zahl der vollzogenen Collapse-Stufen. Beim Ablauf eines Zyklus
+// steigt stage, remainingMs wird exakt auf CYCLE_MS zurueckgesetzt und cracked
+// faellt fuer das neue Warnfenster zurueck.
+//
+// Der Ueberhang, den die frühere clientseitige Uhr nachtraeglich wegrechnen
+// musste, kann hier gar nicht entstehen: das Zugfenster ist immer
+// min(TURN_LIMIT_MS, remainingMs) und die Rules lassen einen Slot-Write nur bis
+// clock.deadlineAt zu — Buchung und Schreibgate benutzen DIESELBE Deadline.
+// Ein Turn kann eine Stufengrenze damit nicht ueberziehen, und Zyklus 2 beginnt
+// serverautoritativ immer mit exakt CYCLE_MS.
+const CYCLE_MS = 30000;         // aktive Zeit je Collapse-Zyklus
+const STAGE_COUNT = 2;          // Collapse-Stufen je Generation — es gibt keine dritte
+const MATCH_CLOCK_MS = CYCLE_MS * STAGE_COUNT;   // Gesamtbudget (nur noch abgeleitet)
 const TURN_LIMIT_MS = 7000;     // maximale Entscheidungszeit je Aim-Phase
-const CRACK_REMAIN_MS = 10000;  // Cracked-Schwelle (globale Restzeit)
+const CRACK_REMAIN_MS = 10000;  // Cracked-Schwelle (Restzeit des LAUFENDEN Zyklus)
 const SETTLE_GRACE_MS = 15000;  // Settlement-Quorum-Fallback gegen tote Phasen
 const MAX_SEATS = 5;
 const ROOM_RE = /^[A-HJKMNP-Z2-9]{4}$/;
-const CLOCK_V = 3;              // v3: bounded live-State + archived-Marker + seatByUid
+const CLOCK_V = 4;              // v4: Stufenmodell (stage + zyklusweises remainingMs)
 
 class ArbiterError extends Error {
   constructor(code, msg) { super(msg || code); this.code = code; }
@@ -183,6 +198,7 @@ function aimAnchor(gen, turn, remainingMs, at, eligibleSeats, flags) {
     phase: 'aim',
     startedAt: at,
     remainingMs,
+    stage: (flags && flags.stage) || 0,
     eligibleSeats,
     cracked: !!(flags && flags.cracked),
     expired: !!(flags && flags.expired),
@@ -304,7 +320,8 @@ function createArbiter(opts) {
     const at = nowMs();
     const res = await liveRef(args.room, gen).transaction((cur) => {
       if (cur && cur.clock && cur.clock.gen === gen) return;   // bereits eroeffnet -> Echo
-      return { clock: aimAnchor(gen, 0, MATCH_CLOCK_MS, at, seatKey(seats), {}) };
+      // Zyklus 1 startet mit CYCLE_MS (nicht mit dem Gesamtbudget) und stage 0.
+      return { clock: aimAnchor(gen, 0, CYCLE_MS, at, seatKey(seats), { stage: 0 }) };
     });
     const live = res.snapshot.val();
     return { status: res.committed ? 'started' : 'exists', clock: (live && live.clock) || null };
@@ -343,14 +360,28 @@ function createArbiter(opts) {
       for (const s of open) nextSlots[s] = { ns: 'stand' };
       const eff = Math.min(t, deadline == null ? t : deadline);
       const used = Math.max(0, Math.min(eff - clock.startedAt, Math.min(TURN_LIMIT_MS, clock.remainingMs)));
-      const rem = Math.max(0, clock.remainingMs - used);
+      let rem = Math.max(0, clock.remainingMs - used);
+      let stage = clock.stage || 0;
+      let cracked = clock.cracked === true;
+      // ── Stufengrenze ──────────────────────────────────────────────────────
+      // Der Zyklus ist aufgebraucht: die Stufe faellt GENAU hier. Solange noch
+      // eine Stufe aussteht, beginnt der naechste Zyklus mit exakt CYCLE_MS und
+      // einem frischen Warnfenster; nach der letzten Stufe bleibt die Uhr
+      // terminal bei 0 (expired) — eine dritte Stufe gibt es nicht.
+      if (rem <= 0 && stage < STAGE_COUNT) {
+        stage += 1;
+        if (stage < STAGE_COUNT) { rem = CYCLE_MS; cracked = false; }
+      }
+      const expired = clock.expired === true || (rem <= 0 && stage >= STAGE_COUNT);
       outcome = 'closed';
       return {
         clock: Object.assign({}, clock, {
           phase: 'resolving', closedAt: t, settleDeadlineAt: t + SETTLE_GRACE_MS,
           remainingMs: rem,
-          cracked: clock.cracked === true || rem <= CRACK_REMAIN_MS,
-          expired: clock.expired === true || rem <= 0,
+          stage: stage,
+          // Cracked gilt je Zyklus: der Rollover oben hat ihn ggf. schon geloest.
+          cracked: cracked || (rem > 0 && rem <= CRACK_REMAIN_MS),
+          expired: expired,
           settled: null,
           archived: false,                           // archivePending — Schritt 2 folgt
         }),
@@ -452,7 +483,7 @@ function createArbiter(opts) {
       // neue eligibleSeats, KEINE alten Slots, KEINE alten Reports.
       return {
         clock: aimAnchor(clock.gen, clock.turn + 1, clock.remainingMs, t, head.next,
-          { cracked: clock.cracked, expired: clock.expired }),
+          { cracked: clock.cracked, expired: clock.expired, stage: clock.stage || 0 }),
       };
     });
     if (!res.committed && outcome === 'permission')
@@ -477,4 +508,5 @@ module.exports = {
   createArbiter, ArbiterError, aimAnchor, seatCount, seatOfUid,
   seatKey, parseSeatKey, normalizeSeats, canonical,
   MATCH_CLOCK_MS, TURN_LIMIT_MS, CRACK_REMAIN_MS, SETTLE_GRACE_MS, CLOCK_V,
+  CYCLE_MS, STAGE_COUNT,
 };
