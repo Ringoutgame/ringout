@@ -981,17 +981,21 @@ const IDENT = (i) => ({ pid: PID[i], name: 'P' + i, tab: TAB[i] });
     t('v3: FFA-Start (state) weiterhin erlaubt', (await restPut('rooms/ABMB/state', 'playing')) === true);
     t('v3: FFA-Start (seats) weiterhin erlaubt', (await restPut('rooms/ABMB/seats', 2)) === true);
     const html = fs.readFileSync(path.join(REPO, 'index.html'), 'utf8');
-    // Migrationsstand des Clients. IIIB forderte hier "Client bleibt v3", weil
-    // dort index.html unberuehrt blieb. Auf dem Integrationsbranch fuehrt der
-    // Client seit 5e59db6 ("prepare protocol v4") bereits Version 4 — die alte
-    // Aussage ist damit gegenstandslos, die dahinterliegende Absicht nicht:
-    // solange die Client-Migration nicht GESCHLOSSEN ist (Etappe C), darf der
-    // Client keine v4-Callable aufrufen. Genau das haelt der zweite Assert fest;
-    // er wird mit der Migration gemeinsam auf den Zielzustand gezogen.
+    // Migrationsstand des Clients. IIIB forderte hier "Client bleibt v3" und
+    // "Client ruft noch keine v4-Callable" — beide Aussagen waren Platzhalter
+    // fuer den noch nicht migrierten Client. Mit der geschlossenen Migration
+    // sind sie umgekehrt scharf: der Client fuehrt Version 4 und spricht ALLE
+    // sechs Lifecycle-Callables sowie die drei Clock-Callables an. Ein
+    // zurueckgefallener Client (etwa durch einen versehentlichen Revert) faellt
+    // hier sofort auf.
     t('v4: Client fuehrt Protokollversion 4', /const ONLINE_PROTOCOL_VERSION\s*=\s*4/.test(html));
-    t('v3: Client referenziert die neuen Callables noch nicht',
+    t('v4: Client ruft alle sechs Lifecycle-Callables auf',
       ['roomCreateV4', 'roomJoinV4', 'roomActivateV4', 'roomLeaveV4', 'roomStartV4', 'roomRematchV4']
-        .every((n) => html.indexOf(n) < 0));
+        .every((n) => html.indexOf(n) >= 0));
+    t('v4: Client ruft alle drei Clock-Callables auf',
+      ['clockStart', 'clockClose', 'clockSettle'].every((n) => html.indexOf(n) >= 0));
+    t('v4: Client schreibt nicht mehr nach t/<turn> (kein v4-Historien-Write)',
+      html.indexOf("+'/t/'+ctx.turnNo+'/'+s") < 0 && html.indexOf("/t/'+ctx.turnNo+'/s'") < 0);
     t('v4: direkter Client-Create verboten', (await restPut('rooms/ABMC', Object.assign({}, v3new, { v: 4 }), UID[0])) === false);
     t('v4: reqs-Marker fuer Clients gesperrt', (await restPut('reqs/' + UID[0] + '/req-x-000001', { sig: 'x' }, UID[0])) === false);
     t('v4: Client-state-Write verboten', (await restPut('rooms/ABKN/state', 'playing', UID[0])) === false);

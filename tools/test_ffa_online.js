@@ -37,25 +37,27 @@ const env = new Function(`
   ${saSrc}
   ${scSrc}
   ${sgSrc}
-  // startFfaMatch runs against stubbed lobby UI + a write-recording fake FB
+  // startFfaMatch laeuft gegen gestubbte Lobby-UI + eine aufzeichnende
+  // Callable-Schicht. v4: der Client schreibt state/seats NICHT mehr selbst —
+  // roomStartV4 prueft Host-Rolle, Sessions, Presence und Seatluecken und setzt
+  // beides serverseitig. Die CLIENT-Gates (>=2 Spieler, keine Luecke, TRIPLE
+  // exakt 3, TEAM exakt 4) bleiben hier unveraendert scharf.
   let lobbyP={};
-  // Public-Lobby: startFfaMatch best-effort removes the discovery listing on start.
-  // Private rooms (roomPublic=false) skip it entirely — stub keeps the branch inert.
-  let roomPublic=false, roomCode='';
-  function removePublicListing(){}
-  const writes=[], toasts=[];
+  let roomPublic=false, roomCode='ABCD', onlineIid='IID-TEST-0001', onlineSession='SESSTOK000001';
+  const calls=[], toasts=[];
   const btn={disabled:false};
   const $=()=>btn;                                   // touches only lobbyStart
   const toast=m=>toasts.push(m);
   const setStatus=m=>toasts.push('status:'+m);
-  const rRef=p=>p;
-  const window={FB:{set:async(p,v)=>{writes.push(p+'='+v);}}};
+  let failNext=null;
+  async function callV4(name,data){ calls.push({name,data}); if(failNext){const e=new Error(failNext);failNext=null;throw e;} return {}; }
+  function v4Err(e){ return String((e&&(e.message||e.code))||e); }
   ${sfmSrc}
   return { validateRoom, pickFreeSeat, seatCount, seatsContiguous,
     aac(m,n,bs,as){mode=m;ffaN=n;balls=bs;aimSet=as;return allAliveCommitted();},
-    async start(p,f){writes.length=0;toasts.length=0;btn.disabled=false;lobbyP=p;fmt=f||'ffa';
+    async start(p,f,fail){calls.length=0;toasts.length=0;btn.disabled=false;roomPublic=true;lobbyP=p;fmt=f||'ffa';failNext=fail||null;
       startFfaMatch();await new Promise(r=>setTimeout(r,0));
-      return {writes:writes.slice(),toasts:toasts.slice(),disabled:btn.disabled};} };
+      return {calls:calls.slice(),toasts:toasts.slice(),disabled:btn.disabled,roomPublic};} };
 `)();
 
 let pass = 0, fail = 0;
@@ -125,13 +127,25 @@ t('sg reserved-not-active is a gap', env.seatsContiguous({ 0: A, 1: { on: false 
 // ── (6) startFfaMatch: Gates + sequenzielle state->seats Schreibfolge ──
 (async () => {
   let r = await env.start({ 0: A });
-  t('start alone blocked', r.writes.length === 0 && r.toasts[0] === 'Mindestens 2 Spieler nötig.');
+  t('start alone blocked', r.calls.length === 0 && r.toasts[0] === 'Mindestens 2 Spieler nötig.');
   r = await env.start({ 0: A, 2: A });
-  t('start with gap blocked', r.writes.length === 0 && r.toasts[0] === 'Warte auf freien Sitz / Spieler soll neu beitreten.');
+  t('start with gap blocked', r.calls.length === 0 && r.toasts[0] === 'Warte auf freien Sitz / Spieler soll neu beitreten.');
+  // v4-Transportvertrag: GENAU EIN roomStartV4 mit Raum, Rauminstanz und
+  // aktiver Session — und kein einziger Client-Write auf state/seats mehr
+  // (die setzt der Arbiter, s. test_room_lifecycle.js + v4-E2E S9).
   r = await env.start({ 0: A, 1: A });
-  t('start 2p writes state then seats', r.writes.join('|') === 'state=playing|seats=2' && r.disabled === true);
+  t('start 2p ruft genau ein roomStartV4', r.calls.length === 1 && r.calls[0].name === 'roomStartV4' && r.disabled === true);
+  t('start 2p sendet room/iid/session', r.calls[0].data.room === 'ABCD'
+    && r.calls[0].data.iid === 'IID-TEST-0001' && r.calls[0].data.session === 'SESSTOK000001');
+  t('start 2p schreibt weder state noch seats selbst',
+    JSON.stringify(r.calls[0].data).indexOf('playing') < 0 && r.calls[0].data.seats === undefined);
+  t('start 2p gibt das Public-Listing frei (Server raeumt es)', r.roomPublic === false);
   r = await env.start({ 0: A, 1: A, 2: A, 3: A, 4: A });
-  t('start 5p seats=5', r.writes.join('|') === 'state=playing|seats=5');
+  t('start 5p ruft ebenfalls genau ein roomStartV4', r.calls.length === 1 && r.calls[0].name === 'roomStartV4');
+  // Fehlerpfad: der Startknopf muss wieder bedienbar werden.
+  r = await env.start({ 0: A, 1: A }, 'ffa', 'Zu wenige Spieler fuer dieses Format.');
+  t('start Fehler entsperrt den Knopf wieder', r.disabled === false);
+  t('start Fehler meldet den Servergrund', r.toasts.some(x => /Zu wenige Spieler/.test(x)));
 
   // ── (7) triple_ffa: validateRoom-Schema + Start-Gate exakt 3 Spieler ──
   const tripleRoom = (over = {}) => Object.assign(
@@ -141,9 +155,13 @@ t('sg reserved-not-active is a gap', env.seatsContiguous({ 0: A, 1: { on: false 
   t('triple state playing rejected', env.validateRoom(tripleRoom({ state: 'playing' })).reason === 'Match läuft bereits.');
   t('triple gap -> lowest free seat 2', env.validateRoom(tripleRoom({ p: { 0: { on: true }, 1: true } })).freeSeat === 2);
   r = await env.start({ 0: A, 1: A }, 'triple_ffa');
-  t('triple start with 2 blocked', r.writes.length === 0 && r.toasts[0] === 'TRIPLE FFA braucht genau 3 Spieler.');
+  t('triple start with 2 blocked', r.calls.length === 0 && r.toasts[0] === 'TRIPLE FFA braucht genau 3 Spieler.');
   r = await env.start({ 0: A, 1: A, 2: A }, 'triple_ffa');
-  t('triple start 3p writes state then seats=3', r.writes.join('|') === 'state=playing|seats=3' && r.disabled === true);
+  t('triple start 3p ruft genau ein roomStartV4', r.calls.length === 1 && r.calls[0].name === 'roomStartV4' && r.disabled === true);
+  r = await env.start({ 0: A, 1: A, 2: A }, 'team_duel');
+  t('team_duel start mit 3 blockiert', r.calls.length === 0 && r.toasts[0] === 'TEAM DUEL braucht genau 4 Spieler.');
+  r = await env.start({ 0: A, 1: A, 2: A, 3: A }, 'team_duel');
+  t('team_duel start 4p ruft genau ein roomStartV4', r.calls.length === 1 && r.calls[0].name === 'roomStartV4');
   // aac mit 2 Kugeln pro Owner: Seat mit 1 Restkugel zaehlt weiter, Seat ohne Kugeln nicht
   t('aac triple all committed', env.aac('ffa', 3, [B(0), B(1), B(2), B(0), B(1), B(2)], [true, true, true]) === true);
   t('aac triple one-ball seat still counts', env.aac('ffa', 3, [B(0), B(1), B(2), B(0, false), B(1), B(2)], [false, true, true]) === false);

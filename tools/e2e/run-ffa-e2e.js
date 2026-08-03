@@ -13,13 +13,48 @@
 //
 // index.html and firebase.rules.json on disk are never modified. Production
 // Firebase is hard-blocked per context over BOTH HTTP and WebSocket transport.
+//
+// ── STATUS: durch tools/e2e/run-v4-e2e.js abgeloest ──────────────────────────
+// Dieser Lauf treibt den Client dazu, v3-RAEUME ANZULEGEN, und startet dafuer
+// nur den RTDB-Emulator. Seit der v4-Migration erstellt der Client ausschliess-
+// lich v4-Raeume ueber die Callables und braucht dafuer Auth + Functions — die
+// Szenarien hier sind damit gegenstandslos geworden.
+//
+// WICHTIG, weil leicht zu verwechseln: das ist NICHT dasselbe wie
+// v3-Kompatibilitaet. Dass BESTEHENDE v3-Raeume weiter spielbar bleiben, ist
+// unveraendert bewiesen — tools/test_rules.js prueft die v3-Zugpfade samt
+// Deadline-Gate gegen die echte firebase.rules.json, und tools/test_room_-
+// lifecycle.js faehrt sie gegen den echten Emulator. Nur der CLIENT legt keine
+// v3-Raeume mehr an.
+//
+// Der Lauf bricht deshalb unten mit einer eindeutigen Meldung ab, statt in
+// einen diffusen Timeout zu laufen. Ob die Datei geloescht oder auf v4
+// umgeschrieben wird, entscheidet der Projektinhaber.
 // ─────────────────────────────────────────────────────────────────────────────
 'use strict';
 
 const fs = require('fs');
+const path = require('path');
 const { chromium } = require('@playwright/test');
 const H = require('./lib/harness');
 const { scenarioMatch, scenarioLeave, scenarioStaleness, scenarioPublicLobby, PRODUCT_SPEC_COLORS } = require('./ffa-scenarios');
+
+// Vorabpruefung: spricht der ausgelieferte Client ueberhaupt noch v3?
+{
+  const html = fs.readFileSync(path.join(__dirname, '..', '..', 'index.html'), 'utf8');
+  if (/const ONLINE_PROTOCOL_VERSION=4/.test(html)) {
+    console.error('');
+    console.error('[e2e][ABGELOEST] Dieser v3-E2E ist nicht mehr ausfuehrbar.');
+    console.error('  Der Client fuehrt ONLINE_PROTOCOL_VERSION 4 und legt ausschliesslich');
+    console.error('  v4-Raeume ueber roomCreateV4/roomJoinV4 an. Dieser Lauf startet aber nur');
+    console.error('  den RTDB-Emulator (ohne Auth/Functions) und erwartet v3-Raumstrukturen.');
+    console.error('');
+    console.error('  Ersatz:            node tools/e2e/run-v4-e2e.js   (npm run test:e2e:v4)');
+    console.error('  v3-Kompatibilitaet: tools/test_rules.js + tools/test_room_lifecycle.js');
+    console.error('');
+    process.exit(3);
+  }
+}
 
 (async () => {
   const result = { scenarios: [], errors: [] };

@@ -49,13 +49,25 @@ const prefix = `
   let outBall=-1, roundWinner=-1, bgPulse=0, bgPulseRGB='';
   let score=[0,0], roundNo=1, winTarget=3;
   let r3dActive=false, r3dOrbit=false, seatGone=[false,false];
-  // Online-Globals: der COLLAPSE-Block enthaelt seit dem Online-Zeitgeber auch die
-  // abgeleitete Serveruhr. Getestet werden hier ausschliesslich ihre reinen
-  // Ableitungsfunktionen; die DB-Anbindung ist gestubbt (kein Netzwerk im Test).
-  let gameStarted=false, roomCode='', turnNo=0, gen=0;
-  const GEN_MAX=10000;
+  // Online-Globals: der COLLAPSE-Block enthaelt seit v4 die Ableitung der
+  // SERVERAUTORITATIVEN Uhr aus g/<gen>/live/clock. Getestet werden hier
+  // ausschliesslich diese reinen Ableitungen; die Callable-Anbindung ist
+  // gestubbt und protokolliert nur, WAS der Client anfordern wuerde.
+  let gameStarted=false, roomCode='ABCD', turnNo=0, gen=0;
+  // onlineClockState/clockClosePhase/settleRetryAt/serverNow/srvOffsetMs werden
+  // vom Core-Block SELBST deklariert — hier stehen nur die Symbole, die der
+  // Block referenziert, aber ausserhalb definiert sind.
+  let onlineIid='IID-COLLAPSE1', onlineSession='SESSCOLLAPSE1';
+  let pendingSettle=null, onlineSessionId=1;
+  const GEN_MAX=10000, FFA_MAX_SEATS=5;
   const pendingSlot={};
+  const v4Calls=[];
+  let srvNow=0;
   function writeTurnSlot(){}
+  function callV4(name,data){ v4Calls.push({name,data}); return Promise.resolve({}); }
+  function simHash(){ return 'hash0000'; }
+  function onlineNextEligible(){ const o=[]; for(const s of onlineEligibleSeats())if(aliveCount(s)>0)o.push(s); return o; }
+  function flushSettlement(){}
   // Pointer-/Drag-Stubs: exakt so viel, wie das echte cancelAimDrag() und der
   // nachgebildete pointerup-Pfad benoetigen.
   let dragging=false, dragShooter=-1, dragOwner=-1;
@@ -174,18 +186,30 @@ const suffix = `
     get state(){return {collapseEnabled,collapseState,collapseStage,matchElapsedMs,collapseRadius,collapseOuterR,collapseCountShown,collapseCountVisible,collapseWarned};},
     get sfx(){return sfx;},
     turnRemainMs, turnDeadlinePassed, onTurnExpire, openAimSeats, allOpenSeats,
-    onlineClock, onlineTurnUsedMs, onlineCollapseTurn, onlineCollapsePending,
-    settleOnlineCollapse, onlineCollapseRoundEnd, onlineCollapseCount,
+    // v4: die Online-Uhr wird nicht mehr aus Stempeln gefaltet, sondern aus dem
+    // serverautoritativen Anker g/<gen>/live/clock gelesen.
+    onlineClockView, onlineCollapsePending, onlineEligibleSeats, onlineSeatEligible,
+    settleOnlineCollapse, onlineCollapseRoundEnd, onlineCollapseCount, onlineResetClock,
     setGen(v){gen=v;},
     setGameStarted(v){gameStarted=v;}, setTurnNo(v){turnNo=v;},
-    pushStamp(t2,v){onTurnStamp[t2]=v;}, pushTs(t2,v){onTurnTs[t2]=v;},
+    // Setzt den Serveranker exakt in der Form, die der Arbiter schreibt.
+    setClock(c){onlineClockState=c?Object.assign({v:4,gen:gen,turn:turnNo,phase:'aim',
+      phaseId:gen+':'+turnNo,startedAt:0,remainingMs:30000,stage:0,eligibleSeats:'0,1',
+      cracked:false,expired:false,deadlineAt:null},c):null;return onlineClockState;},
+    getClock(){return onlineClockState;},
+    setSrvNow(v){srvNow=v;}, tickOnlineClock, requestClockClose,
+    __bindClock(){ serverNow=()=>srvNow; },
+    v4Calls(){return v4Calls.slice();}, clearV4(){v4Calls.length=0;clockClosePhase='';},
     dismissCover(){coverOpen=false;},                   // entspricht dem coverBtn-Handler
     isCoverOpen(){return coverOpen;},
     getAimer(){return curAimer;}, setAimer(v){curAimer=v;},
     consts(){return {MATCH_COLLAPSE_SECONDS,TURN_LIMIT_SECONDS,COLLAPSE_WARNING_SECONDS,FINAL_COUNTDOWN_SECONDS,COLLAPSE_RADIUS_FACTOR,MAX_COLLAPSE_TICK_DELTA_MS,COLLAPSE_STAGE_COUNT,COLLAPSE_CYCLE_SECONDS};}
   };
 `;
-const make = () => new Function(prefix + core + suffix)();
+// __bindClock() haengt serverNow() an die vom Test gesteuerte Zeit. Der
+// Core-Block deklariert serverNow selbst (Date.now()+srvOffsetMs) — fuer
+// deterministische Tests wird die Bindung danach einmalig ersetzt.
+const make = () => { const e = new Function(prefix + core + suffix)(); e.__bindClock(); return e; };
 
 let pass = 0, fail = 0;
 const t = (name, cond) => { cond ? pass++ : (fail++, console.error('FAIL: ' + name)); };
@@ -1016,132 +1040,138 @@ const advanceCover = (e, fromMs, toMs, step = FRAME_MS) => {
   t('2S: keine weiteren Beeps im terminalen Zustand', e.sfx.tick === 10 && e.sfx.warn === 2);
 }
 // ══════════════════════════════════════════════════════════════════════════════
-// ONLINE-UHR — reine Ableitung aus Serverstempeln. Dieselben Eingaben ergeben auf
-// jedem Client bit-identische Werte; es gibt keine lokale Online-Uhr.
+// ONLINE-UHR (v4) — reine Ableitung aus dem SERVERAUTORITATIVEN Anker
+// g/<gen>/live/clock. Der Client faltet keine Stempel mehr; er liest, was der
+// Arbiter entschieden hat. Diese Bloecke sind die gleichwertige Uebertragung der
+// frueheren Fold-Assertions: jede Eigenschaft, die vorher an der Client-Faltung
+// geprueft wurde (Restzeit je Zyklus, Zugfenster, Stufengrenze, Warnfenster,
+// kein Ueberhang, kein dritter Collapse), wird hier am neuen Vertrag geprueft.
+// Die ARITHMETIK dahinter beweist zusaetzlich der echte Arbiter
+// (tools/test_action_clock.js, 220 Assertions) und der echte Browser
+// (tools/e2e/run-v4-e2e.js, Szenario S4).
 // ══════════════════════════════════════════════════════════════════════════════
 {
-  const e = make();
+  const e = make(); e.setOnline(true); e.setGameStarted(true); e.setTurnNo(0);
   const T0 = 1700000000000;
-  // Frischer Match: Phase 0 gerade gestempelt.
-  const c0 = e.onlineClock({ 0: T0 }, {}, 0, T0);
-  t('online: Start mit voller Zykluszeit 30 s', c0.remainingMs === 30000 && c0.usedMs === 0);
-  t('online: Zugfenster 7 s, gemeinsame Deadline', c0.windowMs === 7000 && c0.deadlineAt === T0 + 7000);
-  // Zwei Clients mit unterschiedlicher lokaler Uhr sehen DIESELBE Deadline.
-  const a = e.onlineClock({ 0: T0 }, {}, 0, T0 + 1234);
-  const b = e.onlineClock({ 0: T0 }, {}, 0, T0 + 5678);
-  t('online: zwei Clients, identische Deadline', a.deadlineAt === b.deadlineAt && a.deadlineAt === T0 + 7000);
-  t('online: Restzeit folgt der Serverzeit', a.remainingMs === 30000 - 1234 && b.remainingMs === 30000 - 5678);
-  // Abgeschlossene Phase: gezaehlt wird die Spanne Phasenstempel -> letzter Zug-ts.
-  const c1 = e.onlineClock({ 0: T0, 1: T0 + 900000 }, { 0: T0 + 3000 }, 1, T0 + 900000);
-  t('online: Physik-/Revealzeit verbraucht keine Matchzeit', c1.usedMs === 3000 && c1.remainingMs === 27000);
-  t('online: neue Phase erhaelt wieder volle 7 s', c1.windowMs === 7000 && c1.deadlineAt === T0 + 900000 + 7000);
-  // Ueberzogene Phase wird auf das Fenster geklemmt (nie mehr als 7 s je Zug).
-  const c2 = e.onlineClock({ 0: T0 }, { 0: T0 + 12000 }, 1, T0 + 12000);
-  t('online: verbrauchte Zugzeit ist auf 7 s geklemmt', c2.usedMs === 7000 && c2.remainingMs === 23000);
-  // Zyklusgrenze 1: das letzte Fenster VOR 30 s wird auf die Zyklus-Restzeit gekuerzt.
-  const stampsCyc = {}, tsCyc = {};
-  for (let k = 0; k < 4; k++) { stampsCyc[k] = T0 + k * 100000; tsCyc[k] = T0 + k * 100000 + 7000; }
-  stampsCyc[4] = T0 + 400000;
-  const cc = e.onlineClock(stampsCyc, tsCyc, 4, T0 + 400000);
-  t('online: Fenster vor der 30-s-Grenze auf Zyklusrest gekuerzt (2 s)', cc.windowMs === 2000 && cc.remainingMs === 2000);
-  // Nach der Zyklusgrenze zeigt die Uhr die Restzeit des ZWEITEN Zyklus.
-  const tsCyc2 = Object.assign({}, tsCyc, { 4: T0 + 400000 + 2000 });
-  const cc2 = e.onlineClock(Object.assign({}, stampsCyc, { 5: T0 + 500000 }), tsCyc2, 5, T0 + 500000);
-  t('online: nach der 30-s-Grenze laeuft der zweite 30-s-Zyklus', cc2.remainingMs === 30000 && cc2.windowMs === 7000);
-  // Abgeschlossene Phase ohne ts (Altbestand): konservativ das volle Fenster.
-  const c3 = e.onlineClock({ 0: T0 }, {}, 1, T0);
-  t('online: Phase ohne Commit-ts wird mit vollem Fenster verrechnet', c3.usedMs === 7000);
-  // Stufengrenzen (P1-Fix): ein Turn, der eine 30-s-Grenze ueberzieht, verfaellt
-  // GENAU dort — der Ueberhang wandert nie in den naechsten Zyklus. Bei 7-s-Zuegen
-  // deckt Zyklus 1 damit die Turns 0..4 ab (4x7 s + 2 s Rest), und Zyklus 2 beginnt
-  // mit vollen 30 s. Frueher summierte die Uhr ganze Turns und verkuerzte Zyklus 2
-  // um den Ueberhang (hier: 56 s statt 51 s verbraucht, nur noch 4 s Restzeit).
-  const stampsEnd = {}, tsEnd = {};
-  for (let k = 0; k < 8; k++) { stampsEnd[k] = T0 + k * 100000; tsEnd[k] = T0 + k * 100000 + 7000; }
-  stampsEnd[8] = T0 + 800000;
-  const c4 = e.onlineClock(stampsEnd, tsEnd, 8, T0 + 800000);
-  t('online: 8 Zuege = 30 s Zyklus 1 + 21 s Zyklus 2 (Ueberhang verfaellt)', c4.usedMs === 51000 && c4.remainingMs === 9000);
-  t('online: Fenster bleibt 7 s, solange mehr Zyklusrest bleibt', c4.windowMs === 7000 && c4.deadlineAt === T0 + 800000 + 7000);
-  // Volle Ausschoepfung: 10 Zuege a 7 s — Zyklus 1 endet auf Turn 4, Zyklus 2 auf Turn 9.
-  const stampsFull = {}, tsFull = {};
-  for (let k = 0; k < 10; k++) { stampsFull[k] = T0 + k * 100000; tsFull[k] = T0 + k * 100000 + 7000; }
-  const c5 = e.onlineClock(stampsFull, tsFull, 10, T0 + 1000000);
-  t('online: Restzeit erreicht exakt 0', c5.remainingMs === 0 && c5.usedMs === 60000);
-  stampsFull[10] = T0 + 1000000;
-  const c6 = e.onlineClock(stampsFull, tsFull, 10, T0 + 1000000 + 99999);
-  t('online: Restzeit wird nie negativ', c6.remainingMs === 0 && c6.usedMs === 60000);
-  // Ohne Serverstempel laeuft nichts (Bestandsraum ohne Uhr).
-  const c7 = e.onlineClock({}, {}, 0, T0);
-  t('online: ohne Phasenstempel keine Deadline und keine Zeit', c7.deadlineAt === null && c7.usedMs === 0 && c7.remainingMs === 30000);
-  // Nach aufgebrauchter Matchzeit laeuft jede weitere Phase mit vollem 7-s-Fenster
-  // weiter (Rules-Grenze je Zug) — die Matchuhr bleibt bei 0.
-  const c8 = e.onlineClock(stampsFull, tsFull, 10, T0 + 1000000);
-  t('online: Phase nach Matchende laeuft mit 7-s-Fenster weiter', c8.windowMs === 7000 && c8.remainingMs === 0);
-  // Einzelphasen-Helfer.
-  t('online: Helfer klemmt auf das Fenster', e.onlineTurnUsedMs(T0, T0 + 9000, 7000) === 7000);
-  t('online: Helfer ohne Stempel = 0', e.onlineTurnUsedMs(undefined, T0, 7000) === 0);
-  t('online: Helfer ohne ts = volles Fenster', e.onlineTurnUsedMs(T0, undefined, 7000) === 7000);
 
-  // ── Collapse-Turn: deterministisch aus gespeicherten Stempeln, ohne Wanduhr ──
-  t('collapse-turn: nach 10 vollen 7-s-Zuegen faellt Turn 9 (60 s erreicht)',
-    e.onlineCollapseTurn(stampsFull, tsFull) === 9);
-  t('collapse-turn: identische Daten -> identischer Turn auf jedem Client',
-    e.onlineCollapseTurn(stampsFull, tsFull) === e.onlineCollapseTurn(JSON.parse(JSON.stringify(stampsFull)), JSON.parse(JSON.stringify(tsFull))));
-  t('collapse-turn: offener Turn -> noch kein Ergebnis (-1)',
-    e.onlineCollapseTurn({ 0: T0 }, {}) === -1);
-  t('collapse-turn: ohne Uhr nie ein Collapse', e.onlineCollapseTurn({}, {}) === -1);
-  t('collapse-turn: Restzeit-Klemmung — Ueberziehen des letzten Zuges verschiebt nichts',
-    e.onlineCollapseTurn(stampsFull, Object.assign({}, tsFull, { 9: T0 + 900000 + 999999 })) === 9);
-  t('collapse-turn: schnelle Zuege verschieben den Collapse nach hinten',
-    e.onlineCollapseTurn({ 0: T0, 1: T0 + 50000 }, { 0: T0 + 2000, 1: T0 + 50000 + 2000 }) === -1);
-  // ── Stufenschwellen: 30 000 ms und 60 000 ms aus DENSELBEN Stempeln ──
-  t('collapse-turn: erste Schwelle 30 s faellt auf Turn 4 (7-s-Zuege)',
-    e.onlineCollapseTurn(stampsFull, tsFull, 30000) === 4);
-  t('collapse-turn: zweite Schwelle 60 s faellt auf Turn 9 (7-s-Zuege)',
-    e.onlineCollapseTurn(stampsFull, tsFull, 60000) === 9);
-  t('collapse-turn: Schwelle 2 vor vollstaendigen Daten nicht bestimmbar',
-    e.onlineCollapseTurn(stampsCyc, tsCyc2, 60000) === -1
-    && e.onlineCollapseTurn(stampsCyc, tsCyc2, 30000) === 4);
+  // ── Restzeit einer offenen Aim-Phase laeuft sichtbar herunter ──
+  e.setClock({ startedAt: T0, remainingMs: 30000, deadlineAt: T0 + 7000, stage: 0 });
+  t('v4-Uhr: zu Phasenbeginn volle Zyklusrestzeit', e.onlineClockView(T0).remainingMs === 30000);
+  t('v4-Uhr: Anker wird als vorhanden erkannt', e.onlineClockView(T0).has === true);
+  t('v4-Uhr: nach 1234 ms entsprechend weniger', e.onlineClockView(T0 + 1234).remainingMs === 30000 - 1234);
+  t('v4-Uhr: nach 5678 ms entsprechend weniger', e.onlineClockView(T0 + 5678).remainingMs === 30000 - 5678);
+  t('v4-Uhr: das Zugfenster ist auf 7 s geklemmt (nicht weiter)',
+    e.onlineClockView(T0 + 9999).remainingMs === 30000 - 7000);
+  t('v4-Uhr: Restzeit wird nie negativ', e.onlineClockView(T0 + 999999).remainingMs === 23000);
+  t('v4-Uhr: die Deadline ist absolut und stammt vom Server', e.onlineClockView(T0).deadlineAt === T0 + 7000);
 
-  // ── P1-Fix: Turn-Ueberhang zwischen den 30-s-Zyklen ─────────────────────────
-  // Ein Turn darf die Stufengrenze ueberziehen. Der Ueberhang verfaellt GENAU an
-  // dieser Grenze und darf Zyklus 2 nicht verkuerzen — Uhr, Stufen, Collapse-Turn
-  // und Restzeit kommen dafuer aus derselben Faltung (onlineFold).
-  const K = e.consts();
-  // 28 000 ms verbraucht (4 Zuege a 7 s), dann ein 6-s-Zug: Grenze bei 30 000 ms.
-  const sOv = { 0: T0, 1: T0 + 100000, 2: T0 + 200000, 3: T0 + 300000, 4: T0 + 400000 };
-  const xOv = { 0: T0 + 7000, 1: T0 + 107000, 2: T0 + 207000, 3: T0 + 307000, 4: T0 + 406000 };
-  const cOv = e.onlineClock(sOv, xOv, 5, T0 + 500000);
-  t('ueberhang: 28 000 ms + 6 000 ms -> Zyklus 1 exakt bei 30 000 ms beendet', cOv.usedMs === 30000);
-  t('ueberhang: Zyklus 2 startet mit exakt 30 000 ms Restzeit', cOv.remainingMs === 30000);
-  t('ueberhang: Collapse 1 faellt auf den ueberziehenden Turn 4', e.onlineCollapseTurn(sOv, xOv, 30000) === 4);
-  t('zyklusgleichheit: online-Restzeit nach Stufe 1 == lokale Zykluslaenge',
-    cOv.remainingMs === K.COLLAPSE_CYCLE_SECONDS * 1000);
-  // 29 900 ms verbraucht, dann ein voller 7-s-Zug.
-  const s29 = { 0: T0, 1: T0 + 100000, 2: T0 + 200000, 3: T0 + 300000, 4: T0 + 400000, 5: T0 + 500000 };
-  const x29 = { 0: T0 + 7000, 1: T0 + 107000, 2: T0 + 207000, 3: T0 + 307000, 4: T0 + 401900, 5: T0 + 507000 };
-  t('ueberhang: Fenster vor der Grenze auf 100 ms Zyklusrest gekuerzt',
-    e.onlineClock(s29, x29, 5, T0 + 500000).windowMs === 100);
-  const c29 = e.onlineClock(s29, x29, 6, T0 + 600000);
-  t('ueberhang: 29 900 ms + 7 000 ms -> Grenze exakt 30 000, Zyklus 2 voll',
-    c29.usedMs === 30000 && c29.remainingMs === 30000);
-  t('ueberhang: Collapse 1 faellt auf Turn 5', e.onlineCollapseTurn(s29, x29, 30000) === 5);
-  // Exakter Grenzwert: ein Zug, der die Grenze GENAU trifft, schliesst den Zyklus ab.
-  const xEx = Object.assign({}, xOv, { 4: T0 + 402000 });
-  t('grenzwert: exakt 30 000 ms schliessen Zyklus 1 auf diesem Turn ab',
-    e.onlineCollapseTurn(sOv, xEx, 30000) === 4 && e.onlineClock(sOv, xEx, 5, T0 + 500000).remainingMs === 30000);
-  t('grenzwert: exakt 60 000 ms schliessen Zyklus 2 ab',
-    e.onlineCollapseTurn(stampsFull, tsFull, 60000) === 9 && e.onlineClock(stampsFull, tsFull, 10, T0 + 1000000).usedMs === 60000);
-  // Mehrere Ueberhang-Turns: jeder verfaellt an SEINER Grenze.
-  const sM = {}, xM = {};
-  for (let k = 0; k < 10; k++) { sM[k] = T0 + k * 100000; xM[k] = T0 + k * 100000 + 7000; }
-  xM[4] = T0 + 400000 + 999999; xM[9] = T0 + 900000 + 999999;
-  t('ueberhang: mehrere Ueberhang-Turns -> Stufen bleiben auf Turn 4 und Turn 9',
-    e.onlineCollapseTurn(sM, xM, 30000) === 4 && e.onlineCollapseTurn(sM, xM, 60000) === 9);
-  t('ueberhang: Matchzeit bleibt trotz Ueberhaengen exakt 60 000 ms',
-    e.onlineClock(sM, xM, 10, T0 + 1000000).usedMs === 60000);
-  t('kein dritter Zyklus: Restzeit bleibt 0 und es gibt keine dritte Stufe',
-    e.onlineClock(sM, xM, 10, T0 + 1000000).remainingMs === 0 && e.onlineCollapseTurn(sM, xM, 90000) === -1);
+  // ── Zugfenster = min(7 s, Restzyklus): am Zyklusende schrumpft es mit ──
+  e.setClock({ startedAt: T0, remainingMs: 100, deadlineAt: T0 + 100, stage: 0 });
+  t('v4-Uhr: Restzyklus < 7 s verkuerzt das Fenster', e.onlineClockView(T0).deadlineAt - T0 === 100);
+  t('v4-Uhr: Fenster laeuft exakt auf 0 aus', e.onlineClockView(T0 + 100).remainingMs === 0);
+  t('v4-Uhr: kein Unterlauf ueber das Fenster hinaus', e.onlineClockView(T0 + 5000).remainingMs === 0);
+
+  // ── Ungetimte Phase nach aufgebrauchtem Budget ──
+  e.setClock({ startedAt: T0, remainingMs: 0, deadlineAt: null, stage: 2, expired: true });
+  const un = e.onlineClockView(T0 + 60000);
+  t('v4-Uhr: ungetimte Phase hat keine Deadline', un.deadlineAt === null);
+  t('v4-Uhr: ungetimte Phase bleibt bei 0 stehen', un.remainingMs === 0);
+  t('v4-Uhr: ungetimte Phase meldet expired', un.expired === true);
+  t('v4-Uhr: ungetimte Phase haelt die letzte Stufe', un.stage === 2);
+
+  // ── Ohne Anker gibt es keine Uhr (Lobby, frischer Beitritt) ──
+  e.setClock(null);
+  const none = e.onlineClockView(T0);
+  t('v4-Uhr: ohne Anker keine Uhr', none.has === false && none.deadlineAt === null);
+  t('v4-Uhr: ohne Anker Stufe 0', none.stage === 0);
+
+  // ── Warnfenster (cracked) kommt vom Server, nicht aus einer Client-Schwelle ──
+  e.setClock({ startedAt: T0, remainingMs: 9000, deadlineAt: T0 + 7000, stage: 0, cracked: true });
+  t('v4-Uhr: Warnfenster wird uebernommen', e.onlineClockView(T0).cracked === true);
+  e.setClock({ startedAt: T0, remainingMs: 30000, deadlineAt: T0 + 7000, stage: 1, cracked: false });
+  t('v4-Uhr: Warnfenster ist im neuen Zyklus zurueckgesetzt', e.onlineClockView(T0).cracked === false);
+
+  // ── Stufenmodell: exakt zwei Zyklen a 30 000 ms, kein Ueberhang ──
+  e.setClock({ startedAt: T0, remainingMs: 30000, deadlineAt: T0 + 7000, stage: 1 });
+  t('stufen: Zyklus 2 beginnt mit exakt 30 000 ms', e.onlineClockView(T0).remainingMs === 30000);
+  t('stufen: Zyklus 2 meldet Stufe 1', e.onlineClockView(T0).stage === 1);
+  t('stufen: kein Ueberhang aus Zyklus 1 (Rest ist nicht kleiner)',
+    e.onlineClockView(T0).remainingMs === e.consts().COLLAPSE_CYCLE_SECONDS * 1000);
+  t('stufen: Gesamtbudget bleibt zwei Zyklen',
+    e.consts().COLLAPSE_STAGE_COUNT * e.consts().COLLAPSE_CYCLE_SECONDS === e.consts().MATCH_COLLAPSE_SECONDS);
+
+  // ── Zugberechtigung kommt als CSV aus dem Anker ──
+  e.setClock({ eligibleSeats: '0,1,2' });
+  t('eligible: CSV wird geparst', JSON.stringify(e.onlineEligibleSeats()) === '[0,1,2]');
+  t('eligible: Mitgliedschaft', e.onlineSeatEligible(2) === true && e.onlineSeatEligible(3) === false);
+  e.setClock({ eligibleSeats: '' });
+  t('eligible: leere Menge = niemand mehr zugberechtigt', e.onlineEligibleSeats().length === 0);
+  e.setClock({ eligibleSeats: '0,3' });
+  t('eligible: eliminierter Seat blockiert nicht mehr',
+    e.onlineSeatEligible(1) === false && e.onlineSeatEligible(3) === true);
+  e.setClock(null);
+  t('eligible: ohne Anker niemand zugberechtigt', e.onlineEligibleSeats().length === 0);
+}
+
+// ── Der Client stoesst den Abschluss an, entscheidet ihn aber nie selbst ──
+{
+  const e = make(); e.setOnline(true); e.setGameStarted(true); e.setTurnNo(0); e.setPhase('aim');
+  const T0 = 1700000000000;
+  e.setClock({ startedAt: T0, remainingMs: 30000, deadlineAt: T0 + 7000, stage: 0 });
+  e.clearV4();
+  e.setSrvNow(T0 + 1000); e.tickOnlineClock();
+  t('close: vor der Deadline wird nichts angefordert', e.v4Calls().length === 0);
+  e.setSrvNow(T0 + 7000); e.tickOnlineClock();
+  const c1 = e.v4Calls();
+  t('close: ab der Deadline genau EIN clockClose', c1.length === 1 && c1[0].name === 'clockClose');
+  t('close: der Aufruf traegt Instanz, Session und phaseId',
+    c1[0].data.iid === 'IID-COLLAPSE1' && c1[0].data.session === 'SESSCOLLAPSE1' && c1[0].data.phaseId === '0:0');
+  e.setSrvNow(T0 + 9000); e.tickOnlineClock(); e.tickOnlineClock();
+  t('close: kein zweiter Aufruf fuer dieselbe Phase', e.v4Calls().length === 1);
+  t('close: der Client erfindet keinen No-Shot (kein Slot-Write)',
+    e.v4Calls().every((x) => x.name !== 'writeTurnSlot'));
+}
+
+// ── Reconnect / Restore: Stufen aus dem Historien-Anker t/<turn>/c ───────────
+// Ein wiedereinsteigender Client kennt die Live-Uhr noch nicht. Er rekonstruiert
+// Stufe und Restzeit ausschliesslich aus den archivierten Ankern — genau das
+// tut fastForwardMatch(). Geprueft wird, dass die Rekonstruktion dieselben
+// Stufen ergibt wie das Live-Spiel und dass sie danach nicht ueberschiesst.
+{
+  const e = make(); e.setMode('bot'); e.setOnline(true); e.setBalls(twoBalls());
+  e.resetCollapseTimer(); e.setR(1000); e.setGameStarted(true);
+  const T0 = 1700000000000;
+  // Anker nach Turn 4: Stufe 1 gefallen, Zyklus 2 beginnt mit vollen 30 000 ms.
+  e.setTurnNo(4);
+  e.setClock({ startedAt: T0, remainingMs: 30000, deadlineAt: null, stage: 1 });
+  t('restore: Stufe 1 aus dem Anker uebernommen', e.onlineClockView(T0).stage === 1);
+  t('restore: Zyklus 2 startet ohne Ueberhang bei 30 000 ms', e.onlineClockView(T0).remainingMs === 30000);
+  t('restore: Stufe 1 ist visuell noch nicht angewendet -> pending', e.onlineCollapsePending() === true);
+  e.setPhase('sim'); e.setBalls([ball(0, 100, 0), ball(1, -100, 0)]);
+  e.settleOnlineCollapse();
+  t('restore: nach Anwendung Radius 820 und Zaehler 1',
+    near(e.getR(), 820) && e.onlineCollapseCount() === 1);
+  t('restore: danach nicht mehr pending (kein doppelter Collapse)', e.onlineCollapsePending() === false);
+  // Anker nach Turn 9: beide Stufen gefallen, Uhr terminal.
+  e.setTurnNo(9);
+  e.setClock({ startedAt: T0, remainingMs: 0, deadlineAt: null, stage: 2, expired: true });
+  t('restore: Stufe 2 aus dem Anker wird nachgeholt', e.onlineCollapsePending() === true);
+  e.setPhase('sim');
+  e.settleOnlineCollapse();
+  t('restore: nach Stufe 2 Radius 672.4 und Zaehler 2',
+    near(e.getR(), 672.4) && e.onlineCollapseCount() === 2);
+  t('restore: keine dritte Stufe trotz weiterlaufender Anker',
+    e.onlineCollapsePending() === false && e.settleOnlineCollapse() === false);
+  t('restore: HUD-Restzeit bleibt nach der letzten Stufe bei 0',
+    e.onlineClockView(T0 + 999999).remainingMs === 0);
+  t('restore: shrinkFloor friert auf dem rekonstruierten Radius ein', near(e.shrinkFloor(), 672.4));
+  // Ein Generationswechsel (Rematch) neutralisiert beide Stufen.
+  e.setGen(1);
+  t('restore: neue Generation zaehlt 0 Stufen', e.onlineCollapseCount() === 0);
+  e.setClock({ startedAt: T0, remainingMs: 30000, deadlineAt: T0 + 7000, stage: 0 });
+  t('restore: Rematch-Anker meldet Stufe 0 und vollen Zyklus',
+    e.onlineClockView(T0).stage === 0 && e.onlineClockView(T0).remainingMs === 30000);
+  t('restore: nach dem Rematch ist nichts pending', e.onlineCollapsePending() === false);
 }
 
 // ── Online-Collapse-Anwendung: exakt an der Rundengrenze, exakt einmal ──
@@ -1150,11 +1180,12 @@ const advanceCover = (e, fromMs, toMs, step = FRAME_MS) => {
   e.setR(1000); e.setGameStarted(true);
   const T0 = 1700000000000;
   // Uhr aufgebraucht: 10 Zuege a 7 s. Mit der Stufengrenzen-Klemmung faellt
-  // Schwelle 1 auf Turn 4 (4x7 s + 2 s) und Schwelle 2 auf Turn 9 — der Ueberhang
-  // beider Grenzturns verfaellt, statt den naechsten Zyklus zu verkuerzen.
-  for (let k = 0; k < 10; k++) { e.pushStamp(k, T0 + k * 100000); e.pushTs(k, T0 + k * 100000 + 7000); }
+  // v4: die erreichte Stufe meldet der SERVER im Anker. Hier sind beide Stufen
+  // gefallen (stage 2, Uhr terminal bei 0) — der Client wendet sie visuell an,
+  // eine nach der anderen, exakt an der Rundengrenze.
   e.setTurnNo(9);
-  t('online-collapse: pending am aufgeloesten Collapse-Turn (Schwelle 1)', e.onlineCollapsePending() === true);
+  e.setClock({ startedAt: T0, remainingMs: 0, deadlineAt: null, stage: 2, expired: true });
+  t('online-collapse: pending, sobald der Server weiter ist als der Client', e.onlineCollapsePending() === true);
   e.setPhase('sim');
   // Kugel ausserhalb des neuen Radius: die Auswertung nutzt die BESTEHENDE Ring-out-Logik.
   e.setBalls([ball(0, 900, 0), ball(1, -100, 0)]);
@@ -1178,9 +1209,9 @@ const advanceCover = (e, fromMs, toMs, step = FRAME_MS) => {
   const e = make(); e.setMode('bot'); e.setOnline(true); e.setBalls(twoBalls()); e.resetCollapseTimer();
   e.setR(1000); e.setGameStarted(true);
   const T0 = 1700000000000;
-  for (let k = 0; k < 4; k++) { e.pushStamp(k, T0 + k * 100000); e.pushTs(k, T0 + k * 100000 + 7000); }
-  e.pushStamp(4, T0 + 400000); e.pushTs(4, T0 + 400000 + 7000);
+  // v4: nur Stufe 1 ist gefallen — Zyklus 2 laeuft mit vollen 30 000 ms weiter.
   e.setTurnNo(4);
+  e.setClock({ startedAt: T0, remainingMs: 30000, deadlineAt: T0 + 7000, stage: 1 });
   e.setPhase('sim'); e.setBalls([ball(0, 100, 0), ball(1, -100, 0)]);
   t('online-collapse: Schwelle 1 allein -> pending', e.onlineCollapsePending() === true);
   e.settleOnlineCollapse();
@@ -1193,10 +1224,10 @@ const advanceCover = (e, fromMs, toMs, step = FRAME_MS) => {
   const e = make(); e.setMode('bot'); e.setOnline(true); e.setBalls(twoBalls()); e.resetCollapseTimer();
   e.setR(1000); e.setGameStarted(true);
   const T0 = 1700000000000;
-  // 10 Zuege a 7 s: mit der Stufengrenzen-Klemmung sind beide Schwellen erreicht
-  // (Turn 4 und Turn 9), ohne dass ein Ueberhang in Zyklus 2 wandert.
-  for (let k = 0; k < 10; k++) { e.pushStamp(k, T0 + k * 100000); e.pushTs(k, T0 + k * 100000 + 7000); }
+  // v4: beide Stufen sind serverseitig gefallen (stage 2). Der Rundenende-Ausgang
+  // holt sie nacheinander nach — eine je Rundengrenze, nie zwei auf einmal.
   e.setTurnNo(9);
+  e.setClock({ startedAt: T0, remainingMs: 0, deadlineAt: null, stage: 2, expired: true });
   t('online-collapse: Rundenende-Ausgang wendet Stufe 1 an', e.onlineCollapseRoundEnd() === true && near(e.getR(), 820));
   t('online-collapse: Rundenende-Ausgang wendet Stufe 2 an', e.onlineCollapseRoundEnd() === true && near(e.getR(), 672.4));
   t('online-collapse: dritter Rundenende-Aufruf ist ein No-op', e.onlineCollapseRoundEnd() === false);
@@ -1206,7 +1237,8 @@ const advanceCover = (e, fromMs, toMs, step = FRAME_MS) => {
   const e = make(); e.setMode('bot'); e.setBalls(twoBalls()); e.resetCollapseTimer(); e.setR(1000);
   e.setGameStarted(true); e.setTurnNo(8);
   const T0 = 1700000000000;
-  for (let k = 0; k < 9; k++) { e.pushStamp(k, T0 + k * 100000); e.pushTs(k, T0 + k * 100000 + 7000); }
+  // Selbst ein vollstaendig gefuellter Serveranker darf offline NICHTS ausloesen.
+  e.setClock({ startedAt: T0, remainingMs: 0, deadlineAt: null, stage: 2, expired: true });
   t('online-collapse: offline nie pending', e.onlineCollapsePending() === false && e.settleOnlineCollapse() === false && e.getR() === 1000);
 }
 {
