@@ -241,6 +241,88 @@ Ringout/
 
 ---
 
+## Online-Architektur v4 — serverautoritativer Arbiter
+
+Seit 2026-08-04 (Branch `feature/two-stage-arbiter-integration`) ist der
+Online-Modus vollständig serverautoritativ. Der Client fragt an, der Server
+entscheidet.
+
+### Schema
+
+```
+rooms/<code>
+  v = 4                     Protokollversion
+  iid                       unveränderliche, server-generierte Rauminstanz
+  config, gen, state, seats, created
+  players/<seat>            {id, name, tab, uid}       server-geschrieben
+  p/<seat>                  {s, on, t}                 Presence, server-geschrieben
+  seatByUid/<uid> = <seat>  server-owned Seat-Index, für Clients gesperrt
+  sess/<seat>               {iid, active, pending}     Session-Token, gesperrt
+  g/<gen>/live/clock        DIE Online-Uhr (nur der Arbiter schreibt)
+  g/<gen>/live/slots/<seat> Zug {idx,dx,dy,sp,t,sid} — einziger Client-Write
+  g/<gen>/t/<turn>/<seat>   unveränderliche Historie (nur der Arbiter)
+  g/<gen>/t/<turn>/c        Clock-Anker {startedAt, usedMs, stage, remainingAfter}
+```
+
+`live` trägt immer nur die AKTUELLE Phase und wächst nicht mit der Matchdauer.
+
+### Callables (`functions/index.js`, Region `europe-west1`)
+
+| Callable | Zweck |
+|---|---|
+| `roomCreateV4` | Raum anlegen, Code + `iid` erzeugen, Seat 0 reservieren |
+| `roomJoinV4` | Seat reservieren (der Server wählt ihn); erkennt beim Reconnect die eigene UID |
+| `roomActivateV4` | Reservierung zur aktiven Session befördern; 1v1/2v2 startet dabei automatisch |
+| `roomLeaveV4` | Session freigeben, Seat und Listing räumen |
+| `roomStartV4` | FFA-Start: `state`/`seats` setzen und den Uhr-Anker eröffnen |
+| `roomRematchV4` | Generation per CAS erhöhen, frischen Anker öffnen |
+| `clockStart` | Reparaturpfad, falls der Anker fehlt (write-once) |
+| `clockClose` | Phase schließen, offene Slots als `{ns:'stand'}` buchen, archivieren |
+| `clockSettle` | Ergebnis-Hash + Folgeberechtigung melden; das Quorum öffnet die nächste Phase |
+
+Jeder Aufruf trägt eine `requestId`; Create und Join wiederholen mit stabiler
+`requestId`, ein Retry kann deshalb nichts verdoppeln.
+
+### Uhr und Zwei-Stufen-Collapse
+
+`g/<gen>/live/clock` ist die einzige Online-Uhr. Der Client **liest** Turn,
+`phase`, `phaseId`, `deadlineAt`, `remainingMs`, `stage`, `cracked`, `expired`
+und `eligibleSeats` — er berechnet nichts. Der Stufenvertrag liegt in
+`functions/clock-core.js`: `STAGE_COUNT` Zyklen à `CYCLE_MS` (2 × 30 000 ms),
+Zugfenster `min(TURN_LIMIT_MS, remainingMs)`, Rollover exakt an der
+Zyklusgrenze ohne Überhang, terminal nach Stufe 2. `openingAnchor()` ist die
+einzige Stelle, die eine neue Generation eröffnet — geteilt von `clockStart`,
+`roomStartV4`, dem Auto-Start in `roomActivateV4` und `roomRematchV4`.
+
+### Was der Client NICHT mehr tut
+
+Raumcode wählen, Seat claimen, Presence schreiben, `players` schreiben,
+Public-Listing schreiben, `gen` erhöhen, Phasen stempeln, die Uhr falten,
+No-Shots erfinden, Leave-Sentinels setzen. Alle zugehörigen Funktionen sind
+ersatzlos entfernt (Liste s. CHANGELOG).
+
+### Testebenen
+
+| Ebene | Datei | Umfang |
+|---|---|---|
+| Rules | `tools/test_rules.js` | 331, echte `firebase.rules.json` |
+| Arbiter | `tools/test_action_clock.js` | 220, echter RTDB-Emulator |
+| Room-Lifecycle | `tools/test_room_lifecycle.js` | 209, RTDB + Functions |
+| Offline-Client | `tools/run_all_tests.js` | 18/18 Suiten |
+| Browser-E2E | `tools/e2e/run-v4-e2e.js` | 96 in 8 Szenarien, RTDB + Auth + Functions |
+
+Die Offline-Suiten bauen **keinen** eigenen Arbiter nach:
+`tools/lib/fake-v4.js` fährt die echten `room-core.js`/`clock-core.js` gegen
+eine In-Memory-DB, `tools/lib/v4-client-harness.js` bündelt den
+Client-Sandkasten für Flow-, Race- und Reconnect-Suite.
+
+### v3-Kompatibilität
+
+Bestehende v3-Räume bleiben spielbar: die Rules tragen die v3-Zugpfade samt
+`now <= s + 7000`-Deadline-Gate weiterhin. Nur der Client legt keine v3-Räume
+mehr an. `tools/e2e/run-ffa-e2e.js` ist dadurch abgelöst (es trieb den Client
+dazu, v3-Räume anzulegen) und bricht mit einer eindeutigen Meldung ab.
+
 ## Systemanalyse
 
 - Systemanalyse vom 2026-07-09 liegt unter `docs/SYSTEM-ANALYSE-2026-07-09.md` (Bewertung, Schwachstellen, Regel-/Workflow-Vorschläge, Token-Sparsystem).
