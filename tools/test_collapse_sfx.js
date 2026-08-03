@@ -16,7 +16,11 @@
 'use strict';
 const fs = require('fs');
 const path = require('path');
-const HTML = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+// Zeilenenden normalisieren wie in tools/extract.js: index.html liegt mit LF im
+// Repo, wird auf Windows aber mit CRLF ausgecheckt (core.autocrlf). Mehrere
+// Quellcode-Assertions hier matchen gegen `\n` — ohne Normalisierung ist die
+// Suite auf JEDEM frischen Windows-Checkout rot, obwohl der Code korrekt ist.
+const HTML = require('./extract').loadIndexHtml();
 
 let pass = 0, fail = 0;
 const t = (name, cond, info) => {
