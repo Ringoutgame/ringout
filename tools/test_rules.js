@@ -33,6 +33,7 @@ class NSnap {
 
 // rules language helpers
 Object.defineProperty(String.prototype, 'matches', { value: function (re) { return re.test(this); }, configurable: true });
+Object.defineProperty(String.prototype, 'contains', { value: function (s) { return this.indexOf(s) >= 0; }, configurable: true });
 function evalRule(rule, ctx) {
   if (rule === true || rule === false) return rule;
   const names = Object.keys(ctx);
@@ -52,12 +53,15 @@ function ruleChild(rn, key) {
 }
 
 const NOW = 1751900000000;
-// attempts a single-path write against the loaded rules; returns true if allowed
-function tryWrite(db, path, value) {
+// attempts a single-path write against the loaded rules; returns true if allowed.
+// authUid: simulated Firebase-Auth identity (null = unauthenticated, like today's
+// v3 clients). Exposed to the rules as `auth` — exactly the RTDB shape {uid}.
+function tryWrite(db, path, value, authUid) {
+  const auth = authUid == null ? null : { uid: authUid };
   const segs = path.split('/');
   const post = JSON.parse(JSON.stringify(db));
   setPath(post, segs, value);
-  const ctxAt = (i, vars) => ({ data: new NSnap(db, segs.slice(0, i)), newData: new NSnap(post, segs.slice(0, i)), root: new NSnap(db, []), now: NOW, ...vars });
+  const ctxAt = (i, vars) => ({ data: new NSnap(db, segs.slice(0, i)), newData: new NSnap(post, segs.slice(0, i)), root: new NSnap(db, []), now: NOW, auth, ...vars });
   // .write cascade along the path (root .. target)
   let rn = rules, granted = false, vars = {};
   for (let i = 0; i <= segs.length && rn; i++) {
@@ -70,7 +74,7 @@ function tryWrite(db, path, value) {
   const validateAt = (node, s, vv) => {
     const val = getPath(post, s);
     if (val === null) return true;
-    if (node['.validate'] !== undefined && !evalRule(node['.validate'], { data: new NSnap(db, s), newData: new NSnap(post, s), root: new NSnap(db, []), now: NOW, ...vv })) return false;
+    if (node['.validate'] !== undefined && !evalRule(node['.validate'], { data: new NSnap(db, s), newData: new NSnap(post, s), root: new NSnap(db, []), now: NOW, auth, ...vv })) return false;
     if (val && typeof val === 'object') {
       for (const k of Object.keys(val)) {
         const r = ruleChild(node, k);
@@ -84,7 +88,7 @@ function tryWrite(db, path, value) {
 }
 
 // ── fixtures (Presence & Reconnect v3: p/<seat> = {s, on, t}) ──
-const V = 4;
+const V = 3;
 const GRACE = 15000;
 const H_TAB = 'HOSTTAB0', G_TAB = 'GTAB0001', G2_TAB = 'GTAB0002';
 // Durable roster records; players/<seat>.tab MUST equal p/<seat>.s (coupling).
@@ -105,6 +109,9 @@ let pass = 0, fail = 0;
 const t = (name, cond) => { cond ? pass++ : (fail++, console.error('FAIL: ' + name)); };
 const allow = (name, db, path, v) => t('[ALLOW] ' + name, tryWrite(db, path, v) === true);
 const deny = (name, db, path, v) => t('[DENY]  ' + name, tryWrite(db, path, v) === false);
+// v4: authentifizierte Varianten (auth.uid wird an die Rules durchgereicht)
+const allowAs = (name, uid, db, path, v) => t('[ALLOW] ' + name, tryWrite(db, path, v, uid) === true);
+const denyAs = (name, uid, db, path, v) => t('[DENY]  ' + name, tryWrite(db, path, v, uid) === false);
 
 // ── (1) room creation — v3 object presence, offline host, atomic identity ──
 allow('create single', { rooms: {} }, 'rooms/KX7P', mkRoom('single'));
@@ -255,55 +262,6 @@ deny('zero leave-sentinel for offline seat past grace (deferred)', playing({ p: 
 deny('zero leave-sentinel for fully-absent seat (deferred, no anchor)', playing({ p: { 0: P(H_TAB, true) } }, 'ffa'), 'rooms/KX7P/g/0/t/0/1', { idx: 1, dx: 0, dy: 0, sp: 0 });
 deny('move for eliminated seat (e pre-seeded)', playing({ p: { 0: P(H_TAB, true), 1: P(G_TAB, false, NOW - 16000) }, g: { 0: { e: { 1: true } } } }), 'rooms/KX7P/g/0/t/1/1', MOVE);
 
-// ── (10b) Online-Zeitgeber: Phasenstempel g/<gen>/t/<turn>/s + atomarer Zug-ts ──
-// Der Phasenstempel ist die einzige Startzeitquelle der Online-Uhr: write-once und
-// exakt Serverzeit (newData.val() === now). Der Commit-Zeitpunkt reist ATOMAR im
-// Zugobjekt selbst (Feld ts, ebenfalls === now) — Slot und Serverzeit koennen nie
-// getrennt erscheinen. Ein Client kann weder Deadline noch Zugzeit faelschen.
-const twoOn = { p: { 0: P(H_TAB, true), 1: P(G_TAB, true) } };
-const stamped = (dt, over) => playing(Object.assign({ g: { 0: Object.assign({ t: Object.assign({ 0: { s: NOW - dt } }, (over && over.t) || {}) } ) } }, twoOn));
-const stampedWith = (dt, slots) => playing(Object.assign({ g: { 0: { t: Object.assign({ 0: Object.assign({ s: NOW - dt }, slots) }) } } }, twoOn));
-allow('clock: Phasenstempel mit Serverzeit', playing(twoOn), 'rooms/KX7P/g/0/t/0/s', NOW);
-deny('clock: Phasenstempel vordatiert', playing(twoOn), 'rooms/KX7P/g/0/t/0/s', NOW - 5000);
-deny('clock: Phasenstempel in der Zukunft', playing(twoOn), 'rooms/KX7P/g/0/t/0/s', NOW + 5000);
-deny('clock: Phasenstempel write-once', stamped(1000), 'rooms/KX7P/g/0/t/0/s', NOW);
-deny('clock: Phasenstempel in fremder Generation', playing(twoOn), 'rooms/KX7P/g/5/t/0/s', NOW);
-deny('clock: Phasenstempel vor Matchstart (Lobby)', db1(twoOn), 'rooms/KX7P/g/0/t/0/s', NOW);
-
-// Atomarer Zug: bei aktiver Uhr (Stempel vorhanden) ist ts PFLICHT und exakt now;
-// ohne Stempel gilt unveraendert das v3-Schema (und ts ist dort verboten).
-const MOVETS = Object.assign({ ts: NOW }, MOVE);
-allow('clock: Zug mit atomarem Serverzeit-ts', stamped(3000), 'rooms/KX7P/g/0/t/0/0', MOVETS);
-deny('clock: Zug OHNE ts bei aktiver Uhr abgewiesen', stamped(3000), 'rooms/KX7P/g/0/t/0/0', MOVE);
-deny('clock: ts vordatiert (gefaelschte Zugzeit)', stamped(3000), 'rooms/KX7P/g/0/t/0/0', Object.assign({}, MOVE, { ts: NOW - 2000 }));
-deny('clock: ts in der Zukunft', stamped(3000), 'rooms/KX7P/g/0/t/0/0', Object.assign({}, MOVE, { ts: NOW + 2000 }));
-deny('clock: ts kein Zahlenwert', stamped(3000), 'rooms/KX7P/g/0/t/0/0', Object.assign({}, MOVE, { ts: 'x' }));
-deny('clock: ts ohne aktive Uhr verboten (v3-Schema)', playing(twoOn), 'rooms/KX7P/g/0/t/0/0', MOVETS);
-allow('clock: ohne Phasenstempel bleibt v3-Verhalten unveraendert', playing(twoOn), 'rooms/KX7P/g/0/t/0/0', MOVE);
-
-// Deadline-Gate: bis zur Deadline zaehlt jeder Zug, danach NUR noch der No-Shot.
-// Damit kann kein Client einen Timeout verfruehen — der Server entscheidet anhand
-// seiner eigenen Uhr (now), nicht der Client.
-const NOSHOT = { idx: 1, dx: 0, dy: 0, sp: 0, ts: NOW };
-allow('clock: echter Zug vor der Deadline', stamped(3000), 'rooms/KX7P/g/0/t/0/0', MOVETS);
-allow('clock: echter Zug exakt auf der Deadline', stamped(7000), 'rooms/KX7P/g/0/t/0/0', MOVETS);
-deny('clock: echter Zug nach der Deadline abgewiesen', stamped(7001), 'rooms/KX7P/g/0/t/0/0', MOVETS);
-allow('clock: No-Shot nach der Deadline erlaubt', stamped(7001), 'rooms/KX7P/g/0/t/0/1', NOSHOT);
-// BESTANDSGRENZE (unveraendert, nicht durch diesen Timer verursacht): v3 kennt keine
-// Authentifizierung, die Rules koennen einen fremden Stand-Zug vor der Deadline nicht
-// vom eigenen Stand-Button unterscheiden. Genau darauf beruht schon der bestehende
-// Leave-Sentinel. Der Timer verschaerft das NICHT — er verbietet nach der Deadline
-// zusaetzlich jeden echten Zug und macht die Deadline selbst faelschungssicher.
-allow('clock: Stand vor der Deadline bleibt erlaubt (v3-Bestand, Stand-Button)', stamped(3000), 'rooms/KX7P/g/0/t/0/1', NOSHOT);
-allow('clock: No-Shot bleibt write-once geschuetzt (erster gewinnt)', stamped(7001), 'rooms/KX7P/g/0/t/0/0', { idx: 0, dx: 0, dy: 0, sp: 0, ts: NOW });
-deny('clock: bestaetigter Zug wird auch nach der Deadline nicht ueberschrieben',
-  stampedWith(7001, { 0: MOVETS }), 'rooms/KX7P/g/0/t/0/0', { idx: 0, dx: 0, dy: 0, sp: 0, ts: NOW });
-deny('clock: getarnter Fremdzug nach der Deadline (dx!=0) abgewiesen', stamped(7001), 'rooms/KX7P/g/0/t/0/1', Object.assign({}, MOVETS, { idx: 1, dx: 100, dy: 0 }));
-// Ein isolierter Kind-Write auf t/<turn>/<seat>/ts (Vorstempeln ohne Zug) scheitert an
-// der $pl-.validate (hasChildren idx/dx/dy/sp/ts). Die lokale Mock-Engine wertet
-// Ancestor-Validates bei Kind-Writes nicht aus — dieser Fall wird deshalb gegen den
-// ECHTEN RTDB-Emulator geprueft (siehe Emulator-Protokoll im Abschlussbericht).
-
 // ── (11) elimination latch g/<gen>/e/<seat> — DEFERRED (Fund 2). Until the
 //        authoritative turn-pointer lands (later match-reconnect package), EVERY
 //        write to e is rejected: no grace path, no Slot-belegt e-only, nothing. The
@@ -415,6 +373,292 @@ allow('team leave-sentinel pl 3 idx 0 (foreign idx)', teamMatch, 'rooms/KX7P/g/0
 deny('team move idx 4', teamMatch, 'rooms/KX7P/g/0/t/0/0', { idx: 4, dx: 0, dy: 0, sp: 0 });
 deny('team move idx 5', teamMatch, 'rooms/KX7P/g/0/t/0/0', { idx: 5, dx: 0, dy: 0, sp: 0 });
 deny('team move pl 4 (seat gate, presence pre-seeded)', playing({ p: { 0: P(H_TAB, true), 1: P(G_TAB, true), 2: P(G2_TAB, true), 3: P(G3_TAB, true), 4: P(G4_TAB, true) }, seats: 4 }, 'team_duel'), 'rooms/KX7P/g/0/t/0/4', MOVE);
+
+// ── (17) Protokoll v4 — Identity/Seat-Ownership (Anonymous Auth) + serverseitiger
+//        Clock-Arbiter. v4-Raeume binden Seat-Claims, Presence und state/seats an
+//        auth.uid; room.gen ist fuer v4-Clients KOMPLETT gesperrt (Gen-Haertung).
+//        Der aktive Phasen-State liegt begrenzt unter rooms/<code>/g/<gen>/live
+//        ({clock, slots}); live/clock ist fuer Clients vollstaendig schreib-
+//        geschuetzt, live/slots/<seat> ist der einzige v4-Client-Schreibpfad
+//        (write-once, seatByUid-gebunden, aim-Phase, Server-Deadline, t===turn).
+//        Die Turn-Historie t/<turn> archiviert AUSSCHLIESSLICH der Server.
+//        seatByUid/<uid> ist der server-owned Ownership-Index (Clients read-only).
+//        v3-Raeume bleiben byte-identisch geregelt — alle Abschnitte (1)-(16)
+//        oben laufen unveraendert ohne auth.
+//        Nicht modelliert (wie gehabt): Multi-Location-Updates — der atomare
+//        p+players-Leave wird gegen den echten Emulator bewiesen. ──
+const UID_H = 'uid-host-0001', UID_G = 'uid-guest-0001', UID_X = 'uid-fremd-0001';
+const HOST4 = { id: 'HOST0000', name: 'Host', tab: H_TAB, uid: UID_H };
+const REC4 = (id, tab, uid) => ({ id: id || 'GUEST001', name: 'G', tab: tab || G_TAB, uid: uid || UID_G });
+// Server-owned UID->Seat-Index (in Fixtures nur GELESEN; Erstellung: Phase-IIIB-
+// Callables). Bewusst NICHT Teil des Create-Payloads mkRoom4.
+const SEAT_IDX = { [UID_H]: 0, [UID_G]: 1 };
+const mkRoom4 = (fmt, over = {}) => Object.assign(
+  { v: 4, config: { winTarget: 3, fmt, visibility: 'private' }, gen: 0, state: 'lobby', p: { 0: P(H_TAB, false) }, players: { 0: HOST4 }, created: NOW },
+  over);
+const db4 = (roomOver = {}, fmt = 'single') => ({ rooms: { KX7P: mkRoom4(fmt, Object.assign({ created: NOW - 5000, seatByUid: SEAT_IDX }, roomOver)) } });
+// Server-Arbiter-Zustand — der begrenzte aktive Phasen-State liegt unter
+// rooms/<code>/g/<gen>/live/clock. In Tests als Fixture NUR gelesen.
+const CLOCK = (over = {}) => Object.assign(
+  { v: 4, gen: 0, turn: 0, phaseId: '0:0', phase: 'aim', startedAt: NOW - 2000, deadlineAt: NOW + 5000, remainingMs: 30000, stage: 0, eligibleSeats: '0,1', cracked: false, expired: false },
+  over);
+const match4 = (clockOver, extra) => {
+  const over = Object.assign(
+    { state: 'playing', p: { 0: P(H_TAB, true), 1: P(G_TAB, true) }, players: { 0: HOST4, 1: REC4() } },
+    extra || {});
+  if (clockOver !== null) {
+    const clock = CLOCK(clockOver);
+    over.g = Object.assign({}, over.g);
+    over.g[clock.gen] = Object.assign({}, over.g[clock.gen], {
+      live: Object.assign({}, (over.g[clock.gen] || {}).live, { clock }),
+    });
+  }
+  return db4(over);
+};
+// v4-Live-Move: traegt den Turn (t) — die Rules binden ihn an live.clock.turn.
+const MOVE4 = Object.assign({}, MOVE, { t: 0 });
+
+// v4-Raum-Erstellung: nur authentifiziert und nur mit der eigenen uid auf players/0
+allowAs('v4 create mit auth + eigener uid', UID_H, { rooms: {} }, 'rooms/KX7P', mkRoom4('single'));
+deny('v4 create OHNE auth', { rooms: {} }, 'rooms/KX7P', mkRoom4('single'));
+denyAs('v4 create mit fremder uid auf players/0', UID_X, { rooms: {} }, 'rooms/KX7P', mkRoom4('single'));
+denyAs('v4 create ohne uid-Feld (v4 verlangt uid)', UID_H, { rooms: {} }, 'rooms/KX7P',
+  mkRoom4('single', { players: { 0: { id: 'HOST0000', name: 'Host', tab: H_TAB } } }));
+denyAs('v4 create mit vorbefuelltem clock (alter Raumpfad)', UID_H, { rooms: {} }, 'rooms/KX7P',
+  mkRoom4('single', { clock: CLOCK() }));
+denyAs('v4 create mit vorbefuelltem g/0/clock (alter Gen-Pfad)', UID_H, { rooms: {} }, 'rooms/KX7P',
+  mkRoom4('single', { g: { 0: { clock: CLOCK() } } }));
+denyAs('v4 create mit vorbefuelltem g/0/live (Clock-Anker)', UID_H, { rooms: {} }, 'rooms/KX7P',
+  mkRoom4('single', { g: { 0: { live: { clock: CLOCK() } } } }));
+denyAs('v4 create mit vorbefuelltem seatByUid (server-owned Index)', UID_H, { rooms: {} }, 'rooms/KX7P',
+  mkRoom4('single', { seatByUid: { [UID_H]: 0 } }));
+// Create-Prefill-Bypass (Review-Blocker): ein SKALARER seatByUid-Wert hat keine
+// Kinder, die `$uid`-Kindregel feuert also nie. Deshalb wird das Feld jetzt auf
+// PARENT-Ebene der Raum-.validate abgelehnt (`!newData.child('seatByUid').exists()`)
+// und zusaetzlich der Knoten selbst per `.validate: false` gesperrt — unabhaengig
+// davon, welchen Typ der Client mitschickt und welche Regel den Pfad zugestand.
+denyAs('v4 create: seatByUid als Zahl (Skalar-Bypass)', UID_H, { rooms: {} }, 'rooms/KX7P', mkRoom4('single', { seatByUid: 0 }));
+denyAs('v4 create: seatByUid als String', UID_H, { rooms: {} }, 'rooms/KX7P', mkRoom4('single', { seatByUid: '0' }));
+denyAs('v4 create: seatByUid als Boolean', UID_H, { rooms: {} }, 'rooms/KX7P', mkRoom4('single', { seatByUid: true }));
+denyAs('v4 create: seatByUid als Liste', UID_H, { rooms: {} }, 'rooms/KX7P', mkRoom4('single', { seatByUid: [0, 1] }));
+// Leerer Container: diese Engine wertet ihn als geschriebenen Knoten und lehnt ab.
+// Echtes RTDB verwirft {} / [] schon vor der Regelauswertung — dort geht der Create
+// durch, traegt aber kein seatByUid (am Emulator geprueft, s. test_action_clock.js).
+// Beide Wege fuehren zum selben Ergebnis: kein vorbefuellter Index.
+denyAs('v4 create: seatByUid als leeres Objekt', UID_H, { rooms: {} }, 'rooms/KX7P', mkRoom4('single', { seatByUid: {} }));
+denyAs('v4 create: seatByUid mit mehreren Eintraegen', UID_H, { rooms: {} }, 'rooms/KX7P',
+  mkRoom4('single', { seatByUid: { [UID_H]: 0, [UID_X]: 1 } }));
+deny('v3 create: seatByUid ebenfalls verboten (Knoten ist server-owned)', { rooms: {} }, 'rooms/KX7P', mkRoom('single', { seatByUid: 0 }));
+// Dieselbe Kaskade fuer die uebrigen server-owned Felder — auch als Skalar.
+denyAs('v4 create: g als Skalar (Prefill-Bypass)', UID_H, { rooms: {} }, 'rooms/KX7P', mkRoom4('single', { g: 1 }));
+denyAs('v4 create: vorbefuellte Turn-Historie g/0/t', UID_H, { rooms: {} }, 'rooms/KX7P',
+  mkRoom4('single', { g: { 0: { t: { 0: { 0: MOVE } } } } }));
+denyAs('v4 create: alter clock-Pfad als Skalar', UID_H, { rooms: {} }, 'rooms/KX7P', mkRoom4('single', { clock: 1 }));
+denyAs('v4 create: seats als Skalar bleibt verboten', UID_H, { rooms: {} }, 'rooms/KX7P', mkRoom4('single', { seats: 2 }));
+deny('v5 create (unbekannte Protokollversion)', { rooms: {} }, 'rooms/KX7P', mkRoom4('single', { v: 5 }));
+allow('v3 create bleibt OHNE auth erlaubt (Bestand)', { rooms: {} }, 'rooms/KX7P', mkRoom('single'));
+
+// live/clock: fuer Clients vollstaendig schreibgeschuetzt — nur der Server-Arbiter (Admin SDK)
+denyAs('clock: Client-Init verboten (auch Host)', UID_H, match4(null), 'rooms/KX7P/g/0/live/clock', CLOCK());
+denyAs('clock: phase-Manipulation verboten', UID_H, match4(), 'rooms/KX7P/g/0/live/clock/phase', 'aim');
+denyAs('clock: deadlineAt-Verlaengerung verboten', UID_G, match4(), 'rooms/KX7P/g/0/live/clock/deadlineAt', NOW + 60000);
+denyAs('clock: remainingMs-Manipulation verboten', UID_G, match4(), 'rooms/KX7P/g/0/live/clock/remainingMs', 60000);
+denyAs('clock: cracked/expired-Manipulation verboten', UID_G, match4(), 'rooms/KX7P/g/0/live/clock/expired', true);
+denyAs('clock: eligibleSeats-Manipulation verboten', UID_G, match4(), 'rooms/KX7P/g/0/live/clock/eligibleSeats', '0,1');
+denyAs('clock: settled-Report faelschen verboten', UID_G, match4({ phase: 'resolving' }), 'rooms/KX7P/g/0/live/clock/settled/0', { hash: 'x', next: '0,1' });
+denyAs('clock: archived-Marker faelschen verboten', UID_G, match4({ phase: 'resolving', archived: false }), 'rooms/KX7P/g/0/live/clock/archived', true);
+denyAs('clock: Loeschen verboten', UID_H, match4(), 'rooms/KX7P/g/0/live/clock', null);
+deny('clock: unauthentifiziert verboten', match4(), 'rooms/KX7P/g/0/live/clock', CLOCK());
+// Alte Pfade existieren nicht mehr — sie fallen unter $other bzw. Default-Deny.
+denyAs('clock: alter Raumpfad rooms/<code>/clock bleibt verboten', UID_H, match4(), 'rooms/KX7P/clock', CLOCK());
+denyAs('clock: alter Gen-Pfad g/<gen>/clock bleibt verboten', UID_H, match4(), 'rooms/KX7P/g/0/clock', CLOCK());
+
+// seatByUid: server-owned Ownership-Index — fuer Clients vollstaendig read-only
+denyAs('seatByUid: eigenen Eintrag anlegen verboten', UID_X, match4(), 'rooms/KX7P/seatByUid/' + UID_X, 1);
+denyAs('seatByUid: eigenen Eintrag umbiegen verboten', UID_G, match4(), 'rooms/KX7P/seatByUid/' + UID_G, 0);
+denyAs('seatByUid: fremden Eintrag loeschen verboten', UID_X, match4(), 'rooms/KX7P/seatByUid/' + UID_G, null);
+denyAs('seatByUid: Index komplett ersetzen verboten (auch Host)', UID_H, match4(), 'rooms/KX7P/seatByUid', { [UID_X]: 1 });
+denyAs('seatByUid: Index als Skalar ueberschreiben verboten', UID_H, match4(), 'rooms/KX7P/seatByUid', 0);
+denyAs('seatByUid: gesamten Index loeschen verboten', UID_H, match4(), 'rooms/KX7P/seatByUid', null);
+deny('seatByUid: unauthentifiziert verboten', match4(), 'rooms/KX7P/seatByUid/' + UID_X, 1);
+
+// Live-Slots v4 (einziger v4-Client-Schreibpfad): eigener Seat via seatByUid,
+// aim-Phase, gen-Bindung, t===clock.turn, Server-Deadline, write-once
+allowAs('v4 slot: eigener Commit Seat 0 vor Deadline', UID_H, match4(), 'rooms/KX7P/g/0/live/slots/0', MOVE4);
+allowAs('v4 slot: eigener Commit Seat 1 vor Deadline', UID_G, match4(), 'rooms/KX7P/g/0/live/slots/1', MOVE4);
+allowAs('v4 slot: eigener No-Shot (Impuls 0) vor Deadline', UID_H, match4(), 'rooms/KX7P/g/0/live/slots/0', { idx: 0, dx: 0, dy: 0, sp: 0, t: 0 });
+denyAs('v4 slot: fremder Seat (Client-Sentinel/No-Shot ist Server-Aufgabe)', UID_G, match4(), 'rooms/KX7P/g/0/live/slots/0', MOVE4);
+deny('v4 slot: unauthentifiziert', match4(), 'rooms/KX7P/g/0/live/slots/0', MOVE4);
+denyAs('v4 slot: NACH Server-Deadline (verspaeteter Move)', UID_H, match4({ deadlineAt: NOW - 1 }), 'rooms/KX7P/g/0/live/slots/0', MOVE4);
+denyAs('v4 slot: waehrend resolving (Physik)', UID_H, match4({ phase: 'resolving' }), 'rooms/KX7P/g/0/live/slots/0', MOVE4);
+denyAs('v4 slot: Turn-Mismatch (clock.turn=1, Move traegt t=0)', UID_H, match4({ turn: 1, phaseId: '0:1' }), 'rooms/KX7P/g/0/live/slots/0', MOVE4);
+denyAs('v4 slot: Move ohne t-Feld (Turn-Bindung fehlt)', UID_H, match4(), 'rooms/KX7P/g/0/live/slots/0', MOVE);
+denyAs('v4 slot: Extra-Feld im Move-Schema', UID_H, match4(), 'rooms/KX7P/g/0/live/slots/0', Object.assign({}, MOVE4, { hack: 1 }));
+denyAs('v4 slot: ohne Server-Clock kein Commit', UID_H, match4(null), 'rooms/KX7P/g/0/live/slots/0', MOVE4);
+// Generationsbindung STRUKTURELL: der Anker der Generation 1 liegt unter g/1/live
+// und deckt g/0 nicht; und g/1-Slots verlangen room.gen === 1.
+denyAs('v4 slot: Anker liegt in fremder Generation (g/1)', UID_H, match4({ gen: 1, phaseId: '1:0' }), 'rooms/KX7P/g/0/live/slots/0', MOVE4);
+denyAs('v4 slot: Write in fremde Generation (room.gen=0, Write g/1)', UID_H, match4({ gen: 1, phaseId: '1:0' }), 'rooms/KX7P/g/1/live/slots/0', MOVE4);
+// eligibleSeats: der Server bestimmt je Phase, wer ueberhaupt ziehen darf.
+denyAs('v4 slot: Seat nicht in eligibleSeats (eliminiert)', UID_G, match4({ eligibleSeats: '0' }), 'rooms/KX7P/g/0/live/slots/1', MOVE4);
+allowAs('v4 slot: verbleibender Seat in eligibleSeats zieht weiter', UID_H, match4({ eligibleSeats: '0' }), 'rooms/KX7P/g/0/live/slots/0', MOVE4);
+denyAs('v4 slot: leere eligibleSeats sperren alle Seats', UID_H, match4({ eligibleSeats: '' }), 'rooms/KX7P/g/0/live/slots/0', MOVE4);
+denyAs('v4 slot: eligibleSeats gilt auch in der ungetimten Phase (nach Expiry)', UID_G,
+  match4({ eligibleSeats: '0', deadlineAt: null, remainingMs: 0, expired: true }), 'rooms/KX7P/g/0/live/slots/1', MOVE4);
+allowAs('v4 slot: untimed Phase (nach Expiry, keine deadlineAt)', UID_H,
+  match4({ deadlineAt: null, remainingMs: 0, expired: true }), 'rooms/KX7P/g/0/live/slots/0', MOVE4);
+denyAs('v4 slot: write-once auch fuer den Eigentuemer', UID_H,
+  match4({}, { g: { 0: { live: { slots: { 0: { idx: 0, dx: 0, dy: 0, sp: 0, t: 0 } } } } } }), 'rooms/KX7P/g/0/live/slots/0', MOVE4);
+
+// UID-/Seat-Eindeutigkeit in den Rules: der Index UND players/<seat>/uid muessen
+// exakt auf den Schreiber zeigen — jeder inkonsistente Zustand ist fail-closed.
+denyAs('v4 slot: seatByUid-Eintrag fehlt (kein Besitz)', UID_G, match4({}, { seatByUid: { [UID_H]: 0 } }), 'rooms/KX7P/g/0/live/slots/1', MOVE4);
+denyAs('v4 slot: seatByUid zeigt auf fremden Seat', UID_G, match4({}, { seatByUid: { [UID_H]: 0, [UID_G]: 0 } }), 'rooms/KX7P/g/0/live/slots/1', MOVE4);
+denyAs('v4 slot: seatByUid-Ziel gehoert lt. players einem anderen (Widerspruch)', UID_G,
+  match4({}, { seatByUid: { [UID_H]: 0, [UID_G]: 0 } }), 'rooms/KX7P/g/0/live/slots/0', MOVE4);
+denyAs('v4 slot: players.uid passt, aber Index widerspricht (fail-closed)', UID_G,
+  match4({}, { seatByUid: { [UID_H]: 0, [UID_G]: 3 } }), 'rooms/KX7P/g/0/live/slots/1', MOVE4);
+denyAs('v4 slot: fremde UID ohne jeden Sitz', UID_X, match4(), 'rooms/KX7P/g/0/live/slots/0', MOVE4);
+
+// Turn-Historie t/<turn>: bei v4 archiviert AUSSCHLIESSLICH der Server-Arbiter —
+// jeder Client-Write ist verboten (auch der eigene Seat, auch vor der Deadline).
+denyAs('v4 Historie: Client-Write in t/<turn> verboten (eigener Seat)', UID_H, match4(), 'rooms/KX7P/g/0/t/0/0', MOVE);
+denyAs('v4 Historie: Client-Write in t/<turn> verboten (Gast)', UID_G, match4(), 'rooms/KX7P/g/0/t/0/1', MOVE);
+deny('v4 Historie: Client-Write unauthentifiziert verboten', match4(), 'rooms/KX7P/g/0/t/0/0', MOVE);
+denyAs('v4 Historie: archivierten Turn ueberschreiben verboten', UID_H,
+  match4({ phase: 'resolving' }, { g: { 0: { t: { 0: { 0: MOVE, 1: { ns: 'stand' } } } } } }), 'rooms/KX7P/g/0/t/0/1', MOVE);
+denyAs('v4 Historie: Loeschen eines Turns verboten', UID_H,
+  match4({}, { g: { 0: { t: { 0: { 0: MOVE } } } } }), 'rooms/KX7P/g/0/t/0/0', null);
+
+// Seat-Ownership v4: players-/Presence-Writes nur mit eigener uid
+allowAs('v4 players: Claim mit eigener uid', UID_G,
+  db4({ p: { 0: P(H_TAB, false), 1: P(G_TAB, false) } }), 'rooms/KX7P/players/1', REC4());
+denyAs('v4 players: Claim mit fremder uid im Record', UID_G,
+  db4({ p: { 0: P(H_TAB, false), 1: P(G_TAB, false) } }), 'rooms/KX7P/players/1', REC4('GUEST001', G_TAB, UID_X));
+deny('v4 players: Claim unauthentifiziert', db4({ p: { 0: P(H_TAB, false), 1: P(G_TAB, false) } }), 'rooms/KX7P/players/1', REC4());
+const recon4 = db4({ state: 'playing', p: { 0: P(H_TAB, true), 1: P(G_TAB, false) }, players: { 0: HOST4, 1: REC4() } });
+allowAs('v4 presence: eigener Seat aktivieren (Reconnect-Flip)', UID_G, recon4, 'rooms/KX7P/p/1', P(G_TAB, true));
+denyAs('v4 presence: fremden Seat aktivieren', UID_X, recon4, 'rooms/KX7P/p/1', P(G_TAB, true));
+deny('v4 presence: unauthentifiziert', recon4, 'rooms/KX7P/p/1', P(G_TAB, true));
+
+// Matchsteuerung v4: state/seats nur Host; room.gen ist fuer v4-Clients KOMPLETT
+// gesperrt (Gen-Haertung Phase IIIA) — kein Client darf eine neue Generation und
+// damit eine frische 60-s-Clock erzwingen. Der legitime Rematch-Uebergang kommt
+// serverseitig in Phase IIIB/IV.
+const lobby4 = db4({ p: { 0: P(H_TAB, true), 1: P(G_TAB, true) }, players: { 0: HOST4, 1: REC4() } });
+allowAs('v4 state: Start durch Host', UID_H, lobby4, 'rooms/KX7P/state', 'playing');
+denyAs('v4 state: Start durch Gast', UID_G, lobby4, 'rooms/KX7P/state', 'playing');
+deny('v4 state: Start unauthentifiziert', lobby4, 'rooms/KX7P/state', 'playing');
+const started4 = db4({ state: 'playing', p: { 0: P(H_TAB, true), 1: P(G_TAB, true) }, players: { 0: HOST4, 1: REC4() } }, 'ffa');
+allowAs('v4 seats: Host zaehlt Seats', UID_H, started4, 'rooms/KX7P/seats', 2);
+denyAs('v4 seats: Gast darf nicht', UID_G, started4, 'rooms/KX7P/seats', 2);
+denyAs('v4 gen: Gen-Bump durch Mitspieler verboten (gesperrt)', UID_G, match4(), 'rooms/KX7P/gen', 1);
+denyAs('v4 gen: Gen-Bump durch Host verboten (gesperrt)', UID_H, match4(), 'rooms/KX7P/gen', 1);
+denyAs('v4 gen: Gen-Bump durch Fremden verboten', UID_X, match4(), 'rooms/KX7P/gen', 1);
+deny('v4 gen: Gen-Bump unauthentifiziert verboten', match4(), 'rooms/KX7P/gen', 1);
+denyAs('v4 gen: auch Same-Value-Write verboten (kein Refresh)', UID_H, match4(), 'rooms/KX7P/gen', 0);
+denyAs('v4 gen: Gen-Bump auch in der Lobby verboten', UID_H, lobby4, 'rooms/KX7P/gen', 1);
+
+// ── (18) Regression zu zwei Review-Befunden (P0/P1) ──
+// P0: players/<seat> war ohne v4-Auth-Gate — jeder authentifizierte Client konnte
+//     den Record eines FREMDEN Seats (inkl. uid) ueberschreiben und damit Seat-
+//     bzw. Host-Rolle uebernehmen, auch gegenueber dem Server-Arbiter
+//     (clock-core.seatOfUid loest Seats ueber players/<seat>/uid auf).
+// P1: die Room-.write-Kaskade galt fuer JEDEN Kindpfad eines noch nicht
+//     existierenden Raumcodes und umging damit die Raum-.validate — inklusive
+//     eines vorbefuellten clock-Ankers, den der Arbiter danach nie ueberschreibt.
+const UID_A = 'uid-angreifer-01';
+const seated4 = db4({ state: 'playing', p: { 0: P(H_TAB, true), 1: P(G_TAB, true) }, players: { 0: HOST4, 1: REC4() } });
+denyAs('P0 v4: fremdes players/1/uid ueberschreiben (Seat-Uebernahme)', UID_A, seated4, 'rooms/KX7P/players/1/uid', UID_A);
+denyAs('P0 v4: players/0/uid ueberschreiben (Host-Uebernahme)', UID_A, seated4, 'rooms/KX7P/players/0/uid', UID_A);
+denyAs('P0 v4: fremden players/1-Record komplett ersetzen', UID_A, seated4, 'rooms/KX7P/players/1',
+  { id: 'GUEST001', name: 'G', tab: G_TAB, uid: UID_A });
+deny('P0 v4: players/1/uid loeschen ohne auth (Seat-DoS)', seated4, 'rooms/KX7P/players/1/uid', null);
+denyAs('P0 v4: fremdes players/1 loeschen', UID_A, seated4, 'rooms/KX7P/players/1', null);
+denyAs('P0 v4: eigene uid im eigenen Record aendern (uid unveraenderlich)', UID_G, seated4, 'rooms/KX7P/players/1/uid', UID_A);
+allowAs('P0 v4: eigenen Namen aendern bleibt erlaubt', UID_G, seated4, 'rooms/KX7P/players/1',
+  { id: 'GUEST001', name: 'Neu', tab: G_TAB, uid: UID_G });
+denyAs('P0 v4: fremden Namen aendern', UID_A, seated4, 'rooms/KX7P/players/1',
+  { id: 'GUEST001', name: 'Hacked', tab: G_TAB, uid: UID_G });
+denyAs('P1: live/clock auf freien Raumcode schreiben (Kaskade)', UID_A, { rooms: {} }, 'rooms/QQQQ/g/0/live/clock', CLOCK());
+denyAs('P1: live-Slot auf freien Raumcode schreiben (Kaskade)', UID_A, { rooms: {} }, 'rooms/QQQQ/g/0/live/slots/0', MOVE4);
+denyAs('P1: seatByUid auf freien Raumcode schreiben (Kaskade)', UID_A, { rooms: {} }, 'rooms/QQQQ/seatByUid/' + UID_A, 0);
+denyAs('P1: Turn-Slot auf freien Raumcode schreiben (Kaskade)', UID_A, { rooms: {} }, 'rooms/QQQQ/g/0/t/0/0', MOVE);
+denyAs('P1: Teil-Raum (nur config) auf freien Code schreiben', UID_A, { rooms: {} }, 'rooms/QQQQ/config',
+  { winTarget: 3, fmt: 'single', visibility: 'private' });
+deny('P1: live/clock auf freien Raumcode ohne auth', { rooms: {} }, 'rooms/QQQQ/g/0/live/clock', CLOCK());
+denyAs('P1: alter Raumpfad clock auf freien Raumcode', UID_A, { rooms: {} }, 'rooms/QQQQ/clock', CLOCK());
+allowAs('P1: vollstaendige v4-Raumerstellung bleibt erlaubt', UID_H, { rooms: {} }, 'rooms/QQQQ', mkRoom4('single'));
+allow('P1: vollstaendige v3-Raumerstellung bleibt erlaubt', { rooms: {} }, 'rooms/QQQQ', mkRoom('single'));
+
+// v3-Bestand: unveraendert OHNE auth spielbar (Regression neben den Abschnitten oben)
+allow('v3 slot: Move weiterhin ohne auth', playing({ p: { 0: P(H_TAB, true), 1: P(G_TAB, true) } }), 'rooms/KX7P/g/0/t/0/0', MOVE);
+allow('v3 gen: Rematch weiterhin ohne auth', playing({ p: { 0: P(H_TAB, true), 1: P(G_TAB, true) } }), 'rooms/KX7P/gen', 1);
+allow('v3 players: Namensaenderung weiterhin ohne auth', playing({ p: { 0: P(H_TAB, true), 1: P(G_TAB, true) }, players: { 0: HOST, 1: REC() } }),
+  'rooms/KX7P/players/1', { id: 'GUEST001', name: 'Neu', tab: G_TAB });
+// ── (10b) Online-Zeitgeber: Phasenstempel g/<gen>/t/<turn>/s + atomarer Zug-ts ──
+// Der Phasenstempel ist die einzige Startzeitquelle der Online-Uhr: write-once und
+// exakt Serverzeit (newData.val() === now). Der Commit-Zeitpunkt reist ATOMAR im
+// Zugobjekt selbst (Feld ts, ebenfalls === now) — Slot und Serverzeit koennen nie
+// getrennt erscheinen. Ein Client kann weder Deadline noch Zugzeit faelschen.
+const twoOn = { p: { 0: P(H_TAB, true), 1: P(G_TAB, true) } };
+const stamped = (dt, over) => playing(Object.assign({ g: { 0: Object.assign({ t: Object.assign({ 0: { s: NOW - dt } }, (over && over.t) || {}) } ) } }, twoOn));
+const stampedWith = (dt, slots) => playing(Object.assign({ g: { 0: { t: Object.assign({ 0: Object.assign({ s: NOW - dt }, slots) }) } } }, twoOn));
+allow('clock: Phasenstempel mit Serverzeit', playing(twoOn), 'rooms/KX7P/g/0/t/0/s', NOW);
+deny('clock: Phasenstempel vordatiert', playing(twoOn), 'rooms/KX7P/g/0/t/0/s', NOW - 5000);
+deny('clock: Phasenstempel in der Zukunft', playing(twoOn), 'rooms/KX7P/g/0/t/0/s', NOW + 5000);
+deny('clock: Phasenstempel write-once', stamped(1000), 'rooms/KX7P/g/0/t/0/s', NOW);
+deny('clock: Phasenstempel in fremder Generation', playing(twoOn), 'rooms/KX7P/g/5/t/0/s', NOW);
+deny('clock: Phasenstempel vor Matchstart (Lobby)', db1(twoOn), 'rooms/KX7P/g/0/t/0/s', NOW);
+
+// Atomarer Zug: bei aktiver Uhr (Stempel vorhanden) ist ts PFLICHT und exakt now;
+// ohne Stempel gilt unveraendert das v3-Schema (und ts ist dort verboten).
+const MOVETS = Object.assign({ ts: NOW }, MOVE);
+allow('clock: Zug mit atomarem Serverzeit-ts', stamped(3000), 'rooms/KX7P/g/0/t/0/0', MOVETS);
+deny('clock: Zug OHNE ts bei aktiver Uhr abgewiesen', stamped(3000), 'rooms/KX7P/g/0/t/0/0', MOVE);
+deny('clock: ts vordatiert (gefaelschte Zugzeit)', stamped(3000), 'rooms/KX7P/g/0/t/0/0', Object.assign({}, MOVE, { ts: NOW - 2000 }));
+deny('clock: ts in der Zukunft', stamped(3000), 'rooms/KX7P/g/0/t/0/0', Object.assign({}, MOVE, { ts: NOW + 2000 }));
+deny('clock: ts kein Zahlenwert', stamped(3000), 'rooms/KX7P/g/0/t/0/0', Object.assign({}, MOVE, { ts: 'x' }));
+deny('clock: ts ohne aktive Uhr verboten (v3-Schema)', playing(twoOn), 'rooms/KX7P/g/0/t/0/0', MOVETS);
+allow('clock: ohne Phasenstempel bleibt v3-Verhalten unveraendert', playing(twoOn), 'rooms/KX7P/g/0/t/0/0', MOVE);
+
+// Deadline-Gate: bis zur Deadline zaehlt jeder Zug, danach NUR noch der No-Shot.
+// Damit kann kein Client einen Timeout verfruehen — der Server entscheidet anhand
+// seiner eigenen Uhr (now), nicht der Client.
+const NOSHOT = { idx: 1, dx: 0, dy: 0, sp: 0, ts: NOW };
+allow('clock: echter Zug vor der Deadline', stamped(3000), 'rooms/KX7P/g/0/t/0/0', MOVETS);
+allow('clock: echter Zug exakt auf der Deadline', stamped(7000), 'rooms/KX7P/g/0/t/0/0', MOVETS);
+deny('clock: echter Zug nach der Deadline abgewiesen', stamped(7001), 'rooms/KX7P/g/0/t/0/0', MOVETS);
+allow('clock: No-Shot nach der Deadline erlaubt', stamped(7001), 'rooms/KX7P/g/0/t/0/1', NOSHOT);
+// BESTANDSGRENZE (unveraendert, nicht durch diesen Timer verursacht): v3 kennt keine
+// Authentifizierung, die Rules koennen einen fremden Stand-Zug vor der Deadline nicht
+// vom eigenen Stand-Button unterscheiden. Genau darauf beruht schon der bestehende
+// Leave-Sentinel. Der Timer verschaerft das NICHT — er verbietet nach der Deadline
+// zusaetzlich jeden echten Zug und macht die Deadline selbst faelschungssicher.
+allow('clock: Stand vor der Deadline bleibt erlaubt (v3-Bestand, Stand-Button)', stamped(3000), 'rooms/KX7P/g/0/t/0/1', NOSHOT);
+allow('clock: No-Shot bleibt write-once geschuetzt (erster gewinnt)', stamped(7001), 'rooms/KX7P/g/0/t/0/0', { idx: 0, dx: 0, dy: 0, sp: 0, ts: NOW });
+deny('clock: bestaetigter Zug wird auch nach der Deadline nicht ueberschrieben',
+  stampedWith(7001, { 0: MOVETS }), 'rooms/KX7P/g/0/t/0/0', { idx: 0, dx: 0, dy: 0, sp: 0, ts: NOW });
+deny('clock: getarnter Fremdzug nach der Deadline (dx!=0) abgewiesen', stamped(7001), 'rooms/KX7P/g/0/t/0/1', Object.assign({}, MOVETS, { idx: 1, dx: 100, dy: 0 }));
+// Ein isolierter Kind-Write auf t/<turn>/<seat>/ts (Vorstempeln ohne Zug) scheitert an
+// der $pl-.validate (hasChildren idx/dx/dy/sp/ts). Die lokale Mock-Engine wertet
+// Ancestor-Validates bei Kind-Writes nicht aus — dieser Fall wird deshalb gegen den
+// ECHTEN RTDB-Emulator geprueft (siehe Emulator-Protokoll im Abschlussbericht).
+
+// ── (v4-Zugfluss) Der Server besitzt die Uhr ────────────────────────────
+// Bei v4 gibt es keinen client-beschreibbaren Turn-Knoten mehr: Zuege laufen
+// ausschliesslich ueber live/slots/<seat>, und live/clock gehört allein dem
+// Arbiter. Damit ist Future-Turn-Pre-Arming konstruktiv unmöglich — es gibt
+// keinen Pfad, den ein Client für einen späteren Turn vorbereiten könnte.
+denyAs('v4: live/clock ist für Clients unbeschreibbar', UID_H, match4({}), 'rooms/KX7P/g/0/live/clock', CLOCK());
+denyAs('v4: einzelnes clock-Feld ebenfalls unbeschreibbar', UID_H, match4({}), 'rooms/KX7P/g/0/live/clock/deadlineAt', NOW + 99999);
+denyAs('v4: Phasenstempel t/<turn>/s existiert nicht mehr', UID_H, match4({}), 'rooms/KX7P/g/0/t/0/s', NOW);
+denyAs('v4: Turn-Historie ist für Clients gesperrt', UID_H, match4({}), 'rooms/KX7P/g/0/t/0/0', MOVE4);
+denyAs('v4: auch ein zukünftiger Turn der Historie bleibt gesperrt', UID_H, match4({}), 'rooms/KX7P/g/0/t/9/0', MOVE4);
+denyAs('v4: kein Vorbereiten eines zukünftigen Phasenstempels', UID_H, match4({}), 'rooms/KX7P/g/0/t/9/s', NOW);
+// v3 bleibt additiv unberührt: derselbe Pfad ist dort weiterhin erlaubt.
+allow('v3: Turn-Historie bleibt für Clients schreibbar (Bestand)', playing(twoOn), 'rooms/KX7P/g/0/t/0/0', MOVE);
+allow('v3: Phasenstempel bleibt schreibbar (produktiver Bestand)', playing(twoOn), 'rooms/KX7P/g/0/t/0/s', NOW);
 
 console.log('\nRules-Suite (lokal, echte firebase.rules.json): ' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);
