@@ -833,6 +833,9 @@ body:not(.r3d) .ohero{height:12px}
   // v4-Identitaet. Bleibt leer, solange keine Anonymous-Auth-UID vorliegt — jeder
   // v4-Pfad prueft das und faellt sonst gar nicht erst an.
   window.__FB_UID = '';
+  // Region der Callables — muss exakt zu functions/index.js (setGlobalOptions)
+  // passen, sonst laufen die Aufrufe ins Leere.
+  const FN_REGION = "europe-west1";
   let app = null;
   try{
     app = initializeApp(firebaseConfig);
@@ -854,6 +857,16 @@ body:not(.r3d) .ohero{height:12px}
         if(window.__FB_UID) window.dispatchEvent(new Event('fb-auth'));
       });
       return m.signInAnonymously(auth);
+    }).catch(()=>{});
+    // Callables der v4-Architektur — bewusst in einer EIGENEN dynamischen Kette:
+    // faellt dieses Modul aus, bleibt die Anonymous-Auth oben davon unberuehrt
+    // (und umgekehrt). Beide zusammen sind die Vorbedingung fuer v4; fehlt eine,
+    // meldet whenV4() das sauber, statt irgendwo mitten im Beitritt zu scheitern.
+    import("https://www.gstatic.com/firebasejs/12.15.0/firebase-functions.js").then(m=>{
+      const fns = m.getFunctions(app, FN_REGION);
+      window.FB.call = (name)=>m.httpsCallable(fns, name);
+      window.__FB_V4 = true;
+      window.dispatchEvent(new Event('fb-v4'));
     }).catch(()=>{});
   }
   window.dispatchEvent(new Event('fb-ready'));
@@ -965,6 +978,15 @@ let ffaNMenu=3;     // Menue-Auswahl fuer FFA lokal — leaveOnline() stellt ffa
 // ── ONLINE-State ──
 let online=false, roomCode='', myPlayer=0, gen=0, runningGen=-1, turnNo=-1;
 let turnUnsub=null, genUnsub=null, presUnsub=null, seatsUnsub=null, gameStarted=false;
+// ── v4-Rauminstanz und Session ───────────────────────────────────────────────
+// onlineIid ist die unveraenderliche, server-generierte Kennung DIESER Raum-
+// instanz: sie unterscheidet einen recycelten Raumcode von seinem Vorgaenger.
+// onlineSession ist das aktive Session-Token dieses Seats — es wandert als sid
+// in jeden Zug und ist bei jedem Callable Pflicht. Ein zweiter Tab rotiert die
+// Session serverseitig; der alte Tab verliert damit sofort jedes Schreibrecht.
+// Beide werden ausschliesslich aus Callable-Antworten befuellt, nie geraten.
+let onlineIid='', onlineSession='';
+let clockUnsub=null;   // Listener auf g/<gen>/live/clock — die einzige Online-Uhr
 // Public-Lobby (feature/public-lobby-mvp): createVisibility ist die Host-Auswahl im
 // Erstellen-Dialog (Default 'private'); roomPublic merkt sich fuer den AKTUELLEN Raum,
 // ob ein Discovery-Listing (publicRooms/<code>) existiert — nur dann wird es bei
@@ -985,20 +1007,6 @@ let seatGone=[];    // FFA: Verlassen-Status aus den Move-Daten — deterministi
 // alten Raum darf den aktuellen Zustand nie mehr veraendern, selbst wenn Seat,
 // Generation und Turnnummer zufaellig uebereinstimmen (s. isCurrentCtx).
 let pendingSlot={}, onlineSessionId=0;
-// P0-Nachbesserung (2026-07-11): capped-Backoff-Retry fuer den SYSTEMGENERIERTEN
-// Leave-Sentinel (nicht fuer eigene Spieler-Moves — die muessen nicht automatisch
-// wiederholt werden). sentinelRetryTimer haelt pro Seat hoechstens EINEN
-// ausstehenden setTimeout-Handle (kein paralleler Doppel-Retry).
-let sentinelRetryTimer={};
-const SENTINEL_RETRY_BASE_MS=300, SENTINEL_RETRY_MAX_MS=2000;
-// Obergrenze der automatischen Sentinel-Retries pro Seat und Turn. Der Backoff
-// laeuft 300·2^n ms (bei SENTINEL_RETRY_MAX_MS gedeckelt): 300, 600, 1200, dann
-// 2000er-Schritte. 11 Retries ergeben so eine Gesamt-Retry-Dauer von ~18 s
-// (0,3+0,6+1,2+8·2,0). Wird das Limit erreicht, ohne dass der Slot autoritativ
-// gefuellt wurde (permanenter Firebase-/Permission-/Konfigurationsfehler), bricht
-// der Client kontrolliert ab (s. onlineConnectionLost) — kein unbegrenztes
-// Weiterschreiben, kein dauerhaft eingefrorener Turn.
-const SENTINEL_RETRY_MAX_ATTEMPTS=11;
 // Terminaler, sessiongebundener Abbruchzustand: speichert die onlineSessionId, in
 // der onlineConnectionLost() den Match-Abbruch ausgeloest hat. isOnlineTerminated()
 // ist damit automatisch NUR fuer genau diese Session true — ein neuer Join/Create
@@ -1130,141 +1138,13 @@ function joinOpCurrent(op){ return op===joinOpSeq; }
 // rejected RESERVE is reported as {lost:true} for the caller to retry elsewhere.
 function seatActive(p,s){ return !!(p&&p[s]&&p[s].on===true); }
 
-// Phase 1 — RESERVE: atomic multi-path write of p/<seat> (on:false) + the durable
-// players/<seat> roster record, same token (s===tab) as the rules require. Only
-// ever called against a seat whose p/<seat> is currently absent (fresh claim) —
-// a rules rejection here (seat taken / lobby closed in the meantime) is the
-// benign "lost" outcome, not an error.
-async function reserveSeat(code,seat){
-  const upd={}; upd['p/'+seat]={s:onlineTab,on:false,t:window.FB.serverTimestamp()}; upd['players/'+seat]=playerRecord(seat);
-  try{ await window.FB.update(window.FB.ref(window.FB.db,'rooms/'+code),upd); return {ok:true}; }
-  catch(e){
-    if(/permission[_ ]?denied/i.test(String((e&&(e.code||e.message))||e)))return {ok:false,lost:true};
-    throw e;
-  }
-}
-// Phase 2 — ARM: token-bound onDisconnect on p/<seat>, registered AFTER the
-// reservation exists. On a real disconnect this writes {s,on:false,t:now} — never
-// a remove() — so a later claimant's differing s is what the rules use to reject
-// a stale handler from an earlier claim.
-async function armPresence(code,seat){
-  const dc=window.FB.onDisconnect(window.FB.ref(window.FB.db,'rooms/'+code+'/p/'+seat));
-  await dc.set({s:onlineTab,on:false,t:window.FB.serverTimestamp()});
-  return dc;
-}
-// Phase 3 — ACTIVATE: flips p/<seat> on:false->true on the same token. For a
-// 1v1/2v2 guest, extra.state='playing' rides along in the SAME atomic update as
-// required by the rules' state-write condition (p/1/on must already be true in
-// that same write).
-async function activateSeat(code,seat,extra){
-  const upd={}; upd['p/'+seat]={s:onlineTab,on:true,t:window.FB.serverTimestamp()};
-  if(extra&&extra.state)upd['state']=extra.state;
-  await window.FB.update(window.FB.ref(window.FB.db,'rooms/'+code),upd);
-}
-// Rollback of OWN reservation/activation: atomically deletes p/<seat> AND
-// players/<seat> together (the rules require both gone in the same write — a
-// presence-only delete is not expressible under v3) and disarms the onDisconnect
-// if one was armed. Never touches a foreign record (only ever called on a seat
-// this same call just reserved). Errors are logged, never swallowed silently.
-async function releaseReservation(code,seat,dc){
-  try{ const upd={}; upd['p/'+seat]=null; upd['players/'+seat]=null; await window.FB.update(window.FB.ref(window.FB.db,'rooms/'+code),upd); }
-  catch(e){ console.error('[online] reservation rollback failed (seat '+seat+'):',e); }
-  if(dc){ try{ await dc.cancel(); }catch(e){ console.error('[online] onDisconnect cancel failed (seat '+seat+'):',e); } }
-}
-// Orchestrates RESERVE -> ARM -> ACTIVATE for a guest seat claim (FFA seat 1-4,
-// or the 1v1/2v2 guest seat 1 with extra.state='playing'). The op token is
-// re-checked after every await; a stale op rolls back ONLY this call's own
-// just-written data via releaseReservation and never touches foreign state.
-// Outcomes: {ok:true,dc} activated · {lost:true} reserve lost (no partial state,
-// caller tries the next seat) · {stale:true} op superseded (own writes rolled back).
-async function claimSeatSlot(code,seat,op,extra){
-  const r=await reserveSeat(code,seat);
-  if(!r.ok)return {ok:false,lost:true,dc:null};
-  if(op!=null&&!joinOpCurrent(op)){ await releaseReservation(code,seat,null); return {ok:false,stale:true,dc:null}; }
-  let dc=null;
-  try{ dc=await armPresence(code,seat); }
-  catch(e){ await releaseReservation(code,seat,null); throw e; }
-  if(op!=null&&!joinOpCurrent(op)){ await releaseReservation(code,seat,dc); return {ok:false,stale:true,dc:null}; }
-  try{ await activateSeat(code,seat,extra); }
-  catch(e){ await releaseReservation(code,seat,dc); throw e; }
-  if(op!=null&&!joinOpCurrent(op)){ await releaseReservation(code,seat,dc); return {ok:false,stale:true,dc:null}; }
-  return {ok:true,dc:dc};
-}
-// ════ B2 same-seat reclaim: RECLAIM -> ARM -> ACTIVATE ════
-// Counterpart of claimSeatSlot for a seat whose p/<seat> node ALREADY exists
-// (a previous session's token). The atomic p+players write carries the NEW tab
-// token with the SAME durable id — exactly the shape the v3 rules accept
-// immediately while state==='playing' (identity-bound re-take of an offline
-// seat) and in the lobby once the SEAT_STALE_MS window has passed. Foreign
-// seats are rules-rejected: this path can never change players/<seat>/id.
-// keepName restores the roster name the seat already carries when no locally
-// persisted name exists (rules require name length>=1).
-async function reclaimSeat(code,seat,keepName){
-  const rec=playerRecord(seat);
-  if(!onlineName&&keepName)rec.name=keepName;
-  const upd={}; upd['p/'+seat]={s:onlineTab,on:false,t:window.FB.serverTimestamp()}; upd['players/'+seat]=rec;
-  try{ await window.FB.update(window.FB.ref(window.FB.db,'rooms/'+code),upd); return {ok:true}; }
-  catch(e){
-    if(/permission[_ ]?denied/i.test(String((e&&(e.code||e.message))||e)))return {ok:false,lost:true};
-    throw e;
-  }
-}
-// Rollback of a stale/failed reclaim: NEVER deletes the records (they existed
-// before this op — deleting would free the seat for strangers). Just drops the
-// own presence back to on:false and disarms the onDisconnect. Best-effort: a
-// rejected drop (e.g. another own tab already re-took the seat) stays harmless.
-async function releaseReclaim(code,seat,dc){
-  try{ await window.FB.set(window.FB.ref(window.FB.db,'rooms/'+code+'/p/'+seat),{s:onlineTab,on:false,t:window.FB.serverTimestamp()}); }
-  catch(e){ console.error('[online] reclaim rollback failed (seat '+seat+'):',e); }
-  if(dc){ try{ await dc.cancel(); }catch(e){ console.error('[online] onDisconnect cancel failed (seat '+seat+'):',e); } }
-}
-// Orchestrates the reclaim lifecycle under the join-op guard, mirroring
-// claimSeatSlot. Outcomes: {ok:true,dc} re-activated · {lost:true} rules denied
-// (foreign tab active / stale window not open / seat re-assigned) · {stale:true}
-// op superseded (own presence dropped again, records kept).
-async function reclaimSeatSlot(code,seat,op,keepName){
-  const r=await reclaimSeat(code,seat,keepName);
-  if(!r.ok)return {ok:false,lost:true,dc:null};
-  if(op!=null&&!joinOpCurrent(op)){ await releaseReclaim(code,seat,null); return {ok:false,stale:true,dc:null}; }
-  let dc=null;
-  try{ dc=await armPresence(code,seat); }
-  catch(e){ await releaseReclaim(code,seat,null); throw e; }
-  if(op!=null&&!joinOpCurrent(op)){ await releaseReclaim(code,seat,dc); return {ok:false,stale:true,dc:null}; }
-  try{ await activateSeat(code,seat); }
-  catch(e){ await releaseReclaim(code,seat,dc); throw e; }
-  if(op!=null&&!joinOpCurrent(op)){ await releaseReclaim(code,seat,dc); return {ok:false,stale:true,dc:null}; }
-  return {ok:true,dc:dc};
-}
-// Best-effort teardown of a just-created room whose create/arm/activate flow
-// failed or went stale. Nobody else can know the code yet (it is only revealed
-// in the UI after a successful ACTIVATE), so a full room removal is safe.
-// v3: the cleanup rule denies a whole-room delete while p/0 or players/0 still
-// exist, so the host seat's presence AND roster must be cleared FIRST — atomically
-// together (a presence-only delete is not expressible under v3) — then the now-empty
-// room is removed. Same clear-then-delete order as leaveOnline() / the spike purge.
-// `listed` is the operation-local flag telling us THIS create actually wrote the
-// discovery listing (never read from the mutable global createVisibility): only then
-// is the listing compensated, and only AFTER the host anchors are gone (which the
-// rules require before a listing delete is permitted).
-async function abortFreshRoom(code,dc,listed){
-  if(dc){ try{ await dc.cancel(); }catch(e){ console.error('[online] onDisconnect cancel (create abort):',e); } }
-  try{ const upd={}; upd['p/0']=null; upd['players/0']=null; await window.FB.update(window.FB.ref(window.FB.db,'rooms/'+code),upd); }catch(e){ console.error('[online] fresh room seat cleanup failed:',e); }
-  // Listing removed BEFORE the whole-room delete: with p/0 + players/0 already gone the
-  // room is objectively host-less, so the rules permit the listing delete here. Best-
-  // effort, never throws. Only for a create that actually wrote its own listing.
-  if(listed) await removePublicListing(code);
-  try{ await window.FB.remove(window.FB.ref(window.FB.db,'rooms/'+code)); }catch(e){ console.error('[online] fresh room cleanup failed:',e); }
-}
-// ── Public-Discovery-Index (feature/public-lobby-mvp) ──────────────────────────
-// publicRooms/<code> = { created: serverTimestamp() } — a pure discoverability index
-// with NO names, modes or player counts (those are read live from rooms/<code>). Only
-// public, successfully activated rooms are listed; private rooms never are.
-function publicListingRef(code){ return window.FB.ref(window.FB.db,'publicRooms/'+code); }
-async function writePublicListing(code){ await window.FB.set(publicListingRef(code),{created:window.FB.serverTimestamp()}); }
-// Best-effort listing removal (match start / host leave / room cleanup). Must never
-// block a match or a leave, so errors are swallowed. Only call for rooms that actually
-// have a listing (guarded by roomPublic / createVisibility at each call site).
-async function removePublicListing(code){ try{ await window.FB.remove(publicListingRef(code)); }catch(e){} }
+// Seat-Vergabe, Presence-Aktivierung und das Public-Listing sind in v4
+// vollstaendig server-owned (functions/room-core.js): der Client ruft
+// roomCreateV4/roomJoinV4/roomActivateV4/roomLeaveV4 und liest das Ergebnis.
+// Die frueheren Client-Pfade (reserveSeat/armPresence/activateSeat/claimSeat*/
+// reclaimSeat*/abortFreshRoom/writePublicListing) sind damit ersatzlos entfallen —
+// samt ihrer Kompensationslogik, denn es entsteht kein clientseitiger
+// Teilzustand mehr, der zurueckgerollt werden muesste.
 // Lobby-only host grace: while the host presence is briefly gone (reload), hold the
 // room open. A deliberate host leave removes players/0 as well and closes at once
 // (see evalLobbyHostPresence). This is NOT the in-match grace (that is Paket B).
@@ -2169,12 +2049,16 @@ function commitAutoStand(who,shooterIdx){
 // Serverzeit fuer Anzeige/Timeout-Anfrage: .info/serverTimeOffset (RTDB-Bordmittel).
 let srvOffsetMs=0;
 function serverNow(){return Date.now()+srvOffsetMs;}
-// Deterministischer Uhr-Zustand — gespeist AUSSCHLIESSLICH aus gespeicherten Daten
-// (Turn-Listener, eigener Stempel-Nachlese-Read, Replay-Historie). Keine lokale Uhr.
-let onTurnStamp={};               // turn -> Phasenstart s (Serverzeit)
-let onTurnTs={};                  // turn -> spaetester Commit-Stempel ts (Serverzeit)
-let onStampProbe={};              // turn -> 'pending'|'done' (eigene Stempel-Nachlese)
-let onlineTimeoutTried={};        // je gen:turn:seat hoechstens EIN Timeout-Schreibversuch
+// ── Online-Uhr (v4): EIN gelesener Serverzustand, keine Client-Rechnung ──────
+// onlineClockState ist der letzte Snapshot von g/<gen>/live/clock — die
+// EINZIGE Quelle fuer Turn, Phase, Deadline, Restzeit, Collapse-Stufe, Warn-
+// fenster und Zugberechtigung. Der Client faltet nichts mehr aus Stempeln: was
+// hier nicht steht, existiert nicht. Damit koennen zwei Clients per Konstruktion
+// keine unterschiedliche Uhr mehr sehen.
+let onlineClockState=null;
+// Je Phase hoechstens EIN Abschluss-Anstoss und EIN Settlement-Report. Der
+// Server ist ohnehin idempotent — das spart nur ueberfluessige Aufrufe.
+let clockClosePhase='', clockSettlePhase='', clockStartGen=-1;
 let onCollapsedGen=-1;            // Generation, zu der onCollapseCount gehoert (-1 = keine)
 let onCollapseCount=0;            // vollzogene Online-Collapse-Stufen DIESER Generation (0..COLLAPSE_STAGE_COUNT)
 // Stufenzahl der AKTUELLEN Generation — eine fremde/alte Generation zaehlt 0
@@ -2182,94 +2066,58 @@ let onCollapseCount=0;            // vollzogene Online-Collapse-Stufen DIESER Ge
 function onlineCollapseCount(){return onCollapsedGen===gen?onCollapseCount:0;}
 let onlineRemainMs=COLLAPSE_CYCLE_SECONDS*1000;   // abgeleitete Restzeit des laufenden Zyklus (Anzeige)
 let onlineHasClock=false;         // Raum fuehrt Serverstempel (Altbestand: false)
-function onlineResetClock(){onTurnStamp={};onTurnTs={};onStampProbe={};onlineTimeoutTried={};
+function onlineResetClock(){onlineClockState=null;clockClosePhase='';clockSettlePhase='';clockStartGen=-1;pendingSettle=null;
   onlineRemainMs=COLLAPSE_CYCLE_SECONDS*1000;onlineHasClock=false;}
-// Aktive Zeit EINER abgeschlossenen Phase: Spanne Phasenstart -> letzter Commit,
-// geklemmt auf das Fenster. Fehlt der Stempel (Altbestand ohne Uhr) -> 0; fehlt nur
-// der Commit-Stempel (kann bei aktiver Uhr nicht passieren, Rules erzwingen ts) ->
-// konservativ das volle Fenster, die Matchzeit wird dadurch nie laenger.
-function onlineTurnUsedMs(sVal,maxTs,capMs){
-  if(typeof sVal!=='number')return 0;
-  if(typeof maxTs!=='number')return capMs;
-  return Math.max(0,Math.min(capMs,maxTs-sVal));
+// ── Einzige Quelle der Online-Zeitwahrheit: g/<gen>/live/clock ───────────────
+// Der Server rechnet, der Client liest. remainingMs im Anker ist die Restzeit
+// des laufenden Zyklus zu Phasenbeginn (startedAt); waehrend einer offenen
+// Aim-Phase laeuft sie sichtbar herunter, mehr passiert hier nicht. Nach
+// Ablauf des Budgets oeffnet der Server ungetimte Phasen (deadlineAt === null)
+// — dann bleibt die Anzeige bei 0 stehen, das Match laeuft weiter.
+function onlineClockView(nowSrv){
+  const c=onlineClockState;
+  if(!c)return {has:false,remainingMs:COLLAPSE_CYCLE_SECONDS*1000,stage:0,deadlineAt:null,cracked:false,expired:false};
+  const open=c.phase==='aim'&&typeof c.deadlineAt==='number';
+  const used=open?Math.max(0,Math.min(c.deadlineAt-c.startedAt,nowSrv-c.startedAt)):0;
+  return {
+    has:true,
+    remainingMs:Math.max(0,(c.remainingMs||0)-used),
+    stage:c.stage||0,
+    deadlineAt:(typeof c.deadlineAt==='number')?c.deadlineAt:null,
+    cracked:c.cracked===true,
+    expired:c.expired===true,
+    phase:c.phase,phaseId:c.phaseId,turn:c.turn,
+    eligibleSeats:c.eligibleSeats,
+  };
 }
-// ── Einzige Quelle der Online-Zeitwahrheit ─────────────────────────────────
-// Reine Faltung der gespeicherten Stempel: Uhr, Stufen, Collapse-Turn und Rest-
-// zeit werden ALLE aus diesem einen Durchlauf abgeleitet — es gibt keine zweite
-// Zeitrechnung mehr, die davon abweichen koennte.
-//
-// P1-Fix (2026-08-03): jeder Turn wird an der aktuell erreichten Stufengrenze
-// ABGESCHNITTEN. Vorher summierte die Uhr ganze Turns und leitete die Zyklus-
-// grenze erst aus der Summe ab: ein Turn, der die 30-s-Schwelle ueberzog (z. B.
-// 28 s verbraucht + 6 s Zug = 34 s), verkuerzte den zweiten Zyklus um genau
-// diesen Ueberhang (hier auf 26 s). Der Ueberhang wird jetzt verworfen — Zyklus 2
-// beginnt logisch immer mit exakt COLLAPSE_CYCLE_SECONDS, die Schwellen bleiben
-// unveraendert bei 30 000 und 60 000 ms, und ein dritter Zyklus entsteht nie
-// (nach COLLAPSE_STAGE_COUNT Stufen zaehlt keine Zeit mehr).
-//
-// stageTurn[k] = Turn, mit dessen Abschluss Stufe k+1 erreicht wurde. Es wird nur
-// gefuellt, solange die Stempelkette dieses Praefixes LUECKENLOS aufgeloest ist
-// (strict): eine Stufe, deren Herleitung an einem fehlenden s/ts haengt, gilt als
-// noch nicht bestimmbar — genau die bisherige -1-Semantik des Collapse-Turns.
-// usedMs/remainingMs bleiben dagegen bewusst tolerant (fehlender Phasenstempel
-// = 0, fehlender Commit-Stempel = volles Fenster), damit die Anzeige auch in
-// Altbestandsraeumen ohne Uhr definiert bleibt.
-function onlineFold(stamps,tsMap,uptoTurn){
-  const lim=TURN_LIMIT_SECONDS*1000,cyc=COLLAPSE_CYCLE_SECONDS*1000;
-  const stageTurn=[];
-  let used=0,stage=0,strict=true;
-  for(let i=0;i<uptoTurn&&stage<COLLAPSE_STAGE_COUNT;i++){
-    const s=stamps?stamps[i]:undefined,ts=tsMap?tsMap[i]:undefined;
-    if(typeof s!=='number'||typeof ts!=='number')strict=false;
-    const room=(stage+1)*cyc-used;                  // Rest bis zur naechsten Stufengrenze
-    used+=Math.min(onlineTurnUsedMs(s,ts,lim),room);   // Ueberhang verfaellt an der Grenze
-    if(used>=(stage+1)*cyc){ if(strict)stageTurn[stage]=i; stage++; }
-  }
-  return {usedMs:used,stage:stage,stageTurn:stageTurn,strict:strict,
-          remainingMs:stage>=COLLAPSE_STAGE_COUNT?0:(stage+1)*cyc-used};
+// Zugberechtigte Seats der laufenden Phase — server-owned, als CSV im Anker.
+// Ein eliminierter oder verlassener Seat steht hier nicht mehr drin und
+// blockiert die Runde deshalb nicht.
+function onlineEligibleSeats(){
+  const c=onlineClockState;
+  if(!c||typeof c.eligibleSeats!=='string')return [];
+  if(c.eligibleSeats==='')return [];
+  const out=[];
+  for(const p of c.eligibleSeats.split(',')){ const n=Number(p); if(Number.isInteger(n)&&n>=0&&n<FFA_MAX_SEATS)out.push(n); }
+  return out;
 }
-// Gemeinsame Uhr aller Clients: identische Eingaben -> identische Werte. Das Fenster
-// der laufenden Phase ist min(7 s, Restzeit des LAUFENDEN Zyklus) — die Deadline
-// faellt damit wie lokal auf jedes Zyklusende (30 s / 60 s). remainingMs ist die
-// Restzeit des laufenden 30-s-Zyklus (HUD-Vertrag); nach aufgebrauchter Gesamtzeit
-// laeuft jede weitere Phase mit dem vollen 7-s-Fenster weiter (die Rules erzwingen
-// ohnehin hoechstens 7 s je Zug) — die Matchuhr selbst bleibt bei 0 stehen.
-function onlineClock(stamps,tsMap,curTurn,nowSrv){
-  const lim=TURN_LIMIT_SECONDS*1000;
-  const f=onlineFold(stamps,tsMap,curTurn);
-  const before=f.remainingMs;
-  const win=before>0?Math.min(lim,before):lim;
-  const started=(stamps&&typeof stamps[curTurn]==='number')?stamps[curTurn]:null;
-  const openUsed=started==null?0:Math.max(0,Math.min(win,nowSrv-started));
-  return {startedAt:started,windowMs:win,deadlineAt:started==null?null:started+win,
-          usedMs:f.usedMs+Math.min(openUsed,before),remainingMs:Math.max(0,before-openUsed)};
-}
-// Der Collapse-Turn einer Stufe: der erste Turn, nach dessen VOLLSTAENDIGEM Abschluss
-// die kumulierte aktive Zeit die Stufenschwelle totalMs erreicht (Default: Gesamt-
-// Budget) — ausschliesslich aus gespeicherten Stempeln, ohne jede lokale Browserzeit.
-// -1 = noch nicht bestimmbar (Turn offen/ohne Uhr). Liest dieselbe Faltung wie die
-// Uhr: Stufengrenze und angezeigte Restzeit koennen nicht auseinanderlaufen.
-function onlineCollapseTurn(stamps,tsMap,totalMs){
-  const cyc=COLLAPSE_CYCLE_SECONDS*1000;
-  const stageIdx=Math.round((totalMs==null?MATCH_COLLAPSE_SECONDS*1000:totalMs)/cyc)-1;
-  if(stageIdx<0||stageIdx>=COLLAPSE_STAGE_COUNT)return -1;
-  const t=onlineFold(stamps,tsMap,GEN_MAX+1).stageTurn[stageIdx];
-  return t==null?-1:t;
-}
+function onlineSeatEligible(s){ return onlineEligibleSeats().indexOf(s)>=0; }
 // Dynamischer Rundenschrumpf-Floor: normal R0*0.80 (bit-identisch), nach jedem Collapse
 // eingefroren auf collapseRadius (Radius nach der JUENGSTEN Stufe) — lokal wie online.
 function shrinkFloor(){return ((collapseActive()&&collapseStage>0)||(online&&onlineCollapseCount()>0))?collapseRadius:R0*0.80;}
-// ── Online-Collapse: dieselbe Rundengrenze wie lokal, exakt einmal je Generation ──
-// Faellig, sobald der Collapse-Turn aus den gespeicherten Daten bestimmbar und
-// vollstaendig aufgeloest ist. turnNo steht am Settlement noch AUF dem aufgeloesten
-// Turn (onlineArmTurn erhoeht erst fuer die Folgephase) — ct<=turnNo deckt auch den
-// Fall, dass ein Client die Stempel eines frueheren Turns verspaetet vervollstaendigt.
+// ── Online-Collapse: die Stufe entscheidet AUSSCHLIESSLICH der Server ────────
+// clock.stage ist die Zahl der vollzogenen Stufen dieser Generation. Faellig ist
+// eine Stufe genau dann, wenn der Server weiter ist als das, was dieser Client
+// visuell bereits angewendet hat. Damit koennen zwei Clients per Konstruktion
+// nicht bei unterschiedlichen Rundengrenzen kollabieren, und ein spaet
+// verbundener Client holt die Stufen beim ersten Anker automatisch nach.
 function onlineCollapsePending(){
   if(!online||!gameStarted||phase==='over')return false;
+  const c=onlineClockState;
+  if(!c)return false;
   const cnt=onlineCollapseCount();
   if(cnt>=COLLAPSE_STAGE_COUNT)return false;
-  const ct=onlineCollapseTurn(onTurnStamp,onTurnTs,(cnt+1)*COLLAPSE_CYCLE_SECONDS*1000);
-  return ct>=0&&ct<=turnNo;
+  return (c.stage||0)>cnt;
 }
 // Radiusverkleinerung je Stufe — Spiegel von applyCollapseRadius() fuer online,
 // OHNE den lokalen collapseState anzufassen (der gehoert dem lokalen Timer).
@@ -2451,98 +2299,74 @@ function tickCollapse(now){
   }
   updateCollapseHud();
 }
-// ── Online-Uhr: Phasenstempel, Reveal-Sperre, Timeout-Anforderung ───────────
-// Beginn einer Online-Planungsphase serverseitig stempeln — write-once direkt IM
-// Turn-Knoten (g/<gen>/t/<turn>/s), den der Turn-Listener ohnehin beobachtet.
-// serverTimestamp() loest der Server auf; der Client kann den Wert nicht bestimmen.
-//
-// P1-Fix (2026-08-03): der Stempel laeuft wie JEDER andere Turn-Write ausschliesslich
-// ueber runTransaction(...,{applyLocally:false}). set() hatte den Wert lokal sofort
-// optimistisch angewendet und damit den eigenen onValue-Listener VOR der Serverantwort
-// gefeuert — onlineTurnValue uebernahm diese reine Client-Schaetzung als autoritativ
-// (Uhr, Deadline, Collapse-Turn, Reveal-Freigabe), und ein danach verlorenes Write-once-
-// Race oder ein Rules-Rollback korrigierte sie erst nachtraeglich. Ohne lokales
-// Zwischenereignis traegt jeder Snapshot auf diesem Pfad ausschliesslich Serverwerte.
-//
-// Autoritativ ist damit der Transaction-Result-Snapshot: er enthaelt in BEIDEN
-// Ausgaengen — eigener Stempel gewonnen ODER write-once gegen einen schnelleren Client
-// verloren — den Serverwert. Nur wenn der Write abgelehnt wurde (permission_denied
-// gegen alte Rules ohne Uhr-Pfad, Netzwerkfehler) gibt es keinen Snapshot; dann
-// entscheidet ein Server-Read, ob der Turn ueberhaupt eine Uhr fuehrt. Ein solcher
-// benigner Verlierer uebernimmt NIE einen selbst geschaetzten Wert: ohne bestaetigte
-// Zahl bleibt onTurnStamp leer und der Turn laeuft wie v3 ohne Uhr weiter.
-function stampOnlinePhase(ctx){
-  if(!online||!window.FB)return;
-  onStampProbe[ctx.turnNo]='pending';
-  const ref=window.FB.ref(window.FB.db,'rooms/'+ctx.room+'/g/'+ctx.gen+'/t/'+ctx.turnNo+'/s');
-  const adopt=v=>{
-    if(!isCurrentCtx(ctx))return;
-    if(typeof v==='number')onTurnStamp[ctx.turnNo]=v;
-    onStampProbe[ctx.turnNo]='done';
-    if(typeof maybeReveal==='function')maybeReveal();   // evtl. wartenden Reveal freigeben
-  };
-  // Nachlese NUR nach abgelehntem Write — get() liest den Serverstand; da auf diesem
-  // Pfad nichts mehr lokal optimistisch geschrieben wird, kann auch der Cache keinen
-  // unbestaetigten Wert mehr enthalten.
-  const probe=()=>{
-    window.FB.get(ref).then(snap=>adopt(snap&&snap.val?snap.val():null)).catch(()=>adopt(null));
-  };
-  try{
-    window.FB.runTransaction(ref,cur=>cur==null?window.FB.serverTimestamp():undefined,{applyLocally:false})
-      .then(res=>{
-        const v=res&&res.snapshot&&res.snapshot.val?res.snapshot.val():null;
-        if(typeof v==='number')adopt(v); else probe();
-      })
-      .catch(probe);
-  }catch(e){ onStampProbe[ctx.turnNo]='done'; }
-}
-// Reveal-Sperre: solange die eigene Stempel-Nachlese des laufenden Turns aussteht,
-// beginnt KEINE neue Phase auf halbfertigem Stempelzustand. Die Sperre loest sich
-// garantiert selbst (adopt() ruft maybeReveal) und haengt an keinem Mitspieler.
-function onlineRevealBlocked(){
-  if(!online||!gameStarted)return false;
-  return onStampProbe[turnNo]==='pending'&&onTurnStamp[turnNo]==null;
-}
-// Noch offene, lebende Seats der laufenden Online-Phase.
+// ── Online-Uhr (v4): der Client stempelt nichts mehr ────────────────────────
+// Den Beginn einer Planungsphase setzt ausschliesslich der Arbiter, und zwar in
+// g/<gen>/live/clock (startedAt/deadlineAt, absolute Serverzeiten). Der frueher
+// hier stehende Client-Phasenstempel auf g/<gen>/t/<turn>/s ist ersatzlos
+// entfallen — die Rules verbieten v4-Clients diesen Pfad ohnehin. Damit gibt es
+// auch keine Reveal-Sperre mehr, die auf eine eigene Stempel-Nachlese warten
+// muesste: was der Server nicht geschrieben hat, existiert nicht.
+// Noch offene, zugberechtigte Seats der laufenden Online-Phase — die Menge
+// stammt aus clock.eligibleSeats, nicht aus einer lokalen Lebendzaehlung.
 function onlineOpenSeats(){
   const out=[];
   if(!online||phase!=='aim')return out;
-  for(let s=0;s<np();s++)if(!aimSet[s]&&aliveCount(s)>0&&!pendingSlot[s])out.push(s);
+  for(const s of onlineEligibleSeats())if(!aimSet[s]&&!pendingSlot[s])out.push(s);
   return out;
 }
-// Online-Takt: Anzeige und Timeout-Anforderung. Der Client ENTSCHEIDET nichts — er
-// fragt nach Ablauf der abgeleiteten Deadline einen No-Shot an; ob der zulaessig ist,
-// prueft der Server anhand seiner eigenen Uhr (Rules: nach s+7000 nur noch Stand).
+// Online-Takt: reine Anzeige plus der Anstoss des Phasenabschlusses.
+//
+// Der Client ENTSCHEIDET nichts mehr. Er erfindet insbesondere keine No-Shots:
+// laeuft die Deadline ab, ruft er clockClose() auf — der Server prueft gegen
+// SEINE Uhr, fuellt die offenen Slots selbst mit {ns:'stand'} und schliesst die
+// Phase in EINER Transaction. Rufen mehrere Clients gleichzeitig auf, gewinnt
+// genau einer; die uebrigen bekommen 'stale'. Ein zu frueher Aufruf wird mit
+// 'too-early' abgelehnt und aendert nichts.
 function tickOnlineClock(){
   if(!online||!gameStarted){updateCollapseHud();return;}
-  const c=onlineClock(onTurnStamp,onTurnTs,turnNo,serverNow());
-  // Schwelle erreicht, Stufe aber noch nicht angewendet (wartet auf die Rundengrenze):
-  // Anzeige bei 0 halten — sonst spraenge das HUD (und die Warnstufe des visuellen
-  // Adapters) schon VOR dem sichtbaren Collapse in den naechsten Zyklus.
-  onlineRemainMs=onlineCollapsePending()?0:c.remainingMs;
-  onlineHasClock=c.startedAt!=null||onlineCollapseCount()>0;
-  // Warnrisse: Sound haengt read-only an den sichtbaren Rissstufenwechseln des
-  // visuellen Adapters (colvTick -> SFX.colvEvent), nicht mehr an dieser Uhr.
+  const v=onlineClockView(serverNow());
+  // Stufe erreicht, aber visuell noch nicht angewendet (wartet auf die
+  // Rundengrenze): Anzeige bei 0 halten — sonst spraenge das HUD schon VOR dem
+  // sichtbaren Collapse in den naechsten Zyklus.
+  onlineRemainMs=onlineCollapsePending()?0:v.remainingMs;
+  onlineHasClock=v.has;
   updateCollapseHud();
-  if(phase!=='aim'||c.deadlineAt==null)return;
-  if(serverNow()<c.deadlineAt)return;                 // Deadline noch nicht erreicht
-  // Deadline ueberschritten: fuer jeden noch offenen Seat GENAU EINEN No-Shot
-  // anfragen. Der Write-once-Slot ist der Schiedsrichter — parallele Anfragen
-  // mehrerer Clients koennen keinen Doppelzug erzeugen, ein bereits bestaetigter
-  // Zug wird nie ueberschrieben.
-  for(const s of onlineOpenSeats()){
-    const key=gen+':'+turnNo+':'+s;
-    if(onlineTimeoutTried[key])continue;
-    onlineTimeoutTried[key]=true;
-    writeTurnSlot(s,{idx:onlineNoShotIdx(s),dx:0,dy:0,sp:0},{sentinel:true});
+  const c=onlineClockState;
+  // ── Haengende Settlement-Phase aufloesen ──────────────────────────────────
+  // Ein zugberechtigter Seat, der waehrend der Aufloesung verschwindet, meldet
+  // nie ein Ergebnis. Der Arbiter beendet ein unvollstaendiges Quorum nach
+  // settleDeadlineAt deterministisch als 'settlement_timeout' — aber nur INNERHALB
+  // eines clockSettle-Aufrufs. Ohne diesen erneuten Anstoss bliebe die Partie
+  // still stehen: Phase 'resolving', keine Folgephase, kein Ende.
+  if(c&&c.phase==='resolving'&&pendingSettle&&pendingSettle.phaseId===c.phaseId){
+    if(clockSettlePhase!==c.phaseId)flushSettlement();
+    else if(typeof c.settleDeadlineAt==='number'&&serverNow()>=c.settleDeadlineAt
+            &&serverNow()>=settleRetryAt){
+      settleRetryAt=serverNow()+2000;   // gedrosselt: der Server entscheidet, nicht die Frequenz
+      clockSettlePhase='';
+      flushSettlement();
+    }
   }
+  if(phase!=='aim'||!v.has||v.deadlineAt==null)return;
+  if(serverNow()<v.deadlineAt)return;                 // Deadline noch nicht erreicht
+  requestClockClose();
 }
-// No-Shot-Index je Format: in der FFA-Familie markiert ein fremder idx den
-// System-Sentinel (echte Commits tragen dort immer den eigenen Seat-Index),
-// in 1v1/2v2 ist der eigene Index korrekt und ausreichend.
-function onlineNoShotIdx(s){
-  if(mode!=='ffa')return s;
-  return fmt==='triple_ffa'?(s+1)%3:fmt==='team_duel'?(s+1)%4:(s+1)%FFA_MAX_SEATS;
+let settleRetryAt=0;
+// Phasenabschluss beim Server anfragen — je phaseId hoechstens einmal.
+function requestClockClose(){
+  const c=onlineClockState;
+  if(!c||!c.phaseId||clockClosePhase===c.phaseId)return;
+  if(!online||!roomCode||!onlineIid||!onlineSession)return;
+  clockClosePhase=c.phaseId;
+  const ctx={sid:onlineSessionId,room:roomCode,phaseId:c.phaseId};
+  callV4('clockClose',{room:ctx.room,iid:onlineIid,session:onlineSession,phaseId:ctx.phaseId})
+    .catch(e=>{
+      // 'too-early' ist ein legitimer Ausgang (ein anderer Client war schneller
+      // oder die Serveruhr steht minimal anders): erneut anstossen erlauben.
+      if(ctx.sid===onlineSessionId&&clockClosePhase===ctx.phaseId)clockClosePhase='';
+      const code=String((e&&e.code)||'');
+      if(!/failed-precondition/.test(code))console.error('[online] clockClose:',e);
+    });
 }
 function showCollapseCount(n){collapseCountVisible=true;const el=$('collapseCount');if(!el)return;
   el.textContent=n;el.classList.remove('show');void el.offsetWidth;el.classList.add('show');}
@@ -2655,7 +2479,7 @@ function resetCommits(){aimSet=[];commitIdx=[];commitAim=[];commitSpin=[];
   for(let p=0;p<np();p++){aimSet.push(false);commitIdx.push(-1);commitAim.push({dx:0,dy:0});commitSpin.push(0);}}
 function startRound(){placeBalls();resetCommits();roundWinner=-1;
   cancelAimDrag();outBall=-1;setPhase('aim');updateHud();   // vollstaendiger Drag-Reset inkl. Pointer-Capture
-  if(online){curAimer=myPlayer;onlineArmTurn();}
+  if(online){curAimer=myPlayer;reportSettlement();onlineArmTurn();}
   else if(mode==='pvp'||mode==='ffa'){curAimer=0;openCover(0);}else curAimer=0;
   setPhaseText();}
 
@@ -3181,7 +3005,7 @@ function stepSim(){
     // Serverstempeln — nie mitten in der Physik, nie vor dem Settlement.
     if(typeof settleOnlineCollapse==='function'&&settleOnlineCollapse())return;
     setPhase('aim');updateHud();setPhaseText();
-    if(online){curAimer=myPlayer;onlineArmTurn();}
+    if(online){curAimer=myPlayer;reportSettlement();onlineArmTurn();}
     else if(mode==='pvp'){curAimer=0;openCover(0);}
     else if(mode==='ffa'){for(let p=0;p<ffaN;p++)if(aliveCount(p)>0){curAimer=p;openCover(p);break;}}
   }
@@ -3293,6 +3117,73 @@ function gameOver(winner){setPhase('over');setPhaseText();
 // ════ ONLINE (Firebase Realtime DB · Lockstep) ════
 function whenFB(cb){ if(window.__FB_READY) cb(); else window.addEventListener('fb-ready',cb,{once:true}); }
 function fbReady(){ return window.__FB_READY && !window.__FB_ERR && window.FB; }
+// ════ v4-LAUFZEIT: Anonymous Auth + Callables ════
+// v4 ist genau dann benutzbar, wenn BEIDE dynamischen Module geladen sind: eine
+// UID (sonst lehnt jeder Wrapper mit 'unauthenticated' ab) und window.FB.call
+// (sonst gibt es keinen Aufrufweg). Beides wird beim Boot unabhaengig
+// angestossen; hier wird nur gewartet, nie erzwungen.
+function v4Ready(){ return !!(fbReady() && window.__FB_V4 && window.FB.call && window.__FB_UID); }
+// Wartet bis zu timeoutMs auf die v4-Laufzeit. Rueckgabe false = v4 ist auf
+// diesem Geraet nicht verfuegbar (CDN blockiert, Anonymous-Auth deaktiviert) —
+// die Aufrufer melden das dem Spieler, statt in einen Callable zu laufen.
+function whenV4(timeoutMs){
+  return new Promise(resolve=>{
+    if(v4Ready())return resolve(true);
+    let done=false;
+    const finish=v=>{ if(done)return; done=true; clearTimeout(to);
+      window.removeEventListener('fb-auth',check); window.removeEventListener('fb-v4',check); resolve(v); };
+    const check=()=>{ if(v4Ready())finish(true); };
+    const to=setTimeout(()=>finish(false), timeoutMs||12000);
+    window.addEventListener('fb-auth',check); window.addEventListener('fb-v4',check);
+    check();
+  });
+}
+// Einziger Aufrufweg zu den serverautoritativen Callables.
+//
+// Idempotenz: JEDER Aufruf traegt eine requestId. Der Server behandelt einen
+// Wiederholungsaufruf mit derselben requestId als denselben Aufruf (roomCreateV4
+// adoptiert seinen eigenen reservierten Raum, statt einen zweiten anzulegen);
+// alle uebrigen Callables sind ohnehin idempotent formuliert. Ein Retry nach
+// Netzabbruch kann deshalb nie einen zweiten Raum, eine zweite Generation oder
+// einen zweiten Seat erzeugen.
+//
+// Es gibt bewusst KEINEN automatischen Blind-Retry: der Aufrufer entscheidet,
+// ob eine Wiederholung fachlich sinnvoll ist (s. callV4Retry fuer die beiden
+// Stellen, an denen sie es ist).
+let v4ReqSeq=0;
+function newRequestId(){ return 'r'+(++v4ReqSeq)+'-'+genToken(12); }
+async function callV4(name,data){
+  if(!v4Ready()&&!(await whenV4(12000))) throw new Error('v4-Laufzeit nicht verfuegbar');
+  const payload=Object.assign({requestId:newRequestId()},data||{});
+  const res=await window.FB.call(name)(payload);
+  return (res&&res.data)||{};
+}
+// Wiederholung mit STABILER requestId — nur fuer Aufrufe, deren Verlust den
+// Client blockieren wuerde (Create/Join). Weil die requestId gleich bleibt, ist
+// die Wiederholung serverseitig derselbe Aufruf und kann nichts verdoppeln.
+async function callV4Retry(name,data,tries){
+  const payload=Object.assign({requestId:newRequestId()},data||{});
+  let last=null;
+  for(let i=0;i<(tries||3);i++){
+    try{
+      if(!v4Ready()&&!(await whenV4(12000))) throw new Error('v4-Laufzeit nicht verfuegbar');
+      const res=await window.FB.call(name)(payload);
+      return (res&&res.data)||{};
+    }catch(e){
+      last=e;
+      // Fachliche Ablehnungen wiederholt man nicht — nur Transportfehler.
+      const c=String((e&&e.code)||'');
+      if(/permission-denied|invalid-argument|failed-precondition|not-found|unauthenticated/.test(c))throw e;
+      await new Promise(r=>setTimeout(r,250*Math.pow(2,i)));
+    }
+  }
+  throw last||new Error(name+' fehlgeschlagen');
+}
+// Fehlertext eines Callables fuer die Statuszeile.
+function v4Err(e){
+  const m=(e&&(e.message||e.code))||e;
+  return String(m).replace(/^.*?\/\s*/,'');
+}
 function rrand(n){let s='';const ch='ABCDEFGHJKMNPQRSTUVWXYZ23456789';for(let i=0;i<n;i++)s+=ch[Math.floor(Math.random()*ch.length)];return s;}
 function rRef(p){return window.FB.ref(window.FB.db,'rooms/'+roomCode+(p?'/'+p:''));}
 function setStatus(t){const e=$('onStatus');if(e)e.textContent=t;}
@@ -3364,64 +3255,56 @@ function openOnline(){
   whenFB(()=>{ if(!fbReady()){setStatus(T('noFb'));return;} startPublicListing(); });
 }
 
+// v4-Raumerstellung: ZWEI Callables, sonst nichts. Der Client waehlt weder den
+// Raumcode noch den Seat, schreibt keine Presence, kein players-Record und kein
+// Public-Listing — all das ist server-owned. Die frueheren Kompensationspfade
+// (abortFreshRoom, releaseReservation) entfallen ersatzlos: es gibt keinen
+// clientseitigen Teilzustand mehr, der aufgeraeumt werden muesste. Bricht der
+// Prozess zwischen Create und Activate ab, verfaellt die Reservierung
+// serverseitig ueber ihre Lease.
 function createRoom(){
   if(TUNE){toast('Tuning aktiv — Online deaktiviert');return;}
   const ffa=mode==='ffa';   // Kontext vom ffaOnline-Button
   whenFB(()=>{ if(!fbReady()){setStatus(T('noFb'));return;}
-    (async()=>{ const op=newJoinOp(); let dc=null, code='', created=false, listed=false;
-    // Snapshot the visibility ONCE, validated, at the start of the operation. From here
-    // on the create uses only this immutable local value — a UI toggle flip during an
-    // await can no longer change this operation's path, listing decision or cleanup.
+    (async()=>{ const op=newJoinOp();
+    // Sichtbarkeit EINMAL am Anfang festhalten: ein UI-Umschalten waehrend eines
+    // await darf den Pfad dieser Operation nicht mehr aendern.
     const visibility = createVisibility==='public' ? 'public' : 'private';
     try{
       setStatus(T('creating'));
-      for(let t=0;t<6;t++){ code=rrand(4); const s=await window.FB.get(window.FB.ref(window.FB.db,'rooms/'+code)); if(!joinOpCurrent(op))return; if(!s.exists())break; }
+      if(!(await whenV4(12000))){ if(joinOpCurrent(op))setStatus(T('noFb')); return; }
+      if(!joinOpCurrent(op))return;
       // FFA-Kontext traegt das konkrete Format im fmt-Global: 'triple_ffa' bleibt
       // erhalten (TRIPLE-Karte/CTA), jedes andere Rest-fmt wird zu 'ffa' normalisiert.
-      const fmtNew=ffa?(fmt==='triple_ffa'||fmt==='team_duel'?fmt:'ffa'):fmt, rec=playerRecord(0);
-      // Einheitlicher Room-State (Paket A, letzte Blocker): ALLE Modi starten in
-      // 'lobby'. Der explizite State ersetzt die frueheren indirekten Nicht-FFA-
-      // Heuristiken (fehlende Presence/players/g) als alleinige Wahrheit fuer
-      // Rejoin-/Claim-/Recycling-Erlaubnis. FFA bleibt bis zum Host-Start in 'lobby';
-      // 1v1/2v2 schaltet der atomare Gastclaim auf 'playing' (siehe joinRoom).
-      // RESERVE: Raum inkl. Host-Reservierung (p/0.on=false) + players/0 anlegen.
-      const room={v:ONLINE_PROTOCOL_VERSION, config:{winTarget:winTarget,fmt:fmtNew,visibility:visibility}, gen:0, state:'lobby',
-        p:{0:{s:onlineTab,on:false,t:window.FB.serverTimestamp()}}, players:{0:rec}, created:window.FB.serverTimestamp()};
-      await window.FB.set(window.FB.ref(window.FB.db,'rooms/'+code), room);
-      created=true;   // room exists from here on -> abortFreshRoom(code,...) below is now safe to call
-      if(!joinOpCurrent(op)){ await abortFreshRoom(code,null,listed); return; }
-      // ARM: tokengebundener onDisconnect erst NACH der Reservierung.
-      try{ dc=await armPresence(code,0); }
-      catch(e){ await abortFreshRoom(code,null,listed); if(joinOpCurrent(op))setStatus(T('err')+(e.message||e)); return; }
-      if(!joinOpCurrent(op)){ await abortFreshRoom(code,dc,listed); return; }
-      // ACTIVATE: Host auf on:true — Raumcode/UI erst danach freigeben.
-      try{ await activateSeat(code,0); }
-      catch(e){ await abortFreshRoom(code,dc,listed); if(joinOpCurrent(op))setStatus(T('err')+(e.message||e)); return; }
-      if(!joinOpCurrent(op)){ await abortFreshRoom(code,dc,listed); return; }
-      // Public-Discovery-Index: write ONLY after a successful host activation (no ghost
-      // listings), and only when THIS operation was started as public. Failure compensates
-      // the whole create (room + seat + index) so a "public" room is never silently
-      // undiscoverable. `listed` records the write operation-locally for the cleanup paths.
-      if(visibility==='public'){
-        try{ await writePublicListing(code); listed=true; }
-        catch(e){ await abortFreshRoom(code,dc,listed); if(joinOpCurrent(op))setStatus(T('err')+(e.message||e)); return; }
-        if(!joinOpCurrent(op)){ await abortFreshRoom(code,dc,listed); return; }
-      }
-      // remote flow complete -> NOW commit the globals + UI + listeners
+      const fmtNew=ffa?(fmt==='triple_ffa'||fmt==='team_duel'?fmt:'ffa'):fmt;
+      // 1) CREATE — der Server waehlt den Code, erzeugt iid und reserviert Seat 0.
+      const c=await callV4Retry('roomCreateV4',{
+        config:{winTarget:winTarget,fmt:fmtNew,visibility:visibility},
+        pid:onlinePid, tab:onlineTab, name:(onlineName||T('col0')),
+      });
+      if(!joinOpCurrent(op))return;
+      if(!c.room||!c.iid||!c.token){ setStatus(T('err')+'roomCreateV4'); return; }
+      // 2) ACTIVATE — hebt die Reservierung auf eine aktive Session. Erst danach
+      //    ist der Raum benutzbar und der Code darf in die UI.
+      const a=await callV4('roomActivateV4',{room:c.room,iid:c.iid,token:c.token,leaseId:c.leaseId});
+      if(!joinOpCurrent(op))return;
+      if(!a.token){ setStatus(T('err')+'roomActivateV4'); return; }
+      // Remote-Fluss vollstaendig -> JETZT erst Globals, UI und Listener.
       fmt=fmtNew;
-      roomCode=code; myPlayer=0; online=true; gen=0; runningGen=-1; gameStarted=false; seatLeft=[]; seatGone=[];
-      roomPublic=(visibility==='public');   // committed room reflects the snapshotted visibility
-      playersRoster={0:rec};
-      rememberRoom(code,0);
+      roomCode=c.room; myPlayer=(typeof a.seat==='number'?a.seat:0); online=true; gen=0; runningGen=-1;
+      gameStarted=false; seatLeft=[]; seatGone=[];
+      onlineIid=c.iid; onlineSession=a.token;
+      roomPublic=(visibility==='public');   // das Listing schreibt der Server
+      playersRoster={};
+      rememberRoom(roomCode,myPlayer);
       hidePublicUI();   // entered a room -> stop the listener, hide the public UI
       $('onActions').style.display='none';$('onWait').style.display='';
-      $('onCode').textContent=code;
-      if(ffa){ $('onLobby').style.display=''; renderLobby({0:{s:onlineTab,on:true,t:Date.now()}}); setStatus(T(fmtNew==='team_duel'?'teamShare':fmtNew==='triple_ffa'?'tripleShare':'ffaShare')); }
+      $('onCode').textContent=roomCode;
+      if(ffa){ $('onLobby').style.display=''; renderLobby({}); setStatus(T(fmtNew==='team_duel'?'teamShare':fmtNew==='triple_ffa'?'tripleShare':'ffaShare')); }
       else setStatus((fmt==='double'?'2v2 · ':'1v1 · ')+T('shareCode'));
       attachRoomListeners();
     }catch(e){
-      if(created) await abortFreshRoom(code,dc,listed);   // never touch 'rooms/'+code before the room actually exists
-      if(joinOpCurrent(op))setStatus(T('err')+(e.message||e));
+      if(joinOpCurrent(op))setStatus(T('err')+v4Err(e));
     } })();
   });
 }
@@ -3462,7 +3345,9 @@ async function renderPublicList(codes){
   const now=Date.now(); const shown=[];
   for(const {code,d} of rooms){
     const view=publicListingView(d,now);
-    if(view.remove)removePublicListing(code);   // best-effort cleanup, rules-gated to stale rooms
+    // Kein Client-Write mehr auf publicRooms: veraltete Listings raeumt der
+    // Server (roomLeaveV4/roomStartV4, iid-gebunden). Der Client blendet sie
+    // hier nur aus.
     if(view.show)shown.push({code:code,view:view,created:(d&&d.created)||0});
   }
   shown.sort((a,b)=>b.created-a.created);
@@ -3622,34 +3507,10 @@ function publicListingView(d,now){
 // nicht aktivierte Presence zaehlt nicht mit.
 function seatCount(p){let n=0;for(let s=0;s<FFA_MAX_SEATS;s++)if(seatActive(p,s))n++;return n;}
 function seatsContiguous(p,n){for(let s=0;s<n;s++)if(!seatActive(p,s))return false;return true;}
-// Seat-Claiming mit Retry (live seit M8-T3c, kompensiert seit der Korrekturrunde):
-// Die Write-once-Rule auf p/<seat> ist der Schiedsrichter — verliert dieser Client
-// das Race, schlaegt der Write fehl -> Raum neu lesen, naechsten freien Seat
-// versuchen. Ein fehlgeschlagener Roster-Write nach dem Presence-Gewinn rollt den
-// Sitz zurueck und bricht den Join ab (claimSeatSlot wirft — kein Ghost-Seat).
-// Rueckgabe: {seat,dc} bei Erfolg, {seat:-1} wenn kein Raum/kein freier Sitz.
-async function claimSeat(code,op,maxSeats){
-  maxSeats=maxSeats||FFA_MAX_SEATS;   // TRIPLE FFA: exakt 3 Sitze (Rules-gesichert)
-  for(let t=0;t<maxSeats;t++){
-    if(!joinOpCurrent(op))return {seat:-1,dc:null,stale:true};
-    const s=await window.FB.get(window.FB.ref(window.FB.db,'rooms/'+code));
-    if(!joinOpCurrent(op))return {seat:-1,dc:null,stale:true};
-    if(!s.exists())return {seat:-1,dc:null};
-    const d=s.val()||{};
-    if(d.state!=='lobby')return {seat:-1,dc:null};   // Lobby geschlossen -> Match laeuft bereits
-    const seat=pickFreeSeat(d.p,maxSeats);
-    if(seat<0)return {seat:-1,dc:null};
-    // KEIN Vorab-Loeschen fremder Records: ein verwaister Fremd-Record wird
-    // ausschliesslich INNERHALB des atomaren Claims (Multi-Path p+players) recycelt.
-    // Die Write-once-Presence bleibt der alleinige Schiedsrichter, der atomare Claim
-    // gewinnt oder scheitert vollstaendig — kein Zwischenzustand, kein fremder Verlust.
-    const r=await claimSeatSlot(code,seat,op);
-    if(r.stale)return {seat:-1,dc:null,stale:true};
-    if(r.lost)continue;   // Presence-Race verloren / Lobby geschlossen -> frischer Snapshot
-    return {seat:seat,dc:r.dc};
-  }
-  return {seat:-1,dc:null};
-}
+// Das clientseitige Seat-Claiming (claimSeat) ist entfallen: welchen Seat ein
+// Spieler bekommt, entscheidet ausschliesslich roomJoinV4. pickFreeSeat() bleibt
+// als reine LESE-Pruefung fuer die Beitritts-Affordance ("Raum ist schon voll")
+// erhalten — sie schreibt nichts und entscheidet nichts.
 function joinRoom(){
   if(TUNE){toast('Tuning aktiv — Online deaktiviert');return;}
   const code=($('onInput').value||'').toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,4);
@@ -3673,34 +3534,33 @@ function joinRoom(){
       // roomPublic residue. The displayed room is never authoritative — the seat
       // arbiter decides the actual join, not the list.
       const isPublic=!!(d.config&&d.config.visibility==='public');
-      if(v.fmt==='ffa'||v.fmt==='triple_ffa'||v.fmt==='team_duel'){   // M8-T3c: Seat per atomaren write-once-Claim statt fix p/1
-        const c=await claimSeat(code,op,v.fmt==='triple_ffa'?3:v.fmt==='team_duel'?4:FFA_MAX_SEATS);   // rolls its own writes back if the op goes stale
-        if(c.stale)return;                  // op superseded -> globals stay untouched (offline)
-        if(c.seat<0){ setStatus(T('roomFull')); return; }
-        // remote claim complete -> NOW commit the globals + UI + listeners
-        roomCode=code; myPlayer=c.seat; online=true; mode='ffa'; runningGen=-1; gameStarted=false; seatLeft=[]; seatGone=[]; playersRoster=d.players||{};
-        winTarget=v.winTarget; fmt=v.fmt; gen=v.gen; roomPublic=isPublic;
-        rememberRoom(code,c.seat);
-        hidePublicUI();   // entered a room -> stop the listener, hide the public UI
+      const ffaRoomWanted=(v.fmt==='ffa'||v.fmt==='triple_ffa'||v.fmt==='team_duel');
+      // v4-Beitritt: JOIN reserviert den Seat (der Server waehlt ihn), ACTIVATE
+      // hebt ihn auf eine aktive Session. Der Client sucht sich keinen Seat aus
+      // und schreibt weder Presence noch players-Record.
+      if(!(await whenV4(12000))){ if(joinOpCurrent(op))setStatus(T('noFb')); return; }
+      if(!joinOpCurrent(op))return;
+      const j=await callV4Retry('roomJoinV4',{room:code,iid:d.iid,pid:onlinePid,tab:onlineTab,name:(onlineName||undefined)});
+      if(!joinOpCurrent(op))return;
+      if(!j.token){ setStatus(T('roomFull')); return; }
+      const a=await callV4('roomActivateV4',{room:code,iid:j.iid,token:j.token,leaseId:j.leaseId});
+      if(!joinOpCurrent(op))return;
+      if(!a.token){ setStatus(T('roomFull')); return; }
+      // Remote-Fluss vollstaendig -> JETZT erst Globals, UI und Listener.
+      roomCode=code; myPlayer=(typeof a.seat==='number'?a.seat:j.seat); online=true;
+      mode=ffaRoomWanted?'ffa':'online';   // aus dem FFA-Menue heraus ist auch ein 1v1/2v2-Beitritt moeglich
+      runningGen=-1; gameStarted=false; seatLeft=[]; seatGone=[]; playersRoster=d.players||{};
+      winTarget=v.winTarget; fmt=v.fmt; gen=v.gen; roomPublic=isPublic;
+      onlineIid=j.iid; onlineSession=a.token;
+      rememberRoom(code,myPlayer);
+      hidePublicUI();   // entered a room -> stop the listener, hide the public UI
+      if(ffaRoomWanted){
         setOnTitle(true);
         $('onActions').style.display='none';$('onLobby').style.display='';
         setStatus(T('connWait'));
-        attachRoomListeners();
-        return;
-      }
-      // 1v1/2v2 guest seat 1 — atomic claim writes p/1 + players/1 AND flips
-      // state lobby->playing together (einheitlicher Room-State, Paket A).
-      const r=await claimSeatSlot(code,1,op,{state:'playing'});
-      if(r.stale)return;                    // op superseded -> own writes already rolled back
-      if(r.lost){ setStatus(T('roomFull')); return; }
-      mode='online';   // Gast kann aus dem FFA-Menue heraus auch einem 1v1/2v2-Raum beitreten
-      roomCode=code; myPlayer=1; online=true; runningGen=-1; gameStarted=false; seatLeft=[]; seatGone=[]; playersRoster=d.players||{};
-      winTarget=v.winTarget; fmt=v.fmt; gen=v.gen; roomPublic=isPublic;
-      rememberRoom(code,1);
-      hidePublicUI();   // entered a room -> stop the listener, hide the public UI
-      setStatus(T('connStart'));
+      } else setStatus(T('connStart'));
       attachRoomListeners();
-    }catch(e){ if(joinOpCurrent(op))setStatus(T('err')+(e.message||e)); } })();
+    }catch(e){ if(joinOpCurrent(op))setStatus(T('err')+v4Err(e)); } })();
   });
 }
 
@@ -3714,11 +3574,13 @@ function startFfaMatch(){
   if(n<2){toast('Mindestens 2 Spieler nötig.');return;}
   if(!seatsContiguous(lobbyP,n)){toast('Warte auf freien Sitz / Spieler soll neu beitreten.');return;}
   $('lobbyStart').disabled=true;
+  // v4: EIN Callable. Der Server prueft Host-Rolle, aktive Sessions, Presence,
+  // lueckenlose Seats und Formatgroesse selbst, setzt state/seats und eroeffnet
+  // in derselben Transaction den Uhr-Anker. Das Public-Listing raeumt er mit ab.
   (async()=>{ try{
-    await window.FB.set(rRef('state'),'playing');
-    await window.FB.set(rRef('seats'),n);
-    if(roomPublic){removePublicListing(roomCode);roomPublic=false;}   // match started -> drop the listing once (best-effort)
-  }catch(e){ setStatus('Start fehlgeschlagen: '+(e.message||e)); $('lobbyStart').disabled=false; } })();
+    await callV4('roomStartV4',{room:roomCode,iid:onlineIid,session:onlineSession});
+    roomPublic=false;
+  }catch(e){ setStatus('Start fehlgeschlagen: '+v4Err(e)); $('lobbyStart').disabled=false; } })();
 }
 // Host weg waehrend der Lobby: Raum ist tot -> zurueck zur Online-Auswahl.
 function onLobbyClosed(){
@@ -3753,30 +3615,33 @@ async function attemptRejoin(code){
     const d=snap.val();
     const v=validateRejoinRoom(d);
     if(!v.ok){ forgetRoom(); setStatus(T(v.reason)); return false; }
-    const seat=findOwnSeat(d.players,onlinePid);
-    if(seat<0){ forgetRoom(); setStatus(T('noRoom')); return false; }   // identity no longer holds a seat here — NEVER take a foreign one
     const ffa=v.fmt==='ffa'||v.fmt==='triple_ffa'||v.fmt==='team_duel';
+    // v4-Reconnect: KEIN clientseitiges Reclaim mehr. roomJoinV4 erkennt die
+    // eigene UID am server-owned seatByUid und gibt denselben Seat mit einem
+    // FRISCHEN Session-Token zurueck; roomActivateV4 rotiert die aktive Session.
+    // Ein noch offener alter Tab verliert damit sein Schreibrecht, ohne dass der
+    // Client Presence oder players-Records anfassen muesste.
+    if(!(await whenV4(12000))){ setStatus(T('noFb')); return false; }
+    if(!joinOpCurrent(op))return false;
+    let j;
+    try{ j=await callV4('roomJoinV4',{room:code,iid:d.iid,pid:onlinePid,tab:onlineTab,name:(onlineName||undefined)}); }
+    catch(e){ if(joinOpCurrent(op))setStatus(T('rejoinWait')); return false; }
+    if(!joinOpCurrent(op))return false;
+    if(!j.token||typeof j.seat!=='number'){ setStatus(T('rejoinWait')); return false; }
+    const seat=j.seat;
     if(v.state==='playing'&&ffa&&seat>=v.seats){ forgetRoom(); setStatus(T('rejoinNoLobby')); return false; }   // match started without this seat
-    if(d.p&&seatActive(d.p,seat)){ setStatus(T('rejoinTab')); return false; }
-    const oldRec=d.players&&d.players[seat];
-    const claim=await reclaimSeatSlot(code,seat,op,oldRec&&typeof oldRec.name==='string'?sanitizeName(oldRec.name):'');
-    if(claim.stale)return false;   // op superseded -> own presence already dropped again
-    if(claim.lost){
-      // Reclaim denied by the rules: another tab re-took the seat, the lobby
-      // stale window has not opened yet, or the seat was legitimately recycled.
-      // Re-read once for the right message; the rejoin bar stays available.
-      let otherTab=true;
-      try{ const s2=await window.FB.get(window.FB.ref(window.FB.db,'rooms/'+code+'/p/'+seat)); const v2=s2.val(); otherTab=!!(v2&&v2.on===true); }catch(e){}
-      setStatus(T(otherTab?'rejoinTab':'rejoinWait'));
-      return false;
-    }
-    // remote reclaim complete -> NOW commit the globals from the CANONICAL
-    // room config: fmt is never normalized (triple_ffa/team_duel keep their
-    // format, seats/teams/ball counts all derive from it).
+    let a;
+    try{ a=await callV4('roomActivateV4',{room:code,iid:j.iid,token:j.token,leaseId:j.leaseId}); }
+    catch(e){ if(joinOpCurrent(op))setStatus(T('rejoinTab')); return false; }
+    if(!joinOpCurrent(op))return false;
+    if(!a.token){ setStatus(T('rejoinTab')); return false; }
+    // Remote-Reaktivierung vollstaendig -> JETZT erst die Globals aus der
+    // KANONISCHEN Raumkonfiguration (fmt wird nie normalisiert).
     roomCode=code; myPlayer=seat; online=true; gen=v.gen; runningGen=-1; gameStarted=false;
     seatLeft=[]; seatGone=[]; playersRoster=d.players||{};
     winTarget=v.winTarget; fmt=v.fmt; mode=ffa?'ffa':'online';
-    roomPublic=!!(d.config&&d.config.visibility==='public');   // commit only after a successful claim
+    onlineIid=j.iid; onlineSession=a.token;
+    roomPublic=!!(d.config&&d.config.visibility==='public');
     rememberRoom(code,seat);
     hidePublicUI();   // entered a room -> stop the listener, hide the public UI
     $('onRejoin').style.display='none';
@@ -3806,8 +3671,9 @@ async function attemptRejoin(code){
     setStatus(T('rejoinOk'));
     return true;
   }catch(e){
-    // reclaimSeatSlot already rolled its own partial writes back on a failure
-    if(joinOpCurrent(op))setStatus(T('err')+(e.message||e));
+    // Kein Rollback noetig: der Client hat nichts geschrieben, was aufzuraeumen
+    // waere — eine nicht aktivierte Reservierung verfaellt serverseitig.
+    if(joinOpCurrent(op))setStatus(T('err')+v4Err(e));
     return false;
   }
 }
@@ -3842,7 +3708,9 @@ function seatFinallyGone(s){
     if(seatLeft[s])return;
     seatLeft[s]=true;
     toast('Spieler '+(s+1)+' hat das Match verlassen.');
-    writeLeaveSentinel(s);
+    // Kein Sentinel mehr: den offenen Slot bucht der Arbiter an der Deadline als
+    // No-Shot, und aus der naechsten Phase faellt der Seat ueber die
+    // eligibleSeats des Settlements heraus.
   }
   else onOppLeft();
 }
@@ -3900,7 +3768,12 @@ function attachRoomListeners(){
   });
   genUnsub=window.FB.onValue(rRef('gen'), snap=>{
     if(!isCurrentRoom())return;
-    const g=snap.val(); if(g==null)return; gen=g;
+    const g=snap.val(); if(g==null)return;
+    const changed=(g!==gen);
+    gen=g;
+    // Generationswechsel (Rematch): Uhr-Listener auf die neue Generation
+    // umhaengen, sonst bliebe die Anzeige an der alten Uhr haengen.
+    if(changed)attachClockListener();
     if(gameStarted && g!==runningGen) startOnlineGame();
   });
   // FFA-Startsignal: seats existiert (Rule-gesichert) erst NACH state='playing' —
@@ -3917,9 +3790,68 @@ function attachRoomListeners(){
     }
     ffaN=n; maybeStart();
   });
+  attachClockListener();
 }
-function maybeStart(){ if(gameStarted)return; gameStarted=true; if(roomPublic&&myPlayer===0){removePublicListing(roomCode);roomPublic=false;} $('online').classList.remove('show'); showGame(); startOnlineGame(); toast(T('youAre')+' '+(fmt==='team_duel'?T(teamOf(myPlayer)===0?'teamBlue':'teamRed'):T('col'+myPlayer))); }
-function startOnlineGame(){ replaying=false;repPlaying=false;$('replay').classList.remove('show'); runningGen=gen; turnNo=-1; if(turnUnsub){turnUnsub();turnUnsub=null;} if(typeof onlineResetClock==='function')onlineResetClock(); $('ov').classList.remove('show'); newGame(); }
+// ── Der Uhr-Listener: g/<gen>/live/clock ist die einzige Online-Uhr ──────────
+// Aus diesem einen Knoten kommen Turn, Phase, phaseId, Deadline, Restzeit,
+// Stufe, Warnfenster und Zugberechtigung. Der Client rechnet nichts nach; er
+// reagiert nur auf das, was der Server bereits entschieden hat.
+//
+// Der Listener ist AUCH das Startsignal fuer 1v1/2v2: dort eroeffnet
+// roomActivateV4 den Anker automatisch mit der Gast-Aktivierung, es gibt also
+// kein seats-Feld, auf das man warten koennte.
+function attachClockListener(){
+  if(!window.FB||!roomCode||onlineReplaying)return;
+  try{ if(clockUnsub)clockUnsub(); }catch(e){}
+  clockUnsub=null;
+  const ctx={sid:onlineSessionId,room:roomCode,gen:gen};
+  const ref=window.FB.ref(window.FB.db,'rooms/'+ctx.room+'/g/'+ctx.gen+'/live/clock');
+  clockUnsub=window.FB.onValue(ref, snap=>{
+    if(ctx.sid!==onlineSessionId||ctx.room!==roomCode||ctx.gen!==gen)return;
+    if(isOnlineTerminated())return;
+    onlineClockState=snap.val()||null;
+    onOnlineClock();
+  });
+}
+// Reaktion auf einen frischen Uhr-Zustand.
+function onOnlineClock(){
+  const c=onlineClockState;
+  if(!c)return;
+  // Der Anker der laufenden Generation ist da -> Match laeuft (deckt 1v1/2v2,
+  // FFA-Start und den Wiedereinstieg gleichermassen ab).
+  if(!gameStarted&&c.gen===gen){ maybeStart(); }
+  // Geparktes Settlement senden, sobald der Server die passende Phase
+  // geschlossen hat. Vorher waere der Report 'stale' und die Partie bliebe
+  // ohne Quorum stehen.
+  flushSettlement();
+  // Terminale Serverentscheidung. 'complete' ist der regulaere Partieausgang und
+  // wird vom Ergebnis-Pfad ohnehin angezeigt; 'desync' und 'settlement_timeout'
+  // sind Abbrueche, die der Spieler erfahren muss — sonst starrt er auf ein
+  // Brett, auf dem nie wieder etwas passiert.
+  if(c.phase==='finished'&&(c.reason==='desync'||c.reason==='settlement_timeout')){
+    if(!isOnlineTerminated()){
+      onlineTerminatedSession=onlineSessionId;
+      onOppLeft();
+    }
+  }
+  // Ein frisch geoeffneter Turn kann bereits Slots tragen (eigener Commit im
+  // selben Moment) — der Slots-Listener liefert sie ohnehin, aber ein Reveal
+  // darf hier nicht haengen bleiben.
+  if(c.phase==='aim')maybeReveal();
+  updateCollapseHud();
+}
+function maybeStart(){ if(gameStarted)return; gameStarted=true; roomPublic=false;   // das Listing raeumt der Server beim Start
+  $('online').classList.remove('show'); showGame(); startOnlineGame(); toast(T('youAre')+' '+(fmt==='team_duel'?T(teamOf(myPlayer)===0?'teamBlue':'teamRed'):T('col'+myPlayer))); }
+function startOnlineGame(){ replaying=false;repPlaying=false;$('replay').classList.remove('show'); runningGen=gen; turnNo=-1; if(turnUnsub){turnUnsub();turnUnsub=null;}
+  // Neue Generation = frische Uhr, frische Stufen, voller Arenaradius. Die
+  // Collapse-Latches gehoeren zur alten Generation und werden hier neutralisiert;
+  // newGame() setzt R/collapseRadius selbst auf den Ausgangswert zurueck.
+  if(typeof onlineResetClock==='function')onlineResetClock();
+  onCollapsedGen=-1; onCollapseCount=0;
+  $('ov').classList.remove('show'); newGame();
+  attachClockListener();   // Uhr der (evtl. neuen) Generation abonnieren
+  ensureOnlineClock();     // Reparatur, falls der Anker fehlt
+}
 // ════ B2 canonical match rehydration ════
 // Rebuilds a RUNNING match purely from the turn history under
 // rooms/<code>/g/<gen>/t. The lockstep sim is deterministic, so replaying every
@@ -3932,19 +3864,28 @@ function startOnlineGame(){ replaying=false;repPlaying=false;$('replay').classLi
 // applied from the DB — never re-sent (pendingSlot starts empty; a move that
 // was only prepared locally before the reload is gone by design). Sounds stay
 // muted during the whole replay; leftover FX particles are dropped afterwards.
+let onlineReplaying=false;   // waehrend des Replays darf die LIVE-Uhr den rekonstruierten Anker nicht ueberschreiben
 function fastForwardMatch(turns){
   const snd=soundOn; soundOn=false;
+  onlineReplaying=true;
   try{
     startOnlineGame();
     let iter=0;
     while(phase==='aim'&&iter++<=GEN_MAX){
       const slots=turns&&turns[turnNo];
       if(!slots)break;
-      // Online-Uhr: Phasenstempel des historischen Turns VOR dem Replay dieses Turns
-      // uebernehmen — der Collapse faellt damit im Replay auf exakt dieselbe
-      // Rundengrenze wie im Live-Spiel (ts-Werte liefert processSlot).
-      if(typeof slots.s==='number'){onTurnStamp[turnNo]=slots.s;onStampProbe[turnNo]='done';}
-      for(let s=0;s<np();s++)if(slots[s]!=null)processSlot(s,slots[s]);
+      // Der unveraenderliche Clock-Anker t/<turn>/c traegt stage und die Restzeit
+      // NACH dem Abschluss dieses Turns. Der Replay uebernimmt ihn VOR der
+      // Auswertung, damit die Collapse-Stufen im Replay auf exakt dieselben
+      // Rundengrenzen fallen wie im Live-Spiel — ohne die Live-Uhr zu kennen und
+      // ohne eine einzige lokale Zeitrechnung.
+      if(slots.c&&typeof slots.c.stage==='number'){
+        onlineClockState={gen:gen,turn:turnNo,phase:'aim',phaseId:gen+':'+turnNo,
+          stage:slots.c.stage,remainingMs:slots.c.remainingAfter,
+          cracked:false,expired:false,deadlineAt:null,startedAt:slots.c.startedAt,
+          eligibleSeats:onlineClockState?onlineClockState.eligibleSeats:''};
+      }
+      for(let s=0;s<FFA_MAX_SEATS;s++)if(slots[s]!=null)processSlot(s,slots[s]);
       if(!allAliveCommitted())break;   // current turn still open -> the live listener takes over
       if(turnUnsub){turnUnsub();turnUnsub=null;}
       beginReveal();
@@ -3953,7 +3894,11 @@ function fastForwardMatch(turns){
       if(phase==='result')afterResult();   // score/round/game-over exactly like live play
       else if(phase!=='aim')break;         // safety net: unexpected phase -> stop the replay
     }
-  } finally { soundOn=snd; particles=[]; fx3=[]; }
+  } finally { soundOn=snd; particles=[]; fx3=[]; onlineReplaying=false; }
+  // Erst JETZT die Live-Uhr abonnieren: waehrend des Replays haette sie die aus
+  // t/<turn>/c rekonstruierten Anker ueberschrieben. Der erste Live-Snapshot
+  // holt Stufe, Restzeit und Zugberechtigung anschliessend auf den Ist-Stand.
+  attachClockListener();
   updateHud(); setPhaseText();
 }
 // Opponent presence lost: reuse the end overlay as a clear way back to the
@@ -3969,22 +3914,20 @@ function onOppLeft(){
   $('ov').classList.add('show');
 }
 
+// Neue Aim-Phase scharfschalten. In v4 gibt es KEINEN Phasenstempel und KEINEN
+// Leave-Sentinel mehr: die Phase eroeffnet der Server (clockStart/clockSettle),
+// und offene Slots fuellt er selbst. Der Client abonniert nur noch den einen
+// Live-Knoten der aktuellen Phase.
 function onlineArmTurn(){
   turnNo++;
-  pendingSlot={};   // P0-Fix: neue Turn-Runde -> keine Altlast aus vorherigen Pending-Writes
-  clearAllSentinelRetries();   // P0-Nachbesserung: Retries der alten Turn-Runde sind ab hier gegenstandslos
+  pendingSlot={};   // neue Turn-Runde -> keine Altlast aus vorherigen Pending-Writes
   if(turnUnsub){turnUnsub();turnUnsub=null;}
   const ctx={sid:onlineSessionId,room:roomCode,gen:gen,turnNo:turnNo};
-  const ref=window.FB.ref(window.FB.db,'rooms/'+ctx.room+'/g/'+ctx.gen+'/t/'+ctx.turnNo);
-  // ctx wird bei JEDEM Fire neu gegen die aktuellen Globals geprueft: ein Listener,
-  // der aus irgendeinem Grund noch feuert, nachdem Session/Raum/Turn sich schon
-  // weiterbewegt haben (turnUnsub() garantiert das nicht zwingend synchron gegen
-  // bereits zugestellte Firebase-Events), darf den jetzigen Zustand nie beruehren.
+  const ref=window.FB.ref(window.FB.db,'rooms/'+ctx.room+'/g/'+ctx.gen+'/live/slots');
+  // ctx wird bei JEDEM Fire neu gegen die aktuellen Globals geprueft: ein
+  // Listener, der noch feuert, nachdem Session/Raum/Turn weitergelaufen sind,
+  // darf den jetzigen Zustand nie beruehren.
   turnUnsub=window.FB.onValue(ref, snap=>{ if(isCurrentCtx(ctx)&&!isOnlineTerminated()) onlineTurnValue(snap.val()); });
-  // typeof-Guard wie bei cancelAimDrag: die Online-Testharnessen extrahieren nur
-  // benannte Funktionen aus dieser Datei — der Lockstep-Pfad bleibt dort unberuehrt.
-  if(typeof stampOnlinePhase==='function')stampOnlinePhase(ctx);  // Phasenbeginn serverseitig stempeln (write-once)
-  if(mode==='ffa')for(let s=0;s<np();s++)if(seatLeft[s])writeLeaveSentinel(s);   // offene Slots Verlassener fuellen
 }
 function isCurrentCtx(ctx){ return ctx.sid===onlineSessionId && ctx.room===roomCode && ctx.gen===gen && ctx.turnNo===turnNo; }
 // true, sobald die AKTUELLE Online-Session per onlineConnectionLost() terminal
@@ -4000,69 +3943,45 @@ function isOnlineTerminated(){ return onlineTerminatedSession===onlineSessionId;
 // autoritativ entschieden ist. Ist der Slot leer, gewinnt payload; ist er bereits
 // belegt, bricht die Transaction ab (kein Write) und result.snapshot enthaelt in
 // BEIDEN Faellen den autoritativen Serverwert (s. settleSlot).
+// Einziger Schreibpfad fuer Zuege (v4). Ziel ist AUSSCHLIESSLICH
+// g/<gen>/live/slots/<seat>; nach t/<turn> schreibt nur noch der Server.
+//
+// Der Client schreibt ausserdem nur noch den EIGENEN Seat: fremde Slots fuellt
+// der Arbiter an der Deadline. Die Rules erzwingen das ohnehin (seatByUid muss
+// auf $pl zeigen), aber der Client versucht es gar nicht erst.
+//
+// Payload-Vertrag: idx/dx/dy/sp wie bisher, dazu t = Turnnummer des Ankers und
+// sid = die AKTIVE Session dieses Seats. Beide sind Rules-Pflichtfelder — ein
+// alter Tab (rotierte Session) verliert damit sein Schreibrecht sofort.
+// runTransaction(...,{applyLocally:false}) bleibt: der Slot ist write-once und
+// das Ergebnis ist in beiden Faellen der autoritative Serverwert.
 function writeTurnSlot(s,payload,opts){
-  if(isOnlineTerminated())return;   // Match terminal abgebrochen -> kein eigener Move/Sentinel mehr senden
-  if(pendingSlot[s])return;   // eigener Write fuer diesen Slot bereits unterwegs -> kein doppeltes Senden
+  if(isOnlineTerminated())return;   // Match terminal abgebrochen -> kein eigener Move mehr senden
+  if(pendingSlot[s])return;         // eigener Write bereits unterwegs -> kein doppeltes Senden
+  if(s!==myPlayer)return;           // fremde Slots gehoeren dem Server
+  if(!onlineSession)return;         // ohne aktive Session gibt es kein Schreibrecht
   opts=opts||{};
-  const ctx={sid:onlineSessionId,room:roomCode,gen:gen,turnNo:turnNo,sentinel:!!opts.sentinel,attempt:opts.attempt||0};
+  const ctx={sid:onlineSessionId,room:roomCode,gen:gen,turnNo:turnNo,attempt:opts.attempt||0};
   pendingSlot[s]=ctx;
-  // Online-Uhr aktiv (Phasenstempel bekannt): der Zug traegt seinen Serverzeit-
-  // Stempel ATOMAR in derselben Write-once-Transaction — Slot und ts koennen nie
-  // getrennt erscheinen. Ohne Stempel (Altbestand/alte Rules) bleibt das exakte
-  // v3-Zugschema; die Rules verlangen dann ausdruecklich KEIN ts.
-  const full=(onTurnStamp[ctx.turnNo]!=null)?Object.assign({},payload,{ts:window.FB.serverTimestamp()}):payload;
-  const slotRef=window.FB.ref(window.FB.db,'rooms/'+ctx.room+'/g/'+ctx.gen+'/t/'+ctx.turnNo+'/'+s);
+  const full=Object.assign({},payload,{t:ctx.turnNo,sid:onlineSession});
+  const slotRef=window.FB.ref(window.FB.db,'rooms/'+ctx.room+'/g/'+ctx.gen+'/live/slots/'+s);
   try{
     window.FB.runTransaction(slotRef, current=>current==null?full:undefined, {applyLocally:false})
       .then(result=>settleSlot(s,ctx,result,null))
       .catch(err=>settleSlot(s,ctx,null,err));
   }catch(err){ settleSlot(s,ctx,null,err); }
 }
-// Verlassener Seat wuerde den Lockstep blockieren: irgendein verbliebener Client
-// fuellt dessen offenen Move-Slot mit einem Stand-still-Sentinel (idx!==seat
-// markiert "verlassen" — in ffa gilt fuer echte Commits immer idx===seat). Die
-// Write-once-Transaction ist der Schiedsrichter: kam der echte Commit zuerst,
-// verliert der Sentinel. So spielen alle Clients mit exakt denselben Moves aus der
-// DB — deterministisch, kein Deadlock, keine Rules-Aenderung. attempt zaehlt
-// automatische Retries nach einem echten Transaction-Fehler (s. scheduleSentinelRetry).
-function writeLeaveSentinel(s,attempt){
-  if(!online||mode!=='ffa'||!gameStarted||phase!=='aim'||aimSet[s]||pendingSlot[s]||!aliveCount(s))return;
-  // Sentinel-idx = garantiert KEINE eigene Kugel des Seats: ffa -> fremder Seat-Index,
-  // triple_ffa -> Kugel des naechsten Owners ((s+1)%3, owner!==s),
-  // team_duel -> fremder Seat-Index ((s+1)%4 — Rules erlauben idx nur 0-3). Rules-schemakonform.
-  writeTurnSlot(s,{idx:fmt==='triple_ffa'?(s+1)%3:fmt==='team_duel'?(s+1)%4:(s+1)%FFA_MAX_SEATS,dx:0,dy:0,sp:0},{sentinel:true,attempt:attempt||0});
-}
-// P0-Nachbesserung: automatischer, kontextgebundener Retry NUR fuer den system-
-// generierten Leave-Sentinel (ein haengengebliebener Sentinel wuerde den Turn sonst
-// dauerhaft blockieren) — eigene Spieler-Moves werden bewusst NICHT automatisch
-// wiederholt (der Spieler kann jederzeit erneut committen). Backoff ist auf
-// SENTINEL_RETRY_MAX_MS gedeckelt, damit Firebase bei wiederholten echten Fehlern
-// nicht mit Requests geflutet wird. sentinelRetryTimer[s] verhindert einen
-// parallelen Doppel-Retry fuer denselben Seat.
-function scheduleSentinelRetry(s,ctx){
-  if(isOnlineTerminated())return;              // Match terminal abgebrochen -> kein neuer Retry, kein erneuter Abbruch
-  if(sentinelRetryTimer[s])return;             // nie mehrere parallele Timer pro Seat
-  if(ctx.attempt>=SENTINEL_RETRY_MAX_ATTEMPTS){ onlineConnectionLost(ctx); return; }   // Limit erreicht -> kontrollierter Abbruch statt Endlos-Retry
-  const delay=Math.min(SENTINEL_RETRY_BASE_MS*Math.pow(2,ctx.attempt),SENTINEL_RETRY_MAX_MS);
-  sentinelRetryTimer[s]=setTimeout(()=>{
-    sentinelRetryTimer[s]=null;
-    if(!isCurrentCtx(ctx))return;              // Session/Raum/Generation/Turn gewechselt -> Retry gegenstandslos
-    if(!seatLeft[s])return;                    // Seat ist nicht (mehr) verlassen -> Sentinel nicht mehr noetig
-    writeLeaveSentinel(s,ctx.attempt+1);       // prueft aimSet/pendingSlot/phase erneut selbst
-  },delay);
-}
-// Sentinel-Retry-Limit erreicht: der offene Slot laesst sich wegen eines
-// permanenten Fehlers nicht schliessen. KEINEN Move/Sentinel lokal erfinden —
-// stattdessen alle Retries/Timer stoppen und das Online-Match kontrolliert ueber
-// den bestehenden Disconnect-Overlay beenden (Rueckweg ins Menue = leaveOnline,
+// Kontrollierter Match-Abbruch: der eigene Zugpfad ist dauerhaft gestoert
+// (permanenter Firebase-/Permission-/Konfigurationsfehler). KEINEN Zug lokal
+// erfinden — stattdessen alle Timer stoppen und das Online-Match ueber den
+// bestehenden Disconnect-Overlay beenden (Rueckweg ins Menue = leaveOnline,
 // derselbe sichere Pfad wie bei onOppLeft). Kontextschutz: nur fuer die
-// urspruengliche Session/Raum/Generation/Turn (ctx) — ein alter Retry darf nie
-// einen neuen Raum oder eine neue Runde beenden.
+// urspruengliche Session/Raum/Generation/Turn (ctx) — ein alter Callback darf
+// nie einen neuen Raum oder eine neue Runde beenden.
 function onlineConnectionLost(ctx){
   if(ctx&&!isCurrentCtx(ctx))return;
   if(isOnlineTerminated())return;                 // idempotent: nur der erste gueltige Aufruf dieser Session bricht ab
   onlineTerminatedSession=onlineSessionId;         // ab hier sind alle async Pfade dieser Session wirkungslos
-  clearAllSentinelRetries();
   clearAllMatchGrace();
   pendingSlot={};                                  // Pending-State entwerten: spaete Transaction-Callbacks laufen ins Leere (settleSlot: p!==ctx)
   // Alle Raum-Listener sauber loesen (Rueckweg ins Menue via Overlay -> leaveOnline
@@ -4081,12 +4000,6 @@ function onlineConnectionLost(ctx){
   $('rematchBtn').style.display='none';$('replayBtn').style.display='none';
   $('ov').classList.add('show');
 }
-function clearSentinelRetry(s){
-  if(sentinelRetryTimer[s]){clearTimeout(sentinelRetryTimer[s]);sentinelRetryTimer[s]=null;}
-}
-function clearAllSentinelRetries(){
-  for(const s in sentinelRetryTimer)clearSentinelRetry(s);
-}
 // Wendet einen einzelnen, als autoritativ bekannten Turn-Slot an (entweder ein
 // frisches DB-Echo — via onlineTurnValue, IMMER autoritativ, da der Turn-Pfad
 // ausschliesslich per runTransaction(...,{applyLocally:false}) beschrieben wird —
@@ -4094,17 +4007,22 @@ function clearAllSentinelRetries(){
 // aimSet[s] schuetzt vor doppelter Anwendung, falls beide Pfade denselben Slot
 // erreichen (z. B. autoritativer Fremdwert kommt an, WAEHREND die eigene
 // Transaction fuer denselben Slot noch pending ist).
+// Wendet einen autoritativen Slot an. Zwei Formen sind moeglich:
+//   { idx,dx,dy,sp,t,sid }  — echter Spielerzug
+//   { ns:'stand' }          — vom SERVER gebuchter No-Shot (Deadline verstrichen)
+// Der No-Shot ist ein verbindlicher Stillstand und KEINE Ausscheidung: wer den
+// Seat verlassen hat, verschwindet ueber die eligibleSeats der Folgephase, nicht
+// ueber einen erratenen Sentinel-Index. Damit gibt es keine Konvention mehr, die
+// ein echter Zug versehentlich treffen koennte.
 function processSlot(s,c){
-  if(isOnlineTerminated())return;   // Match terminal abgebrochen -> aimSet/commit*/seatGone nicht mehr veraendern
-  // Online-Uhr: Commit-Stempel VOR jedem Early-Return erfassen (auch Duplikate) —
-  // onTurnTs[turn] ist der spaeteste ts des Turns und speist Uhr + Collapse-Turn.
-  if(c&&typeof c.ts==='number'&&(onTurnTs[turnNo]==null||c.ts>onTurnTs[turnNo]))onTurnTs[turnNo]=c.ts;
+  if(isOnlineTerminated())return;   // Match terminal abgebrochen -> nichts mehr veraendern
   if(!c||aimSet[s])return;
-  clearSentinelRetry(s);   // autoritativer Wert da -> ein evtl. noch wartender Sentinel-Retry ist sofort gegenstandslos
-  // Leave-Sentinel erkannt (auch fuer den eigenen Seat) -> Ejection bei beginReveal.
-  // Echte Commits tragen im ffa idx===seat, im triple_ffa eine EIGENE Kugel (owner
-  // idx%3===seat); jeder andere idx ist per Konvention der Stand-still-Sentinel.
-  if(mode==='ffa'&&(fmt==='triple_ffa'?!(Number.isInteger(c.idx)&&c.idx%3===s):c.idx!==s))seatGone[s]=true;
+  if(c.ns==='stand'){
+    const own=aliveBalls(s);
+    commitIdx[s]=own.length?balls.indexOf(own[0]):-1;
+    commitAim[s]={dx:0,dy:0}; commitSpin[s]=0; aimSet[s]=true; updateHud(); setPhaseText();
+    return;
+  }
   const m=sanitizeMove(s,c.idx,c.dx,c.dy,c.sp);
   commitIdx[s]=m.idx; commitAim[s]={dx:m.dx,dy:m.dy}; commitSpin[s]=m.sp; aimSet[s]=true; updateHud(); setPhaseText();
 }
@@ -4127,23 +4045,33 @@ function settleSlot(s,ctx,result,err){
     // Echter Netzwerk-/Permission-/Transaction-Fehler: eigenen Payload NICHT
     // anwenden, Listener bleibt aktiv (turnUnsub laeuft weiter) — ein spaeterer
     // fremder Write auf denselben Slot kommt normal ueber onlineTurnValue an.
-    // Der system-generierte Sentinel bekommt einen automatischen, kontextgebundenen
-    // Retry (scheduleSentinelRetry); ein eigener Spieler-Move nicht — der Spieler
-    // kann jederzeit erneut committen.
+    // Kein automatischer Retry: ein eigener Zug wird nie im Hintergrund
+    // wiederholt (der Spieler kann erneut committen), und fuer fremde Slots ist
+    // ohnehin ausschliesslich der Arbiter zustaendig.
     console.error('[online] Turn-Slot-Transaction fehlgeschlagen (Seat '+s+'):',err);
-    if(ctx.sentinel&&!aimSet[s]) scheduleSentinelRetry(s,ctx);   // Slot evtl. inzwischen anderweitig autoritativ befuellt -> dann kein Retry noetig
     maybeReveal();
     return;
   }
-  processSlot(s,result.snapshot.val());   // ts reist im Zugobjekt selbst mit (atomar)
+  processSlot(s,result.snapshot.val());
   maybeReveal();
+}
+// Reveal startet, sobald ALLE zugberechtigten Seats der laufenden Phase einen
+// autoritativen Slot haben. Die Menge kommt aus clock.eligibleSeats — ein
+// eliminierter oder ausgeschiedener Seat haelt die Runde damit nicht auf.
+function onlineAllEligibleCommitted(){
+  const el=onlineEligibleSeats();
+  if(!el.length)return false;
+  for(const s of el)if(!aimSet[s])return false;
+  return true;
 }
 function maybeReveal(){
   if(isOnlineTerminated())return;   // Match terminal abgebrochen -> kein Reveal mehr starten
-  // Keine neue Phase auf halbfertigem Stempelzustand: die eigene Stempel-Nachlese
-  // (stampOnlinePhase.adopt) loest die Sperre garantiert selbst wieder aus.
-  if(typeof onlineRevealBlocked==='function'&&onlineRevealBlocked())return;
-  if(allAliveCommitted()&&phase==='aim'&&!Object.keys(pendingSlot).length){
+  const done=online?onlineAllEligibleCommitted():allAliveCommitted();
+  if(done&&phase==='aim'&&!Object.keys(pendingSlot).length){
+    // Alle zugberechtigten Seats haben committet -> die Phase VORZEITIG schliessen
+    // lassen. Ohne diesen Anstoss liefe jede Phase bis zur Deadline aus und
+    // verbraeuchte volle 7 s Matchzeit, obwohl alle sofort gezogen haben.
+    if(online)requestClockClose();
     if(turnUnsub){turnUnsub();turnUnsub=null;} beginReveal();
   }
 }
@@ -4156,53 +4084,116 @@ function maybeReveal(){
 // lange blockiert (s. dort).
 function onlineTurnValue(val){
   if(!val)return;
-  // Phasenstempel reist im selben Turn-Knoten mit — jede Zustellung traegt ihn.
-  if(typeof val.s==='number'){onTurnStamp[turnNo]=val.s;onStampProbe[turnNo]='done';}
-  for(let s=0;s<np();s++) processSlot(s,val[s]);   // ALLE Seats inkl. des eigenen: die DB ist der alleinige Arbiter
+  // live/slots ist EIN Pfad fuer alle Phasen — abgegrenzt wird deshalb ueber die
+  // TURNNUMMER der Serveruhr, nicht ueber die Phase. Der Arbiter fuellt fehlende
+  // Slots und schliesst die Phase in DERSELBEN Transaction: waere hier zusaetzlich
+  // phase==='aim' verlangt, kaeme die entscheidende letzte Zustellung (die
+  // gebuchten No-Shots) nie an und die Runde bliebe stehen. Die Turnnummer
+  // genuegt: oeffnet der Server die Folgephase, ersetzt er live vollstaendig —
+  // slots ist dann leer und turn bereits erhoeht.
+  const c=onlineClockState;
+  if(!c||c.turn!==turnNo)return;
+  for(let s=0;s<FFA_MAX_SEATS;s++) processSlot(s,val[s]);   // ALLE Seats inkl. des eigenen: die DB ist der alleinige Arbiter
   maybeReveal();
+}
+// ── Settlement: der Client meldet sein deterministisches Ergebnis ────────────
+// hash bindet den kompletten sichtbaren Simulationszustand; next ist die
+// Zugberechtigung der FOLGEPHASE. Beides wird rein aus der Simulation
+// abgeleitet — insbesondere entscheidet KEINE Presence mit, sonst koennten zwei
+// Clients unterschiedliche next melden und der Server erklaerte einen Desync,
+// wo keiner ist. Ein noch verbundener, aber eliminierter Seat faellt heraus;
+// ein lebender, aber abgemeldeter Seat bleibt drin und bekommt No-Shots.
+function onlineNextEligible(){
+  const out=[];
+  for(const s of onlineEligibleSeats())if(aliveCount(s)>0)out.push(s);
+  return out;
+}
+// Das lokal berechnete Ergebnis der zuletzt aufgeloesten Phase. Es entsteht in
+// dem Moment, in dem die Simulation fertig ist — der Server ist zu diesem
+// Zeitpunkt aber moeglicherweise noch gar nicht so weit: solange er die Phase
+// nicht auf 'resolving' geschlossen hat, weist er jeden Report als 'stale' ab.
+// Deshalb wird das Ergebnis GEPARKT und erst gesendet, wenn die Serveruhr die
+// passende Phase im Zustand 'resolving' zeigt (s. onOnlineClock). Ohne diese
+// Kopplung ginge der Report genau einmal ins Leere und die Partie bliebe
+// stehen — kein Quorum, keine Folgephase.
+let pendingSettle=null;
+function reportSettlement(){
+  const c=onlineClockState;
+  if(!online||!gameStarted||!c||!c.phaseId)return;
+  if(clockSettlePhase===c.phaseId)return;      // je Phase genau ein bestaetigter Report
+  pendingSettle={phaseId:c.phaseId,hash:simHash(),next:onlineNextEligible()};
+  flushSettlement();
+}
+function flushSettlement(){
+  const p=pendingSettle,c=onlineClockState;
+  if(!p||!c||!online||!roomCode||!onlineIid||!onlineSession)return;
+  if(c.phaseId!==p.phaseId||c.phase!=='resolving')return;   // der Server ist noch nicht so weit
+  if(clockSettlePhase===p.phaseId)return;                   // bereits bestaetigt
+  clockSettlePhase=p.phaseId;
+  const ctx={sid:onlineSessionId,phaseId:p.phaseId};
+  callV4('clockSettle',{room:roomCode,iid:onlineIid,session:onlineSession,
+    phaseId:p.phaseId,hash:p.hash,next:p.next})
+    .then(r=>{
+      if(ctx.sid!==onlineSessionId)return;
+      // 'stale' heisst: der Report kam nicht an (Phase inzwischen weiter oder
+      // noch nicht geschlossen). Dann darf die Sperre NICHT stehen bleiben.
+      if(r&&r.status==='stale'&&clockSettlePhase===ctx.phaseId)clockSettlePhase='';
+      else if(r&&r.status!=='pending')pendingSettle=null;
+    })
+    .catch(e=>{
+      if(ctx.sid===onlineSessionId&&clockSettlePhase===ctx.phaseId)clockSettlePhase='';
+      console.error('[online] clockSettle:',e);
+    });
+}
+// Reparaturpfad: normalerweise eroeffnet roomStartV4 (FFA) bzw. roomActivateV4
+// (1v1/2v2) den Anker. Fehlt er trotzdem — etwa weil der Prozess des Hosts
+// zwischen Start und Ankeranlage abbrach —, holt clockStart ihn write-once nach.
+// Ein zweiter Aufruf ist ein Echo und setzt eine laufende Uhr NIE zurueck.
+function ensureOnlineClock(){
+  if(!online||!gameStarted||!roomCode||!onlineIid||!onlineSession)return;
+  if(onlineClockState&&onlineClockState.gen===gen)return;
+  if(clockStartGen===gen)return;
+  clockStartGen=gen;
+  callV4('clockStart',{room:roomCode,iid:onlineIid,session:onlineSession,gen:gen})
+    .catch(e=>{ if(clockStartGen===gen)clockStartGen=-1; console.error('[online] clockStart:',e); });
 }
 function onlineSendCommit(idx,fx,fy,spin){
   // Verlorenes Write-once-Race (z. B. gegen einen Leave-Sentinel) ist ein legitimer
   // Ausgang: still schlucken — das Turn-Echo liefert allen den gewinnenden Wert.
   writeTurnSlot(myPlayer,{idx:idx,dx:fx,dy:fy,sp:spin||0});
 }
-function onlineRematch(){ try{ window.FB.set(rRef('gen'), runningGen+1); }catch(e){} }
+// v4-Rematch: der Client bumpt die Generation NICHT mehr selbst (die Rules
+// sperren gen fuer v4 vollstaendig). roomRematchV4 erhoeht sie serverseitig per
+// CAS auf expectedGen, oeffnet einen frischen Anker mit stage 0, remainingMs
+// 30000, neuer phaseId und leeren live/slots und laesst die alte Generation
+// unangetastet. Ein zweiter Aufruf gegen dieselbe Generation ist idempotent.
+function onlineRematch(){
+  if(!online||!roomCode||!onlineIid||!onlineSession)return;
+  callV4('roomRematchV4',{room:roomCode,iid:onlineIid,session:onlineSession,expectedGen:runningGen})
+    .catch(e=>{ console.error('[online] roomRematchV4:',e); toast('Rematch fehlgeschlagen: '+v4Err(e)); });
+}
 function leaveOnline(){
   joinOpSeq++;   // in-flight join/rejoin ops become stale BEFORE the early return — their continuations release own partial writes and never commit globals
   if(!online && !roomCode)return;
   onlineSessionId++;   // P0-Fix: laufende Transaktionen/Listener dieser Session sofort entwerten (auch bei sofortigem Wiederbeitritt zum selben Raum)
   onlineTerminatedSession=-1;   // terminalen Abbruchzustand sicher zuruecksetzen (die neue Session ist ohnehin != gespeicherter Session)
-  clearAllSentinelRetries();   // P0-Nachbesserung: Raum wird verlassen -> kein Sentinel-Retry darf danach noch feuern
   clearLobbyHostGrace();       // deliberate leave -> no pending lobby grace may fire afterwards
   clearAllMatchGrace(); roomP={};   // B2: in-match grace timers of this room are void as well
   if(typeof onlineResetClock==='function')onlineResetClock();   // Online-Uhr dieser Session zuruecksetzen
   if(typeof onCollapsedGen!=='undefined'){onCollapsedGen=-1;onCollapseCount=0;}   // Collapse-Stufen gehoeren zum verlassenen Raum
-  try{ if(turnUnsub)turnUnsub(); }catch(e){} try{ if(genUnsub)genUnsub(); }catch(e){} try{ if(presUnsub)presUnsub(); }catch(e){} try{ if(seatsUnsub)seatsUnsub(); }catch(e){} try{ if(rosterUnsub)rosterUnsub(); }catch(e){}
-  turnUnsub=genUnsub=presUnsub=seatsUnsub=rosterUnsub=null;
-  // Deliberate leave is immediate: drop own presence AND own roster record (frees
-  // the seat for recycling and signals "left, not reloading" to the others), then
-  // best-effort remove the whole room. v3: the rules only allow a p/<seat> delete
-  // when players/<seat> vanishes in the SAME write (and vice versa) — so both must
-  // go in one atomic update(), not two separate remove() calls, or either write is
-  // rejected. The whole-room cleanup only runs after that update settles (the
-  // cleanup rule needs no seat present).
-  try{ if(window.FB && roomCode){
-    const code=roomCode, wasPublic=roomPublic, wasHost=(myPlayer===0);   // snapshot before the globals below reset them
-    const rootRef=window.FB.ref(window.FB.db,'rooms/'+code);
-    const upd={}; upd['p/'+myPlayer]=null; upd['players/'+myPlayer]=null;
-    // Public-listing cleanup order (rules-conform): the atomic p/<seat>+players/<seat>
-    // removal runs FIRST. Only the HOST (seat 0) owns the listing, so only a host leave
-    // removes it — and only AFTER its own p/0+players/0 update settles, which leaves the
-    // room objectively host-less so the rules then permit the delete. A guest leave keeps
-    // the host anchors, so the room stays a valid public lobby and its listing must
-    // remain (the guest never touches it). removePublicListing runs inside the .then()
-    // after the update; the room is then removed. Nothing here blocks the leave.
-    window.FB.update(rootRef,upd).then(()=>{
-      if(wasPublic&&wasHost)removePublicListing(code);
-      window.FB.remove(rootRef).catch(()=>{});
-    }).catch(()=>{});
+  try{ if(turnUnsub)turnUnsub(); }catch(e){} try{ if(genUnsub)genUnsub(); }catch(e){} try{ if(presUnsub)presUnsub(); }catch(e){} try{ if(seatsUnsub)seatsUnsub(); }catch(e){} try{ if(rosterUnsub)rosterUnsub(); }catch(e){} try{ if(clockUnsub)clockUnsub(); }catch(e){}
+  turnUnsub=genUnsub=presUnsub=seatsUnsub=rosterUnsub=clockUnsub=null;
+  // v4-Leave: EIN Callable. Der Server gibt die Session frei, raeumt Seat,
+  // seatByUid und Presence auf, entfernt ein eigenes Public-Listing und loescht
+  // den Raum, wenn niemand mehr drin ist. Der Client schreibt hier NICHTS mehr —
+  // die frueheren Multi-Path-Deletes waren genau die Writes, die v4 verbietet.
+  // Bewusst nicht abgewartet: das Verlassen darf nie am Netz haengen.
+  try{ if(roomCode&&onlineIid&&onlineSession&&v4Ready()){
+    const code=roomCode, iid=onlineIid, sess=onlineSession;   // vor dem Reset der Globals sichern
+    callV4('roomLeaveV4',{room:code,iid:iid,session:sess}).catch(()=>{});
   } }catch(e){}
   forgetRoom();
+  onlineIid=''; onlineSession=''; onlineClockState=null;
   online=false; gameStarted=false; roomPublic=false; roomCode=''; lobbyP={}; seatLeft=[]; seatGone=[]; playersRoster={};
   mode=menuMode; ffaN=ffaNMenu;   // Online-FFA stellt mode/ffaN um — Menue-Auswahl wiederherstellen
 }
