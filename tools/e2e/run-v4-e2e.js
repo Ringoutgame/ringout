@@ -39,6 +39,7 @@ const SUITE = [
   { id: 'S9',  name: 'Formate: FFA 3, FFA 5, 2v2',                        fn: S.scenarioFormats,            slow: false },
   { id: 'S10', name: 'Disconnect waehrend Aim -> genau ein No-Shot',      fn: S.scenarioDisconnectNoShot,   slow: false },
   { id: 'S11', name: 'Keine v3-Uhrreste im v4-Pfad',                      fn: S.scenarioNoLegacyClock,      slow: false },
+  { id: 'S12', name: 'Live-Umbenennung erhaelt uid/id/tab',               fn: S.scenarioRename,             slow: false },
   { id: 'S4',  name: 'Zwei exakte 30-s-Zyklen + Collapse 2 terminal',     fn: S.scenarioTwoCycles,          slow: true  },
   { id: 'S8',  name: 'Rematch setzt stage=0 / remainingMs=30000',         fn: S.scenarioRematch,            slow: true  },
 ];

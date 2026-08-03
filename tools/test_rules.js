@@ -566,6 +566,46 @@ denyAs('v4 players: eigenen Record loeschen verboten (Leave ist Server-Sache)', 
 denyAs('v4 players: tab-Rotation ohne Server verboten', UID_G,
   db4({ p: { 0: P(H_TAB, false), 1: P(G_TAB, false) }, players: { 0: HOST4, 1: REC4() } }),
   'rooms/KX7P/players/1', REC4('GUEST001', 'GTAB0009', UID_G));
+
+// ── Live-Umbenennung: der EINZIGE erlaubte Client-Write auf players/<seat> ──
+// Der Client aktualisiert ausschliesslich das Feld `name` (partieller Write auf
+// players/<seat>/name). uid, id und tab bleiben dabei unangetastet — genau das
+// verlangen die v4-Rules. Ein Voll-Record-Write (set) waere abgelehnt, weil er
+// uid loeschen bzw. tab rotieren wuerde; der partielle Weg ist deshalb nicht
+// Bequemlichkeit, sondern der einzige rules-konforme.
+const rename4 = db4({ p: { 0: P(H_TAB, false), 1: P(G_TAB, false) }, players: { 0: HOST4, 1: REC4() } });
+allowAs('v4 rename: eigener Name partiell aenderbar', UID_G, rename4, 'rooms/KX7P/players/1/name', 'Neuer Name');
+allowAs('v4 rename: Host kann seinen eigenen Namen aendern', UID_H, rename4, 'rooms/KX7P/players/0/name', 'Host Neu');
+allowAs('v4 rename: auch im laufenden Match erlaubt', UID_G,
+  db4({ state: 'playing', p: { 0: P(H_TAB, true), 1: P(G_TAB, true) }, players: { 0: HOST4, 1: REC4() } }),
+  'rooms/KX7P/players/1/name', 'Im Match');
+denyAs('v4 rename: fremden Namen aendern verboten', UID_X, rename4, 'rooms/KX7P/players/1/name', 'Gekapert');
+denyAs('v4 rename: Nachbar-Seat aendern verboten', UID_H, rename4, 'rooms/KX7P/players/1/name', 'Fremd');
+deny('v4 rename: unauthentifiziert verboten', rename4, 'rooms/KX7P/players/1/name', 'Anonym');
+denyAs('v4 rename: leerer Name verboten', UID_G, rename4, 'rooms/KX7P/players/1/name', '');
+denyAs('v4 rename: Name > 48 Zeichen verboten', UID_G, rename4, 'rooms/KX7P/players/1/name', 'x'.repeat(49));
+denyAs('v4 rename: Name muss ein String sein', UID_G, rename4, 'rooms/KX7P/players/1/name', 42);
+// uid/tab/id sind ueber denselben Pfad nicht manipulierbar.
+denyAs('v4 rename: uid-Manipulation abgelehnt', UID_G, rename4, 'rooms/KX7P/players/1/uid', UID_X);
+denyAs('v4 rename: fremde uid auf fremden Seat abgelehnt', UID_X, rename4, 'rooms/KX7P/players/1/uid', UID_X);
+// Ehrliche Abgrenzung: die EIGENE uid auf ihren IDENTISCHEN Wert zu schreiben
+// ist ein No-op und daher erlaubt (Rules verlangen newData.uid === data.uid und
+// newData.uid === auth.uid — beides trifft zu). Es kann per Definition nichts
+// veraendern; die sicherheitsrelevanten Faelle stehen darueber.
+allowAs('v4 rename: eigene uid auf denselben Wert ist ein No-op', UID_G, rename4, 'rooms/KX7P/players/1/uid', UID_G);
+denyAs('v4 rename: tab-Manipulation abgelehnt', UID_G, rename4, 'rooms/KX7P/players/1/tab', 'GTAB0009');
+denyAs('v4 rename: id-Manipulation abgelehnt', UID_G, rename4, 'rooms/KX7P/players/1/id', 'NEW00001');
+// Voll-Record-Writes bleiben abgelehnt — genau der Fehler, den der partielle
+// Write ersetzt: playerRecord() ohne uid bzw. mit frischem tab.
+denyAs('v4 rename: Voll-Record ohne uid abgelehnt (Regressionsschutz)', UID_G, rename4,
+  'rooms/KX7P/players/1', { id: 'GUEST001', name: 'Neu', tab: G_TAB });
+denyAs('v4 rename: Voll-Record mit frischem tab abgelehnt (Regressionsschutz)', UID_G, rename4,
+  'rooms/KX7P/players/1', { id: 'GUEST001', name: 'Neu', tab: 'GTAB0009', uid: UID_G });
+// v3 bleibt unveraendert: dort ist der Voll-Record-Weg weiterhin der richtige.
+allow('v3 rename: Voll-Record mit gleicher id bleibt erlaubt',
+  db1({ p: { 0: P(H_TAB, false), 1: P(G_TAB, false) }, players: { 0: HOST, 1: { id: 'GUEST001', name: 'alt', tab: G_TAB } } }),
+  'rooms/KX7P/players/1', { id: 'GUEST001', name: 'Neu', tab: G_TAB });
+
 const recon4 = db4({ state: 'playing', p: { 0: P(H_TAB, true), 1: P(G_TAB, false) }, players: { 0: HOST4, 1: REC4() } });
 allowAs('v4 presence: eigener Seat aktivieren (Reconnect-Flip)', UID_G, recon4, 'rooms/KX7P/p/1', P(G_TAB, true));
 denyAs('v4 presence: fremden Seat aktivieren', UID_X, recon4, 'rooms/KX7P/p/1', P(G_TAB, true));

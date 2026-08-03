@@ -348,6 +348,45 @@ function uniqueSeats(room) {
       typeof db.room(code).players[1].name === 'string' && db.room(code).players[1].name.length >= 1);
     t('S14 der Roster traegt fuer jeden Seat die UID',
       db.room(code).players[0].uid === h.uid() && db.room(code).players[1].uid === g1.uid());
+
+    // ── Live-Umbenennung im laufenden Raum ──
+    // Der Client schreibt AUSSCHLIESSLICH players/<seat>/name. uid, id und tab
+    // bleiben unangetastet — sonst wuerden die v4-Rules den Write ablehnen
+    // (Regressionsschutz gegen den frueheren Voll-Record-set()).
+    const before = JSON.parse(JSON.stringify(db.room(code).players[0]));
+    db.clearWrites();
+    await h.setName('Alice2'); await tick();
+    const after = db.room(code).players[0];
+    t('S14 Umbenennung im Raum kommt in der DB an', after.name === 'Alice2');
+    t('S14 uid bleibt beim Umbenennen unveraendert', after.uid === before.uid);
+    t('S14 tab bleibt beim Umbenennen unveraendert', after.tab === before.tab);
+    t('S14 id bleibt beim Umbenennen unveraendert', after.id === before.id);
+    t('S14 der Record traegt weiterhin alle vier Felder',
+      ['id', 'name', 'tab', 'uid'].every((k) => after[k] !== undefined));
+    t('S14 der Client schreibt NUR das name-Feld',
+      db.writes().length > 0 && db.writes().every((p) => /\/players\/0\/name$/.test(p)));
+    t('S14 der Client schreibt nicht den ganzen Record',
+      db.writes().every((p) => !/\/players\/0$/.test(p)));
+    t('S14 die Umbenennung wird beim anderen Client sichtbar', g1.nameFor(0) === 'Alice2');
+    t('S14 der eigene Client zeigt den neuen Namen', h.nameFor(0) === 'Alice2');
+    // Leerer Eingabewert faellt auf den Farbnamen zurueck (Rules verlangen >= 1).
+    await h.setName(''); await tick();
+    t('S14 leerer Name faellt auf den Vorgabenamen zurueck',
+      typeof db.room(code).players[0].name === 'string' && db.room(code).players[0].name.length >= 1);
+    t('S14 auch dabei bleiben uid und tab erhalten',
+      db.room(code).players[0].uid === before.uid && db.room(code).players[0].tab === before.tab);
+
+    // ── Reload/Reconnect behaelt den geaenderten Namen ──
+    await h.setName('Alice3'); await tick();
+    const uid0 = h.uid(), pid0 = h.pid();
+    h.drop(); await tick();
+    const h2 = makeClient(db, 'X', pid0, uid0);
+    const ok = await h2.rejoin(code); await tick();
+    t('S14 Reconnect gelingt', ok === true && h2.st().myPlayer === 0);
+    t('S14 der geaenderte Name ueberlebt den Reconnect', db.room(code).players[0].name === 'Alice3');
+    t('S14 der wiedereingestiegene Client sieht seinen Namen', h2.nameFor(0) === 'Alice3');
+    t('S14 uid und id ueberleben den Reconnect unveraendert',
+      db.room(code).players[0].uid === before.uid && db.room(code).players[0].id === before.id);
   }
 
   // ── S15: In-Match-Leave -> die Uebrigen spielen weiter ───────────────────

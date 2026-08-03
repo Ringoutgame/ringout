@@ -285,6 +285,16 @@ const ADAPTER_V4_SRC = `
       phase:       g(function(){ return phase; })
     };
   };
+  // Treibt den ECHTEN nameInput-Handler: Wert setzen und ein input-Event
+  // feuern. Damit laeuft exakt der Produktionspfad (partieller Write auf
+  // players/<seat>/name) gegen die echten Rules — kein Nachbau.
+  A.typeName = function(v){
+    var el = document.getElementById('nameInput');
+    if (!el) return false;
+    el.value = v;
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    return true;
+  };
   A.rematch = function(){ if (typeof onlineRematch==='function') onlineRematch(); };
   A.rejoin  = function(code){ if (typeof attemptRejoin==='function') return attemptRejoin(code); return null; };
   A.openOnline = function(){ if (typeof openOnline==='function') openOnline(); };

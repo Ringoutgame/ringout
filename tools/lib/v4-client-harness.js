@@ -279,7 +279,15 @@ function makeClient(db, code, forcePid, forceUid) {
       leave(){leaveOnline();},
       pid(){return onlinePid;},
       setFmt(f){fmt=f;},
-      setName(n){onlineName=sanitizeName(n); if(online&&roomCode){try{FB.set(rRef('players/'+myPlayer),playerRecord(myPlayer)).catch(()=>{});}catch(e){}}},
+      // Spiegel des produktiven nameInput-Handlers (inline Event-Listener, daher
+      // nicht extrahierbar): AUSSCHLIESSLICH das Feld name wird partiell
+      // geschrieben — nie der ganze Record. Ein set() mit playerRecord() wuerde
+      // uid loeschen und tab rotieren; die v4-Rules lehnen das ab.
+      setName(n){onlineName=sanitizeName(n);
+        if(!(online&&roomCode))return Promise.resolve();
+        const wanted=onlineName||T('col'+myPlayer);
+        try{ return FB.update(rRef('players/'+myPlayer),{name:wanted}).catch(()=>{}); }
+        catch(e){ return Promise.resolve(); }},
       roster(){return JSON.parse(JSON.stringify(playersRoster));},
       nameFor(s){return nameForSeat(s);},
       async rejoin(c){return await attemptRejoin(c);},

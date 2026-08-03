@@ -1288,6 +1288,7 @@ en:{tagline:'PULL BACK · RELEASE · KNOCK THEM OUT',chip:'FEATURED',
   nameLbl:'YOUR NAME',namePh:'Name',rejoinBtn:'Rejoin',rejoinAsk:'Rejoin room {code}?',
   rejoinNoLobby:'Room is no longer in the lobby.',rejoinTab:'Seat is active in another tab.',rejoinOk:'Rejoined.',
   rejoinWait:'Seat still reserved — try again in a few seconds.',
+  nameSyncFail:'Name could not be updated for the others — the previous name stays.',
   visLbl:'VISIBILITY',visPriv:'Private',visPub:'Public',pubTitle:'PUBLIC ROOMS',pubJoin:'Join',
   pubLoading:'Loading rooms…',pubEmpty:'No public rooms right now.',pubError:'Couldn’t load rooms.'},
 de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'FEATURED',
@@ -1328,6 +1329,7 @@ de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'FEATURED',
   nameLbl:'DEIN NAME',namePh:'Name',rejoinBtn:'Wieder beitreten',rejoinAsk:'Raum {code} wieder beitreten?',
   rejoinNoLobby:'Raum ist nicht mehr in der Lobby.',rejoinTab:'Sitz ist in einem anderen Tab aktiv.',rejoinOk:'Wieder beigetreten.',
   rejoinWait:'Sitz ist noch reserviert — versuche es in ein paar Sekunden erneut.',
+  nameSyncFail:'Name konnte für die anderen nicht aktualisiert werden — der bisherige Name bleibt.',
   visLbl:'SICHTBARKEIT',visPriv:'Privat',visPub:'Öffentlich',pubTitle:'ÖFFENTLICHE RÄUME',pubJoin:'Beitreten',
   pubLoading:'Räume werden geladen…',pubEmpty:'Gerade keine öffentlichen Räume.',pubError:'Räume konnten nicht geladen werden.'},
 tr:{tagline:'GERİ ÇEK · BIRAK · DIŞARI İT',chip:'FEATURED',
@@ -1368,6 +1370,7 @@ tr:{tagline:'GERİ ÇEK · BIRAK · DIŞARI İT',chip:'FEATURED',
   nameLbl:'ADIN',namePh:'Ad',rejoinBtn:'Tekrar katıl',rejoinAsk:'{code} odasına tekrar katıl?',
   rejoinNoLobby:'Oda artık lobide değil.',rejoinTab:'Koltuk başka bir sekmede etkin.',rejoinOk:'Yeniden katıldın.',
   rejoinWait:'Koltuk hâlâ ayrılmış — birkaç saniye sonra tekrar dene.',
+  nameSyncFail:'Ad diğerleri için güncellenemedi — önceki ad geçerli kalıyor.',
   visLbl:'GÖRÜNÜRLÜK',visPriv:'Özel',visPub:'Herkese açık',pubTitle:'AÇIK ODALAR',pubJoin:'Katıl',
   pubLoading:'Odalar yükleniyor…',pubEmpty:'Şu an açık oda yok.',pubError:'Odalar yüklenemedi.'}
 };
@@ -1505,11 +1508,29 @@ $('onBack').onclick=onlineBack;
 $('onBack2').onclick=onlineBack;
 $('onInput').addEventListener('input',e=>{e.target.value=e.target.value.toUpperCase().replace(/[^A-Z0-9]/g,'');});
 // Player name: sanitize + persist on every edit; push live to the roster if already
-// seated so the lobby/HUD update for everyone. The record write is same-id (allowed).
+// seated so the lobby/HUD update for everyone.
+//
+// AUSSCHLIESSLICH das Feld `name` wird geschrieben — nie der ganze Record.
+// Ein set() mit playerRecord() wuerde `uid` loeschen (das Feld existiert dort
+// nicht) und `tab` durch das frische Tab-Token dieser Sitzung ersetzen; die
+// v4-Rules verlangen aber newData.uid === data.uid UND newData.tab === data.tab
+// und lehnen einen solchen Write ab. Der partielle Write laesst uid, id und tab
+// unangetastet und ist damit der einzige rules-konforme Weg (bewiesen in
+// tools/test_rules.js, Abschnitt "Live-Umbenennung").
 $('nameInput').addEventListener('input',e=>{ setOnlineName(e.target.value);
-  // Live same-id refresh; a denied/failed push leaves the old (valid) record —
-  // consistent state, so log only (no rollback needed).
-  if(online&&roomCode){ try{ window.FB.set(rRef('players/'+myPlayer),playerRecord(myPlayer)).catch(err=>console.warn('[online] name push failed:',err)); }catch(err){} } });
+  if(!(online&&roomCode))return;
+  const wanted=onlineName||T('col'+myPlayer);   // Rules verlangen Laenge >= 1
+  try{
+    window.FB.update(rRef('players/'+myPlayer),{name:wanted})
+      .then(()=>{ if(online&&roomCode)setStatus(''); })
+      .catch(err=>{
+        console.warn('[online] name push failed:',err);
+        // Sichtbarer, verstaendlicher Zustand statt stiller Ablehnung: der in
+        // der DB stehende (weiterhin gueltige) Name bleibt massgeblich, und der
+        // Spieler erfaehrt, dass seine Aenderung nicht bei den anderen ankam.
+        if(online&&roomCode)setStatus(T('nameSyncFail'));
+      });
+  }catch(err){ console.warn('[online] name push failed:',err); if(online&&roomCode)setStatus(T('nameSyncFail')); } });
 // B2: ein fehlgeschlagener Versuch (z. B. Lobby-Stale-Fenster noch zu, siehe
 // rejoinWait) zeigt die Bar wieder — ausser der Raum ist tot (savedRoom weg).
 $('rejoinBtn').onclick=()=>{ const sr=savedRoom(); if(!sr)return; $('onRejoin').style.display='none';
@@ -2322,6 +2343,12 @@ function onlineOpenSeats(){
 // Phase in EINER Transaction. Rufen mehrere Clients gleichzeitig auf, gewinnt
 // genau einer; die uebrigen bekommen 'stale'. Ein zu frueher Aufruf wird mit
 // 'too-early' abgelehnt und aendert nichts.
+//
+// Drossel fuer den Nachstoss eines haengenden Settlements (s. u.). Steht
+// bewusst VOR tickOnlineClock: die Deklaration gehoert vor die erste
+// funktionale Verwendung, damit kein temporal-dead-zone-Risiko entstehen kann,
+// falls der Takt je frueher angestossen wuerde.
+let settleRetryAt=0;
 function tickOnlineClock(){
   if(!online||!gameStarted){updateCollapseHud();return;}
   const v=onlineClockView(serverNow());
@@ -2351,7 +2378,6 @@ function tickOnlineClock(){
   if(serverNow()<v.deadlineAt)return;                 // Deadline noch nicht erreicht
   requestClockClose();
 }
-let settleRetryAt=0;
 // Phasenabschluss beim Server anfragen — je phaseId hoechstens einmal.
 function requestClockClose(){
   const c=onlineClockState;

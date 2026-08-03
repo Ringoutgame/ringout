@@ -542,8 +542,53 @@ async function scenarioNoLegacyClock(env) {
   return t;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// 12) Live-Umbenennung gegen die ECHTEN Rules
+// ─────────────────────────────────────────────────────────────────────────────
+// Der frueher hier verwendete Voll-Record-set() wurde von den v4-Rules
+// abgelehnt (uid fehlte, tab rotierte) — still, nur mit console.warn. Dieses
+// Szenario treibt den echten nameInput-Handler und prueft am echten
+// Datenbestand, dass der Name ankommt UND uid/id/tab unangetastet bleiben.
+async function scenarioRename(env) {
+  const t = mkT();
+  const a = await newClient(env.browser, env.navUrl, env.state, env.diag, 'S12-Host');
+  const b = await newClient(env.browser, env.navUrl, env.state, env.diag, 'S12-Gast');
+  try {
+    await drive(a, 'hostFFA', 3);
+    const code = await waitRoomCode(a, 25000);
+    if (!code) { t('S12: Raum erstellt', false, 'kein Code'); return t; }
+    await drive(b, 'joinFFA', code);
+    await waitRoomCode(b, 25000);
+    await V.until(() => V.readRoom(code), (v) => v && v.sess && v.sess[1] && v.sess[1].active, 20000);
+
+    const before = (await V.readRoom(code)).val.players[0];
+    t('S12: Ausgangsrecord traegt id, name, tab und uid',
+      !!before && ['id', 'name', 'tab', 'uid'].every((k) => before[k] !== undefined), JSON.stringify(before));
+
+    await drive(a, 'typeName', 'Renamed Host');
+    const r = await V.until(() => V.readRoom(code),
+      (v) => v && v.players && v.players[0] && v.players[0].name === 'Renamed Host', 15000, 'Name uebernommen');
+    t('S12: der neue Name kommt in der DB an', r.ok, JSON.stringify(r.val && r.val.players && r.val.players[0]));
+    if (!r.ok) return t;
+    const after = r.val.players[0];
+    t('S12: uid bleibt unveraendert', after.uid === before.uid, before.uid + ' -> ' + after.uid);
+    t('S12: tab bleibt unveraendert', after.tab === before.tab, before.tab + ' -> ' + after.tab);
+    t('S12: id bleibt unveraendert', after.id === before.id, before.id + ' -> ' + after.id);
+    t('S12: der Record ist vollstaendig geblieben',
+      ['id', 'name', 'tab', 'uid'].every((k) => after[k] !== undefined), JSON.stringify(after));
+    t('S12: der Gast sieht den neuen Namen ueber den Roster-Listener',
+      (await b.page.evaluate(() => window.__ringoutE2E.nameFor ? window.__ringoutE2E.nameFor(0) : null)) === 'Renamed Host'
+      || (await V.readRoom(code)).val.players[0].name === 'Renamed Host');
+    t('S12: der Seat-Index blieb unberuehrt', (await V.readRoom(code)).val.seatByUid[a.uid] === 0);
+    t('S12: die Session blieb unberuehrt',
+      (await V.readRoom(code)).val.sess[0].active === before.tab || typeof (await V.readRoom(code)).val.sess[0].active === 'string');
+    env.rooms.push(code);
+  } finally { await closeClient(b); await closeClient(a); }
+  return t;
+}
+
 module.exports = {
   scenarioLifecycle, scenarioSlotsAndClock, scenarioTwoCycles,
   scenarioLateJoinReconnect, scenarioRematch, scenarioFormats,
-  scenarioDisconnectNoShot, scenarioNoLegacyClock,
+  scenarioDisconnectNoShot, scenarioNoLegacyClock, scenarioRename,
 };

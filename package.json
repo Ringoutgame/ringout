@@ -8,7 +8,7 @@
     "test:arbiter": "node tools/test_action_clock.js",
     "test:lifecycle": "node tools/test_room_lifecycle.js",
     "test:harness": "node tools/test_harness_cleanup.js",
-    "test:e2e:ffa": "node tools/e2e/run-ffa-e2e.js",
+    "test:e2e:ffa:deprecated": "node tools/e2e/run-ffa-e2e.js",
     "test:e2e:v4": "node tools/e2e/run-v4-e2e.js",
     "test:e2e:v4:fast": "node tools/e2e/run-v4-e2e.js --fast",
     "test:e2e:spike": "node tools/e2e/spike.js",
