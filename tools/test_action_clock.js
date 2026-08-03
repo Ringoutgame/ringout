@@ -313,7 +313,8 @@ const LIVE_CLOCK = (anchor) => ({ g: { 0: { live: { clock: anchor } } } });
     t('atomic: 5 Seats, 3 fehlende Slots -> resolving', c5.status === 'closed' && c5.clock.phase === 'resolving');
     const slP = await lslots('ABCP', 0);
     t('atomic: alle 5 Slots gebucht', [0, 1, 2, 3, 4].every((s) => slP[s] != null));
-    t('atomic: Historie traegt alle 5 Slots', Object.keys((await hist('ABCP', 0, 0)) || {}).length === 5);
+    t('atomic: Historie traegt alle 5 Slots plus den Clock-Anker',
+      Object.keys((await hist('ABCP', 0, 0)) || {}).filter((k) => k !== 'c').length === 5);
     t('atomic: kein Zwischenzustand aim + Fremdbuchung', seen.every((e) => phaseOf(e) !== 'aim' || filled(e) <= 2));
     t('atomic: kein Zwischenzustand resolving + unvollstaendig', seen.every((e) => phaseOf(e) !== 'resolving' || filled(e) === 5));
     t('atomic: Uebergang wurde ueberhaupt beobachtet', seen.some((e) => phaseOf(e) === 'resolving'));
@@ -340,7 +341,11 @@ const LIVE_CLOCK = (anchor) => ({ g: { 0: { live: { clock: anchor } } } });
       slQ[0].dx === 100 && slQ[1].ns === 'stand' && slQ[2].ns === 'stand');
     t('atomic: parallele Close ziehen die Zeit nur EINMAL ab', (await clockOf('ABCQ')).remainingMs === 23000);
     t('atomic: parallele Close archivieren genau EINEN History-Turn',
-      core.canonical(await hist('ABCQ', 0, 0)) === core.canonical(slQ));
+      await (async () => {
+        const h = (await hist('ABCQ', 0, 0)) || {};
+        const s = {}; for (const k of Object.keys(h)) if (k !== 'c') s[k] = h[k];
+        return core.canonical(s) === core.canonical(slQ) && h.c && h.c.usedMs === 7000;
+      })());
 
     // ── 6) Commit gegen Timeout ─────────────────────────────────────────────
     //    Rules rechnen mit der ECHTEN Serveruhr (now), daher hier Anker mit
@@ -639,6 +644,21 @@ const LIVE_CLOCK = (anchor) => ({ g: { 0: { live: { clock: anchor } } } });
       cu.status === 'closed' && cu.clock.remainingMs === 0 && cu.clock.stage === 2);
     t('stage: gesamte Leiter lueckenlos archiviert (t/0..t/10)',
       await (async () => { for (let i = 0; i <= 10; i++) if ((await hist('ABDH', 0, i)) == null) return false; return true; })());
+    // ── Replay-Anker: die Historie allein muss beide Stufen rekonstruieren ──
+    const anchors = [];
+    for (let i = 0; i <= 10; i++) anchors.push(((await hist('ABDH', 0, i)) || {}).c);
+    t('anker: jeder Turn traegt einen vollstaendigen Clock-Anker',
+      anchors.every((a) => a && typeof a.startedAt === 'number' && typeof a.usedMs === 'number'
+        && typeof a.stage === 'number' && typeof a.remainingAfter === 'number'));
+    t('anker: Stufe 1 exakt an Turn 4, Zyklus 2 danach mit vollen 30000',
+      anchors[3].stage === 0 && anchors[4].stage === 1 && anchors[4].remainingAfter === 30000);
+    t('anker: Stufe 2 exakt an Turn 9, danach terminal 0',
+      anchors[8].stage === 1 && anchors[9].stage === 2 && anchors[9].remainingAfter === 0);
+    t('anker: kein Turn ueberzieht das Zugfenster', anchors.every((a) => a.usedMs <= 7000));
+    t('anker: Zyklus 1 summiert sich auf exakt 30000',
+      anchors.slice(0, 5).reduce((s, a) => s + a.usedMs, 0) === 30000);
+    t('anker: Zyklus 2 summiert sich auf exakt 30000',
+      anchors.slice(5, 10).reduce((s, a) => s + a.usedMs, 0) === 30000);
 
     // ── 11) Reconnect-Vollstaendigkeit: alles aus live + Historie ───────────
     const cold = await clockOf('ABCD');

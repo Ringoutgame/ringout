@@ -277,10 +277,24 @@ function createArbiter(opts) {
     if (!clock || clock.phase !== 'resolving' || clock.archived === true) return live;
     const turn = clock.turn;
     const slots = live.slots || {};
+    // Unveraenderlicher Clock-Anker je Turn: Replay und fastForwardMatch koennen
+    // damit beide Collapse-Stufen, HUD-Restzeit und Radien exakt rekonstruieren,
+    // ohne die Live-Uhr zu kennen. stage/remainingAfter sind die Werte NACH dem
+    // Close, ein Stufenwechsel ist also der Sprung zwischen zwei Turns.
+    const anchor = {
+      startedAt: clock.startedAt,
+      usedMs: typeof clock.usedMs === 'number' ? clock.usedMs : 0,
+      stage: clock.stage || 0,
+      remainingAfter: clock.remainingMs,
+    };
+    const record = Object.assign({}, slots, { c: anchor });
+    // Der Vergleich laeuft NUR ueber die Slots: der Anker ist abgeleitet und darf
+    // einen identischen Retry nicht als Desync erscheinen lassen.
+    const slotsOf = (o) => { const r = {}; for (const k of Object.keys(o || {})) if (k !== 'c') r[k] = o[k]; return r; };
     let mismatch = false;
     await turnRef(room, gen, turn).transaction((cur) => {
-      if (cur == null) return slots;                 // write-once Erstschreibung
-      mismatch = canonical(cur) !== canonical(slots);
+      if (cur == null) return record;                // write-once Erstschreibung
+      mismatch = canonical(slotsOf(cur)) !== canonical(slots);
       return;                                        // Historie ist unantastbar
     });
     const lref = liveRef(room, gen);
@@ -379,6 +393,7 @@ function createArbiter(opts) {
           phase: 'resolving', closedAt: t, settleDeadlineAt: t + SETTLE_GRACE_MS,
           remainingMs: rem,
           stage: stage,
+          usedMs: used,                              // Verbrauch DIESER Phase — Quelle des Historien-Ankers
           // Cracked gilt je Zyklus: der Rollover oben hat ihn ggf. schon geloest.
           cracked: cracked || (rem > 0 && rem <= CRACK_REMAIN_MS),
           expired: expired,
