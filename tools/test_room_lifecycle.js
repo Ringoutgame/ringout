@@ -40,6 +40,9 @@ const PROJECT = 'demo-ringout-lifecycle';
 const NS = PROJECT + '-default-rtdb';
 
 const core = require(path.join(REPO, 'functions', 'clock-core.js'));
+// Restzeit, mit der eine NEUE Generation eroeffnet wird: ein Collapse-Zyklus,
+// nicht das Gesamtbudget (Stufenvertrag, s. clock-core/openingAnchor).
+const CYCLE = core.CYCLE_MS;
 const roomCore = require(path.join(REPO, 'functions', 'room-core.js'));
 const admin = require(path.join(REPO, 'functions', 'node_modules', 'firebase-admin'));
 
@@ -501,7 +504,7 @@ const IDENT = (i) => ({ pid: PID[i], name: 'P' + i, tab: TAB[i] });
     t('activate: Gast-Aktivierung startet 1v1 atomar (state+Clock)',
       aG.started === true && rF1.state === 'playing' && aG.clock != null);
     t('activate: Startzeit entsteht IN der Transaction (deadline = Aktivierung+7000)',
-      aG.clock.startedAt === BASE + 4000 && aG.clock.deadlineAt === BASE + 11000 && aG.clock.remainingMs === 60000
+      aG.clock.startedAt === BASE + 4000 && aG.clock.deadlineAt === BASE + 11000 && aG.clock.remainingMs === CYCLE && aG.clock.stage === 0
       && aG.clock.eligibleSeats === '0,1' && rF1.seats === undefined);
     t('activate: fremde UID abgelehnt', (await err(() => rc.roomActivateV4({ uid: UX, room: 'ABKF', iid: rF1.iid, token: 'FREMDTOKEN000001', leaseId: 'FREMDLEASE000001' }))) === 'permission');
     t('activate: falsche iid abgelehnt', (await err(() => rc.roomActivateV4({ uid: UID[1], room: 'ABKF', iid: 'IIDLC-FREMD1', token: sessOf('ABKF', 1), leaseId: 'X' }))) === 'failed');
@@ -590,7 +593,7 @@ const IDENT = (i) => ({ pid: PID[i], name: 'P' + i, tab: TAB[i] });
     t('sess: Client kann sess nicht schreiben', (await restPut('rooms/ABKR/sess/1/active', 'HACKTOK00001', UID[1])) === false);
     // Gameplay-Bindung: der alte Tab gewinnt keinen Move-Slot mehr.
     await db.ref('rooms/ABKR/p/1').set({ s: a2R.token, on: true, t: Date.now() });
-    const liveR = core.aimAnchor(0, 0, 60000, Date.now(), '0,1', {});
+    const liveR = core.aimAnchor(0, 0, CYCLE, Date.now(), '0,1', {});
     await db.ref('rooms/ABKR/g/0/live').set({ iid: await iidOf('ABKR'), clock: liveR });
     t('rotation: alter Tab kann keinen Move-Slot gewinnen (sid)',
       (await restPut('rooms/ABKR/g/0/live/slots/1', { idx: 1, dx: 10, dy: 10, sp: 0, t: 0, sid: aR.token }, UID[1])) === false);
@@ -654,8 +657,8 @@ const IDENT = (i) => ({ pid: PID[i], name: 'P' + i, tab: TAB[i] });
     t('start: nur reservierte (nie aktivierte) Gaeste blockieren den Start', (await err(() => startM('ABKJ'))) === 'failed');
     await onlineAll('ABKJ', [1, 2]);
     const s1 = await startM('ABKJ');
-    t('start: korrekter erster Anker (60000/deadline/eligible/state/seats)',
-      s1.status === 'started' && s1.clock.remainingMs === 60000 && s1.clock.deadlineAt === BASE + 7000
+    t('start: korrekter erster Anker (ein Zyklus, stage 0, deadline/eligible/state/seats)',
+      s1.status === 'started' && s1.clock.remainingMs === CYCLE && s1.clock.stage === 0 && s1.clock.deadlineAt === BASE + 7000
       && s1.clock.eligibleSeats === '0,1,2' && (await roomOf('ABKJ')).state === 'playing' && (await roomOf('ABKJ')).seats === 3);
     const s2 = await startM('ABKJ');
     t('start: Retry ist exists und setzt die Clock nicht zurueck',
@@ -714,9 +717,15 @@ const IDENT = (i) => ({ pid: PID[i], name: 'P' + i, tab: TAB[i] });
     simNow = BASE + 9000;
     const rm1 = await rematch('ABNA', 0, 0);            // HOST
     t('rematch: neue Generation exakt oldGen+1 (nur Host)', rm1.status === 'rematched' && rm1.gen === 1 && (await roomOf('ABNA')).gen === 1);
-    t('rematch: neue Clock frisch (60000, cracked/expired false, phaseId 1:0)',
-      rm1.clock.remainingMs === 60000 && rm1.clock.cracked === false && rm1.clock.expired === false
+    // Stufen-Reset des Rematch: die neue Generation beginnt bei stage 0 mit einem
+    // vollen Zyklus, 'aim' und leeren Slots — sie erbt die Stufen der
+    // Vorgaengergeneration nicht.
+    t('rematch: neue Clock frisch (ein Zyklus, stage 0, cracked/expired false, phaseId 1:0)',
+      rm1.clock.remainingMs === CYCLE && rm1.clock.stage === 0
+      && rm1.clock.cracked === false && rm1.clock.expired === false && rm1.clock.phase === 'aim'
       && rm1.clock.phaseId === '1:0' && rm1.clock.deadlineAt === BASE + 9000 + 7000);
+    t('rematch: neue Generation startet mit leeren live/slots',
+      (await db.ref('rooms/ABNA/g/1/live/slots').get()).val() === null);
     t('rematch: alte Generation byte-identisch', core.canonical((await db.ref('rooms/ABNA/g/0').get()).val()) === histBefore);
     const rm2 = await rematch('ABNA', 0, 0);
     t('rematch: identischer Retry liefert dieselbe Generation ohne Reset',
@@ -744,7 +753,7 @@ const IDENT = (i) => ({ pid: PID[i], name: 'P' + i, tab: TAB[i] });
     t('rematch-crash: Gen gebumpt, Anker fehlt', (await db.ref('rooms/ABNB/gen').get()).val() === 1 && (await clockOf('ABNB', 1)) === null);
     const rmFix = await rematch('ABNB', 0, 0);
     t('rematch-crash: Retry repariert den Anker (exists, dieselbe Generation)',
-      rmFix.status === 'exists' && rmFix.gen === 1 && rmFix.clock.remainingMs === 60000);
+      rmFix.status === 'exists' && rmFix.gen === 1 && rmFix.clock.remainingMs === CYCLE && rmFix.clock.stage === 0);
     // Grosse alte Historie beeinflusst den Rematch-Transaction-Scope nicht.
     codeQueue.push('ABNC');
     await creAct(0, 'req-rem-00003', CFG('single'));
@@ -1048,7 +1057,7 @@ const IDENT = (i) => ({ pid: PID[i], name: 'P' + i, tab: TAB[i] });
     t('wrapper: Rematch mit alter Session -> PERMISSION_DENIED', wrStale.code === 'PERMISSION_DENIED');
     const wrHost = await callFn('roomRematchV4', { room: wroom, iid: wiid, expectedGen: 0, session: wa0.result.token }, W0);
     t('wrapper: Rematch durch Host -> Gen 1 mit frischer Clock',
-      wrHost.ok && wrHost.result.gen === 1 && wrHost.result.clock.remainingMs === 60000);
+      wrHost.ok && wrHost.result.gen === 1 && wrHost.result.clock.remainingMs === CYCLE && wrHost.result.clock.stage === 0);
     // FFA-Start ueber den Wrapper (kompletter Handshake).
     const wc2 = await callFn('roomCreateV4', { requestId: 'req-wrap-00004', config: CFG('ffa'), pid: WID.pid, tab: WID.tab, name: 'Host' }, W0);
     const w2room = wc2.result.room, w2iid = wc2.result.iid;
@@ -1060,8 +1069,8 @@ const IDENT = (i) => ({ pid: PID[i], name: 'P' + i, tab: TAB[i] });
     const wsGuest = await callFn('roomStartV4', { room: w2room, iid: w2iid, session: wa2g.result.token }, W1);
     t('wrapper: Start durch Gast -> PERMISSION_DENIED', wsGuest.code === 'PERMISSION_DENIED');
     const ws = await callFn('roomStartV4', { room: w2room, iid: w2iid, session: wa2h.result.token }, W0);
-    t('wrapper: roomStartV4 startet FFA (60000 ms, deadline relativ +7000)',
-      ws.ok && ws.result.status === 'started' && ws.result.clock.remainingMs === 60000
+    t('wrapper: roomStartV4 startet FFA (ein Zyklus, stage 0, deadline relativ +7000)',
+      ws.ok && ws.result.status === 'started' && ws.result.clock.remainingMs === CYCLE && ws.result.clock.stage === 0
       && ws.result.clock.deadlineAt === ws.result.clock.startedAt + 7000);
     const wLeave = await callFn('roomLeaveV4', { room: 'ZZQQ', iid: wiid, session: wa0.result.token }, W0);
     t('wrapper: Leave auf geloeschtem/fremdem Raum idempotent gone', wLeave.ok && wLeave.result.status === 'gone');

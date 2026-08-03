@@ -80,15 +80,15 @@
 // (strukturell klein). roomActivateV4 transaktioniert den Raumknoten auch im
 // laufenden Match (Reconnect) — bewusst dokumentierte Ausnahme: Session-
 // Uebernahme, Presence und Auto-Start muessen iid-gebunden atomar sein; die
-// Payload ist durch die 60-s-Uhr je Generation begrenzt, Reconnects sind
+// Payload ist durch die zwei Zyklen aktiver Zeit je Generation begrenzt, Reconnects sind
 // selten. Rematch transaktioniert nur den gen-Zaehler + den frischen
 // g/<neu>/live-Knoten; Create den Marker + den neuen Raumknoten.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const crypto = require('crypto');
 const {
-  ArbiterError, aimAnchor, seatOfUid, seatKey, canonical, cachedTransaction,
-  MATCH_CLOCK_MS, MAX_SEATS, ROOM_RE,
+  ArbiterError, openingAnchor, seatOfUid, seatKey, canonical, cachedTransaction,
+  MAX_SEATS, ROOM_RE,
 } = require('./clock-core');
 
 const GEN_MAX = 10000;              // wie der Client/GEN_MAX und die gen-Rule
@@ -236,12 +236,19 @@ function createRoomCore(opts) {
   // Rematch-Gewinner und Crash-Reparatur teilen sich exakt diesen Schritt) —
   // eine bestehende Clock wird NIE zurueckgesetzt; die Startzeit entsteht IM
   // Transaction-Lauf; live traegt die Rauminstanz (iid-Bindung).
+  //
+  // Stufenmodell: der Anker kommt aus openingAnchor (clock-core) und traegt
+  // damit zwangslaeufig stage 0, remainingMs = CYCLE_MS, phase 'aim',
+  // cracked/expired false und die frischen eligibleSeats des Rosters. Der
+  // geschriebene Wert ist { iid, clock } OHNE slots — live/slots der neuen
+  // Generation ist also leer. Weil der Anker gen-gebunden ist, entsteht auch
+  // die phaseId (<gen>:0) neu. Die Vorgaengergeneration wird nicht angefasst.
   async function ensureAnchor(room, gen, roster, iid) {
     const ref = liveRef(room, gen);
     await cachedTransaction(ref, (cur) => {
       if (cur && cur.clock) return;
       if (cur && cur.iid !== undefined && cur.iid !== iid) return;   // fremde Instanz
-      return { iid, clock: aimAnchor(gen, 0, MATCH_CLOCK_MS, nowMs(), seatKey(roster), {}) };
+      return { iid, clock: openingAnchor(gen, nowMs(), seatKey(roster)) };
     });
     return (await ref.child('clock').get()).val();
   }
@@ -536,7 +543,7 @@ function createRoomCore(opts) {
           next.state = 'playing';
           next.g = Object.assign({}, cur.g);
           next.g[gen] = Object.assign({}, next.g[gen], {
-            live: { iid: cur.iid, clock: aimAnchor(gen, 0, MATCH_CLOCK_MS, t, seatKey([0, 1]), {}) },
+            live: { iid: cur.iid, clock: openingAnchor(gen, t, seatKey([0, 1])) },
           });
           started = true; startGen = gen;
         }
@@ -703,7 +710,7 @@ function createRoomCore(opts) {
       next.g = Object.assign({}, cur.g);
       // Serverzeit IM Transaction-Lauf: Retries erben keine alte Deadline.
       next.g[gen] = Object.assign({}, next.g[gen], {
-        live: { iid: cur.iid, clock: aimAnchor(gen, 0, MATCH_CLOCK_MS, nowMs(), seatKey(roster), {}) },
+        live: { iid: cur.iid, clock: openingAnchor(gen, nowMs(), seatKey(roster)) },
       });
       outcome = 'started';
       return next;

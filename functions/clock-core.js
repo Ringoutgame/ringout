@@ -234,6 +234,20 @@ function aimAnchor(gen, turn, remainingMs, at, eligibleSeats, flags) {
   return a;
 }
 
+// Eroeffnungsanker einer Generation: Turn 0, Zyklus 1, stage 0, frisches
+// Warnfenster (cracked/expired false), leere Slots (der Aufrufer schreibt
+// ausschliesslich { iid, clock }).
+//
+// Der Stufenvertrag einer NEUEN Generation steht damit an GENAU einer Stelle.
+// Alle vier Eroeffnungspfade — clockStart, roomStartV4, der Auto-Start in
+// roomActivateV4 und roomRematchV4 — teilen sich diesen Aufruf; keiner setzt
+// CYCLE_MS oder stage selbst. Ein Rematch beginnt dadurch zwangslaeufig wieder
+// mit zwei vollen Zyklen und kann die Stufen der Vorgaengergeneration weder
+// erben noch fortschreiben.
+function openingAnchor(gen, at, eligibleSeats) {
+  return aimAnchor(gen, 0, CYCLE_MS, at, eligibleSeats, { stage: 0 });
+}
+
 function createArbiter(opts) {
   const db = opts.db;
   const nowMs = typeof opts.now === 'function' ? opts.now : () => Date.now();
@@ -372,12 +386,11 @@ function createArbiter(opts) {
     if (seats.length < 2) throw new ArbiterError('failed', 'Zu wenige besetzte Seats.');
     const res = await cachedTransaction(liveRef(args.room, gen), (cur) => {
       if (cur && cur.clock && cur.clock.gen === gen) return;   // bereits eroeffnet -> Echo
-      // Zyklus 1 startet mit CYCLE_MS (nicht mit dem Gesamtbudget) und stage 0.
       // Serverzeit IM Transaction-Lauf: ein Retry unter Contention uebernimmt
       // nie eine bereits veraltete Deadline — die erste Aim-Phase startet immer
       // mit dem vollen Fenster. live traegt die Rauminstanz (iid-Bindung aller
       // Folge-Transactions).
-      return { iid, clock: aimAnchor(gen, 0, CYCLE_MS, nowMs(), seatKey(seats), { stage: 0 }) };
+      return { iid, clock: openingAnchor(gen, nowMs(), seatKey(seats)) };
     });
     const live = res.snapshot.val();
     return { status: res.committed ? 'started' : 'exists', clock: (live && live.clock) || null };
@@ -564,7 +577,7 @@ function createArbiter(opts) {
 }
 
 module.exports = {
-  createArbiter, ArbiterError, aimAnchor, seatCount, seatOfUid,
+  createArbiter, ArbiterError, aimAnchor, openingAnchor, seatCount, seatOfUid,
   seatKey, parseSeatKey, normalizeSeats, canonical, cachedTransaction,
   MATCH_CLOCK_MS, TURN_LIMIT_MS, CRACK_REMAIN_MS, SETTLE_GRACE_MS, CLOCK_V,
   CYCLE_MS, STAGE_COUNT, MAX_SEATS, ROOM_RE,
