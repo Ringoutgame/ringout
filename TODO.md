@@ -1,6 +1,6 @@
 # TODO.md — RingOut
 
-**Zuletzt aktualisiert:** 2026-08-04 (P0 „Online-Kugel verschwindet" veröffentlicht auf `main` @ `67138d0`; Folge-Bugfix Game-Over-Overlay-Race auf `bugfix/cancel-stale-gameover-overlay`)
+**Zuletzt aktualisiert:** 2026-08-04 (P0 „Online-Kugel verschwindet" und Game-Over-Overlay-Race auf `main` @ `1b5a81b` veröffentlicht; neu: Zugzeit-Anzeige auf `feature/turn-timer-feedback`)
 
 Offene Aufgaben nach Priorität. Abgeschlossene Aufgaben werden nach `CHANGELOG.md` verschoben.
 
@@ -58,6 +58,8 @@ Offene Aufgaben nach Priorität. Abgeschlossene Aufgaben werden nach `CHANGELOG.
 ---
 
 ## P2 — Mittel (Spieler-Erfahrung)
+
+- [x] ~~**Zugzeit (7 s) war im HUD nicht erkennbar (2026-08-04)**~~ → **umgesetzt** auf `feature/turn-timer-feedback`: Anzeige rechts oben im `.arena-wrap` mit Beschriftung (ZUGZEIT · TURN TIME · HAMLE SÜRESİ), großer Sekundenzahl und Fortschrittsbalken; Puls + je ein Tick bei 3/2/1, Time-up-Impuls bei 0. Speist sich aus derselben Deadline, die den Timeout auslöst — keine zweite Uhr, korrekter Restwert nach Reconnect. Nachweis: `test_turn_timer.js` 77 (Negativproben 4 bzw. 19 rot), `npm run test:e2e:turntimer` 34 (zwei Clients, Desktop + Handy-Größe), Runner 19/19, FFA-E2E 4/4, Spike 73/73, 3D-Wächter 20/20, Overlay-Race 34/34. **Offen: Merge-Entscheidung des Owners** (bewusst nicht nach `main` gemerged, nicht deployed).
 
 - [ ] **Kosmetik: Kugel sinkt beim Collapse kurz durch eine noch ruhende Fläche (gemessen 2026-08-04):** Wird eine Kugel beim Ring-Collapse eliminiert, weil sie außerhalb des neuen Radius liegt, startet ihr kosmetischer Sturz (`drop=1500·t²`) sofort — das Segment unter ihr läuft aber erst die Tremor-Phase (`COLV_TREMOR_S=0.3`) plus Segment-Delay, steht also noch sichtbar an seinem Platz. Messreihe aus dem Zwei-Client-3D-Lauf: Kugel bei Radius ~410 (neuer Radius 397,7), Mesh-Höhe fällt in ~0,3 s von −89 auf −400 unter eine Fläche, die bis Radius 485 sichtbar bleibt. Rein visuell, kein Zustandsfehler, auf allen Clients identisch. **Bewusst nicht behoben** — der P0-Auftrag schloss Änderungen an Collapse-Timing und Collapse-Visuals ausdrücklich aus. Der neue Lauf `npm run test:e2e:3d2c` protokolliert den Befund als `dead-ball-sinks-through-visible-floor` (nicht blockierend), sodass er nach einer Freigabe sofort messbar ist.
 

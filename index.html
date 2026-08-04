@@ -375,6 +375,30 @@ body.booting #menu{opacity:0;visibility:hidden}
   box-shadow:0 0 16px rgba(255,70,40,.4);animation:ctPulse .9s ease-in-out infinite}
 .ctimer.collapsed{color:#ffb59f;border-color:rgba(255,110,70,.55);background:rgba(40,12,10,.55);animation:none}
 @keyframes ctPulse{0%,100%{opacity:.78}50%{opacity:1}}
+/* ── Zugzeit-Anzeige (7 s) ────────────────────────────────────────────────────
+   Rechts oben, kuehles Blau, eigene Form (Label + grosse Zahl + Fortschrittsbalken).
+   Die Matchzeit sitzt mittig, ist monospace und wird warm — beide sind auf einen
+   Blick unterscheidbar. Groessen ueber clamp(): Desktop und Handy ohne Media-Query. */
+.tturn{position:absolute;top:6px;right:6px;z-index:5;pointer-events:none;
+  display:flex;flex-direction:column;align-items:center;gap:3px;min-width:clamp(56px,13vw,72px);
+  background:rgba(7,12,22,.62);border:1px solid rgba(120,180,230,.30);border-radius:14px;
+  padding:5px clamp(8px,2.4vw,12px) 6px;backdrop-filter:blur(4px);
+  box-shadow:0 4px 14px rgba(5,9,18,.35);transition:color .2s,border-color .2s,background .2s}
+.tt-lbl{font:800 clamp(7px,1.7vw,9px)/1 system-ui;letter-spacing:.16em;color:#93b4d4;white-space:nowrap}
+.tt-num{font:900 clamp(20px,5.2vw,28px)/1 system-ui;color:#dbeaf8;font-variant-numeric:tabular-nums}
+.tt-bar{display:block;width:100%;height:3px;border-radius:2px;background:rgba(140,175,215,.22);overflow:hidden}
+.tt-bar>i{display:block;height:100%;width:100%;border-radius:2px;background:#7fc2f0;
+  transform-origin:left center;transition:transform .12s linear,background .2s}
+/* Letzte drei Sekunden: waermer + deutliches Pulsieren. */
+.tturn.urgent{border-color:rgba(255,150,90,.65);background:rgba(48,20,10,.62);
+  box-shadow:0 0 16px rgba(255,130,60,.35);animation:ttPulse .5s ease-in-out infinite}
+.tturn.urgent .tt-lbl{color:#ffc9a6}
+.tturn.urgent .tt-num{color:#fff0e4}
+.tturn.urgent .tt-bar>i{background:#ff9d5c}
+/* Zeit abgelaufen: ruhiger Endzustand, kein Dauerpulsieren. */
+.tturn.up{animation:none;border-color:rgba(255,110,70,.55);background:rgba(40,12,10,.6)}
+@keyframes ttPulse{0%,100%{opacity:.82;transform:scale(1)}50%{opacity:1;transform:scale(1.05)}}
+@media (prefers-reduced-motion:reduce){.tturn.urgent{animation:none}}
 /* --cc-y wird pro Frame aus der projizierten oberen Arenakante gesetzt (updateCollapseCountPos);
    Verankerung ueber die Unterkante (-100%) haelt die Zahl formatunabhaengig ueber der Arena. */
 .ccount{position:fixed;left:50%;top:var(--cc-y,32%);transform:translate(-50%,-100%);transform-origin:50% 100%;
@@ -605,7 +629,20 @@ body:not(.r3d) .ohero{height:12px}
     <div class="pcard" id="card1"><div class="pn" id="n1">BOT</div><div class="pw" id="ready1">zielt…</div></div>
     <div class="ffabar" id="ffaBar"></div>
   </div>
-  <div class="arena-wrap"><canvas id="cv"></canvas></div>
+  <div class="arena-wrap"><canvas id="cv"></canvas>
+    <!-- Zugzeit der laufenden Planungsphase. Sie haengt BEWUSST im .arena-wrap:
+         der beginnt auf jeder Bildschirmgroesse unterhalb der HUD-Zeile, dadurch
+         kollidiert die Anzeige nie mit Menue-/Ton-Button und braucht weder
+         Media-Query noch feste Pixeloffsets. Rechts oben und kuehles Blau — die
+         Matchzeit (.ctimer) sitzt mittig am oberen Rand und wird warm/rot: die
+         beiden Uhren duerfen nie verwechselbar sein. Werte kommen aus derselben
+         Deadline, die den Timeout ausloest (s. turnTimerState) — KEINE eigene Uhr. -->
+    <div class="tturn" id="turnTimer" style="display:none" role="timer" aria-live="off">
+      <span class="tt-lbl" id="turnTimerLbl">ZUGZEIT</span>
+      <span class="tt-num" id="turnTimerNum">7</span>
+      <span class="tt-bar"><i id="turnTimerFill"></i></span>
+    </div>
+  </div>
   <!-- Ring-Collapse-Timer (nur lokales Bot Training): kleine Matchzeit + grosser 5..1-Countdown -->
   <div class="ctimer" id="collapseTimer" style="display:none" aria-hidden="true">02:00</div>
   <div class="ccount" id="collapseCount" aria-hidden="true"></div>
@@ -1382,6 +1419,7 @@ en:{tagline:'PULL BACK · RELEASE · KNOCK THEM OUT',chip:'FEATURED',
   code4:'Please enter the 4-letter code.',joining:'Joining…',noRoom:'Room not found.',roomFull:'Room is already full.',
   connWait:'Connected! Waiting for the host…',connStart:'Connected! Game starting…',
   noFb:'⚠ No connection to Firebase. Check internet & config.',err:'Error: ',noOnlineReset:'Not available in online mode.',loading:'Loading arena...',
+  turnTime:'TURN TIME',
   victory:'VICTORY',defeat:'DEFEAT',wins:'WINS',finalScore:'FINAL SCORE',ringout:'RINGOUT',round:'ROUND',
   col0:'BLUE',col1:'RED',col2:'GREEN',col3:'YELLOW',col4:'GRAY',
   nameYou:'YOU',nameOpp:'OPPONENT',namePlayer:'Player',youAre:'YOU ARE',
@@ -1422,6 +1460,7 @@ de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'FEATURED',
   code4:'Bitte 4-stelligen Code eingeben.',joining:'Trete bei…',noRoom:'Raum nicht gefunden.',roomFull:'Raum ist schon voll.',
   connWait:'Verbunden! Warte auf den Host…',connStart:'Verbunden! Spiel startet…',
   noFb:'⚠ Keine Verbindung zu Firebase. Internet & Config prüfen.',err:'Fehler: ',noOnlineReset:'Im Online-Modus nicht verfügbar.',loading:'Arena wird geladen...',
+  turnTime:'ZUGZEIT',
   victory:'SIEG',defeat:'NIEDERLAGE',wins:'GEWINNT',finalScore:'ENDSTAND',ringout:'RINGOUT',round:'RUNDE',
   col0:'BLAU',col1:'ROT',col2:'GRÜN',col3:'GELB',col4:'GRAU',
   nameYou:'DU',nameOpp:'GEGNER',namePlayer:'Spieler',youAre:'DU BIST',
@@ -1462,6 +1501,7 @@ tr:{tagline:'GERİ ÇEK · BIRAK · DIŞARI İT',chip:'FEATURED',
   code4:'Lütfen 4 haneli kodu gir.',joining:'Katılınıyor…',noRoom:'Oda bulunamadı.',roomFull:'Oda zaten dolu.',
   connWait:'Bağlandı! Host bekleniyor…',connStart:'Bağlandı! Oyun başlıyor…',
   noFb:'⚠ Firebase bağlantısı yok. İnterneti ve yapılandırmayı kontrol et.',err:'Hata: ',noOnlineReset:'Online modda kullanılamaz.',loading:'Arena yükleniyor...',
+  turnTime:'HAMLE SÜRESİ',
   victory:'ZAFER',defeat:'MAĞLUBİYET',wins:'KAZANDI',finalScore:'SON SKOR',ringout:'RINGOUT',round:'RAUNT',
   col0:'MAVİ',col1:'KIRMIZI',col2:'YEŞİL',col3:'SARI',col4:'GRİ',
   nameYou:'SEN',nameOpp:'RAKİP',namePlayer:'Oyuncu',youAre:'RENGİN',
@@ -1522,6 +1562,7 @@ function applyLang(){
   $('leaveT').textContent=T('leaveT');$('leaveS').textContent=T('leaveS');
   $('leaveCancel').textContent=T('leaveNo');$('leaveGo').textContent=T('leaveYes');
   $('rematchBtn').textContent=T('rematch');$('replayBtn').textContent=T('replayB');$('ovMenuBtn').textContent=T('menuB');
+  {const tl=$('turnTimerLbl');if(tl)tl.textContent=T('turnTime');}
   selectMenuMode(menuSel);
 }
 $('menuSet').onclick=()=>$('setOv').classList.add('show');
@@ -1869,6 +1910,11 @@ const SFX=(()=>{
     // warn = dezentes 10s-Vorwarnsignal, tick = klarer 5..1-Countdown-Beep, collapse = kurzer Alarm.
     warn(){go(c=>{const t=c.currentTime;const g=c.createGain();g.gain.setValueAtTime(.0001,t);g.gain.linearRampToValueAtTime(.08,t+.02);g.gain.exponentialRampToValueAtTime(.0006,t+.5);g.connect(c.destination);const o=c.createOscillator();o.type='triangle';o.frequency.setValueAtTime(430,t);o.frequency.exponentialRampToValueAtTime(300,t+.45);o.connect(g);o.start(t);o.stop(t+.5);});},
     tick(){go(c=>{const t=c.currentTime;const g=c.createGain();g.gain.setValueAtTime(.0001,t);g.gain.linearRampToValueAtTime(.13,t+.008);g.gain.exponentialRampToValueAtTime(.0006,t+.14);g.connect(c.destination);const o=c.createOscillator();o.type='square';o.frequency.setValueAtTime(880,t);o.connect(g);o.start(t);o.stop(t+.15);});},
+    // Zugzeit abgelaufen: kurzer, tiefer Abfall — klar unterscheidbar vom hellen
+    // Sekunden-Tick (880 Hz Square) und vom laengeren Collapse-Warnton. Dieselben
+    // Primitive wie der Rest des Sounddesigns, kein zusaetzliches Asset. Laeuft wie
+    // alles ueber go() und schweigt damit im Mute-Zustand.
+    turnUp(){go(c=>{const t=c.currentTime;const g=c.createGain();g.gain.setValueAtTime(.0001,t);g.gain.linearRampToValueAtTime(.10,t+.012);g.gain.exponentialRampToValueAtTime(.0005,t+.26);g.connect(c.destination);const o=c.createOscillator();o.type='triangle';o.frequency.setValueAtTime(300,t);o.frequency.exponentialRampToValueAtTime(190,t+.24);o.connect(g);o.start(t);o.stop(t+.27);});},
     // Vorladen der Collapse-Aufnahmen: wird vom visuellen Adapter ab Matchstart
     // pro Frame aufgerufen (billiger Guard) — fetch + decodeAudioData sind damit
     // ~50-60 s VOR dem Warnfenster fertig. Zum Ereigniszeitpunkt findet kein
@@ -2483,6 +2529,69 @@ function onlineRevealBlocked(){
   if(!online||!gameStarted)return false;
   return onStampProbe[turnNo]==='pending'&&onTurnStamp[turnNo]==null;
 }
+// ── Zugzeit-Anzeige (HUD) ───────────────────────────────────────────────────
+// Es gibt KEINE zweite Uhr. Die Anzeige liest ausschliesslich die Quelle, die den
+// 7-s-Timeout tatsaechlich ausloest:
+//   online → onlineTurnDeadlineAt/-WindowMs, exakt die Werte, mit denen
+//            tickOnlineClock() den No-Shot anfordert (Serverzeit, alle Clients gleich),
+//   lokal  → turnRemainMs() gegen turnWindowEndEl, exakt der Wert, den
+//            turnDeadlinePassed() prueft (matchElapsedMs-Koordinaten).
+// Deshalb stimmt sie auch nach Reconnect/Reload sofort: beide Quellen leiten sich aus
+// gespeicherten Stempeln bzw. der laufenden Matchzeit ab, nie aus einem eigenen Start.
+const TURN_URGENT_SECONDS=3;      // ab hier Pulsieren + Sekunden-Tick
+let onlineTurnDeadlineAt=null, onlineTurnWindowMs=0;
+let turnTickKey='', turnTickSec=-1, turnUpDone=false;
+// Identitaet des laufenden Zugfensters. Wechselt sie, sind die Tick-Latches
+// gegenstandslos — das deckt naechster Turn, neue Runde, Rematch und Generationswechsel
+// mit derselben Regel ab (kein Sonderfall je Ereignis).
+function turnTimerKey(){
+  return online?('o:'+gen+':'+turnNo):('l:'+roundNo+':'+turnWindowSeat+':'+turnWindowEndEl);
+}
+// {active, leftMs, windowMs} der laufenden Planungsphase. active=false blendet aus —
+// das deckt Reveal, Simulation, Result, Game Over, Menue und die verdeckte Hotseat-
+// Uebergabe ab, ohne dass ein Aufrufer daran denken muss.
+function turnTimerState(){
+  if(phase!=='aim'||menuVisible)return{active:false,leftMs:0,windowMs:0};
+  if(online){
+    if(!gameStarted||onlineTurnDeadlineAt==null)return{active:false,leftMs:0,windowMs:0};
+    // Auf das Fenster klemmen: .info/serverTimeOffset wird laufend nachgefuehrt, ein
+    // Offset-Rest von wenigen Millisekunden wuerde sonst kurz eine 8 statt der 7
+    // zeigen. Die Deadline selbst bleibt unangetastet — geklemmt wird nur die Anzeige.
+    const win=onlineTurnWindowMs||TURN_LIMIT_SECONDS*1000;
+    return{active:true,leftMs:Math.max(0,Math.min(win,onlineTurnDeadlineAt-serverNow())),windowMs:win};
+  }
+  if(!collapseActive()||collapseState!=='running'||coverOpen||turnWindowEndEl==null)return{active:false,leftMs:0,windowMs:0};
+  return{active:true,leftMs:turnRemainMs(),windowMs:TURN_LIMIT_SECONDS*1000};
+}
+// Einziger Aufrufer ist die Hauptschleife (nach tickCollapse/tickOnlineClock), damit
+// pro Frame genau EINE Auswertung stattfindet — kein Tick kann sich durch mehrere
+// Aufrufstellen, Reconnect, Tab-Wechsel oder doppelte Listener wiederholen.
+function updateTurnTimerHud(){
+  const el=$('turnTimer');if(!el)return;
+  const st=turnTimerState();
+  if(!st.active){
+    if(el.style.display!=='none'){el.style.display='none';el.classList.remove('urgent','up');}
+    turnTickKey='';turnTickSec=-1;turnUpDone=false;   // Fenster vorbei -> Latches frei fuer den naechsten Zug
+    return;
+  }
+  const key=turnTimerKey();
+  if(key!==turnTickKey){turnTickKey=key;turnTickSec=-1;turnUpDone=false;}
+  const sec=Math.max(0,Math.ceil(st.leftMs/1000));
+  const num=$('turnTimerNum'),fill=$('turnTimerFill');
+  if(el.style.display==='none')el.style.display='';
+  if(num&&num.textContent!==String(sec))num.textContent=String(sec);
+  if(fill)fill.style.transform='scaleX('+(st.windowMs>0?Math.max(0,Math.min(1,st.leftMs/st.windowMs)):0)+')';
+  el.classList.toggle('urgent',sec>0&&sec<=TURN_URGENT_SECONDS);
+  el.classList.toggle('up',sec<=0);
+  // Hoerbare Sekunden: genau EIN Tick je erstmals angezeigter Sekunde 3/2/1.
+  // Waehrend der grosse Collapse-Countdown laeuft, schweigt der Zugtick — dessen
+  // Sekunden gehoeren der Matchuhr, zwei gleichzeitige Ticks waeren nicht zuzuordnen.
+  if(sec>0&&sec<=TURN_URGENT_SECONDS&&sec!==turnTickSec){
+    turnTickSec=sec;
+    if(!collapseCountVisible)SFX.tick();
+  }
+  if(sec<=0&&!turnUpDone){turnUpDone=true;SFX.turnUp();}
+}
 // Noch offene, lebende Seats der laufenden Online-Phase.
 function onlineOpenSeats(){
   const out=[];
@@ -2494,8 +2603,12 @@ function onlineOpenSeats(){
 // fragt nach Ablauf der abgeleiteten Deadline einen No-Shot an; ob der zulaessig ist,
 // prueft der Server anhand seiner eigenen Uhr (Rules: nach s+7000 nur noch Stand).
 function tickOnlineClock(){
-  if(!online||!gameStarted){updateCollapseHud();return;}
+  if(!online||!gameStarted){onlineTurnDeadlineAt=null;onlineTurnWindowMs=0;updateCollapseHud();return;}
   const c=onlineClock(onTurnStamp,onTurnTs,turnNo,serverNow());
+  // Zugzeit-HUD: es liest GENAU diese Deadline — dieselbe, gegen die unten der
+  // No-Shot angefordert wird. Dadurch kann die Anzeige nie eine andere Zeit zeigen
+  // als die, die den Timeout ausloest (eine Uhr, zwei Verbraucher).
+  onlineTurnDeadlineAt=c.deadlineAt;onlineTurnWindowMs=c.windowMs;
   // Schwelle erreicht, Stufe aber noch nicht angewendet (wartet auf die Rundengrenze):
   // Anzeige bei 0 halten — sonst spraenge das HUD (und die Warnstufe des visuellen
   // Adapters) schon VOR dem sichtbaren Collapse in den naechsten Zyklus.
@@ -5461,6 +5574,7 @@ function loop(now){
   if(replaying){ SFX.rollUpdate(null,false); repTick(); if(r3dActive)r3d.render(); requestAnimationFrame(loop); return; }
   tickCollapse(now);   // lokale Modi: zaehlt nur in der Planungsphase, loest Auto-Stand + Collapse aus
   tickOnlineClock();   // Online: abgeleitete Serveruhr — Anzeige, Timeout-Anfrage, Matchende
+  updateTurnTimerHud();   // Zugzeit-HUD: liest NUR die oben gepflegte Deadline, genau einmal pro Frame
   if(phase==='reveal'&&now-phaseStart>REVEAL_MS)applyLaunch();
   else if(phase==='sim')stepSim();
   else if(phase==='result'){resultDrift();if(now-phaseStart>RESULT_MS)afterResult();}
