@@ -1614,7 +1614,8 @@ $('nameInput').addEventListener('input',e=>{ setOnlineName(e.target.value);
 // rejoinWait) zeigt die Bar wieder — ausser der Raum ist tot (savedRoom weg).
 $('rejoinBtn').onclick=()=>{ const sr=savedRoom(); if(!sr)return; $('onRejoin').style.display='none';
   attemptRejoin(sr.code).then(ok=>{ if(!ok&&savedRoom()&&!online)$('onRejoin').style.display=''; }); };
-function showMenu(){menuVisible=true;$('menu').style.display='flex';$('game').style.display='none';SFX.collapseStop();updateMenuPreview();resize();
+function showMenu(){menuVisible=true;clearGameOverOverlayTimer();   // Rueckweg ins Menue: kein nachlaufendes Overlay ueber der Startseite
+  $('menu').style.display='flex';$('game').style.display='none';SFX.collapseStop();updateMenuPreview();resize();
   whenFB(()=>{if(fbReady()&&menuVisible)startPublicListing();});updScrollHint();}   // Home-Rooms-Vorschau reaktivieren
 function showGame(){menuVisible=false;$('menu').style.display='none';$('game').style.display='flex';stopPublicListing();updScrollHint();}   // Gameplay-Framing kommt via newGame()->resize()
 // Scroll-Cue der Startseite: transienter Onboarding-Hinweis — sichtbar nur solange
@@ -2636,7 +2637,8 @@ function placeBalls(){
     balls.push(mkBall(cx,cy+off,0),mkBall(cx,cy-off,1));}
 }
 
-function newGame(){resize();R=R0;score=[];for(let p=0;p<np();p++)score.push(0);roundNo=1;particles=[];fx3=[];recFrames=[];
+function newGame(){resize();clearGameOverOverlayTimer();   // neues Match/Rematch: ein offener Overlay-Auftrag des alten Matches ist ungueltig
+  R=R0;score=[];for(let p=0;p<np();p++)score.push(0);roundNo=1;particles=[];fx3=[];recFrames=[];
   resetCollapseTimer();                              // Rematch/neues Match: Timer 1:00, Collapse-State + Radius zuruecksetzen
   const ffa=mode==='ffa';                            // FFA: kompakte Chip-Leiste statt der 2 Spielerkarten
   $('card0').style.display=ffa?'none':'';$('card1').style.display=ffa?'none':'';
@@ -3275,6 +3277,37 @@ function showRingout(){
   el.classList.remove('show');void el.offsetWidth;el.classList.add('show');   // Animation sauber retriggern
   clearTimeout(koT);koT=setTimeout(()=>el.classList.remove('show'),980);
 }
+// ── Verzoegertes Game-Over-Overlay: genau EIN verwalteter, kontextgebundener Timer ──
+// Das Overlay erscheint bewusst erst GAMEOVER_OVERLAY_DELAY_MS nach dem Sieg-Sound.
+// In diesem Fenster kann laengst ein anderer Zustand gelten — ein Rematch startet
+// eine neue Generation, ein Leave raeumt den Raum ab, ein neues lokales Match laeuft.
+// Frueher lief der Timeout in genau diesen Faellen weiter und blendete #ov NACH dem
+// Ausblenden erneut ein: ein unsichtbares Vollbild-Overlay (position:fixed; inset:0;
+// z-index:100) lag ueber der Arena, schluckte jede Canvas-Eingabe, und ein Tippen in
+// Kugelnaehe traf #ovMenuBtn — der Spieler verliess unabsichtlich den Raum.
+// Zwei unabhaengige Sicherungen: der Timer wird an allen Zustandswechseln explizit
+// abgebrochen, UND der Callback prueft vor dem Einblenden erneut, ob der Zustand,
+// fuer den er geplant wurde, ueberhaupt noch gilt.
+const GAMEOVER_OVERLAY_DELAY_MS=500;
+let gameOverOvTimer=null;
+function clearGameOverOverlayTimer(){if(gameOverOvTimer){clearTimeout(gameOverOvTimer);gameOverOvTimer=null;}}
+// Gilt der geplante Einblendauftrag noch? Das Match muss weiterhin beendet sein;
+// online zusaetzlich dieselbe Session, derselbe Raum und dieselbe Generation.
+function gameOverOverlayCurrent(ctx){
+  if(!ctx||phase!=='over'||ctx.online!==online)return false;
+  return online?(ctx.sid===onlineSessionId&&ctx.room===roomCode&&ctx.gen===gen):true;
+}
+// Plant das Einblenden neu. Ein evtl. noch offener Auftrag wird zuerst verworfen —
+// mehrfaches Game Over kann so nie zwei Timer gleichzeitig halten.
+function scheduleGameOverOverlay(){
+  clearGameOverOverlayTimer();
+  const ctx={online:online,sid:onlineSessionId,room:roomCode,gen:gen};
+  gameOverOvTimer=setTimeout(()=>{
+    gameOverOvTimer=null;
+    if(!gameOverOverlayCurrent(ctx))return;   // Rematch/neue Generation/Leave dazwischen -> nicht einblenden
+    $('ov').classList.add('show');
+  },GAMEOVER_OVERLAY_DELAY_MS);
+}
 function gameOver(winner){setPhase('over');setPhaseText();
   // TEAM DUEL: winner ist der TEAM-Index (0/1) -> Ich gewinne, wenn MEIN Team gewinnt.
   const team=fmt==='team_duel';
@@ -3290,7 +3323,7 @@ function gameOver(winner){setPhase('over');setPhaseText();
   $('wt').className='wt w'+winner;
   $('ws').textContent=T('finalScore')+' · '+(team?score.slice(0,2):score).join(' : ');
   $('rematchBtn').style.display='';$('replayBtn').style.display='';
-  SFX.win();setTimeout(()=>$('ov').classList.add('show'),500);}
+  SFX.win();scheduleGameOverOverlay();}
 
 // ════ ONLINE (Firebase Realtime DB · Lockstep) ════
 function whenFB(cb){ if(window.__FB_READY) cb(); else window.addEventListener('fb-ready',cb,{once:true}); }
@@ -3928,7 +3961,7 @@ function maybeStart(){ if(gameStarted)return; gameStarted=true; if(roomPublic&&m
 // fastForwardMatch hierueber einsteigt). seatLeft bleibt bewusst stehen: das ist
 // Praesenzwissen, kein Zugdatum — onlineArmTurn schreibt fuer einen wirklich
 // verlassenen Seat sofort wieder den Sentinel des neuen Turns.
-function startOnlineGame(){ replaying=false;repPlaying=false;$('replay').classList.remove('show'); runningGen=gen; turnNo=-1; seatGone=[]; if(turnUnsub){turnUnsub();turnUnsub=null;} if(typeof onlineResetClock==='function')onlineResetClock(); $('ov').classList.remove('show'); newGame(); }
+function startOnlineGame(){ replaying=false;repPlaying=false;$('replay').classList.remove('show'); runningGen=gen; turnNo=-1; seatGone=[]; if(turnUnsub){turnUnsub();turnUnsub=null;} if(typeof onlineResetClock==='function')onlineResetClock(); clearGameOverOverlayTimer(); $('ov').classList.remove('show'); newGame(); }
 // ════ B2 canonical match rehydration ════
 // Rebuilds a RUNNING match purely from the turn history under
 // rooms/<code>/g/<gen>/t. The lockstep sim is deterministic, so replaying every
@@ -3968,6 +4001,7 @@ function fastForwardMatch(turns){
 // Opponent presence lost: reuse the end overlay as a clear way back to the
 // menu — rematch/replay are pointless without a peer, so only "Menü" remains.
 function onOppLeft(){
+  clearGameOverOverlayTimer();   // eigenes Disconnect-Overlay -> ein offener Game-Over-Auftrag ist gegenstandslos
   toast('Gegner hat den Raum verlassen.');
   $('wVic').style.display='none';   // kein VICTORY-Header auf dem Disconnect-Overlay
   $('wt').style.display='';         // gameOver blendet wt bei Sieg aus — hier wieder zeigen
@@ -4077,6 +4111,7 @@ function onlineConnectionLost(ctx){
   if(ctx&&!isCurrentCtx(ctx))return;
   if(isOnlineTerminated())return;                 // idempotent: nur der erste gueltige Aufruf dieser Session bricht ab
   onlineTerminatedSession=onlineSessionId;         // ab hier sind alle async Pfade dieser Session wirkungslos
+  clearGameOverOverlayTimer();                     // eigenes Abbruch-Overlay -> ein offener Game-Over-Auftrag ist gegenstandslos
   clearAllSentinelRetries();
   clearAllMatchGrace();
   pendingSlot={};                                  // Pending-State entwerten: spaete Transaction-Callbacks laufen ins Leere (settleSlot: p!==ctx)
@@ -4184,6 +4219,7 @@ function onlineSendCommit(idx,fx,fy,spin){
 }
 function onlineRematch(){ try{ window.FB.set(rRef('gen'), runningGen+1); }catch(e){} }
 function leaveOnline(){
+  clearGameOverOverlayTimer();   // VOR dem Early-Return: ein Leave entwertet jeden offenen Overlay-Auftrag, auch den eines lokalen Matches
   joinOpSeq++;   // in-flight join/rejoin ops become stale BEFORE the early return — their continuations release own partial writes and never commit globals
   if(!online && !roomCode)return;
   onlineSessionId++;   // P0-Fix: laufende Transaktionen/Listener dieser Session sofort entwerten (auch bei sofortigem Wiederbeitritt zum selben Raum)

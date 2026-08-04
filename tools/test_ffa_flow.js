@@ -62,6 +62,10 @@ const SRC = [
   grab(/function onLobbyClosed\(\)\{[\s\S]*?\n\}/, 'onLobbyClosed'),
   grab(/function attachRoomListeners\(\)\{[\s\S]*?\n\}/, 'attachRoomListeners'),
   grab(/function maybeStart\(\)\{[^\n]*/, 'maybeStart'),
+  // Verwalteter Game-Over-Overlay-Timer: startOnlineGame/leaveOnline/onOppLeft
+  // brechen ihn ab — die ECHTE Funktion, damit der Abbruchvertrag mitgeprueft wird.
+  grab(/let gameOverOvTimer=null;/, 'gameOverOvTimer'),
+  grab(/function clearGameOverOverlayTimer\(\)\{[^\n]*/, 'clearGameOverOverlayTimer'),
   grab(/function startOnlineGame\(\)\{[^\n]*/, 'startOnlineGame'),
   grab(/function onOppLeft\(\)\{[\s\S]*?\n\}/, 'onOppLeft'),
   grab(/function onlineArmTurn\(\)\{[\s\S]*?\n\}/, 'onlineArmTurn'),

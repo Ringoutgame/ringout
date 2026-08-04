@@ -8,6 +8,7 @@
     "test:e2e:ffa": "node tools/e2e/run-ffa-e2e.js",
     "test:e2e:spike": "node tools/e2e/spike.js",
     "test:e2e:3d2c": "node tools/e2e/run-3d-two-client.js",
+    "test:e2e:overlay": "node tools/e2e/run-overlay-race.js",
     "test:e2e:r3d": "node tools/e2e/run-r3d-regression.js",
     "serve": "node tools/serve_local.js"
   },
