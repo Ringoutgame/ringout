@@ -1,6 +1,6 @@
 # TODO.md — RingOut
 
-**Zuletzt aktualisiert:** 2026-08-04 (Two-Stage-Collapse als Content-Ready-Port auf v3 committet — Branch `feature/two-stage-collapse-content-ready`, nicht gemergt, nichts deployt)
+**Zuletzt aktualisiert:** 2026-08-04 (Two-Stage-Collapse live auf `main`; gemeldeter 2D-Fallback nicht reproduzierbar — stattdessen 3D-Start-Regressionswächter auf `hotfix/restore-production-3d-renderer`)
 
 Offene Aufgaben nach Priorität. Abgeschlossene Aufgaben werden nach `CHANGELOG.md` verschoben.
 
@@ -9,6 +9,7 @@ Offene Aufgaben nach Priorität. Abgeschlossene Aufgaben werden nach `CHANGELOG.
 ## P0 — Kritisch (Sicherheit / Stabilität)
 
 - [ ] **Two-Stage-Collapse Content-Ready: Owner-Freigabe + Merge-Entscheidung (2026-08-04):** Branch `feature/two-stage-collapse-content-ready` (ein Commit auf `origin/main`) bringt ausschließlich den Collapse-Content auf die veröffentlichbare v3-Basis — kein Protocol-Bump, `firebase.rules.json` byte-identisch zu main, keine `functions/`, kein server-owned Clock/Room-Lifecycle, keine Auth. Stand: Runner 17/17, E2E-Spike 73/73, FFA-E2E 4/4 Szenarien, Mixed-Version-Smoke in beiden Richtungen grün, visuelle Aufnahme beider Stufen geprüft. Ausstehend: (1) Owner-Sichtprüfung der Aufnahme, (2) Entscheidung über Merge nach `main` + Deploy (beides bewusst NICHT ausgeführt), (3) **vor dem Deploy klären:** gemischte Client-Versionen sind protokollkompatibel, aber ab der ersten Collapse-Schwelle nicht spielgleich (gemessen: Divergenz bei 32 s kumulierter Planungszeit) — alle Beteiligten müssen nach dem Deploy neu laden.
+- [x] ~~**Gemeldeter 2D-Fallback in der Live-Version (P0, 2026-08-04)**~~ → **nicht reproduzierbar, kein Produktfehler:** frisches Profil + Hard Reload auf der veröffentlichten Version startet in 3D (`body.r3d`, `#cv3d` mit WebGL-Kontext, kein Fallback-Toast, 0 Page-Errors, Arena-GLB 200 als `model/gltf-binary`). Die 2D-Screenshots stammten aus dem Produktions-Smoke, der bewusst mit `?r2d=1` lief. Ergebnis des Task: Regressionswächter `npm run test:e2e:r3d` auf `hotfix/restore-production-3d-renderer` (20 Checks; wird rot, sobald der Produktivpfad still in den Fallback rutscht), kein Produktcode geändert.
 - [ ] **Beobachtung (niedrig, aus dem Content-Ready-Port):** `assets/arena_platform.glb` (37,70 MB) wird von `index.html` nicht mehr referenziert, seit die Stage-2-Arena die einzige Ladestelle belegt. Die Datei bleibt bewusst im Repo (keine Löschung ohne Owner-Freigabe); ein späterer Aufräum-Task könnte sie entfernen und damit ~37 MB Repo-/Deploy-Volumen sparen. Downloadvolumen des Clients ist unverändert (+0,55 MB gegenüber der alten Arena).
 
 - [x] ~~**Online-Timer 60s/7s: Commit + Rules-Deploy + Live-Validierung**~~ → **abgeschlossen (2026-07-28):** Commit `4a62bfb` per Fast-Forward auf main (Release-Worktree, Runner 16/16, Emulator-Probe 25/25), `firebase.rules.json` auf `ringout-87fbb` publiziert, GitHub-Pages-Client live verifiziert, Zwei-Client-Produktions-Smoke 17/17 (gemeinsame Uhr/Deadline, Timeout-No-Shot, Write-once, Lockstep, Collapse-Turn 8 identisch, Test-Räume abgeräumt). Offen bleibt nur der nachgelagerte Realgeräte-Test (s. FFA-Desync-Punkt).

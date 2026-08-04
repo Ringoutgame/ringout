@@ -241,6 +241,14 @@ Ringout/
 
 **Sound:** für Zyklus 2 werden ausschließlich die bestehenden Latches stufenbezogen zurückgesetzt (Warnsignal, sechs Crack-Sounds, Break, Segment-Fall, Sockel — jeweils erneut exakt einmal). Keine neuen Sounddateien, kein verändertes Sounddesign.
 
+### 3D-Start und 2D-Fallback — Vertrag und Wächter (2026-08-04)
+
+**Vertrag:** Der 3D-Renderer ist der Normalfall. `R3D_WANTED` ist genau dann falsch, wenn `?r2d=1` gesetzt ist — sonst läuft `initR3D()`. Der 2D-Fallback ist ausschließlich der `catch`-Zweig von `initR3D()` (three-Import, WebGL-Kontext, HDRI-Kette oder Arena-GLB nicht verfügbar): er entfernt `#cv3d`, nimmt `body.r3d` zurück, meldet „3D nicht verfügbar – 2D-Modus aktiv." und beendet den Boot. Der Fallback ist Produktverhalten und bleibt erhalten.
+
+**Warum ein Browser-Wächter nötig ist:** Ein stiller Rutsch in den 2D-Fallback ist in ALLEN Offline-Suiten unsichtbar — dort läuft kein Browser, kein WebGL und kein GLB-Laden. Genau diese Lücke deckt `tools/e2e/run-r3d-regression.js` (`npm run test:e2e:r3d`) ab: Der Produktivpfad muss 3D erreichen (Renderer aktiv, `#cv3d` mit WebGL-Kontext, kein Fallback-Toast, Boot ohne 10-s-Sicherheitsnetz — im 3D-Pfad entfernt erst der erste gerenderte Frame den Loader; Stage-2-Arena mit HTTP 200 vom Client geladen, Core + sechs Wedge-Knoten im ausgelieferten GLB, 3D bleibt im laufenden Match aktiv, keine harte Console-Exception). Zusätzlich wird der Fallback bei blockiertem WebGL und bei blockiertem Arena-GLB als kontrolliert und weiterhin spielbar geprüft. Der Test läuft headed (headless-SwiftShader verliert bei lokalen Matches `requestAnimationFrame`), braucht kein Firebase und verändert `index.html` auf Platte nicht.
+
+**Diagnose-Notiz:** `?r2d=1` erzwingt den 2D-Renderer. Screenshots aus Testläufen mit diesem Parameter sehen aus wie ein Fallback-Fehler, sind aber keiner — bei jeder Fallback-Meldung zuerst die URL prüfen.
+
 ---
 
 ## Systemanalyse
