@@ -16,7 +16,11 @@
 'use strict';
 const fs = require('fs');
 const path = require('path');
-const HTML = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+// Zeilenenden normalisieren wie in tools/extract.js: index.html liegt mit LF im
+// Repo, wird auf Windows aber mit CRLF ausgecheckt (core.autocrlf). Mehrere
+// Quellcode-Assertions hier matchen gegen `\n` — ohne Normalisierung ist die
+// Suite auf JEDEM frischen Windows-Checkout rot, obwohl der Code korrekt ist.
+const HTML = require('./extract').loadIndexHtml();
 
 let pass = 0, fail = 0;
 const t = (name, cond, info) => {
@@ -55,7 +59,7 @@ const COLV_ALL = COLV_CONST_SRC + COLV_OBJ_SRC + COLV_TICK_SRC;
   t('A: SFX.collapse() (vorgeplante Sequenz) existiert nicht mehr', !/SFX\.collapse\(\)/.test(HTML));
   // Riss-Kopplung: dieselbe crackAt-Wahrheit, die colvCracks sichtbar schaltet.
   t('A: Warnriss-Ereignis nutzt DIESELBE crackAt-Schwelle wie die Sichtbarkeit',
-    /colvCracks\(prog\)/.test(COLV_TICK_SRC) && /prog>=pr\.crackAt&&!\(colv\.crackMask&\(1<<i\)\)/.test(COLV_TICK_SRC) &&
+    /colvCracks\(prog,Rr\)/.test(COLV_TICK_SRC) && /prog>=pr\.crackAt&&!\(Rr\.crackMask&\(1<<i\)\)/.test(COLV_TICK_SRC) &&
     /colvSnd\(\{k:'crack'/.test(COLV_TICK_SRC));
   t('A: SFX enthaelt KEINE eigene Schwellen-/Restzeitliste (kein COLLAPSE_WARNING, kein crackAt)',
     !/COLLAPSE_WARNING_SECONDS/.test(SFX_SRC) && !/crackAt/.test(SFX_SRC) && !/remainMs|remSec/.test(SFX_SRC));
@@ -65,15 +69,15 @@ const COLV_ALL = COLV_CONST_SRC + COLV_OBJ_SRC + COLV_TICK_SRC;
   t('A: verpasste Segmentabloesung (Frame-Luecke) bleibt dauerhaft still (Toleranzfenster)',
     /if\(tf<=\.25\)colvSnd\(\{k:'seg'/.test(COLV_TICK_SRC));
   // Hauptbruch: exakt der sichtbare Stufenwechsel, einmal, Replay stumm.
-  t('A: Hauptbruch haengt am Stufen-Latch colv.state!==2 und ist bei instant (Replay/Rehydration) stumm',
-    /if\(colv\.state!==2\)\{[\s\S]*?colv\.state=2;[\s\S]*?if\(!colv\.instant\)colvSnd\(\{k:'break'\}\)/.test(COLV_TICK_SRC));
+  t('A: Hauptbruch haengt am Stufen-Latch Rr.state!==2 und ist bei instant (Replay/Rehydration) stumm',
+    /if\(Rr\.state!==2\)\{[\s\S]*?Rr\.state=2;[\s\S]*?if\(!Rr\.instant\)colvSnd\(\{k:'break'\}\)/.test(COLV_TICK_SRC));
   t('A: applyCollapseRadius/applyOnlineCollapseRadius rufen keinen Sound mehr direkt',
     !/collapseFlash=performance\.now\(\);SFX\./.test(HTML));
   // Nachbroeckeln: nur bei sichtbarer aktiver Fallbewegung dieses Frames.
   t('A: Fragmente sind an sichtbare Fallbewegung gebunden (fragW>0-Gate)',
-    /if\(!colv\.instant&&fragW>0&&nowS>=colv\.fragNext\)/.test(COLV_TICK_SRC));
+    /if\(!Rr\.instant&&fragW>0&&nowS>=Rr\.fragNext\)/.test(COLV_TICK_SRC));
   t('A: Sockel-Materialverlust feuert einmalig ueber pedSnd-Latch mit Toleranz',
-    /!colv\.pedSnd\)\{colv\.pedSnd=true;[\s\S]*?if\(td<=\.25\)colvSnd\(\{k:'frag'/.test(COLV_TICK_SRC));
+    /!Rr\.pedSnd\)\{Rr\.pedSnd=true;[\s\S]*?if\(td<=\.25\)colvSnd\(\{k:'frag'/.test(COLV_TICK_SRC));
   // Vorladen & kein Nachholen:
   t('A: Audio-Vorladen haengt am Matchstart des Adapters (clockMatch -> SFX.colPreload)',
     /if\(clockMatch&&colv\.load!==3\)SFX\.colPreload\(\);/.test(COLV_TICK_SRC));
@@ -98,8 +102,25 @@ const COLV_ALL = COLV_CONST_SRC + COLV_OBJ_SRC + COLV_TICK_SRC;
     !/setColDiag|colDiagFn|__colSfxLog/.test(HTML));
   t('A: keine "NICHT COMMITTEN"-Markierungen mehr (Preview-Schalter sind entfernt, nicht nur markiert)',
     !/NICHT[ -]COMMITTEN/.test(HTML));
-  t('A: MATCH_COLLAPSE_SECONDS ist eine feste Konstante (kein Preview-Ternary, exakt 60s)',
-    /const MATCH_COLLAPSE_SECONDS=60, COLLAPSE_WARNING_SECONDS=10/.test(HTML));
+  t('A: MATCH_COLLAPSE_SECONDS ist eine feste Ableitung (kein Preview-Ternary, Stufen x Zyklus)',
+    /const MATCH_COLLAPSE_SECONDS=COLLAPSE_STAGE_COUNT\*COLLAPSE_CYCLE_SECONDS, COLLAPSE_WARNING_SECONDS=10/.test(HTML));
+  // ── Stufenbezogene Latch-Resets (Two-Stage-Vertrag): fuer Zyklus 2 werden
+  //    AUSSCHLIESSLICH die bestehenden Latches zurueckgesetzt — Warnsignal im
+  //    Core (collapseWarned/collapseCountShown in der nicht-terminalen Stufe von
+  //    applyCollapseRadius), Riss-/Bruch-/Segment-/Sockel-Latches als EIGENER
+  //    Satz je Ring (colv2), geloest ueber denselben colvRingReset-Pfad. ──
+  t('A: applyCollapseRadius loest Warn-/Countdown-Latches je nicht-terminaler Stufe',
+    /else\{collapseState='running';matchElapsedMs=0;matchTimerAnchor=null;[\s\S]*?collapseWarned=false;collapseCountShown=-1;\}/.test(HTML));
+  t('A: Ring 2 traegt einen EIGENEN Latch-Satz (crackMask/pedSnd/fragNext/segSndN)',
+    /const colv2=\{state:0,group:null,pairs:\[\],t0:0,instant:false,\s*crackMask:0,pedSnd:false,fragNext:0,segSndN:0\}/.test(HTML));
+  t('A: colvRingReset loest die Hoerereignis-Latches EINES Rings mit der Ruhelage',
+    /function colvRingReset\(Rr\)\{[\s\S]*?Rr\.crackMask=0;Rr\.pedSnd=false;Rr\.fragNext=0;Rr\.segSndN=0;[\s\S]*?fellSnd=false;\n\s*\}/.test(HTML));
+  // Geprueft wird das Sound-Inventar SELBST (COL_SET-Literal), nicht das ganze
+  // Dokument — sonst schlaegt der Test bereits an, wenn irgendein Asset- oder
+  // Variablenname zufaellig eines der Muster enthaelt.
+  const colSet = (HTML.match(/const COL_SET=\{[\s\S]*?\};/) || [''])[0];
+  t('A: keine neuen Sounddateien fuer Zyklus 2 (unveraendertes COL_SET-Inventar)',
+    /crack_1/.test(colSet) && !/crack_5|seg_4|break_main2|stage2_/.test(colSet));
 }
 
 // ══ B) ECHTER visueller Adapter frameweise (Kausalitaets-Simulation) ══
@@ -115,7 +136,9 @@ function makeColv(opts) {
     Vector3: function () { this.set = () => {}; },
     Quaternion: function () { this.set = () => {}; this.setFromAxisAngle = () => {}; this.copy = () => {}; },
   };
-  const mesh = () => ({ visible: false, position: { set() {} }, quaternion: { copy() {}, identity() {} }, userData: {} });
+  // traverse besucht nur den Root selbst; ohne isMesh laeuft der v6-Teilmesh-Pfad
+  // (colvSegVis) leer und die Root-Sichtbarkeit bleibt die Testwahrheit.
+  const mesh = () => ({ visible: false, position: { set() {} }, quaternion: { copy() {}, identity() {} }, userData: {}, traverse(cb) { cb(this); } });
   const ORD = [3, 0, 4, 1, 5, 2];   // Fixture: gleiche Ordnung wie colvLoad (Testerwartung, keine Runtime-Kopie)
   const pairs = ORD.map((ord, i) => {
     const a = i / 6 * Math.PI, ux = Math.cos(a), uz = Math.sin(a);   // 0..150 Grad -> ux paarweise verschieden (eindeutiges Pan je Segment)
@@ -125,16 +148,18 @@ function makeColv(opts) {
     return { intact, cracked, crackAt: ord * .16 };
   });
   const body = `
-    const GLB_R=10.1, COLLAPSE_WARNING_SECONDS=10;
-    let menuVisible=false, online=false, gameStarted=false, onlineHasClock=false, onlineRemainMs=0, onCollapsedGen=-1, gen=0;
-    let collapseEnabled=true, collapseState='running', remainMs=60000;
+    const GLB_R=10.1, COLLAPSE_WARNING_SECONDS=10, COLLAPSE_STAGE_COUNT=2, COLLAPSE_RADIUS_FACTOR=0.82;
+    let menuVisible=false, online=false, gameStarted=false, onlineHasClock=false, onlineRemainMs=0, onCollapsedGen=-1, onCollapseCount=0, gen=0;
+    let collapseEnabled=true, collapseState='running', collapseStage=0, remainMs=60000;
+    const onlineCollapseCount=()=>onCollapsedGen===gen?onCollapseCount:0;
     const collapseActive=()=>collapseEnabled&&!online;
     const collapseRemainMs=()=>remainMs;
     const colvBandParts=[],colvPed=[{visible:true,position:{y:0},userData:{colv:{hy:0}}}];
+    const colvPed2=[],colvBase3=[];let colvFloor2=null;
     ${COLV_CONST_SRC}
     ${COLV_OBJ_SRC}
     ${COLV_TICK_SRC}
-    return { colv, colvTick,
+    return { colv, colv2, colvTick,
       set:(k,v)=>{eval(k+'=(v)');},
       get:(k)=>eval('('+k+')'),
       ped:()=>colvPed[0] };
@@ -171,7 +196,7 @@ function makeColv(opts) {
   t('B: Riss-Panorama kommt aus der tatsaechlichen Ringposition (ux) des jeweiligen Segments',
     pans.every((p) => pairs.some((pr) => Math.abs(pr.cracked.userData.colv.ux - p) < 1e-3)) && new Set(pans).size >= 4, pans);
   // ── Abriss: Hauptbruch im Tick des sichtbaren Stufenwechsels, exakt einmal ──
-  env.set('collapseState', 'collapsed');
+  env.set('collapseState', 'collapsed'); env.set('collapseStage', 1);
   const n0 = events.length;
   step(1 / 60);
   const gotBreak = events.slice(n0).filter((e) => e.k === 'break');
@@ -216,7 +241,7 @@ function makeColv(opts) {
 {
   // ── Rehydration/Replay (instant): alles stumm ──
   const { env, events, step } = makeColv();
-  env.set('collapseState', 'collapsed');   // Einstieg direkt im Endzustand (colv.state===0 -> instant)
+  env.set('collapseState', 'collapsed'); env.set('collapseStage', 1);   // Einstieg direkt im Endzustand (colv.state===0 -> instant)
   for (let i = 0; i < 120; i++) step(1 / 60);
   t('B: Rehydration/Replay (instant): kein Hauptbruch, keine Segmente, keine Fragmente',
     events.filter((e) => e.k !== undefined).length === 0, events.length);
@@ -246,9 +271,82 @@ function makeColv(opts) {
   // ── GLB-Fallback (load=3): keine sichtbaren Segmente -> kontrollierte Stille ──
   const { env, events, step } = makeColv({ load: 3 });
   env.set('remainMs', 9000); step(1 / 60);
-  env.set('collapseState', 'collapsed');
+  env.set('collapseState', 'collapsed'); env.set('collapseStage', 1);
   for (let i = 0; i < 120; i++) step(1 / 60);
   t('B: ohne 3D-Adapter (Ladefehler) gibt es keine Hoerereignisse (kontrollierte Stille)', events.length === 0);
+}
+{
+  // ── Visual-Restore: direkter Sprung 0->Stufe 1 und 0->Stufe 2 (instant, stumm) ──
+  const { env, events, step } = makeColv();
+  env.set('collapseStage', 1);                     // Rehydration mitten in Zyklus 2
+  step(1 / 60); step(1 / 60);
+  t('B: Restore 0->Stufe 1 ist instant (Ring 1 ohne Animation, stumm)',
+    env.get('colv.state') === 2 && env.get('colv.instant') === true && events.length === 0);
+  t('B: Restore 0->Stufe 1: Ring 2 steht intakt bereit (Zyklus 2 laeuft)', env.get('colv2.state') === 0);
+  const r2 = makeColv();
+  r2.env.set('collapseStage', 2);                  // Rehydration nach Collapse 2 (terminal)
+  r2.step(1 / 60); r2.step(1 / 60);
+  t('B: Restore 0->Stufe 2 ist instant (beide Ringe, stumm)',
+    r2.env.get('colv.state') === 2 && r2.env.get('colv2.state') === 2
+    && r2.env.get('colv.instant') === true && r2.env.get('colv2.instant') === true && r2.events.length === 0);
+}
+{
+  // ── Zyklus 2: Warnrisse, Hauptbruch, Segmente und Sockel klingen ERNEUT exakt
+  //    einmal — ueber die EIGENEN Ring-2-Latches, nicht ueber Ring-1-Reste ──
+  const { env, events, pairs, step } = makeColv();
+  // Zyklus 1 komplett: Warnfenster + Collapse 1 (Ring 1 verbraucht seine Latches).
+  env.set('remainMs', 10017);
+  for (let i = 0; i < 60 * 11 && env.get('remainMs') > 0; i++) step(1 / 60);
+  env.set('collapseState', 'collapsed'); env.set('collapseStage', 1);
+  for (let i = 0; i < 60 * 8; i++) step(1 / 60);
+  const afterC1 = { crack: events.filter(e => e.k === 'crack').length, brk: events.filter(e => e.k === 'break').length,
+    seg: events.filter(e => e.k === 'seg').length };
+  t('B: Zyklus 1 vollstaendig vertont (6 Risse, 1 Hauptbruch, 6 Segmente)',
+    afterC1.crack === 6 && afterC1.brk === 1 && afterC1.seg === 6, afterC1);
+  // Ring-2-Fixture einhaengen (die Sandbox laedt kein GLB) und Zyklus 2 fahren.
+  env.colv2.pairs = pairs.map((p, i) => {
+    const mk = () => ({ visible: false, position: { set() {} }, quaternion: { copy() {}, identity() {} }, userData: {}, traverse(cb) { cb(this); } });
+    const cracked = mk(); cracked.userData.colv = Object.assign({}, p.cracked.userData.colv, { fellSnd: false });
+    const intact = mk(); intact.visible = true; intact.userData.colv = { hx: 0, hy: 0, hz: 0 };
+    return { intact, cracked, crackAt: p.crackAt };
+  });
+  env.set('collapseState', 'running'); env.set('remainMs', 10017);
+  for (let i = 0; i < 60 * 11 && env.get('remainMs') > 0; i++) step(1 / 60);
+  const c2crack = events.filter(e => e.k === 'crack').length - afterC1.crack;
+  t('B: Warnfenster 2 vertont die sechs Risse ERNEUT exakt einmal (Ring-2-Latches)', c2crack === 6, c2crack);
+  env.set('collapseState', 'collapsed'); env.set('collapseStage', 2);
+  for (let i = 0; i < 60 * 8; i++) step(1 / 60);
+  const c2 = { brk: events.filter(e => e.k === 'break').length - afterC1.brk,
+    seg: events.filter(e => e.k === 'seg').length - afterC1.seg };
+  t('B: Collapse 2 vertont Hauptbruch + sechs Segmente ERNEUT exakt einmal', c2.brk === 1 && c2.seg === 6, c2);
+  const nQuiet = events.length;
+  for (let i = 0; i < 60 * 5; i++) step(1 / 60);
+  t('B: nach Collapse 2 herrscht endgueltige Ruhe (kein drittes Ereignis)', events.length === nQuiet);
+  t('B: Ring-1-Latches bleiben verbraucht (kein Leck zwischen den Ringen)',
+    env.get('colv.crackMask') === 63 && env.get('colv2.crackMask') === 63 && env.get('colv2.segSndN') === 6);
+}
+{
+  // ── Menue-Unterbrechung MITTEN im Warnfenster 2: Bestand stumm, neue Risse klingen ──
+  const { env, events, pairs, step } = makeColv();
+  env.set('collapseStage', 1);                     // Stufe 1 instant (Zyklus 2 laeuft)
+  env.colv2.pairs = pairs.map((p) => {
+    const mk = () => ({ visible: false, position: { set() {} }, quaternion: { copy() {}, identity() {} }, userData: {}, traverse(cb) { cb(this); } });
+    const cracked = mk(); cracked.userData.colv = Object.assign({}, p.cracked.userData.colv, { fellSnd: false });
+    const intact = mk(); intact.visible = true; intact.userData.colv = { hx: 0, hy: 0, hz: 0 };
+    return { intact, cracked, crackAt: p.crackAt };
+  });
+  step(1 / 60);
+  env.set('remainMs', 10017);
+  for (let i = 0; i < 60 * 4; i++) step(1 / 60);   // ~3 Risse des zweiten Zyklus sind sichtbar+vertont
+  const n0 = events.filter(e => e.k === 'crack').length;
+  t('B: Warnfenster 2 laeuft (erste Risse vertont)', n0 >= 2 && n0 < 6, n0);
+  env.set('menuVisible', true); step(1 / 60); step(1 / 60);
+  env.set('menuVisible', false); step(1 / 60);     // Rueckkehr: Bestand wird STUMM uebernommen
+  const n1 = events.filter(e => e.k === 'crack').length;
+  t('B: Menue-Rueckkehr in Zyklus 2 vertont den Riss-Bestand NICHT erneut', n1 === n0, { n0, n1 });
+  for (let i = 0; i < 60 * 11 && env.get('remainMs') > 0; i++) step(1 / 60);
+  const n2 = events.filter(e => e.k === 'crack').length;
+  t('B: NEUE Risse nach der Rueckkehr klingen wieder (nur der Bestand war stumm)', n2 > n1, { n1, n2 });
 }
 
 // ══ C) ECHTE SFX-IIFE gegen Mock-AudioContext ══

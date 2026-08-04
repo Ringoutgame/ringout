@@ -83,11 +83,16 @@ const SRC = [
   grab(/function processSlot\(s,c\)\{[\s\S]*?\n\}/, 'processSlot'),
   // Online-Uhr + deterministischer Collapse (Timer-Branch)
   grab(/const TURN_LIMIT_SECONDS=[^\n]*/, 'TURN_LIMIT_SECONDS'),
+  grab(/const COLLAPSE_STAGE_COUNT=[^\n]*/, 'COLLAPSE_STAGE_COUNT'),
   grab(/const MATCH_COLLAPSE_SECONDS=[^\n]*/, 'MATCH_COLLAPSE_SECONDS'),
   grab(/function onlineResetClock\(\)\{[\s\S]*?\n[^\n]*onlineHasClock=false;\}/, 'onlineResetClock'),
   grab(/function onlineTurnUsedMs\(sVal,maxTs,capMs\)\{[\s\S]*?\n\}/, 'onlineTurnUsedMs'),
+  // Gemeinsame Faltung: Uhr, Stufen, Collapse-Turn und Restzeit stammen aus
+  // DIESER einen Funktion — sie muss mit extrahiert werden, sonst laeuft der
+  // Sandbox-Client auf einer anderen Zeitwahrheit als das Produkt.
+  grab(/function onlineFold\(stamps,tsMap,uptoTurn\)\{[\s\S]*?\n\}/, 'onlineFold'),
   grab(/function onlineClock\(stamps,tsMap,curTurn,nowSrv\)\{[\s\S]*?\n\}/, 'onlineClock'),
-  grab(/function onlineCollapseTurn\(stamps,tsMap\)\{[\s\S]*?\n\}/, 'onlineCollapseTurn'),
+  grab(/function onlineCollapseTurn\(stamps,tsMap,totalMs\)\{[\s\S]*?\n\}/, 'onlineCollapseTurn'),
   grab(/function onlineCollapsePending\(\)\{[\s\S]*?\n\}/, 'onlineCollapsePending'),
   grab(/function applyOnlineCollapseRadius\(\)\{[\s\S]*?\n\}/, 'applyOnlineCollapseRadius'),
   grab(/function settleOnlineCollapse\(\)\{[\s\S]*?\n\}/, 'settleOnlineCollapse'),
@@ -371,7 +376,8 @@ function makeClient(db, code, forcePid) {
     // Online-Uhr (Timer-Branch): Zustand echt, damit die extrahierten Funktionen
     // (writeTurnSlot/processSlot/onlineTurnValue/maybeReveal/...) ihn pflegen koennen.
     let srvOffsetMs=0, onTurnStamp={}, onTurnTs={}, onStampProbe={}, onlineTimeoutTried={};
-    let onCollapsedGen=-1, onlineRemainMs=60000, onlineHasClock=false;
+    let onCollapsedGen=-1, onCollapseCount=0, onlineRemainMs=60000, onlineHasClock=false;
+    function onlineCollapseCount(){return onCollapsedGen===gen?onCollapseCount:0;}
     function serverNow(){return Date.now()+srvOffsetMs;}
     function onlineResetClock(){onTurnStamp={};onTurnTs={};onStampProbe={};onlineTimeoutTried={};onlineRemainMs=60000;onlineHasClock=false;}
     let onlinePid=${JSON.stringify(pid)}, onlineTab=${JSON.stringify(tab)}, onlineName='';
@@ -392,7 +398,7 @@ function makeClient(db, code, forcePid) {
     function collapseRoundEnd(){return false;}     // no pending collapse at round end
     // Online-Collapse friert den Rundenschrumpf-Floor auf collapseRadius ein —
     // exakt die relevante Haelfte des echten shrinkFloor() (lokaler Timer ist hier aus).
-    function shrinkFloor(){return (online&&onCollapsedGen===gen)?collapseRadius:R0*0.80;}
+    function shrinkFloor(){return (online&&onlineCollapseCount()>0)?collapseRadius:R0*0.80;}
     let collapseRadius=0, collapseOuterR=0, collapseFlash=0;
     function updateCollapseHud(){}
     const performance={now:()=>0};
@@ -426,6 +432,7 @@ function makeClient(db, code, forcePid) {
       create(){createRoom();},
       join(c){$('onInput').value=c;joinRoom();},
       clickStart(){startFfaMatch();},
+      rematch(){onlineRematch();},
       hash(){return simHash();},
       aliveOf(o){return aliveCount(o);},
       gone(o){return !!seatGone[o];},
@@ -433,7 +440,10 @@ function makeClient(db, code, forcePid) {
       status(){return $('onStatus').textContent;},
       pendingCount(){return Object.keys(pendingSlot).length;},
       clockView(){return {stamps:JSON.parse(JSON.stringify(onTurnStamp)),ts:JSON.parse(JSON.stringify(onTurnTs)),
-        collapseTurn:onlineCollapseTurn(onTurnStamp,onTurnTs),collapsedGen:onCollapsedGen,R:R};},
+        collapseTurn:onlineCollapseTurn(onTurnStamp,onTurnTs),
+        collapseTurn1:onlineCollapseTurn(onTurnStamp,onTurnTs,30000),
+        remainingMs:onlineFold(onTurnStamp,onTurnTs,turnNo).remainingMs,
+        collapseCount:onlineCollapseCount(),collapsedGen:onCollapsedGen,R:R};},
       async slotRaw(turn,seat){const sn=await FB.get(['rooms',roomCode,'g',String(gen),'t',String(turn),String(seat)]);return sn.val();},
       async turnRaw(turn){const sn=await FB.get(['rooms',roomCode,'g',String(gen),'t',String(turn)]);return sn.val();},
       timeoutPoke(nowSrv){
@@ -749,19 +759,24 @@ async function playTurn(clients, moves) {
     t('OC1 beide Clients sehen dieselben Stempel',
       JSON.stringify(h.clockView().stamps) === JSON.stringify(g.clockView().stamps)
       && JSON.stringify(h.clockView().ts) === JSON.stringify(g.clockView().ts));
-    // 8 weitere volle Fenster (Turn 1..7 je 7 s) -> 56 s verbraucht, Turn 8 = Collapse-Turn.
-    for (let k = 1; k < 8; k++) await runClockedTurn([h, g], db, { 0: [0, 0], 1: [0, 0] });
+    // Weitere volle Fenster (Turn 1..8 je 7 s). Mit der Stufengrenzen-Klemmung
+    // schliesst Turn 4 den ersten Zyklus bei exakt 30 s ab (sein Ueberhang
+    // verfaellt dort), Zyklus 2 laeuft danach mit vollen 30 s — Turn 9 ist damit
+    // der Collapse-Turn der zweiten Stufe.
+    for (let k = 1; k < 9; k++) await runClockedTurn([h, g], db, { 0: [0, 0], 1: [0, 0] });
     t('OC1 vor dem letzten Turn: Collapse-Turn noch offen', h.clockView().collapseTurn === -1);
+    t('OC1 Stufe 1 faellt auf Turn 4, Ueberhang verkuerzt Zyklus 2 nicht',
+      h.clockView().collapseTurn1 === 4 && g.clockView().collapseTurn1 === 4);
     const rBefore = h.clockView().R;
-    await runClockedTurn([h, g], db, { 0: [0, 0], 1: [0, 0] });   // Turn 8: Restfenster 4 s
+    await runClockedTurn([h, g], db, { 0: [0, 0], 1: [0, 0] });   // Turn 9: Zyklus 2 voll
     const hv = h.clockView(), gv = g.clockView();
-    t('OC1 beide Clients bestimmen denselben Collapse-Turn (8)', hv.collapseTurn === 8 && gv.collapseTurn === 8);
+    t('OC1 beide Clients bestimmen denselben Collapse-Turn (9)', hv.collapseTurn === 9 && gv.collapseTurn === 9);
     t('OC1 Collapse exakt einmal, an der Rundengrenze angewendet',
       hv.collapsedGen === h.st().gen && gv.collapsedGen === g.st().gen);
     t('OC1 Radius fiel exakt einmal auf R*0.82', Math.abs(hv.R - rBefore * 0.82) < 1e-6 && Math.abs(gv.R - hv.R) < 1e-9);
     t('OC1 Lockstep nach dem Collapse bit-identisch', h.hash() === g.hash() && h.st().turnNo === g.st().turnNo);
     t('OC1 danach beginnt eine NORMALE Folgephase (lokale Collapse-Semantik)',
-      h.st().phase === 'aim' && h.st().turnNo === 9);
+      h.st().phase === 'aim' && h.st().turnNo === 10);
     // Weiterspiel nach dem Collapse: kein zweiter Collapse, Sim bleibt synchron.
     await runClockedTurn([h, g], db, { 0: [0, 0], 1: [0, 0] });
     t('OC1 kein zweiter Collapse im Folgeturn', Math.abs(h.clockView().R - hv.R) < 1e-9 && h.hash() === g.hash());
@@ -805,7 +820,9 @@ async function playTurn(clients, moves) {
     const db = makeDB();
     const h = makeClient(db, 'OCC1'); h.setMenu('online'); h.setFmt('single'); h.create(); await tick();
     const g = makeClient(db, 'X'); g.setMenu('online'); g.join('OCC1'); await tick();
-    for (let k = 0; k < 9; k++) await runClockedTurn([h, g], db, { 0: [0, 0], 1: [0, 0] });
+    // 10 Zuege a 7 s: mit der Stufengrenzen-Klemmung sind BEIDE Stufen gefallen
+    // (Turn 4 und Turn 9), der Ueberhang beider Grenzturns ist verfallen.
+    for (let k = 0; k < 10; k++) await runClockedTurn([h, g], db, { 0: [0, 0], 1: [0, 0] });
     t('OC3 Collapse im Live-Spiel gefallen', h.clockView().collapsedGen === h.st().gen);
     const liveHash = h.hash(), liveR = h.clockView().R, liveTurn = h.st().turnNo;
     const gpid = g.pid(); g.drop(); await tick();
@@ -815,6 +832,12 @@ async function playTurn(clients, moves) {
       ok === true && g2.clockView().collapsedGen === g2.st().gen
       && Math.abs(g2.clockView().R - liveR) < 1e-9 && g2.st().turnNo === liveTurn);
     t('OC3 Replay-Hash bit-identisch zum Live-Client', g2.hash() === liveHash && g2.hash() === h.hash());
+    // Rehydration nach Ueberhang-Turns: der wiederhergestellte Client leitet
+    // Stufengrenzen und Restzeit aus DENSELBEN Stempeln ab wie der Live-Client.
+    t('OC3 Rehydration nach Ueberhang: identische Stufengrenzen und Restzeit',
+      g2.clockView().collapseTurn1 === h.clockView().collapseTurn1
+      && g2.clockView().collapseTurn === h.clockView().collapseTurn
+      && g2.clockView().remainingMs === h.clockView().remainingMs);
     await runClockedTurn([h, g2], db, { 0: [0, 0], 1: [0, 0] });
     t('OC3 Weiterspiel nach Rehydration synchron, kein zweiter Collapse',
       h.hash() === g2.hash() && Math.abs(h.clockView().R - liveR) < 1e-9);
@@ -832,11 +855,198 @@ async function playTurn(clients, moves) {
     const all = [h, ...guests];
     t(label + ' gestartet', all.every(c => c.st().gameStarted));
     const zero = {}; for (let k = 0; k < n; k++) zero[k] = [0, 0];
-    for (let k = 0; k < 9 && h.clockView().collapsedGen !== h.st().gen; k++) await runClockedTurn(all, db, zero);
+    // Stufe 1 (kumuliert >= 30 s): gemeinsamer Collapse-Turn, ein Radius-Schritt.
+    for (let k = 0; k < 9 && h.clockView().collapseCount < 1; k++) await runClockedTurn(all, db, zero);
     const views = all.map(c => c.clockView());
-    t(label + ' alle Clients: derselbe Collapse-Turn', views.every(v => v.collapseTurn === views[0].collapseTurn && views[0].collapseTurn >= 0));
-    t(label + ' alle Clients: derselbe Radius nach dem Collapse', views.every(v => Math.abs(v.R - views[0].R) < 1e-9 && v.collapsedGen === h.st().gen));
-    t(label + ' Sims synchron', all.every(c => c.hash() === h.hash()));
+    t(label + ' alle Clients: derselbe Collapse-Turn (Stufe 1)', views.every(v => v.collapseTurn1 === views[0].collapseTurn1 && views[0].collapseTurn1 >= 0));
+    t(label + ' alle Clients: derselbe Radius nach Stufe 1', views.every(v => Math.abs(v.R - views[0].R) < 1e-9 && v.collapseCount === 1 && v.collapsedGen === h.st().gen));
+    t(label + ' Sims synchron nach Stufe 1', all.every(c => c.hash() === h.hash()));
+    // Stufe 2 (kumuliert >= 60 s): erneut x0.82, danach terminal.
+    for (let k = 0; k < 9 && h.clockView().collapseCount < 2; k++) await runClockedTurn(all, db, zero);
+    const views2 = all.map(c => c.clockView());
+    t(label + ' alle Clients: derselbe Collapse-Turn (Stufe 2)', views2.every(v => v.collapseTurn === views2[0].collapseTurn && views2[0].collapseTurn >= 0));
+    t(label + ' alle Clients: derselbe Radius nach Stufe 2 (x0.82 erneut)', views2.every(v => Math.abs(v.R - views[0].R * 0.82) < 1e-6 && v.collapseCount === 2));
+    t(label + ' Sims synchron nach Stufe 2', all.every(c => c.hash() === h.hash()));
+  }
+  // ── OC5: Reconnect mitten in Zyklus 2 + Rematch nach Collapse 2 ──
+  {
+    const db = makeDB();
+    const h = makeClient(db, 'OCE1'); h.setMenu('online'); h.setFmt('single'); h.create(); await tick();
+    const g = makeClient(db, 'X'); g.setMenu('online'); g.join('OCE1'); await tick();
+    // Turns 0..5 (je volles 7-s-Fenster): Stufe 1 faellt am Turn-4-Settlement,
+    // danach laeuft Zyklus 2 — genau der geforderte "mitten in Zyklus 2"-Zustand.
+    for (let k = 0; k < 6; k++) await runClockedTurn([h, g], db, { 0: [0, 0], 1: [0, 0] });
+    t('OC5 mitten in Zyklus 2: genau eine Stufe gefallen', h.clockView().collapseCount === 1);
+    const midR = h.clockView().R, midHash = h.hash();
+    const gpid = g.pid(); g.drop(); await tick();
+    const g2 = makeClient(db, 'X', gpid); g2.setMenu('online');
+    const ok = await g2.rejoin('OCE1'); await tick();
+    t('OC5 Reconnect mitten in Zyklus 2 rekonstruiert Stufe 1 + Radius',
+      ok === true && g2.clockView().collapseCount === 1 && Math.abs(g2.clockView().R - midR) < 1e-9);
+    t('OC5 Replay-Hash bit-identisch zum Live-Client', g2.hash() === midHash && g2.hash() === h.hash());
+    // Weiter bis Collapse 2 (terminal), dann Rematch: beide Stufen sauber neutralisiert.
+    for (let k = 0; k < 9 && h.clockView().collapseCount < 2; k++) await runClockedTurn([h, g2], db, { 0: [0, 0], 1: [0, 0] });
+    t('OC5 Stufe 2 terminal erreicht, Sims synchron',
+      h.clockView().collapseCount === 2 && g2.clockView().collapseCount === 2 && h.hash() === g2.hash());
+    const rTerm = h.clockView().R;
+    h.rematch(); await tick();
+    t('OC5 Rematch neutralisiert beide Stufen (neue Generation)',
+      h.st().gen === 1 && h.clockView().collapseCount === 0 && g2.clockView().collapseCount === 0);
+    t('OC5 Rematch: Radius wieder voll, Sims synchron',
+      h.clockView().R > rTerm + 1 && h.hash() === g2.hash());
+  }
+
+  // ── OC6: Phasenstempel — nur SERVERBESTAETIGTE Werte werden autoritativ ─────
+  // Eigener Miniatur-Client mit einem Fake, der die beiden SDK-Semantiken
+  // ausdruecklich unterscheidet:
+  //   set()                              -> feuert SOFORT ein lokales Echo mit einer
+  //                                         CLIENT-Schaetzung (das alte Verhalten)
+  //   runTransaction(..,applyLocally:false) -> kein lokales Zwischenereignis; der Wert
+  //                                         wird erst mit der Serverantwort sichtbar
+  // Damit ist pruefbar, dass der Produktcode keine Schaetzung mehr uebernimmt.
+  {
+    const SRV_BASE = 1700000500000;      // "Serverzeit" — vom Client nicht bestimmbar
+    const CLIENT_SKEW = 4321;            // die lokale Schaetzung liegt bewusst daneben
+    // Ein Stempel-Client: echte Produktfunktionen ueber einem steuerbaren Fake.
+    const makeStamper = (world, tag) => {
+      const body = `
+        let online=true, gameStarted=true, roomCode='RACE', gen=0, turnNo=0;
+        let onlineSessionId=1, onlineTerminatedSession=-1;
+        let phase='aim', np=()=>2;
+        const onTurnStamp={}, onTurnTs={}, onStampProbe={}, pendingSlot={};
+        const revealCalls=[]; const applied=[];
+        function isCurrentCtx(ctx){return ctx.sid===onlineSessionId&&ctx.room===roomCode&&ctx.gen===gen&&ctx.turnNo===turnNo;}
+        function isOnlineTerminated(){return onlineTerminatedSession===onlineSessionId;}
+        function maybeReveal(){revealCalls.push(onStampProbe[turnNo]);}
+        function processSlot(s,c){ if(c&&typeof c.ts==='number'&&(onTurnTs[turnNo]==null||c.ts>onTurnTs[turnNo]))onTurnTs[turnNo]=c.ts; if(c)applied.push([s,c]); }
+        const window={FB:FB};
+        ${SRC_CLOCK}
+        return {
+          arm(){ stampOnlinePhase({sid:onlineSessionId,room:roomCode,gen:gen,turnNo:turnNo}); },
+          echo(val){ onlineTurnValue(val); },
+          stamp(){ return onTurnStamp[turnNo]; },
+          probe(){ return onStampProbe[turnNo]; },
+          blocked(){ return onlineRevealBlocked(); },
+          revealCalls(){ return revealCalls.slice(); },
+          applied(){ return applied.slice(); },
+          clock(nowSrv){ return onlineClock(onTurnStamp,onTurnTs,turnNo,nowSrv); },
+          collapseTurn(){ return onlineCollapseTurn(onTurnStamp,onTurnTs,30000); },
+          pushTurn(i,s,ts){ onTurnStamp[i]=s; onTurnTs[i]=ts; },
+          setTurnNo(v){ turnNo=v; }
+        };`;
+      const cl = new Function('FB', 'SRC_CLOCK', body)(world.fbFor(tag), SRC_CLOCK);
+      // Turn-Listener wie im Produkt: JEDES Ereignis auf dem Turn-Knoten laeuft
+      // durch onlineTurnValue. Faellt der Stempelpfad je wieder auf set() zurueck,
+      // erreicht die Client-Schaetzung genau hier den Zustand — und (1) schlaegt an.
+      world.listeners.push(v => cl.echo(v));
+      return cl;
+    };
+    // Fake-Welt: EIN Serverknoten, write-once, mit steuerbarer Antwortreihenfolge.
+    const makeWorld = () => {
+      const w = { server: null, queue: [], listeners: [], denied: false };
+      w.flush = async () => { while (w.queue.length) { const j = w.queue.shift(); j(); await Promise.resolve(); } };
+      w.fbFor = () => ({
+        db: null,
+        ref: (db, p) => p,
+        serverTimestamp: () => '__SV__',
+        get: async () => ({ val: () => w.server }),
+        // Altes Verhalten: lokales Echo VOR der Serverantwort, mit Client-Schaetzung.
+        set: (ref, val) => {
+          const guess = SRV_BASE + CLIENT_SKEW;
+          w.listeners.forEach(l => l({ s: guess }));
+          return { then: (fn) => { w.queue.push(() => fn()); return { catch: () => {} }; } };
+        },
+        runTransaction: (ref, fn, opts) => {
+          const local = opts && opts.applyLocally === false;
+          if (!local) throw new Error('Stempel MUSS applyLocally:false verwenden');
+          return {
+            then: (onOk) => {
+              w.queue.push(() => {
+                if (w.denied) { if (w.onCatch) w.onCatch(); return; }
+                const cur = w.server;
+                const next = fn(cur);
+                if (next !== undefined) w.server = SRV_BASE;    // Server loest __SV__ auf
+                onOk({ committed: next !== undefined, snapshot: { val: () => w.server } });
+              });
+              return { catch: (onErr) => { w.onCatch = onErr; return undefined; } };
+            }
+          };
+        }
+      });
+      return w;
+    };
+    const SRC_CLOCK = [
+      grab(/const GEN_MAX=[^\n]*/, 'GEN_MAX'),
+      grab(/const COLLAPSE_STAGE_COUNT=[^\n]*/, 'COLLAPSE_STAGE_COUNT'),
+      grab(/const MATCH_COLLAPSE_SECONDS=[^\n]*/, 'match constants'),
+      grab(/const TURN_LIMIT_SECONDS=[^\n]*/, 'TURN_LIMIT_SECONDS'),
+      grab(/function onlineTurnUsedMs\(sVal,maxTs,capMs\)\{[\s\S]*?\n\}/, 'onlineTurnUsedMs'),
+      grab(/function onlineFold\(stamps,tsMap,uptoTurn\)\{[\s\S]*?\n\}/, 'onlineFold'),
+      grab(/function onlineClock\(stamps,tsMap,curTurn,nowSrv\)\{[\s\S]*?\n\}/, 'onlineClock'),
+      grab(/function onlineCollapseTurn\(stamps,tsMap,totalMs\)\{[\s\S]*?\n\}/, 'onlineCollapseTurn'),
+      grab(/function stampOnlinePhase\(ctx\)\{[\s\S]*?\n\}/, 'stampOnlinePhase'),
+      grab(/function onlineRevealBlocked\(\)\{[\s\S]*?\n\}/, 'onlineRevealBlocked'),
+      grab(/function onlineTurnValue\(val\)\{[\s\S]*?\n\}/, 'onlineTurnValue'),
+    ].join('\n');
+
+    // (1) Zwei Clients stempeln gleichzeitig — write-once, beide enden bestaetigt gleich.
+    for (const order of [[0, 1], [1, 0]]) {
+      const w = makeWorld();
+      const A = makeStamper(w, 'A'), B = makeStamper(w, 'B');
+      A.arm(); B.arm();
+      t('OC6 vor der Serverantwort ist kein Stempel bekannt (Reihenfolge ' + order.join('') + ')',
+        A.stamp() === undefined && B.stamp() === undefined);
+      t('OC6 Reveal bleibt bis zur Bestaetigung gesperrt (Reihenfolge ' + order.join('') + ')',
+        A.blocked() === true && B.blocked() === true);
+      // Callback-Reihenfolge bewusst variieren
+      if (order[0] === 1) w.queue.reverse();
+      await w.flush();
+      t('OC6 beide Clients enden mit demselben bestaetigten Stempel (Reihenfolge ' + order.join('') + ')',
+        A.stamp() === SRV_BASE && B.stamp() === SRV_BASE);
+      t('OC6 keine Client-Schaetzung uebernommen (Reihenfolge ' + order.join('') + ')',
+        A.stamp() !== SRV_BASE + CLIENT_SKEW && B.stamp() !== SRV_BASE + CLIENT_SKEW);
+      t('OC6 Reveal-Sperre danach geloest (Reihenfolge ' + order.join('') + ')',
+        A.blocked() === false && B.blocked() === false && A.probe() === 'done' && B.probe() === 'done');
+      const ca = A.clock(SRV_BASE + 1000), cb = B.clock(SRV_BASE + 1000);
+      t('OC6 identische Deadline und Restzeit auf beiden Clients (Reihenfolge ' + order.join('') + ')',
+        ca.deadlineAt === cb.deadlineAt && ca.remainingMs === cb.remainingMs && ca.deadlineAt === SRV_BASE + 7000);
+    }
+
+    // (2) Verlorene Transaction / Rollback: der Verlierer aendert keinen Gameplayzustand.
+    {
+      const w = makeWorld(); w.denied = true;
+      const A = makeStamper(w, 'A');
+      A.arm();
+      await w.flush();
+      // Der abgelehnte Write faellt auf den Server-Read zurueck (Knoten leer).
+      await Promise.resolve(); await Promise.resolve();
+      t('OC6 abgelehnter Stempel-Write uebernimmt keinen Wert', A.stamp() === undefined);
+      t('OC6 abgelehnter Stempel-Write veraendert keinen Zugzustand', A.applied().length === 0);
+      const c = A.clock(SRV_BASE + 1000);
+      t('OC6 ohne bestaetigten Stempel keine Deadline', c.deadlineAt === null && c.startedAt === null);
+      t('OC6 ohne bestaetigten Stempel kein Collapse-Turn', A.collapseTurn() === -1);
+    }
+
+    // (3) Fremdes Turn-Echo bleibt autoritativ: ein per Transaction bestaetigter
+    //     Wert eines anderen Clients wird uebernommen, ein Echo waehrend des
+    //     eigenen Pendings kann keine Schaetzung mehr einschleusen (der Fake
+    //     wuerfe bei set()-Nutzung, s. runTransaction-Guard oben).
+    {
+      const w = makeWorld();
+      const A = makeStamper(w, 'A');
+      A.arm();
+      A.echo({ s: SRV_BASE });                      // bestaetigtes Fremd-Echo
+      t('OC6 bestaetigtes Turn-Echo wird sofort autoritativ', A.stamp() === SRV_BASE && A.probe() === 'done');
+      await w.flush();
+      t('OC6 spaetere eigene Bestaetigung aendert den Stempel nicht', A.stamp() === SRV_BASE);
+    }
+
+    // (4) Quellcode-Wache: der Stempelpfad darf nie wieder auf set() zurueckfallen.
+    t('OC6 Stempel wird per runTransaction(applyLocally:false) geschrieben',
+      /runTransaction\(ref,cur=>cur==null\?window\.FB\.serverTimestamp\(\):undefined,\{applyLocally:false\}\)/
+        .test(grab(/function stampOnlinePhase\(ctx\)\{[\s\S]*?\n\}/, 'stampOnlinePhase')));
+    t('OC6 Stempelpfad benutzt kein set() mehr',
+      !/window\.FB\.set\(ref/.test(grab(/function stampOnlinePhase\(ctx\)\{[\s\S]*?\n\}/, 'stampOnlinePhase')));
   }
 
   console.log(`\nReconnect-B2: ${pass} passed, ${fail} failed`);

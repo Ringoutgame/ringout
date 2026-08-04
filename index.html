@@ -2038,7 +2038,12 @@ const RESULT_SLOWMUL=0.7, RESULT_FR=0.99;
 // Ring-out-Logik (stepSim) behandelt danach Kugeln ausserhalb des neuen Radius.
 // Keine Online-/Firebase-/Netzwerk-Beruehrung — alle Pfade sind hart auf Bot-Local
 // gated (collapseEnabled && mode==='bot' && !online). ── ==COLLAPSE-CORE-START==
-const MATCH_COLLAPSE_SECONDS=60, COLLAPSE_WARNING_SECONDS=10, FINAL_COUNTDOWN_SECONDS=5, COLLAPSE_RADIUS_FACTOR=0.82;
+// Stufenmodell: das Match besteht aus COLLAPSE_STAGE_COUNT Zyklen zu je
+// COLLAPSE_CYCLE_SECONDS Planungssekunden; am Ende jedes Zyklus faellt genau ein
+// Collapse (Radius x COLLAPSE_RADIUS_FACTOR). MATCH_COLLAPSE_SECONDS bleibt die
+// GESAMT-Planungszeit (Produkt beider Werte) und damit das Online-Budget.
+const COLLAPSE_STAGE_COUNT=2, COLLAPSE_CYCLE_SECONDS=30;
+const MATCH_COLLAPSE_SECONDS=COLLAPSE_STAGE_COUNT*COLLAPSE_CYCLE_SECONDS, COLLAPSE_WARNING_SECONDS=10, FINAL_COUNTDOWN_SECONDS=5, COLLAPSE_RADIUS_FACTOR=0.82;
 // Maximale Entscheidungszeit je Planungsphase. Sie laeuft in DERSELBEN Zeitbasis wie die
 // Matchzeit (matchElapsedMs) und erbt damit alle vorhandenen Pausenregeln: waehrend
 // Physik, Reveal, Result, Menue und inaktivem Tab vergeht keine Zugzeit. Bei Ablauf wird
@@ -2053,8 +2058,9 @@ const TURN_LIMIT_SECONDS=7;
 // uebersprungen werden. Bewusst KEINE allgemeine Pause-Engine, nur diese eine Klemmung.
 const MAX_COLLAPSE_TICK_DELTA_MS=250;
 let collapseEnabled=false;        // true nur im lokalen Bot-Training-Match
-let collapseState='running';      // 'running' -> 'expired' (0 erreicht) -> 'collapsed' (einmalig)
-let matchElapsedMs=0;             // aufsummierte Planungsphasen-Zeit
+let collapseState='running';      // je Zyklus: 'running' -> 'expired' (0 erreicht) -> Collapse; nach der LETZTEN Stufe terminal 'collapsed'
+let collapseStage=0;              // Anzahl vollzogener Collapses (0..COLLAPSE_STAGE_COUNT)
+let matchElapsedMs=0;             // aufsummierte Planungsphasen-Zeit des LAUFENDEN Zyklus
 let matchTimerAnchor=null;        // performance.now() des letzten zaehlenden Frames (null=pausiert)
 let collapseRadius=0;             // Arenaradius unmittelbar nach dem Collapse (Schrumpf-Floor)
 let collapseOuterR=0;             // Radius VOR dem Collapse (fuer die entfernte Aussenzone im Overlay)
@@ -2096,7 +2102,7 @@ function autoStandSeats(seats){
     commitAutoStand(s,idx);
   }
 }
-function collapseRemainMs(){return Math.max(0,MATCH_COLLAPSE_SECONDS*1000-matchElapsedMs);}
+function collapseRemainMs(){return Math.max(0,COLLAPSE_CYCLE_SECONDS*1000-matchElapsedMs);}
 // Restzeit des laufenden Zuges. Das Fenster liegt bewusst in matchElapsedMs-Koordinaten:
 // dieselbe Uhr, dieselben Pausen — eine pausierte Phase verbraucht keine Zugzeit.
 function turnRemainMs(){return turnWindowEndEl==null?TURN_LIMIT_SECONDS*1000:Math.max(0,turnWindowEndEl-matchElapsedMs);}
@@ -2149,11 +2155,15 @@ let onTurnStamp={};               // turn -> Phasenstart s (Serverzeit)
 let onTurnTs={};                  // turn -> spaetester Commit-Stempel ts (Serverzeit)
 let onStampProbe={};              // turn -> 'pending'|'done' (eigene Stempel-Nachlese)
 let onlineTimeoutTried={};        // je gen:turn:seat hoechstens EIN Timeout-Schreibversuch
-let onCollapsedGen=-1;            // Online-Collapse je Generation genau einmal (Latch)
-let onlineRemainMs=MATCH_COLLAPSE_SECONDS*1000;   // abgeleitete Restzeit (Anzeige)
+let onCollapsedGen=-1;            // Generation, zu der onCollapseCount gehoert (-1 = keine)
+let onCollapseCount=0;            // vollzogene Online-Collapse-Stufen DIESER Generation (0..COLLAPSE_STAGE_COUNT)
+// Stufenzahl der AKTUELLEN Generation — eine fremde/alte Generation zaehlt 0
+// (Rematch erhoeht gen und neutralisiert damit beide Stufen automatisch).
+function onlineCollapseCount(){return onCollapsedGen===gen?onCollapseCount:0;}
+let onlineRemainMs=COLLAPSE_CYCLE_SECONDS*1000;   // abgeleitete Restzeit des laufenden Zyklus (Anzeige)
 let onlineHasClock=false;         // Raum fuehrt Serverstempel (Altbestand: false)
 function onlineResetClock(){onTurnStamp={};onTurnTs={};onStampProbe={};onlineTimeoutTried={};
-  onlineRemainMs=MATCH_COLLAPSE_SECONDS*1000;onlineHasClock=false;}
+  onlineRemainMs=COLLAPSE_CYCLE_SECONDS*1000;onlineHasClock=false;}
 // Aktive Zeit EINER abgeschlossenen Phase: Spanne Phasenstart -> letzter Commit,
 // geklemmt auf das Fenster. Fehlt der Stempel (Altbestand ohne Uhr) -> 0; fehlt nur
 // der Commit-Stempel (kann bei aktiver Uhr nicht passieren, Rules erzwingen ts) ->
@@ -2163,38 +2173,72 @@ function onlineTurnUsedMs(sVal,maxTs,capMs){
   if(typeof maxTs!=='number')return capMs;
   return Math.max(0,Math.min(capMs,maxTs-sVal));
 }
+// ── Einzige Quelle der Online-Zeitwahrheit ─────────────────────────────────
+// Reine Faltung der gespeicherten Stempel: Uhr, Stufen, Collapse-Turn und Rest-
+// zeit werden ALLE aus diesem einen Durchlauf abgeleitet — es gibt keine zweite
+// Zeitrechnung mehr, die davon abweichen koennte.
+//
+// P1-Fix (2026-08-03): jeder Turn wird an der aktuell erreichten Stufengrenze
+// ABGESCHNITTEN. Vorher summierte die Uhr ganze Turns und leitete die Zyklus-
+// grenze erst aus der Summe ab: ein Turn, der die 30-s-Schwelle ueberzog (z. B.
+// 28 s verbraucht + 6 s Zug = 34 s), verkuerzte den zweiten Zyklus um genau
+// diesen Ueberhang (hier auf 26 s). Der Ueberhang wird jetzt verworfen — Zyklus 2
+// beginnt logisch immer mit exakt COLLAPSE_CYCLE_SECONDS, die Schwellen bleiben
+// unveraendert bei 30 000 und 60 000 ms, und ein dritter Zyklus entsteht nie
+// (nach COLLAPSE_STAGE_COUNT Stufen zaehlt keine Zeit mehr).
+//
+// stageTurn[k] = Turn, mit dessen Abschluss Stufe k+1 erreicht wurde. Es wird nur
+// gefuellt, solange die Stempelkette dieses Praefixes LUECKENLOS aufgeloest ist
+// (strict): eine Stufe, deren Herleitung an einem fehlenden s/ts haengt, gilt als
+// noch nicht bestimmbar — genau die bisherige -1-Semantik des Collapse-Turns.
+// usedMs/remainingMs bleiben dagegen bewusst tolerant (fehlender Phasenstempel
+// = 0, fehlender Commit-Stempel = volles Fenster), damit die Anzeige auch in
+// Altbestandsraeumen ohne Uhr definiert bleibt.
+function onlineFold(stamps,tsMap,uptoTurn){
+  const lim=TURN_LIMIT_SECONDS*1000,cyc=COLLAPSE_CYCLE_SECONDS*1000;
+  const stageTurn=[];
+  let used=0,stage=0,strict=true;
+  for(let i=0;i<uptoTurn&&stage<COLLAPSE_STAGE_COUNT;i++){
+    const s=stamps?stamps[i]:undefined,ts=tsMap?tsMap[i]:undefined;
+    if(typeof s!=='number'||typeof ts!=='number')strict=false;
+    const room=(stage+1)*cyc-used;                  // Rest bis zur naechsten Stufengrenze
+    used+=Math.min(onlineTurnUsedMs(s,ts,lim),room);   // Ueberhang verfaellt an der Grenze
+    if(used>=(stage+1)*cyc){ if(strict)stageTurn[stage]=i; stage++; }
+  }
+  return {usedMs:used,stage:stage,stageTurn:stageTurn,strict:strict,
+          remainingMs:stage>=COLLAPSE_STAGE_COUNT?0:(stage+1)*cyc-used};
+}
 // Gemeinsame Uhr aller Clients: identische Eingaben -> identische Werte. Das Fenster
-// der laufenden Phase ist min(7 s, Restzeit); nach aufgebrauchter Matchzeit laeuft
-// jede weitere Phase mit dem vollen 7-s-Fenster weiter (die Rules erzwingen ohnehin
-// hoechstens 7 s je Zug) — die Matchuhr selbst bleibt bei 0 stehen.
+// der laufenden Phase ist min(7 s, Restzeit des LAUFENDEN Zyklus) — die Deadline
+// faellt damit wie lokal auf jedes Zyklusende (30 s / 60 s). remainingMs ist die
+// Restzeit des laufenden 30-s-Zyklus (HUD-Vertrag); nach aufgebrauchter Gesamtzeit
+// laeuft jede weitere Phase mit dem vollen 7-s-Fenster weiter (die Rules erzwingen
+// ohnehin hoechstens 7 s je Zug) — die Matchuhr selbst bleibt bei 0 stehen.
 function onlineClock(stamps,tsMap,curTurn,nowSrv){
   const lim=TURN_LIMIT_SECONDS*1000;
-  let used=0;
-  for(let i=0;i<curTurn;i++)used+=onlineTurnUsedMs(stamps?stamps[i]:undefined,tsMap?tsMap[i]:undefined,lim);
-  const before=Math.max(0,MATCH_COLLAPSE_SECONDS*1000-used);
+  const f=onlineFold(stamps,tsMap,curTurn);
+  const before=f.remainingMs;
   const win=before>0?Math.min(lim,before):lim;
   const started=(stamps&&typeof stamps[curTurn]==='number')?stamps[curTurn]:null;
   const openUsed=started==null?0:Math.max(0,Math.min(win,nowSrv-started));
   return {startedAt:started,windowMs:win,deadlineAt:started==null?null:started+win,
-          usedMs:used+Math.min(openUsed,before),remainingMs:Math.max(0,before-openUsed)};
+          usedMs:f.usedMs+Math.min(openUsed,before),remainingMs:Math.max(0,before-openUsed)};
 }
-// Der Collapse-Turn: der erste Turn, nach dessen VOLLSTAENDIGEM Abschluss die
-// kumulierte aktive Zeit 60 s erreicht — ausschliesslich aus gespeicherten Stempeln,
-// ohne jede lokale Browserzeit. -1 = noch nicht bestimmbar (Turn offen/ohne Uhr).
-function onlineCollapseTurn(stamps,tsMap){
-  const lim=TURN_LIMIT_SECONDS*1000,total=MATCH_COLLAPSE_SECONDS*1000;
-  let used=0;
-  for(let i=0;i<=GEN_MAX;i++){
-    const s=stamps?stamps[i]:undefined,ts=tsMap?tsMap[i]:undefined;
-    if(typeof s!=='number'||typeof ts!=='number')return -1;
-    used+=Math.max(0,Math.min(Math.min(lim,total-used),ts-s));
-    if(used>=total)return i;
-  }
-  return -1;
+// Der Collapse-Turn einer Stufe: der erste Turn, nach dessen VOLLSTAENDIGEM Abschluss
+// die kumulierte aktive Zeit die Stufenschwelle totalMs erreicht (Default: Gesamt-
+// Budget) — ausschliesslich aus gespeicherten Stempeln, ohne jede lokale Browserzeit.
+// -1 = noch nicht bestimmbar (Turn offen/ohne Uhr). Liest dieselbe Faltung wie die
+// Uhr: Stufengrenze und angezeigte Restzeit koennen nicht auseinanderlaufen.
+function onlineCollapseTurn(stamps,tsMap,totalMs){
+  const cyc=COLLAPSE_CYCLE_SECONDS*1000;
+  const stageIdx=Math.round((totalMs==null?MATCH_COLLAPSE_SECONDS*1000:totalMs)/cyc)-1;
+  if(stageIdx<0||stageIdx>=COLLAPSE_STAGE_COUNT)return -1;
+  const t=onlineFold(stamps,tsMap,GEN_MAX+1).stageTurn[stageIdx];
+  return t==null?-1:t;
 }
-// Dynamischer Rundenschrumpf-Floor: normal R0*0.80 (bit-identisch), nach dem Collapse
-// eingefroren auf collapseRadius — lokal wie online (identische Semantik).
-function shrinkFloor(){return ((collapseActive()&&collapseState==='collapsed')||(online&&onCollapsedGen===gen))?collapseRadius:R0*0.80;}
+// Dynamischer Rundenschrumpf-Floor: normal R0*0.80 (bit-identisch), nach jedem Collapse
+// eingefroren auf collapseRadius (Radius nach der JUENGSTEN Stufe) — lokal wie online.
+function shrinkFloor(){return ((collapseActive()&&collapseStage>0)||(online&&onlineCollapseCount()>0))?collapseRadius:R0*0.80;}
 // ── Online-Collapse: dieselbe Rundengrenze wie lokal, exakt einmal je Generation ──
 // Faellig, sobald der Collapse-Turn aus den gespeicherten Daten bestimmbar und
 // vollstaendig aufgeloest ist. turnNo steht am Settlement noch AUF dem aufgeloesten
@@ -2202,14 +2246,16 @@ function shrinkFloor(){return ((collapseActive()&&collapseState==='collapsed')||
 // Fall, dass ein Client die Stempel eines frueheren Turns verspaetet vervollstaendigt.
 function onlineCollapsePending(){
   if(!online||!gameStarted||phase==='over')return false;
-  if(onCollapsedGen===gen)return false;
-  const ct=onlineCollapseTurn(onTurnStamp,onTurnTs);
+  const cnt=onlineCollapseCount();
+  if(cnt>=COLLAPSE_STAGE_COUNT)return false;
+  const ct=onlineCollapseTurn(onTurnStamp,onTurnTs,(cnt+1)*COLLAPSE_CYCLE_SECONDS*1000);
   return ct>=0&&ct<=turnNo;
 }
-// Einmalige Radiusverkleinerung — Spiegel von applyCollapseRadius() fuer online,
+// Radiusverkleinerung je Stufe — Spiegel von applyCollapseRadius() fuer online,
 // OHNE den lokalen collapseState anzufassen (der gehoert dem lokalen Timer).
 function applyOnlineCollapseRadius(){
-  onCollapsedGen=gen;
+  if(onCollapsedGen!==gen){onCollapsedGen=gen;onCollapseCount=0;}
+  onCollapseCount++;
   collapseOuterR=R;
   R=Math.max(BR*4,R*COLLAPSE_RADIUS_FACTOR);
   collapseRadius=R;
@@ -2235,7 +2281,7 @@ function onlineCollapseRoundEnd(){
 }
 function resetCollapseTimer(){
   collapseEnabled=!online;                   // alle lokalen Modi: Bot, Hotseat (pvp) und lokales FFA
-  collapseState='running';matchElapsedMs=0;matchTimerAnchor=null;turnWindowEndEl=null;turnWindowSeat=-1;
+  collapseState='running';collapseStage=0;matchElapsedMs=0;matchTimerAnchor=null;turnWindowEndEl=null;turnWindowSeat=-1;
   collapseRadius=0;collapseOuterR=0;collapseCountShown=-1;collapseWarned=false;collapseFlash=0;coverOpen=false;
   // Neues Match/Rematch startet ohne Eingabesperre und ohne Drag-Reste aus dem alten Match.
   if(typeof cancelAimDrag==='function')cancelAimDrag();
@@ -2273,11 +2319,19 @@ function onTurnExpire(){
 // Beide teilen sich applyCollapseRadius(); danach existiert nie eine Planungsphase mit
 // abgelaufenem Timer. Hart gegated: jeder Aufruf ausserhalb eines laufenden lokalen
 // Bot-Matches ist wirkungslos (s. collapsePending).
-// ── Einmalige Radiusverkleinerung inkl. Zustandswechsel, Alarm und HUD ──
+// ── Radiusverkleinerung je Stufe inkl. Zustandswechsel, Alarm und HUD ──
+// Nicht-terminale Stufe: NUR Timer- und Warn-/Countdown-Latches fuer den naechsten
+// Zyklus zuruecksetzen — Radius, Score, Spielerzustand und Matchgeneration bleiben
+// unangetastet; collapseState wird wieder 'running'. Letzte Stufe: terminal
+// 'collapsed', exakt das bisherige Verhalten des einzigen Collapses.
 function applyCollapseRadius(){
   collapseOuterR=R;                            // alte Grenze merken (entfernte Aussenzone im Overlay)
   R=Math.max(BR*4,R*COLLAPSE_RADIUS_FACTOR);
-  collapseRadius=R;collapseState='collapsed';
+  collapseRadius=R;collapseStage++;
+  if(collapseStage>=COLLAPSE_STAGE_COUNT){collapseState='collapsed';}
+  else{collapseState='running';matchElapsedMs=0;matchTimerAnchor=null;
+       turnWindowEndEl=null;turnWindowSeat=-1;
+       collapseWarned=false;collapseCountShown=-1;}
   collapseFlash=performance.now();   // Sound: read-only aus dem SICHTBAREN Stufenwechsel (colvTick -> SFX.colvEvent)
   updateCollapseHud();
 }
@@ -2381,24 +2435,46 @@ function tickCollapse(now){
 // Beginn einer Online-Planungsphase serverseitig stempeln — write-once direkt IM
 // Turn-Knoten (g/<gen>/t/<turn>/s), den der Turn-Listener ohnehin beobachtet.
 // serverTimestamp() loest der Server auf; der Client kann den Wert nicht bestimmen.
-// Nach dem Schreibversuch (Erfolg ODER write-once-Niederlage gegen einen schnelleren
-// Client) wird der tatsaechliche Serverwert einmalig NACHGELESEN: der Stempel ist
-// damit deterministisch bekannt, unabhaengig von jeder Listener-Verzoegerung. Liefert
-// die Nachlese nichts (alte Rules ohne Uhr-Pfad), laeuft der Turn als v3 ohne Uhr.
+//
+// P1-Fix (2026-08-03): der Stempel laeuft wie JEDER andere Turn-Write ausschliesslich
+// ueber runTransaction(...,{applyLocally:false}). set() hatte den Wert lokal sofort
+// optimistisch angewendet und damit den eigenen onValue-Listener VOR der Serverantwort
+// gefeuert — onlineTurnValue uebernahm diese reine Client-Schaetzung als autoritativ
+// (Uhr, Deadline, Collapse-Turn, Reveal-Freigabe), und ein danach verlorenes Write-once-
+// Race oder ein Rules-Rollback korrigierte sie erst nachtraeglich. Ohne lokales
+// Zwischenereignis traegt jeder Snapshot auf diesem Pfad ausschliesslich Serverwerte.
+//
+// Autoritativ ist damit der Transaction-Result-Snapshot: er enthaelt in BEIDEN
+// Ausgaengen — eigener Stempel gewonnen ODER write-once gegen einen schnelleren Client
+// verloren — den Serverwert. Nur wenn der Write abgelehnt wurde (permission_denied
+// gegen alte Rules ohne Uhr-Pfad, Netzwerkfehler) gibt es keinen Snapshot; dann
+// entscheidet ein Server-Read, ob der Turn ueberhaupt eine Uhr fuehrt. Ein solcher
+// benigner Verlierer uebernimmt NIE einen selbst geschaetzten Wert: ohne bestaetigte
+// Zahl bleibt onTurnStamp leer und der Turn laeuft wie v3 ohne Uhr weiter.
 function stampOnlinePhase(ctx){
   if(!online||!window.FB)return;
   onStampProbe[ctx.turnNo]='pending';
   const ref=window.FB.ref(window.FB.db,'rooms/'+ctx.room+'/g/'+ctx.gen+'/t/'+ctx.turnNo+'/s');
-  const adopt=()=>{
-    window.FB.get(ref).then(snap=>{
-      if(!isCurrentCtx(ctx))return;
-      const v=snap&&snap.val?snap.val():null;
-      if(typeof v==='number')onTurnStamp[ctx.turnNo]=v;
-      onStampProbe[ctx.turnNo]='done';
-      if(typeof maybeReveal==='function')maybeReveal();   // evtl. wartenden Reveal freigeben
-    }).catch(()=>{ if(isCurrentCtx(ctx))onStampProbe[ctx.turnNo]='done'; });
+  const adopt=v=>{
+    if(!isCurrentCtx(ctx))return;
+    if(typeof v==='number')onTurnStamp[ctx.turnNo]=v;
+    onStampProbe[ctx.turnNo]='done';
+    if(typeof maybeReveal==='function')maybeReveal();   // evtl. wartenden Reveal freigeben
   };
-  try{ window.FB.set(ref,window.FB.serverTimestamp()).then(adopt).catch(adopt); }catch(e){ onStampProbe[ctx.turnNo]='done'; }
+  // Nachlese NUR nach abgelehntem Write — get() liest den Serverstand; da auf diesem
+  // Pfad nichts mehr lokal optimistisch geschrieben wird, kann auch der Cache keinen
+  // unbestaetigten Wert mehr enthalten.
+  const probe=()=>{
+    window.FB.get(ref).then(snap=>adopt(snap&&snap.val?snap.val():null)).catch(()=>adopt(null));
+  };
+  try{
+    window.FB.runTransaction(ref,cur=>cur==null?window.FB.serverTimestamp():undefined,{applyLocally:false})
+      .then(res=>{
+        const v=res&&res.snapshot&&res.snapshot.val?res.snapshot.val():null;
+        if(typeof v==='number')adopt(v); else probe();
+      })
+      .catch(probe);
+  }catch(e){ onStampProbe[ctx.turnNo]='done'; }
 }
 // Reveal-Sperre: solange die eigene Stempel-Nachlese des laufenden Turns aussteht,
 // beginnt KEINE neue Phase auf halbfertigem Stempelzustand. Die Sperre loest sich
@@ -2420,8 +2496,11 @@ function onlineOpenSeats(){
 function tickOnlineClock(){
   if(!online||!gameStarted){updateCollapseHud();return;}
   const c=onlineClock(onTurnStamp,onTurnTs,turnNo,serverNow());
-  onlineRemainMs=c.remainingMs;
-  onlineHasClock=c.startedAt!=null||onCollapsedGen===gen;
+  // Schwelle erreicht, Stufe aber noch nicht angewendet (wartet auf die Rundengrenze):
+  // Anzeige bei 0 halten — sonst spraenge das HUD (und die Warnstufe des visuellen
+  // Adapters) schon VOR dem sichtbaren Collapse in den naechsten Zyklus.
+  onlineRemainMs=onlineCollapsePending()?0:c.remainingMs;
+  onlineHasClock=c.startedAt!=null||onlineCollapseCount()>0;
   // Warnrisse: Sound haengt read-only an den sichtbaren Rissstufenwechseln des
   // visuellen Adapters (colvTick -> SFX.colvEvent), nicht mehr an dieser Uhr.
   updateCollapseHud();
@@ -4077,7 +4156,7 @@ function leaveOnline(){
   clearLobbyHostGrace();       // deliberate leave -> no pending lobby grace may fire afterwards
   clearAllMatchGrace(); roomP={};   // B2: in-match grace timers of this room are void as well
   if(typeof onlineResetClock==='function')onlineResetClock();   // Online-Uhr dieser Session zuruecksetzen
-  if(typeof onCollapsedGen!=='undefined')onCollapsedGen=-1;     // Collapse-Latch gehoert zum verlassenen Raum
+  if(typeof onCollapsedGen!=='undefined'){onCollapsedGen=-1;onCollapseCount=0;}   // Collapse-Stufen gehoeren zum verlassenen Raum
   try{ if(turnUnsub)turnUnsub(); }catch(e){} try{ if(genUnsub)genUnsub(); }catch(e){} try{ if(presUnsub)presUnsub(); }catch(e){} try{ if(seatsUnsub)seatsUnsub(); }catch(e){} try{ if(rosterUnsub)rosterUnsub(); }catch(e){}
   turnUnsub=genUnsub=presUnsub=seatsUnsub=rosterUnsub=null;
   // Deliberate leave is immediate: drop own presence AND own roster record (frees
@@ -4757,7 +4836,7 @@ async function initR3D(){
      for(let k=0;k<3;k++)addCloud([5800,6300],-560,-440,520,930,.3,.42);}
     // Akzeptiertes Arena-GLB (Pflicht im MVP; Fehler -> Fallback 2D)
     const glbT0=performance.now();
-    const glb=await new Promise((res,rej)=>new GLTFLoader().load('assets/arena_platform.glb',res,undefined,rej));
+    const glb=await new Promise((res,rej)=>new GLTFLoader().load('assets/arena_platform_stage2.glb',res,undefined,rej));
     perfGlbMs=Math.round(performance.now()-glbT0);
     // Gameplay-Lesbarkeit: Kristalle + obere Sockel von der Randebene ENTFERNEN (wirken wie
     // Hindernisse/Fangpunkte). Nur hier im Spiel-Renderer — Asset & prototype3d bleiben unberuehrt.
@@ -4783,124 +4862,186 @@ async function initR3D(){
      main.rotation.x=Math.PI/2;main.position.y=WALK_Y+.006;bGroup.add(main);mainBMat=main.material;
      const g=new THREE.Mesh(new THREE.TorusGeometry(9.5,.02,10,160),goldM);  // innerer Gold-Rahmen der Warnzone
      g.rotation.x=Math.PI/2;g.position.y=WALK_Y+.005;bGroup.add(g);}
-    // ── Ring-Collapse-Visual (verbindliches Modell): Im Uhr-Match bildet das
-    //    freigegebene Sechs-Segment-Band von ANFANG AN das komplette aeussere
-    //    Ringband der Arena — die Segment-Roots sind Vollkoerper (Top-Platte +
-    //    Drum-Wand bis zur Kelch-Oberkante) und tragen die ECHTEN Plattform-
-    //    Materialien (Marmor/Gold identisch uebernommen). Der innere Restkoerper
-    //    (Boden + Kelch) steht von Anfang an in endgueltiger Groesse und wird NIE
-    //    skaliert, verschoben oder getauscht. Warnfenster: Segmente wechseln
-    //    gestaffelt intakt -> gerissen (identische Silhouette, es erscheinen nur
-    //    die echten Risse der Bruchgeometrie). Abriss: AUSSCHLIESSLICH die sechs
-    //    Segmente + die auf ihnen liegenden Goldringe + die Grenz-Deko loesen sich
-    //    aus ihrer sichtbaren Position und stuerzen — kein Shrink/Settle/Snap.
+    // ── Ring-Collapse-Visual (v6-Vertrag, zwei Stufen): Im Uhr-Match bildet das
+    //    freigegebene Sechs-Segment-Band von ANFANG AN das aeussere Ringband; ein
+    //    ZWEITER Ring aus DEMSELBEN GLB (Skalierung 0.82) traegt den zweiten Zyklus.
+    //    Warnfenster (v6): die intakte Grundarena bleibt vollstaendig stabil, NUR die
+    //    echten Risse erscheinen gestaffelt; Goldraender bleiben durchgehend sichtbar
+    //    (Intact-Traeger), Chips/Bruchflaechen bleiben aus — keine vorzeitigen Pops.
+    //    Abriss (v6): jedes Segment schaltet erst im ERSTEN sichtbar bewegten Frame
+    //    atomar auf seine volle Fallgeometrie; Stage-2-Boden und Sockelteile wechseln
+    //    erst unter sichtbar abdeckender Segmentbewegung. Beide Zyklen laufen durch
+    //    DENSELBEN zentralen Zustandsvertrag (colvRing) — keine Sonderpatches.
     //    Ladefehler -> exakt das bisherige Verhalten (uniformes Mitschrumpfen).
     const COLV_WALK_TOP=.165, COLV_FALL_S=2.6, COLV_TREMOR_S=.3;   // Tremor-Dauer vor dem Abkippen (auch Basis des Sound-Timings)
     const COLV_SEG_LIFT=COLV_WALK_TOP-.04;   // Arena-v2-Bandhoehe (.04) -> V1-Walkway-Hoehe (.165)
+    const COLV_S2=COLLAPSE_RADIUS_FACTOR;    // einheitliche Ring-2-/Divisor-Skalierung (0.82) — an die Gameplay-Wahrheit gebunden
+    const COLV_RING2_LIFT=.012;              // Ring-2-Bandoberkante buendig zur Stage-2-Bodenflaeche
+    const COLV_TIER3_LIFT=4.10;              // Endposition des Restsockels (Tier3/GoldTipBand) luftspaltfrei an der Kern-Unterseite — steht dort den GESAMTEN zweiten Zyklus
     const colv={state:0,load:0,group:null,pairs:[],swap:false,t0:0,instant:false,lift:COLV_WALK_TOP,div:GLB_R,
-                crackMask:0,lastNow:0,pedSnd:false,fragNext:0,segSndN:0};   // Hoerereignis-Latches (read-only-Kopplung an SFX)
+                crackMask:0,lastNow:0,pedSnd:false,fragNext:0,segSndN:0};   // Ring 1: Hoerereignis-Latches (read-only-Kopplung an SFX)
+    // Ring 2: identischer Zustandsvertrag, EIGENE Latches — Zyklus 2 vertont sich
+    // damit erneut exakt einmal je Ereignis (Warnrisse, Hauptbruch, Segmente, Sockel).
+    const colv2={state:0,group:null,pairs:[],t0:0,instant:false,
+                 crackMask:0,pedSnd:false,fragNext:0,segSndN:0};
     // Read-only-Meldung eines soeben SICHTBAR geschalteten Zustandswechsels an
     // den Sound — dieselbe Codezeile, die den Zustand schaltet, fordert das
     // Hoerereignis an. Audiofehler duerfen die Animation nie beruehren.
     function colvSnd(ev){try{SFX.colvEvent(ev);}catch(e){}}
-    // Bandtausch-Inventar: Walkway + V1-Drum-Deko + die beiden DURCHGEHENDEN Goldringe
-    // werden im Uhr-Match durch die Segment-Vollkoerper ersetzt — Gold liegt dann nur
-    // noch als segmentgebundene Bogen auf dem Band (endet an den Rissen, bricht und
-    // faellt mit jedem Segment). Die breiten Sockelteile direkt unter dem Band
-    // (TierBridge/Tier1/Rippen/Goldband) stuerzen beim Abriss mit — uebrig bleibt der
-    // Boden, der ueber dem schmaleren Kelchstumpf auskragt (echter Bruchrest statt
-    // sauber ausgeschnittenem Stueck auf komplettem Aussensockel).
-    const colvBandParts=[],colvPed=[];
+    // Bandtausch-Inventar (v6): NUR die koplanaren Flaechen (Walkway, die beiden
+    // DURCHGEHENDEN Goldringe, WallRing) werden im Uhr-Match durch die Segment-
+    // Vollkoerper ersetzt. Gesimse, Kapitelle und Pfeiler dekorieren die Sockel-
+    // trommel und STUERZEN beim Collapse 1 ueber dieselbe drop-Mathematik mit —
+    // kein Ausblenden, kein Pop, keine offenen dunklen Nischen. Stage-2-Inventar:
+    // PlayFloor_Stage2_Wedge_01..06 — der Stage-2-Boden ist im Asset in sechs
+    // Keile mit den Winkelgrenzen der Collapse-Segmente geteilt; jeder Keil faellt
+    // MIT seinem Segment (colvWedge -> pr.wedge), es bleibt also nie eine
+    // geschlossene Restflaeche stehen und nichts wird global ausgeblendet.
+    // Tier2/GoldTier2 und TempleTip/TipGold sind geschlossene Rotationskoerper,
+    // die kein Segment tragen kann: sie duerfen nie sichtbar fallen und werden im
+    // ersten sichtbar bewegten Segment-Frame atomar ausgeblendet (pedHide).
+    // Tier3/GoldTipBand bleiben als kurzer, kompakter Marmorsockel und tragen die
+    // finale Arena.
+    const colvBandParts=[],colvPed=[],colvPed2=[],colvBase3=[],colvWedge={};
     let colvMatWalk=null,colvMatGold=null;
     glb.scene.traverse(o=>{
       if(!o.isMesh)return;
+      const mw=/^PlayFloor_Stage2_Wedge_(\d+)$/.exec(o.name);
+      if(mw){colvWedge[mw[1]]=o;return;}
       if(o.name==='Walkway'){colvMatWalk=o.material;colvBandParts.push(o);return;}
       if(/^(GoldStepEdge|GoldWalkRing)$/.test(o.name)){if(!colvMatGold)colvMatGold=o.material;colvBandParts.push(o);return;}
-      if(/^(Cornice|GoldCornice|GoldCapital|WallRing|Pillar)/.test(o.name)){colvBandParts.push(o);return;}
-      if(o.name==='TierBridge'||o.name==='Tier1'||o.name==='GoldTier1'||/^(TierRib|TierStud)/.test(o.name))
+      if(o.name==='WallRing'){colvBandParts.push(o);return;}
+      if(o.name==='Tier2'||o.name==='GoldTier2'||o.name==='TempleTip'||o.name==='TipGold')
+        {o.userData.colv={hy:o.position.y};colvPed2.push(o);return;}
+      if(o.name==='Tier3'||o.name==='GoldTipBand')
+        {o.userData.colv={hy:o.position.y};colvBase3.push(o);return;}
+      if(/^(Cornice|GoldCornice|GoldCapital|Pillar)/.test(o.name)
+         ||o.name==='TierBridge'||o.name==='Tier1'||o.name==='GoldTier1'||/^(TierRib|TierStud)/.test(o.name))
         {o.userData.colv={hy:o.position.y};colvPed.push(o);}
     });
     function colvLoad(){
       colv.load=1;
       new GLTFLoader().load('assets/ring_collapse/validation/six_segment_rollout/ring_collapse_six_segment_simplified.glb',g2=>{
-        const grp=new THREE.Group(),byNum={};
-        for(const r of [...g2.scene.children]){
-          const m=/^Segment(\d+)_/.exec(r.name);if(!m)continue;
-          // ECHTE Arena-Materialien uebernehmen (identische Maps/Parameter, kein
-          // "aehnlicher" Ton): Top + Waende = Plattform-Marmor, Gold-Trims =
-          // Plattform-Gold; nur die Riss-/Bruchflaechen behalten ihr Bruchmaterial.
-          r.traverse(o=>{if(!o.isMesh)return;o.castShadow=o.receiveShadow=true;
-            const mn=(o.material&&o.material.name)||'';
-            if(/^M_Arena(Top|Marble)/.test(mn)&&colvMatWalk)o.material=colvMatWalk;
-            else if(mn==='M_ArenaGold'&&colvMatGold)o.material=colvMatGold;});
-          r.position.y+=COLV_SEG_LIFT;              // Bandoberkante exakt auf Walkway-Hoehe
-          const p=r.position,rr=Math.hypot(p.x,p.z)||1;
-          r.userData.colv={hx:p.x,hy:p.y,hz:p.z,ux:p.x/rr,uz:p.z/rr,tx:-p.z/rr,tz:p.x/rr};
-          r.visible=false;grp.add(r);
-          if(!byNum[m[1]])byNum[m[1]]={};
-          byNum[m[1]][/_Cracked/i.test(r.name)?'cracked':'intact']=r;
-        }
-        colv.pairs=Object.keys(byNum).sort().map((n,i)=>{
-          const pr=byNum[n],ord=[3,0,4,1,5,2][i];
-          const ud=pr.cracked.userData.colv;
-          ud.delay=ord*.16;ud.tumble=.9+(i%3)*.5;    // gestaffelter Abriss (deterministisch)
-          ud.fellSnd=false;                          // Hoerereignis-Latch: sichtbarer Abloese-Beginn genau einmal
-          pr.crackAt=ord*.16;                        // Riss-Erscheinung im Warnfenster, gleiche Ordnung
-          return pr;});
-        grp.visible=false;glb.scene.add(grp);colv.group=grp;
-        colv.state=0;colv.swap=false;colv.load=2;    // Stufe wird pro Frame neu abgeleitet
+        // Ring-Fabrik: baut aus DEMSELBEN freigegebenen Asset je Stufe eine Instanz
+        // (sf=1 fuer Ring 1, sf=COLV_S2 fuer Ring 2 — keine neue Ring-2-Geometrie).
+        const build=(sf,liftY,wedges)=>{
+          const grp=new THREE.Group(),byNum={};
+          for(const r0 of [...g2.scene.children]){
+            const m=/^Segment(\d+)_/.exec(r0.name);if(!m)continue;
+            const r=r0.clone(true);
+            // ECHTE Arena-Materialien uebernehmen (identische Maps/Parameter); v6-Tagging
+            // VOR der Uebernahme: Chips (lose Absplitter der Cracked-Variante) und
+            // Gold-Teilmeshes steuern den Sichtbarkeitsvertrag (colvSegVis).
+            r.traverse(o=>{if(!o.isMesh)return;o.castShadow=o.receiveShadow=true;
+              const mn=(o.material&&o.material.name)||'';
+              if(/^M_Fracture_Cracked/.test(mn))o.userData.chip=true;
+              if(mn==='M_ArenaGold'||mn==='M_Gold')o.userData.gold=true;
+              if(/^M_Arena(Top|Marble)/.test(mn)&&colvMatWalk)o.material=colvMatWalk;
+              else if(mn==='M_ArenaGold'&&colvMatGold)o.material=colvMatGold;});
+            r.position.copy(r0.position).multiplyScalar(sf);
+            r.position.y+=liftY;r.scale.setScalar(sf);   // Ring 1: Bandoberkante auf Walkway-Hoehe; Ring 2: buendig zum Stage-2-Boden
+            const p=r.position,rr=Math.hypot(p.x,p.z)||1;
+            r.userData.colv={hx:p.x,hy:p.y,hz:p.z,ux:p.x/rr,uz:p.z/rr,tx:-p.z/rr,tz:p.x/rr};
+            r.visible=false;grp.add(r);
+            if(!byNum[m[1]])byNum[m[1]]={};
+            byNum[m[1]][/_Cracked/i.test(r.name)?'cracked':'intact']=r;
+          }
+          glb.scene.updateMatrixWorld(true);          // Weltmatrizen vor dem Umhaengen der Keile aktuell
+          const pairs=Object.keys(byNum).sort().map((n,i)=>{
+            const pr=byNum[n],ord=[3,0,4,1,5,2][i];
+            const ud=pr.cracked.userData.colv;
+            ud.delay=ord*.16;ud.tumble=.9+(i%3)*.5;    // gestaffelter Abriss (deterministisch)
+            ud.fellSnd=false;                          // Hoerereignis-Latch: sichtbarer Abloese-Beginn genau einmal
+            pr.crackAt=ord*.16;                        // Riss-Erscheinung im Warnfenster, gleiche Ordnung
+            // Boden-Keil dieses Segments (nur Ring 2): eine Pivot-Gruppe am
+            // Home-Punkt DES SEGMENTS; attach() haengt den Keil um und rechnet
+            // seine lokale Matrix aus den Weltmatrizen zurueck — die sichtbare
+            // Lage bleibt dabei exakt erhalten. Pivot und Keil liegen im selben
+            // Teilbaum wie die Segmente, deshalb kuerzt sich jede Elternskalierung
+            // heraus; die Ring-2-Skalierung wirkt NICHT doppelt auf den Keil.
+            const wm=wedges&&wedges[n];
+            if(wm){
+              const pv=new THREE.Group();
+              pv.position.set(ud.hx,ud.hy,ud.hz);
+              glb.scene.add(pv);pv.updateMatrixWorld(true);
+              pv.attach(wm);
+              pr.wedge=pv;
+            }
+            return pr;});
+          grp.visible=false;glb.scene.add(grp);
+          return {grp,pairs};
+        };
+        const r1=build(1,COLV_SEG_LIFT,null),r2=build(COLV_S2,COLV_RING2_LIFT,colvWedge);
+        colv.group=r1.grp;colv.pairs=r1.pairs;
+        colv2.group=r2.grp;colv2.pairs=r2.pairs;
+        colvRingReset(colv2);          // Ring 2 in die sichtbare Ruhelage (Gruppe bleibt bis mv1 aus)
+        colv.state=0;colv2.state=0;colv.swap=false;colv.load=2;   // Stufe wird pro Frame neu abgeleitet
       },undefined,()=>{colv.load=3;});
     }
     function colvStage(){
-      // Stufe 2 = exakt die shrinkFloor-Wahrheit (lokal UND online), nie eine eigene Entscheidung
-      if((collapseActive()&&collapseState==='collapsed')||(online&&onCollapsedGen===gen))return 2;
+      // Stufe des LAUFENDEN Zyklus (0 normal / 1 Warnfenster / 2 terminal); die Zahl
+      // vollzogener Collapses liefert colvCount() — beide zusammen sind exakt die
+      // shrinkFloor-/Uhr-Wahrheit (lokal UND online), nie eine eigene Entscheidung.
+      if(colvCount()>=COLLAPSE_STAGE_COUNT)return 2;
       if(collapseActive()&&!menuVisible&&(collapseState==='expired'||(collapseState==='running'&&collapseRemainMs()<=COLLAPSE_WARNING_SECONDS*1000)))return 1;
       if(online&&gameStarted&&onlineHasClock&&onlineRemainMs<=COLLAPSE_WARNING_SECONDS*1000)return 1;
       return 0;
     }
-    function colvCracks(prog){   // gestaffelt intakt -> gerissen; prog<0 = alles intakt
-      for(const pr of colv.pairs){const c=prog>=pr.crackAt;pr.intact.visible=!c;pr.cracked.visible=c;}
+    function colvCount(){return collapseActive()?collapseStage:(online&&gameStarted?onlineCollapseCount():0);}
+    // v6-Sichtbarkeitsvertrag eines Segmentpaars: cr = Riss sichtbar (Warnstufe:
+    // NUR die echten Risse erscheinen, Gold bleibt durchgehend aus der Intact-
+    // Variante, Chips/Bruchgold bleiben aus); mv = erster sichtbar bewegter Frame
+    // erreicht (atomarer Wechsel auf die volle Fallgeometrie: Chips + eigenes Gold
+    // an, Intact-Goldtraeger aus — der Wechsel liegt IM Bewegungsframe).
+    function colvSegVis(pr,cr,mv){
+      pr.cracked.visible=cr;
+      pr.intact.visible=!cr||!mv;
+      pr.intact.traverse(o=>{if(o.isMesh)o.visible=!cr||!!o.userData.gold;});
+      pr.cracked.traverse(o=>{if(!o.isMesh)return;o.visible=(o.userData.chip||o.userData.gold)?!!mv:true;});
+    }
+    function colvCracks(prog,Rr){   // gestaffelt intakt -> gerissen; prog<0 = alles intakt
+      for(const pr of (Rr||colv).pairs)colvSegVis(pr,prog>=pr.crackAt,false);
     }
     function colvSwap(on){       // Band = Segmente (Uhr-Match) bzw. Original (Menue/ohne Uhr)
       if(colv.load!==2||colv.swap===on)return;
       for(const o of colvBandParts)o.visible=!on;
       if(colv.group)colv.group.visible=on;
-      if(on)colvCracks(-1);
+      if(on)colvCracks(-1,colv);
       colv.swap=on;
     }
-    function colvResetFall(){    // Segmente/Sockelteile zurueck in die sichtbare Ruhelage
-      for(const pr of colv.pairs)for(const r of [pr.intact,pr.cracked]){
-        const h=r.userData.colv;r.position.set(h.hx,h.hy,h.hz);r.quaternion.identity();}
-      colvCracks(-1);
+    function colvRingReset(Rr){  // EIN Ring zurueck in die sichtbare Ruhelage inkl. Latches
+      for(const pr of Rr.pairs){
+        for(const r of [pr.intact,pr.cracked]){
+          const h=r.userData.colv;r.position.set(h.hx,h.hy,h.hz);r.quaternion.identity();}
+        if(pr.wedge){                            // Boden-Keil teilt die Ruhelage seines Segments
+          const h=pr.cracked.userData.colv;
+          pr.wedge.position.set(h.hx,h.hy,h.hz);pr.wedge.quaternion.identity();pr.wedge.visible=true;}
+      }
+      colvCracks(-1,Rr);
+      Rr.instant=false;Rr.state=0;
+      Rr.crackMask=0;Rr.pedSnd=false;Rr.fragNext=0;Rr.segSndN=0;   // Hoerereignis-Latches mit der Ruhelage loesen
+      for(const pr of Rr.pairs)pr.cracked.userData.colv.fellSnd=false;
+    }
+    function colvResetFall(){    // beide Ringe + Sockel/Boden zurueck in die sichtbare Ruhelage
+      colvRingReset(colv);colvRingReset(colv2);
       for(const o of colvPed){o.visible=true;o.position.y=o.userData.colv.hy;}
-      colv.instant=false;
-      colv.crackMask=0;colv.pedSnd=false;colv.fragNext=0;colv.segSndN=0;   // Hoerereignis-Latches mit der Ruhelage loesen
-      for(const pr of colv.pairs)pr.cracked.userData.colv.fellSnd=false;
+      for(const o of colvPed2){o.visible=true;o.position.y=o.userData.colv.hy;}
+      for(const o of colvBase3)o.position.y=o.userData.colv.hy;
+      if(colv2.group)colv2.group.visible=false;
     }
     const colvAx=new THREE.Vector3(),colvQ=new THREE.Quaternion();
-    function colvTick(nowS){
-      const want=colvStage();
-      const clockMatch=(collapseActive()&&!menuVisible)||(online&&gameStarted&&onlineHasClock);
-      if(colv.load===0&&clockMatch)colvLoad();     // laedt beim Matchstart (~60s Vorlauf)
-      if(clockMatch&&colv.load!==3)SFX.colPreload();   // Audio-Buffer parallel vorladen/dekodieren (~50-60s Vorlauf)
-      // Frame-Luecke (Hintergrund-Tab): dazwischen umgeschaltete Zustaende sind
-      // laengst sichtbar gewesen bzw. uebersprungen — nie verspaetet vertonen.
-      const gapSnd=colv.lastNow>0&&nowS-colv.lastNow>.25;
-      colv.lastNow=nowS;
-      if(colv.load!==2){colv.lift=COLV_WALK_TOP;colv.div=GLB_R;return;}   // Fallback = bisheriges Verhalten
-      if(want===0){
-        if(colv.state!==0){colvResetFall();colv.state=0;}
-        colvSwap(clockMatch);
-        colv.lift=COLV_WALK_TOP;colv.div=GLB_R;
-        return;
-      }
-      colvSwap(true);                              // Warn-/Collapse-Stufe setzt das Band voraus (auch nach spaetem Laden)
-      if(want===1){
-        const freshSnd=colv.state!==1;             // Einstieg in die Warnstufe in DIESEM Frame
-        colv.state=1;colv.lift=COLV_WALK_TOP;colv.div=GLB_R;
-        const rem=collapseActive()?collapseRemainMs():onlineRemainMs;
-        const prog=1-rem/(COLLAPSE_WARNING_SECONDS*1000);
-        colvCracks(prog);                          // nur echte Risse, schrittweise mehr
+    // Zentraler Zustandsvertrag EINES Rings — identisch fuer beide Zyklen, keine
+    // Sonderpatches pro Zeitstelle. des = Zielstufe DIESES Rings (0 Ruhe / 1 Warn-
+    // fenster / 2 Abriss), ped = die zu diesem Ring gehoerenden Sockelteile.
+    // pedHide=false (Collapse 1): ped stuerzt sichtbar ueber die drop-Mathematik.
+    // pedHide=true (Collapse 2): ped faellt NIE sichtbar — atomares Ausblenden im
+    // ersten sichtbar bewegten Segment-Frame (Vertrag: keine haengende Trommel).
+    function colvRing(Rr,des,prog,nowS,gapSnd,ped,pedHide){
+      if(des===0){ if(Rr.state!==0)colvRingReset(Rr); return; }
+      if(des===1){
+        const freshSnd=Rr.state!==1;             // Einstieg in die Warnstufe in DIESEM Frame
+        Rr.state=1;
+        colvCracks(prog,Rr);                     // nur echte Risse, schrittweise mehr
         // Hoerereignis = exakt der Rissstufenwechsel dieses Frames: dieselbe
         // crackAt-Wahrheit, die colvCracks soeben sichtbar geschaltet hat —
         // kein zweiter Schwellensatz, kein Timer. Bestand beim Einstieg mit
@@ -4908,69 +5049,123 @@ async function initR3D(){
         // Rueckkehr) wird stumm uebernommen: vorhandene Risse sind kein neues
         // Ereignis, und nachgeholt wird grundsaetzlich nicht.
         const muteSnd=(freshSnd&&prog>.03)||gapSnd;
-        for(let i=0;i<colv.pairs.length;i++){
-          const pr=colv.pairs[i];
-          if(prog>=pr.crackAt&&!(colv.crackMask&(1<<i))){
-            colv.crackMask|=1<<i;
+        for(let i=0;i<Rr.pairs.length;i++){
+          const pr=Rr.pairs[i];
+          if(prog>=pr.crackAt&&!(Rr.crackMask&(1<<i))){
+            Rr.crackMask|=1<<i;
             if(!muteSnd)colvSnd({k:'crack',pan:pr.cracked.userData.colv.ux,n:prog});
           }
         }
         return;
       }
-      if(colv.state!==2){                          // Abriss startet exakt einmal (Spiel-Latch + eigener Zustand)
-        colv.instant=(colv.state===0);             // Rehydration/Replay: Endzustand sofort, ohne Animation
-        colvCracks(1);                             // bei 0s sind alle sechs Segmente gerissen
-        colv.t0=nowS;colv.state=2;
-        colv.pedSnd=false;colv.fragNext=0;colv.segSndN=0;
-        for(const pr of colv.pairs)pr.cracked.userData.colv.fellSnd=false;
+      if(Rr.state!==2){                          // Abriss startet exakt einmal (Spiel-Latch + eigener Zustand)
+        Rr.instant=(Rr.state===0);               // Rehydration/Replay: Endzustand sofort, ohne Animation
+        colvCracks(1,Rr);                        // bei 0s sind alle sechs Segmente gerissen
+        Rr.t0=nowS;Rr.state=2;
+        Rr.pedSnd=false;Rr.fragNext=0;Rr.segSndN=0;
+        for(const pr of Rr.pairs)pr.cracked.userData.colv.fellSnd=false;
         // Hauptbruch-Hoerereignis = exakt dieses sichtbare Umschalten in die
-        // Abrissstufe; durch die beiden Latches genau EINMAL pro Collapse.
+        // Abrissstufe; durch die beiden Latches genau EINMAL pro Collapse-Stufe.
         // instant (Rehydration/Replay: Endzustand ohne Animation) bleibt stumm.
-        if(!colv.instant)colvSnd({k:'break'});
+        if(!Rr.instant)colvSnd({k:'break'});
       }
-      // Divisor 8.282 = 10.1*0.82: R ist im selben Frame x0.82 geschrumpft -> die
-      // Plattformgroesse bleibt exakt stetig; der Restkoerper bewegt sich NIE.
-      colv.div=8.282;colv.lift=0;
-      const t=colv.instant?COLV_FALL_S+9:nowS-colv.t0;
+      const t=Rr.instant?COLV_FALL_S+9:nowS-Rr.t0;
       let fragW=0,fragPan=0;                       // sichtbare aktive Fallbewegung dieses Frames (Truemmerdichte)
-      for(const pr of colv.pairs){
-        const s=pr.cracked,h=s.userData.colv,ts=t-h.delay;
+      for(const pr of Rr.pairs){
+        const s=pr.cracked,h=s.userData.colv,ts=t-h.delay,w=pr.wedge;
+        // w = Boden-Keil unter DIESEM Segment. Er bekommt in jedem Zweig exakt
+        // dieselbe Quaternion und dieselbe Position wie das Segment — dieselbe
+        // Verzoegerung, dasselbe Taumeln, derselbe Drift, derselbe Fall. Es gibt
+        // keinen zweiten Animationspfad und keine eigene Sichtbarkeitsregel.
         if(ts<=0)continue;
-        if(colv.instant||ts>COLV_FALL_S+2){s.visible=false;continue;}
+        if(Rr.instant||ts>COLV_FALL_S+2){s.visible=false;pr.intact.visible=false;if(w)w.visible=false;continue;}
         colvAx.set(h.tx,0,h.tz);
         if(ts<COLV_TREMOR_S){                      // kurzes Loesen an den Rissen (Tremor)
           colvQ.setFromAxisAngle(colvAx,Math.sin(ts*55)*.012);
           s.quaternion.copy(colvQ);s.position.set(h.hx,h.hy,h.hz);
+          if(w){w.quaternion.copy(colvQ);w.position.copy(s.position);}
         }else{                                     // Abkippen nach aussen, dann freier Fall mit Taumeln
           const tf=ts-COLV_TREMOR_S,hinge=Math.min(1,tf/.35)*.14,fall=15*tf*tf,drift=1.1*tf;
           if(!h.fellSnd){h.fellSnd=true;           // ERSTER Frame der sichtbaren Abloese-/Fallbewegung dieses Segments
+            // v6: der atomare Wechsel auf die volle Fallgeometrie (Chips + eigenes
+            // Gold an, Intact-Goldtraeger aus) liegt GENAU in diesem Bewegungsframe.
+            colvSegVis(pr,true,true);
             // Hoerereignis Segmentbruch aus GENAU diesem Uebergang (Tremor ->
             // Fallbewegung); verpasst (Frame-Luecke > Toleranz) -> dauerhaft still.
-            if(tf<=.25)colvSnd({k:'seg',pan:h.ux,n:colv.segSndN++});}
+            if(tf<=.25)colvSnd({k:'seg',pan:h.ux,n:Rr.segSndN++});}
           colvQ.setFromAxisAngle(colvAx,-(hinge+tf*h.tumble*.8));
           s.quaternion.copy(colvQ);
           s.position.set(h.hx+h.ux*drift,h.hy-fall,h.hz+h.uz*drift);
-          if(h.hy-fall<-60)s.visible=false;
+          if(w){w.quaternion.copy(colvQ);w.position.copy(s.position);}
+          if(h.hy-fall<-60){s.visible=false;if(w)w.visible=false;}
           if(s.visible&&tf<1.4){fragW+=1-tf/1.4;fragPan=h.ux;}   // traegt zur sichtbaren Truemmerdichte bei
         }
       }
-      // Breite Sockelteile unter dem Band stuerzen MIT (leicht verzoegert, gerade nach
-      // unten) — uebrig bleibt der ueber dem Kelchstumpf auskragende Bruchrest.
-      const td=t-.45,drop=td>0?15*td*td:0;
-      if(!colv.instant&&td>0&&!colv.pedSnd){colv.pedSnd=true;   // Sockel verliert SICHTBAR ab jetzt Material
-        if(td<=.25)colvSnd({k:'frag',kind:'c',pan:0,g:1});}
-      if(!colv.instant&&td>0&&drop<40)fragW+=.5;   // aktiver Sockelfall broeckelt mit
-      for(const o of colvPed){o.visible=!colv.instant&&drop<60;o.position.y=o.userData.colv.hy-drop;}
+      if(pedHide){
+        // Collapse-2-Vertrag: der geschlossene Unterbau (Tier2/GoldTier2/TempleTip/
+        // TipGold) darf NIE als runde Trommel/Platte sichtbar fallen. Er wird im
+        // ERSTEN sichtbar bewegten Segment-Frame (Tremor-Ende = fruehester Abkipp-
+        // Frame, delay-Minimum ist 0) atomar ausgeblendet, solange die abkippenden
+        // Aussensegmente den Wechsel verdecken. Kein eigenes Hoerereignis: der
+        // Wechsel ist per Vertrag unsichtbar; vertont sind Hauptbruch und Segmente.
+        const mvPed=Rr.instant||t>COLV_TREMOR_S;
+        for(const o of ped)o.visible=!mvPed;
+      }else{
+        // Breite Sockelteile unter dem Band stuerzen MIT (leicht verzoegert, gerade nach
+        // unten) — uebrig bleibt der ueber dem Kelchstumpf auskragende Bruchrest.
+        const td=t-.45,drop=td>0?15*td*td:0;
+        if(!Rr.instant&&td>0&&!Rr.pedSnd){Rr.pedSnd=true;   // Sockel verliert SICHTBAR ab jetzt Material
+          if(td<=.25)colvSnd({k:'frag',kind:'c',pan:0,g:1});}
+        if(!Rr.instant&&td>0&&drop<40)fragW+=.5;   // aktiver Sockelfall broeckelt mit
+        for(const o of ped){o.visible=!Rr.instant&&drop<60;o.position.y=o.userData.colv.hy-drop;}
+      }
       // Nachbroeckeln: einzelne kurze Truemmerfragmente NUR solange in DIESEM
-      // Frame sichtbar Material faellt (fragW>0). Dichte, Anteil grober
-      // Fragmente und Lautstaerke folgen fragW und duennen mit dem sichtbaren
-      // Fortschritt aus. Fragmente sind <=0.31 s lang und der letzte Ausloeser
-      // liegt deutlich vor dem Ende der sichtbaren Bewegung -> beim ruhigen
-      // Endzustand herrscht bereits vollstaendige Ruhe (kein spaeter Track).
-      if(!colv.instant&&fragW>0&&nowS>=colv.fragNext){
-        colv.fragNext=nowS+.12+.5*(1-Math.min(1,fragW/3))+Math.random()*.15;
+      // Frame sichtbar Material faellt (fragW>0); duennt mit dem sichtbaren
+      // Fortschritt aus und endet vor dem ruhigen Endzustand.
+      if(!Rr.instant&&fragW>0&&nowS>=Rr.fragNext){
+        Rr.fragNext=nowS+.12+.5*(1-Math.min(1,fragW/3))+Math.random()*.15;
         colvSnd({k:'frag',kind:Math.random()<Math.min(.5,fragW*.25)?'c':'f',pan:fragPan,g:Math.min(1,.4+fragW/3)});
       }
+    }
+    function colvTick(nowS){
+      const want=colvStage(),cnt=colvCount();
+      const clockMatch=(collapseActive()&&!menuVisible)||(online&&gameStarted&&onlineHasClock);
+      if(colv.load===0&&clockMatch)colvLoad();     // laedt beim Matchstart (~30s Vorlauf)
+      if(clockMatch&&colv.load!==3)SFX.colPreload();   // Audio-Buffer parallel vorladen/dekodieren
+      // Frame-Luecke (Hintergrund-Tab): dazwischen umgeschaltete Zustaende sind
+      // laengst sichtbar gewesen bzw. uebersprungen — nie verspaetet vertonen.
+      const gapSnd=colv.lastNow>0&&nowS-colv.lastNow>.25;
+      colv.lastNow=nowS;
+      if(colv.load!==2){colv.lift=COLV_WALK_TOP;colv.div=GLB_R;return;}   // Fallback = bisheriges Verhalten
+      if(want===0&&cnt===0){
+        if(colv.state!==0||colv2.state!==0)colvResetFall();
+        colvSwap(clockMatch);
+        colv.lift=COLV_WALK_TOP;colv.div=GLB_R;
+        return;
+      }
+      colvSwap(true);                              // Warn-/Collapse-Stufe setzt das Band voraus (auch nach spaetem Laden)
+      // Divisor je Stufe: GLB_R * 0.82^cnt — R ist im Collapse-Frame gleichzeitig
+      // x0.82 geschrumpft, die Plattformgroesse bleibt exakt stetig; der Kern und
+      // der Stage-2-Boden bewegen sich NIE.
+      colv.div=GLB_R*Math.pow(COLV_S2,cnt);
+      colv.lift=cnt===0?COLV_WALK_TOP:0;
+      const rem=collapseActive()?collapseRemainMs():onlineRemainMs;
+      const prog=1-rem/(COLLAPSE_WARNING_SECONDS*1000);
+      // Ring 1: Warnfenster in Zyklus 1, Abriss ab Stufe 1 (Sockel stuerzt sichtbar).
+      colvRing(colv,cnt>=1?2:want,prog,nowS,gapSnd,colvPed,false);
+      // Ring 2 erscheint erst im ERSTEN sichtbar bewegten Frame von Collapse 1 (v6);
+      // Warnfenster nur im zweiten Zyklus, Abriss ab Stufe 2.
+      const mv1=cnt>=1&&(colv.instant||nowS-colv.t0>COLV_TREMOR_S);
+      if(colv2.group)colv2.group.visible=mv1;
+      colvRing(colv2,cnt>=2?2:(cnt===1?want:0),prog,nowS,gapSnd,colvPed2,true);
+      // Der Stage-2-Boden faellt keilweise MIT den Segmenten (pr.wedge in colvRing)
+      // — es gibt keine globale Boden-Sichtbarkeitsregel mehr. Der Restsockel
+      // Tier3/GoldTipBand steht ab Collapse 1 — also den GESAMTEN zweiten Zyklus —
+      // unbewegt an seiner Endposition luftspaltfrei unter dem Kern: kein Lift,
+      // kein Pop, kein Transform-Wechsel bei Collapse 2. Der einmalige Umsprung
+      // liegt IM Collapse-1-Frame, in dem Ring-1-Segmente und Sockelsturz die
+      // Sicht abdecken.
+      for(const o of colvBase3)o.position.y=o.userData.colv.hy+(cnt>=1?COLV_TIER3_LIFT:0);
     }
     // langsamer Gold-Ring unter der Spitze (Prototyp), rein dekorativ
     const ringG=new THREE.Group();
@@ -5065,6 +5260,17 @@ async function initR3D(){
       platform.scale.setScalar(sc);platform.position.y=bob;
       bGroup.visible=!colv.swap;
       bGroup.scale.setScalar(scB);bGroup.position.y=bob;
+      // Deko-Goldring (Halo) unter der Tempelspitze: Teil des Unterbaus, der mit
+      // Collapse 2 verschwindet. Collapse-2-Vertrag: er faellt NIE sichtbar mit —
+      // er wird im ERSTEN sichtbar bewegten Segment-Frame (Tremor-Ende, dieselbe
+      // Schwelle wie der pedHide-Unterbau) atomar ausgeblendet. Sonst bliebe der
+      // feste 358er-Torus nach Collapse 2 (R 326.1 < 358) als verwaister Goldring
+      // unter der finalen Arena haengen. Stufe 0/1 bleiben byte-identisch (Ring
+      // liegt dort verdeckt unter der Arena); instant/restore und GLB-Fallback
+      // zeigen Stufe 2 sofort ohne Ring.
+      const ringC2=colvCount()>=2;
+      const ringMv=colv2.state===2&&!colv2.instant?nowS-colv2.t0>COLV_TREMOR_S:true;
+      ringG.visible=!ringC2||!ringMv;
       ringG.rotation.y=nowS*.07;ringG.position.y=-646+bob;
       cloudG.rotation.y=nowS*.006;                    // Wolken driften
       island.position.y=-404+Math.sin(nowS*.3+2.3)*35;

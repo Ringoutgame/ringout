@@ -1,12 +1,15 @@
 # TODO.md — RingOut
 
-**Zuletzt aktualisiert:** 2026-07-29 (Ring-Collapse-Sound: Live-Hörprobe vom Owner klanglich freigegeben, Preview-/Diagnoseschalter entfernt — nur noch Commit-Freigabe ausstehend)
+**Zuletzt aktualisiert:** 2026-08-04 (Two-Stage-Collapse als Content-Ready-Port auf v3 committet — Branch `feature/two-stage-collapse-content-ready`, nicht gemergt, nichts deployt)
 
 Offene Aufgaben nach Priorität. Abgeschlossene Aufgaben werden nach `CHANGELOG.md` verschoben.
 
 ---
 
 ## P0 — Kritisch (Sicherheit / Stabilität)
+
+- [ ] **Two-Stage-Collapse Content-Ready: Owner-Freigabe + Merge-Entscheidung (2026-08-04):** Branch `feature/two-stage-collapse-content-ready` (ein Commit auf `origin/main`) bringt ausschließlich den Collapse-Content auf die veröffentlichbare v3-Basis — kein Protocol-Bump, `firebase.rules.json` byte-identisch zu main, keine `functions/`, kein server-owned Clock/Room-Lifecycle, keine Auth. Stand: Runner 17/17, E2E-Spike 73/73, FFA-E2E 4/4 Szenarien, Mixed-Version-Smoke in beiden Richtungen grün, visuelle Aufnahme beider Stufen geprüft. Ausstehend: (1) Owner-Sichtprüfung der Aufnahme, (2) Entscheidung über Merge nach `main` + Deploy (beides bewusst NICHT ausgeführt), (3) **vor dem Deploy klären:** gemischte Client-Versionen sind protokollkompatibel, aber ab der ersten Collapse-Schwelle nicht spielgleich (gemessen: Divergenz bei 32 s kumulierter Planungszeit) — alle Beteiligten müssen nach dem Deploy neu laden.
+- [ ] **Beobachtung (niedrig, aus dem Content-Ready-Port):** `assets/arena_platform.glb` (37,70 MB) wird von `index.html` nicht mehr referenziert, seit die Stage-2-Arena die einzige Ladestelle belegt. Die Datei bleibt bewusst im Repo (keine Löschung ohne Owner-Freigabe); ein späterer Aufräum-Task könnte sie entfernen und damit ~37 MB Repo-/Deploy-Volumen sparen. Downloadvolumen des Clients ist unverändert (+0,55 MB gegenüber der alten Arena).
 
 - [x] ~~**Online-Timer 60s/7s: Commit + Rules-Deploy + Live-Validierung**~~ → **abgeschlossen (2026-07-28):** Commit `4a62bfb` per Fast-Forward auf main (Release-Worktree, Runner 16/16, Emulator-Probe 25/25), `firebase.rules.json` auf `ringout-87fbb` publiziert, GitHub-Pages-Client live verifiziert, Zwei-Client-Produktions-Smoke 17/17 (gemeinsame Uhr/Deadline, Timeout-No-Shot, Write-once, Lockstep, Collapse-Turn 8 identisch, Test-Räume abgeräumt). Offen bleibt nur der nachgelagerte Realgeräte-Test (s. FFA-Desync-Punkt).
 
