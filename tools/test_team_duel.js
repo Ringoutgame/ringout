@@ -26,6 +26,11 @@ const resolveRingOutsSrc = grab(/function resolveRingOuts\(crossed\)\{[\s\S]*?\n
 const afterResultSrc = grab(/function afterResult\(\)\{[\s\S]*?\n\}/, 'afterResult');
 const placeBallsSrc = grab(/function placeBalls\(\)\{[\s\S]*?\n\}/, 'placeBalls');
 const sanitizeSrc = grab(/function sanitizeMove\(who,idx,dx,dy,sp\)\{[\s\S]*?\n\}/, 'sanitizeMove');
+// Kanonische Seat→Kugel-Zuordnung: im TEAM DUEL besitzt Seat s die Kugel s —
+// die echten Helfer beweisen das, statt es im Test nachzubauen.
+const ownsSrc = grab(/function seatOwnsBall\(s,idx\)\{[^\n]*/, 'seatOwnsBall');
+const defBallSrc = grab(/function seatDefaultBall\(s\)\{[^\n]*/, 'seatDefaultBall');
+const foreignBallSrc = grab(/function seatForeignBall\(s\)\{[^\n]*/, 'seatForeignBall');
 const allCommittedSrc = grab(/function allAliveCommitted\(\)\{[^\n]*/, 'allAliveCommitted');
 const mkBallSrc = grab(/function mkBall\(x,y,owner\)\{[^\n]*/, 'mkBall');
 const npSrc = grab(/function np\(\)\{[^\n]*/, 'np');
@@ -68,6 +73,9 @@ function buildEnv() {
     ${teamOfSrc}
     ${colorSlotSrc}
     ${placeBallsSrc}
+    ${ownsSrc}
+    ${defBallSrc}
+    ${foreignBallSrc}
     ${sanitizeSrc}
     ${allCommittedSrc}
     // Collapse hooks in afterResult: the ring-collapse timer runs only in local bot
@@ -90,6 +98,9 @@ function buildEnv() {
                       pos:balls.map(b=>b.x+':'+b.y+':'+b.vx+':'+b.vy) }; },
       place(){ balls=[]; placeBalls(); return balls.map(b=>({x:b.x,y:b.y,owner:b.owner,alive:b.alive})); },
       sanitize(who,idx,dx,dy,sp){ return sanitizeMove(who,idx,dx,dy,sp); },
+      seatOwnsBall(s,idx){ return seatOwnsBall(s,idx); },
+      seatDefaultBall(s){ return seatDefaultBall(s); },
+      seatForeignBall(s){ return seatForeignBall(s); },
       setAim(a){ aimSet=a.slice(); },
       allCommitted(){ return allAliveCommitted(); },
       teamOf:(s)=>teamOf(s), colorSlot:(o)=>colorSlot(o),

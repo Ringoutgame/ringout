@@ -19,6 +19,10 @@ const applyLaunchSrc = grab(/function applyLaunch\(\)\{[\s\S]*?\n\}/, 'applyLaun
 const cancelDragSrc = grab(/function cancelAimDrag\(\)\{[\s\S]*?\n\}/, 'cancelAimDrag');
 // Phase 1.5: der komplette Result-Pfad laeuft mit den ECHTEN Produktfunktionen.
 const sanitizeSrc = grab(/function sanitizeMove\(who,idx,dx,dy,sp\)\{[\s\S]*?\n\}/, 'sanitizeMove');
+// Kanonische Seat→Kugel-Zuordnung — Stand-Button, Auto-Stand und Sanitizer benutzen
+// dieselben echten Funktionen wie das Spiel.
+const ownsSrc = grab(/function seatOwnsBall\(s,idx\)\{[^\n]*/, 'seatOwnsBall');
+const defBallSrc = grab(/function seatDefaultBall\(s\)\{[^\n]*/, 'seatDefaultBall');
 const commitSrc = grab(/function commit\(who,shooterIdx,fx,fy,spin\)\{[\s\S]*?\n\}/, 'commit');
 const applyCommitSrc = grab(/function applyCommit\(who,shooterIdx,fx,fy,spin\)\{[\s\S]*?\n\}/, 'applyCommit');
 const beginRevealSrc = grab(/function beginReveal\(\)\{[^\n]*\}/, 'beginReveal');
@@ -114,6 +118,8 @@ const prefix = `
   ${stepSimSrc}
   ${applyLaunchSrc}
   ${cancelDragSrc}
+  ${ownsSrc}
+  ${defBallSrc}
   ${sanitizeSrc}
   ${commitSrc}
   ${applyCommitSrc}

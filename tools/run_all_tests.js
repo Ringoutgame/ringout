@@ -17,6 +17,7 @@ const SUITES = [
   { name: 'Golden-Physik',    file: 'test_physics_golden.js', expectPassed: 13 },
   { name: 'r3d-Mapping',      file: 'test_r3d_mapping.js',    expectPassed: 52 },
   { name: 'Sanitize',         file: 'test_sanitize.js',       expectPassed: 24 },
+  { name: 'Seat-Ball-Map',    file: 'test_seat_ball_mapping.js', expectPassed: 112 },
   { name: 'Identity',         file: 'test_identity.js',       expectPassed: 45 },
   { name: 'ValidateRoom',     file: 'test_validateroom.js',   expectPassed: 45 },
   { name: 'Lockstep',         file: 'test_lockstep.js',       expectPassed: 24 },

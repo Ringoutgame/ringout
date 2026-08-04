@@ -3,6 +3,15 @@ const fs = require('fs');
 const html = fs.readFileSync(require('path').join(__dirname, '..', 'index.html'), 'utf8');
 const fnMatch = html.match(/function sanitizeMove\(who,idx,dx,dy,sp\)\{[\s\S]*?\n\}/);
 if (!fnMatch) { console.error('FAIL: sanitizeMove not found in index.html'); process.exit(1); }
+// Kanonische Seat→Kugel-Zuordnung: ebenfalls die ECHTEN Funktionen aus index.html,
+// nie nachgebaut — sonst pruefte der Test eine andere Zuordnung als das Spiel.
+const grabFn = (re, name) => {
+  const m = html.match(re);
+  if (!m) { console.error('FAIL: ' + name + ' not found in index.html'); process.exit(1); }
+  return m[0];
+};
+const ownsSrc = grabFn(/function seatOwnsBall\(s,idx\)\{[^\n]*/, 'seatOwnsBall');
+const defSrc = grabFn(/function seatDefaultBall\(s\)\{[^\n]*/, 'seatDefaultBall');
 
 // Stub the two globals the function reads: maxPull() and balls.
 const LOGICAL = 1000, R0 = LOGICAL * 0.485, MAXPULL_FRAC = 0.40;
@@ -10,8 +19,10 @@ const MP = R0 * MAXPULL_FRAC; // = 194
 const ctxSrc = `
   const maxPull = () => ${MP};
   let balls = [];
+  ${ownsSrc}
+  ${defSrc}
   ${fnMatch[0]}
-  return { sanitizeMove, setBalls: b => { balls = b; } };
+  return { sanitizeMove, seatOwnsBall, seatDefaultBall, setBalls: b => { balls = b; } };
 `;
 const { sanitizeMove, setBalls } = new Function(ctxSrc)();
 

@@ -13,6 +13,9 @@ const grab = (re, name) => {
   return m[0];
 };
 const sanitizeSrc = grab(/function sanitizeMove\(who,idx,dx,dy,sp\)\{[\s\S]*?\n\}/, 'sanitizeMove');
+// Kanonische Seat→Kugel-Zuordnung (echte Funktionen, nie nachgebaut).
+const ownsSrc     = grab(/function seatOwnsBall\(s,idx\)\{[^\n]*/, 'seatOwnsBall');
+const defBallSrc  = grab(/function seatDefaultBall\(s\)\{[^\n]*/, 'seatDefaultBall');
 const simSrc      = grab(/function simExchange\(pA,pB,aA,aB\)\{[\s\S]*?\n\}/, 'simExchange');
 const constSrc    = grab(/const MAXPULL_FRAC=[^\n]*/, 'physics constants');
 
@@ -23,6 +26,8 @@ const env = `
   function curFR(){return FRICTION;} function curFE(){return FEND;} function curST(){return STOPV;}
   function maxPull(){return R0*MAXPULL_FRAC;}
   let balls=[{alive:true,owner:0},{alive:true,owner:1}];
+  ${ownsSrc}
+  ${defBallSrc}
   ${sanitizeSrc}
   ${simSrc}
   return {sanitizeMove, simExchange, maxPull, LAUNCH};

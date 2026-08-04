@@ -28,6 +28,13 @@ const SRC = [
   grab(/function viewAngle\(\)\{[\s\S]*?\n\}/, 'viewAngle'),
   grab(/function beginReveal\(\)\{[^\n]*/, 'beginReveal'),
   grab(/function ejectGoneSeats\(\)\{[\s\S]*?\n\}/, 'ejectGoneSeats'),
+  // Kanonische Seat→Kugel-Zuordnung + das EINE Leave-Sentinel-Encode/Decode-Paar.
+  // Echt extrahiert, damit Schreiber und Leser im Test nie auseinanderlaufen koennen.
+  grab(/function seatOwnsBall\(s,idx\)\{[^\n]*/, 'seatOwnsBall'),
+  grab(/function seatDefaultBall\(s\)\{[^\n]*/, 'seatDefaultBall'),
+  grab(/function seatForeignBall\(s\)\{[^\n]*/, 'seatForeignBall'),
+  grab(/function leaveSentinelMove\(s\)\{[^\n]*/, 'leaveSentinelMove'),
+  grab(/function isLeaveSentinel\(s,c\)\{[^\n]*/, 'isLeaveSentinel'),
   grab(/function np\(\)\{[^\n]*/, 'np'),
   grab(/function teamCap\(\)\{[^\n]*/, 'teamCap'),
   grab(/function ffaRoom\(\)\{[^\n]*/, 'ffaRoom'),

@@ -2098,8 +2098,7 @@ function autoStandSeats(seats){
   for(const s of seats){
     if(phase!=='aim')break;
     if(aimSet[s]||!aliveCount(s))continue;
-    const own=aliveBalls(s),idx=own.length?balls.indexOf(own[0]):-1;
-    commitAutoStand(s,idx);
+    commitAutoStand(s,seatDefaultBall(s));
   }
 }
 function collapseRemainMs(){return Math.max(0,COLLAPSE_CYCLE_SECONDS*1000-matchElapsedMs);}
@@ -2513,17 +2512,20 @@ function tickOnlineClock(){
   for(const s of onlineOpenSeats()){
     const key=gen+':'+turnNo+':'+s;
     if(onlineTimeoutTried[key])continue;
+    const idx=onlineNoShotIdx(s);
+    if(idx<0)continue;                                // kein eigener Zugkandidat -> nichts schreiben
     onlineTimeoutTried[key]=true;
-    writeTurnSlot(s,{idx:onlineNoShotIdx(s),dx:0,dy:0,sp:0},{sentinel:true});
+    writeTurnSlot(s,{idx:idx,dx:0,dy:0,sp:0},{sentinel:true});
   }
 }
-// No-Shot-Index je Format: in der FFA-Familie markiert ein fremder idx den
-// System-Sentinel (echte Commits tragen dort immer den eigenen Seat-Index),
-// in 1v1/2v2 ist der eigene Index korrekt und ausreichend.
-function onlineNoShotIdx(s){
-  if(mode!=='ffa')return s;
-  return fmt==='triple_ffa'?(s+1)%3:fmt==='team_duel'?(s+1)%4:(s+1)%FFA_MAX_SEATS;
-}
+// No-Shot bei Zeitablauf: der Spieler ist DA, er war nur zu langsam. Der Slot
+// traegt deshalb die EIGENE Standardkugel des Seats mit 0/0 — fachlich exakt der
+// lokale commitAutoStand()-Vertrag (Stehenbleiben), fuer alle Formate ueber
+// dieselbe kanonische Zuordnung. Frueher stand hier ein FREMDER Kugelindex; der
+// war vom Leave-Sentinel nicht unterscheidbar, sodass jede Zeitueberschreitung
+// den Seat dauerhaft als "hat verlassen" markierte und seine Kugel bei jedem
+// folgenden Reveal aus der Arena geworfen wurde.
+function onlineNoShotIdx(s){return seatDefaultBall(s);}
 function showCollapseCount(n){collapseCountVisible=true;const el=$('collapseCount');if(!el)return;
   el.textContent=n;el.classList.remove('show');void el.offsetWidth;el.classList.add('show');}
 function hideCollapseCount(){collapseCountVisible=false;const el=$('collapseCount');if(el)el.classList.remove('show');}
@@ -2579,6 +2581,24 @@ function setPhase(p){phase=p;phaseStart=performance.now();}
 function mkBall(x,y,owner){return{x,y,vx:0,vy:0,sx:x,sy:y,owner,alive:true,spin:0};}
 function aliveBalls(owner){return balls.filter(b=>b.alive&&b.owner===owner);}
 function aliveCount(owner){let n=0;for(const b of balls)if(b.alive&&b.owner===owner)n++;return n;}
+// ── Kanonische Seat→Kugel-Zuordnung (EINE Wahrheit, alle Formate) ───────────
+// Wem eine Kugel gehoert, steht ausschliesslich in balls[i].owner — gesetzt von
+// placeBalls() beim Aufbau der Runde. Frueher leiteten mehrere Stellen die
+// Zuordnung stattdessen per Formel aus dem Seat-Index ab (idx===s, idx%3===s,
+// (s+1)%4, (s+1)%FFA_MAX_SEATS). Diese Formeln stimmten nur im klassischen FFA:
+// in TRIPLE FFA besitzt Seat s die Kugeln 2s und 2s+1, im 2v2 die Kugeln 2s/2s+1,
+// weshalb dort schon ein voellig normaler Zug als "Seat hat verlassen" gelesen
+// wurde. Die drei Helfer unten ersetzen jede dieser Formeln.
+// Gehoert Kugel idx dem Seat s? Einzige Ownership-Pruefung im Online-Pfad.
+function seatOwnsBall(s,idx){return Number.isInteger(idx)&&!!balls[idx]&&balls[idx].owner===s;}
+// Standardkugel eines Seats = erste lebende eigene Kugel (-1 = keine mehr).
+// Exakt der Wert, den sanitizeMove() als Fallback waehlt und den der Stand-Button
+// sowie der lokale commitAutoStand() senden — Stand, Timeout-No-Shot und Sanitizer
+// koennen dadurch nicht auseinanderlaufen.
+function seatDefaultBall(s){return balls.findIndex(b=>b.alive&&b.owner===s);}
+// Eine Kugel, die dem Seat garantiert NICHT gehoert (-1 = es gibt keine).
+// Traegt das Leave-Sentinel-Muster; im laufenden Match mit >=2 Seats immer >=0.
+function seatForeignBall(s){return balls.findIndex(b=>b.owner!==s);}
 function np(){return mode==='ffa'?ffaN:2;}   // Spieleranzahl der Partie (Bestandsmodi: immer 2)
 // Kugeln pro Spieler: 2 im 2v2-Doppel UND im TRIPLE FFA (fmt 'triple_ffa' —
 // FFA-Variante mit exakt 3 Spielern, laeuft komplett ueber die FFA-Systeme).
@@ -2726,7 +2746,7 @@ function openCover(pi){coverOpen=true;const c=$('cover');$('coverWho').textConte
 $('coverBtn').onclick=()=>{coverOpen=false;$('cover').classList.remove('show');setPhaseText();updateHud();};
 
 $('actBtn').onclick=()=>{if(r3dOrbit)return;if(phase!=='aim')return;const who=online?myPlayer:(mode==='bot'?0:curAimer);if(aimSet[who]||!aliveCount(who))return;
-  const own=aliveBalls(who);const idx=own.length?balls.indexOf(own[0]):-1;commit(who,idx,0,0);};
+  const idx=seatDefaultBall(who);commit(who,idx,0,0);};
 
 // ════ INPUT (slingshot: drag back, fling forward) ════
 function localPt(e){
@@ -2850,8 +2870,10 @@ function sanitizeMove(who,idx,dx,dy,sp){
   const mp=maxPull(),len=Math.hypot(dx,dy);
   if(len>mp*(1+1e-9)){dx*=mp/len;dy*=mp/len;}   // magnitude clamp keeps direction; epsilon makes re-application exact
   sp=Number.isFinite(sp)?Math.max(-1,Math.min(1,sp)):0;
-  if(!(Number.isInteger(idx)&&balls[idx]&&balls[idx].alive&&balls[idx].owner===who))
-    idx=balls.findIndex(b=>b.alive&&b.owner===who);
+  // Zuordnung ueber die kanonischen Helfer — dieselbe Ownership-Wahrheit, die auch
+  // Stand-Button, Timeout-No-Shot und Leave-Sentinel benutzen (bit-identisch zur
+  // frueheren Inline-Fassung, nur nicht mehr als eigene Formel dupliziert).
+  if(!(seatOwnsBall(who,idx)&&balls[idx].alive))idx=seatDefaultBall(who);
   return{idx,dx,dy,sp};
 }
 // Online-Reveal-Bedingung: alle Seats mit lebenden Kugeln haben committet.
@@ -3899,7 +3921,14 @@ function attachRoomListeners(){
   });
 }
 function maybeStart(){ if(gameStarted)return; gameStarted=true; if(roomPublic&&myPlayer===0){removePublicListing(roomCode);roomPublic=false;} $('online').classList.remove('show'); showGame(); startOnlineGame(); toast(T('youAre')+' '+(fmt==='team_duel'?T(teamOf(myPlayer)===0?'teamBlue':'teamRed'):T('col'+myPlayer))); }
-function startOnlineGame(){ replaying=false;repPlaying=false;$('replay').classList.remove('show'); runningGen=gen; turnNo=-1; if(turnUnsub){turnUnsub();turnUnsub=null;} if(typeof onlineResetClock==='function')onlineResetClock(); $('ov').classList.remove('show'); newGame(); }
+// seatGone ist AUS DEN ZUGDATEN DIESER GENERATION abgeleitet (Leave-Sentinel im
+// Turn-Slot) und gehoert deshalb genau dieser Generation. Ein Rematch startet eine
+// neue Generation mit leerer Zughistorie -> der Verlassen-Status wird vollstaendig
+// zurueckgesetzt und aus den neuen Zugdaten neu aufgebaut (im Replay ebenso, da
+// fastForwardMatch hierueber einsteigt). seatLeft bleibt bewusst stehen: das ist
+// Praesenzwissen, kein Zugdatum — onlineArmTurn schreibt fuer einen wirklich
+// verlassenen Seat sofort wieder den Sentinel des neuen Turns.
+function startOnlineGame(){ replaying=false;repPlaying=false;$('replay').classList.remove('show'); runningGen=gen; turnNo=-1; seatGone=[]; if(turnUnsub){turnUnsub();turnUnsub=null;} if(typeof onlineResetClock==='function')onlineResetClock(); $('ov').classList.remove('show'); newGame(); }
 // ════ B2 canonical match rehydration ════
 // Rebuilds a RUNNING match purely from the turn history under
 // rooms/<code>/g/<gen>/t. The lockstep sim is deterministic, so replaying every
@@ -3998,19 +4027,25 @@ function writeTurnSlot(s,payload,opts){
       .catch(err=>settleSlot(s,ctx,null,err));
   }catch(err){ settleSlot(s,ctx,null,err); }
 }
+// ── Leave-Sentinel: EIN Encode/Decode-Paar, eine Bedeutung ──────────────────
+// Muster: der Zugslot eines Seats traegt eine Kugel, die diesem Seat NICHT
+// gehoert. Nur das bedeutet "Seat hat das Match verlassen". Encode (Schreiber)
+// und Decode (Leser) benutzen dieselbe kanonische Zuordnung, koennen also nicht
+// auseinanderlaufen. Alles andere — echter Zug wie Timeout-No-Shot — traegt eine
+// EIGENE Kugel und ist damit ein normaler Zug.
+function leaveSentinelMove(s){return{idx:seatForeignBall(s),dx:0,dy:0,sp:0};}
+function isLeaveSentinel(s,c){return !!c&&!seatOwnsBall(s,c.idx);}
 // Verlassener Seat wuerde den Lockstep blockieren: irgendein verbliebener Client
-// fuellt dessen offenen Move-Slot mit einem Stand-still-Sentinel (idx!==seat
-// markiert "verlassen" — in ffa gilt fuer echte Commits immer idx===seat). Die
-// Write-once-Transaction ist der Schiedsrichter: kam der echte Commit zuerst,
-// verliert der Sentinel. So spielen alle Clients mit exakt denselben Moves aus der
-// DB — deterministisch, kein Deadlock, keine Rules-Aenderung. attempt zaehlt
+// fuellt dessen offenen Move-Slot mit dem Leave-Sentinel. Die Write-once-
+// Transaction ist der Schiedsrichter: kam der echte Commit zuerst, verliert der
+// Sentinel. So spielen alle Clients mit exakt denselben Moves aus der DB —
+// deterministisch, kein Deadlock, keine Rules-Aenderung. attempt zaehlt
 // automatische Retries nach einem echten Transaction-Fehler (s. scheduleSentinelRetry).
 function writeLeaveSentinel(s,attempt){
   if(!online||mode!=='ffa'||!gameStarted||phase!=='aim'||aimSet[s]||pendingSlot[s]||!aliveCount(s))return;
-  // Sentinel-idx = garantiert KEINE eigene Kugel des Seats: ffa -> fremder Seat-Index,
-  // triple_ffa -> Kugel des naechsten Owners ((s+1)%3, owner!==s),
-  // team_duel -> fremder Seat-Index ((s+1)%4 — Rules erlauben idx nur 0-3). Rules-schemakonform.
-  writeTurnSlot(s,{idx:fmt==='triple_ffa'?(s+1)%3:fmt==='team_duel'?(s+1)%4:(s+1)%FFA_MAX_SEATS,dx:0,dy:0,sp:0},{sentinel:true,attempt:attempt||0});
+  const m=leaveSentinelMove(s);
+  if(m.idx<0)return;                     // keine fremde Kugel vorhanden -> kein schemakonformer Sentinel
+  writeTurnSlot(s,m,{sentinel:true,attempt:attempt||0});
 }
 // P0-Nachbesserung: automatischer, kontextgebundener Retry NUR fuer den system-
 // generierten Leave-Sentinel (ein haengengebliebener Sentinel wuerde den Turn sonst
@@ -4082,9 +4117,10 @@ function processSlot(s,c){
   if(!c||aimSet[s])return;
   clearSentinelRetry(s);   // autoritativer Wert da -> ein evtl. noch wartender Sentinel-Retry ist sofort gegenstandslos
   // Leave-Sentinel erkannt (auch fuer den eigenen Seat) -> Ejection bei beginReveal.
-  // Echte Commits tragen im ffa idx===seat, im triple_ffa eine EIGENE Kugel (owner
-  // idx%3===seat); jeder andere idx ist per Konvention der Stand-still-Sentinel.
-  if(mode==='ffa'&&(fmt==='triple_ffa'?!(Number.isInteger(c.idx)&&c.idx%3===s):c.idx!==s))seatGone[s]=true;
+  // Einziges Kriterium ist das Leave-Muster (Kugel gehoert dem Seat NICHT) — nicht
+  // mehr eine Index-Formel je Format. Ein echter Zug und ein Timeout-No-Shot tragen
+  // beide eine EIGENE Kugel und setzen seatGone deshalb nie.
+  if(mode==='ffa'&&isLeaveSentinel(s,c))seatGone[s]=true;
   const m=sanitizeMove(s,c.idx,c.dx,c.dy,c.sp);
   commitIdx[s]=m.idx; commitAim[s]={dx:m.dx,dy:m.dy}; commitSpin[s]=m.sp; aimSet[s]=true; updateHud(); setPhaseText();
 }

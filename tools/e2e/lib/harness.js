@@ -41,7 +41,10 @@ const JDK21_HOME  = 'C:\\Program Files\\Microsoft\\jdk-21.0.11.10-hotspot';
 // Host allowlist (nothing else may leave the machine). Emulator + local server
 // are 127.0.0.1; the Firebase JS SDK modules load from www.gstatic.com. No wide
 // allowlist — anything not on this list is aborted and recorded.
-const ALLOW_HOSTS = new Set(['127.0.0.1', 'localhost', 'www.gstatic.com']);
+// cdn.jsdelivr.net serves the three.js module the SHIPPED importmap points at —
+// without it the client silently falls back to 2D, and the 3D renderer (the only
+// renderer real players see) could never be exercised by an E2E run.
+const ALLOW_HOSTS = new Set(['127.0.0.1', 'localhost', 'www.gstatic.com', 'cdn.jsdelivr.net']);
 const PROD_HINT   = 'ringout-87fbb'; // production project id — must never be contacted
 
 // A hostname is production Firebase if it carries the project hint or ends in a
@@ -216,7 +219,9 @@ window.__ringoutE2E = (function(){
   return {
     ready: true,
     // ── Drivers: each calls the REAL production function, nothing more. ──
-    hostFFA: function(win){ mode='ffa'; fmt='ffa'; winTarget=(win===5?5:3); createRoom(); },
+    // fmtKind waehlt das FFA-Familienformat ('ffa' | 'triple_ffa' | 'team_duel');
+    // ohne Angabe bleibt es beim klassischen FFA (Verhalten der bisherigen Aufrufer).
+    hostFFA: function(win, fmtKind){ mode='ffa'; fmt=(fmtKind==='triple_ffa'||fmtKind==='team_duel')?fmtKind:'ffa'; winTarget=(win===5?5:3); createRoom(); },
     joinFFA: function(code){ mode='ffa'; var el=$('onInput'); if(el) el.value=code; joinRoom(); },
     // Public-Lobby UI (feature/public-lobby-mvp): opens the REAL online dialog in FFA
     // context — this shows the visibility toggle + public list and starts the real
@@ -224,6 +229,7 @@ window.__ringoutE2E = (function(){
     // (#onVisPub, #onCreate, .pr-join) and reads the rendered #onPublicList directly.
     openOnlineFFA: function(){ mode='ffa'; fmt='ffa'; openOnline(); },
     start: function(){ startFfaMatch(); },
+    rematch: function(){ onlineRematch(); },
     leave: function(){ leaveOnline(); },
     // Legal zero-power move through the real commit()/sanitizeMove()/write-once path
     // (mirror of the #actBtn no-drag commit in index.html).
@@ -231,6 +237,57 @@ window.__ringoutE2E = (function(){
     // Legal small NON-zero move through the exact same real path (magnitude is
     // clamped by sanitizeMove()); never writes state directly.
     commitMove: function(dx,dy,sp){ var who=(online?myPlayer:0); commit(who, ownIdx(who), dx, dy, sp||0); },
+    // ── Real-input aiming support (3D) ───────────────────────────────────────
+    // Translates a desired pull (fraction of the production maxPull(), angle in
+    // radians) into the two CLIENT-px points a human finger would touch. It uses
+    // ONLY production values: the shipped projection r3d.w2s(), the real canvas
+    // rect (identical to index.html's own geo.ox/oy/os framing) and maxPull().
+    // It commits nothing — the runner drives real pointerdown/move/up on the
+    // canvas so the shot travels index.html's genuine input path.
+    aimPoints: function(frac, ang){
+      if (!r3dActive || !r3d) return null;
+      var who = online ? myPlayer : 0;
+      var own = aliveBalls(who); if (!own.length) return null;
+      var idx = balls.indexOf(own[0]); var b = balls[idx];
+      var cv = document.getElementById('cv');
+      var r = cv.getBoundingClientRect();
+      var os = r.width || 1;                       // index.html: geo.os = rect.width for BOTH axes
+      var toPx = function(o){ return { x: r.left + o.x / 1000 * os, y: r.top + o.y / 1000 * os }; };
+      var inView = function(p){ return p.x > 2 && p.y > 2 && p.x < innerWidth - 2 && p.y < innerHeight - 2; };
+      var centre = toPx(r3d.w2s(b.x, b.y, BR));    // projected sphere silhouette centre
+      // The HUD (stand button, phase text, chips) sits ABOVE the canvas. A press
+      // landing on one of those never reaches index.html's canvas handler — the
+      // shot would silently not happen and the turn would only close via the clock.
+      // pickOwnBall3D() accepts any press inside a generous zone around the
+      // projected centre, so probe that zone for a spot the canvas actually owns.
+      // This keeps the shot on the genuine production input path.
+      var zone = Math.max(BR * 1.2 * (r3d.w2s(b.x, b.y, BR).s || 1), 40);
+      var cands = [{ x: 0, y: 0 }];
+      for (var ring = 1; ring <= 2; ring++) {
+        for (var k = 0; k < 8; k++) {
+          var a2 = k * Math.PI / 4, rad = zone * (ring === 1 ? 0.45 : 0.8);
+          cands.push({ x: Math.cos(a2) * rad, y: Math.sin(a2) * rad });
+        }
+      }
+      var down = null;
+      for (var i = 0; i < cands.length; i++) {
+        var p = { x: centre.x + cands[i].x, y: centre.y + cands[i].y };
+        if (!inView(p)) continue;
+        var el = document.elementFromPoint(p.x, p.y);
+        if (el === cv) { down = p; break; }
+      }
+      if (!down) return { seat: who, idx: idx, blocked: true, centre: centre,
+                          blockedBy: (function(){ var e = document.elementFromPoint(centre.x, centre.y); return e ? (e.id || e.tagName) : null; })() };
+      var g0 = r3d.s2w(down.x, down.y);            // production drag origin (ray→ground point)
+      var mp = maxPull();
+      var tx = g0.x + Math.cos(ang) * mp * frac, ty = g0.y + Math.sin(ang) * mp * frac;
+      var up = toPx(r3d.w2s(tx, ty, 0));
+      return { seat: who, idx: idx, ballX: r4(b.x), ballY: r4(b.y), down: down, up: up,
+               wantPull: { dx: r4(tx - g0.x), dy: r4(ty - g0.y) }, maxPull: r4(mp),
+               inViewport: inView(down) && inView(up) };
+    },
+    // Did the client actually enter 3D? (body.r3d is the DOM mirror of r3dActive.)
+    is3D: function(){ return !!r3dActive; },
     // ── Read-only serialization of existing state. Never mutates, never invents. ──
     // AUTH_FIELDS (roomCode*, gen, turnNo, phase, seats, seatGone, scores,
     // aliveCounts, winner, balls) plus commitIdx/commitAim/commitSpin (used by the
@@ -396,6 +453,27 @@ function transformHtml(src) {
     'projectId: "ringout-87fbb",',
     `projectId: "${EMU_PROJECT}",`,
     'projectId->demo', report);
+
+  // Read-only renderer probe INSIDE the 3D closure. The E2E adapter below is
+  // injected at game-IIFE scope and therefore cannot see ballMeshes/platform/colv
+  // — yet exactly those are needed to prove that what a player SEES matches the
+  // authoritative state. The probe only reads; it never moves a mesh, never
+  // changes visibility and never touches game state. With ?r2d=1 the whole 3D
+  // closure never runs, so the probe simply stays undefined there.
+  out = replaceOnce(out,
+    'const ballMeshes=[],fallT=[],decals=[],fallV=[],prevP=[];',
+    'const ballMeshes=[],fallT=[],decals=[],fallV=[],prevP=[];\n'
+    + '    window.__R3D_PROBE=function(){\n'
+    + '      const ms=[];\n'
+    + '      for(let i=0;i<balls.length;i++){const m=ballMeshes[i];\n'
+    + '        ms.push(m?{i:i,vis:!!m.visible,inScene:!!m.parent,x:m.position.x,y:m.position.y,z:m.position.z,fallT:(fallT[i]==null?null:fallT[i])}:null);}\n'
+    + '      return {meshes:ms,meshCount:ballMeshes.length,\n'
+    + '        platScale:platform.scale.x,platY:platform.position.y,\n'
+    + '        colvDiv:colv.div,colvLift:colv.lift,colvCount:colvCount(),colvStage:colvStage(),\n'
+    + '        colvState:colv.state,colv2State:colv2.state,colvSwap:!!colv.swap,colvLoad:colv.load,\n'
+    + '        bob:(camP&&camP.py)||0,R:R,BR:BR,cx:cx,cy:cy,phase:phase,outBall:outBall};\n'
+    + '    };',
+    'r3d-probe', report);
 
   out = replaceOnce(out,
     'const db = getDatabase(app);',
