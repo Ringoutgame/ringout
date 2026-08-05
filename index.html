@@ -3232,16 +3232,25 @@ const BARRIER_DEBUG=new URLSearchParams(location.search).get('barrier')==='1';
 // (Mittelpunkt -90 Grad); die Nummerierung laeuft im Uhrzeigersinn 0..11. In den
 // Arenakoordinaten (y zeigt nach unten) ist das die Richtung WACHSENDER Winkel:
 // 0 oben, 3 rechts, 6 unten, 9 links.
-// ?bseg=<0..11> waehlt das aktive Segment; fehlende, nicht ganzzahlige oder ausserhalb
-// liegende Werte fallen auf Segment 0 zurueck. Es bleibt bei genau EINER aktiven Wand —
-// die Segmentnummer verschiebt ausschliesslich deren Mittelpunkt. Geometrie, Swept-Test
-// und Endkappen lesen nur BARRIER_MID/BARRIER_HALF und bleiben damit unveraendert.
+// ?bseg=<0..11> liefert ab Etappe 4 nur noch den STARTWERT; fehlende, nicht ganzzahlige
+// oder ausserhalb liegende Werte fallen auf Segment 0 zurueck. Massgeblich ist
+// barrierSelectedSegment — die tatsaechliche Auswahl des Spielers. Es bleibt bei genau
+// EINER aktiven Wand; die Segmentnummer verschiebt ausschliesslich deren Mittelpunkt.
+// Geometrie, Swept-Test und Endkappen lesen nur barrierMid()/BARRIER_HALF.
 const BARRIER_SEG_COUNT=12;
 const BARRIER_SPAN=2*Math.PI/BARRIER_SEG_COUNT;          // Segmentbreite: 30 Grad
 const BARRIER_SEG=(()=>{const v=Number(new URLSearchParams(location.search).get('bseg'));
   return Number.isInteger(v)&&v>=0&&v<BARRIER_SEG_COUNT?v:0;})();
-const BARRIER_MID=-Math.PI/2+BARRIER_SEG*BARRIER_SPAN;   // Mittelpunkt des aktiven Segments
 const BARRIER_HALF=BARRIER_SPAN/2;                       // halbe Breite -> 15 Grad
+let barrierSelectedSegment=BARRIER_SEG;                  // Auswahl des Spielers (Start: ?bseg)
+function barrierMid(){return -Math.PI/2+barrierSelectedSegment*BARRIER_SPAN;}
+// Segment unter einem Arenapunkt: die naechstliegende Segmentmitte. Die Rundung ueber
+// den normierten Winkel erledigt die 11/0-Grenze ohne Sonderfall.
+function barrierSegAt(px,py){
+  let a=(Math.atan2(py-cy,px-cx)+Math.PI/2)%(2*Math.PI);
+  if(a<0)a+=2*Math.PI;
+  return Math.round(a/BARRIER_SPAN)%BARRIER_SEG_COUNT;
+}
 // Abprallwert der Wand: ein EIGENER Materialwert, bewusst nicht die Kugel-Kugel-
 // Restitution REST (0.25) — die wirkte an der Wand zu schluckend. 0.55 stammt aus
 // dem A/B-Vergleich 0.25/0.40/0.55/0.70: der Abprall wird als Richtungswechsel
@@ -3277,7 +3286,7 @@ function barrierCanArm(){
     &&phase==='aim'&&!inputLocked()&&!aimSet[BARRIER_SEAT]&&aliveCount(BARRIER_SEAT)>0
     &&barrierStakes>0&&!barrierRoundUsed;
 }
-function barrierToggle(){if(!barrierCanArm())return;barrierArmed=!barrierArmed;barrierHud();}
+function barrierToggle(){if(!barrierCanArm())return;barrierArmed=!barrierArmed;barrierUi();}
 // Verbrauch: genau hier, beim bewusst bestaetigten Zug des Menschen — unabhaengig
 // davon, ob es ein Schuss oder ein bewusstes 0/0 ist.
 function barrierCommitHook(who){
@@ -3285,18 +3294,21 @@ function barrierCommitHook(who){
   barrierArmed=false;
   if(barrierStakes<=0||barrierRoundUsed)return;
   barrierStakes--;barrierRoundUsed=true;barrierTurn=true;
-  barrierHud();
+  barrierUi();
 }
 // Phasenwaechter: die Zugbindung lebt genau von der Bestaetigung bis zum Ende der
-// Physikphase, die Vorschau genau bis zum Ende der Planungsphase.
+// Physikphase, die Vorschau genau bis zum Ende der Planungsphase. Der
+// Platzierungsmodus endet mit JEDEM Verlassen der Planungsphase — Reveal, Simulation,
+// Settlement, Rundenende, Game Over, Rematch und neues Match laufen alle hier durch.
 function barrierPhaseHook(p){
   if(p!=='reveal'&&p!=='sim')barrierTurn=false;
-  if(p!=='aim')barrierArmed=false;
-  barrierHud();
+  if(p!=='aim'){barrierArmed=false;barrierClosePlacing();}
+  barrierUi();
 }
-function barrierRoundReset(){barrierRoundUsed=false;barrierArmed=false;barrierTurn=false;barrierHud();}
+function barrierRoundReset(){barrierRoundUsed=false;barrierArmed=false;barrierTurn=false;barrierClosePlacing();barrierUi();}
 // Neues Match und Rematch fuellen auf; eine neue Runde oder eine Collapse-Stufe nie.
-function barrierMatchReset(){barrierStakes=BARRIER_STAKES_START;barrierRoundUsed=false;barrierArmed=false;barrierTurn=false;barrierHud();}
+function barrierMatchReset(){barrierStakes=BARRIER_STAKES_START;barrierRoundUsed=false;barrierArmed=false;barrierTurn=false;
+  barrierSelectedSegment=BARRIER_SEG;barrierClosePlacing();barrierUi();}
 // Einfache Debug-Anzeige, bewusst ohne Gestaltung. Wird nur angelegt, wenn der
 // Prototyp ueberhaupt laeuft — ohne ?barrier=1 entsteht kein DOM-Knoten.
 let barrierHudLast='';
@@ -3305,14 +3317,19 @@ function barrierHud(){
   // Eine aktive Wand hat Vorrang vor der Bestandsmeldung: solange barrierTurn gilt,
   // steht das Segment im Bild — auch wenn es der letzte Einsatz war (dann "0 LEFT").
   // EMPTY erscheint erst, wenn die Physikphase vorbei und die Zugbindung geloest ist.
-  const txt=(barrierTurn||barrierArmed)?'BARRIER: SEGMENT '+BARRIER_SEG+' · '+barrierStakes+' LEFT'
+  const txt=(barrierTurn||barrierArmed)?'BARRIER: SEGMENT '+barrierSelectedSegment+' · '+barrierStakes+' LEFT'
     :barrierStakes<=0?'BARRIER: EMPTY'
     :'BARRIER: OFF';
   if(txt===barrierHudLast)return;
   barrierHudLast=txt;
   let el=document.getElementById('barrierHud');
   if(!el){el=document.createElement('div');el.id='barrierHud';
-    el.style.cssText='position:fixed;left:10px;top:10px;z-index:70;padding:5px 9px;border-radius:6px;'
+    // Unterhalb der Kopfzeile UND der Statusleiste: Kopfzeile endet bei y=42, die
+    // Spielerkarten reichen bis y=99, der Arenabereich beginnt bei y=105 — auf 900x700
+    // wie auf 390x780 identisch. Erst ab 105 ueberdeckt die Anzeige weder Logo noch
+    // Spielerkarten, Punktestand, Match- oder Zugtimer; darueber liegt in jeder
+    // Textlaenge eines der HUD-Elemente.
+    el.style.cssText='position:fixed;left:10px;top:105px;z-index:70;padding:5px 9px;border-radius:6px;'
       +'background:rgba(5,8,14,.82);color:#35e0ff;letter-spacing:.06em;pointer-events:none;'
       +'font:600 12px/1.2 ui-monospace,Menlo,Consolas,monospace';
     document.body.appendChild(el);}
@@ -3322,8 +3339,123 @@ if(BARRIER_DEBUG)addEventListener('keydown',e=>{
   if(e.repeat||e.key!=='b'&&e.key!=='B')return;
   barrierToggle();
 });
+
+// ── Etappe 4: lokaler Bedienungsprototyp fuer die Segmentauswahl ──────────────
+// Geprueft wird nur, ob die Auswahl INNERHALB der bestehenden Zugzeit schnell und
+// eindeutig gelingt. Bewusst neutrale Diagnose-Optik, keine Produktgestaltung.
+//
+// Ablauf: WAND-Schaltflaeche -> Platzierungsmodus -> Tippen am Rand waehlt das
+// Segment, bewaffnet die Wand und schliesst den Modus. Verbrauch und Verbindlichkeit
+// bleiben unveraendert beim bestehenden barrierCommitHook.
+//
+// Input-Trennung: der Platzierungsmodus zeichnet auf einer eigenen Ebene mit
+// pointer-events:none und faengt Eingaben ueber EINEN Fensterlauscher in der
+// CAPTURE-Phase ab — er liegt damit vor dem pointerdown des Canvas. Ein Tipp im
+// Randring waehlt und wird geschluckt (kein Kugel-Drag, kein Kameradrag); ein Tipp
+// weiter innen schliesst nur den Modus und laeuft normal weiter. Beim Schliessen
+// werden Lauscher UND Ebene entfernt — es bleibt nichts zurueck, das Eingaben
+// abfangen koennte.
+const BARRIER_PICK_INNER=0.55;            // Innenrand des Trefferrings (Anteil von R)
+const BARRIER_PICK_OUTER=1.60;            // Aussenrand des Trefferrings (Anteil von R)
+let barrierPlacing=false;
+// Sichtbarkeit des Debug-Bogens: waehrend der Physikphase (echte Wand) ODER als
+// Vorschau nach der Auswahl. Die Vorschau kollidiert NICHT — barrierOn() bleibt der
+// alleinige Physikschalter.
+function barrierPreviewOn(){return BARRIER_DEBUG&&!online&&!replaying&&barrierArmed&&phase==='aim';}
+function barrierMeshOn(){return barrierOn()||barrierPreviewOn();}
+function barrierCanPlace(){return barrierCanArm();}
+function barrierOpenPlacing(){
+  if(!barrierCanPlace())return;
+  barrierPlacing=true;
+  addEventListener('pointerdown',barrierPickDown,true);
+  barrierPaint();
+  barrierUi();
+}
+function barrierClosePlacing(){
+  if(!barrierPlacing)return;
+  barrierPlacing=false;
+  removeEventListener('pointerdown',barrierPickDown,true);
+  const c=document.getElementById('barrierPick');if(c)c.remove();
+  barrierUi();
+}
+// Auswahl aus einem Zeigerereignis. Der Punkt wird ueber dieselbe Abbildung wie das
+// Zielen in Arenakoordinaten gebracht (r3d.s2w bzw. localPt) — die getroffene
+// Segmentnummer ist damit exakt die des Colliders.
+function barrierPickDown(e){
+  if(!barrierPlacing)return;
+  const ui=document.getElementById('barrierBtn');
+  if(ui&&e.target&&ui.contains(e.target))return;     // die eigene Schaltflaeche behandelt sich selbst
+  if(!barrierCanPlace()){barrierClosePlacing();return;}
+  const p=localPt(e);
+  const rr=Math.hypot(p.x-cx,p.y-cy)/R;
+  if(rr<BARRIER_PICK_INNER||rr>BARRIER_PICK_OUTER){barrierClosePlacing();return;}   // ausserhalb des Rings: nur schliessen
+  e.preventDefault();e.stopPropagation();            // kein Kugel-Drag, kein Kameradrag aus diesem Tipp
+  barrierSelectedSegment=barrierSegAt(p.x,p.y);
+  barrierArmed=true;
+  barrierClosePlacing();
+}
+// Zwoelf duenne Randbereiche + Nummern, nur im Platzierungsmodus. Projektion ueber
+// OP() — dieselbe Abbildung, die das Spiel fuer seine Overlays nutzt; die Baender
+// liegen dadurch exakt auf dem Collider und folgen jedem Radius (auch nach Collapse).
+function barrierPaint(){
+  if(!barrierPlacing)return;
+  let c=document.getElementById('barrierPick');
+  if(!c){c=document.createElement('canvas');c.id='barrierPick';
+    c.style.cssText='position:fixed;left:0;top:0;z-index:65;pointer-events:none';
+    document.body.appendChild(c);}
+  const w=innerWidth,h=innerHeight;
+  if(c.width!==w||c.height!==h){c.width=w;c.height=h;c.style.width=w+'px';c.style.height=h+'px';}
+  const g=c.getContext('2d');g.clearRect(0,0,w,h);
+  const rect=cv.getBoundingClientRect();
+  const px=(ax,ay)=>{const q=OP(ax,ay,0);
+    return{x:rect.left+q.x/1000*rect.width,y:rect.top+q.y/1000*rect.width};};
+  for(let k=0;k<BARRIER_SEG_COUNT;k++){
+    const mid=-Math.PI/2+k*BARRIER_SPAN,sel=(k===barrierSelectedSegment&&barrierArmed);
+    g.beginPath();
+    for(let i=0;i<=14;i++){const a=mid-BARRIER_HALF+BARRIER_SPAN*i/14,q=px(cx+Math.cos(a)*R,cy+Math.sin(a)*R);
+      if(i===0)g.moveTo(q.x,q.y);else g.lineTo(q.x,q.y);}
+    g.lineWidth=sel?9:5;g.strokeStyle=sel?'rgba(53,224,255,.95)':'rgba(255,255,255,.32)';g.stroke();
+    const lp=px(cx+Math.cos(mid)*R*1.16,cy+Math.sin(mid)*R*1.16);
+    g.font='bold 15px ui-monospace,Menlo,Consolas,monospace';g.textAlign='center';g.textBaseline='middle';
+    g.lineWidth=4;g.strokeStyle='rgba(0,0,0,.8)';g.strokeText(String(k),lp.x,lp.y);
+    g.fillStyle=sel?'#35e0ff':'#ffffff';g.fillText(String(k),lp.x,lp.y);
+  }
+  requestAnimationFrame(barrierPaint);
+}
+// Debug-Schaltflaeche. Bewusst unten links: dort liegen weder Match- noch Zugtimer
+// (oben), noch Menue-/Ton-Schaltflaeche (oben rechts), noch die Aktionsleiste (unten
+// mittig/rechts). Sie entsteht nur, wenn der Prototyp laeuft.
+let barrierBtnLast='';
+function barrierBtn(){
+  if(!BARRIER_DEBUG||online||replaying)return;
+  let b=document.getElementById('barrierBtn');
+  if(!b){b=document.createElement('button');b.id='barrierBtn';b.type='button';
+    b.style.cssText='position:fixed;left:10px;bottom:84px;z-index:71;padding:9px 13px;border-radius:8px;'
+      +'border:1px solid rgba(53,224,255,.55);background:rgba(5,8,14,.86);color:#35e0ff;'
+      +'font:700 13px/1.1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.06em;'
+      +'touch-action:manipulation;cursor:pointer';
+    // pointerdown statt click: identisch fuer Maus und Touch, und der Tipp erreicht
+    // das Canvas nie (eigener DOM-Knoten ausserhalb von cv, Propagation gestoppt).
+    b.addEventListener('pointerdown',e=>{e.preventDefault();e.stopPropagation();
+      if(barrierArmed){barrierArmed=false;barrierClosePlacing();barrierUi();return;}
+      if(barrierPlacing){barrierClosePlacing();return;}
+      barrierOpenPlacing();});
+    document.body.appendChild(b);}
+  const show=BARRIER_DEBUG&&!online&&!replaying&&mode==='bot'&&!menuVisible&&phase==='aim';
+  b.style.display=show?'':'none';
+  const usable=barrierCanArm()||barrierArmed;
+  b.disabled=!usable;
+  b.style.opacity=usable?'1':'.42';
+  // Zustand ueber den Rahmen, nicht ueber den Text: die Beschriftung bleibt exakt
+  // "WAND ×N" (Restbestand), damit sie eindeutig ablesbar ist.
+  b.style.borderColor=(barrierPlacing||barrierArmed)?'#35e0ff':'rgba(53,224,255,.55)';
+  b.style.background=barrierPlacing?'rgba(53,224,255,.20)':'rgba(5,8,14,.86)';
+  const txt='WAND ×'+barrierStakes;
+  if(txt!==barrierBtnLast){barrierBtnLast=txt;b.textContent=txt;}
+}
+function barrierUi(){barrierHud();barrierBtn();}
 // Winkel auf (-PI,PI] normierter Abstand zur Segmentmitte.
-function barrierOff(px,py){const o=Math.atan2(py-cy,px-cx)-BARRIER_MID;return Math.atan2(Math.sin(o),Math.cos(o));}
+function barrierOff(px,py){const o=Math.atan2(py-cy,px-cx)-barrierMid();return Math.atan2(Math.sin(o),Math.cos(o));}
 function barrierInSpan(px,py){return Math.abs(barrierOff(px,py))<=BARRIER_HALF;}
 // Naechster Punkt auf dem BEGRENZTEN Kreisbogen, rein geometrisch: der Winkel wird
 // auf das Segment geklemmt. Innerhalb des Segments liegt der Punkt radial vor der
@@ -3332,11 +3464,11 @@ function barrierInSpan(px,py){return Math.abs(barrierOff(px,py))<=BARRIER_HALF;}
 // dieselbe Bogenlinie.
 const barrierPt={x:0,y:0};
 function barrierClosest(px,py){
-  const a=BARRIER_MID+Math.max(-BARRIER_HALF,Math.min(BARRIER_HALF,barrierOff(px,py)));
+  const a=barrierMid()+Math.max(-BARRIER_HALF,Math.min(BARRIER_HALF,barrierOff(px,py)));
   barrierPt.x=cx+Math.cos(a)*R;barrierPt.y=cy+Math.sin(a)*R;return barrierPt;
 }
-function barrierEndX(e){return cx+Math.cos(BARRIER_MID+(e?BARRIER_HALF:-BARRIER_HALF))*R;}
-function barrierEndY(e){return cy+Math.sin(BARRIER_MID+(e?BARRIER_HALF:-BARRIER_HALF))*R;}
+function barrierEndX(e){return cx+Math.cos(barrierMid()+(e?BARRIER_HALF:-BARRIER_HALF))*R;}
+function barrierEndY(e){return cy+Math.sin(barrierMid()+(e?BARRIER_HALF:-BARRIER_HALF))*R;}
 // Frueheste Schnittzeit t in [0,1] der Bahn (x0,y0)+(dx,dy)*t mit dem Kreis
 // (mx,my,r); accept filtert den Trefferpunkt gegen die Segmentgrenze. -1 = kein Treffer.
 function barrierSweep(x0,y0,dx,dy,mx,my,r,accept){
@@ -5562,9 +5694,11 @@ async function initR3D(){
     // Flaeche exakt auf dem Physik-Bogen, damit Treffer und Abprallwinkel sichtbar
     // beurteilt werden koennen. Rein visuell, keine Rueckwirkung auf die Simulation.
     // Arenawinkel a -> Zylinderwinkel PI/2-a (Zylinder: x=sin(theta), z=cos(theta)).
+    // Die Geometrie steht fest auf Segment 0; die Auswahl wird zur Drehung um Y
+    // (Segment k = -k*SPAN) — dadurch bleibt der Bogen bei jedem Segment identisch.
     const BARRIER_H=BR*2.2;
     const barrierMesh=new THREE.Mesh(
-      new THREE.CylinderGeometry(1,1,1,24,1,true,Math.PI/2-BARRIER_MID-BARRIER_HALF,BARRIER_HALF*2),
+      new THREE.CylinderGeometry(1,1,1,24,1,true,Math.PI-BARRIER_HALF,BARRIER_HALF*2),
       new THREE.MeshBasicMaterial({color:0x35e0ff,transparent:true,opacity:.30,side:THREE.DoubleSide,depthWrite:false}));
     barrierMesh.visible=false;barrierMesh.renderOrder=2;scene.add(barrierMesh);
     // Kugeln: Radius exakt BR (Physik-Wahrheit), Material aus dem akzeptierten Prototyp
@@ -5671,9 +5805,12 @@ async function initR3D(){
       cloudG.rotation.y=nowS*.006;                    // Wolken driften
       island.position.y=-404+Math.sin(nowS*.3+2.3)*35;
       if(mainBMat)mainBMat.emissiveIntensity=1.3+Math.sin(nowS*1.6)*.12;   // ruhiger Grenz-Puls
-      // Debug-Schutzwand: sichtbar genau solange sie physikalisch aktiv ist.
-      barrierMesh.visible=barrierOn();
-      if(barrierMesh.visible){barrierMesh.scale.set(R,BARRIER_H,R);barrierMesh.position.set(cx,bob+BARRIER_H/2,cy);}
+      // Debug-Schutzwand: sichtbar waehrend der Physikphase UND als Vorschau nach der
+      // Auswahl. barrierMeshOn() ist bewusst getrennt von barrierOn() — die Vorschau
+      // in der Planungsphase zeigt nur an, sie kollidiert nicht.
+      barrierMesh.visible=barrierMeshOn();
+      if(barrierMesh.visible){barrierMesh.scale.set(R,BARRIER_H,R);barrierMesh.position.set(cx,bob+BARRIER_H/2,cy);
+        barrierMesh.rotation.y=-barrierSelectedSegment*BARRIER_SPAN;}
       for(let i=0;i<balls.length;i++){
         let m=ballMeshes[i],d=decals[i];
         if(!m){m=new THREE.Mesh(new THREE.SphereGeometry(BR,40,26),ballMat[0]);
