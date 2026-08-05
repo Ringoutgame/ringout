@@ -2703,6 +2703,83 @@ function resolveRingOuts(crossed){
   return false;
 }
 
+// ── ARENA FOOTBALL: kanonische Torgeometrie (rein numerisch — KEINE Renderer-/GLB-/Pixelabfrage) ──
+// Asset-Konvention des freigegebenen Tors (identisch zum Tor-Loader weiter unten):
+// 1 Blender-Einheit == 1 Balldurchmesser == 2*BR; die tor-lokale X-Achse ist die TANGENTIALE.
+//
+// Massgeblich fuer die PLANARE Simulation ist nicht der obere Rahmen, sondern das, was auf
+// BALLHOEHE im Weg steht: die beiden Marmor-Sockel (AF_Goal_Base_L/R, Hoehe 0.000..0.600 —
+// der Ball ist nur 1.0 hoch und kann sie nicht ueberrollen). Aus dem eingefrorenen
+// Blender-Build, in Blender-Einheiten:
+//   Sockel-Innenkante  |x| = 1.650  ->  3.300*BR   (lichte Halbbreite auf Ballhoehe)
+//   Sockel-Aussenkante |x| = 2.813  ->  5.626*BR
+// Die nominell "lichte Weite 4.0" des Assets gilt fuer den OBEREN Rahmen (AF_Goal_InnerFrame,
+// |x| = 2.149, Unterkante Y = 0.400) und liegt ueber Ballhoehe — genau deshalb reichte die
+// alte Oeffnung von 4*BR zu weit und der Ball konnte optisch in den Marmor eindringen.
+// Die obere Rahmenkante ist in der planaren Sim NICHT erreichbar (Balloberkante 1.0
+// Blender-Einheiten gegen eine lichte Rahmenhoehe bis 1.905) -> kein Querlatten-Kollider.
+const FOOTBALL_NEUTRAL_OWNER=4;                       // neutraler Ball (dunkler PCOLS-Slot, nie waehlbar)
+// Sockel-FUSSABDRUCK als achsenparalleles Rechteck (Ball ist ein Kreis -> Kreis/AABB).
+// Tangential (tor-lokale X-Achse, Blender-Einheiten -> BR mit Faktor 2):
+//   Innenkante  |x| = 1.650  ->  3.300*BR      Aussenkante |x| = 2.813  ->  5.626*BR
+// Radial: das Tor ist konzentrisch gewickelt, sein Ursprung liegt auf dem Kruemmungsradius
+// GOAL_CURVE_R = 6.95 Blender-Einheiten -> 13.900*BR vom Arenazentrum; tor-lokales +Z zeigt
+// zur Arenamitte, der Sockel spannt z = -0.373 .. 0.875:
+//   Vorderkante (zur Mitte) 13.900 - 2*0.875 = 12.150*BR
+//   Hinterkante             13.900 + 2*0.373 = 14.646*BR
+// Die Vorderkante ist entscheidend: ein radial nach aussen laufender Ball trifft den Sockel
+// FRONTAL und prallt zurueck, statt seitlich um ihn herum in die Oeffnung gelenkt zu werden.
+const FOOTBALL_POST_INNER=3.300;                      // Sockel-Innenkante in BR (== 1.650 Blender-Einheiten)
+const FOOTBALL_POST_OUTER=5.626;                      // Sockel-Aussenkante in BR (== 2.813 Blender-Einheiten)
+const FOOTBALL_POST_FRONT=12.150;                     // Sockel-Vorderkante in BR (radial, zur Arenamitte)
+const FOOTBALL_POST_BACK=14.646;                      // Sockel-Hinterkante in BR (radial, nach aussen)
+function footballGoalClearHalf(){return FOOTBALL_POST_INNER*BR;}         // lichte Halbbreite auf Ballhoehe
+function footballGoalCenterHalf(){return footballGoalClearHalf()-BR;}    // nutzbare Zentrums-Halbbreite (2.300*BR)
+// Zentrale Toroeffnungs-Pruefung: darf DIESE Kugel an ihrer aktuellen Position die runde
+// Arena-Grenze passieren? Nur der neutrale Ball, und nur innerhalb der nutzbaren
+// Zentrums-Halbbreite eines der beiden Tore. Spielerkugeln (owner 0/1) erhalten IMMER false —
+// fuer sie ist die Bande auch an der Toroeffnung geschlossen. Genau das IST die unsichtbare,
+// rein physikalische Spielerbarriere: die bestehende radiale Reflexion, ohne Ausnahme.
+function footballCanPassGoal(b){
+  return b.owner===FOOTBALL_NEUTRAL_OWNER&&Math.abs(b.y-cy)<=footballGoalCenterHalf();
+}
+// Torpfosten-Kollision (Marmor-Sockel) — gilt fuer ALLE Kugeln, auch fuer bereits
+// ausgetretene neutrale Baelle: ein Pfosten ist ein echtes Hindernis, kein Grenzsonderfall.
+// Es gibt vier Sockel (2 Tore x 2 Seiten). Durch Spiegelung an beiden Achsen wird jeder Fall
+// in den kanonischen ersten Quadranten geklappt: X = sx*(x-cx), Y = sy*(y-cy) mit den
+// Vorzeichen des naechstgelegenen Tors bzw. der naechstgelegenen Seite. Dort ist der Sockel
+// ein achsenparalleles Rechteck [FRONT,BACK] x [INNER,OUTER] und die Kollision die
+// Standard-Kreis/AABB-Aufloesung. Eine einzige Rechnung, exakt symmetrisch fuer +-X.
+// Konsistenz-Nachweis zur Toroeffnung: ein Ball beruehrt die Innenkante genau dann nicht,
+// wenn |y-cy| <= INNER - BR = 3.300*BR - BR = 2.300*BR == footballGoalCenterHalf().
+// Gate und Pfosten beschreiben damit exakt dieselbe lichte Weite — keine zweite Geometrie.
+// Rueckgabe true = Pfostentreffer aufgeloest (Aufrufer ueberspringt die Grenzentscheidung).
+function footballResolvePost(b){
+  const sx=(b.x-cx)>=0?1:-1,sy=(b.y-cy)>=0?1:-1;        // naechstes Tor / naechste Sockelseite
+  const X=sx*(b.x-cx),Y=sy*(b.y-cy);
+  const x0=FOOTBALL_POST_FRONT*BR,x1=FOOTBALL_POST_BACK*BR;
+  const y0=FOOTBALL_POST_INNER*BR,y1=FOOTBALL_POST_OUTER*BR;
+  if(X<=x0-BR||X>=x1+BR||Y<=y0-BR||Y>=y1+BR)return false;   // schnelle Ablehnung
+  const qx=X<x0?x0:(X>x1?x1:X),qy=Y<y0?y0:(Y>y1?y1:Y);      // naechster Punkt auf dem Rechteck
+  let nx,ny,d=Math.sqrt((X-qx)*(X-qx)+(Y-qy)*(Y-qy));
+  if(d>1e-9){
+    if(d>=BR)return false;
+    nx=(X-qx)/d;ny=(Y-qy)/d;
+  }else{
+    // Ballmitte IM Rechteck (nur bei extremer Penetration): entlang der kleinsten
+    // Eindringtiefe herausschieben — deterministisch, keine Zufallsrichtung.
+    const dxs=[X-x0,x1-X,Y-y0,y1-Y];
+    let k=0;for(let i=1;i<4;i++)if(dxs[i]<dxs[k])k=i;
+    nx=k===0?-1:(k===1?1:0);ny=k===2?-1:(k===3?1:0);
+    d=0;
+  }
+  const px=(nx<0?x0:(nx>0?x1:qx)),py=(ny<0?y0:(ny>0?y1:qy));
+  b.x=cx+sx*((d>1e-9?qx:px)+nx*BR);                     // Penetration exakt auf Beruehrabstand korrigiert
+  b.y=cy+sy*((d>1e-9?qy:py)+ny*BR);
+  const vX=sx*b.vx,vY=sy*b.vy,vn=vX*nx+vY*ny;           // Normalanteil (auswaerts vom Sockel)
+  if(vn<0){b.vx=sx*(vX-(1+REST)*vn*nx);b.vy=sy*(vY-(1+REST)*vn*ny);}   // nur Normalanteil reflektiert (bestehende REST), Tangentialanteil bleibt
+  return true;
+}
 function stepSim(){
   const FR=curFR(),FE=curFE();
   for(let s=0;s<2;s++){
@@ -2725,7 +2802,31 @@ function stepSim(){
     // ring-out: alle Grenzueberschreitungen dieses Sub-Steps ueber den gemeinsamen Pfad
     // Football-Shell: mode-scoped geschlossene runde Bande (radiale Reflexion) statt Ring-Out —
     // keine Elimination, keine Wertung. Inert ausserhalb 'football' (Golden-Harness: mode='bot').
-    if(mode==='football'){for(const fb of balls){if(!fb.alive)continue;const fbx=fb.x-cx,fby=fb.y-cy,fbd=Math.sqrt(fbx*fbx+fby*fby),flim=R-BR;if(fbd>flim&&fbd>0){const fnx=fbx/fbd,fny=fby/fbd;fb.x=cx+fnx*flim;fb.y=cy+fny*flim;const fvn=fb.vx*fnx+fb.vy*fny;if(fvn>0){fb.vx-=(1+REST)*fvn*fnx;fb.vy-=(1+REST)*fvn*fny;}}}}
+    // Football: EINE autoritative radiale Grenzentscheidung pro Kugel und Sub-Step.
+    // Regel: geschlossene runde Bande (radiale Reflexion, keine Elimination, keine Wertung) —
+    // AUSSER der neutrale Ball steht in einer der beiden Toroeffnungen, dann faellt die
+    // Kollision fuer ihn ersatzlos weg. Inert ausserhalb 'football' (Golden-Harness: mode='bot').
+    if(mode==='football'){for(const fb of balls){if(!fb.alive)continue;
+      // Torpfosten zuerst: der Marmor-Sockel ist ein solides Hindernis und steht INNERHALB
+      // der Bandenlinie. Ein aufgeloester Pfostentreffer ist die Entscheidung dieses
+      // Sub-Steps — danach keine zusaetzliche Grenzreflexion (genau ein Impuls pro
+      // Kugel und Sub-Step) und insbesondere KEIN fbPassed: durchgelassen wird nur,
+      // wer die freie Oeffnung ohne Pfostenkontakt erreicht.
+      if(footballResolvePost(fb))continue;
+      // Bereits durch ein Tor ausgetretener neutraler Ball: die Bande gilt fuer ihn nicht mehr.
+      // Ohne dieses Latch wuerde ihn die runde Grenze, sobald er draussen tangential aus dem
+      // Torfenster driftet, kuenstlich wieder nach innen reflektieren.
+      if(fb.fbPassed)continue;
+      const fbx=fb.x-cx,fby=fb.y-cy,fbd=Math.sqrt(fbx*fbx+fby*fby),flim=R-BR;
+      if(fbd>flim&&fbd>0){
+        if(footballCanPassGoal(fb)){fb.fbPassed=true;continue;}   // Toroeffnung: keine radiale Kollision
+        const fnx=fbx/fbd,fny=fby/fbd;fb.x=cx+fnx*flim;fb.y=cy+fny*flim;
+        const fvn=fb.vx*fnx+fb.vy*fny;if(fvn>0){fb.vx-=(1+REST)*fvn*fnx;fb.vy-=(1+REST)*fvn*fny;}
+        // Die Bandenkorrektur setzt die Kugel auf die Linie R-BR — die durch den Sockel
+        // laeuft. Sie darf sie dabei nicht in den Marmor schieben: einmal nachkorrigieren.
+        footballResolvePost(fb);
+      }
+    }}
     else{const crossed=ballsOutside();
     if(crossed.length&&resolveRingOuts(crossed))return;}
   }
