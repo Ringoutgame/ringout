@@ -2257,7 +2257,7 @@ function updateHud(){
 function setPhaseText(){const p=$('phase');
   if(mode==='football'){   // Integrations-Shell: Blau/Rot am Zug, klarer Hinweis auf die kommende Torlogik
     if(!r3dActive)p.textContent='3D-Szene nicht verfügbar — Arena Football benötigt sie.';
-    else if(phase==='aim')p.innerHTML='<span class="me'+curAimer+'">'+(curAimer===0?'BLAU':'ROT')+'</span> zieht — Integrations-Shell · Tore folgen im nächsten Schritt';
+    else if(phase==='aim')p.innerHTML='<span class="me'+curAimer+'">'+(curAimer===0?'BLAU':'ROT')+'</span> zieht — Arena Football · Visuelle Integration';
     else if(phase==='reveal')p.textContent='Beide aufgedeckt…';
     else if(phase==='sim')p.textContent='⚽ Arena Football — Shell';
     else p.textContent='';
@@ -4431,15 +4431,89 @@ async function initR3D(){
     const goldM=new THREE.MeshStandardMaterial({color:0xc9a052,metalness:1,roughness:.35,envMapIntensity:1.1});
     let mainBMat=null;   // Referenz fuer den ruhigen Grenz-Puls
     const bGroup=new THREE.Group();bGroup.position.set(cx,0,cy);scene.add(bGroup);
+    let boundaryFull=null,bandGroup=null;   // boundaryFull = Vollkreis-Sichtringe (normale Modi); bandGroup = freigegebene Blender-Bande (Football)
     {const WALK_Y=.165;                                   // Oberkante Randweg im GLB
-     const zone=new THREE.Mesh(new THREE.RingGeometry(9.55,10.05,128),   // Warnzone AUF dem Randweg
-       new THREE.MeshBasicMaterial({color:0x9fb2c2,transparent:true,opacity:.3,depthWrite:false}));
+     const zoneMat=new THREE.MeshBasicMaterial({color:0x9fb2c2,transparent:true,opacity:.3,depthWrite:false});
+     const zone=new THREE.Mesh(new THREE.RingGeometry(9.55,10.05,128),zoneMat);   // Warnzone AUF dem Randweg
      zone.rotation.x=-Math.PI/2;zone.position.y=WALK_Y+.004;zone.renderOrder=1;bGroup.add(zone);
-     const main=new THREE.Mesh(new THREE.TorusGeometry(GLB_R,.075,12,176),   // Leuchtring = exakte Out-Kante
-       new THREE.MeshStandardMaterial({color:0xdff4ff,emissive:0x9fdcff,emissiveIntensity:1.3,roughness:.3,metalness:.2}));
-     main.rotation.x=Math.PI/2;main.position.y=WALK_Y+.006;bGroup.add(main);mainBMat=main.material;
+     const mainMat=new THREE.MeshStandardMaterial({color:0xdff4ff,emissive:0x9fdcff,emissiveIntensity:1.3,roughness:.3,metalness:.2});
+     const main=new THREE.Mesh(new THREE.TorusGeometry(GLB_R,.075,12,176),mainMat);   // Leuchtring = exakte Out-Kante
+     main.rotation.x=Math.PI/2;main.position.y=WALK_Y+.006;bGroup.add(main);mainBMat=mainMat;
      const g=new THREE.Mesh(new THREE.TorusGeometry(9.5,.02,10,160),goldM);  // innerer Gold-Rahmen der Warnzone
-     g.rotation.x=Math.PI/2;g.position.y=WALK_Y+.005;bGroup.add(g);}
+     g.rotation.x=Math.PI/2;g.position.y=WALK_Y+.005;bGroup.add(g);
+     boundaryFull=[zone,main,g];   // Vollkreis-Sichtringe: in NORMALEN Modi sichtbar, im Football-Modus versteckt (Blender-Bande ersetzt sie optisch)
+    }
+    // ==== Arena-Football: freigegebenes Blender-Tor (rein visuell, KEINE Physik/Bande) ====
+    // Genau EIN GLB wird geladen; die zweite Torinstanz ist ein Clone (geteilte Geometrie/
+    // Materialien -> keine zweite Dateianforderung). Beide Tore liegen im selben lokalen
+    // System wie bGroup/platform: Gruppe bei (cx,0,cy), pro Frame mit sc skaliert + schwebend.
+    // Sichtbar AUSSCHLIESSLICH bei mode==='football' (nie Menue-Preview/normale Modi).
+    let goalGroup=null,goalPlus=null,goalMinus=null;
+    try{
+      const goalGlb=await new Promise((res,rej)=>new GLTFLoader().load('assets/arena_football_goal_curved.glb',res,undefined,rej));
+      const goalProto=goalGlb.scene;
+      goalProto.traverse(o=>{if(o.isMesh){o.castShadow=o.receiveShadow=true;}});
+      // Kanonische Tor-Skalierung — 1 Blender-Einheit == 1 Balldurchmesser (Asset-Konvention).
+      // Balldurchmesser = 2*BR (LOGICAL); Umrechnung in Arena-lokale (GLB-)Einheiten via GLB_R/R0.
+      // Folge: lichte Torbreite 4 Blender-Einheiten == 4*(2*BR) == 256 LOGICAL == 4 Balldurchmesser.
+      // KEINE eigenstaendige Torbreiten-Magic-Number — allein aus BR, GLB_R, R0 abgeleitet.
+      const goalScale=(2*BR)*GLB_R/R0;
+      const GOAL_WALK_Y=.165;   // Oberkante Randweg in GLB-Einheiten (== bGroup WALK_Y) -> Tor-Basisebene (Blender Z=0) sitzt buendig auf dem Randweg
+      // Radiale Standposition auf dem RUNDEN Arenarand. Das freigegebene Tor ist jetzt GEBOGEN und
+      // wurde in Blender KONZENTRISCH um sein Zentrum gewickelt (Kruemmungsradius GOAL_CURVE_R
+      // Balldurchmesser). Setzt man den Tor-Mittelpunkt auf GOAL_R = GOAL_CURVE_R*goalScale, faellt das
+      // Kruemmungszentrum GENAU auf das Arenazentrum -> jede Radialschicht des Tors ist ein zum Arenarand
+      // konzentrischer Bogen (kein Sehnen-Ueberstand mehr). Mit GOAL_CURVE_R=6.95 fuellt der Fussabdruck
+      // (front ~8.70 .. back ~10.10 GLB) den Walkway [8.7..10.1] randbuendig; die Oeffnung liegt an der
+      // Walkway-Innenlippe. Werte stammen 1:1 aus dem eingefrorenen Blender-Build (ARENA_R=6.95).
+      const GOAL_CURVE_R=6.95;                 // Blender-Kruemmungsradius (Balldurchmesser) des Tor-Bogens
+      const GOAL_R=GOAL_CURVE_R*goalScale;     // -> Kruemmungszentrum == Arenazentrum (konzentrisch)
+      goalGroup=new THREE.Group();goalGroup.position.set(cx,0,cy);goalGroup.visible=false;scene.add(goalGroup);
+      const mkGoal=(sign)=>{                                 // sign +1 -> +X, sign -1 -> -X (exakt 180 Grad gegenueber)
+        const g=(sign>0)?goalProto:goalProto.clone(true);    // zweite Instanz: Clone desselben Assets (geteilte Ressourcen)
+        g.scale.setScalar(goalScale);
+        g.position.set(sign*GOAL_R,GOAL_WALK_Y,0);           // radial auf dem Walkway (nach innen versetzt) -> Fuesse stehen sauber auf, kein Schweben
+        g.rotation.set(0,-sign*Math.PI/2,0);                 // Oeffnung (+Z lokal) zeigt zur Arenamitte; Rotationsdifferenz = PI
+        goalGroup.add(g);return g;
+      };
+      goalPlus=mkGoal(1);goalMinus=mkGoal(-1);
+    }catch(_){goalGroup=null;}   // Tor ist additiv: fehlt/streikt das GLB, bleibt die Arena voellig unveraendert
+    // ==== Arena-Football: freigegebene transparente Blender-Bande (rein visuell, KEINE Physik/Kollision) ====
+    // Genau EIN GLB, genau EINE Instanz. Die Bande wurde in Blender direkt auf der echten Arena
+    // (assets/arena_platform.glb) gebaut -> sie liegt bereits in Arena-GLB-Einheiten. Deshalb wird sie
+    // als Kind von bGroup gehaengt und erbt DERSELBEN Skalierung (sc=R/GLB_R) und Schwebe (bob) wie die
+    // Plattform/Boundary — KEINE eigene Skalierungs-Magic-Number, kein goalScale, keine World-Space-Logik.
+    // Die zwei Toroeffnungen (+X/-X) sind bereits Bestandteil der Banden-Geometrie (gleiche Achse wie die Tore).
+    // Sichtbar AUSSCHLIESSLICH bei mode==='football'. Additiv: fehlt/streikt das GLB, bleibt alles unveraendert.
+    try{
+      const bandGlb=await new Promise((res,rej)=>new GLTFLoader().load('assets/arena_football_band.glb',res,undefined,rej));
+      const bandProto=bandGlb.scene;
+      // Material-Veredelung im Renderer (nur Optik; Geometrie/Asset unveraendert). Die Szene hat ein
+      // HDRI-Environment (scene.environment, ACES) -> echtes IBL fuer klares Glas & ruhigen Metallglanz.
+      const bandMatsDone=new Set();
+      bandProto.traverse(o=>{
+        if(!o.isMesh)return;
+        o.castShadow=o.receiveShadow=true;
+        const m=o.material;if(!m||bandMatsDone.has(m))return;bandMatsDone.add(m);
+        const nm=m.name||'';
+        if(nm.includes('Glass')){          // Klares, nahezu farbloses Glas: hohe Transmission, dezente Reflexe.
+          // Ursachen des fruehere Milchglas-Effekts gezielt entfernt: DoubleSide (gestapelte Transmissions-
+          // schichten), zu starke envMapIntensity/Clearcoat (weisser Kunststoff-Schein), dicke thickness +
+          // getoente Attenuation (optische Dichte), weissliche color.
+          m.transmission=1.0;m.roughness=0.05;m.metalness=0.0;m.ior=1.5;m.thickness=0.05;   // duenn -> klar, kaum Refraktions-Versatz
+          m.attenuationColor=new THREE.Color(1,1,1);m.attenuationDistance=Infinity;         // Attenuation aus -> keine Eigenfaerbung/-aufhellung
+          m.clearcoat=0.15;m.clearcoatRoughness=0.1;m.envMapIntensity=1.0;                  // nur dezente Kanten-/Flaechenreflexe (kein Plastik)
+          m.color=new THREE.Color(1,1,1);                                                   // neutral/farblos -> Arena dahinter klar sichtbar
+          m.side=THREE.FrontSide;m.transparent=false;m.opacity=1.0;m.depthWrite=true;       // solide Wand: Transmission-Pass statt Alpha-Faking, keine milchige Ueberlagerung
+        }else if(nm.includes('Gold')){     // ruhiges, warmes Gold mit mehr IBL-Glanz (weniger flach)
+          m.metalness=1.0;m.roughness=0.17;m.envMapIntensity=1.5;
+        }else if(nm.includes('Marble')){   // heller, edler Marmor-Ton (GLB exportiert flach -> hier veredelt)
+          m.metalness=0.0;m.roughness=0.32;m.envMapIntensity=1.15;m.color=new THREE.Color(0.93,0.915,0.885);
+        }
+        m.needsUpdate=true;
+      });
+      bandGroup=new THREE.Group();bandGroup.visible=false;bandGroup.add(bandProto);bGroup.add(bandGroup);   // eine Instanz, erbt sc/bob von bGroup (identischer Arena-Lokalraum)
+    }catch(_){bandGroup=null;}   // Bande ist additiv: fehlt/streikt das GLB, bleibt die Arena voellig unveraendert
     // langsamer Gold-Ring unter der Spitze (Prototyp), rein dekorativ
     const ringG=new THREE.Group();
     {const r1=new THREE.Mesh(new THREE.TorusGeometry(358,5.2,10,96),goldM);
@@ -4527,6 +4601,10 @@ async function initR3D(){
       const sc=R/GLB_R;
       platform.scale.setScalar(sc);platform.position.y=bob;
       bGroup.scale.setScalar(sc);bGroup.position.y=bob;
+      const footballView=(mode==='football')&&!menuVisible;   // Football-Ansicht: Blender-Bande + zwei Tore — nie Menue-Preview/normale Modi
+      if(bandGroup)bandGroup.visible=footballView;             // Blender-Bande nur im Football-Modus sichtbar (erbt sc/bob als bGroup-Kind)
+      if(boundaryFull)for(const bm of boundaryFull)bm.visible=!footballView;   // Vollkreis-Sichtringe nur in normalen Modi sichtbar (360 Grad unveraendert)
+      if(goalGroup){goalGroup.visible=footballView;goalGroup.scale.setScalar(sc);goalGroup.position.y=bob;}   // skaliert + schwebt exakt mit der Plattform (gleiches sc/bob wie bGroup)
       ringG.rotation.y=nowS*.07;ringG.position.y=-646+bob;
       cloudG.rotation.y=nowS*.006;                    // Wolken driften
       island.position.y=-404+Math.sin(nowS*.3+2.3)*35;
@@ -4616,6 +4694,7 @@ async function initR3D(){
      const px=camP.ox+o.x/1000*camP.os,py=camP.oy+o.y/1000*camP.os;
      if(Math.hypot(sx-px,sy-py)>1)console.warn('r3d: Projektions-Paritaet abweichend',Math.hypot(sx-px,sy-py));}
   }catch(e){
+    console.error('INITR3D_FAIL',(e&&e.stack)||e);
     r3dActive=false;r3d=null;
     try{if(c3)c3.remove();}catch(_){}
     try{if(vig)vig.remove();}catch(_){}
