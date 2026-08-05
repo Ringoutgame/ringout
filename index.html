@@ -3207,10 +3207,10 @@ function winnerRGB(loserOwner){
   const w=roundWinner>=0?roundWinner:1-loserOwner;return PCOLS[w].rgb;}
 function popBall(b){if(r3dActive)fx3Dust(b.x,b.y,b.vx,b.vy);else spawn(b.x,b.y,26,[PCOLS[colorSlot(b.owner)].ui,'#ffffff'],Math.max(5,Math.hypot(b.vx,b.vy))*0.9,1.1);}
 
-// ── TEMPORAERE SCHUTZWAND — DEBUG-PROTOTYP (Etappe 1) ──────────────────────────
-// Genau EIN festes Randsegment als glatter Kreisbogen, ausschliesslich zur lokalen
-// Bewertung des Abprallgefuehls. Kein Feature: keine Auswahl, keine Einsaetze,
-// keine UI, kein Netzwerkanteil.
+// ── TEMPORAERE SCHUTZWAND — DEBUG-PROTOTYP (Etappe 2) ──────────────────────────
+// Genau EINE aktive Wand als glatter Kreisbogen, jetzt auf einem von zwoelf festen
+// Randsegmenten. Ausschliesslich zur lokalen Bewertung; kein Feature: keine Auswahl
+// per UI, keine Einsaetze, kein Netzwerkanteil.
 //
 // Aktivierung nur ueber ?barrier=1 UND nur im lokalen Spiel. Online, Reconnect und
 // Replay laufen ueber dieselbe deterministische Lockstep-Physik wie alle Peers —
@@ -3220,8 +3220,20 @@ function popBall(b){if(r3dActive)fx3Dust(b.x,b.y,b.vx,b.vy);else spawn(b.x,b.y,2
 // Der Bogen liegt exakt auf der aktuellen Ring-Out-Grenze R. Der Kugelmittelpunkt
 // wird dadurch auf R-BR begrenzt und erreicht die Grenze (R+BR*0.1) nie.
 const BARRIER_DEBUG=new URLSearchParams(location.search).get('barrier')==='1';
-const BARRIER_MID=-Math.PI/2;                 // Segmentmitte: oberer Arenarand
-const BARRIER_HALF=15*Math.PI/180;            // halbe Breite -> 30 Grad
+// Der Rand ist in zwoelf feste Segmente zu je 30 Grad geteilt. Segment 0 liegt oben
+// (Mittelpunkt -90 Grad); die Nummerierung laeuft im Uhrzeigersinn 0..11. In den
+// Arenakoordinaten (y zeigt nach unten) ist das die Richtung WACHSENDER Winkel:
+// 0 oben, 3 rechts, 6 unten, 9 links.
+// ?bseg=<0..11> waehlt das aktive Segment; fehlende, nicht ganzzahlige oder ausserhalb
+// liegende Werte fallen auf Segment 0 zurueck. Es bleibt bei genau EINER aktiven Wand —
+// die Segmentnummer verschiebt ausschliesslich deren Mittelpunkt. Geometrie, Swept-Test
+// und Endkappen lesen nur BARRIER_MID/BARRIER_HALF und bleiben damit unveraendert.
+const BARRIER_SEG_COUNT=12;
+const BARRIER_SPAN=2*Math.PI/BARRIER_SEG_COUNT;          // Segmentbreite: 30 Grad
+const BARRIER_SEG=(()=>{const v=Number(new URLSearchParams(location.search).get('bseg'));
+  return Number.isInteger(v)&&v>=0&&v<BARRIER_SEG_COUNT?v:0;})();
+const BARRIER_MID=-Math.PI/2+BARRIER_SEG*BARRIER_SPAN;   // Mittelpunkt des aktiven Segments
+const BARRIER_HALF=BARRIER_SPAN/2;                       // halbe Breite -> 15 Grad
 // Abprallwert der Wand: ein EIGENER Materialwert, bewusst nicht die Kugel-Kugel-
 // Restitution REST (0.25) — die wirkte an der Wand zu schluckend. 0.55 stammt aus
 // dem A/B-Vergleich 0.25/0.40/0.55/0.70: der Abprall wird als Richtungswechsel
