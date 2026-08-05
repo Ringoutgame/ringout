@@ -3097,6 +3097,159 @@ function barrierContractCheck(idx,dx,dy,sp,seg){
     hasField:Object.prototype.hasOwnProperty.call(m,'barrierSeg'),
     keys:Object.keys(m)};
 }
+
+// ── Etappe 6B1: Commit-Reveal-Vertrag fuer verdeckte Wandwahlen ────────────────
+// Ein barrierSeg im normalen Turn-Slot waere zwar in der Oberflaeche verborgen, aber
+// jeder Client koennte es vor dem Reveal direkt aus der Datenbank lesen. Vor dem
+// Reveal darf deshalb ausschliesslich ein SHA-256-Commitment oeffentlich werden.
+//
+// Der Block ist bewusst isoliert und rein: keine Datenbank, kein Netzwerkpfad, keine
+// Aenderung an writeTurnSlot oder processSlot. Erreichbar ist er in dieser Etappe nur
+// ueber barrierCrHook() — lokal, mit ?barrier=1, nie online und nie im Replay.
+//
+// Identitaeten: roomCode, gen und turnNo existieren im v3-Code und werden unveraendert
+// benutzt, der Seat ist die Sitznummer. barrierCrContext() liest sie live; der Vertrag
+// selbst nimmt den Kontext als Argument — 6B2 kann ihn also speisen, ohne den Vertrag
+// anzufassen.
+const BARRIER_CR_TAG='ringout-barrier-commit';
+const BARRIER_CR_VERSION=1;
+const BARRIER_CR_HEX64=/^[0-9a-f]{64}$/;       // 256 Bit, kanonisch lowercase Hex
+function barrierHexOf(bytes){
+  let s='';for(let i=0;i<bytes.length;i++)s+=bytes[i].toString(16).padStart(2,'0');
+  return s;
+}
+// 32 Byte kryptografischer Zufall = 256 Bit, deutlich ueber den geforderten 128.
+function barrierCrNonce(){const b=new Uint8Array(32);crypto.getRandomValues(b);return barrierHexOf(b);}
+function barrierCrHashValid(h){return typeof h==='string'&&BARRIER_CR_HEX64.test(h);}
+function barrierCrNonceValid(n){return typeof n==='string'&&BARRIER_CR_HEX64.test(n);}
+function barrierCrCtxValid(c){
+  return !!c&&typeof c.room==='string'&&Number.isInteger(c.gen)
+    &&Number.isInteger(c.turn)&&Number.isInteger(c.seat)&&c.seat>=0;
+}
+function barrierCrMoveValid(m){
+  return !!m&&Number.isInteger(m.idx)&&Number.isFinite(m.dx)&&Number.isFinite(m.dy)&&Number.isFinite(m.sp);
+}
+// Live-Identitaeten des laufenden Spiels. Offline sind sie ''/0/-1 — genau deshalb
+// laeuft 6B1 ausschliesslich ueber den Debug-Hook mit explizit uebergebenem Kontext.
+function barrierCrContext(seat){return {room:roomCode,gen:gen,turn:turnNo,seat:seat};}
+// EINE kanonische, versionierte Preimage: festes JSON-Array, keine Verkettung mit
+// mehrdeutigen Trennzeichen. Auch "keine Wand" ist gebunden — sie geht als
+// BARRIER_SEG_NONE ein, damit aus der blossen Existenz eines Commitments nicht
+// ablesbar ist, ob der Seat ueberhaupt eine Wand gewaehlt hat.
+function barrierCrPreimage(ctx,move,seg,nonceHex){
+  return JSON.stringify([BARRIER_CR_TAG,BARRIER_CR_VERSION,
+    ctx.room,ctx.gen,ctx.turn,ctx.seat,
+    move.idx,move.dx,move.dy,move.sp,
+    seg,nonceHex]);
+}
+async function barrierCrSha256(str){
+  const buf=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(str));
+  return barrierHexOf(new Uint8Array(buf));
+}
+// Eigentuemerseite: erzeugt Nonce, Commitment und die PRIVATEN Reveal-Daten. Das
+// oeffentliche Objekt traegt nur Version, Seat, Turn und Hash — bei NONE und bei jedem
+// Segment strukturell identisch. Rueckgabe null = ungueltige Eingabe.
+async function barrierCrCommit(ctx,move,seg){
+  if(!barrierCrCtxValid(ctx)||!barrierCrMoveValid(move))return null;
+  const s=(seg===undefined||seg===null)?BARRIER_SEG_NONE:barrierSegCanon(seg);
+  if(s===BARRIER_SEG_INVALID)return null;
+  const nonce=barrierCrNonce();
+  const hash=await barrierCrSha256(barrierCrPreimage(ctx,move,s,nonce));
+  return {
+    pub:{v:BARRIER_CR_VERSION,seat:ctx.seat,turn:ctx.turn,hash:hash},
+    priv:{ctx:{room:ctx.room,gen:ctx.gen,turn:ctx.turn,seat:ctx.seat},
+      move:{idx:move.idx,dx:move.dx,dy:move.dy,sp:move.sp},seg:s,nonce:nonce},
+    reveal:{v:BARRIER_CR_VERSION,seat:ctx.seat,turn:ctx.turn,seg:(s>=0?s:null),nonce:nonce}
+  };
+}
+// Pruefung eines Reveals gegen das zuvor veroeffentlichte Commitment. Jede Abweichung
+// in Kontext, Move, Segment oder Nonce aendert die Preimage und damit den Hash. Es gibt
+// keine Reparatur und keinen Rueckfall auf "keine Wand".
+async function barrierCrVerify(ctx,move,pubHash,rev){
+  if(!barrierCrHashValid(pubHash))return {ok:false,reason:'hash-format'};
+  if(!rev||rev.v!==BARRIER_CR_VERSION)return {ok:false,reason:'version'};
+  if(!barrierCrNonceValid(rev.nonce))return {ok:false,reason:'nonce-format'};
+  if(!barrierCrCtxValid(ctx)||!barrierCrMoveValid(move))return {ok:false,reason:'context-format'};
+  if(rev.seat!==ctx.seat||rev.turn!==ctx.turn)return {ok:false,reason:'context'};
+  const s=(rev.seg===undefined||rev.seg===null)?BARRIER_SEG_NONE:barrierSegCanon(rev.seg);
+  if(s===BARRIER_SEG_INVALID)return {ok:false,reason:'segment'};
+  const h=await barrierCrSha256(barrierCrPreimage(ctx,move,s,rev.nonce));
+  if(h!==pubHash)return {ok:false,reason:'hash-mismatch'};
+  return {ok:true,seg:s};
+}
+// ── Zweiphasen-Zustandsautomat ────────────────────────────────────────────────
+// 'commit'  jeder erforderliche Seat veroeffentlicht genau ein Commitment
+// 'reveal'  erst wenn ALLE Commitments vorliegen, werden Reveals angenommen
+// 'ready'   alle Reveals verifiziert — erst jetzt entsteht die Segmentliste
+// 'blocked' ungueltiges oder widerspruechliches Reveal; bleibt blockiert
+// Von fremden Seats speichert der Automat NUR das oeffentliche Commitment: ein fremdes
+// Segment existiert vor dessen Reveal nirgends.
+function barrierCrSession(ctx,seats){
+  return {ctx:{room:ctx.room,gen:ctx.gen,turn:ctx.turn},seats:seats.slice(),
+    commits:{},reveals:{},moves:{},state:'commit',errors:[]};
+}
+function barrierCrCommitsComplete(S){return S.seats.every(s=>!!S.commits[s]);}
+function barrierCrAddCommit(S,seat,pub,move){
+  if(S.state==='blocked')return {ok:false,reason:'blocked'};
+  if(S.seats.indexOf(seat)<0)return {ok:false,reason:'unknown-seat'};
+  if(!pub||pub.v!==BARRIER_CR_VERSION||pub.seat!==seat||pub.turn!==S.ctx.turn
+    ||!barrierCrHashValid(pub.hash))return {ok:false,reason:'commit-format'};
+  if(!barrierCrMoveValid(move))return {ok:false,reason:'move-format'};
+  const cur=S.commits[seat];
+  if(cur){
+    // Identisch wiederholt: idempotent. Abweichend: abgelehnt — ein Seat kann seine
+    // Wahl nach dem Commit nicht mehr ersetzen.
+    if(cur.hash===pub.hash&&barrierMoveKey(S.moves[seat])===barrierMoveKey(move))return {ok:true,duplicate:true};
+    S.errors.push({seat:seat,reason:'commit-conflict'});
+    return {ok:false,reason:'commit-conflict'};
+  }
+  S.commits[seat]={v:pub.v,seat:pub.seat,turn:pub.turn,hash:pub.hash};
+  S.moves[seat]={idx:move.idx,dx:move.dx,dy:move.dy,sp:move.sp};
+  if(barrierCrCommitsComplete(S)&&S.state==='commit')S.state='reveal';
+  return {ok:true};
+}
+function barrierCrRevealSeg(rev){
+  return (!rev||rev.seg===undefined||rev.seg===null)?BARRIER_SEG_NONE:rev.seg;
+}
+async function barrierCrAddReveal(S,seat,rev){
+  if(S.state==='blocked')return {ok:false,reason:'blocked'};
+  if(S.seats.indexOf(seat)<0)return {ok:false,reason:'unknown-seat'};
+  if(!barrierCrCommitsComplete(S))return {ok:false,reason:'commits-incomplete'};
+  const cur=S.reveals[seat];
+  if(cur){
+    // Identisches Reveal: idempotent. Widerspruechliches Reveal: Fehlerzustand.
+    if(cur.nonce===(rev&&rev.nonce)&&cur.seg===barrierCrRevealSeg(rev))return {ok:true,duplicate:true};
+    S.state='blocked';S.errors.push({seat:seat,reason:'reveal-conflict'});
+    return {ok:false,reason:'reveal-conflict'};
+  }
+  const full={room:S.ctx.room,gen:S.ctx.gen,turn:S.ctx.turn,seat:seat};
+  const r=await barrierCrVerify(full,S.moves[seat],S.commits[seat].hash,rev);
+  if(!r.ok){S.state='blocked';S.errors.push({seat:seat,reason:r.reason});return r;}
+  S.reveals[seat]={seg:r.seg,nonce:rev.nonce};
+  if(S.seats.every(s=>!!S.reveals[s]))S.state='ready';
+  return {ok:true,seg:r.seg};
+}
+function barrierCrReady(S){return S.state==='ready';}
+// Kanonische Segmentliste — erst aus VOLLSTAENDIG verifizierten Reveals, dedupliziert
+// und aufsteigend. Solange etwas fehlt oder ungueltig ist, bleibt sie null; die
+// Simulation ist damit blockiert. Die Liste geht unveraendert in barrierBuildArcs.
+function barrierCrSegments(S){
+  if(!barrierCrReady(S))return null;
+  const out=[];
+  for(const s of S.seats){const k=S.reveals[s].seg;if(k>=0&&out.indexOf(k)<0)out.push(k);}
+  out.sort((a,b)=>a-b);
+  return out;
+}
+// Test-/Debug-Hook: der EINZIGE Zugang zu diesem Vertrag in Etappe 6B1.
+function barrierCrHook(){
+  if(!BARRIER_DEBUG||online||replaying)return null;
+  return {tag:BARRIER_CR_TAG,version:BARRIER_CR_VERSION,
+    nonce:barrierCrNonce,preimage:barrierCrPreimage,sha256:barrierCrSha256,
+    commit:barrierCrCommit,verify:barrierCrVerify,context:barrierCrContext,
+    session:barrierCrSession,addCommit:barrierCrAddCommit,addReveal:barrierCrAddReveal,
+    ready:barrierCrReady,segments:barrierCrSegments,
+    hashValid:barrierCrHashValid,nonceValid:barrierCrNonceValid};
+}
 // Online-Reveal-Bedingung: alle Seats mit lebenden Kugeln haben committet.
 // Eliminierte Seats zaehlen nicht (FFA); in 1v1/2v2 haben in der Aim-Phase immer
 // beide Spieler lebende Kugeln -> identisch zum frueheren aimSet[0]&&aimSet[1].
