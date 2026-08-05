@@ -2865,8 +2865,12 @@ function setPhaseText(){const p=$('phase');
 
 let toastT;function toast(m){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove('show'),2200);}
 
-function openCover(pi){coverOpen=true;const c=$('cover');$('coverWho').textContent='Spieler '+(pi+1);$('coverWho').className='who';$('coverWho').style.color=PCOLS[pi].ui;c.classList.add('show');}
-$('coverBtn').onclick=()=>{coverOpen=false;$('cover').classList.remove('show');setPhaseText();updateHud();};
+function openCover(pi){coverOpen=true;const c=$('cover');$('coverWho').textContent='Spieler '+(pi+1);$('coverWho').className='who';$('coverWho').style.color=PCOLS[pi].ui;c.classList.add('show');
+  // Debug-Schutzwand: die verdeckte Uebergabe beendet Platzierungsmodus und Anzeige
+  // des abgebenden Seats, bevor der naechste das Geraet bekommt.
+  if(typeof barrierCoverHook==='function')barrierCoverHook();}
+$('coverBtn').onclick=()=>{coverOpen=false;$('cover').classList.remove('show');setPhaseText();updateHud();
+  if(typeof barrierUi==='function')barrierUi();};   // Debug-UI auf den uebernehmenden Seat binden
 
 $('actBtn').onclick=()=>{if(r3dOrbit)return;if(phase!=='aim')return;const who=online?myPlayer:(mode==='bot'?0:curAimer);if(aimSet[who]||!aliveCount(who))return;
   const idx=seatDefaultBall(who);commit(who,idx,0,0);};
@@ -3267,7 +3271,10 @@ const BARRIER_MULTI=BARRIER_MULTI_SEGS!==null;
 function barrierActiveSegments(){
   if(BARRIER_MULTI)return BARRIER_MULTI_SEGS;
   if(phase==='reveal'||phase==='sim')return barrierTurnSegments;
-  return barrierArmedBySeat[BARRIER_SEAT]?[barrierSelectedSegmentBySeat[BARRIER_SEAT]]:[];
+  // Vorschau: NUR die des gerade planenden Seats. Bereits bestaetigte Segmente
+  // anderer Seats bleiben bis zum Reveal unsichtbar.
+  const s=barrierUiSeat();
+  return s>=0&&barrierArmedBySeat[s]?[barrierSelectedSegmentBySeat[s]]:[];
 }
 // Messwerte des Prototyps (nur Diagnose, keine Rueckwirkung auf die Simulation).
 const barrierStat={reflections:0,resolves:0,stepReflections:0,maxPerBallStep:0,earliestT:1};
@@ -3303,7 +3310,20 @@ const BARRIER_RESTITUTION=0.55;
 // dedupliziert und sortiert und geht danach unveraendert in die Bogenverschmelzung
 // aus Etappe 5A — mehrere Seats auf demselben Segment ergeben genau einen Collider,
 // verbrauchen aber je einen eigenen Einsatz.
-const BARRIER_SEAT=0;                          // der einzige von der Debug-UI gesteuerte Seat
+// ── Etappe 5C: echter lokaler 2-Spieler-Hotseat ───────────────────────────────
+// Die Debug-UI steuert nicht mehr fest Seat 0, sondern den Seat, der GERADE plant.
+// Im Hotseat ist das curAimer; im Bot-1v1 bleibt es Seat 0. Alles, was die UI zeigt
+// — Bestand, Vorschau, Segmentnummer, Anzeige — haengt an diesem einen Seat.
+// Waehrend der verdeckten Uebergabe (coverOpen) ist die gesamte Debug-UI aus.
+// Die Entscheidung eines Seats ist damit fuer den anderen nirgends ablesbar: die
+// bestaetigten Segmente werden erst beim Reveal zur gemeinsamen Wandliste.
+// -1 = keine UI (online, Replay, Menue, oder ein hier nicht behandelter Modus).
+function barrierUiSeat(){
+  if(!BARRIER_DEBUG||online||replaying||menuVisible)return -1;
+  if(mode==='bot')return 0;
+  if(mode==='pvp')return curAimer>=0&&curAimer<barrierStakesBySeat.length?curAimer:-1;
+  return -1;
+}
 const BARRIER_STAKES_START=2;                  // Einsaetze je SEAT und Match
 let barrierStakesBySeat=[];                    // verbleibende Einsaetze je Seat
 let barrierRoundUsedBySeat=[];                 // hoechstens eine Wand je Seat und Runde
@@ -3327,9 +3347,9 @@ function barrierCanArmSeat(s){
     &&barrierStakesBySeat[s]>0&&!barrierRoundUsedBySeat[s];
 }
 // Die Debug-UI aus Etappe 4 steuert weiterhin AUSSCHLIESSLICH Seat 0 im Bot-1v1.
-function barrierCanArm(){return mode==='bot'&&barrierCanArmSeat(BARRIER_SEAT);}
+function barrierCanArm(){const s=barrierUiSeat();return s>=0&&!coverOpen&&barrierCanArmSeat(s);}
 function barrierToggle(){if(!barrierCanArm())return;
-  barrierArmedBySeat[BARRIER_SEAT]=!barrierArmedBySeat[BARRIER_SEAT];barrierUi();}
+  const s=barrierUiSeat();barrierArmedBySeat[s]=!barrierArmedBySeat[s];barrierUi();}
 // Test-/Debug-Hook fuer die uebrigen Seats. Er setzt AUSSCHLIESSLICH die Vorschau;
 // Verbrauch und Verbindlichkeit laufen danach unveraendert ueber commit() und
 // barrierCommitHook(). Kein URL-Vertrag, keine Produktmechanik — nur lokal, nur mit
@@ -3361,6 +3381,12 @@ function barrierAutoStandHook(who){
   if(!BARRIER_DEBUG||online||replaying)return;
   if(who>=0&&who<barrierArmedBySeat.length)barrierArmedBySeat[who]=false;
   barrierUi();
+}
+// Verdeckte Uebergabe im Hotseat: Platzierungsmodus und Anzeige des abgebenden Seats
+// enden hier. Die bereits bestaetigte Wahl bleibt gespeichert, aber unsichtbar.
+function barrierCoverHook(){
+  if(!BARRIER_DEBUG||online||replaying)return;
+  barrierClosePlacing();barrierUi();
 }
 // Aus allen committeten Segmenten die kanonische Liste des Zuges bilden: dedupliziert
 // und aufsteigend. Mehrere Seats auf demselben Segment ergeben genau EINEN Eintrag.
@@ -3408,13 +3434,21 @@ function barrierHud(){
   // bestaetigtes Segment traegt,
   // steht das Segment im Bild — auch wenn es der letzte Einsatz war (dann "0 LEFT").
   // EMPTY erscheint erst, wenn die Physikphase vorbei und die Zugbindung geloest ist.
-  const cs=barrierCommittedSegmentBySeat[BARRIER_SEAT];
-  const txt=(cs>=0||barrierArmedBySeat[BARRIER_SEAT])?'BARRIER: SEGMENT '+(cs>=0?cs:barrierSelectedSegmentBySeat[BARRIER_SEAT])+' · '+barrierStakesBySeat[BARRIER_SEAT]+' LEFT'
-    :barrierStakesBySeat[BARRIER_SEAT]<=0?'BARRIER: EMPTY'
+  // Die seatbezogene Anzeige gehoert AUSSCHLIESSLICH in die private Planungsphase des
+  // gerade planenden Seats. Ab dem Reveal — und ebenso in sim, result, over, waehrend
+  // der verdeckten Uebergabe und im Menue — ist sie vollstaendig aus: sonst verriete
+  // sie nach dem Zug noch Segment und Restbestand des zuletzt planenden Seats. Die
+  // gemeinsam aktiven Debug-Waende bleiben davon unberuehrt, sie haengen an barrierOn().
+  const s=barrierUiSeat();
+  const cs=s>=0?barrierCommittedSegmentBySeat[s]:-1;
+  const txt=(s<0||coverOpen||phase!=='aim')?''
+    :(cs>=0||barrierArmedBySeat[s])?'BARRIER: SEGMENT '+(cs>=0?cs:barrierSelectedSegmentBySeat[s])+' · '+barrierStakesBySeat[s]+' LEFT'
+    :barrierStakesBySeat[s]<=0?'BARRIER: EMPTY'
     :'BARRIER: OFF';
   if(txt===barrierHudLast)return;
   barrierHudLast=txt;
   let el=document.getElementById('barrierHud');
+  if(!el&&txt==='')return;                     // ohne Inhalt entsteht gar kein Knoten
   if(!el){el=document.createElement('div');el.id='barrierHud';
     // Unterhalb der Kopfzeile UND der Statusleiste: Kopfzeile endet bei y=42, die
     // Spielerkarten reichen bis y=99, der Arenabereich beginnt bei y=105 — auf 900x700
@@ -3425,6 +3459,7 @@ function barrierHud(){
       +'background:rgba(5,8,14,.82);color:#35e0ff;letter-spacing:.06em;pointer-events:none;'
       +'font:600 12px/1.2 ui-monospace,Menlo,Consolas,monospace';
     document.body.appendChild(el);}
+  el.style.display=txt===''?'none':'';
   el.textContent=txt;
 }
 if(BARRIER_DEBUG)addEventListener('keydown',e=>{
@@ -3453,7 +3488,8 @@ let barrierPlacing=false;
 // Sichtbarkeit des Debug-Bogens: waehrend der Physikphase (echte Wand) ODER als
 // Vorschau nach der Auswahl. Die Vorschau kollidiert NICHT — barrierOn() bleibt der
 // alleinige Physikschalter.
-function barrierPreviewOn(){return BARRIER_DEBUG&&!online&&!replaying&&barrierArmedBySeat[BARRIER_SEAT]&&phase==='aim';}
+function barrierPreviewOn(){const s=barrierUiSeat();
+  return BARRIER_DEBUG&&!online&&!replaying&&s>=0&&!coverOpen&&barrierArmedBySeat[s]&&phase==='aim';}
 function barrierMeshOn(){return barrierOn()||barrierPreviewOn();}
 function barrierCanPlace(){return barrierCanArm();}
 function barrierOpenPlacing(){
@@ -3482,8 +3518,9 @@ function barrierPickDown(e){
   const rr=Math.hypot(p.x-cx,p.y-cy)/R;
   if(rr<BARRIER_PICK_INNER||rr>BARRIER_PICK_OUTER){barrierClosePlacing();return;}   // ausserhalb des Rings: nur schliessen
   e.preventDefault();e.stopPropagation();            // kein Kugel-Drag, kein Kameradrag aus diesem Tipp
-  barrierSelectedSegmentBySeat[BARRIER_SEAT]=barrierSegAt(p.x,p.y);
-  barrierArmedBySeat[BARRIER_SEAT]=true;
+  const seat=barrierUiSeat();
+  barrierSelectedSegmentBySeat[seat]=barrierSegAt(p.x,p.y);
+  barrierArmedBySeat[seat]=true;
   barrierClosePlacing();
 }
 // Zwoelf duenne Randbereiche + Nummern, nur im Platzierungsmodus. Projektion ueber
@@ -3498,11 +3535,12 @@ function barrierPaint(){
   const w=innerWidth,h=innerHeight;
   if(c.width!==w||c.height!==h){c.width=w;c.height=h;c.style.width=w+'px';c.style.height=h+'px';}
   const g=c.getContext('2d');g.clearRect(0,0,w,h);
+  const pk=barrierUiSeat();                   // hervorgehoben wird nur die EIGENE Wahl
   const rect=cv.getBoundingClientRect();
   const px=(ax,ay)=>{const q=OP(ax,ay,0);
     return{x:rect.left+q.x/1000*rect.width,y:rect.top+q.y/1000*rect.width};};
   for(let k=0;k<BARRIER_SEG_COUNT;k++){
-    const mid=-Math.PI/2+k*BARRIER_SPAN,sel=(k===barrierSelectedSegmentBySeat[BARRIER_SEAT]&&barrierArmedBySeat[BARRIER_SEAT]);
+    const mid=-Math.PI/2+k*BARRIER_SPAN,sel=(pk>=0&&k===barrierSelectedSegmentBySeat[pk]&&barrierArmedBySeat[pk]);
     g.beginPath();
     for(let i=0;i<=14;i++){const a=mid-BARRIER_HALF+BARRIER_SPAN*i/14,q=px(cx+Math.cos(a)*R,cy+Math.sin(a)*R);
       if(i===0)g.moveTo(q.x,q.y);else g.lineTo(q.x,q.y);}
@@ -3520,7 +3558,11 @@ function barrierPaint(){
 let barrierBtnLast='';
 function barrierBtn(){
   if(!BARRIER_DEBUG||online||replaying)return;
+  // Sie gehoert immer genau dem Seat, der gerade plant, und ist waehrend der
+  // verdeckten Uebergabe komplett aus.
+  const s=barrierUiSeat();
   let b=document.getElementById('barrierBtn');
+  if(!b&&s<0)return;                             // ohne planenden Seat entsteht kein Knoten
   if(!b){b=document.createElement('button');b.id='barrierBtn';b.type='button';
     b.style.cssText='position:fixed;left:10px;bottom:84px;z-index:71;padding:9px 13px;border-radius:8px;'
       +'border:1px solid rgba(53,224,255,.55);background:rgba(5,8,14,.86);color:#35e0ff;'
@@ -3529,20 +3571,22 @@ function barrierBtn(){
     // pointerdown statt click: identisch fuer Maus und Touch, und der Tipp erreicht
     // das Canvas nie (eigener DOM-Knoten ausserhalb von cv, Propagation gestoppt).
     b.addEventListener('pointerdown',e=>{e.preventDefault();e.stopPropagation();
-      if(barrierArmedBySeat[BARRIER_SEAT]){barrierArmedBySeat[BARRIER_SEAT]=false;barrierClosePlacing();barrierUi();return;}
+      const s=barrierUiSeat();if(s<0)return;
+      if(barrierArmedBySeat[s]){barrierArmedBySeat[s]=false;barrierClosePlacing();barrierUi();return;}
       if(barrierPlacing){barrierClosePlacing();return;}
       barrierOpenPlacing();});
     document.body.appendChild(b);}
-  const show=BARRIER_DEBUG&&!online&&!replaying&&mode==='bot'&&!menuVisible&&phase==='aim';
+  const show=s>=0&&!coverOpen&&phase==='aim';
   b.style.display=show?'':'none';
-  const usable=barrierCanArm()||barrierArmedBySeat[BARRIER_SEAT];
+  if(!show){b.disabled=true;barrierBtnLast='';return;}   // nichts anzeigen, nichts verraten
+  const usable=barrierCanArm()||(s>=0&&barrierArmedBySeat[s]);
   b.disabled=!usable;
   b.style.opacity=usable?'1':'.42';
   // Zustand ueber den Rahmen, nicht ueber den Text: die Beschriftung bleibt exakt
   // "WAND ×N" (Restbestand), damit sie eindeutig ablesbar ist.
-  b.style.borderColor=(barrierPlacing||barrierArmedBySeat[BARRIER_SEAT])?'#35e0ff':'rgba(53,224,255,.55)';
+  b.style.borderColor=(barrierPlacing||(s>=0&&barrierArmedBySeat[s]))?'#35e0ff':'rgba(53,224,255,.55)';
   b.style.background=barrierPlacing?'rgba(53,224,255,.20)':'rgba(5,8,14,.86)';
-  const txt='WAND ×'+barrierStakesBySeat[BARRIER_SEAT];
+  const txt='WAND ×'+barrierStakesBySeat[s];
   if(txt!==barrierBtnLast){barrierBtnLast=txt;b.textContent=txt;}
 }
 function barrierUi(){barrierHud();barrierBtn();}
