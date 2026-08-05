@@ -1959,7 +1959,10 @@ function collapseRemainMs(){return Math.max(0,MATCH_COLLAPSE_SECONDS*1000-matchE
 // Eingabesperre ab Timerablauf: kein Spieler- oder Bot-Zug darf mehr beginnen, bis der
 // Collapse ausgewertet ist. Die Auswertung selbst laeuft in phase==='sim' und ist damit
 // bereits ueber die normale Phasenpruefung gesperrt.
-function inputLocked(){return collapseActive()&&collapseState==='expired';}
+// Ab Timerablauf (Collapse) ODER waehrend eines laufenden Football-Torablaufs ist JEDE
+// Benutzereingabe gesperrt: kein neuer Drag, kein Release, kein Commit.
+// typeof-Guard: die Test-Harnesse laden stepSim auch ohne den Football-Torablauf.
+function inputLocked(){return (collapseActive()&&collapseState==='expired')||(typeof footballGoalBusy==='function'&&footballGoalBusy());}
 // Zentrale Freigabe fuer JEDEN lokalen Benutzer-Commit (Stand-Button, Pointer-/Drall-Zug).
 // Verhindert Doppelwertungen: ein spaetes pointerup nach dem automatischen Stand-Commit
 // darf weder den bestaetigten Zug ueberschreiben noch einen zweiten Bot-Zug erzeugen.
@@ -2189,6 +2192,7 @@ function placeBalls(){
 
 function newGame(){resize();R=R0;score=[];for(let p=0;p<np();p++)score.push(0);roundNo=1;particles=[];fx3=[];recFrames=[];
   resetCollapseTimer();                              // Rematch/neues Match: Timer 2:00, Collapse-State + Radius zuruecksetzen
+  fbGoalState='play';fbGoalTick=0;                   // neues/verlassenes Football-Match: Torablauf sauber initialisiert (Score startet 0:0)
   const ffa=mode==='ffa';                            // FFA: kompakte Chip-Leiste statt der 2 Spielerkarten
   $('card0').style.display=ffa?'none':'';$('card1').style.display=ffa?'none':'';
   document.querySelector('.scorebox').style.display=ffa?'none':'';
@@ -2780,8 +2784,76 @@ function footballResolvePost(b){
   if(vn<0){b.vx=sx*(vX-(1+REST)*vn*nx);b.vy=sy*(vY-(1+REST)*vn*ny);}   // nur Normalanteil reflektiert (bestehende REST), Tangentialanteil bleibt
   return true;
 }
+// ── ARENA FOOTBALL: Torablauf (Goal Detection -> Ballfall -> Rundenreset) ──
+// Kanonische TORLINIE: die Hinterkante des Sockel-Fussabdrucks (FOOTBALL_POST_BACK*BR).
+// Erst wenn die dem Spielfeld zugewandte Ballkante DIESE Linie passiert hat, hat der Ball
+// das Tor vollstaendig verlassen -> r - BR > FOOTBALL_POST_BACK*BR. Keine neue Magic Number:
+// die Linie ist exakt die bereits fuer die Pfostenkollision hergeleitete Sockel-Hinterkante.
+// Radial statt kartesisch, weil die Arena rund ist und die gesamte Football-Geometrie radial
+// definiert ist; im Torfenster (|y-cy| <= 2.300*BR) weichen r und |x-cx| um < 6 LOGICAL ab.
+//
+// TORSEITE: placeBalls() stellt Blau (owner 0) links (-X) und Rot (owner 1) rechts (+X) auf.
+// Jede Seite verteidigt das Tor auf ihrer Seite -> der Ball im +X-Tor ist ein Treffer ins
+// ROTE Tor und damit ein Punkt fuer BLAU (score[0]); -X gespiegelt ein Punkt fuer ROT
+// (score[1]). Entscheidend ist ausschliesslich das ueberquerte Tor — Eigentore sind damit
+// moeglich und zaehlen regulaer. Keine Last-Touch-/Assist-Logik.
+const FOOTBALL_GOAL_FALL_TICKS=72;    // Sub-Step-Ticks Ballfall (~1.2 s bei 60 fps; Renderer blendet bei t~1.07 s aus)
+const FOOTBALL_GOAL_SPAWN_TICKS=30;   // Sub-Step-Ticks Spawn-Drop des neutralen Balls (~0.5 s)
+function footballSpawnHeight(){return BR*10;}   // rein visuelle Starthoehe des Spawn-Drops
+let fbGoalState='play';               // 'play' -> 'fall' -> 'spawn' -> 'play'
+let fbGoalTick=0;                     // deterministischer Tickzaehler (kein setTimeout, keine Wanduhr)
+// Laeuft gerade ein Torablauf? Sperrt jede Benutzereingabe (s. inputLocked).
+function footballGoalBusy(){return mode==='football'&&fbGoalState!=='play';}
+// Zentrale Goal-Detection. Rueckgabe: 0 = Punkt Blau (+X-Tor), 1 = Punkt Rot (-X-Tor),
+// -1 = kein Tor. Nur kanonische Physikdaten — keine Renderer-/GLB-/Pixelabfrage.
+// fbPassed ist die Vorbedingung und wird ausschliesslich beim beruehrungsfreien Durchtritt
+// durch die lichte Oeffnung gesetzt -> Pfostentreffer und Wege ausserhalb der Oeffnung
+// koennen hier gar nicht ankommen.
+function footballGoalSide(b){
+  if(mode!=='football')return -1;
+  if(b.owner!==FOOTBALL_NEUTRAL_OWNER||!b.fbPassed)return -1;
+  const dx=b.x-cx,dy=b.y-cy;
+  if(Math.sqrt(dx*dx+dy*dy)-BR<=FOOTBALL_POST_BACK*BR)return -1;   // noch nicht VOLLSTAENDIG hinter der Torlinie
+  return dx>=0?0:1;
+}
+// Spielerkugeln anhalten (nie eliminieren) — waehrend des Torablaufs rollt niemand weiter.
+function footballFreezePlayers(){
+  for(const b of balls)if(b.alive&&b.owner!==FOOTBALL_NEUTRAL_OWNER){b.vx=0;b.vy=0;b.spin=0;}
+}
+// Genau EINE Wertung pro Torereignis: nur aus 'play' heraus erreichbar.
+function footballTryGoal(b){
+  if(fbGoalState!=='play')return;
+  const side=footballGoalSide(b);
+  if(side<0)return;
+  score[side]=(score[side]||0)+1;
+  fbGoalState='fall';fbGoalTick=0;
+  cancelAimDrag();                    // laufende Eingabe sauber abbrechen
+  footballFreezePlayers();
+  updateHud();
+}
+// Rundenreset nach dem Ballfall. placeBalls() erzeugt FRISCHE Kugelobjekte (mkBall) —
+// damit sind fbPassed und jeder andere kugelgebundene Football-Latch strukturell weg.
+function footballResetRound(){
+  placeBalls();resetCommits();cancelAimDrag();
+  roundWinner=-1;outBall=-1;
+}
+// Tickgetriebene Zustandsmaschine des Torablaufs. Laeuft ausschliesslich in stepSim und
+// damit im selben Fixed-Step wie die Physik — deterministisch und ohne setTimeout-Kaskade.
+function footballTickGoal(){
+  fbGoalTick++;
+  if(fbGoalState==='fall'&&fbGoalTick>=FOOTBALL_GOAL_FALL_TICKS){
+    footballResetRound();fbGoalState='spawn';fbGoalTick=0;return;
+  }
+  if(fbGoalState==='spawn'&&fbGoalTick>=FOOTBALL_GOAL_SPAWN_TICKS){
+    fbGoalState='play';fbGoalTick=0;startRound();   // gibt Eingabe/Planungsphase regulaer wieder frei
+  }
+}
 function stepSim(){
   const FR=curFR(),FE=curFE();
+  // Torablauf: Spieler stehen still, bevor ueberhaupt integriert wird. Der neutrale Ball
+  // laeuft planar weiter (der Renderer legt den Fall als reine Hoehe darueber).
+  const fbSeq=mode==='football'&&fbGoalState!=='play';
+  if(fbSeq)footballFreezePlayers();
   for(let s=0;s<2;s++){
     for(const b of balls){if(!b.alive)continue;b.x+=b.vx;b.y+=b.vy;const f=Math.sqrt(b.vx*b.vx+b.vy*b.vy)<SLOWV?FE:FR;b.vx*=f;b.vy*=f;if(b.spin){const v=Math.sqrt(b.vx*b.vx+b.vy*b.vy);if(v>0.01){const sx=-b.vy/v,sy=b.vx/v,sa=SPIN_K*b.spin*v;b.vx+=sx*sa;b.vy+=sy*sa;}b.spin*=SPIN_DECAY;}}
     for(let i=0;i<balls.length;i++){const a=balls[i];if(!a.alive)continue;
@@ -2815,8 +2887,9 @@ function stepSim(){
       if(footballResolvePost(fb))continue;
       // Bereits durch ein Tor ausgetretener neutraler Ball: die Bande gilt fuer ihn nicht mehr.
       // Ohne dieses Latch wuerde ihn die runde Grenze, sobald er draussen tangential aus dem
-      // Torfenster driftet, kuenstlich wieder nach innen reflektieren.
-      if(fb.fbPassed)continue;
+      // Torfenster driftet, kuenstlich wieder nach innen reflektieren. Stattdessen ist hier
+      // der einzige Ort, an dem ein Tor gewertet wird — pro Sub-Step und nur aus 'play'.
+      if(fb.fbPassed){footballTryGoal(fb);continue;}
       const fbx=fb.x-cx,fby=fb.y-cy,fbd=Math.sqrt(fbx*fbx+fby*fby),flim=R-BR;
       if(fbd>flim&&fbd>0){
         if(footballCanPassGoal(fb)){fb.fbPassed=true;continue;}   // Toroeffnung: keine radiale Kollision
@@ -2830,6 +2903,9 @@ function stepSim(){
     else{const crossed=ballsOutside();
     if(crossed.length&&resolveRingOuts(crossed))return;}
   }
+  // Waehrend Ballfall/Spawn uebernimmt die Football-Zustandsmaschine: kein Settlement,
+  // kein Phasenwechsel, keine neue Planungsphase — die Eingabe bleibt gesperrt.
+  if(fbSeq||(mode==='football'&&fbGoalState!=='play')){footballTickGoal();return;}
   let moving=false;for(const b of balls){if(b.alive&&Math.sqrt(b.vx*b.vx+b.vy*b.vy)>curST()){moving=true;break;}}
   if(!moving){
     const n=mode==='ffa'?ffaN:2;   // bewusst inline (kein np()): stepSim laeuft auch im Golden-Harness
@@ -4722,7 +4798,12 @@ async function initR3D(){
         // Kosmetischer Fall ueber die Kante (rein visuell, Zustand wird nie geschrieben):
         // Schwung der letzten Bewegung traegt die Kugel ueber die Kante hinaus (weich abklingend),
         // dann Gravity + rollende Rotation, bis sie in den Wolken verschwindet.
-        const out=(!b.alive)||((phase==='result'||phase==='over')&&i===outBall);
+        // Football-Tor: der neutrale Ball faellt nach gueltigem Tor sichtbar hinter der Arena
+        // herunter. Bewusst DERSELBE kosmetische Fallpfad wie beim Ring-out (Gravity, Drift,
+        // Rollen) — keine zweite Fall-Implementierung, kein Eingriff in die planare Physik.
+        // b.alive bleibt true, deshalb laeuft die x/y-Position live weiter.
+        const out=(!b.alive)||((phase==='result'||phase==='over')&&i===outBall)
+          ||(mode==='football'&&fbGoalState==='fall'&&b.owner===FOOTBALL_NEUTRAL_OWNER);
         if(out){
           if(fallT[i]==null){fallT[i]=nowS;
             let fvx=b.vx,fvy=b.vy;                     // echte letzte Geschwindigkeit (nur lesend) …
@@ -4747,8 +4828,13 @@ async function initR3D(){
           // Kosmetische Auffahrt auf die Randweg-Stufe (GLB: Stufe bei 8.7, Hoehe 0.165)
           const rrG=Math.hypot(b.x-cx,b.y-cy)/sc;
           const lift=rrG>8.55?Math.min(1,(rrG-8.55)/.3)*.165*sc:0;
-          m.visible=true;m.position.set(b.x,bob+lift+BR,b.y);
-          d.visible=true;d.material.opacity=.85;d.position.set(b.x,bob+lift+.6,b.y);
+          // Football-Spawn: der neutrale Ball kommt nach dem Reset kurz von oben herein.
+          // Rein visuelle Hoehe aus dem deterministischen Tickzaehler — die Simulation steht
+          // bereits auf der Startposition, Physik und Score sind unberuehrt.
+          const spawnLift=(mode==='football'&&fbGoalState==='spawn'&&b.owner===FOOTBALL_NEUTRAL_OWNER)
+            ?footballSpawnHeight()*Math.max(0,1-fbGoalTick/FOOTBALL_GOAL_SPAWN_TICKS):0;
+          m.visible=true;m.position.set(b.x,bob+lift+BR+spawnLift,b.y);
+          d.visible=true;d.material.opacity=spawnLift>0?.85*(1-spawnLift/footballSpawnHeight()):.85;d.position.set(b.x,bob+lift+.6,b.y);
           if(!prevP[i])prevP[i]={x:b.x,y:b.y};else{prevP[i].x=b.x;prevP[i].y=b.y;}
         }
       }
