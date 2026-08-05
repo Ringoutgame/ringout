@@ -2690,7 +2690,10 @@ function curFR(){return FRICTION;}
 function curFE(){return TUNE&&TUNE.fend!=null?TUNE.fend:FEND;}
 function curST(){return TUNE&&TUNE.stopv!=null?TUNE.stopv:STOPV;}
 function maxPull(){return R0*MAXPULL_FRAC;}
-function setPhase(p){phase=p;phaseStart=performance.now();}
+function setPhase(p){phase=p;phaseStart=performance.now();
+  // Debug-Schutzwand (nur ?barrier=1, nur lokal): Zugbindung und Vorschau enden mit
+  // der jeweiligen Phase. typeof-Guard — setPhase laeuft auch extrahiert in Harnessen.
+  if(typeof barrierPhaseHook==='function')barrierPhaseHook(p);}
 
 function mkBall(x,y,owner){return{x,y,vx:0,vy:0,sx:x,sy:y,owner,alive:true,spin:0};}
 function aliveBalls(owner){return balls.filter(b=>b.alive&&b.owner===owner);}
@@ -2764,6 +2767,7 @@ function newGame(){resize();clearGameOverOverlayTimer();   // neues Match/Rematc
     $('card0').querySelector('.pn').textContent='SPIELER 1';
     $('n1').textContent=mode==='bot'?'BOT':'SPIELER 2';
   }
+  if(typeof barrierMatchReset==='function')barrierMatchReset();   // neues Match und Rematch: Einsaetze zurueck auf 2
   startRound();}
 function resetCommits(){aimSet=[];commitIdx=[];commitAim=[];commitSpin=[];
   turnWindowEndEl=null;turnWindowSeat=-1;   // neue Runde = neue Entscheidungsphase -> volle Zugzeit
@@ -2772,6 +2776,7 @@ function startRound(){placeBalls();resetCommits();roundWinner=-1;
   cancelAimDrag();outBall=-1;setPhase('aim');updateHud();   // vollstaendiger Drag-Reset inkl. Pointer-Capture
   if(online){curAimer=myPlayer;onlineArmTurn();}
   else if(mode==='pvp'||mode==='ffa'){curAimer=0;openCover(0);}else curAimer=0;
+  if(typeof barrierRoundReset==='function')barrierRoundReset();   // neue Runde: wieder eine Wand erlaubt, Bestand bleibt
   setPhaseText();}
 
 function ballDots(owner){const n=aliveCount(owner),cap=teamCap();return '●'.repeat(n)+'○'.repeat(Math.max(0,cap-n));}
@@ -3002,6 +3007,9 @@ function allAliveCommitted(){for(let s=0;s<np();s++){if(aliveCount(s)>0&&!aimSet
 // Online bleibt bewusst ungefiltert (DB ist der Arbiter).
 function commit(who,shooterIdx,fx,fy,spin){
   if(!canCommitInput(who))return;
+  // Debug-Schutzwand: DIES ist der bewusst bestaetigte Zug — nur hier wird ein
+  // Einsatz verbraucht. Der interne commitAutoStand() geht an dieser Stelle vorbei.
+  if(typeof barrierCommitHook==='function')barrierCommitHook(who);
   applyCommit(who,shooterIdx,fx,fy,spin);
 }
 // Zugausfuehrung OHNE Freigabepruefung. Nur zwei Aufrufer: commit() (Benutzer, geprueft)
@@ -3241,9 +3249,79 @@ const BARRIER_HALF=BARRIER_SPAN/2;                       // halbe Breite -> 15 G
 // des Arenadurchmessers zurueck, ohne die Wand zum Trampolin zu machen.
 // REST und jede andere Physikkonstante bleiben unveraendert.
 const BARRIER_RESTITUTION=0.55;
-// Aktiv ausschliesslich waehrend der Physikphase: mit dem Settlement (Stillstand
-// aller Kugeln) bzw. dem Rundenende wechselt phase und die Wand ist wieder weg.
-function barrierOn(){return BARRIER_DEBUG&&!online&&!replaying&&phase==='sim';}
+// ── Etappe 3: lokaler Regelprototyp (Einsaetze, Runden- und Zugvertrag) ────────
+// Geprueft wird ausschliesslich der VERBRAUCHSVERTRAG, nicht die Produktbedienung:
+// Auswahl laeuft ueber die Debug-Taste B, das Segment weiterhin ueber ?bseg.
+// Nur der menschliche Spieler (Seat 0) im lokalen Bot-1v1 kann eine Wand setzen;
+// der Bot bekommt in dieser Phase keine. Es bleibt bei genau EINER Wand.
+//
+// Der Einsatz wird NICHT beim Druecken von B verbraucht, sondern erst mit dem
+// bewusst bestaetigten Zug — deshalb kostet mehrfaches Umschalten nichts, ein
+// Abwaehlen vor dem Commit kostet nichts, und der automatische Stand bei
+// Zeitablauf (commitAutoStand -> applyCommit, am geprueften commit() vorbei)
+// kostet ebenfalls nichts und erzeugt keine Wand.
+const BARRIER_SEAT=0;                     // menschlicher Spieler im lokalen Bot-1v1
+const BARRIER_STAKES_START=2;             // Einsaetze je Spieler und Match
+let barrierStakes=BARRIER_STAKES_START;   // verbleibende Einsaetze
+let barrierRoundUsed=false;               // hoechstens eine Wand pro Spieler und Runde
+let barrierArmed=false;                   // Vorschau: gewaehlt, noch nicht bestaetigt
+let barrierTurn=false;                    // verbindlich fuer den laufenden Zug
+// Aktiv ausschliesslich waehrend der Physikphase des Zuges, fuer den die Wand
+// bestaetigt wurde: mit dem Settlement bzw. dem Rundenende wechselt phase, und
+// barrierPhaseHook() loescht die Zugbindung wieder.
+function barrierOn(){return BARRIER_DEBUG&&!online&&!replaying&&barrierTurn&&phase==='sim';}
+// Waehlbar nur in der eigenen offenen Planungsphase eines lokalen Bot-Matches,
+// solange Einsaetze uebrig sind und in dieser Runde noch keine Wand stand.
+function barrierCanArm(){
+  return BARRIER_DEBUG&&!online&&!replaying&&mode==='bot'&&!menuVisible
+    &&phase==='aim'&&!inputLocked()&&!aimSet[BARRIER_SEAT]&&aliveCount(BARRIER_SEAT)>0
+    &&barrierStakes>0&&!barrierRoundUsed;
+}
+function barrierToggle(){if(!barrierCanArm())return;barrierArmed=!barrierArmed;barrierHud();}
+// Verbrauch: genau hier, beim bewusst bestaetigten Zug des Menschen — unabhaengig
+// davon, ob es ein Schuss oder ein bewusstes 0/0 ist.
+function barrierCommitHook(who){
+  if(!BARRIER_DEBUG||online||replaying||who!==BARRIER_SEAT||!barrierArmed)return;
+  barrierArmed=false;
+  if(barrierStakes<=0||barrierRoundUsed)return;
+  barrierStakes--;barrierRoundUsed=true;barrierTurn=true;
+  barrierHud();
+}
+// Phasenwaechter: die Zugbindung lebt genau von der Bestaetigung bis zum Ende der
+// Physikphase, die Vorschau genau bis zum Ende der Planungsphase.
+function barrierPhaseHook(p){
+  if(p!=='reveal'&&p!=='sim')barrierTurn=false;
+  if(p!=='aim')barrierArmed=false;
+  barrierHud();
+}
+function barrierRoundReset(){barrierRoundUsed=false;barrierArmed=false;barrierTurn=false;barrierHud();}
+// Neues Match und Rematch fuellen auf; eine neue Runde oder eine Collapse-Stufe nie.
+function barrierMatchReset(){barrierStakes=BARRIER_STAKES_START;barrierRoundUsed=false;barrierArmed=false;barrierTurn=false;barrierHud();}
+// Einfache Debug-Anzeige, bewusst ohne Gestaltung. Wird nur angelegt, wenn der
+// Prototyp ueberhaupt laeuft — ohne ?barrier=1 entsteht kein DOM-Knoten.
+let barrierHudLast='';
+function barrierHud(){
+  if(!BARRIER_DEBUG||online||replaying)return;
+  // Eine aktive Wand hat Vorrang vor der Bestandsmeldung: solange barrierTurn gilt,
+  // steht das Segment im Bild — auch wenn es der letzte Einsatz war (dann "0 LEFT").
+  // EMPTY erscheint erst, wenn die Physikphase vorbei und die Zugbindung geloest ist.
+  const txt=(barrierTurn||barrierArmed)?'BARRIER: SEGMENT '+BARRIER_SEG+' · '+barrierStakes+' LEFT'
+    :barrierStakes<=0?'BARRIER: EMPTY'
+    :'BARRIER: OFF';
+  if(txt===barrierHudLast)return;
+  barrierHudLast=txt;
+  let el=document.getElementById('barrierHud');
+  if(!el){el=document.createElement('div');el.id='barrierHud';
+    el.style.cssText='position:fixed;left:10px;top:10px;z-index:70;padding:5px 9px;border-radius:6px;'
+      +'background:rgba(5,8,14,.82);color:#35e0ff;letter-spacing:.06em;pointer-events:none;'
+      +'font:600 12px/1.2 ui-monospace,Menlo,Consolas,monospace';
+    document.body.appendChild(el);}
+  el.textContent=txt;
+}
+if(BARRIER_DEBUG)addEventListener('keydown',e=>{
+  if(e.repeat||e.key!=='b'&&e.key!=='B')return;
+  barrierToggle();
+});
 // Winkel auf (-PI,PI] normierter Abstand zur Segmentmitte.
 function barrierOff(px,py){const o=Math.atan2(py-cy,px-cx)-BARRIER_MID;return Math.atan2(Math.sin(o),Math.cos(o));}
 function barrierInSpan(px,py){return Math.abs(barrierOff(px,py))<=BARRIER_HALF;}
