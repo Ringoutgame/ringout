@@ -3003,6 +3003,100 @@ function sanitizeMove(who,idx,dx,dy,sp){
   if(!(seatOwnsBall(who,idx)&&balls[idx].alive))idx=seatDefaultBall(who);
   return{idx,dx,dy,sp};
 }
+// ── Etappe 6A: Datenvertrag der Wandentscheidung ──────────────────────────────
+// Ein Move darf OPTIONAL genau ein Wandsegment tragen. Der Vertrag ERGAENZT die
+// bestehende kanonische Repraesentation {idx,dx,dy,sp}; es entsteht keine zweite
+// Payload-Struktur. sanitizeMove() bleibt in Signatur und Wortlaut unveraendert —
+// sechs Testsuiten extrahieren sie genau so aus dieser Datei —, die Erweiterung
+// haengt sich mit barrierSegAttach() an den bereits kanonisierten Move.
+//
+// Kanonisch INTERN: -1 = keine Wand, 0..11 = gewaehltes Segment (dieselbe Konvention
+// wie barrierCommittedSegmentBySeat). Kanonisch AUF DEM DRAHT: das Feld fehlt, wenn
+// keine Wand gewaehlt ist. Bestehende Payloads bleiben dadurch strukturell exakt
+// unveraendert; es gibt nichts zu migrieren.
+//
+// Feature-Gate dieser Etappe: ein echter Online-Commit traegt NIE ein Segment.
+// barrierMoveSeg() liefert online, im Replay und ohne Debug-Flag immer "keine Wand".
+// Der Vertrag existiert und ist geprueft, die Online-Mechanik bleibt aus.
+const BARRIER_SEG_NONE=-1;                     // kanonisch: keine Wand
+const BARRIER_SEG_INVALID=-2;                  // Eingabe ist keine gueltige Wandwahl
+// Prueft einen von AUSSEN kommenden Wert (Payload, Debug-Hook). Fehlend und null
+// bedeuten "keine Wand". Akzeptiert werden ausschliesslich ganze Zahlen 0..11 — nie
+// gerundet, nie geklemmt, nie modulo. Alles andere ist ungueltig: auch -1, Werte ueber
+// 11, Floats, Strings, Booleans, NaN, Infinity, Arrays und Objekte.
+function barrierSegCanon(v){
+  if(v===undefined||v===null)return BARRIER_SEG_NONE;
+  if(typeof v!=='number'||!Number.isInteger(v))return BARRIER_SEG_INVALID;
+  return (v>=0&&v<BARRIER_SEG_COUNT)?v:BARRIER_SEG_INVALID;
+}
+function barrierSegValid(v){return barrierSegCanon(v)!==BARRIER_SEG_INVALID;}
+// Haengt eine Wandwahl an einen bereits kanonisierten Move. VORBEDINGUNG: seg ist
+// bereits geprueft (fehlend, null oder ganze Zahl 0..11). Beide Aufrufer erfuellen das
+// — applyCommit liest barrierMoveSeg(), processSlot laeuft erst nach barrierSlotValid().
+// Ein ungueltiger Wert wird deshalb hier nie "durch Weglassen repariert": er kommt hier
+// gar nicht an, sondern fuehrt vorher zur Ablehnung des ganzen Slots bzw. Payloads.
+function barrierSegAttach(m,seg){
+  const s=barrierSegCanon(seg);
+  if(s>=0)m.barrierSeg=s;
+  else if(m&&Object.prototype.hasOwnProperty.call(m,'barrierSeg'))delete m.barrierSeg;
+  return m;
+}
+// Drahtform. Genau drei Zustaende:
+//   fehlend/null -> kanonisch NONE, das Feld wird weggelassen (Altbestandsform)
+//   0..11        -> Feld wird kanonisch gesetzt
+//   alles andere -> UNGUELTIG: es entsteht ueberhaupt kein Payload (null). Ein
+//                   ungueltiger Wert wird nicht durch Weglassen repariert.
+function barrierPayload(p){
+  if(!p)return null;
+  const s=barrierSegCanon(p.barrierSeg);
+  if(s===BARRIER_SEG_INVALID)return null;
+  if(s>=0)p.barrierSeg=s;
+  else if(Object.prototype.hasOwnProperty.call(p,'barrierSeg'))delete p.barrierSeg;
+  return p;
+}
+// Gueltigkeit eines EMPFANGENEN Slots. Fehlendes Feld und null sind gueltig; jeder
+// andere Nicht-0..11-Wert macht den ganzen Slot ungueltig. Bewusst OHNE Debug-Flag:
+// das ist die Protokollpruefung, sie gilt fuer jede Gegenseite.
+function barrierSlotValid(c){return !c||barrierSegValid(c.barrierSeg);}
+// Kanonische Identitaet eines Moves. Feste Feldreihenfolge — die Key-Reihenfolge im
+// Objekt ist damit bedeutungslos. barrierSeg gehoert dazu: zwei sonst gleiche Zuege
+// mit verschiedenen Segmenten sind verschiedene Commits.
+function barrierMoveKey(m){
+  const s=m?barrierSegCanon(m.barrierSeg):BARRIER_SEG_NONE;
+  return (m?m.idx:-1)+'|'+(m?m.dx:0)+'|'+(m?m.dy:0)+'|'+((m&&m.sp)||0)+'|'+(s>=0?s:'-');
+}
+// Segment, das der Move dieses Seats traegt. Nur ein BEWUSST bestaetigter Commit hat
+// zu diesem Zeitpunkt ein gebundenes Segment (barrierCommitHook lief unmittelbar
+// davor); der Timeout-Pfad hat keins. Online und Replay: immer keine Wand.
+function barrierMoveSeg(who){
+  if(!BARRIER_DEBUG||online||replaying)return null;
+  if(!(who>=0&&who<barrierCommittedSegmentBySeat.length))return null;
+  const s=barrierCommittedSegmentBySeat[who];
+  return s>=0?s:null;
+}
+// Diagnoseanhang fuer devSync: die kanonischen Commit-Identitaeten des Zuges
+// einschliesslich Wandsegment. Nur mit ?dev=1 sichtbar (devSync filtert selbst).
+function barrierLaunchTag(){
+  if(!BARRIER_DEBUG)return '';
+  const out=[];
+  for(let p=0;p<commitIdx.length;p++){
+    const seg=(p<barrierCommittedSegmentBySeat.length&&barrierCommittedSegmentBySeat[p]>=0)
+      ?barrierCommittedSegmentBySeat[p]:null;
+    out.push(barrierMoveKey({idx:commitIdx[p],dx:commitAim[p]?commitAim[p].dx:0,
+      dy:commitAim[p]?commitAim[p].dy:0,sp:commitSpin[p]||0,barrierSeg:seg}));
+  }
+  return ' keys='+out.join(';');
+}
+// Test-/Debug-Hook fuer diesen Vertrag: reine Funktion, sendet nichts und veraendert
+// keinen Spielzustand. Nur lokal und nur mit ?barrier=1.
+function barrierContractCheck(idx,dx,dy,sp,seg){
+  if(!BARRIER_DEBUG||online||replaying)return null;
+  const m=barrierSegAttach(sanitizeMove(0,idx,dx,dy,sp),seg);
+  return {move:m,payload:barrierPayload(Object.assign({},m)),key:barrierMoveKey(m),
+    canon:barrierSegCanon(seg),valid:barrierSegValid(seg),
+    hasField:Object.prototype.hasOwnProperty.call(m,'barrierSeg'),
+    keys:Object.keys(m)};
+}
 // Online-Reveal-Bedingung: alle Seats mit lebenden Kugeln haben committet.
 // Eliminierte Seats zaehlen nicht (FFA); in 1v1/2v2 haben in der Aim-Phase immer
 // beide Spieler lebende Kugeln -> identisch zum frueheren aimSet[0]&&aimSet[1].
@@ -3023,6 +3117,9 @@ function commit(who,shooterIdx,fx,fy,spin){
 // und commitAutoStand() (interner Auto-Stand bei Timerablauf, eigene Guards).
 function applyCommit(who,shooterIdx,fx,fy,spin){
   const m=sanitizeMove(who,shooterIdx,fx,fy,spin||0);
+  // Datenvertrag 6A: ein BEWUSST bestaetigter Commit traegt hier bereits sein
+  // gebundenes Segment; Timeout-No-Shot und Online tragen keins.
+  if(typeof barrierSegAttach==='function')barrierSegAttach(m,typeof barrierMoveSeg==='function'?barrierMoveSeg(who):null);
   if(online){
     // P0-Desync-Fix (2026-07-10): Lockstep-Wahrheit ist AUSSCHLIESSLICH die DB
     // (Write-once-Arbiter). Der eigene Move wird NICHT mehr lokal angewendet,
@@ -3207,7 +3304,8 @@ function devSync(tag,extra){
   console.log('[sync] '+tag+' gen='+gen+' turn='+turnNo+' phase='+phase+' hash='+simHash()+' score='+score.join(':')+(extra?' '+extra:''));
 }
 function applyLaunch(){
-  devSync('launch','idx='+commitIdx.join(',')+' aims='+commitAim.map(a=>a.dx.toFixed(2)+'/'+a.dy.toFixed(2)).join(';')+' gone='+seatGone.map(v=>v?1:0).join(''));
+  devSync('launch','idx='+commitIdx.join(',')+' aims='+commitAim.map(a=>a.dx.toFixed(2)+'/'+a.dy.toFixed(2)).join(';')+' gone='+seatGone.map(v=>v?1:0).join('')
+    +(typeof barrierLaunchTag==='function'?barrierLaunchTag():''));
   let maxp=0;
   for(let p=0;p<commitIdx.length;p++){const idx=commitIdx[p];if(idx>=0&&balls[idx]&&balls[idx].alive){balls[idx].vx=commitAim[p].dx*LAUNCH;balls[idx].vy=commitAim[p].dy*LAUNCH;balls[idx].spin=commitSpin[p]||0;}
     maxp=Math.max(maxp,Math.hypot(commitAim[p].dx,commitAim[p].dy));}
@@ -4810,6 +4908,11 @@ function processSlot(s,c){
   // onTurnTs[turn] ist der spaeteste ts des Turns und speist Uhr + Collapse-Turn.
   if(c&&typeof c.ts==='number'&&(onTurnTs[turnNo]==null||c.ts>onTurnTs[turnNo]))onTurnTs[turnNo]=c.ts;
   if(!c||aimSet[s])return;
+  // Datenvertrag 6A: ein vorhandenes, aber ungueltiges barrierSeg macht den GANZEN
+  // Slot ungueltig. Er wird ueber denselben Ablehnungspfad verworfen wie ein fehlender
+  // Wert — kein Sanitize, kein Commit, kein aimSet und damit auch kein Reveal. Der Wert
+  // wird nie zu "keine Wand" umgedeutet.
+  if(typeof barrierSlotValid==='function'&&!barrierSlotValid(c))return;
   clearSentinelRetry(s);   // autoritativer Wert da -> ein evtl. noch wartender Sentinel-Retry ist sofort gegenstandslos
   // Leave-Sentinel erkannt (auch fuer den eigenen Seat) -> Ejection bei beginReveal.
   // Einziges Kriterium ist das Leave-Muster (Kugel gehoert dem Seat NICHT) — nicht
@@ -4817,6 +4920,9 @@ function processSlot(s,c){
   // beide eine EIGENE Kugel und setzen seatGone deshalb nie.
   if(mode==='ffa'&&isLeaveSentinel(s,c))seatGone[s]=true;
   const m=sanitizeMove(s,c.idx,c.dx,c.dy,c.sp);
+  // Datenvertrag 6A: ein optional mitgeschicktes Segment wird kanonisiert mitgelesen.
+  // In dieser Etappe wertet es niemand aus — der Empfangspfad bleibt wirkungsgleich.
+  if(typeof barrierSegAttach==='function')barrierSegAttach(m,c.barrierSeg);
   commitIdx[s]=m.idx; commitAim[s]={dx:m.dx,dy:m.dy}; commitSpin[s]=m.sp; aimSet[s]=true; updateHud(); setPhaseText();
 }
 // Ergebnis der eigenen Turn-Slot-Transaction fuer Slot s. result.snapshot.val() ist
@@ -4875,7 +4981,11 @@ function onlineTurnValue(val){
 function onlineSendCommit(idx,fx,fy,spin){
   // Verlorenes Write-once-Race (z. B. gegen einen Leave-Sentinel) ist ein legitimer
   // Ausgang: still schlucken — das Turn-Echo liefert allen den gewinnenden Wert.
-  writeTurnSlot(myPlayer,{idx:idx,dx:fx,dy:fy,sp:spin||0});
+  // Datenvertrag 6A: EIN Encoder. Ohne gueltige Wandwahl — und die gibt es online in
+  // dieser Etappe nie — entsteht exakt das bisherige Objekt {idx,dx,dy,sp}.
+  const p={idx:idx,dx:fx,dy:fy,sp:spin||0};
+  const wire=typeof barrierPayload==='function'?barrierPayload(p):p;
+  if(wire)writeTurnSlot(myPlayer,wire);   // ungueltig baubar => gar nicht senden
 }
 function onlineRematch(){ try{ window.FB.set(rRef('gen'), runningGen+1); }catch(e){} }
 function leaveOnline(){
