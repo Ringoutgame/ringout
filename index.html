@@ -3207,6 +3207,113 @@ function winnerRGB(loserOwner){
   const w=roundWinner>=0?roundWinner:1-loserOwner;return PCOLS[w].rgb;}
 function popBall(b){if(r3dActive)fx3Dust(b.x,b.y,b.vx,b.vy);else spawn(b.x,b.y,26,[PCOLS[colorSlot(b.owner)].ui,'#ffffff'],Math.max(5,Math.hypot(b.vx,b.vy))*0.9,1.1);}
 
+// ── TEMPORAERE SCHUTZWAND — DEBUG-PROTOTYP (Etappe 1) ──────────────────────────
+// Genau EIN festes Randsegment als glatter Kreisbogen, ausschliesslich zur lokalen
+// Bewertung des Abprallgefuehls. Kein Feature: keine Auswahl, keine Einsaetze,
+// keine UI, kein Netzwerkanteil.
+//
+// Aktivierung nur ueber ?barrier=1 UND nur im lokalen Spiel. Online, Reconnect und
+// Replay laufen ueber dieselbe deterministische Lockstep-Physik wie alle Peers —
+// dort bleibt der Collider auch mit gesetztem Flag vollstaendig aus, sonst wuerde
+// eine lokale Debug-Option den Simulationszustand gegen die Gegenseite verschieben.
+//
+// Der Bogen liegt exakt auf der aktuellen Ring-Out-Grenze R. Der Kugelmittelpunkt
+// wird dadurch auf R-BR begrenzt und erreicht die Grenze (R+BR*0.1) nie.
+const BARRIER_DEBUG=new URLSearchParams(location.search).get('barrier')==='1';
+const BARRIER_MID=-Math.PI/2;                 // Segmentmitte: oberer Arenarand
+const BARRIER_HALF=15*Math.PI/180;            // halbe Breite -> 30 Grad
+// Abprallwert der Wand: ein EIGENER Materialwert, bewusst nicht die Kugel-Kugel-
+// Restitution REST (0.25) — die wirkte an der Wand zu schluckend. 0.55 stammt aus
+// dem A/B-Vergleich 0.25/0.40/0.55/0.70: der Abprall wird als Richtungswechsel
+// lesbar (45 Grad Einfall -> 61 Grad Ausfall) und traegt bei vollem Zug rund 28 %
+// des Arenadurchmessers zurueck, ohne die Wand zum Trampolin zu machen.
+// REST und jede andere Physikkonstante bleiben unveraendert.
+const BARRIER_RESTITUTION=0.55;
+// Aktiv ausschliesslich waehrend der Physikphase: mit dem Settlement (Stillstand
+// aller Kugeln) bzw. dem Rundenende wechselt phase und die Wand ist wieder weg.
+function barrierOn(){return BARRIER_DEBUG&&!online&&!replaying&&phase==='sim';}
+// Winkel auf (-PI,PI] normierter Abstand zur Segmentmitte.
+function barrierOff(px,py){const o=Math.atan2(py-cy,px-cx)-BARRIER_MID;return Math.atan2(Math.sin(o),Math.cos(o));}
+function barrierInSpan(px,py){return Math.abs(barrierOff(px,py))<=BARRIER_HALF;}
+// Naechster Punkt auf dem BEGRENZTEN Kreisbogen, rein geometrisch: der Winkel wird
+// auf das Segment geklemmt. Innerhalb des Segments liegt der Punkt radial vor der
+// Kugel, ausserhalb ergibt die Klemmung exakt den naeheren Endpunkt. Damit gibt es
+// weder eine grobe Winkelpruefung noch unsichtbare Eck-Collider — die Enden sind
+// dieselbe Bogenlinie.
+const barrierPt={x:0,y:0};
+function barrierClosest(px,py){
+  const a=BARRIER_MID+Math.max(-BARRIER_HALF,Math.min(BARRIER_HALF,barrierOff(px,py)));
+  barrierPt.x=cx+Math.cos(a)*R;barrierPt.y=cy+Math.sin(a)*R;return barrierPt;
+}
+function barrierEndX(e){return cx+Math.cos(BARRIER_MID+(e?BARRIER_HALF:-BARRIER_HALF))*R;}
+function barrierEndY(e){return cy+Math.sin(BARRIER_MID+(e?BARRIER_HALF:-BARRIER_HALF))*R;}
+// Frueheste Schnittzeit t in [0,1] der Bahn (x0,y0)+(dx,dy)*t mit dem Kreis
+// (mx,my,r); accept filtert den Trefferpunkt gegen die Segmentgrenze. -1 = kein Treffer.
+function barrierSweep(x0,y0,dx,dy,mx,my,r,accept){
+  const fx=x0-mx,fy=y0-my,a=dx*dx+dy*dy;
+  if(a<1e-12)return -1;
+  const b=2*(fx*dx+fy*dy),c=fx*fx+fy*fy-r*r,disc=b*b-4*a*c;
+  if(disc<0)return -1;
+  const sq=Math.sqrt(disc),t1=(-b-sq)/(2*a),t2=(-b+sq)/(2*a);
+  if(t1>=0&&t1<=1&&(!accept||accept(x0+dx*t1,y0+dy*t1)))return t1;
+  if(t2>=0&&t2<=1&&(!accept||accept(x0+dx*t2,y0+dy*t2)))return t2;
+  return -1;
+}
+// Kontinuierlicher Test der GANZEN Sub-Step-Bahn (Position vor der Integration ->
+// aktuelle Position). Kandidaten sind die Innenflaeche des Bogens (Radius R-BR,
+// Trefferpunkt im Segment) und die beiden Bogenenden (Radius BR um den Endpunkt) —
+// zusammen exakt die Menge aller Bahnpunkte mit Abstand BR zum begrenzten Bogen.
+// Ohne diesen Test koennte eine sehr schnelle Kugel zwischen zwei Sub-Steps
+// vollstaendig durch die Wand springen.
+function barrierSwept(b,x0,y0){
+  const dx=b.x-x0,dy=b.y-y0;
+  if(dx*dx+dy*dy<1e-12)return;
+  let t=barrierSweep(x0,y0,dx,dy,cx,cy,R-BR,barrierInSpan),kind=0;
+  for(let e=0;e<2;e++){
+    const te=barrierSweep(x0,y0,dx,dy,barrierEndX(e),barrierEndY(e),BR,null);
+    if(te>=0&&(t<0||te<t)){t=te;kind=e+1;}
+  }
+  if(t<0)return;
+  const hx=x0+dx*t,hy=y0+dy*t;
+  let nx,ny;                                    // Normale am Kontakt: Wandflaeche -> Kugelmitte
+  if(kind===0){const l=Math.hypot(hx-cx,hy-cy)||1;nx=-(hx-cx)/l;ny=-(hy-cy)/l;}
+  else{const ex=barrierEndX(kind-1),ey=barrierEndY(kind-1),l=Math.hypot(hx-ex,hy-ey)||1;nx=(hx-ex)/l;ny=(hy-ey)/l;}
+  const vn=b.vx*nx+b.vy*ny;
+  if(vn>=0)return;                              // streift die Wand nur auslaufend -> keine Korrektur
+  b.vx-=(1+BARRIER_RESTITUTION)*vn*nx;b.vy-=(1+BARRIER_RESTITUTION)*vn*ny;
+  b.x=hx+b.vx*(1-t);b.y=hy+b.vy*(1-t);          // Restweg des Sub-Steps reflektiert weiterlaufen
+}
+// Statische Restkorrektur: schiebt eine noch ueberlappende Kugel exakt auf die
+// Wandflaeche. Faengt Ueberlappungen ab, die erst NACH der Integration entstehen —
+// vor allem, wenn eine zweite Kugel sie gegen die Wand drueckt.
+function barrierResolve(b){
+  const c=barrierClosest(b.x,b.y);
+  let nx=b.x-c.x,ny=b.y-c.y;const d=Math.hypot(nx,ny);
+  if(d>=BR)return;
+  if(d<1e-6){const ax=c.x-cx,ay=c.y-cy,al=Math.hypot(ax,ay)||1;nx=-ax/al;ny=-ay/al;}
+  else{nx/=d;ny/=d;}
+  b.x=c.x+nx*BR;b.y=c.y+ny*BR;
+  const vn=b.vx*nx+b.vy*ny;
+  if(vn<0){b.vx-=(1+BARRIER_RESTITUTION)*vn*nx;b.vy-=(1+BARRIER_RESTITUTION)*vn*ny;}
+}
+// Positionen VOR der Integration — Startpunkte des Swept-Tests.
+const barrierPX=[],barrierPY=[];
+function barrierPrepare(){
+  if(!barrierOn())return;
+  for(let i=0;i<balls.length;i++){barrierPX[i]=balls[i].x;barrierPY[i]=balls[i].y;}
+}
+// Ein Sub-Step gegen die Wand. Laeuft VOR der Ring-out-Ermittlung, damit eine
+// gehaltene Kugel nie als Grenzueberschreitung zaehlt. Alle Kugeln werden identisch
+// behandelt — kein Besitzer-, Team- oder Sitzbezug.
+function barrierStep(){
+  if(!barrierOn())return;
+  for(let i=0;i<balls.length;i++){
+    const b=balls[i];if(!b.alive)continue;
+    if(barrierPX[i]!=null)barrierSwept(b,barrierPX[i],barrierPY[i]);
+    barrierResolve(b);
+  }
+}
+
 // ── RING-OUT: positionsreine Ermittlung + gemeinsame Verarbeitung ──
 // Beide Aufrufer teilen sich exakt diese Logik: der normale Sub-Step in stepSim und die
 // Collapse-Auswertung (doCollapse). Es gibt bewusst KEINEN zweiten Eliminierungspfad.
@@ -3265,6 +3372,9 @@ function resolveRingOuts(crossed){
 function stepSim(){
   const FR=curFR(),FE=curFE();
   for(let s=0;s<2;s++){
+    // Debug-Schutzwand (nur ?barrier=1, nur lokal): Bahnstart fuer den Swept-Test.
+    // typeof-Guard wie beim Collapse — stepSim laeuft auch extrahiert in den Harnessen.
+    if(typeof barrierPrepare==='function')barrierPrepare();
     for(const b of balls){if(!b.alive)continue;b.x+=b.vx;b.y+=b.vy;const f=Math.sqrt(b.vx*b.vx+b.vy*b.vy)<SLOWV?FE:FR;b.vx*=f;b.vy*=f;if(b.spin){const v=Math.sqrt(b.vx*b.vx+b.vy*b.vy);if(v>0.01){const sx=-b.vy/v,sy=b.vx/v,sa=SPIN_K*b.spin*v;b.vx+=sx*sa;b.vy+=sy*sa;}b.spin*=SPIN_DECAY;}}
     for(let i=0;i<balls.length;i++){const a=balls[i];if(!a.alive)continue;
       for(let j=i+1;j<balls.length;j++){const b=balls[j];if(!b.alive)continue;
@@ -3281,6 +3391,8 @@ function stepSim(){
         }
       }
     }
+    // Debug-Schutzwand: haelt gehaltene Kugeln VOR der Ring-Out-Auswertung zurueck.
+    if(typeof barrierStep==='function')barrierStep();
     // ring-out: alle Grenzueberschreitungen dieses Sub-Steps ueber den gemeinsamen Pfad
     const crossed=ballsOutside();
     if(crossed.length&&resolveRingOuts(crossed))return;
@@ -5356,6 +5468,15 @@ async function initR3D(){
     const ringG=new THREE.Group();
     {const r1=new THREE.Mesh(new THREE.TorusGeometry(358,5.2,10,96),goldM);
      r1.rotation.x=Math.PI/2;ringG.add(r1);ringG.position.set(cx,-646,cy);scene.add(ringG);}
+    // Debug-Darstellung der temporaeren Schutzwand (Etappe 1): schlichte transparente
+    // Flaeche exakt auf dem Physik-Bogen, damit Treffer und Abprallwinkel sichtbar
+    // beurteilt werden koennen. Rein visuell, keine Rueckwirkung auf die Simulation.
+    // Arenawinkel a -> Zylinderwinkel PI/2-a (Zylinder: x=sin(theta), z=cos(theta)).
+    const BARRIER_H=BR*2.2;
+    const barrierMesh=new THREE.Mesh(
+      new THREE.CylinderGeometry(1,1,1,24,1,true,Math.PI/2-BARRIER_MID-BARRIER_HALF,BARRIER_HALF*2),
+      new THREE.MeshBasicMaterial({color:0x35e0ff,transparent:true,opacity:.30,side:THREE.DoubleSide,depthWrite:false}));
+    barrierMesh.visible=false;barrierMesh.renderOrder=2;scene.add(barrierMesh);
     // Kugeln: Radius exakt BR (Physik-Wahrheit), Material aus dem akzeptierten Prototyp
     // Polierte Murmeln: satter/dunkler Grundton, klarer Lack, kraeftige Reflexe -> liest sich
     // deutlich gegen den hellen Marmor, ohne Plastik-Look
@@ -5460,6 +5581,9 @@ async function initR3D(){
       cloudG.rotation.y=nowS*.006;                    // Wolken driften
       island.position.y=-404+Math.sin(nowS*.3+2.3)*35;
       if(mainBMat)mainBMat.emissiveIntensity=1.3+Math.sin(nowS*1.6)*.12;   // ruhiger Grenz-Puls
+      // Debug-Schutzwand: sichtbar genau solange sie physikalisch aktiv ist.
+      barrierMesh.visible=barrierOn();
+      if(barrierMesh.visible){barrierMesh.scale.set(R,BARRIER_H,R);barrierMesh.position.set(cx,bob+BARRIER_H/2,cy);}
       for(let i=0;i<balls.length;i++){
         let m=ballMeshes[i],d=decals[i];
         if(!m){m=new THREE.Mesh(new THREE.SphereGeometry(BR,40,26),ballMat[0]);
