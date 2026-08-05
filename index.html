@@ -3236,14 +3236,35 @@ const BARRIER_DEBUG=new URLSearchParams(location.search).get('barrier')==='1';
 // oder ausserhalb liegende Werte fallen auf Segment 0 zurueck. Massgeblich ist
 // barrierSelectedSegment — die tatsaechliche Auswahl des Spielers. Es bleibt bei genau
 // EINER aktiven Wand; die Segmentnummer verschiebt ausschliesslich deren Mittelpunkt.
-// Geometrie, Swept-Test und Endkappen lesen nur barrierMid()/BARRIER_HALF.
+// Geometrie, Swept-Test und Endkappen lesen nur die Bogendaten aus barrierArcs().
 const BARRIER_SEG_COUNT=12;
 const BARRIER_SPAN=2*Math.PI/BARRIER_SEG_COUNT;          // Segmentbreite: 30 Grad
 const BARRIER_SEG=(()=>{const v=Number(new URLSearchParams(location.search).get('bseg'));
   return Number.isInteger(v)&&v>=0&&v<BARRIER_SEG_COUNT?v:0;})();
 const BARRIER_HALF=BARRIER_SPAN/2;                       // halbe Breite -> 15 Grad
 let barrierSelectedSegment=BARRIER_SEG;                  // Auswahl des Spielers (Start: ?bseg)
-function barrierMid(){return -Math.PI/2+barrierSelectedSegment*BARRIER_SPAN;}
+// ?bsegs=<Liste> aktiviert MEHRERE Randsegmente gleichzeitig (Etappe 5A, reiner
+// Physik-Debugpfad). Die Liste wird kanonisch gemacht: ganzzahlig 0..11, ungueltige
+// Werte verworfen, dedupliziert, aufsteigend sortiert. Die Eingabereihenfolge kann
+// das Ergebnis dadurch nicht beeinflussen, und dieselbe Nummer mehrfach ergibt genau
+// EINEN Collider. Fehlt der Parameter, bleibt es bei der Einzelwand aus Etappe 4.
+const BARRIER_MULTI_SEGS=(()=>{
+  const raw=new URLSearchParams(location.search).get('bsegs');
+  if(raw==null)return null;
+  const out=[];
+  for(const part of raw.split(',')){
+    const v=Number(part.trim());
+    if(Number.isInteger(v)&&v>=0&&v<BARRIER_SEG_COUNT&&out.indexOf(v)<0)out.push(v);
+  }
+  out.sort((a,b)=>a-b);
+  return out.length?out:null;
+})();
+const BARRIER_MULTI=BARRIER_MULTI_SEGS!==null;
+function barrierActiveSegments(){return BARRIER_MULTI?BARRIER_MULTI_SEGS:[barrierSelectedSegment];}
+// Messwerte des Prototyps (nur Diagnose, keine Rueckwirkung auf die Simulation).
+const barrierStat={reflections:0,resolves:0,stepReflections:0,maxPerBallStep:0,earliestT:1};
+function barrierStatReset(){barrierStat.reflections=0;barrierStat.resolves=0;
+  barrierStat.stepReflections=0;barrierStat.maxPerBallStep=0;barrierStat.earliestT=1;}
 // Segment unter einem Arenapunkt: die naechstliegende Segmentmitte. Die Rundung ueber
 // den normierten Winkel erledigt die 11/0-Grenze ohne Sonderfall.
 function barrierSegAt(px,py){
@@ -3278,7 +3299,10 @@ let barrierTurn=false;                    // verbindlich fuer den laufenden Zug
 // Aktiv ausschliesslich waehrend der Physikphase des Zuges, fuer den die Wand
 // bestaetigt wurde: mit dem Settlement bzw. dem Rundenende wechselt phase, und
 // barrierPhaseHook() loescht die Zugbindung wieder.
-function barrierOn(){return BARRIER_DEBUG&&!online&&!replaying&&barrierTurn&&phase==='sim';}
+// Der Mehrfach-Wand-Pfad (?bsegs) ist ein reiner Physik-Debugpfad: er umgeht bewusst
+// die Einsatz-/Zugbindung aus Etappe 3, damit die Wandphysik unabhaengig vom
+// Verbrauchsvertrag geprueft werden kann. Ohne ?bsegs gilt der Vertrag unveraendert.
+function barrierOn(){return BARRIER_DEBUG&&!online&&!replaying&&phase==='sim'&&(BARRIER_MULTI||barrierTurn);}
 // Waehlbar nur in der eigenen offenen Planungsphase eines lokalen Bot-Matches,
 // solange Einsaetze uebrig sind und in dieser Runde noch keine Wand stand.
 function barrierCanArm(){
@@ -3454,23 +3478,58 @@ function barrierBtn(){
   if(txt!==barrierBtnLast){barrierBtnLast=txt;b.textContent=txt;}
 }
 function barrierUi(){barrierHud();barrierBtn();}
-// Winkel auf (-PI,PI] normierter Abstand zur Segmentmitte.
-function barrierOff(px,py){const o=Math.atan2(py-cy,px-cx)-barrierMid();return Math.atan2(Math.sin(o),Math.cos(o));}
-function barrierInSpan(px,py){return Math.abs(barrierOff(px,py))<=BARRIER_HALF;}
+// ── Etappe 5A: mehrere gleichzeitig aktive Randwaende ─────────────────────────
+// Die freigegebene Einzelwand-Physik bleibt unveraendert; sie wird nur auf mehrere
+// Boegen angewandt. Jeder Bogen benutzt exakt dieselbe Breite je Segment (30 Grad),
+// dieselbe Restitution, denselben Swept-Test und dieselben Endkappen.
+//
+// Kanonische Form der aktiven Segmente: ganzzahlig 0..11, dedupliziert, aufsteigend.
+// Daraus werden ZUSAMMENHAENGENDE Laeufe zu je EINEM Kollisionsbogen verschmolzen.
+// Genau das loest den Nachbarfall: 0 und 1 ergeben einen durchgehenden 60-Grad-Bogen
+// ohne innere Endkappe — keine Luecke, kein doppelter Kappenimpuls, kein Energiegewinn
+// an der gemeinsamen Grenze. Sind alle zwoelf Segmente aktiv, entsteht ein
+// geschlossener Ring ganz ohne Enden.
+function barrierSegMid(k){return -Math.PI/2+k*BARRIER_SPAN;}
+function barrierBuildArcs(segs){
+  const arcs=[];
+  if(!segs.length)return arcs;
+  if(segs.length===BARRIER_SEG_COUNT){arcs.push({mid:0,half:Math.PI,full:true,segs:BARRIER_SEG_COUNT,first:0});return arcs;}
+  for(let i=0;i<segs.length;i++){
+    const s=segs[i];
+    if(segs.indexOf((s+BARRIER_SEG_COUNT-1)%BARRIER_SEG_COUNT)>=0)continue;   // nicht der Anfang eines Laufs
+    let n=1,c=s;
+    while(n<BARRIER_SEG_COUNT&&segs.indexOf((c+1)%BARRIER_SEG_COUNT)>=0){c=(c+1)%BARRIER_SEG_COUNT;n++;}
+    const a0=barrierSegMid(s)-BARRIER_HALF;
+    arcs.push({mid:a0+n*BARRIER_HALF,half:n*BARRIER_HALF,full:false,segs:n,first:s});
+  }
+  return arcs;
+}
+// Aktive Segmente: ?bsegs=<Liste> hat Vorrang, sonst die Auswahl aus Etappe 4.
+let barrierArcCache=null,barrierArcKey='-';   // Sentinel: join(',') liefert nie '-'
+function barrierArcs(){
+  const segs=barrierActiveSegments(),key=segs.join(',');
+  if(key!==barrierArcKey){barrierArcKey=key;barrierArcCache=barrierBuildArcs(segs);}
+  return barrierArcCache;
+}
+// Winkel auf (-PI,PI] normierter Abstand zur Bogenmitte.
+function barrierOff(arc,px,py){const o=Math.atan2(py-cy,px-cx)-arc.mid;return Math.atan2(Math.sin(o),Math.cos(o));}
+function barrierInSpan(arc,px,py){return arc.full||Math.abs(barrierOff(arc,px,py))<=arc.half;}
 // Naechster Punkt auf dem BEGRENZTEN Kreisbogen, rein geometrisch: der Winkel wird
-// auf das Segment geklemmt. Innerhalb des Segments liegt der Punkt radial vor der
-// Kugel, ausserhalb ergibt die Klemmung exakt den naeheren Endpunkt. Damit gibt es
-// weder eine grobe Winkelpruefung noch unsichtbare Eck-Collider — die Enden sind
-// dieselbe Bogenlinie.
+// auf den Bogen geklemmt. Innerhalb liegt der Punkt radial vor der Kugel, ausserhalb
+// ergibt die Klemmung exakt den naeheren Endpunkt. Damit gibt es weder eine grobe
+// Winkelpruefung noch unsichtbare Eck-Collider — die Enden sind dieselbe Bogenlinie.
 const barrierPt={x:0,y:0};
-function barrierClosest(px,py){
-  const a=barrierMid()+Math.max(-BARRIER_HALF,Math.min(BARRIER_HALF,barrierOff(px,py)));
+function barrierClosest(arc,px,py){
+  const a=arc.full?Math.atan2(py-cy,px-cx):arc.mid+Math.max(-arc.half,Math.min(arc.half,barrierOff(arc,px,py)));
   barrierPt.x=cx+Math.cos(a)*R;barrierPt.y=cy+Math.sin(a)*R;return barrierPt;
 }
-function barrierEndX(e){return cx+Math.cos(barrierMid()+(e?BARRIER_HALF:-BARRIER_HALF))*R;}
-function barrierEndY(e){return cy+Math.sin(barrierMid()+(e?BARRIER_HALF:-BARRIER_HALF))*R;}
+function barrierEndX(arc,e){return cx+Math.cos(arc.mid+(e?arc.half:-arc.half))*R;}
+function barrierEndY(arc,e){return cy+Math.sin(arc.mid+(e?arc.half:-arc.half))*R;}
 // Frueheste Schnittzeit t in [0,1] der Bahn (x0,y0)+(dx,dy)*t mit dem Kreis
-// (mx,my,r); accept filtert den Trefferpunkt gegen die Segmentgrenze. -1 = kein Treffer.
+// (mx,my,r); accept filtert den Trefferpunkt gegen die Bogengrenze. -1 = kein Treffer.
+// accept liest den Bogen aus barrierSweepArc — bewusst keine Closure pro Aufruf.
+let barrierSweepArc=null;
+function barrierAcceptArc(px,py){return barrierInSpan(barrierSweepArc,px,py);}
 function barrierSweep(x0,y0,dx,dy,mx,my,r,accept){
   const fx=x0-mx,fy=y0-my,a=dx*dx+dy*dy;
   if(a<1e-12)return -1;
@@ -3481,42 +3540,82 @@ function barrierSweep(x0,y0,dx,dy,mx,my,r,accept){
   if(t2>=0&&t2<=1&&(!accept||accept(x0+dx*t2,y0+dy*t2)))return t2;
   return -1;
 }
-// Kontinuierlicher Test der GANZEN Sub-Step-Bahn (Position vor der Integration ->
-// aktuelle Position). Kandidaten sind die Innenflaeche des Bogens (Radius R-BR,
-// Trefferpunkt im Segment) und die beiden Bogenenden (Radius BR um den Endpunkt) —
-// zusammen exakt die Menge aller Bahnpunkte mit Abstand BR zum begrenzten Bogen.
-// Ohne diesen Test koennte eine sehr schnelle Kugel zwischen zwei Sub-Steps
-// vollstaendig durch die Wand springen.
-function barrierSwept(b,x0,y0){
-  const dx=b.x-x0,dy=b.y-y0;
-  if(dx*dx+dy*dy<1e-12)return;
-  let t=barrierSweep(x0,y0,dx,dy,cx,cy,R-BR,barrierInSpan),kind=0;
-  for(let e=0;e<2;e++){
-    const te=barrierSweep(x0,y0,dx,dy,barrierEndX(e),barrierEndY(e),BR,null);
-    if(te>=0&&(t<0||te<t)){t=te;kind=e+1;}
-  }
-  if(t<0)return;
+// Fruehester GUELTIGER Kontakt der Bahn ueber ALLE aktiven Boegen. Gueltig heisst:
+// die Kugel laeuft an diesem Kontakt in die Wand hinein (Normalkomponente < 0).
+// Diese Bedingung ersetzt jede Sonderbehandlung — insbesondere entfaellt dadurch
+// der entartete Selbstkontakt bei t=0 direkt nach einer Reflexion, ohne dass eine
+// Kontaktstelle zweimal im selben Sub-Step reflektieren koennte.
+const barrierHit={t:-1,nx:0,ny:0,x:0,y:0};
+function barrierConsider(b,arc,t,x0,y0,dx,dy,cap){
+  if(barrierHit.t>=0&&t>=barrierHit.t)return;
   const hx=x0+dx*t,hy=y0+dy*t;
   let nx,ny;                                    // Normale am Kontakt: Wandflaeche -> Kugelmitte
-  if(kind===0){const l=Math.hypot(hx-cx,hy-cy)||1;nx=-(hx-cx)/l;ny=-(hy-cy)/l;}
-  else{const ex=barrierEndX(kind-1),ey=barrierEndY(kind-1),l=Math.hypot(hx-ex,hy-ey)||1;nx=(hx-ex)/l;ny=(hy-ey)/l;}
-  const vn=b.vx*nx+b.vy*ny;
-  if(vn>=0)return;                              // streift die Wand nur auslaufend -> keine Korrektur
-  b.vx-=(1+BARRIER_RESTITUTION)*vn*nx;b.vy-=(1+BARRIER_RESTITUTION)*vn*ny;
-  b.x=hx+b.vx*(1-t);b.y=hy+b.vy*(1-t);          // Restweg des Sub-Steps reflektiert weiterlaufen
+  if(cap<0){const l=Math.hypot(hx-cx,hy-cy)||1;nx=-(hx-cx)/l;ny=-(hy-cy)/l;}
+  else{const ex=barrierEndX(arc,cap),ey=barrierEndY(arc,cap),l=Math.hypot(hx-ex,hy-ey)||1;nx=(hx-ex)/l;ny=(hy-ey)/l;}
+  if(b.vx*nx+b.vy*ny>=0)return;                 // streift die Wand nur auslaufend
+  barrierHit.t=t;barrierHit.nx=nx;barrierHit.ny=ny;barrierHit.x=hx;barrierHit.y=hy;
+}
+function barrierEarliest(b,x0,y0,dx,dy){
+  barrierHit.t=-1;
+  const arcs=barrierArcs();
+  for(let i=0;i<arcs.length;i++){
+    const arc=arcs[i];
+    barrierSweepArc=arc;
+    const t=barrierSweep(x0,y0,dx,dy,cx,cy,R-BR,arc.full?null:barrierAcceptArc);
+    if(t>=0)barrierConsider(b,arc,t,x0,y0,dx,dy,-1);
+    if(arc.full)continue;                       // geschlossener Ring hat keine Enden
+    for(let e=0;e<2;e++){
+      const te=barrierSweep(x0,y0,dx,dy,barrierEndX(arc,e),barrierEndY(arc,e),BR,null);
+      if(te>=0)barrierConsider(b,arc,te,x0,y0,dx,dy,e);
+    }
+  }
+  return barrierHit.t>=0;
+}
+// Kontinuierlicher Test der GANZEN Sub-Step-Bahn (Position vor der Integration ->
+// aktuelle Position). Kandidaten je Bogen sind die Innenflaeche (Radius R-BR,
+// Trefferpunkt im Bogen) und die beiden Enden (Radius BR um den Endpunkt) — zusammen
+// exakt die Menge aller Bahnpunkte mit Abstand BR zum begrenzten Bogen. Ohne diesen
+// Test koennte eine sehr schnelle Kugel zwischen zwei Sub-Steps durch die Wand springen.
+// Nach einer Reflexion wird der verbleibende Weg erneut geprueft: eine Kugel darf
+// nacheinander verschiedene Waende treffen, wenn der reale Restweg das hergibt.
+const BARRIER_MAX_BOUNCES=4;
+function barrierSwept(b,x0,y0){
+  let px=x0,py=y0,rem=1;
+  for(let n=0;n<BARRIER_MAX_BOUNCES;n++){
+    const dx=b.x-px,dy=b.y-py;
+    if(dx*dx+dy*dy<1e-12)return;
+    if(!barrierEarliest(b,px,py,dx,dy))return;
+    const t=barrierHit.t,nx=barrierHit.nx,ny=barrierHit.ny;
+    const hx=barrierHit.x,hy=barrierHit.y;
+    const vn=b.vx*nx+b.vy*ny;
+    b.vx-=(1+BARRIER_RESTITUTION)*vn*nx;b.vy-=(1+BARRIER_RESTITUTION)*vn*ny;
+    rem*=1-t;                                   // Restanteil des GANZEN Sub-Steps
+    px=hx;py=hy;
+    b.x=hx+b.vx*rem;b.y=hy+b.vy*rem;
+    barrierStat.reflections++;barrierStat.stepReflections++;
+    if(barrierStat.stepReflections>barrierStat.maxPerBallStep)barrierStat.maxPerBallStep=barrierStat.stepReflections;
+    if(t<barrierStat.earliestT)barrierStat.earliestT=t;
+  }
 }
 // Statische Restkorrektur: schiebt eine noch ueberlappende Kugel exakt auf die
 // Wandflaeche. Faengt Ueberlappungen ab, die erst NACH der Integration entstehen —
-// vor allem, wenn eine zweite Kugel sie gegen die Wand drueckt.
+// vor allem, wenn eine zweite Kugel sie gegen die Wand drueckt. Bei mehreren Boegen
+// wird GENAU EINER korrigiert (die tiefste Ueberlappung) — nie zwei Impulse.
 function barrierResolve(b){
-  const c=barrierClosest(b.x,b.y);
-  let nx=b.x-c.x,ny=b.y-c.y;const d=Math.hypot(nx,ny);
-  if(d>=BR)return;
-  if(d<1e-6){const ax=c.x-cx,ay=c.y-cy,al=Math.hypot(ax,ay)||1;nx=-ax/al;ny=-ay/al;}
+  const arcs=barrierArcs();
+  let best=0,bx=0,by=0;
+  for(let i=0;i<arcs.length;i++){
+    const c=barrierClosest(arcs[i],b.x,b.y);
+    const pen=BR-Math.hypot(b.x-c.x,b.y-c.y);
+    if(pen>best){best=pen;bx=c.x;by=c.y;}
+  }
+  if(best<=0)return;
+  let nx=b.x-bx,ny=b.y-by;const d=Math.hypot(nx,ny);
+  if(d<1e-6){const ax=bx-cx,ay=by-cy,al=Math.hypot(ax,ay)||1;nx=-ax/al;ny=-ay/al;}
   else{nx/=d;ny/=d;}
-  b.x=c.x+nx*BR;b.y=c.y+ny*BR;
+  b.x=bx+nx*BR;b.y=by+ny*BR;
   const vn=b.vx*nx+b.vy*ny;
-  if(vn<0){b.vx-=(1+BARRIER_RESTITUTION)*vn*nx;b.vy-=(1+BARRIER_RESTITUTION)*vn*ny;}
+  if(vn<0){b.vx-=(1+BARRIER_RESTITUTION)*vn*nx;b.vy-=(1+BARRIER_RESTITUTION)*vn*ny;barrierStat.resolves++;}
 }
 // Positionen VOR der Integration — Startpunkte des Swept-Tests.
 const barrierPX=[],barrierPY=[];
@@ -3529,8 +3628,10 @@ function barrierPrepare(){
 // behandelt — kein Besitzer-, Team- oder Sitzbezug.
 function barrierStep(){
   if(!barrierOn())return;
+  if(!barrierArcs().length)return;
   for(let i=0;i<balls.length;i++){
     const b=balls[i];if(!b.alive)continue;
+    barrierStat.stepReflections=0;              // Reflexionen dieser Kugel in diesem Sub-Step
     if(barrierPX[i]!=null)barrierSwept(b,barrierPX[i],barrierPY[i]);
     barrierResolve(b);
   }
@@ -5694,13 +5795,18 @@ async function initR3D(){
     // Flaeche exakt auf dem Physik-Bogen, damit Treffer und Abprallwinkel sichtbar
     // beurteilt werden koennen. Rein visuell, keine Rueckwirkung auf die Simulation.
     // Arenawinkel a -> Zylinderwinkel PI/2-a (Zylinder: x=sin(theta), z=cos(theta)).
-    // Die Geometrie steht fest auf Segment 0; die Auswahl wird zur Drehung um Y
-    // (Segment k = -k*SPAN) — dadurch bleibt der Bogen bei jedem Segment identisch.
+    // Eine Schale je Segment (identische Geometrie, Drehung um Y mit -k*SPAN).
+    // Angezeigt werden alle aktiven Segmente; zusammenhaengende liegen luecken- und
+    // ueberlappungsfrei aneinander und lesen sich als ein durchgehendes Band.
     const BARRIER_H=BR*2.2;
-    const barrierMesh=new THREE.Mesh(
-      new THREE.CylinderGeometry(1,1,1,24,1,true,Math.PI-BARRIER_HALF,BARRIER_HALF*2),
-      new THREE.MeshBasicMaterial({color:0x35e0ff,transparent:true,opacity:.30,side:THREE.DoubleSide,depthWrite:false}));
-    barrierMesh.visible=false;barrierMesh.renderOrder=2;scene.add(barrierMesh);
+    const barrierGeo=new THREE.CylinderGeometry(1,1,1,24,1,true,Math.PI-BARRIER_HALF,BARRIER_HALF*2);
+    const barrierMat=new THREE.MeshBasicMaterial({color:0x35e0ff,transparent:true,opacity:.30,side:THREE.DoubleSide,depthWrite:false});
+    const barrierMeshes=[];
+    for(let k=0;k<BARRIER_SEG_COUNT;k++){
+      const m=new THREE.Mesh(barrierGeo,barrierMat);
+      m.rotation.y=-k*BARRIER_SPAN;m.visible=false;m.renderOrder=2;
+      scene.add(m);barrierMeshes.push(m);
+    }
     // Kugeln: Radius exakt BR (Physik-Wahrheit), Material aus dem akzeptierten Prototyp
     // Polierte Murmeln: satter/dunkler Grundton, klarer Lack, kraeftige Reflexe -> liest sich
     // deutlich gegen den hellen Marmor, ohne Plastik-Look
@@ -5808,9 +5914,12 @@ async function initR3D(){
       // Debug-Schutzwand: sichtbar waehrend der Physikphase UND als Vorschau nach der
       // Auswahl. barrierMeshOn() ist bewusst getrennt von barrierOn() — die Vorschau
       // in der Planungsphase zeigt nur an, sie kollidiert nicht.
-      barrierMesh.visible=barrierMeshOn();
-      if(barrierMesh.visible){barrierMesh.scale.set(R,BARRIER_H,R);barrierMesh.position.set(cx,bob+BARRIER_H/2,cy);
-        barrierMesh.rotation.y=-barrierSelectedSegment*BARRIER_SPAN;}
+      const barrierVis=barrierMeshOn(),barrierAct=barrierVis?barrierActiveSegments():null;
+      for(let k=0;k<BARRIER_SEG_COUNT;k++){
+        const m=barrierMeshes[k],on=barrierVis&&barrierAct.indexOf(k)>=0;
+        m.visible=on;
+        if(on){m.scale.set(R,BARRIER_H,R);m.position.set(cx,bob+BARRIER_H/2,cy);}
+      }
       for(let i=0;i<balls.length;i++){
         let m=ballMeshes[i],d=decals[i];
         if(!m){m=new THREE.Mesh(new THREE.SphereGeometry(BR,40,26),ballMat[0]);
