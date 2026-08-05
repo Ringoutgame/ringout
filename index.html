@@ -2177,6 +2177,9 @@ function commitAutoStand(who,shooterIdx){
   if(online)return;                                    // Online kennt keinen lokalen Auto-Stand
   if(!inputLocked())return;                            // nur nach regulaerem Timerablauf
   if(phase!=='aim'||who<0||aimSet[who])return;         // genau einmal, nie ueberschreibend
+  // Debug-Schutzwand: der Zug dieses Seats endet ohne bewusste Bestaetigung — seine
+  // Vorschau verfaellt hier, damit sie nicht ueber das Zugende hinaus stehen bleibt.
+  if(typeof barrierAutoStandHook==='function')barrierAutoStandHook(who);
   applyCommit(who,shooterIdx,0,0,0);
 }
 // ══════ ONLINE-UHR — rein abgeleitet, ausschliesslich aus Serverzeit ══════
@@ -3234,7 +3237,7 @@ const BARRIER_DEBUG=new URLSearchParams(location.search).get('barrier')==='1';
 // 0 oben, 3 rechts, 6 unten, 9 links.
 // ?bseg=<0..11> liefert ab Etappe 4 nur noch den STARTWERT; fehlende, nicht ganzzahlige
 // oder ausserhalb liegende Werte fallen auf Segment 0 zurueck. Massgeblich ist
-// barrierSelectedSegment — die tatsaechliche Auswahl des Spielers. Es bleibt bei genau
+// barrierSelectedSegmentBySeat — die tatsaechliche Auswahl je Seat. Es bleibt bei genau
 // EINER aktiven Wand; die Segmentnummer verschiebt ausschliesslich deren Mittelpunkt.
 // Geometrie, Swept-Test und Endkappen lesen nur die Bogendaten aus barrierArcs().
 const BARRIER_SEG_COUNT=12;
@@ -3242,7 +3245,6 @@ const BARRIER_SPAN=2*Math.PI/BARRIER_SEG_COUNT;          // Segmentbreite: 30 Gr
 const BARRIER_SEG=(()=>{const v=Number(new URLSearchParams(location.search).get('bseg'));
   return Number.isInteger(v)&&v>=0&&v<BARRIER_SEG_COUNT?v:0;})();
 const BARRIER_HALF=BARRIER_SPAN/2;                       // halbe Breite -> 15 Grad
-let barrierSelectedSegment=BARRIER_SEG;                  // Auswahl des Spielers (Start: ?bseg)
 // ?bsegs=<Liste> aktiviert MEHRERE Randsegmente gleichzeitig (Etappe 5A, reiner
 // Physik-Debugpfad). Die Liste wird kanonisch gemacht: ganzzahlig 0..11, ungueltige
 // Werte verworfen, dedupliziert, aufsteigend sortiert. Die Eingabereihenfolge kann
@@ -3260,7 +3262,13 @@ const BARRIER_MULTI_SEGS=(()=>{
   return out.length?out:null;
 })();
 const BARRIER_MULTI=BARRIER_MULTI_SEGS!==null;
-function barrierActiveSegments(){return BARRIER_MULTI?BARRIER_MULTI_SEGS:[barrierSelectedSegment];}
+// Massgebliche Segmentliste: in der Physikphase die beim Reveal gebildete Zugliste,
+// in der Planungsphase die Vorschau des von der Debug-UI gesteuerten Seats.
+function barrierActiveSegments(){
+  if(BARRIER_MULTI)return BARRIER_MULTI_SEGS;
+  if(phase==='reveal'||phase==='sim')return barrierTurnSegments;
+  return barrierArmedBySeat[BARRIER_SEAT]?[barrierSelectedSegmentBySeat[BARRIER_SEAT]]:[];
+}
 // Messwerte des Prototyps (nur Diagnose, keine Rueckwirkung auf die Simulation).
 const barrierStat={reflections:0,resolves:0,stepReflections:0,maxPerBallStep:0,earliestT:1};
 function barrierStatReset(){barrierStat.reflections=0;barrierStat.resolves=0;
@@ -3279,70 +3287,130 @@ function barrierSegAt(px,py){
 // des Arenadurchmessers zurueck, ohne die Wand zum Trampolin zu machen.
 // REST und jede andere Physikkonstante bleiben unveraendert.
 const BARRIER_RESTITUTION=0.55;
-// ── Etappe 3: lokaler Regelprototyp (Einsaetze, Runden- und Zugvertrag) ────────
-// Geprueft wird ausschliesslich der VERBRAUCHSVERTRAG, nicht die Produktbedienung:
-// Auswahl laeuft ueber die Debug-Taste B, das Segment weiterhin ueber ?bseg.
-// Nur der menschliche Spieler (Seat 0) im lokalen Bot-1v1 kann eine Wand setzen;
-// der Bot bekommt in dieser Phase keine. Es bleibt bei genau EINER Wand.
+// ── Etappe 5B: lokaler Regelvertrag fuer MEHRERE Seats ────────────────────────
+// Der Vertrag aus Etappe 3 gilt jetzt je Seat statt nur fuer Seat 0. Es gibt genau
+// EINE Wahrheit: alles Seat-bezogene liegt in den Arrays unten, indiziert mit der
+// Sitznummer. Einsaetze gehoeren dem Seat, nicht dem Team.
 //
-// Der Einsatz wird NICHT beim Druecken von B verbraucht, sondern erst mit dem
-// bewusst bestaetigten Zug — deshalb kostet mehrfaches Umschalten nichts, ein
-// Abwaehlen vor dem Commit kostet nichts, und der automatische Stand bei
-// Zeitablauf (commitAutoStand -> applyCommit, am geprueften commit() vorbei)
-// kostet ebenfalls nichts und erzeugt keine Wand.
-const BARRIER_SEAT=0;                     // menschlicher Spieler im lokalen Bot-1v1
-const BARRIER_STAKES_START=2;             // Einsaetze je Spieler und Match
-let barrierStakes=BARRIER_STAKES_START;   // verbleibende Einsaetze
-let barrierRoundUsed=false;               // hoechstens eine Wand pro Spieler und Runde
-let barrierArmed=false;                   // Vorschau: gewaehlt, noch nicht bestaetigt
-let barrierTurn=false;                    // verbindlich fuer den laufenden Zug
-// Aktiv ausschliesslich waehrend der Physikphase des Zuges, fuer den die Wand
-// bestaetigt wurde: mit dem Settlement bzw. dem Rundenende wechselt phase, und
-// barrierPhaseHook() loescht die Zugbindung wieder.
-// Der Mehrfach-Wand-Pfad (?bsegs) ist ein reiner Physik-Debugpfad: er umgeht bewusst
-// die Einsatz-/Zugbindung aus Etappe 3, damit die Wandphysik unabhaengig vom
-// Verbrauchsvertrag geprueft werden kann. Ohne ?bsegs gilt der Vertrag unveraendert.
-function barrierOn(){return BARRIER_DEBUG&&!online&&!replaying&&phase==='sim'&&(BARRIER_MULTI||barrierTurn);}
-// Waehlbar nur in der eigenen offenen Planungsphase eines lokalen Bot-Matches,
-// solange Einsaetze uebrig sind und in dieser Runde noch keine Wand stand.
-function barrierCanArm(){
-  return BARRIER_DEBUG&&!online&&!replaying&&mode==='bot'&&!menuVisible
-    &&phase==='aim'&&!inputLocked()&&!aimSet[BARRIER_SEAT]&&aliveCount(BARRIER_SEAT)>0
-    &&barrierStakes>0&&!barrierRoundUsed;
+// Der Einsatz wird NICHT beim Waehlen verbraucht, sondern erst mit dem bewusst
+// bestaetigten Zug dieses Seats. Mehrfaches Umschalten kostet nichts, ein Abwaehlen
+// vor dem Commit kostet nichts, und der automatische Stand bei Zeitablauf
+// (commitAutoStand -> applyCommit, am geprueften commit() vorbei) kostet ebenfalls
+// nichts und erzeugt kein Segment.
+//
+// Alle Entscheidungen bleiben bis zum Reveal verborgen: erst dort entsteht aus den
+// committeten Segmenten aller Seats die aktive Segmentliste des Zuges. Sie wird
+// dedupliziert und sortiert und geht danach unveraendert in die Bogenverschmelzung
+// aus Etappe 5A — mehrere Seats auf demselben Segment ergeben genau einen Collider,
+// verbrauchen aber je einen eigenen Einsatz.
+const BARRIER_SEAT=0;                          // der einzige von der Debug-UI gesteuerte Seat
+const BARRIER_STAKES_START=2;                  // Einsaetze je SEAT und Match
+let barrierStakesBySeat=[];                    // verbleibende Einsaetze je Seat
+let barrierRoundUsedBySeat=[];                 // hoechstens eine Wand je Seat und Runde
+let barrierArmedBySeat=[];                     // Vorschau je Seat (noch nicht bestaetigt)
+let barrierSelectedSegmentBySeat=[];           // vorgewaehltes Segment je Seat
+let barrierCommittedSegmentBySeat=[];          // verbindlich bestaetigtes Segment je Seat, -1 = keins
+let barrierTurnSegments=[];                    // aktive Segmentliste der laufenden Physikphase
+function barrierSeatCount(){return Math.max(2,np());}
+function barrierSeats(fn){for(let s=0;s<barrierStakesBySeat.length;s++)fn(s);}
+// Aktiv ausschliesslich waehrend der Physikphase, und nur wenn dieser Zug ueberhaupt
+// Segmente traegt. Der Mehrfach-Wand-Pfad (?bsegs) bleibt ein davon unabhaengiger
+// reiner Physik-Debugpfad: er umgeht bewusst den Verbrauchsvertrag.
+function barrierOn(){return BARRIER_DEBUG&&!online&&!replaying&&phase==='sim'
+  &&(BARRIER_MULTI||barrierTurnSegments.length>0);}
+// Waehlbar nur in der eigenen offenen Planungsphase, solange der Seat lebt, Einsaetze
+// uebrig sind und in dieser Runde noch keine Wand von ihm stand.
+function barrierCanArmSeat(s){
+  return BARRIER_DEBUG&&!online&&!replaying&&!menuVisible
+    &&phase==='aim'&&!inputLocked()&&s>=0&&s<barrierStakesBySeat.length
+    &&!aimSet[s]&&aliveCount(s)>0
+    &&barrierStakesBySeat[s]>0&&!barrierRoundUsedBySeat[s];
 }
-function barrierToggle(){if(!barrierCanArm())return;barrierArmed=!barrierArmed;barrierUi();}
-// Verbrauch: genau hier, beim bewusst bestaetigten Zug des Menschen — unabhaengig
+// Die Debug-UI aus Etappe 4 steuert weiterhin AUSSCHLIESSLICH Seat 0 im Bot-1v1.
+function barrierCanArm(){return mode==='bot'&&barrierCanArmSeat(BARRIER_SEAT);}
+function barrierToggle(){if(!barrierCanArm())return;
+  barrierArmedBySeat[BARRIER_SEAT]=!barrierArmedBySeat[BARRIER_SEAT];barrierUi();}
+// Test-/Debug-Hook fuer die uebrigen Seats. Er setzt AUSSCHLIESSLICH die Vorschau;
+// Verbrauch und Verbindlichkeit laufen danach unveraendert ueber commit() und
+// barrierCommitHook(). Kein URL-Vertrag, keine Produktmechanik — nur lokal, nur mit
+// ?barrier=1, nie online, nie im Replay.
+function barrierDebugSelect(s,segment){
+  if(!BARRIER_DEBUG||online||replaying)return false;
+  if(!Number.isInteger(s)||s<0||s>=barrierStakesBySeat.length)return false;
+  if(segment==null){barrierArmedBySeat[s]=false;barrierUi();return true;}
+  if(!Number.isInteger(segment)||segment<0||segment>=BARRIER_SEG_COUNT)return false;
+  if(!barrierCanArmSeat(s))return false;
+  barrierSelectedSegmentBySeat[s]=segment;barrierArmedBySeat[s]=true;barrierUi();return true;
+}
+// Verbrauch: genau hier, beim bewusst bestaetigten Zug DIESES Seats — unabhaengig
 // davon, ob es ein Schuss oder ein bewusstes 0/0 ist.
 function barrierCommitHook(who){
-  if(!BARRIER_DEBUG||online||replaying||who!==BARRIER_SEAT||!barrierArmed)return;
-  barrierArmed=false;
-  if(barrierStakes<=0||barrierRoundUsed)return;
-  barrierStakes--;barrierRoundUsed=true;barrierTurn=true;
+  if(!BARRIER_DEBUG||online||replaying)return;
+  if(!(who>=0&&who<barrierArmedBySeat.length)||!barrierArmedBySeat[who])return;
+  barrierArmedBySeat[who]=false;
+  if(barrierStakesBySeat[who]<=0||barrierRoundUsedBySeat[who]||aliveCount(who)<=0)return;
+  barrierStakesBySeat[who]--;barrierRoundUsedBySeat[who]=true;
+  barrierCommittedSegmentBySeat[who]=barrierSelectedSegmentBySeat[who];
   barrierUi();
 }
-// Phasenwaechter: die Zugbindung lebt genau von der Bestaetigung bis zum Ende der
-// Physikphase, die Vorschau genau bis zum Ende der Planungsphase. Der
+// Zeitablauf: der Zug dieses Seats endet ohne bewusste Bestaetigung. Die Vorschau
+// verfaellt, es wird nichts verbraucht und kein Segment gebunden. Symmetrisch zu
+// barrierCommitHook — nur so bleibt kein Seat mit stehender Vorschau zurueck, waehrend
+// andere Seats ihre Planungsphase noch offen haben.
+function barrierAutoStandHook(who){
+  if(!BARRIER_DEBUG||online||replaying)return;
+  if(who>=0&&who<barrierArmedBySeat.length)barrierArmedBySeat[who]=false;
+  barrierUi();
+}
+// Aus allen committeten Segmenten die kanonische Liste des Zuges bilden: dedupliziert
+// und aufsteigend. Mehrere Seats auf demselben Segment ergeben genau EINEN Eintrag.
+function barrierBuildTurn(){
+  const out=[];
+  barrierSeats((s)=>{const k=barrierCommittedSegmentBySeat[s];if(k>=0&&out.indexOf(k)<0)out.push(k);});
+  out.sort((a,b)=>a-b);
+  barrierTurnSegments=out;
+}
+function barrierClearTurn(){barrierTurnSegments=[];barrierSeats((s)=>{barrierCommittedSegmentBySeat[s]=-1;});}
+// Phasenwaechter. Die Wandliste entsteht beim Reveal, lebt ueber die gesamte
+// gemeinsame Physikphase und wird erst nach dem Settlement wieder geleert. Der
 // Platzierungsmodus endet mit JEDEM Verlassen der Planungsphase — Reveal, Simulation,
 // Settlement, Rundenende, Game Over, Rematch und neues Match laufen alle hier durch.
 function barrierPhaseHook(p){
-  if(p!=='reveal'&&p!=='sim')barrierTurn=false;
-  if(p!=='aim'){barrierArmed=false;barrierClosePlacing();}
+  if(p==='reveal')barrierBuildTurn();
+  else if(p!=='sim')barrierClearTurn();
+  if(p!=='aim'){barrierSeats((s)=>{barrierArmedBySeat[s]=false;});barrierClosePlacing();}
   barrierUi();
 }
-function barrierRoundReset(){barrierRoundUsed=false;barrierArmed=false;barrierTurn=false;barrierClosePlacing();barrierUi();}
-// Neues Match und Rematch fuellen auf; eine neue Runde oder eine Collapse-Stufe nie.
-function barrierMatchReset(){barrierStakes=BARRIER_STAKES_START;barrierRoundUsed=false;barrierArmed=false;barrierTurn=false;
-  barrierSelectedSegment=BARRIER_SEG;barrierClosePlacing();barrierUi();}
+// Neue Runde: nur die Rundensperre faellt. Bestaende bleiben, es wird nie aufgefuellt.
+function barrierRoundReset(){
+  barrierSeats((s)=>{barrierRoundUsedBySeat[s]=false;barrierArmedBySeat[s]=false;});
+  barrierClearTurn();barrierClosePlacing();barrierUi();
+}
+// Neues Match und Rematch setzen ALLE Seats auf den Startbestand; eine neue Runde
+// oder eine Collapse-Stufe nie.
+function barrierMatchReset(){
+  const n=barrierSeatCount();
+  barrierStakesBySeat=[];barrierRoundUsedBySeat=[];barrierArmedBySeat=[];
+  barrierSelectedSegmentBySeat=[];barrierCommittedSegmentBySeat=[];
+  for(let s=0;s<n;s++){
+    barrierStakesBySeat.push(BARRIER_STAKES_START);barrierRoundUsedBySeat.push(false);
+    barrierArmedBySeat.push(false);barrierSelectedSegmentBySeat.push(BARRIER_SEG);
+    barrierCommittedSegmentBySeat.push(-1);
+  }
+  barrierTurnSegments=[];barrierClosePlacing();barrierUi();
+}
 // Einfache Debug-Anzeige, bewusst ohne Gestaltung. Wird nur angelegt, wenn der
 // Prototyp ueberhaupt laeuft — ohne ?barrier=1 entsteht kein DOM-Knoten.
 let barrierHudLast='';
 function barrierHud(){
   if(!BARRIER_DEBUG||online||replaying)return;
-  // Eine aktive Wand hat Vorrang vor der Bestandsmeldung: solange barrierTurn gilt,
+  // Eine aktive Wand hat Vorrang vor der Bestandsmeldung: solange der Seat ein
+  // bestaetigtes Segment traegt,
   // steht das Segment im Bild — auch wenn es der letzte Einsatz war (dann "0 LEFT").
   // EMPTY erscheint erst, wenn die Physikphase vorbei und die Zugbindung geloest ist.
-  const txt=(barrierTurn||barrierArmed)?'BARRIER: SEGMENT '+barrierSelectedSegment+' · '+barrierStakes+' LEFT'
-    :barrierStakes<=0?'BARRIER: EMPTY'
+  const cs=barrierCommittedSegmentBySeat[BARRIER_SEAT];
+  const txt=(cs>=0||barrierArmedBySeat[BARRIER_SEAT])?'BARRIER: SEGMENT '+(cs>=0?cs:barrierSelectedSegmentBySeat[BARRIER_SEAT])+' · '+barrierStakesBySeat[BARRIER_SEAT]+' LEFT'
+    :barrierStakesBySeat[BARRIER_SEAT]<=0?'BARRIER: EMPTY'
     :'BARRIER: OFF';
   if(txt===barrierHudLast)return;
   barrierHudLast=txt;
@@ -3385,7 +3453,7 @@ let barrierPlacing=false;
 // Sichtbarkeit des Debug-Bogens: waehrend der Physikphase (echte Wand) ODER als
 // Vorschau nach der Auswahl. Die Vorschau kollidiert NICHT — barrierOn() bleibt der
 // alleinige Physikschalter.
-function barrierPreviewOn(){return BARRIER_DEBUG&&!online&&!replaying&&barrierArmed&&phase==='aim';}
+function barrierPreviewOn(){return BARRIER_DEBUG&&!online&&!replaying&&barrierArmedBySeat[BARRIER_SEAT]&&phase==='aim';}
 function barrierMeshOn(){return barrierOn()||barrierPreviewOn();}
 function barrierCanPlace(){return barrierCanArm();}
 function barrierOpenPlacing(){
@@ -3414,8 +3482,8 @@ function barrierPickDown(e){
   const rr=Math.hypot(p.x-cx,p.y-cy)/R;
   if(rr<BARRIER_PICK_INNER||rr>BARRIER_PICK_OUTER){barrierClosePlacing();return;}   // ausserhalb des Rings: nur schliessen
   e.preventDefault();e.stopPropagation();            // kein Kugel-Drag, kein Kameradrag aus diesem Tipp
-  barrierSelectedSegment=barrierSegAt(p.x,p.y);
-  barrierArmed=true;
+  barrierSelectedSegmentBySeat[BARRIER_SEAT]=barrierSegAt(p.x,p.y);
+  barrierArmedBySeat[BARRIER_SEAT]=true;
   barrierClosePlacing();
 }
 // Zwoelf duenne Randbereiche + Nummern, nur im Platzierungsmodus. Projektion ueber
@@ -3434,7 +3502,7 @@ function barrierPaint(){
   const px=(ax,ay)=>{const q=OP(ax,ay,0);
     return{x:rect.left+q.x/1000*rect.width,y:rect.top+q.y/1000*rect.width};};
   for(let k=0;k<BARRIER_SEG_COUNT;k++){
-    const mid=-Math.PI/2+k*BARRIER_SPAN,sel=(k===barrierSelectedSegment&&barrierArmed);
+    const mid=-Math.PI/2+k*BARRIER_SPAN,sel=(k===barrierSelectedSegmentBySeat[BARRIER_SEAT]&&barrierArmedBySeat[BARRIER_SEAT]);
     g.beginPath();
     for(let i=0;i<=14;i++){const a=mid-BARRIER_HALF+BARRIER_SPAN*i/14,q=px(cx+Math.cos(a)*R,cy+Math.sin(a)*R);
       if(i===0)g.moveTo(q.x,q.y);else g.lineTo(q.x,q.y);}
@@ -3461,20 +3529,20 @@ function barrierBtn(){
     // pointerdown statt click: identisch fuer Maus und Touch, und der Tipp erreicht
     // das Canvas nie (eigener DOM-Knoten ausserhalb von cv, Propagation gestoppt).
     b.addEventListener('pointerdown',e=>{e.preventDefault();e.stopPropagation();
-      if(barrierArmed){barrierArmed=false;barrierClosePlacing();barrierUi();return;}
+      if(barrierArmedBySeat[BARRIER_SEAT]){barrierArmedBySeat[BARRIER_SEAT]=false;barrierClosePlacing();barrierUi();return;}
       if(barrierPlacing){barrierClosePlacing();return;}
       barrierOpenPlacing();});
     document.body.appendChild(b);}
   const show=BARRIER_DEBUG&&!online&&!replaying&&mode==='bot'&&!menuVisible&&phase==='aim';
   b.style.display=show?'':'none';
-  const usable=barrierCanArm()||barrierArmed;
+  const usable=barrierCanArm()||barrierArmedBySeat[BARRIER_SEAT];
   b.disabled=!usable;
   b.style.opacity=usable?'1':'.42';
   // Zustand ueber den Rahmen, nicht ueber den Text: die Beschriftung bleibt exakt
   // "WAND ×N" (Restbestand), damit sie eindeutig ablesbar ist.
-  b.style.borderColor=(barrierPlacing||barrierArmed)?'#35e0ff':'rgba(53,224,255,.55)';
+  b.style.borderColor=(barrierPlacing||barrierArmedBySeat[BARRIER_SEAT])?'#35e0ff':'rgba(53,224,255,.55)';
   b.style.background=barrierPlacing?'rgba(53,224,255,.20)':'rgba(5,8,14,.86)';
-  const txt='WAND ×'+barrierStakes;
+  const txt='WAND ×'+barrierStakesBySeat[BARRIER_SEAT];
   if(txt!==barrierBtnLast){barrierBtnLast=txt;b.textContent=txt;}
 }
 function barrierUi(){barrierHud();barrierBtn();}
