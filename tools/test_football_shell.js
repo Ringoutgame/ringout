@@ -77,6 +77,11 @@ const freezeSrc = grab(/function footballFreezePlayers\(\)\{[\s\S]*?\n\}/, 'foot
 const tryGoalSrc = grab(/function footballTryGoal\(b\)\{[\s\S]*?\n\}/, 'footballTryGoal');
 const resetRoundSrc = grab(/function footballResetRound\(\)\{[\s\S]*?\n\}/, 'footballResetRound');
 const tickGoalSrc = grab(/function footballTickGoal\(\)\{[\s\S]*?\n\}/, 'footballTickGoal');
+// Gameplayphase 3: First-to-3, autoritatives Matchende, neues Match
+const winScoreSrc = grab(/const FOOTBALL_WIN_SCORE=[^\n]*/, 'FOOTBALL_WIN_SCORE');
+const winnerVarSrc = grab(/let footballWinner=[^\n]*/, 'footballWinner');
+const matchEndSrc = grab(/function footballMatchEnd\(\)\{[\s\S]*?\n\}/, 'footballMatchEnd');
+const resetMatchStateSrc = grab(/function footballResetMatchState\([^\n]*/, 'footballResetMatchState');
 const inputLockedSrc = grab(/function inputLocked\([^\n]*/, 'inputLocked');
 const canCommitSrc = grab(/function canCommitInput\(who\)\{[\s\S]*?\n\}/, 'canCommitInput');
 const npSrc = grab(/function np\([^\n]*/, 'np');
@@ -119,7 +124,13 @@ function buildEnv(startMode, startFmt) {
     ${fallTicksSrc}
     ${spawnTicksSrc}
     ${spawnHeightSrc}
+    ${winScoreSrc}
     let fbGoalState='play', fbGoalTick=0;
+    ${winnerVarSrc}
+    // Bestehende Result-Struktur: im Browser DOM-lastig, hier als reiner Recorder.
+    // Sie setzt exakt das, worauf der Football-Resultzustand sich verlaesst: phase='over'.
+    let gameOverCalls=[];
+    function gameOver(w){gameOverCalls.push(w);phase='over';}
     let score=[0,0], roundNo=1;
     let collapseEnabled=false, collapseState='running';
     function collapseActive(){return false;}
@@ -134,6 +145,8 @@ function buildEnv(startMode, startFmt) {
     ${resetRoundSrc}
     ${startRoundSrc}
     ${tickGoalSrc}
+    ${matchEndSrc}
+    ${resetMatchStateSrc}
     ${inputLockedSrc}
     ${canCommitSrc}
     ${stepSimSrc}
@@ -154,7 +167,15 @@ function buildEnv(startMode, startFmt) {
       aimState(){ return {aimSet:aimSet.slice(), commitIdx:commitIdx.slice(), phase}; },
       setAim(){ aimSet=[true,true]; commitIdx=[0,1]; },
       passedFlags(){ return balls.map(b=>!!b.fbPassed); },
-      newMatch(){ score=[]; for(let p=0;p<np();p++)score.push(0); fbGoalState='play'; fbGoalTick=0; startRound(); },
+      // Spiegelt den echten Neues-Match-Pfad newGame() -> startRound() (ohne DOM/HUD):
+      // Score auf 0, zentrale Football-Match-Initialisierung, frischer Rundenstart.
+      newMatch(){ score=[]; for(let p=0;p<np();p++)score.push(0); footballResetMatchState(); startRound(); },
+      // ── Gameplayphase 3 ──
+      winner(){ return footballWinner; },
+      winScore: FOOTBALL_WIN_SCORE,
+      overCalls(){ return gameOverCalls.slice(); },
+      resetMatchState(){ footballResetMatchState(); },
+      setGoalState(s){ fbGoalState=s; },
       clearHalf(){ return footballGoalClearHalf(); },
       centerHalf(){ return footballGoalCenterHalf(); },
       canPass(b){ return footballCanPassGoal(b); },
@@ -543,8 +564,9 @@ ok(!/lastTouch|lastToucher|assist/i.test(goalLogicSrc), 'Keine Last-Touch-/Assis
 G.newMatch();
 ok(JSON.stringify(G.score()) === '[0,0]', 'Neues Football-Match startet bei 0:0');
 ok(G.goalState() === 'play' && G.goalTick() === 0, 'Neues Match startet im Zustand play');
-// Kein First-to-3 / kein Matchende.
-ok(!/winTarget|gameOver|first[_ ]?to[_ ]?3/i.test(goalLogicSrc), 'Keine First-to-3-/Matchende-Logik in der Torlogik');
+// Matchende ist Sache der Zustandsmaschine, nicht des Torereignisses (Gameplayphase 3).
+ok(!/winTarget/i.test(goalLogicSrc), 'Football nutzt NICHT den RingOut-winTarget (3/5), sondern die eigene Konstante');
+ok(!/gameOver\(/.test(tryGoalSrc), 'Das Torereignis selbst beendet das Match nicht (erst nach dem Ballfall)');
 
 // ── C. GOAL-FALL: Sperre, Einfrieren, Determinismus ──
 const H = buildEnv('football', 'single');
@@ -590,9 +612,11 @@ ok(!/setTimeout\([^)]*fbGoal/.test(HTML) && !/setInterval\([^)]*fbGoal/.test(HTM
 // ── D. RESET ──
 // Bis zum Ende des Falls laufen lassen -> Reset muss exakt bei fallTicks greifen.
 { const I2 = buildEnv('football', 'single');
-  I2.setScore(2, 1);
+  // Bewusst ein Stand, der auch nach drei weiteren Toren FOOTBALL_WIN_SCORE nie erreicht —
+  // dieser Block prueft den REGULAEREN Rundenreset, nicht das Matchende (s. Abschnitt F).
+  I2.setScore(0, 1);
   kickToGoal(I2, +1);
-  ok(JSON.stringify(I2.score()) === '[3,1]', 'Score zaehlt von einem bestehenden Stand weiter (kein First-to-3-Abbruch)');
+  ok(JSON.stringify(I2.score()) === '[1,1]', 'Score zaehlt von einem bestehenden Stand weiter');
   I2.setAim();                                  // simulierte Aim-/Commit-Reste
   let guard = 0;
   while (I2.goalState() === 'fall' && guard++ < 500) I2.step();
@@ -626,7 +650,176 @@ ok(!/setTimeout\([^)]*fbGoal/.test(HTML) && !/setInterval\([^)]*fbGoal/.test(HTM
   // Drittes Tor: kein First-to-3-Abbruch, Ablauf bleibt identisch.
   while (I2.goalState() !== 'play') I2.step();
   kickToGoal(I2, -1);
-  ok(I2.goalState() === 'fall' && I2.score()[1] >= 1, 'Drittes Tor laeuft regulaer weiter (kein Matchende)'); }
+  ok(I2.goalState() === 'fall' && I2.score()[1] >= 1, 'Drittes Tor laeuft regulaer weiter (kein Matchende)');
+  ok(JSON.stringify(I2.score()) === '[2,2]', 'Stand 2:2 — noch niemand hat FOOTBALL_WIN_SCORE erreicht');
+  ok(I2.winner() === null, 'Bei 2:2 ist kein Gewinner gesetzt (kein Unentschieden, kein Abbruch)'); }
+
+// ════════════════════════════════════════════════════════════════════════════
+// F. MATCHENDE — First-to-3, autoritativer Resultzustand, neues Match
+// (Gameplayphase 3). Deterministisch: kein Timer, kein DOM als Source of Truth.
+// ════════════════════════════════════════════════════════════════════════════
+
+// Ballfall bis zum naechsten Zustandswechsel ('spawn' bei normalem Tor, 'result' beim Sieg).
+function runFall(env) { let g = 0; while (env.goalState() === 'fall' && g++ < 500) env.step(); }
+// Frische Instanz auf Stand a:b, dann genau ein Tor in Richtung dir, Ballfall komplett.
+function matchAfterGoal(a, b, dir) {
+  const M = buildEnv('football', 'single');
+  M.setScore(a, b); kickToGoal(M, dir); runFall(M);
+  return M;
+}
+
+// ── F1. FIRST-TO-3-REGEL ──
+ok(/const FOOTBALL_WIN_SCORE=3;/.test(HTML), 'FOOTBALL_WIN_SCORE ist als benannte Konstante = 3 definiert');
+ok(buildEnv('football', 'single').winScore === 3, 'FOOTBALL_WIN_SCORE traegt zur Laufzeit den Wert 3');
+ok((HTML.match(/score\[side\]>=FOOTBALL_WIN_SCORE/g) || []).length === 1, 'Genau EINE zentrale First-to-3-Pruefung');
+ok(!/score\[side\]>=3|score\[0\]>=3|score\[1\]>=3/.test(HTML), 'Keine verstreute Magic Number 3 in der Matchlogik');
+ok(!/overtime|goldenGoal|extraTime|timeLimit|matchClock/i.test(HTML), 'Kein Overtime-/Zeitlimit-Code');
+{ const M = matchAfterGoal(2, 0, +1);
+  ok(JSON.stringify(M.score()) === '[3,0]', 'Stand 2:0 -> naechstes Tor fuer Blau ergibt 3:0');
+  ok(M.winner() === 0, 'Stand 2:0 -> naechstes Tor gewinnt (Blau)');
+  ok(M.goalState() === 'result', 'Stand 2:0 -> entscheidendes Tor beendet das Match'); }
+{ const M = matchAfterGoal(2, 2, -1);
+  ok(JSON.stringify(M.score()) === '[2,3]', 'Stand 2:2 -> naechstes Tor fuer Rot ergibt 2:3');
+  ok(M.winner() === 1, 'Stand 2:2 -> naechstes Tor gewinnt (keine Zwei-Tore-Differenz noetig)');
+  ok(M.goalState() === 'result', 'Stand 2:2 -> entscheidendes Tor beendet das Match'); }
+{ const M = matchAfterGoal(1, 2, +1);
+  ok(JSON.stringify(M.score()) === '[2,2]', 'Stand 1:2 -> Tor fuer Blau ergibt 2:2');
+  ok(M.winner() === null, 'Ausgleich auf 2:2 beendet das Match NICHT');
+  ok(M.goalState() === 'spawn', 'Ohne Sieg laeuft der normale Rundenreset weiter'); }
+// Eigentore zaehlen regulaer und koennen genauso entscheiden — die Seite entscheidet, nicht der Schuetze.
+{ const M = matchAfterGoal(0, 2, -1);
+  ok(M.winner() === 1 && JSON.stringify(M.score()) === '[0,3]', 'Auch ein Tor ins eigene Tor kann das Match entscheiden'); }
+
+// ── F2. ENTSCHEIDENDES TOR: genau einmal werten, voller Ballfall, dann result ──
+{ const M = buildEnv('football', 'single');
+  M.setScore(2, 0);
+  kickToGoal(M, +1);
+  ok(JSON.stringify(M.score()) === '[3,0]', 'Entscheidendes Tor wird genau einmal gewertet');
+  ok(M.winner() === 0, 'Gewinner steht bereits beim Torereignis kanonisch fest');
+  ok(M.goalState() === 'fall', 'Entscheidendes Tor startet zuerst den regulaeren Ballfall');
+  ok(M.overCalls().length === 0, 'Matchende NICHT sofort beim Tor — erst nach dem Ballfall');
+  // Der Fall wird nicht abgeschnitten: dieselbe Tickgrenze wie bei jedem anderen Tor.
+  let g = 0; while (M.goalState() === 'fall' && M.goalTick() < M.fallTicks - 1 && g++ < 500) M.step();
+  ok(M.goalState() === 'fall' && M.goalTick() === M.fallTicks - 1, 'Ballfall laeuft bis unmittelbar vor die kanonische Tickgrenze (FOOTBALL_GOAL_FALL_TICKS)');
+  ok(M.overCalls().length === 0, 'Vor der Tickgrenze noch kein Matchende');
+  M.step();
+  ok(M.goalState() === 'result', 'Genau bei FOOTBALL_GOAL_FALL_TICKS: fall -> result (spawn wird uebersprungen)');
+  ok(M.goalTick() === 0, 'fbGoalTick beim Eintritt in result zurueckgesetzt');
+  ok(M.overCalls().length === 1 && M.overCalls()[0] === 0, 'Bestehende Result-Struktur genau einmal mit dem gespeicherten Gewinner aufgerufen');
+  ok(M.get().phase === 'over', 'Matchende nutzt die bestehende Result-Phase (over) — keine zweite Matchengine');
+  ok(JSON.stringify(M.score()) === '[3,0]', 'Kein Doppelpunkten beim entscheidenden Tor');
+  // Kein Spawn/Reset nach dem Sieg: der Ball liegt weiterhin ausserhalb, die Latches stehen.
+  const nb = M.get().balls.find(b => b.owner === 4);
+  ok(Math.hypot(nb.x - M.cx, nb.y - M.cy) > M.R0, 'Kein neuer Ball nach dem Sieg: der Ball bleibt ausserhalb der Arena');
+  ok(M.passedFlags().some(f => f === true), 'Kein Rundenreset nach dem Sieg (fbPassed steht noch — placeBalls wurde nicht gerufen)');
+  ok(M.aimState().phase !== 'aim', 'Nach dem Sieg wird keine neue Planungsphase geoeffnet'); }
+ok(/if\(footballWinner!==null\)\{fbGoalState='result';fbGoalTick=0;footballMatchEnd\(\);return;\}/.test(tickGoalSrc),
+  'Uebergang fall -> result haengt am kanonisch gespeicherten Gewinner');
+ok(!/setTimeout|setInterval/.test(tickGoalSrc + tryGoalSrc + matchEndSrc), 'Matchende ohne setTimeout-Kaskade (rein tickgesteuert)');
+
+// ── F3. RESULT-ZUSTAND: stabil, gesperrt, unveraenderlich ──
+{ const M = buildEnv('football', 'single');
+  M.setScore(2, 0); kickToGoal(M, +1); runFall(M);
+  ok(M.goalState() === 'result', 'Setup: Resultzustand erreicht');
+  ok(M.get().phase === 'over', 'Setup: bestehende Result-Phase aktiv');
+  const scoreAtEnd = JSON.stringify(M.score());
+  const playersAtEnd = JSON.stringify(M.get().balls.filter(b => b.owner !== 4).map(b => ({ x: b.x, y: b.y })));
+  ok(M.goalBusy() === true, 'Resultzustand meldet sich als busy');
+  ok(M.locked() === true, 'Eingabe im Resultzustand gesperrt (inputLocked)');
+  ok(M.canCommit(0) === false && M.canCommit(1) === false, 'Kein Drag/Release/Commit im Resultzustand (beide Spieler)');
+  for (let i = 0; i < 400; i++) M.step();
+  ok(M.goalState() === 'result', 'Resultzustand bleibt ueber viele Ticks stabil (kein Rueckfall nach play)');
+  ok(M.goalTick() === 0, 'Im Resultzustand laeuft kein Tickzaehler weiter');
+  ok(JSON.stringify(M.score()) === scoreAtEnd, 'Score im Resultzustand unveraenderlich (Goal Detection gesperrt)');
+  ok(M.winner() === 0, 'Gewinner bleibt im Resultzustand autoritativ gespeichert');
+  ok(M.overCalls().length === 1, 'Kein zweiter Matchende-Aufruf ueber viele Ticks');
+  ok(JSON.stringify(M.get().balls.filter(b => b.owner !== 4).map(b => ({ x: b.x, y: b.y }))) === playersAtEnd,
+    'Spieler bleiben im Resultzustand gestoppt');
+  ok(M.passedFlags().some(f => f === true), 'Keine automatisch gestartete neue Runde im Resultzustand'); }
+ok(/if\(fbGoalState==='result'\)return;/.test(tickGoalSrc), 'result ist ein Endzustand: die Zustandsmaschine tickt nicht weiter');
+ok(/if\(fbGoalState!=='play'\)return;/.test(tryGoalSrc), 'Goal Detection wertet ausschliesslich aus play heraus');
+ok(/function footballGoalBusy\(\)\{return mode==='football'&&fbGoalState!=='play';\}/.test(HTML),
+  'Eingabesperre deckt result automatisch mit ab (alles ausser play)');
+
+// ── F4. GEWINNERANZEIGE (bestehende Result-Struktur, football-scoped) ──
+ok((HTML.match(/function gameOver\(/g) || []).length === 1, 'Genau eine Result-/Gewinnerfunktion — keine neue Praesentationsschicht');
+ok((HTML.match(/footballMatchEnd\(/g) || []).length === 2, 'footballMatchEnd: eine Definition, genau ein Aufruf');
+ok(/gameOver\(footballWinner\);/.test(matchEndSrc), 'Matchende uebergibt den KANONISCHEN Gewinner (kein DOM-Text, keine Farbe)');
+ok(!/textContent|innerHTML|getElementById|\$\(/.test(matchEndSrc), 'Matchende selbst schreibt kein DOM — das macht die bestehende Result-Struktur');
+ok(/colName\(winner\)\+' '\+T\('wins'\)/.test(HTML), 'Gewinnertext kommt aus der bestehenden i18n-Zeile');
+ok(/col0:'BLAU'/.test(HTML) && /col1:'ROT'/.test(HTML) && /wins:'GEWINNT'/.test(HTML), 'Deutsche Gewinnertexte: BLAU GEWINNT / ROT GEWINNT');
+ok(/const iPlay=online\|\|mode==='bot';/.test(HTML), 'Lokales Football zeigt die neutrale Gewinner-Headline (kein VICTORY/DEFEAT)');
+ok(/T\('finalScore'\)/.test(HTML) && /finalScore:'ENDSTAND'/.test(HTML), 'Endstand wird im Result-Overlay angezeigt');
+ok(/fbNewMatch:'[^']*Neues Match'/.test(HTML), 'Button-Text "Neues Match" vorhanden (de)');
+ok(/function rematchLabel\(\)\{return mode==='football'\?T\('fbNewMatch'\):T\('rematch'\);\}/.test(HTML),
+  'Neues-Match-Beschriftung ist mode-scoped — normale Modi behalten "Rematch"');
+ok((HTML.match(/rematchLabel\(\)/g) || []).length === 3, 'rematchLabel: eine Definition, genau zwei Verwendungen (applyLang + gameOver)');
+ok(/id="ovMenuBtn"/.test(HTML), 'Bestehender Menue-Button im Result-Overlay wird wiederverwendet');
+ok(/\$\('replayBtn'\)\.style\.display=mode==='football'\?'none':'';/.test(HTML), 'Replay-Button nur im Football ausgeblendet — andere Modi unveraendert');
+ok(!/id="fbResult|id="footballOv|id="fbOv/i.test(HTML), 'Kein zweites Football-Result-Overlay');
+ok(!/confetti|particleWin|cameraShake/i.test(HTML), 'Keine Konfetti-/Partikel-/Kamera-Effekte ergaenzt');
+
+// ── F5. NEUES MATCH ──
+{ const M = buildEnv('football', 'single');
+  M.setScore(2, 0); kickToGoal(M, +1); runFall(M);
+  ok(M.goalState() === 'result' && M.winner() === 0, 'Setup: Match ist beendet');
+  M.setAim();                                   // Aim-/Commit-Reste aus dem alten Match
+  M.newMatch();
+  ok(JSON.stringify(M.score()) === '[0,0]', 'Neues Match startet bei 0:0');
+  ok(M.winner() === null, 'Neues Match: Gewinner auf null zurueckgesetzt');
+  ok(M.goalState() === 'play', 'Neues Match: fbGoalState zurueck auf play');
+  ok(M.goalTick() === 0, 'Neues Match: fbGoalTick zurueckgesetzt');
+  const ref = buildEnv('football', 'single').place();
+  const after = M.get().balls;
+  ok(after.length === 3 && JSON.stringify(after.map(b => b.owner)) === '[0,1,4]', 'Neues Match: frische Kugeln [0,1,4]');
+  for (let i = 0; i < 3; i++)
+    ok(near(after[i].x, ref[i].x, 1e-9) && near(after[i].y, ref[i].y, 1e-9),
+      'Neues Match: Kugel ' + i + ' (owner ' + ref[i].owner + ') auf der Startposition');
+  ok(after.every(b => b.vx === 0 && b.vy === 0), 'Neues Match: alle Geschwindigkeiten 0');
+  ok(after.every(b => b.alive), 'Neues Match: alle Kugeln alive');
+  ok(M.passedFlags().every(f => f === false), 'Neues Match: fbPassed vollstaendig weg');
+  const st = M.aimState();
+  ok(st.aimSet.every(a => a === false), 'Neues Match: Aim-Zustaende geloescht');
+  ok(st.commitIdx.every(c => c === -1), 'Neues Match: Commit-/Pending-Zustaende geloescht');
+  ok(st.phase === 'aim', 'Neues Match: Planungsphase wieder offen');
+  ok(M.locked() === false, 'Neues Match: Eingabesperre aufgehoben');
+  ok(M.canCommit(0) === true && M.canCommit(1) === true, 'Neues Match: Eingabe wieder moeglich');
+  // Erstes Tor im neuen Match zaehlt regulaer und beendet nichts.
+  kickToGoal(M, +1);
+  ok(JSON.stringify(M.score()) === '[1,0]', 'Erstes Tor im neuen Match zaehlt regulaer (keine alte Punktzahl)');
+  ok(M.goalState() === 'fall' && M.winner() === null, 'Erstes Tor im neuen Match beendet das Match nicht'); }
+ok(/function newGame\(\)\{[\s\S]*?footballResetMatchState\(\);/.test(HTML), 'newGame nutzt die zentrale Football-Match-Initialisierung');
+ok((HTML.match(/footballResetMatchState\(\)/g) || []).length === 3, 'footballResetMatchState: eine Definition, genau zwei Aufrufe (newGame + showMenu)');
+ok(/\$\('rematchBtn'\)\.onclick=\(\)=>\{if\(online\)[\s\S]*?newGame\(\);\};/.test(HTML), 'Neues-Match-Button laeuft ueber den bestehenden newGame-Pfad');
+
+// ── F6. MODUSWECHSEL / MENUE ──
+{ const M = buildEnv('football', 'single');
+  M.setScore(2, 0); kickToGoal(M, +1); runFall(M);
+  ok(M.goalState() === 'result', 'Setup: Football-Result aktiv');
+  M.resetMatchState();                          // == showMenu()- bzw. newGame()-Pfad
+  ok(M.goalState() === 'play' && M.goalTick() === 0, 'Menue/Moduswechsel raeumt den Torablauf ab');
+  ok(M.winner() === null, 'Menue/Moduswechsel raeumt den Gewinner ab (kein alter Winner-Text)');
+  ok(M.locked() === false, 'Nach dem Moduswechsel keine Football-Eingabesperre mehr'); }
+// Ein gesetztes Football-Resultflag darf NORMALE Modi unter keinen Umstaenden beruehren.
+{ const Bn = buildEnv('bot', 'single');
+  Bn.setGoalState('result');
+  ok(Bn.goalBusy() === false, 'Football-Resultzustand meldet ausserhalb von football nie busy');
+  ok(Bn.locked() === false, 'Football-Result sperrt die Eingabe normaler RingOut-Modi nicht');
+  ok(Bn.canCommit(0) === true, 'Normaler RingOut-Modus bleibt trotz Football-Resultflag voll bedienbar'); }
+ok(/function showMenu\(\)\{[\s\S]*?footballResetMatchState\(\);/.test(HTML), 'showMenu raeumt den Football-Matchzustand ab');
+
+// ── F7. REGRESSION: nicht entscheidendes Tor laeuft unveraendert ──
+{ const M = buildEnv('football', 'single');
+  M.setScore(0, 0);
+  kickToGoal(M, +1);
+  ok(M.goalState() === 'fall' && M.winner() === null, 'Nicht entscheidendes Tor: regulaerer Ballfall, kein Gewinner');
+  runFall(M);
+  ok(M.goalState() === 'spawn', 'Nicht entscheidendes Tor: regulaerer Rundenreset (spawn) statt result');
+  ok(M.overCalls().length === 0, 'Nicht entscheidendes Tor loest kein Matchende aus');
+  let g = 0; while (M.goalState() !== 'play' && g++ < 500) M.step();
+  ok(M.goalState() === 'play', 'Nicht entscheidendes Tor: zurueck in play');
+  ok(M.locked() === false, 'Nach nicht entscheidendem Tor ist die Eingabe wieder frei');
+  ok(M.get().phase === 'aim', 'Nach nicht entscheidendem Tor laeuft die Planungsphase regulaer weiter'); }
 
 // ── E. MODE-SCOPING ──
 { const Bn2 = buildEnv('bot', 'single');
@@ -639,7 +832,7 @@ ok(/mode==='football'&&fbGoalState==='fall'/.test(HTML), 'Renderer-Falloffset is
 ok(/function footballGoalBusy\(\)\{return mode==='football'/.test(HTML), 'Eingabesperre ist football-scoped');
 ok((HTML.match(/new THREE\.WebGLRenderer/g) || []).length === 1, 'Kein zusaetzlicher Renderer durch Gameplayphase 2');
 ok(/new THREE\.TorusGeometry\(GLB_R,\.075,12,176\)/.test(HTML), 'RingOut-Bande weiterhin unveraendert');
-ok(!/winnerScreen|victoryFootball|fbWinner|overtime|timeLimit/i.test(HTML), 'Kein Gewinnerbildschirm/Zeitmodus ergaenzt');
+ok(!/overtime|goldenGoal|timeLimit|matchClock|extraTime|bestOf|rematchCount/i.test(HTML), 'Kein Zeitmodus/Overtime/Golden Goal/Best-of-Serie ergaenzt');
 
 // ── normale Modi unverändert: 1v1 hat zwei Kugeln, Ring-Out bleibt aktiv ──
 const B = buildEnv('bot', 'single');

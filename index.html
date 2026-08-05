@@ -1388,7 +1388,7 @@ en:{tagline:'PULL BACK · RELEASE · KNOCK THEM OUT',chip:'FEATURED',
   joinTitle:'Join room',joinSub:'Join with the 4-letter room code.',orLbl:'OR',refresh:'REFRESH',
   createRoom:'Create room',join:'Join',enterCode:'ENTER CODE',back:'↩ Back',yourCode:'YOUR CODE',waitMate:'Waiting for opponent…',lobby:'LOBBY',lobbyGo:'▶ Start',
   leaveT:'Leave online match?',leaveS:'Your opponent can’t continue without you.',leaveNo:'Cancel',leaveYes:'Leave match',
-  rematch:'🔄 Rematch',replayB:'🎬 Watch replay',menuB:'↩ Menu',
+  rematch:'🔄 Rematch',replayB:'🎬 Watch replay',menuB:'↩ Menu',fbNewMatch:'🔄 New match',
   creating:'Creating room…',ffaShare:'FFA · Share the code with 1–4 friends.',shareCode:'Share the code with your friend.',
   code4:'Please enter the 4-letter code.',joining:'Joining…',noRoom:'Room not found.',roomFull:'Room is already full.',
   connWait:'Connected! Waiting for the host…',connStart:'Connected! Game starting…',
@@ -1429,7 +1429,7 @@ de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'FEATURED',
   joinTitle:'Raum beitreten',joinSub:'Tritt mit dem 4-stelligen Code bei.',orLbl:'ODER',refresh:'AKTUALISIEREN',
   createRoom:'Raum erstellen',join:'Beitreten',enterCode:'CODE EINGEBEN',back:'↩ Zurück',yourCode:'DEIN CODE',waitMate:'Warte auf Gegner…',lobby:'LOBBY',lobbyGo:'▶ Start',
   leaveT:'Online-Match verlassen?',leaveS:'Dein Gegner kann dann nicht weiterspielen.',leaveNo:'Abbrechen',leaveYes:'Match verlassen',
-  rematch:'🔄 Rematch',replayB:'🎬 Replay ansehen',menuB:'↩ Menü',
+  rematch:'🔄 Rematch',replayB:'🎬 Replay ansehen',menuB:'↩ Menü',fbNewMatch:'🔄 Neues Match',
   creating:'Erstelle Raum…',ffaShare:'FFA · Schick den Code an 1–4 Freunde.',shareCode:'Schick den Code an deinen Kumpel.',
   code4:'Bitte 4-stelligen Code eingeben.',joining:'Trete bei…',noRoom:'Raum nicht gefunden.',roomFull:'Raum ist schon voll.',
   connWait:'Verbunden! Warte auf den Host…',connStart:'Verbunden! Spiel startet…',
@@ -1470,7 +1470,7 @@ tr:{tagline:'GERİ ÇEK · BIRAK · DIŞARI İT',chip:'FEATURED',
   joinTitle:'Odaya katıl',joinSub:'4 haneli oda koduyla katıl.',orLbl:'VEYA',refresh:'YENİLE',
   createRoom:'Oda kur',join:'Katıl',enterCode:'KOD GİR',back:'↩ Geri',yourCode:'KODUN',waitMate:'Rakip bekleniyor…',lobby:'LOBİ',lobbyGo:'▶ Başlat',
   leaveT:'Online maçtan çıkılsın mı?',leaveS:'Rakibin sensiz devam edemez.',leaveNo:'İptal',leaveYes:'Maçtan çık',
-  rematch:'🔄 Rövanş',replayB:'🎬 Tekrarı izle',menuB:'↩ Menü',
+  rematch:'🔄 Rövanş',replayB:'🎬 Tekrarı izle',menuB:'↩ Menü',fbNewMatch:'🔄 Yeni maç',
   creating:'Oda kuruluyor…',ffaShare:'FFA · Kodu 1–4 arkadaşına gönder.',shareCode:'Kodu arkadaşına gönder.',
   code4:'Lütfen 4 haneli kodu gir.',joining:'Katılınıyor…',noRoom:'Oda bulunamadı.',roomFull:'Oda zaten dolu.',
   connWait:'Bağlandı! Host bekleniyor…',connStart:'Bağlandı! Oyun başlıyor…',
@@ -1486,6 +1486,10 @@ tr:{tagline:'GERİ ÇEK · BIRAK · DIŞARI İT',chip:'FEATURED',
 };
 let LANG=(()=>{try{const l=localStorage.getItem('ringout_lang');return I18N[l]?l:'en';}catch(e){return 'en';}})();
 function T(k){return (I18N[LANG]&&I18N[LANG][k])||I18N.en[k]||k;}
+// Beschriftung des Result-Overlay-Primaerbuttons. Arena Football beendet ein MATCH
+// (First-to-3) und startet danach ein neues Match bei 0:0 — in allen anderen Modi bleibt
+// es das unveraenderte Rematch. Eine Quelle fuer applyLang() und gameOver().
+function rematchLabel(){return mode==='football'?T('fbNewMatch'):T('rematch');}
 function applyLang(){
   document.documentElement.lang=LANG;
   document.querySelector('.logo .sub').textContent=T('tagline');
@@ -1536,7 +1540,7 @@ function applyLang(){
   $('lobbyLbl').textContent=T('lobby');$('lobbyStart').textContent=T('lobbyGo');
   $('leaveT').textContent=T('leaveT');$('leaveS').textContent=T('leaveS');
   $('leaveCancel').textContent=T('leaveNo');$('leaveGo').textContent=T('leaveYes');
-  $('rematchBtn').textContent=T('rematch');$('replayBtn').textContent=T('replayB');$('ovMenuBtn').textContent=T('menuB');
+  $('rematchBtn').textContent=rematchLabel();$('replayBtn').textContent=T('replayB');$('ovMenuBtn').textContent=T('menuB');
   selectMenuMode(menuSel);
 }
 $('menuSet').onclick=()=>$('setOv').classList.add('show');
@@ -1637,6 +1641,7 @@ $('nameInput').addEventListener('input',e=>{ setOnlineName(e.target.value);
 $('rejoinBtn').onclick=()=>{ const sr=savedRoom(); if(!sr)return; $('onRejoin').style.display='none';
   attemptRejoin(sr.code).then(ok=>{ if(!ok&&savedRoom()&&!online)$('onRejoin').style.display=''; }); };
 function showMenu(){menuVisible=true;$('menu').style.display='flex';$('game').style.display='none';updateMenuPreview();resize();
+  footballResetMatchState();   // zurueck im Menue: kein Football-Latch, keine Eingabesperre und kein Gewinner bleiben stehen (in anderen Modi wirkungslos)
   if(r3dActive&&r3d&&r3d.flushEnvProfile)r3d.flushEnvProfile();   // waehrend des Matches aufgeschobenen Env-Wechsel jetzt (sicherer Idle) anwenden
   whenFB(()=>{if(fbReady()&&menuVisible)startPublicListing();});updScrollHint();}   // Home-Rooms-Vorschau reaktivieren
 function showGame(){menuVisible=false;$('menu').style.display='none';$('game').style.display='flex';stopPublicListing();updScrollHint();}   // Gameplay-Framing kommt via newGame()->resize()
@@ -2192,7 +2197,7 @@ function placeBalls(){
 
 function newGame(){resize();R=R0;score=[];for(let p=0;p<np();p++)score.push(0);roundNo=1;particles=[];fx3=[];recFrames=[];
   resetCollapseTimer();                              // Rematch/neues Match: Timer 2:00, Collapse-State + Radius zuruecksetzen
-  fbGoalState='play';fbGoalTick=0;                   // neues/verlassenes Football-Match: Torablauf sauber initialisiert (Score startet 0:0)
+  footballResetMatchState();                         // neues/verlassenes Football-Match: Torablauf + Gewinner sauber initialisiert (Score startet 0:0)
   const ffa=mode==='ffa';                            // FFA: kompakte Chip-Leiste statt der 2 Spielerkarten
   $('card0').style.display=ffa?'none':'';$('card1').style.display=ffa?'none':'';
   document.querySelector('.scorebox').style.display=ffa?'none':'';
@@ -2800,8 +2805,13 @@ function footballResolvePost(b){
 const FOOTBALL_GOAL_FALL_TICKS=72;    // Sub-Step-Ticks Ballfall (~1.2 s bei 60 fps; Renderer blendet bei t~1.07 s aus)
 const FOOTBALL_GOAL_SPAWN_TICKS=30;   // Sub-Step-Ticks Spawn-Drop des neutralen Balls (~0.5 s)
 function footballSpawnHeight(){return BR*10;}   // rein visuelle Starthoehe des Spawn-Drops
-let fbGoalState='play';               // 'play' -> 'fall' -> 'spawn' -> 'play'
+// FIRST-TO-3: Arena Football 1v1 laeuft bis zum ersten Score >= FOOTBALL_WIN_SCORE.
+// Keine Zwei-Tore-Differenz, kein Zeitlimit, keine Verlaengerung, kein Unentschieden.
+// Eigentore zaehlen regulaer (entscheidend ist allein das ueberquerte Tor, s. footballGoalSide).
+const FOOTBALL_WIN_SCORE=3;
+let fbGoalState='play';               // 'play' -> 'fall' -> 'spawn' -> 'play'; entscheidendes Tor: 'play' -> 'fall' -> 'result' (Endzustand)
 let fbGoalTick=0;                     // deterministischer Tickzaehler (kein setTimeout, keine Wanduhr)
+let footballWinner=null;              // 0=Blau, 1=Rot, null=Match laeuft — KANONISCHE Quelle, nie aus DOM-Text/Farbe abgeleitet
 // Laeuft gerade ein Torablauf? Sperrt jede Benutzereingabe (s. inputLocked).
 function footballGoalBusy(){return mode==='football'&&fbGoalState!=='play';}
 // Zentrale Goal-Detection. Rueckgabe: 0 = Punkt Blau (+X-Tor), 1 = Punkt Rot (-X-Tor),
@@ -2826,6 +2836,10 @@ function footballTryGoal(b){
   const side=footballGoalSide(b);
   if(side<0)return;
   score[side]=(score[side]||0)+1;
+  // First-to-3 wird GENAU HIER geprueft — an der einzigen Stelle, die den Football-Score
+  // erhoeht. Der Gewinner steht damit bereits fest, das Matchende folgt aber erst nach dem
+  // vollstaendigen Ballfall (footballTickGoal): 'play' -> 'fall' -> 'result'.
+  if(score[side]>=FOOTBALL_WIN_SCORE)footballWinner=side;
   fbGoalState='fall';fbGoalTick=0;
   cancelAimDrag();                    // laufende Eingabe sauber abbrechen
   footballFreezePlayers();
@@ -2840,14 +2854,38 @@ function footballResetRound(){
 // Tickgetriebene Zustandsmaschine des Torablaufs. Laeuft ausschliesslich in stepSim und
 // damit im selben Fixed-Step wie die Physik — deterministisch und ohne setTimeout-Kaskade.
 function footballTickGoal(){
+  // 'result' ist der ENDZUSTAND des Matches: kein Tick, kein Reset, kein Spawn, keine
+  // Rueckkehr nach 'play'. Er bleibt stabil, bis der Nutzer ein neues Match startet
+  // (footballResetMatchState) oder den Modus verlaesst.
+  if(fbGoalState==='result')return;
   fbGoalTick++;
   if(fbGoalState==='fall'&&fbGoalTick>=FOOTBALL_GOAL_FALL_TICKS){
+    // TICKGRENZE DES MATCHENDES: der Ballfall des entscheidenden Tores laeuft exakt so lange
+    // wie jeder andere (FOOTBALL_GOAL_FALL_TICKS = 72 Sub-Step-Ticks) und wird nicht abrupt
+    // abgeschnitten. Erst danach 'fall' -> 'result'. Die 'spawn'-Phase wird bewusst
+    // UEBERSPRUNGEN: nach dem Sieg gibt es keinen Rundenreset und faellt kein neuer Ball
+    // in die Arena.
+    if(footballWinner!==null){fbGoalState='result';fbGoalTick=0;footballMatchEnd();return;}
     footballResetRound();fbGoalState='spawn';fbGoalTick=0;return;
   }
   if(fbGoalState==='spawn'&&fbGoalTick>=FOOTBALL_GOAL_SPAWN_TICKS){
     fbGoalState='play';fbGoalTick=0;startRound();   // gibt Eingabe/Planungsphase regulaer wieder frei
   }
 }
+// AUTORITATIVES MATCHENDE. Uebergibt an die BESTEHENDE Result-Struktur (gameOver -> phase
+// 'over' + Overlay #ov) — keine zweite Matchengine, keine eigene Praesentationsschicht.
+// Der Uebergang selbst faellt deterministisch in footballTickGoal (Fixed-Step), nicht in
+// einem Timeout. phase='over' haelt zugleich die Hauptschleife an: stepSim laeuft nur in
+// phase==='sim', damit gibt es ab hier keine Physikintegration, keine Goal Detection,
+// keinen Rundenstart und keine weitere Scoreaenderung.
+function footballMatchEnd(){
+  cancelAimDrag();                    // offener Drag/Pointer-Capture sauber weg
+  footballFreezePlayers();
+  gameOver(footballWinner);
+}
+// ZENTRALE Initialisierung des Football-Matchzustands: neues Match, Moduswechsel, Menue.
+// Score/Kugeln/Aim-Zustaende setzt der bestehende Pfad newGame() -> startRound() -> placeBalls().
+function footballResetMatchState(){fbGoalState='play';fbGoalTick=0;footballWinner=null;}
 function stepSim(){
   const FR=curFR(),FE=curFE();
   // Torablauf: Spieler stehen still, bevor ueberhaupt integriert wird. Der neutrale Ball
@@ -3020,7 +3058,11 @@ function gameOver(winner){setPhase('over');setPhaseText();
   $('wt').textContent=winTxt;
   $('wt').className='wt w'+winner;
   $('ws').textContent=T('finalScore')+' · '+(team?score.slice(0,2):score).join(' : ');
-  $('rematchBtn').style.display='';$('replayBtn').style.display='';
+  $('rematchBtn').style.display='';$('replayBtn').style.display=mode==='football'?'none':'';
+  // Football: derselbe Primaerbutton startet ein NEUES MATCH bei 0:0 (newGame). Der Replay-
+  // Pfad spult Runden ueber phase 'sim'/'result' zurueck — den kennt der Football-Torablauf
+  // nicht, deshalb bleibt er hier ausgeblendet. Alle anderen Modi unveraendert.
+  $('rematchBtn').textContent=rematchLabel();
   SFX.win();setTimeout(()=>$('ov').classList.add('show'),500);}
 
 // ════ ONLINE (Firebase Realtime DB · Lockstep) ════
@@ -4802,8 +4844,12 @@ async function initR3D(){
         // herunter. Bewusst DERSELBE kosmetische Fallpfad wie beim Ring-out (Gravity, Drift,
         // Rollen) — keine zweite Fall-Implementierung, kein Eingriff in die planare Physik.
         // b.alive bleibt true, deshalb laeuft die x/y-Position live weiter.
+        // Football-Matchende: der bereits gefallene neutrale Ball bleibt im Resultzustand
+        // unten. Reine Fortsetzung DESSELBEN Falls (kein Reset, keine zweite Animation) —
+        // ohne das wuerde er beim Wechsel 'fall' -> 'result' hinter der Bande wieder auftauchen.
         const out=(!b.alive)||((phase==='result'||phase==='over')&&i===outBall)
-          ||(mode==='football'&&fbGoalState==='fall'&&b.owner===FOOTBALL_NEUTRAL_OWNER);
+          ||(mode==='football'&&fbGoalState==='fall'&&b.owner===FOOTBALL_NEUTRAL_OWNER)
+          ||(mode==='football'&&fbGoalState==='result'&&b.owner===FOOTBALL_NEUTRAL_OWNER);
         if(out){
           if(fallT[i]==null){fallT[i]=nowS;
             let fvx=b.vx,fvy=b.vy;                     // echte letzte Geschwindigkeit (nur lesend) …
