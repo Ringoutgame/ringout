@@ -3505,7 +3505,11 @@ const BARRIER_HALF=BARRIER_SPAN/2;                       // halbe Breite -> 15 G
 // Werte verworfen, dedupliziert, aufsteigend sortiert. Die Eingabereihenfolge kann
 // das Ergebnis dadurch nicht beeinflussen, und dieselbe Nummer mehrfach ergibt genau
 // EINEN Collider. Fehlt der Parameter, bleibt es bei der Einzelwand aus Etappe 4.
-const BARRIER_MULTI_SEGS=(()=>{
+// Bewusst eine BENANNTE Funktion statt einer sofort aufgerufenen: der E2E-Harness
+// verankert seinen Adapter am letzten IIFE-Close-Token "\n})();" und prueft, dass es
+// genau dreimal vorkommt. Eine weitere top-level IIFE wuerde diese Verankerung
+// brechen — sichtbar erst in den Emulator-E2E-Runnern, nicht in den Offline-Suiten.
+function barrierParseMultiSegs(){
   const raw=new URLSearchParams(location.search).get('bsegs');
   if(raw==null)return null;
   const out=[];
@@ -3515,7 +3519,8 @@ const BARRIER_MULTI_SEGS=(()=>{
   }
   out.sort((a,b)=>a-b);
   return out.length?out:null;
-})();
+}
+const BARRIER_MULTI_SEGS=barrierParseMultiSegs();
 const BARRIER_MULTI=BARRIER_MULTI_SEGS!==null;
 // Massgebliche Segmentliste: in der Physikphase die beim Reveal gebildete Zugliste,
 // in der Planungsphase die Vorschau des von der Debug-UI gesteuerten Seats.
