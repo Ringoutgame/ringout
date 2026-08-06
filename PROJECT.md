@@ -1,6 +1,6 @@
 # PROJECT.md — RingOut
 
-**Zuletzt aktualisiert:** 2026-08-06 (Arena-Football-Physik 4B-3: GLIDE als finaler Standard, Anti-Wedge — lokal, kein Push)
+**Zuletzt aktualisiert:** 2026-08-06 (Arena Football: UX-Phasen 1 und 2 abgeschlossen — Torzuordnung, Kugellabels, Match-HUD; stabiler HEAD `c4c91357ce3b33cfb126a95726d523d0ec1e75b1`)
 
 ---
 
@@ -93,6 +93,51 @@ keinen URL-Parameter** — Produktionsphysik hängt nicht von der Adresszeile ab
 - Tests: `tools/test_football_shell.js` (Struktur, Werte, Abgrenzung) und
   `tools/test_football_flow.js` (Wirkungsmessung, 43 Szenarien gegen die
   Vergleichsmodelle CURRENT und ICE, die **nicht produktiv** sind).
+
+### Arena-Football-UX (Phasen 1 und 2, im Browser freigegeben)
+Stabiler Stand: HEAD `c4c91357ce3b33cfb126a95726d523d0ec1e75b1`
+(UX-Phase 1 `e162c51`, UX-Phase 2 `c4c9135`).
+
+**Spielfeld**
+- Keine Namenslabels über den Football-Kugeln. Der neutrale Ball ist damit auch
+  semantisch klar: `pName(owner 4)` hatte ihn als „Spieler 5" beschriftet, obwohl er
+  keinem Spieler gehört.
+- Die Tore sind farblich zugeordnet — jedes trägt die Farbe der Mannschaft, die es
+  **verteidigt**: **blaues Tor bei −X**, **rotes Tor bei +X**. Das ist spiegelbildlich zur
+  Wertung (`footballGoalSide`: Durchtritt bei +X = Punkt für Blau) und passt zur
+  Startaufstellung (Blau links, Rot rechts).
+- Getragen wird die Zuordnung von drei Akzenten aus Bauteilen, die bereits im Asset
+  stecken: farbige Torlinie im Randweg (Breite und Bogen aus `footballGoalClearHalf()`
+  abgeleitet), Emblem-Inset `AF_Goal_Emblem` und ein dezenter Schimmer auf der vorderen
+  Gold-Keyline. Adressiert über den **Objektnamen**, weil alle Goldteile dasselbe Material
+  teilen. Marmor, Glas, Torform und GLBs sind unverändert.
+
+**Match-HUD**
+- Kompaktes Score-Panel: **BLAU links · Score zentral · ROT rechts**, darunter der
+  Untertitel **`ERSTER BIS 3`**.
+- Score-Reaktion beim Tor ist **rein visuell** (460 ms Skalierung der geänderten Ziffer
+  plus Teamfarben-Schimmer), ohne Rückwirkung auf die Wertung.
+- Bewusst nicht vorhanden: sekundäre Statuswörter („zielt…"/„bereit" sind im Football
+  ausgeblendet), Matchstart-Hinweis (gebaut und nach dem Browsertest wieder zurückgebaut)
+  und die alte Statuszeile der Integrations-Shell. Die echte Fehlermeldung
+  „3D-Szene nicht verfügbar" bleibt erhalten — sie meldet einen nicht spielbaren Zustand.
+
+**Architektur und Abgrenzung**
+- Das HUD liest ausschließlich das bestehende `score[]` und nutzt die bestehende
+  Statusleiste (`#card0` | `.scorebox` | `#card1`) — **keine zweite Score-Engine**.
+- Die First-to-N-Anzeige nimmt die Zahl ausschließlich aus `FOOTBALL_WIN_SCORE`; die
+  i18n-Einträge `fbFirstTo` (de/en/tr) enthalten nur den Platzhalter `{n}`. Angezeigt wird
+  die deutsche Fassung, weil die gesamte In-Game-Ebene deutsch ist und `LANG` ohne
+  gespeicherte Auswahl auf `'en'` fällt — die globale Sprachlogik ist unangetastet.
+- CSS und Verhalten sind vollständig football-gescoped: jede HUD-Regel hängt an
+  `#game.fb`, die Kugellabels sind über `mode!=='football'` übersprungen. Eine Assertion
+  prüft das Scoping maschinell über den gesamten CSS-Block.
+- Andere Modi und das Result-Overlay sind unverändert. Keine Änderung an Physik,
+  Gameplay, Kamera, Beleuchtung, GLBs oder Netzwerk.
+
+**Teststand nach beiden Phasen:** Football-Shell 589/0 · Football-Flow 118/0 ·
+Golden-Physik 13/0 · Ring-Collapse 235/0. Die fünf bekannten Legacy-Suiten bleiben rot
+(siehe „Bekannte Einschränkungen"), keine neue Suite rot.
 
 ### Bot-KI
 - **Leicht:** Zufallswinkel ±60°, Zufallskraft *(nur `?dev=1`)*

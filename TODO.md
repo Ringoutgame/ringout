@@ -1,6 +1,6 @@
 # TODO.md — RingOut
 
-**Zuletzt aktualisiert:** 2026-08-06 (Arena-Football-Physik 4B-3: GLIDE als finaler Standard, Anti-Wedge — lokal, kein Commit/Push)
+**Zuletzt aktualisiert:** 2026-08-06 (Arena Football: UX-Phasen 1 und 2 abgeschlossen und gepusht — Torzuordnung, Kugellabels, Match-HUD)
 
 Offene Aufgaben nach Priorität. Abgeschlossene Aufgaben werden nach `CHANGELOG.md` verschoben.
 
@@ -48,7 +48,13 @@ Offene Aufgaben nach Priorität. Abgeschlossene Aufgaben werden nach `CHANGELOG.
 
 ## P2 — Mittel (Spieler-Erfahrung)
 
-- [x] ~~**Arena-Football-Physik: Audit, Anti-Pinning, Tuning (Phasen 4A–4B-3)**~~ → **abgeschlossen, GLIDE im Browser freigegeben (2026-08-06, lokal — kein Commit/Push)**: `FOOTBALL_PHYS` als einziger Produktivstandard (`friction 0.9968`, `fend 0.9935`, `stopv 0.035`, `restBall 0.40`, `restBand 0.52`, `restPost 0.47`), `FOOTBALL_CONTACT_ITERATIONS = 3`, getrennte Restitution nach Kontaktart, deterministische Wedge-Erkennung mit energieneutralem Escape. CURRENT und ICE verworfen und nur noch testintern. Siehe CHANGELOG und `artifacts/football-physics-audit/README.md`.
+- [x] ~~**Arena Football UX-Phase 2: Match-HUD**~~ → **abgeschlossen, im Browser freigegeben und gepusht (2026-08-06, Commit `c4c9135`)**: kompaktes Score-HUD `BLAU | 0 : 0 | ROT` mit Untertitel `ERSTER BIS 3`; nutzt die bestehende Statusleiste und `score[]` (keine zweite Score-Engine), Zahl aus `FOOTBALL_WIN_SCORE`, kurze rein visuelle Score-Reaktion beim Tor. Mit erledigt: First-to-3-Anzeige, Entfernen der sekundären Statuswörter „zielt…"/„bereit" (nur football-gescoped) und Entfernen der alten Integrationsmeldung „Arena Football · Visuelle Integration" unten. Die echte 3D-Fehlermeldung und das Result-Overlay bleiben unverändert. Siehe CHANGELOG.
+
+- [x] ~~**Arena Football UX-Phase 1: Torzuordnung und Kugellabels**~~ → **abgeschlossen, im Browser freigegeben und gepusht (2026-08-06, Commit `e162c51`)**: keine Namenslabels mehr über den Football-Kugeln (der neutrale Ball wird dadurch nicht länger fälschlich als „Spieler 5" beschriftet); Tore teamfarbig zugeordnet — Blau verteidigt −X, Rot verteidigt +X — über farbige Torlinie im Randweg, Emblem-Inset und einen dezenten Schimmer auf der vorderen Gold-Keyline. Alles nur mode-gescoped, keine GLB-Änderung. Siehe CHANGELOG.
+
+- [x] ~~**Arena Football: Matchstart-Angriffshinweis**~~ → **verworfen (2026-08-06)**: ein kurzer Hinweis „BLAU → ROT · ROT → BLAU" war in UX-Phase 2 gebaut und wurde nach dem Browsertest bewusst wieder **vollständig zurückgebaut** (DOM, CSS, Timer, `newGame()`-Hook, Tests). **Nicht erneut aufgreifen** — auch nicht als dauerhafter Angriffshinweis, als Pfeile im Spielfeld oder als Tutorialbox. Die Zuordnung trägt die Torfarbe aus UX-Phase 1.
+
+- [x] ~~**Arena-Football-Physik: Audit, Anti-Pinning, Tuning (Phasen 4A–4B-3)**~~ → **abgeschlossen, GLIDE im Browser freigegeben und gepusht (2026-08-06, Commit `24fa968`)**: `FOOTBALL_PHYS` als einziger Produktivstandard (`friction 0.9968`, `fend 0.9935`, `stopv 0.035`, `restBall 0.40`, `restBand 0.52`, `restPost 0.47`), `FOOTBALL_CONTACT_ITERATIONS = 3`, getrennte Restitution nach Kontaktart, deterministische Wedge-Erkennung mit energieneutralem Escape. CURRENT und ICE verworfen und nur noch testintern. Siehe CHANGELOG und `artifacts/football-physics-audit/README.md`.
 
 - [ ] **Arena Football: Massenmodell prüfen (2026-08-06, aus dem 4A-Audit):** Neutral- und Spielerball sind physikalisch identisch (`imp = -(1+RB)·vn/2`, m = 1 fest verdrahtet). Der Schütze behält bei `restBall = 0.40` 30 % seiner Geschwindigkeit in Passrichtung und läuft seinem eigenen Pass hinterher. Ein leichterer Neutralball (Audit-Vorschlag 0.55–0.75 bei Spieler = 1.0) würde das lösen **und** das verbliebene exakt frontale 1D-Pinning entschärfen. Bewusst zurückgestellt: eigene Phase mit eigener Freigabe, da es das Spielgefühl breit verändert.
 
