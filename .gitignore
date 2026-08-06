@@ -21,3 +21,8 @@ assets/textures/
 
 # Blender-Master (regenerierbar via tools/build_arena_platform.py)
 assets/*.blend
+
+# Licensed local source file; redistribution not permitted
+# (Pixabay Content License: keine Standalone-Weitergabe der unbearbeiteten Datei.
+#  Der produktive Schnitt bleibt getrackt — Herkunft/Lizenz: assets/audio/README.md)
+assets/audio/Goal sound Arena Football.mp3
