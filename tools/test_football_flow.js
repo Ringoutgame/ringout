@@ -131,8 +131,11 @@ function buildEnv(ci, preset) {
     let curAimer=0, bgPulse=0, bgPulseRGB='', ffaN=2, myPlayer=0, online=false;
     let mode='football', fmt='single';
     // Effekt-Zaehler: belegt, dass die Nachiterationen KEIN zweites Treffer-Feedback ausloesen.
-    let sfxHits=0, spawnCalls=0;
-    const SFX={hit(){sfxHits++;},drop(){},ringout(){},launch(){},round(){},win(){},rollUpdate(){},unlock(){}};
+    // goalSounds/goalSoundMatchPoints belegen zusaetzlich die Einmalgarantie des Tor-Audios.
+    let sfxHits=0, spawnCalls=0, goalSounds=0, goalSoundMatchPoints=0, goalSoundStops=0;
+    const SFX={hit(){sfxHits++;},drop(){},ringout(){},launch(){},round(){},win(){},rollUpdate(){},unlock(){},
+               footballGoal(mp){goalSounds++;if(mp)goalSoundMatchPoints++;},
+               footballGoalPreload(){},footballGoalStop(){goalSoundStops++;}};
     function spawn(){spawnCalls++;} function popBall(){} function winnerRGB(){return '';}
     let r3dActive=false; function fx3Hit(){} function fx3Dust(){}
     function setPhase(p){phase=p;} function updateHud(){} function setPhaseText(){}
@@ -210,7 +213,8 @@ function buildEnv(ci, preset) {
         maxPull:maxPull(), maxLaunchV:maxPull()*LAUNCH}; },
       reset(){ balls=[]; phase='sim'; outBall=-1; roundWinner=-1; score=[0,0];
                fbGoalState='play'; fbGoalTick=0; footballWinner=null;
-               sfxHits=0; spawnCalls=0; gameOverCalls=[]; },
+               sfxHits=0; spawnCalls=0; gameOverCalls=[];
+               goalSounds=0; goalSoundMatchPoints=0; goalSoundStops=0; },
       setMode(m){ mode=m; }, mode(){ return mode; },
       setBalls(list){ balls=list.map(b=>({x:b.x,y:b.y,vx:b.vx||0,vy:b.vy||0,sx:b.x,sy:b.y,
                        owner:b.owner,alive:true,spin:b.spin||0})); phase='sim'; },
@@ -224,6 +228,7 @@ function buildEnv(ci, preset) {
       winner(){ return footballWinner; },
       overCalls(){ return gameOverCalls.slice(); },
       fx(){ return {sfxHits, spawnCalls}; },
+      goalAudio(){ return {goalSounds, goalSoundMatchPoints, goalSoundStops}; },
       passedFlags(){ return balls.map(b=>!!b.fbPassed); },
       place(){ placeBalls(); return balls.map(b=>({x:b.x,y:b.y,owner:b.owner})); },
       get(){ return balls.map(b=>({x:b.x,y:b.y,vx:b.vx,vy:b.vy,owner:b.owner,
@@ -1474,6 +1479,85 @@ console.log('   Fingerprint Wiederholung ci=' + CI_PROD + '       : ' + fpNew2.s
 for (const p of PRESETS)
   console.log('   Fingerprint Preset ' + pad(p, 18) + ': ' + fpPreset[p].slice(0, 32) +
               '  (Wiederholung ' + (fpPreset[p] === fpPreset2[p] ? 'identisch' : 'ABWEICHEND') + ')');
+
+// ════════════════════════════════════════════════════════════════════════════
+// TOR-AUDIO (Audio-Phase 2): Einmalgarantie am LAUFENDEN Torablauf.
+// Der SFX-Stub zaehlt nur Aufrufe — geprueft wird, WANN und WIE OFT der
+// Torablauf den Sound anstoesst, nicht die Audioausgabe selbst.
+// ════════════════════════════════════════════════════════════════════════════
+{
+  const env = buildEnv(3, 'CURRENT');
+  const shootNeutral = () => env.setBalls([{ x: cx, y: cy, vx: 5.0, vy: 0, owner: 4 }]);
+  const runToGoal = () => { let f = 0; while (f++ < 900 && env.goalState() === 'play') env.step(); };
+  const runToPlay = () => {
+    let f = 0;
+    while (f++ < 900 && env.goalState() !== 'play' && env.goalState() !== 'result') env.step();
+  };
+
+  // ── Ein Tor = genau ein Sound, und zwar erst mit der bestaetigten Wertung ──
+  env.reset();
+  shootNeutral();
+  ok(env.goalAudio().goalSounds === 0, 'vor dem Tor ist kein Torsound ausgeloest');
+  runToGoal();
+  const g1 = env.goalAudio();
+  ok(g1.goalSounds === 1, 'ein bestaetigtes Tor loest GENAU EINEN Torsound aus (' + g1.goalSounds + ')');
+  ok(g1.goalSoundMatchPoints === 0, 'ein Tor ohne Matchpunkt nutzt die normale Variante');
+  ok(env.score()[0] + env.score()[1] === 1, 'der Sound haengt an genau einer Scoreerhoehung');
+
+  // ── Fall, Celebration, Reset und Spawn loesen KEINEN weiteren Sound aus ──
+  runToPlay();
+  ok(env.goalAudio().goalSounds === 1,
+     'Ballfall, Celebration Window, Rundenreset und Spawn bleiben still (' + env.goalAudio().goalSounds + ')');
+  ok(env.goalState() === 'play', 'der Torablauf ist regulaer zurueck in \'play\'');
+  for (let k = 0; k < 200; k++) env.step();
+  ok(env.goalAudio().goalSounds === 1, 'auch die folgende freie Spielphase loest keinen Torsound aus');
+
+  // ── Torprobe ohne Wertung: Pfostentreffer bleibt still ──
+  env.reset();
+  env.setBalls([{ x: cx, y: cy + y0 + 1, vx: 5.0, vy: 0, owner: 4 }]);
+  for (let k = 0; k < 900 && env.goalState() === 'play'; k++) env.step();
+  ok(env.score()[0] + env.score()[1] === 0 && env.goalAudio().goalSounds === 0,
+     'Pfostentreffer ohne Wertung loest keinen Torsound aus');
+
+  // ── Spielerkugel an der Barriere: kein Tor, kein Sound ──
+  env.reset();
+  env.setBalls([{ x: cx, y: cy, vx: 5.0, vy: 0, owner: 0 }]);
+  for (let k = 0; k < 900 && env.phase() === 'sim'; k++) env.step();
+  ok(env.goalAudio().goalSounds === 0, 'die blockierte Spielerkugel loest keinen Torsound aus');
+
+  // ── Ausserhalb des Football-Modus gibt es keinen Torsound ──
+  env.reset();
+  env.setMode('bot');
+  env.setBalls([{ x: cx, y: cy, vx: 5.0, vy: 0, owner: 4 }]);
+  for (let k = 0; k < 900 && env.phase() === 'sim'; k++) env.step();
+  ok(env.goalAudio().goalSounds === 0, 'in anderen Modi wird der Torsound nie angestossen');
+  env.setMode('football');
+
+  // ── Mehrere Tore: je Tor genau ein Sound; erst das Siegtor ist Matchpunkt ──
+  env.reset();
+  const perGoal = [];
+  for (let g = 0; g < 3; g++) {
+    shootNeutral();
+    runToGoal();
+    perGoal.push({ sounds: env.goalAudio().goalSounds, mp: env.goalAudio().goalSoundMatchPoints,
+                   winner: env.winner() });
+    if (env.winner() === null) runToPlay();
+  }
+  ok(perGoal.map((p) => p.sounds).join(',') === '1,2,3',
+     'drei Tore ergeben exakt drei Torsounds (' + perGoal.map((p) => p.sounds).join(',') + ')');
+  ok(perGoal[0].mp === 0 && perGoal[1].mp === 0,
+     'die beiden Tore vor der Entscheidung nutzen die normale Variante');
+  ok(perGoal[2].mp === 1 && perGoal[2].winner !== null,
+     'genau das Siegtor nutzt die Matchpunktvariante');
+  ok(env.score()[0] === 3, 'First-to-3 ist erreicht — der Matchpunkt haengt am kanonischen Gewinner');
+
+  // ── Matchende schneidet den Siegtor-Sound nicht ab ──
+  runToPlay();
+  ok(env.goalState() === 'result', 'der Torablauf endet regulaer im Endzustand \'result\'');
+  ok(env.goalAudio().goalSounds === 3, 'das Matchende loest keinen weiteren Torsound aus');
+  ok(env.goalAudio().goalSoundStops === 0,
+     'das Matchende stoppt den laufenden Siegtor-Sound NICHT (er laeuft natuerlich aus)');
+}
 
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

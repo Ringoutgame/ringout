@@ -15,8 +15,8 @@ const path = require('path'), { spawnSync } = require('child_process');
 const SUITES = [
   { name: 'Syntax',           file: 'test_syntax.js',         expectPassed: null },
   { name: 'Golden-Physik',    file: 'test_physics_golden.js', expectPassed: 13 },
-  { name: 'Football-Shell',   file: 'test_football_shell.js', expectPassed: 738 },
-  { name: 'Football-Flow',    file: 'test_football_flow.js',  expectPassed: 118 },
+  { name: 'Football-Shell',   file: 'test_football_shell.js', expectPassed: 796 },   // 738 + 50 Tor-Audio (Phase 2) + 8 Schnitt/Timing (Phase 2B)
+  { name: 'Football-Flow',    file: 'test_football_flow.js',  expectPassed: 135 },   // 118 + 17 Tor-Audio (Audio-Phase 2)
   { name: 'r3d-Mapping',      file: 'test_r3d_mapping.js',    expectPassed: 52 },
   { name: 'Sanitize',         file: 'test_sanitize.js',       expectPassed: 24 },
   { name: 'Identity',         file: 'test_identity.js',       expectPassed: 45 },

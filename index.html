@@ -1652,7 +1652,7 @@ $('modePrev').onclick=()=>stepMenuMode(-1);
 $('modeNext').onclick=()=>stepMenuMode(1);
 $('ctaBtn').onclick=()=>{
   SFX.unlock();
-  if(menuSel==='football'){if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);if(!r3dActive){toast('Arena Football benötigt die echte 3D-Szene (nicht verfügbar).');return;}mode=menuMode='football';fmt='single';online=false;showGame();newGame();return;}   // Arena-Football-Integrations-Shell (nur echte 3D-Szene)
+  if(menuSel==='football'){if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);if(!r3dActive){toast('Arena Football benötigt die echte 3D-Szene (nicht verfügbar).');return;}mode=menuMode='football';fmt='single';online=false;SFX.footballGoalPreload();showGame();newGame();return;}   // Arena-Football-Integrations-Shell (nur echte 3D-Szene); Torsound aus dieser Geste vorladen
   if(menuSel==='bot'){if(SFX.click())vibrateMs(VIBE_CLICK_MS);$('botOv').classList.add('show');return;}       // Format-Auswahl: 1v1 / 2v2 Duo vs Bot
   if(TUNE){if(SFX.click())vibrateMs(VIBE_CLICK_MS);toast('Tuning aktiv — Online deaktiviert');return;}
   // "Play Online FFA": normaler Klick, aber weiterhin die deutlichere Vibration
@@ -1728,6 +1728,7 @@ $('rejoinBtn').onclick=()=>{ const sr=savedRoom(); if(!sr)return; $('onRejoin').
 function showMenu(){menuVisible=true;$('menu').style.display='flex';$('game').style.display='none';updateMenuPreview();resize();
   applyFootballHud();          // Football-HUD-Klasse, Anstosshinweis und Score-Animation restlos abraeumen
   footballResetMatchState();   // zurueck im Menue: kein Football-Latch, keine Eingabesperre und kein Gewinner bleiben stehen (in anderen Modi wirkungslos)
+  SFX.footballGoalStop();      // ein noch laufender Torsound blendet weich aus, statt ins Menue hineinzuklingen
   if(r3dActive&&r3d&&r3d.flushEnvProfile)r3d.flushEnvProfile();   // waehrend des Matches aufgeschobenen Env-Wechsel jetzt (sicherer Idle) anwenden
   whenFB(()=>{if(fbReady()&&menuVisible)startPublicListing();});updScrollHint();}   // Home-Rooms-Vorschau reaktivieren
 function showGame(){menuVisible=false;$('menu').style.display='none';$('game').style.display='flex';stopPublicListing();updScrollHint();}   // Gameplay-Framing kommt via newGame()->resize()
@@ -1822,10 +1823,80 @@ const SFX=(()=>{
     const g=cc.createGain();g.gain.value=0;g.connect(cc.destination);
     const s=cc.createBufferSource();s.buffer=rollBuf;s.loop=true;s.connect(g);s.start();
     return{g,s};}
+  // ── Arena-Football-Torsound: AUSSCHLIESSLICH echtes Asset ──────────────────
+  // Produktivschnitt aus der Rohquelle (Variante 2, 5.168-6.785 s), 48 kHz Stereo,
+  // 1.618 s, Peak -1.3 dBFS, Vorlauf 35 ms bis zum Hauptimpact. Herkunft und Lizenz:
+  // assets/audio/README.md. Die unbearbeitete Rohquelle ist reine Entwicklungsvorlage,
+  // liegt NICHT im Repository (Pixabay-Lizenz: keine Standalone-Weitergabe) und wird
+  // zur Laufzeit nie geladen.
+  // Bewusst dieselbe Mechanik wie der Rollsound (fetch -> decodeAudioData -> Buffer,
+  // Formatliste in Praeferenzfolge, genau EIN Ladeversuch pro Seitenladen): kein
+  // zweiter AudioContext, keine zweite Audio-Engine. Fehlt das Asset oder scheitert
+  // der Decode, bleibt das Tor still — kein prozeduraler Ersatzton.
+  const FB_GOAL_SRCS=['assets/audio/arena_football_goal.ogg','assets/audio/arena_football_goal.mp3'];
+  // Zentraler Lautstaerkeparameter des Torsounds. Asset-Peak -1.3 dBFS x 0.80 = ~0.69
+  // Ausgangspegel: deutlich ueber Roll (~0.28) und Hit (~0.50), also klar der belohnende
+  // Hoehepunkt, aber ohne Clipping und ohne Schreckmoment -> kein eigener Limiter noetig.
+  const FOOTBALL_GOAL_ASSET_GAIN=0.80;
+  // Matchpunkt: derselbe Schnitt, nur minimal angehoben. Die eigentliche Aufwertung leisten
+  // das laengere Celebration Window und das Result-Overlay — kein Pitch-Gimmick, keine Extraschicht.
+  const FOOTBALL_GOAL_MATCHPOINT_GAIN_MUL=1.06;
+  const FB_GOAL_STOP_FADE=0.08;         // s: weiches Ausblenden beim Modus-/Matchwechsel (kein harter Klick)
+  let fbGoalBuf=null,fbGoalLoad=0;      // 0=nie versucht 1=laedt 2=bereit 3=fehlt->still
+  const fbGoalVoices=new Set();         // lebende Quellen -> Cleanup beim Modus-/Matchwechsel
+  function loadFootballGoalAsset(cc){
+    if(fbGoalLoad!==0)return;
+    fbGoalLoad=1;
+    (async()=>{
+      for(const src of FB_GOAL_SRCS){
+        try{
+          const r=await fetch(src);if(!r.ok)continue;                 // 404 -> naechstes Format
+          fbGoalBuf=await cc.decodeAudioData(await r.arrayBuffer());  // Decode-Fehler -> naechstes Format
+          fbGoalLoad=2;return;
+        }catch(e){}
+      }
+      fbGoalLoad=3;                     // kein Asset -> bewusst still, kein weiterer Versuch
+    })();                               // bewusst kein await/Fehlerpfad nach aussen: Laden darf Gameplay nie blockieren
+  }
+  function releaseGoalVoice(v){
+    if(!fbGoalVoices.delete(v))return;
+    try{v.src.disconnect();}catch(e){}
+    try{v.g.disconnect();}catch(e){}
+  }
   return{
     charge,
     // Erzwingt Context-Erzeugung/-Resume aus einer User-Geste (Mobile-Autoplay-Unlock)
     unlock(){if(soundOn)try{ac();}catch(e){}},
+    // Kontrolliertes Preload aus der User-Geste, die Arena Football startet: der Context ist
+    // hier bereits entsperrt, das erste Tor spielt damit ohne Ladeverzoegerung. Rein optional —
+    // faellt es aus, laedt footballGoal() beim ersten Tor nach (dann ggf. still).
+    footballGoalPreload(){if(soundOn)try{loadFootballGoalAsset(ac());}catch(e){}},
+    // GENAU EIN Aufruf pro bestaetigtem Tor (einziger Aufrufer: footballTryGoal, das nur aus
+    // 'play' wertet — dieselbe Einmalgarantie wie footballGoalFxTrigger). Jedes Tor bekommt
+    // eine FRISCHE BufferSource an einem eigenen Gain: schnelle Wiederholungen ueberlagern
+    // sauber, statt sich einen Wiedergabecursor zu teilen.
+    footballGoal(matchPoint){
+      go(c=>{
+        if(fbGoalLoad===0)loadFootballGoalAsset(c);
+        if(fbGoalLoad!==2)return;                  // laedt noch oder fehlt -> Tor laeuft still weiter
+        const g=c.createGain();
+        g.gain.value=FOOTBALL_GOAL_ASSET_GAIN*(matchPoint?FOOTBALL_GOAL_MATCHPOINT_GAIN_MUL:1);
+        g.connect(c.destination);
+        const src=c.createBufferSource();src.buffer=fbGoalBuf;src.connect(g);
+        const v={src,g};fbGoalVoices.add(v);
+        src.onended=()=>releaseGoalVoice(v);       // Quelle nach Ablauf freigeben -> kein Node-Leak
+        src.start(c.currentTime);
+      });
+    },
+    // Modus verlassen / neues Match / Menue: laufenden Torsound weich ausblenden. Der dekodierte
+    // Buffer bleibt bewusst im Cache — spaetere Matches starten ohne erneutes Laden.
+    footballGoalStop(){
+      if(!c||!fbGoalVoices.size)return;
+      for(const v of Array.from(fbGoalVoices)){
+        try{v.g.gain.setTargetAtTime(.0001,c.currentTime,FB_GOAL_STOP_FADE/3);}catch(e){}
+        try{v.src.stop(c.currentTime+FB_GOAL_STOP_FADE);}catch(e){}   // onended -> releaseGoalVoice
+      }
+    },
     // Pro Frame aus loop(): Gain/Rate aus der schnellsten lebenden Kugel
     rollUpdate(bs,active){
       if(!c||c.state!=='running')return;
@@ -1919,6 +1990,15 @@ const SFX=(()=>{
 })();
 // Mobile-Autoplay: der erste Touch/Klick irgendwo entsperrt den AudioContext aus der Geste heraus
 window.addEventListener('pointerdown',()=>SFX.unlock(),{once:true});
+// Dev-Hoerprobe des Torsounds (?dev=1): G = normales Tor, Shift+G = Matchpunkt. Ruft
+// ausschliesslich die Audioausgabe auf — kein Score, kein Goal-State, keine Animation.
+// Der Listener wird ohne ?dev=1 gar nicht erst registriert.
+if(DEV_MENU)window.addEventListener('keydown',e=>{
+  if(e.key!=='g'&&e.key!=='G')return;
+  if(mode!=='football'||menuVisible)return;
+  if(e.ctrlKey||e.altKey||e.metaKey||e.repeat)return;
+  SFX.footballGoal(e.shiftKey);
+});
 
 // ════ MENU-KLICKFEEDBACK ════
 // Drei entkoppelte Kanaele: (1) Sound haengt weiterhin exakt am 'click'-Event
@@ -2287,6 +2367,7 @@ function placeBalls(){
 function newGame(){resize();R=R0;score=[];for(let p=0;p<np();p++)score.push(0);roundNo=1;particles=[];fx3=[];recFrames=[];
   resetCollapseTimer();                              // Rematch/neues Match: Timer 2:00, Collapse-State + Radius zuruecksetzen
   footballResetMatchState();                         // neues/verlassenes Football-Match: Torablauf + Gewinner sauber initialisiert (Score startet 0:0)
+  SFX.footballGoalStop();                            // Rematch: Torsound des letzten Matches klingt nicht in die erste Runde hinein
   const ffa=mode==='ffa';                            // FFA: kompakte Chip-Leiste statt der 2 Spielerkarten
   $('card0').style.display=ffa?'none':'';$('card1').style.display=ffa?'none':'';
   document.querySelector('.scorebox').style.display=ffa?'none':'';
@@ -3230,6 +3311,10 @@ function footballTryGoal(b){
   cancelAimDrag();                    // laufende Eingabe sauber abbrechen
   footballFreezePlayers();
   footballGoalFxTrigger(side);        // rein visueller Torimpuls am getroffenen Tor (kein Spielzustand)
+  // Torsound genau hier: nach bestaetigter Wertung, gemeinsam mit dem visuellen Impuls und
+  // damit exakt einmal pro Tor. footballWinner steht eine Zeile vorher fest -> Matchpunkt
+  // ohne zweiten Zustand. Reine Ausgabe: kein Rueckgabewert, kein Einfluss auf Score/State/Timing.
+  if(mode==='football')SFX.footballGoal(footballWinner!==null);
   updateHud();
 }
 // Rundenreset nach dem Ballfall. placeBalls() erzeugt FRISCHE Kugelobjekte (mkBall) —

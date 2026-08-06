@@ -120,7 +120,10 @@ function buildEnv(startMode, startFmt, startPreset) {
     let aimSet=[false,false], commitIdx=[-1,-1], commitAim=[{dx:0,dy:0},{dx:0,dy:0}], commitSpin=[0,0];
     let curAimer=0, bgPulse=0, bgPulseRGB='', ffaN=2, myPlayer=0, online=false;
     let mode=${JSON.stringify(startMode)}, fmt=${JSON.stringify(startFmt)};
-    const SFX={hit(){},drop(){},ringout(){},launch(){},round(){},win(){},rollUpdate(){},unlock(){}};
+    const SFX={hit(){},drop(){},ringout(){},launch(){},round(){},win(){},rollUpdate(){},unlock(){},
+           footballGoal(mp){goalAudio.plays++;if(mp)goalAudio.matchPoints++;},
+           footballGoalPreload(){goalAudio.preloads++;},footballGoalStop(){goalAudio.stops++;}};
+const goalAudio={plays:0,matchPoints:0,preloads:0,stops:0};   // Tor-Audio: Aufrufzaehler statt echter Ausgabe
     function spawn(){} function popBall(){} function winnerRGB(){return '';}
     let r3dActive=false; function fx3Hit(){} function fx3Dust(){}
     function setPhase(p){phase=p;} function updateHud(){} function setPhaseText(){}
@@ -2191,6 +2194,173 @@ const fbCssSrc = grab(/#game\.fb \.status\{[\s\S]*?\n\.arena-wrap\{/, 'Football-
   // Der Renderer haelt den gefallenen Ball auch in der neuen Phase unten.
   ok(/mode==='football'&&fbGoalState==='celebrate'&&b\.owner===FOOTBALL_NEUTRAL_OWNER/.test(HTML),
      'der Renderer blendet den gefallenen Ball auch waehrend der Celebration aus');
+}
+
+// ════════════════════════════════════════════════════════════════════════════
+// TOR-AUDIO (Audio-Phase 2): echtes Asset, eine Engine, genau ein Trigger.
+// Rein statische Quellpruefung auf index.html + Existenz/Format des Assets.
+// ════════════════════════════════════════════════════════════════════════════
+{
+  const strip = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+  const sfxSrc   = grab(/const SFX=\(\(\)=>\{[\s\S]*?\n\}\)\(\);/, 'SFX-IIFE');
+  const goalSrc  = grab(/    footballGoal\(matchPoint\)\{[\s\S]*?\n    \},/, 'SFX.footballGoal');
+  const loadSrc  = grab(/  function loadFootballGoalAsset\(cc\)\{[\s\S]*?\n  \}/, 'loadFootballGoalAsset');
+  const stopSrc  = grab(/    footballGoalStop\(\)\{[\s\S]*?\n    \},/, 'SFX.footballGoalStop');
+  const trySrc   = grab(/function footballTryGoal\(b\)\{[\s\S]*?\n\}/, 'footballTryGoal');
+  const audioDir = path.join(__dirname, '..', 'assets', 'audio');
+  const FB_GOAL_SRCS_ALL = () =>
+    (HTML.match(/const FB_GOAL_SRCS=\[([^\]]+)\]/)[1].match(/'([^']+)'/g) || []).map((s) => s.slice(1, -1));
+
+  // ── A. Produktives Asset vorhanden, Rohquelle bleibt reine Entwicklungsvorlage ──
+  const ogg = path.join(audioDir, 'arena_football_goal.ogg');
+  ok(fs.existsSync(ogg), 'produktives OGG-Asset assets/audio/arena_football_goal.ogg existiert');
+  ok(fs.existsSync(ogg) && fs.statSync(ogg).size > 4096,
+     'das OGG-Asset ist kein leerer Platzhalter (' + (fs.existsSync(ogg) ? fs.statSync(ogg).size : 0) + ' B)');
+  ok(fs.existsSync(ogg) && fs.readFileSync(ogg).slice(0, 4).toString('latin1') === 'OggS',
+     'das Asset traegt einen echten Ogg-Container-Header');
+
+  // Nutzlaenge beider Formate exakt aus den Containern — ohne Decoder, ohne Abhaengigkeit.
+  // OGG: granule position der LETZTEN Seite = Gesamtzahl der Samples.
+  // MP3: Xing-Framecount x 1152 abzueglich Encoder-Delay/Padding aus dem LAME-Tag.
+  function oggInfo(file) {
+    const b = fs.readFileSync(file);
+    let last = -1, i = 0;
+    while ((i = b.indexOf('OggS', i + 1)) !== -1) last = i;
+    const rate = b.readUInt32LE(b.indexOf('vorbis') + 11);
+    return { rate, samples: Number(b.readBigUInt64LE(last + 6)) };
+  }
+  function mp3Info(file) {
+    const b = fs.readFileSync(file);
+    const x = b.indexOf('Xing'), L = b.indexOf('LAME');
+    if (x < 0 || L < 0) return null;
+    const frames = (b.readUInt32BE(x + 4) & 1) ? b.readUInt32BE(x + 8) : 0;
+    const d = b.readUInt32BE(L + 20) & 0xffffff;
+    return { samples: frames * 1152 - ((d >> 12) & 0xfff) - (d & 0xfff) };
+  }
+  const OG = oggInfo(ogg), MP = mp3Info(path.join(audioDir, 'arena_football_goal.mp3'));
+  const oggSec = OG.samples / OG.rate;
+  ok(OG.rate === 48000, 'das OGG-Asset laeuft mit 48 kHz (' + OG.rate + ' Hz)');
+  // Audio-Phase 2B: der Vorlauf vor dem Hauptimpact wurde von 467 ms auf 35 ms gekuerzt.
+  // Die Gesamtdauer sinkt dadurch von 2.050 s auf ~1.618 s — der Ausklang bleibt unangetastet.
+  ok(oggSec >= 1.45 && oggSec <= 1.75,
+     'die Nutzlaenge liegt im Zielband 1.45-1.75 s (' + oggSec.toFixed(4) + ' s)');
+  ok(oggSec < 2.0,
+     'der langgezogene Aufbau aus Audio-Phase 2 ist entfernt (kuerzer als die alten 2.050 s)');
+  ok(MP !== null && Math.abs(MP.samples - OG.samples) <= 48,
+     'OGG und MP3 haben dieselbe Nutzlaenge (' + (MP ? MP.samples : '?') + ' vs ' + OG.samples + ' Samples)');
+  // Der Sound muss vor dem Spawn des neuen Balls (~2050 ms nach dem Tor) ausgelaufen sein.
+  ok(oggSec * 1000 < 2050,
+     'der Torsound endet vor dem Spawn des neuen Balls (' + Math.round(oggSec * 1000) + ' ms < 2050 ms)');
+  ok(/const FB_GOAL_SRCS=\['assets\/audio\/arena_football_goal\.ogg'/.test(HTML),
+     'der Laufzeitcode bevorzugt das produktive OGG-Asset');
+  ok(!/Goal sound Arena Football/.test(strip(sfxSrc)),
+     'die Rohquelle wird zur Laufzeit NIE geladen (nur als Kommentar/Entwicklungsvorlage referenziert)');
+  // Die Rohquelle ist Entwicklungsvorlage und bleibt ueber alle Schnittphasen unveraendert.
+  const rawSrc = path.join(audioDir, 'Goal sound Arena Football.mp3');
+  ok(fs.existsSync(rawSrc) && fs.statSync(rawSrc).size === 473856,
+     'die Rohquelle ist unveraendert (473856 B)');
+  ok(FB_GOAL_SRCS_ALL().every((s) => /^assets\/audio\/arena_football_goal\.(ogg|mp3)$/.test(s)),
+     'die Quellenliste enthaelt ausschliesslich produktive Assetpfade');
+  ok(FB_GOAL_SRCS_ALL().every((s) => fs.existsSync(path.join(__dirname, '..', s))),
+     'jeder referenzierte Assetpfad existiert wirklich');
+  ok(!/data:audio|base64/i.test(sfxSrc), 'keine Base64-Einbettung des Tor-Audios');
+  ok(!/https?:\/\//.test(strip(sfxSrc)), 'keine externe URL im Sound-Modul');
+
+  // ── B. Eine Audio-Engine: der bestehende Context/Unlock-Pfad wird wiederverwendet ──
+  ok((HTML.match(/new\(window\.AudioContext\|\|window\.webkitAudioContext\)\(\)/g) || []).length === 1,
+     'es existiert genau EINE AudioContext-Instanziierung im gesamten Dokument');
+  ok(/loadFootballGoalAsset\(ac\(\)\)/.test(sfxSrc),
+     'das Preload laeuft ueber den bestehenden ac()-Unlock-Pfad (User-Geste)');
+  ok(/go\(c=>\{/.test(goalSrc), 'die Wiedergabe laeuft ueber den bestehenden go()-Wrapper');
+  ok(/function go\(f\)\{if\(soundOn\)/.test(sfxSrc),
+     'go() respektiert die globale Sound-Einstellung soundOn');
+  ok(/await fetch\(src\)/.test(loadSrc) && /decodeAudioData/.test(loadSrc),
+     'das Asset wird per fetch() geladen und per decodeAudioData() zu einem AudioBuffer dekodiert');
+  ok(/c\.createBufferSource\(\)/.test(goalSrc),
+     'jedes Tor erzeugt eine FRISCHE AudioBufferSource (kein geteilter Wiedergabecursor)');
+  ok(!/new Audio\(|HTMLAudioElement|<audio/i.test(sfxSrc),
+     'kein HTMLAudioElement — die Wiedergabe laeuft ausschliesslich ueber die Web-Audio-Kette');
+
+  // ── C. Keine prozeduralen Ersatztoene, kein Fallback-Dong ──
+  ok(!/createOscillator|createBuffer\(/.test(goalSrc + loadSrc),
+     'der Torsound enthaelt keinen prozeduralen Oszillator und kein synthetisches Buffer');
+  ok(/if\(fbGoalLoad!==2\)return;/.test(goalSrc),
+     'fehlt oder laedt das Asset, bleibt das Tor still (kein Ersatzton)');
+  ok(/catch\(e\)\{\}/.test(loadSrc) && !/throw/.test(loadSrc),
+     'Lade-/Decodierfehler werden abgefangen und blockieren das Gameplay nicht');
+  ok(/\}\)\(\);/.test(loadSrc), 'der Ladepfad ist eine gekapselte async-IIFE ohne offenen Promise nach aussen');
+  ok(/if\(fbGoalLoad!==0\)return;/.test(loadSrc),
+     'genau EIN Ladeversuch pro Seitenladen (kein Fetch-Spam)');
+  ok(/src\.onended=\(\)=>releaseGoalVoice\(v\);/.test(goalSrc),
+     'jede Quelle wird nach Ablauf freigegeben (kein Node-Leak)');
+  ok(!/setInterval/.test(sfxSrc), 'kein setInterval im Sound-Modul');
+
+  // ── D. Trigger: genau einmal, nur Football, ohne Rueckwirkung ──
+  ok((HTML.match(/SFX\.footballGoal\(/g) || []).length === 2,
+     'SFX.footballGoal() hat genau zwei Aufrufer: den Torpfad und die ?dev=1-Hoerprobe');
+  ok(/if\(mode==='football'\)SFX\.footballGoal\(footballWinner!==null\);/.test(trySrc),
+     'der Torsound haengt im Torpfad und ausschliesslich an mode===\'football\'');
+  ok(/if\(fbGoalState!=='play'\)return;/.test(trySrc),
+     'footballTryGoal wertet nur aus \'play\' — dieselbe Einmalgarantie wie der Goal-FX-Impuls');
+  ok(trySrc.indexOf('SFX.footballGoal(') > trySrc.indexOf('score[side]=(score[side]||0)+1;'),
+     'der Sound startet NACH der bestaetigten Scorevergabe');
+  const resetSrc = grab(/function footballResetRound\(\)\{[\s\S]*?\n\}/, 'footballResetRound');
+  const tickSrc  = grab(/function footballTickGoal\(\)\{[\s\S]*?\n\}/, 'footballTickGoal');
+  const endSrc   = grab(/function footballMatchEnd\(\)\{[\s\S]*?\n\}/, 'footballMatchEnd');
+  ok(!/SFX\.footballGoal\(/.test(resetSrc + tickSrc + endSrc),
+     'kein Trigger in Rundenreset, Celebration-Tick, Spawn oder Matchende');
+  ok(!/footballGoal\(|footballGoalStop\(/.test(strip(grab(/function stepSim\(\)\{[\s\S]*?\n\}/, 'stepSim'))),
+     'die Physikschleife kennt das Tor-Audio nicht');
+  ok(!/return[^;]/.test(strip(goalSrc)),
+     'footballGoal liefert keinen Wert zurueck — reine Ausgabe, keine Entscheidungsquelle');
+  ok(!/SFX\.footballGoal\([^)]*\)\s*(\?|&&|\|\||===|!==)/.test(HTML),
+     'kein Aufrufer wertet ein Ergebnis des Torsounds aus');
+
+  // ── E. Lautstaerke und Matchpunkt ──
+  const gain = Number(HTML.match(/const FOOTBALL_GOAL_ASSET_GAIN=([\d.]+);/)[1]);
+  ok(gain >= 0.70 && gain <= 0.90, 'FOOTBALL_GOAL_ASSET_GAIN liegt im freigegebenen Band (' + gain + ')');
+  ok(gain === 0.80, 'FOOTBALL_GOAL_ASSET_GAIN ist unveraendert 0.80 (' + gain + ')');
+  const mul = Number(HTML.match(/const FOOTBALL_GOAL_MATCHPOINT_GAIN_MUL=([\d.]+);/)[1]);
+  ok(mul > 1 && mul <= 1.08, 'die Matchpunkt-Anhebung bleibt minimal (+' + Math.round((mul - 1) * 100) + ' %)');
+  ok(mul === 1.06, 'der Matchpunkt-Multiplikator ist unveraendert 1.06 (' + mul + ')');
+  ok(/FOOTBALL_GOAL_ASSET_GAIN\*\(matchPoint\?FOOTBALL_GOAL_MATCHPOINT_GAIN_MUL:1\)/.test(goalSrc),
+     'Matchpunkt variiert AUSSCHLIESSLICH ueber den Gain');
+  ok(!/playbackRate|detune/.test(goalSrc),
+     'kein Pitch-Gimmick: normales Tor und Matchpunkt klingen identisch');
+  ok(FB_GOAL_SRCS_ALL().length >= 1 && !/matchPoint\?'[^']*\.(ogg|mp3)'/.test(goalSrc),
+     'normales Tor und Matchpunkt verwenden dieselbe Datei (keine zweite Quelle)');
+  ok(!/createDynamicsCompressor/.test(sfxSrc), 'kein eigener Limiter fuer das Tor-Audio');
+
+  // ── F. Cleanup ──
+  ok(/setTargetAtTime\(\.0001,c\.currentTime,FB_GOAL_STOP_FADE\/3\)/.test(stopSrc),
+     'der Stop blendet weich aus statt hart zu schneiden (kein Klick)');
+  ok(/v\.src\.stop\(c\.currentTime\+FB_GOAL_STOP_FADE\)/.test(stopSrc),
+     'nach dem Ausblenden wird die Quelle wirklich gestoppt (laeuft nie weiter)');
+  ok(!/fbGoalBuf=null/.test(stopSrc), 'der dekodierte Buffer bleibt fuer spaetere Matches im Cache');
+  ok(/SFX\.footballGoalStop\(\);/.test(grab(/function showMenu\(\)\{[\s\S]*?\n\}/, 'showMenu')),
+     'showMenu() raeumt einen laufenden Torsound ab');
+  ok(/SFX\.footballGoalStop\(\);/.test(grab(/function newGame\(\)\{[\s\S]*?\n\}/, 'newGame')),
+     'newGame() raeumt einen laufenden Torsound ab');
+  ok(!/SFX\.footballGoalStop\(\)/.test(endSrc),
+     'das Matchende schneidet den Siegtor-Sound NICHT ab (er laeuft natuerlich aus)');
+
+  // ── G. Dev-Hoerprobe nur mit ?dev=1 ──
+  const devSrc = grab(/if\(DEV_MENU\)window\.addEventListener\('keydown'[\s\S]*?\n\}\);/, 'Dev-Hoerprobe');
+  ok(/^if\(DEV_MENU\)/.test(devSrc), 'die Hoerprobe wird ohne ?dev=1 gar nicht erst registriert');
+  ok(/const DEV_MENU=new URLSearchParams\(location\.search\)\.get\('dev'\)==='1';/.test(HTML),
+     'DEV_MENU haengt exakt an ?dev=1');
+  ok(/if\(mode!=='football'\|\|menuVisible\)return;/.test(devSrc),
+     'die Hoerprobe wirkt nur im laufenden Football-Modus');
+  ok(/SFX\.footballGoal\(e\.shiftKey\)/.test(devSrc), 'G = normales Tor, Shift+G = Matchpunktvariante');
+  ok(!/score|fbGoalState|footballTryGoal|footballGoalFxTrigger|updateHud/.test(devSrc),
+     'die Hoerprobe aendert weder Score noch Goal-State und loest keine Animation aus');
+
+  // ── H. Bestehende Werte unveraendert (Pin) ──
+  ok(/const FB_GOAL_FX_MS=1500;/.test(HTML) && /const FOOTBALL_GOAL_CELEBRATE_TICKS=51;/.test(HTML) &&
+     /const FOOTBALL_GOAL_WIN_CELEBRATE_TICKS=66;/.test(HTML),
+     'Goal-FX-Dauer und beide Celebration Windows sind unveraendert (1500 ms / 51 / 66 Ticks)');
+  ok(!/SFX\./.test(strip(grab(/function footballGoalSide\(b\)\{[\s\S]*?\n\}/, 'footballGoalSide'))),
+     'die Goal Detection enthaelt keinerlei Audioaufruf');
 }
 
 console.log('\nFootball-Shell: ' + pass + ' passed, ' + fail + ' failed');
