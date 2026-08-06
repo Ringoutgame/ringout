@@ -1,0 +1,387 @@
+{
+  "file": "C:\\Users\\TunayBros\\Documents\\Ringout-Barrier-Visual\\assets\\temporary_barrier\\export\\temporary_barrier_polish2.glb",
+  "bytes": 1845280,
+  "gltf_version": "2.0",
+  "generator": "Khronos glTF Blender I/O v4.4.55",
+  "scenes": [
+    {
+      "name": "Scene",
+      "roots": [
+        6
+      ]
+    }
+  ],
+  "nodes": [
+    {
+      "name": "BarrierDockGlow",
+      "mesh": 0
+    },
+    {
+      "name": "BarrierEmitters",
+      "mesh": 1
+    },
+    {
+      "name": "BarrierField",
+      "mesh": 2
+    },
+    {
+      "name": "BarrierFrame",
+      "mesh": 3
+    },
+    {
+      "name": "BarrierGold",
+      "mesh": 4
+    },
+    {
+      "name": "BarrierPylons",
+      "mesh": 5
+    },
+    {
+      "name": "TemporaryBarrier",
+      "children": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        5
+      ]
+    }
+  ],
+  "meshes": [
+    {
+      "mesh": "BarrierDockGlow",
+      "primitive": 0,
+      "vertices": 52,
+      "indices": 108,
+      "material": 0,
+      "mode": 4,
+      "accessor_min": [
+        -2.4246671199798584,
+        0.20675736665725708,
+        -9.851517677307129
+      ],
+      "accessor_max": [
+        2.424668550491333,
+        1.9132425785064697,
+        -9.76797866821289
+      ]
+    },
+    {
+      "mesh": "BarrierEmitters",
+      "primitive": 0,
+      "vertices": 196,
+      "indices": 576,
+      "material": 1,
+      "mode": 4,
+      "accessor_min": [
+        -2.6171774864196777,
+        0.20200000703334808,
+        -10.112000465393066
+      ],
+      "accessor_max": [
+        2.6171789169311523,
+        1.9119999408721924,
+        -9.767441749572754
+      ]
+    },
+    {
+      "mesh": "BarrierField.001",
+      "primitive": 0,
+      "vertices": 98,
+      "indices": 288,
+      "material": 2,
+      "mode": 4,
+      "accessor_min": [
+        -2.6140716075897217,
+        0.2199999988079071,
+        -10.100000381469727
+      ],
+      "accessor_max": [
+        2.6140730381011963,
+        1.899999976158142,
+        -9.755850791931152
+      ]
+    },
+    {
+      "mesh": "BarrierFrame",
+      "primitive": 0,
+      "vertices": 1997,
+      "indices": 9828,
+      "material": 3,
+      "mode": 4,
+      "accessor_min": [
+        -2.76216197013855,
+        0.1589999943971634,
+        -10.124000549316406
+      ],
+      "accessor_max": [
+        2.7621634006500244,
+        2.0350000858306885,
+        -9.607760429382324
+      ]
+    },
+    {
+      "mesh": "BarrierGold",
+      "primitive": 0,
+      "vertices": 48,
+      "indices": 72,
+      "material": 4,
+      "mode": 4,
+      "accessor_min": [
+        -2.7647600173950195,
+        2.0350000858306885,
+        -9.906538963317871
+      ],
+      "accessor_max": [
+        2.764761447906494,
+        2.055000066757202,
+        -9.605162620544434
+      ]
+    },
+    {
+      "mesh": "BarrierPylons",
+      "primitive": 0,
+      "vertices": 975,
+      "indices": 3384,
+      "material": 5,
+      "mode": 4,
+      "accessor_min": [
+        -2.8627841472625732,
+        0.1599999964237213,
+        -10.004563331604004
+      ],
+      "accessor_max": [
+        2.862785577774048,
+        2.140000104904175,
+        -9.5071382522583
+      ]
+    }
+  ],
+  "totals": {
+    "vertices": 3366,
+    "indices": 14256,
+    "triangles": 4752
+  },
+  "bounding_box": {
+    "min": [
+      -2.86278,
+      0.159,
+      -10.124
+    ],
+    "max": [
+      2.86279,
+      2.14,
+      -9.50714
+    ]
+  },
+  "min_horizontal_radius": 9.89494,
+  "max_horizontal_radius": 10.3086,
+  "materials": [
+    {
+      "name": "M_BarrierDock",
+      "alphaMode": "OPAQUE",
+      "doubleSided": false,
+      "emissiveFactor": [
+        1,
+        1,
+        1
+      ],
+      "extensions": [
+        "KHR_materials_emissive_strength"
+      ],
+      "baseColorFactor": [
+        0.054999999701976776,
+        0.6200000047683716,
+        0.8500000238418579,
+        1
+      ],
+      "baseColorTexture": false,
+      "metallicFactor": 0,
+      "roughnessFactor": 0.4000000059604645,
+      "emissiveTexture": true,
+      "normalTexture": false
+    },
+    {
+      "name": "M_BarrierEmit",
+      "alphaMode": "OPAQUE",
+      "doubleSided": false,
+      "emissiveFactor": [
+        1,
+        1,
+        1
+      ],
+      "extensions": [
+        "KHR_materials_emissive_strength"
+      ],
+      "baseColorFactor": [
+        0.054999999701976776,
+        0.6200000047683716,
+        0.8500000238418579,
+        1
+      ],
+      "baseColorTexture": false,
+      "metallicFactor": 0,
+      "roughnessFactor": 0.4000000059604645,
+      "emissiveTexture": true,
+      "normalTexture": false
+    },
+    {
+      "name": "M_BarrierField",
+      "alphaMode": "BLEND",
+      "doubleSided": true,
+      "emissiveFactor": [
+        1,
+        1,
+        1
+      ],
+      "extensions": [
+        "KHR_materials_specular"
+      ],
+      "baseColorFactor": null,
+      "baseColorTexture": true,
+      "metallicFactor": 0,
+      "roughnessFactor": null,
+      "emissiveTexture": true,
+      "normalTexture": false
+    },
+    {
+      "name": "M_BarrierFrame",
+      "alphaMode": "OPAQUE",
+      "doubleSided": false,
+      "emissiveFactor": null,
+      "extensions": [],
+      "baseColorFactor": [
+        0.550000011920929,
+        0.5799999833106995,
+        0.6200000047683716,
+        1
+      ],
+      "baseColorTexture": false,
+      "metallicFactor": null,
+      "roughnessFactor": 0.3700000047683716,
+      "emissiveTexture": false,
+      "normalTexture": false
+    },
+    {
+      "name": "M_BarrierGold",
+      "alphaMode": "OPAQUE",
+      "doubleSided": false,
+      "emissiveFactor": null,
+      "extensions": [],
+      "baseColorFactor": [
+        0.5199999809265137,
+        0.41999998688697815,
+        0.20000000298023224,
+        1
+      ],
+      "baseColorTexture": false,
+      "metallicFactor": null,
+      "roughnessFactor": 0.33000001311302185,
+      "emissiveTexture": false,
+      "normalTexture": false
+    },
+    {
+      "name": "M_BarrierMarble",
+      "alphaMode": "OPAQUE",
+      "doubleSided": false,
+      "emissiveFactor": null,
+      "extensions": [
+        "KHR_materials_clearcoat"
+      ],
+      "baseColorFactor": null,
+      "baseColorTexture": true,
+      "metallicFactor": 0.019999999552965164,
+      "roughnessFactor": null,
+      "emissiveTexture": false,
+      "normalTexture": true
+    }
+  ],
+  "images": [
+    {
+      "index": 0,
+      "name": "T_BarrierDock_Emissive",
+      "mimeType": "image/png",
+      "bytes": 4571,
+      "size": [
+        256,
+        256
+      ],
+      "embedded": true
+    },
+    {
+      "index": 1,
+      "name": "T_BarrierEmit_Emissive",
+      "mimeType": "image/png",
+      "bytes": 7702,
+      "size": [
+        512,
+        512
+      ],
+      "embedded": true
+    },
+    {
+      "index": 2,
+      "name": "T_BarrierField_Emissive",
+      "mimeType": "image/png",
+      "bytes": 146203,
+      "size": [
+        1024,
+        512
+      ],
+      "embedded": true
+    },
+    {
+      "index": 3,
+      "name": "T_BarrierField_BaseColor",
+      "mimeType": "image/png",
+      "bytes": 75326,
+      "size": [
+        1024,
+        512
+      ],
+      "embedded": true
+    },
+    {
+      "index": 4,
+      "name": "T_BarrierMarble_Normal",
+      "mimeType": "image/png",
+      "bytes": 948797,
+      "size": [
+        1024,
+        1024
+      ],
+      "embedded": true
+    },
+    {
+      "index": 5,
+      "name": "T_BarrierMarble_BaseColor",
+      "mimeType": "image/png",
+      "bytes": 354543,
+      "size": [
+        1024,
+        1024
+      ],
+      "embedded": true
+    },
+    {
+      "index": 6,
+      "name": "T_BarrierMarble_Roughness",
+      "mimeType": "image/png",
+      "bytes": 164523,
+      "size": [
+        1024,
+        1024
+      ],
+      "embedded": true
+    }
+  ],
+  "textures": 7,
+  "samplers": 1,
+  "extensionsUsed": [
+    "KHR_materials_clearcoat",
+    "KHR_materials_emissive_strength",
+    "KHR_materials_specular"
+  ],
+  "extensionsRequired": []
+}

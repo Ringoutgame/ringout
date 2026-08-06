@@ -1,0 +1,280 @@
+{
+  "glb_structure": {
+    "passed": true,
+    "checks": [
+      {
+        "check": "exactly one scene",
+        "pass": true,
+        "detail": "1 scene(s)"
+      },
+      {
+        "check": "single root node",
+        "pass": true,
+        "detail": "['TemporaryBarrier']"
+      },
+      {
+        "check": "root transform identity (pos 0/0/0, rot 0, scale 1)",
+        "pass": true,
+        "detail": "{'translation': None, 'rotation': None, 'scale': None, 'matrix': None}"
+      },
+      {
+        "check": "all child transforms identity",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "check": "no negative scales",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "check": "no NaN/Infinity in POSITION data",
+        "pass": true,
+        "detail": "0 bad vertices"
+      },
+      {
+        "check": "no NaN/Infinity in accessor min/max",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "check": "bbox height matches contract (y 0.159..2.14 +-0.01)",
+        "pass": true,
+        "detail": "y 0.1590..2.1400"
+      },
+      {
+        "check": "max vertex radius within 10.1 + pylon shoe (<=10.46)",
+        "pass": true,
+        "detail": "max r = 10.3086"
+      },
+      {
+        "check": "no geometry inside playfield (min horizontal radius >= 9.7)",
+        "pass": true,
+        "detail": "min r = 9.8949"
+      },
+      {
+        "check": "wall sits on segment 0 side (z<0 half-plane)",
+        "pass": true,
+        "detail": "z range -10.124..-9.507"
+      },
+      {
+        "check": "M_BarrierField alphaMode BLEND + doubleSided",
+        "pass": true,
+        "detail": "{'name': 'M_BarrierField', 'alphaMode': 'BLEND', 'doubleSided': True, 'emissiveFactor': [1, 1, 1], 'extensions': ['KHR_materials_specular'], 'baseColorFactor': None, 'baseColorTexture': True, 'metallicFactor': 0, 'roughnessFactor': None, 'emissiveTexture': True, 'normalTexture': False}"
+      },
+      {
+        "check": "exactly 6 materials, all named M_Barrier*",
+        "pass": true,
+        "detail": "['M_BarrierDock', 'M_BarrierEmit', 'M_BarrierField', 'M_BarrierFrame', 'M_BarrierGold', 'M_BarrierMarble']"
+      },
+      {
+        "check": "all images embedded (no external URIs)",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "check": "single embedded buffer, no external buffer URIs",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "check": "no cameras",
+        "pass": true,
+        "detail": "None"
+      },
+      {
+        "check": "no lights (KHR_lights_punctual)",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "check": "no animations",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "check": "no skins",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "check": "only expected extensions",
+        "pass": true,
+        "detail": "['KHR_materials_clearcoat', 'KHR_materials_emissive_strength', 'KHR_materials_specular']"
+      },
+      {
+        "check": "no required extensions (loader-safe)",
+        "pass": true,
+        "detail": ""
+      }
+    ]
+  },
+  "blender_reimport": {
+    "passed": true,
+    "checks": [
+      {
+        "check": "objects = root + 6 meshes",
+        "pass": true,
+        "detail": "['BarrierDockGlow', 'BarrierEmitters', 'BarrierField', 'BarrierFrame', 'BarrierGold', 'BarrierPylons', 'TemporaryBarrier']"
+      },
+      {
+        "check": "root exists and is an empty",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "check": "root pivot at arena center, identity transform",
+        "pass": true,
+        "detail": "loc (0.0, 0.0, 0.0) rot (0.0, 0.0, 0.0) scale (1.0, 1.0, 1.0)"
+      },
+      {
+        "check": "no cameras/lights imported",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "check": "all meshes parented to root",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "check": "no animations",
+        "pass": true,
+        "detail": "[]"
+      },
+      {
+        "check": "field radius == 10.1 (tol 1e-4)",
+        "pass": true,
+        "detail": "r 10.099999..10.100001"
+      },
+      {
+        "check": "field z span 0.22..1.90 (tol 1e-4)",
+        "pass": true,
+        "detail": "z 0.220000..1.900000"
+      },
+      {
+        "check": "field arc = canonical segment 0 (Blender 75..105 deg, tol 0.01)",
+        "pass": true,
+        "detail": "angles 75.0000..105.0000 deg (span 30.0000)"
+      },
+      {
+        "check": "field vertex count preserved (2*(48+1)=98)",
+        "pass": true,
+        "detail": "98"
+      },
+      {
+        "check": "pylon centers on segment borders 75/105 deg (tol 0.15 deg)",
+        "pass": true,
+        "detail": "centers 75.000 / 105.000 deg"
+      },
+      {
+        "check": "pylon height: shoe 0.16 -> cap 2.14 (tol 1e-3)",
+        "pass": true,
+        "detail": "z 0.16000..2.14000"
+      },
+      {
+        "check": "nothing enters the playfield (min r >= 9.7, walkway band)",
+        "pass": true,
+        "detail": "min r 9.8949"
+      },
+      {
+        "check": "nothing below the walkway top - seat tolerance (z >= 0.159)",
+        "pass": true,
+        "detail": "min z 0.15900"
+      },
+      {
+        "check": "6 materials with expected names",
+        "pass": true,
+        "detail": "['M_BarrierDock', 'M_BarrierEmit', 'M_BarrierField', 'M_BarrierFrame', 'M_BarrierGold', 'M_BarrierMarble']"
+      },
+      {
+        "check": "field material: blend mode + double sided after round trip",
+        "pass": true,
+        "detail": "blend=BLEND backface_culling=False"
+      },
+      {
+        "check": "7 textures arrived",
+        "pass": true,
+        "detail": "['T_BarrierDock_Emissive', 'T_BarrierEmit_Emissive', 'T_BarrierField_BaseColor', 'T_BarrierField_Emissive', 'T_BarrierMarble_BaseColor', 'T_BarrierMarble_Normal', 'T_BarrierMarble_Roughness']"
+      },
+      {
+        "check": "material slots as expected",
+        "pass": true,
+        "detail": "{'BarrierDockGlow': ['M_BarrierDock'], 'BarrierEmitters': ['M_BarrierEmit'], 'BarrierField': ['M_BarrierField'], 'BarrierFrame': ['M_BarrierFrame'], 'BarrierGold': ['M_BarrierGold'], 'BarrierPylons': ['M_BarrierMarble']}"
+      }
+    ],
+    "renders": [
+      "reimport_1_overview.png",
+      "reimport_2_front.png",
+      "reimport_3_dock_detail.png"
+    ]
+  },
+  "threejs_harness": {
+    "passed": true,
+    "target": "canonical copy assets/temporary_barrier/export/temporary_barrier_polish2.glb (byte-identical to artifact export, sha256 2b0103a6…)",
+    "three_version": "r170 (vendored, same major as game importmap three@0.170.0)",
+    "server": "tools/serve_local.js on 127.0.0.1:8151 - localhost only, all URLs relative, no external requests",
+    "environment": "game HDRI assets/hdri/kloofendal_48d_partly_cloudy_puresky_2k.hdr, ACESFilmicToneMapping + SRGBColorSpace like initR3D()",
+    "harness_location": "run from a temporary untracked copy (artifacts/tmp_canonical_harness, removed after the run); harness itself is deliberately NOT committed",
+    "checks": [
+      {
+        "check": "canonical GLB loads without errors",
+        "pass": true,
+        "detail": "document.title=HARNESS_OK in all 4 runs; meshes=6 materials=6"
+      },
+      {
+        "check": "root rotates correctly to segments 0, 1, 11",
+        "pass": true,
+        "detail": "rotation.y=-k*BARRIER_SPAN hits the segment-mid ticks incl. 11->0 wrap"
+      },
+      {
+        "check": "transparency + both sides visible",
+        "pass": true,
+        "detail": "alphaMode BLEND, doubleSide=true"
+      },
+      {
+        "check": "no geometry enters playfield under rotation",
+        "pass": true,
+        "detail": "vertex radius 9.895..10.309 constant, height y 0.159..2.140"
+      },
+      {
+        "check": "no missing/black materials with scene.environment set",
+        "pass": true,
+        "detail": ""
+      },
+      {
+        "check": "emissive controllable",
+        "pass": true,
+        "detail": "KHR emissive strength honored: Dock 5.04, Emit 10.08; scalable via emissiveIntensity"
+      }
+    ],
+    "screenshots": "evidence stored outside the repo (session scratchpad); not part of the canonical asset",
+    "runtime_override_candidates": {
+      "M_BarrierField": {
+        "transparent": "true (automatic from BLEND)",
+        "depthWrite": "false",
+        "renderOrder": "2 (after opaque arena, like debug barrier)",
+        "emissiveIntensity": "1.0 baseline, fine-tune vs Cycles calibration during integration",
+        "opacity": "keep 1.0 - alpha lives in the baseColor texture"
+      },
+      "M_BarrierEmit_M_BarrierDock": {
+        "emissiveIntensity": "10.08 / 5.04 from KHR extension"
+      },
+      "facing_glow": "view-dependent polish2 term not in glTF core - restore later as shader override (e.g. onBeforeCompile fresnel)"
+    }
+  },
+  "texture_inventory": {
+    "pngs_in_export_artifact_folder": 8,
+    "embedded_in_glb": 7,
+    "explanation": "T_BarrierField_Alpha.png is the intermediate grayscale bake of the view-independent field mix factor. Its data was composed into the ALPHA CHANNEL of T_BarrierField_BaseColor before export; the standalone file is kept in the artifact folder for visual inspection only. It is intentionally not embedded - no material references it. No texture is unintentionally missing.",
+    "embedded": [
+      "T_BarrierDock_Emissive",
+      "T_BarrierEmit_Emissive",
+      "T_BarrierField_BaseColor",
+      "T_BarrierField_Emissive",
+      "T_BarrierMarble_BaseColor",
+      "T_BarrierMarble_Normal",
+      "T_BarrierMarble_Roughness"
+    ]
+  }
+}
