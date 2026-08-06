@@ -2097,6 +2097,16 @@ const MATCH_COLLAPSE_SECONDS=COLLAPSE_STAGE_COUNT*COLLAPSE_CYCLE_SECONDS, COLLAP
 // exakt die bestehende Timeout-Reaktion benutzt (commitAutoStand -> Stehen bleiben);
 // die Matchuhr laeuft normal weiter, es wird KEIN Collapse ausgeloest.
 const TURN_LIMIT_SECONDS=7;
+// Zentraler Schalter (Produktentscheidung Spieltest 6B2A): die 7-Sekunden-
+// ZUGZEIT ist vorerst fuer ALLE Spielmodi deaktiviert — kein Countdown, keine
+// Zugtimer-Pille, keine 3/2/1-Ticks, kein Time-up-Sound, kein lokaler oder
+// Online-Auto-Stand; ein Zug endet nur durch bewusste Bestaetigung oder die
+// bestehenden Abbruch-/Disconnect-Wege. Match- und Collapse-Timer bleiben
+// vollstaendig unveraendert. Der Schalter greift bewusst NUR an den nicht
+// extrahierten Aufrufstellen (Frame-Schleife, tickOnlineClock): die Deadline-
+// QUELLEN bleiben leer (turnWindowEndEl bzw. onlineTurnDeadlineAt=null), die
+// extrahierten reinen Zeitfunktionen behalten ihr Verhalten fuer die Suiten.
+const TURN_TIMER_ENABLED=false;
 // Obergrenze fuer EIN Zeit-Delta eines sichtbaren Frames. Ein langer Main-Thread-Stall
 // (GC-Pause, Debugger, Tab-Wechsel ohne visibilitychange) darf nicht mehrere Entscheidungs-
 // sekunden auf einmal verbrauchen und dabei Countdown-Stufen ueberspringen. Der Wert liegt
@@ -2611,7 +2621,11 @@ function tickOnlineClock(){
   // Zugzeit-HUD: es liest GENAU diese Deadline — dieselbe, gegen die unten der
   // No-Shot angefordert wird. Dadurch kann die Anzeige nie eine andere Zeit zeigen
   // als die, die den Timeout ausloest (eine Uhr, zwei Verbraucher).
-  onlineTurnDeadlineAt=c.deadlineAt;onlineTurnWindowMs=c.windowMs;
+  // Zugzeit deaktiviert: keine Deadline veroeffentlichen (turnTimerState bleibt
+  // inaktiv -> Pille/Ticks aus) und unten keinen No-Shot anfordern. Die
+  // Collapse-/Matchuhr dieses Blocks laeuft vollstaendig unveraendert weiter.
+  onlineTurnDeadlineAt=TURN_TIMER_ENABLED?c.deadlineAt:null;
+  onlineTurnWindowMs=TURN_TIMER_ENABLED?c.windowMs:0;
   // Schwelle erreicht, Stufe aber noch nicht angewendet (wartet auf die Rundengrenze):
   // Anzeige bei 0 halten — sonst spraenge das HUD (und die Warnstufe des visuellen
   // Adapters) schon VOR dem sichtbaren Collapse in den naechsten Zyklus.
@@ -2620,6 +2634,7 @@ function tickOnlineClock(){
   // Warnrisse: Sound haengt read-only an den sichtbaren Rissstufenwechseln des
   // visuellen Adapters (colvTick -> SFX.colvEvent), nicht mehr an dieser Uhr.
   updateCollapseHud();
+  if(!TURN_TIMER_ENABLED)return;                      // Zugzeit deaktiviert: nie einen No-Shot anfordern
   if(phase!=='aim'||c.deadlineAt==null)return;
   if(serverNow()<c.deadlineAt)return;                 // Deadline noch nicht erreicht
   // Deadline ueberschritten: fuer jeden noch offenen Seat GENAU EINEN No-Shot
@@ -6798,6 +6813,12 @@ function loop(now){
   if(PERF)perfTick(now);
   if(replaying){ SFX.rollUpdate(null,false); repTick(); if(r3dActive)r3d.render(); requestAnimationFrame(loop); return; }
   tickCollapse(now);   // lokale Modi: zaehlt nur in der Planungsphase, loest Auto-Stand + Collapse aus
+  // Zugzeit deaktiviert: das von tickCollapse soeben geoeffnete Zugfenster
+  // verfaellt sofort wieder — eine Zugdeadline entsteht nie (innerhalb EINES
+  // Aufrufs kann sie nicht ablaufen, sie liegt volle TURN_LIMIT_SECONDS in der
+  // Zukunft), onTurnExpire/commitAutoStand feuern nie ueber die Zugzeit und
+  // turnTimerState() blendet die Anzeige aus. Match-/Collapse-Uhr unberuehrt.
+  if(!TURN_TIMER_ENABLED){turnWindowEndEl=null;turnWindowSeat=-1;}
   tickOnlineClock();   // Online: abgeleitete Serveruhr — Anzeige, Timeout-Anfrage, Matchende
   updateTurnTimerHud();   // Zugzeit-HUD: liest NUR die oben gepflegte Deadline, genau einmal pro Frame
   if(phase==='reveal'&&now-phaseStart>REVEAL_MS)applyLaunch();
