@@ -1,6 +1,6 @@
 # TODO.md — RingOut
 
-**Zuletzt aktualisiert:** 2026-08-06 (Arena Football: UX-Phasen 1 und 2 abgeschlossen und gepusht — Torzuordnung, Kugellabels, Match-HUD)
+**Zuletzt aktualisiert:** 2026-08-06 (Arena Football: UX-Phase 3 abgeschlossen und gepusht — Premium-Torfeedback, HUD-Reaktion, Celebration Window)
 
 Offene Aufgaben nach Priorität. Abgeschlossene Aufgaben werden nach `CHANGELOG.md` verschoben.
 
@@ -48,13 +48,19 @@ Offene Aufgaben nach Priorität. Abgeschlossene Aufgaben werden nach `CHANGELOG.
 
 ## P2 — Mittel (Spieler-Erfahrung)
 
+- [x] ~~**Arena Football UX-Phase 3: Premium-Torfeedback und Celebration Flow**~~ → **abgeschlossen, im Browser freigegeben und gepusht (2026-08-06, Commit `babbbe7`)**: Beim Tor wird der getroffene Torbereich kurz hochwertig aktiviert — Emblem, vordere Gold-Keyline und Torlinie, in warmem Gold als Trefferimpuls, während die Teamfarbe die Zuordnung trägt. Im HUD reagiert ausschließlich die punktende Seite (Score-Pop 460 ms, Panel-/Kanten-Schimmer 1200 ms); `score[]` bleibt Source of Truth, keine zweite Score-Engine. Goal-FX-Gesamtdauer 1500 ms mit ~112 ms Anstieg und längerem quadratischem Ausklang. Die bestehende Goal-State-Maschine wurde um ein **Celebration Window** erweitert (`play → fall → celebrate → spawn → play`, Matchpunkt `play → fall → celebrate → result`): 51 Ticks ≈ 850 ms, Matchpunkt 66 Ticks ≈ 1100 ms. `footballResetRound()` läuft erst am Ende der Phase — der neue Ball erscheint dadurch erst nach der Feier (≈ 2050 ms), die nächste Runde ist nach ≈ 2550 ms spielbar. Keine zweite State-Maschine, kein `setTimeout` für Gameplay-Timing, Eingaben und Spieler weiter über den vorhandenen Goal-State neutralisiert. Kein Sound, keine Kamera-, Physik-, Goal-Detection-, Scorelogik- oder GLB-Änderung. Siehe CHANGELOG.
+
 - [x] ~~**Arena Football UX-Phase 2: Match-HUD**~~ → **abgeschlossen, im Browser freigegeben und gepusht (2026-08-06, Commit `c4c9135`)**: kompaktes Score-HUD `BLAU | 0 : 0 | ROT` mit Untertitel `ERSTER BIS 3`; nutzt die bestehende Statusleiste und `score[]` (keine zweite Score-Engine), Zahl aus `FOOTBALL_WIN_SCORE`, kurze rein visuelle Score-Reaktion beim Tor. Mit erledigt: First-to-3-Anzeige, Entfernen der sekundären Statuswörter „zielt…"/„bereit" (nur football-gescoped) und Entfernen der alten Integrationsmeldung „Arena Football · Visuelle Integration" unten. Die echte 3D-Fehlermeldung und das Result-Overlay bleiben unverändert. Siehe CHANGELOG.
 
 - [x] ~~**Arena Football UX-Phase 1: Torzuordnung und Kugellabels**~~ → **abgeschlossen, im Browser freigegeben und gepusht (2026-08-06, Commit `e162c51`)**: keine Namenslabels mehr über den Football-Kugeln (der neutrale Ball wird dadurch nicht länger fälschlich als „Spieler 5" beschriftet); Tore teamfarbig zugeordnet — Blau verteidigt −X, Rot verteidigt +X — über farbige Torlinie im Randweg, Emblem-Inset und einen dezenten Schimmer auf der vorderen Gold-Keyline. Alles nur mode-gescoped, keine GLB-Änderung. Siehe CHANGELOG.
 
 - [x] ~~**Arena Football: Matchstart-Angriffshinweis**~~ → **verworfen (2026-08-06)**: ein kurzer Hinweis „BLAU → ROT · ROT → BLAU" war in UX-Phase 2 gebaut und wurde nach dem Browsertest bewusst wieder **vollständig zurückgebaut** (DOM, CSS, Timer, `newGame()`-Hook, Tests). **Nicht erneut aufgreifen** — auch nicht als dauerhafter Angriffshinweis, als Pfeile im Spielfeld oder als Tutorialbox. Die Zuordnung trägt die Torfarbe aus UX-Phase 1.
 
+- [x] ~~**Arena Football: Standard-Torjubel-Effekte**~~ → **bewusst nicht umgesetzt (2026-08-06, UX-Phase 3)**: Confetti, generische Partikelexplosion, großes „GOAL"-Textbanner, Kamera-Shake und automatischer Kameraflug wurden als Gestaltungsrichtung **ausgeschlossen** — sie widersprechen der Premium-Sprache aus Marmor, Gold und Glas. Umgesetzt ist stattdessen der ruhige Gold-Impuls am getroffenen Tor plus das Celebration Window. **Nicht als offene Aufgabe wieder aufnehmen.**
+
 - [x] ~~**Arena-Football-Physik: Audit, Anti-Pinning, Tuning (Phasen 4A–4B-3)**~~ → **abgeschlossen, GLIDE im Browser freigegeben und gepusht (2026-08-06, Commit `24fa968`)**: `FOOTBALL_PHYS` als einziger Produktivstandard (`friction 0.9968`, `fend 0.9935`, `stopv 0.035`, `restBall 0.40`, `restBand 0.52`, `restPost 0.47`), `FOOTBALL_CONTACT_ITERATIONS = 3`, getrennte Restitution nach Kontaktart, deterministische Wedge-Erkennung mit energieneutralem Escape. CURRENT und ICE verworfen und nur noch testintern. Siehe CHANGELOG und `artifacts/football-physics-audit/README.md`.
+
+- [ ] **Arena Football: Audiofeedback beim Tor (2026-08-06, offen aus UX-Phase 3):** UX-Phase 3 ist bewusst **rein visuell** geblieben — es gibt weder einen Tor-Sound noch sonstiges Audiofeedback für Football. Ein Torklang müsste zur Premium-Sprache passen (kein Stadionjubel-Sample, kein Arcade-Jingle) und würde sich am bestehenden prozeduralen `SFX`-System aus M4-T3 orientieren; das Celebration Window von ≈ 850 ms bietet dafür bereits das Zeitfenster. Eigene Phase mit eigener Freigabe.
 
 - [ ] **Arena Football: Massenmodell prüfen (2026-08-06, aus dem 4A-Audit):** Neutral- und Spielerball sind physikalisch identisch (`imp = -(1+RB)·vn/2`, m = 1 fest verdrahtet). Der Schütze behält bei `restBall = 0.40` 30 % seiner Geschwindigkeit in Passrichtung und läuft seinem eigenen Pass hinterher. Ein leichterer Neutralball (Audit-Vorschlag 0.55–0.75 bei Spieler = 1.0) würde das lösen **und** das verbliebene exakt frontale 1D-Pinning entschärfen. Bewusst zurückgestellt: eigene Phase mit eigener Freigabe, da es das Spielgefühl breit verändert.
 

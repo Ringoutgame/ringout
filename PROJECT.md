@@ -1,6 +1,6 @@
 # PROJECT.md — RingOut
 
-**Zuletzt aktualisiert:** 2026-08-06 (Arena Football: UX-Phasen 1 und 2 abgeschlossen — Torzuordnung, Kugellabels, Match-HUD; stabiler HEAD `c4c91357ce3b33cfb126a95726d523d0ec1e75b1`)
+**Zuletzt aktualisiert:** 2026-08-06 (Arena Football: UX-Phase 3 abgeschlossen — Premium-Torfeedback, HUD-Reaktion, Celebration Window; stabiler HEAD `babbbe78ee388489321d1f0cb3e032bbaabd0725`)
 
 ---
 
@@ -94,9 +94,9 @@ keinen URL-Parameter** — Produktionsphysik hängt nicht von der Adresszeile ab
   `tools/test_football_flow.js` (Wirkungsmessung, 43 Szenarien gegen die
   Vergleichsmodelle CURRENT und ICE, die **nicht produktiv** sind).
 
-### Arena-Football-UX (Phasen 1 und 2, im Browser freigegeben)
-Stabiler Stand: HEAD `c4c91357ce3b33cfb126a95726d523d0ec1e75b1`
-(UX-Phase 1 `e162c51`, UX-Phase 2 `c4c9135`).
+### Arena-Football-UX (Phasen 1 bis 3, im Browser freigegeben)
+Stabiler Stand: HEAD `babbbe78ee388489321d1f0cb3e032bbaabd0725`
+(UX-Phase 1 `e162c51`, UX-Phase 2 `c4c9135`, UX-Phase 3 `babbbe7`).
 
 **Spielfeld**
 - Keine Namenslabels über den Football-Kugeln. Der neutrale Ball ist damit auch
@@ -115,8 +115,9 @@ Stabiler Stand: HEAD `c4c91357ce3b33cfb126a95726d523d0ec1e75b1`
 **Match-HUD**
 - Kompaktes Score-Panel: **BLAU links · Score zentral · ROT rechts**, darunter der
   Untertitel **`ERSTER BIS 3`**.
-- Score-Reaktion beim Tor ist **rein visuell** (460 ms Skalierung der geänderten Ziffer
-  plus Teamfarben-Schimmer), ohne Rückwirkung auf die Wertung.
+- Score-Reaktion beim Tor ist **rein visuell** (460 ms Skalierung der geänderten Ziffer),
+  ohne Rückwirkung auf die Wertung. In UX-Phase 3 wurde daraus ein Gold-Impuls, der in die
+  Teamfarbe zurückfällt, ergänzt um den Panel-Schimmer — siehe „Goal-Feedback" unten.
 - Bewusst nicht vorhanden: sekundäre Statuswörter („zielt…"/„bereit" sind im Football
   ausgeblendet), Matchstart-Hinweis (gebaut und nach dem Browsertest wieder zurückgebaut)
   und die alte Statuszeile der Integrations-Shell. Die echte Fehlermeldung
@@ -135,7 +136,62 @@ Stabiler Stand: HEAD `c4c91357ce3b33cfb126a95726d523d0ec1e75b1`
 - Andere Modi und das Result-Overlay sind unverändert. Keine Änderung an Physik,
   Gameplay, Kamera, Beleuchtung, GLBs oder Netzwerk.
 
-**Teststand nach beiden Phasen:** Football-Shell 589/0 · Football-Flow 118/0 ·
+**Goal-Feedback (UX-Phase 3)**
+- Beim bestätigten Tor wird der **getroffene** Torbereich kurz aktiviert. Beteiligt sind
+  genau die drei bereits farbig gefassten Bauteile aus Phase 1: **Emblem**, **vordere
+  Gold-Keyline** und **Torlinie** — letztere trägt zugleich den Öffnungs-/Walkway-Akzent.
+- **Gold ist der Premium-Trefferimpuls** (`GOAL_FX_GOLD = 0xffd79a`, Spitzenanteil
+  `GOAL_FX_MIX = 0.72` über der Ruhefarbe), die **Teamfarbe bleibt die Orientierungsfarbe**
+  und damit lesbar: Gold sagt „Treffer", die Teamfarbe sagt „welches Tor".
+- Das In-World-FX ist **rein visuell** — es liest und schreibt keinen Spielzustand, fasst
+  kein DOM an und läuft auf der Renderuhr (`performance.now`), nicht im Physik-Tick. Der
+  Renderer hält Ruhefarbe und Ruheintensität je Bauteil als Kopie und schreibt nur bei
+  Pegeländerung; Pegel 0 stellt exakt den Ruhezustand her.
+- Im **HUD reagiert nur die punktende Seite** — die andere bleibt unangetastet. Genau eine
+  Seitenklasse ist gleichzeitig aktiv, ein schnelles Gegentor kann nie beide zeigen.
+
+**Zeitwerte**
+
+| Konstante | Wert | Wirkung |
+|---|---|---|
+| `FB_GOAL_FX_MS` | 1500 ms | Gesamtdauer des In-World-Torimpulses |
+| `FB_GOAL_FX_ATTACK` | 0.075 | Anstieg ≈ 112 ms bis zur Spitze, danach quadratischer Ausklang |
+| `FB_GOAL_HUD_MS` | 1200 ms | Panel-Schimmer und Kanten-Glow der punktenden Seite |
+| `FB_POP_MS` | 460 ms | Pop der geänderten Score-Ziffer |
+| `FOOTBALL_GOAL_CELEBRATE_TICKS` | 51 | normales Celebration Window ≈ 850 ms bei 60 fps |
+| `FOOTBALL_GOAL_WIN_CELEBRATE_TICKS` | 66 | Matchpunkt-Celebration ≈ 1100 ms |
+
+Daraus ergibt sich: neuer Ball **≈ 2050 ms** nach dem Tor sichtbar (also erst nach dem
+vollständigen Ablauf des Impulses), nächste Runde **≈ 2550 ms** nach dem Tor spielbar.
+Die CSS-Dauern sind maschinell an `FB_GOAL_HUD_MS` und `FB_POP_MS` gekoppelt.
+
+**Zustandsfolge**
+- Normales Tor: `play → fall → celebrate → spawn → play`
+- Matchpunkt: `play → fall → celebrate → result`
+
+**Architektur und Abgrenzung (Phase 3)**
+- Die **bestehende** Goal-State-Maschine wurde um die Wartephase erweitert — **keine zweite
+  Gameplay-State-Maschine**, **kein `setTimeout` für Gameplay-Timing**. Die Länge wählt
+  `footballCelebrateTicks()` am kanonischen `footballWinner`, nicht an einem zweiten Flag.
+- Das Goal-FX startet **sofort** bei der bestehenden Torbestätigung (`footballTryGoal`,
+  eine hinzugefügte Zeile hinter der vorhandenen Einmal-Sperre) — genau einmal pro Tor.
+- Der Score bleibt die bestehende Source of Truth; das HUD vergleicht nur den zuletzt
+  angezeigten Wert. Keine zweite Score-Engine.
+- **`footballResetRound()` läuft erst nach der Celebration**, nicht mehr am Fallende —
+  dadurch existiert der neue Ball während der Feier gar nicht. Der Renderer hält den
+  gefallenen Ball auch in `celebrate` unten, damit er nicht hinter der Bande auftaucht.
+- Eingaben und Spieler bleiben über die **vorhandenen** Goal-State-Sperren neutralisiert
+  (`footballGoalBusy()` für jeden Zustand ≠ `play`, `footballFreezePlayers()` unverändert)
+  — keine neue Sperre, keine globale Pausefunktion.
+- Cleanup ist über `footballResetMatchState()` (neues Match **und** Menüwechsel),
+  `footballMatchEnd()` und `fbClearHudFx()` abgesichert; getestet aus jeder Phase heraus.
+- **Scope:** keine Physikänderung, keine Goal-Detection-Änderung, keine Scorelogik- oder
+  First-to-3-Änderung, keine Kamera-, GLB- oder Netzwerkänderung, keine Änderung an
+  Spawnposition oder Spawnbewegung — **und kein Sound in dieser Phase** (Audiofeedback
+  für Football ist bewusst offen, siehe `TODO.md`). Bewusst nicht umgesetzt: Confetti,
+  generische Partikelexplosion, „GOAL"-Textbanner, Kamera-Shake, Kameraflug.
+
+**Teststand nach allen drei Phasen:** Football-Shell 738/0 · Football-Flow 118/0 ·
 Golden-Physik 13/0 · Ring-Collapse 235/0. Die fünf bekannten Legacy-Suiten bleiben rot
 (siehe „Bekannte Einschränkungen"), keine neue Suite rot.
 
