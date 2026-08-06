@@ -83,8 +83,18 @@ const KNOWN_COSMETIC = new Set(['dead-ball-sinks-through-visible-floor']);
 const findings = [];       // blockierend
 const observed = [];       // bekannt, nicht blockierend
 const events = [];
+// Regulaere Zugdeadline des Produkts (TURN_LIMIT_SECONDS). Reine Messgroesse fuer die
+// Auswertung — der Test veraendert die Deadline nirgends.
+const DEADLINE_MS = 7000;
+// Getrennte Zaehler: ein nicht registrierter Pointer-Schuss ist nicht automatisch ein
+// Fehler, darf aber auch nie stillschweigend verschwinden.
+const counters = { realShotsRegistered: 0, expectedDeadlineAutoStands: 0,
+                   unexpectedShotNotRegistered: 0, desyncFindings: 0 };
+const DESYNC_KINDS = new Set(['client-state-divergence', 'client-radius-divergence',
+                              'client-collapse-stage-divergence']);
 function finding(kind, detail) {
   const f = { kind, ts: Date.now(), ...detail };
+  if (DESYNC_KINDS.has(kind)) counters.desyncFindings++;
   if (KNOWN_COSMETIC.has(kind)) { observed.push(f); return f; }
   findings.push(f);
   console.log('  ‼ ' + kind + ' — ' + JSON.stringify(detail).slice(0, 400));
@@ -188,6 +198,40 @@ function checkCrossClient(entries, ctx) {
 }
 
 // ── Ein echter Schuss ueber den Produktions-Inputpfad ────────────────────────
+// Ein Pointer-Schuss, der erst NACH Ablauf der regulaeren Zugdeadline abgesetzt wird,
+// kann nicht mehr registriert werden: das Produkt hat den Zug da bereits ueber den
+// Auto-Stand geschlossen. Das ist erwartetes Verhalten, kein Treiberfehler.
+//
+// aimSet allein beweist nichts — es wird von einem echten Schuss GENAUSO gesetzt wie
+// vom Auto-Stand. Die Einstufung stuetzt sich deshalb ausschliesslich auf autoritative
+// Serverdaten und den beidseitig beobachteten Zustand. Faellt auch nur eine Bedingung
+// aus, bleibt es der bisherige blockierende Befund.
+function classifyUnregisteredShot(u, ctx) {
+  const reasons = [];
+  const slot = ctx.slotsA ? ctx.slotsA[u.client] : null;
+  const s0 = ctx.slotsA ? ctx.slotsA.s : null;
+  const usedMs = (slot && typeof slot.ts === 'number' && typeof s0 === 'number') ? slot.ts - s0 : null;
+  const ownIdx = ctx.balls ? ctx.balls.findIndex((b) => b.a && b.o === u.client) : -1;
+  if (!ctx.slotsA) reasons.push('autoritative Slots nicht lesbar');
+  if (!slot) reasons.push('kein Slot fuer diesen Seat');
+  // Die Deadline MUSS nachweislich abgelaufen sein — Serverstempel gegen Phasenstempel.
+  if (!(usedMs !== null && usedMs >= DEADLINE_MS)) reasons.push('Deadline nicht abgelaufen (usedMs=' + usedMs + ')');
+  // Kanonischer eigener Stand: eigene Kugel und 0/0/0. Das schliesst zugleich den
+  // Leave-Sentinel aus, der per Definition eine FREMDE Kugel traegt.
+  if (!slot || slot.idx !== ownIdx) reasons.push('Slot traegt nicht die eigene Kugel (Sentinel-Muster)');
+  if (!slot || slot.dx !== 0 || slot.dy !== 0 || slot.sp !== 0) reasons.push('kein kanonischer 0/0-Stand');
+  if (!ctx.seatGoneAfter || !ctx.seatGoneAfter.every((sg) => sg && sg[u.client] === false)) {
+    reasons.push('seatGone nicht auf beiden Clients false');
+  }
+  if (!ctx.genTurnAgree) reasons.push('gen/turn-Kontext beider Clients verschieden');
+  if (!ctx.slotsB || JSON.stringify(ctx.slotsA) !== JSON.stringify(ctx.slotsB)) {
+    reasons.push('autoritative Slots der beiden Clients verschieden');
+  }
+  if (ctx.desyncDelta !== 0) reasons.push('Desync-Befunde in diesem Zug: ' + ctx.desyncDelta);
+  if (!ctx.settled) reasons.push('Turn hat nicht regulaer gesettlet');
+  return { ok: reasons.length === 0, reasons, usedMs, slot, ownIdx };
+}
+
 async function realShot(c, turn) {
   const plan = shotPlan(turn, c.id);
   const geom = await c.page.evaluate((pl) => window.__ringoutE2E.aimPoints(pl.frac, pl.ang), plan);
@@ -371,6 +415,7 @@ async function waitAllAim(clients, timeout, label) {
       // Absichtliche Zeitueberschreitung: EIN Seat schiesst in diesem Zug gar nicht.
       // Die Online-Uhr fuellt seinen Slot nach Ablauf der 7-s-Deadline selbst — genau
       // der Ablauf, der vor dem Fix zur dauerhaften Ejection dieses Spielers fuehrte.
+      const desyncBefore = counters.desyncFindings;
       const isTimeoutTurn = (turn === TIMEOUT_TURN);
       // Sonst verbrauchen einzelne langsame Zuege Uhrzeit, damit Collapse 1/2 fallen.
       if (!isTimeoutTurn && turn % 4 === 1) { row.slow = true; await sleep(SLOW_TURN_MS); }
@@ -384,7 +429,12 @@ async function waitAllAim(clients, timeout, label) {
         const r = await realShot(c, turn);
         row.shots.push({ client: c.id, ...r });
         if (!r.ok) finding('shot-not-dispatched', { turn, client: c.id, reason: r.reason });
-        else if (!r.registered) finding('shot-not-registered', { turn, client: c.id, geom: r.geom, state: r.state });
+        else if (!r.registered) {
+          // Noch KEIN Befund: die Beweise (autoritative Slots, Settlement, seatGone,
+          // Uebereinstimmung beider Clients) liegen erst nach Aufloesung des Zuges vor.
+          (row.pendingUnregistered = row.pendingUnregistered || []).push(
+            { turn, client: c.id, geom: r.geom, state: r.state });
+        } else counters.realShotsRegistered++;
       }
       if (isTimeoutTurn) await sleep(TIMEOUT_WAIT_MS);   // Deadline sicher ueberschreiten
 
@@ -410,6 +460,10 @@ async function waitAllAim(clients, timeout, label) {
       // Autoritative Rohwerte des soeben aufgeloesten Turns: NUR hier ist sichtbar,
       // mit welchem idx ein Slot belegt wurde (der Client sanitisiert ihn danach weg).
       try { row.dbSlots = await H.dbRead(clients[0].page, `rooms/${code}/g/${row.gen}/t/${row.turnNo}`); } catch (_) {}
+      // Zweite Lesung aus dem ANDEREN Client: belegt, dass beide dieselben autoritativen
+      // Slots sehen — Voraussetzung fuer die Deadline-Einstufung.
+      let dbSlotsB = null;
+      try { dbSlotsB = await H.dbRead(clients[1].page, `rooms/${code}/g/${row.gen}/t/${row.turnNo}`); } catch (_) {}
       if (row.timeoutTurn && row.dbSlots) {
         const slot = row.dbSlots[TIMEOUT_SEAT], s0 = row.dbSlots.s;
         const usedMs = (slot && typeof slot.ts === 'number' && typeof s0 === 'number') ? slot.ts - s0 : null;
@@ -425,11 +479,42 @@ async function waitAllAim(clients, timeout, label) {
           }
         }
       }
+      let after = null;
       try {
-        const after = await sampleBoth(clients, `post-${turn}`);
+        after = await sampleBoth(clients, `post-${turn}`);
         row.seatGoneAfter = after.c.map((e) => e.s && e.s.seatGone);
         row.seatLeftAfter = after.c.map((e) => e.s && e.s.seatLeft);
       } catch (_) {}
+
+      // Jetzt erst entscheiden: erwartete Deadline-Zeitflanke oder echter Befund.
+      if (row.pendingUnregistered && row.pendingUnregistered.length) {
+        const gt = after ? after.c.map((e) => e.s && (e.s.gen + ':' + e.s.turnNo)) : [];
+        const ctx = { slotsA: row.dbSlots, slotsB: dbSlotsB, balls: row.balls,
+                      settled, seatGoneAfter: row.seatGoneAfter,
+                      genTurnAgree: gt.length > 1 && gt.every((v) => v && v === gt[0]),
+                      desyncDelta: counters.desyncFindings - desyncBefore };
+        for (const u of row.pendingUnregistered) {
+          const cls = classifyUnregisteredShot(u, ctx);
+          if (cls.ok) {
+            counters.expectedDeadlineAutoStands++;
+            const rec = { kind: 'expected-deadline-autostand', ts: Date.now(),
+              turn: u.turn, gen: row.gen, turnNo: row.turnNo, seat: u.client,
+              deadlineOverrunMs: cls.usedMs - DEADLINE_MS, usedMs: cls.usedMs,
+              canonicalSlot: cls.slot, ownIdx: cls.ownIdx,
+              seatGone: row.seatGoneAfter, settled: !!settled,
+              nextTurnContext: gt.length ? gt[0] : null };
+            (row.expectedDeadlineAutoStands = row.expectedDeadlineAutoStands || []).push(rec);
+            observed.push(rec);
+            console.log('  o expected-deadline-autostand — ' + JSON.stringify(
+              { turn: rec.turn, seat: rec.seat, usedMs: rec.usedMs, overrunMs: rec.deadlineOverrunMs }));
+          } else {
+            counters.unexpectedShotNotRegistered++;
+            finding('shot-not-registered', { turn: u.turn, client: u.client,
+              geom: u.geom, state: u.state, reasons: cls.reasons,
+              usedMs: cls.usedMs, slot: cls.slot });
+          }
+        }
+      }
       row.samples = samples;
       row.settled = settled;
       if (!settled) {
@@ -522,6 +607,7 @@ async function waitAllAim(clients, timeout, label) {
   } finally {
     for (const c of clients) await closeClient(c, { state, closeErrors: [] });
     const clean = await H.cleanup({ browser, staticServer, emu, runDir, closeErrors: [], preexistingLogs: [] });
+    report.counters = counters;
     report.cleanup = clean;
     fs.writeFileSync(path.join(OUT_DIR, 'report.json'), JSON.stringify(report, null, 2));
     const byKind = {};
@@ -530,6 +616,10 @@ async function waitAllAim(clients, timeout, label) {
     const obsKind = {};
     for (const f of observed) obsKind[f.kind] = (obsKind[f.kind] || 0) + 1;
     console.log('Zuege gespielt: ' + report.turns.length + '  ·  Blockierende Befunde: ' + findings.length);
+    console.log('Schuesse registriert: ' + counters.realShotsRegistered
+      + '  ·  erwartete Deadline-Auto-Stands: ' + counters.expectedDeadlineAutoStands
+      + '  ·  unerwartet nicht registriert: ' + counters.unexpectedShotNotRegistered
+      + '  ·  Desyncs: ' + counters.desyncFindings);
     console.log('Befundarten: ' + (Object.keys(byKind).length ? JSON.stringify(byKind, null, 2) : '(keine)'));
     console.log('Bekannt/nicht blockierend: ' + (Object.keys(obsKind).length ? JSON.stringify(obsKind) : '(keine)'));
     console.log('Bericht: ' + path.join(OUT_DIR, 'report.json'));
