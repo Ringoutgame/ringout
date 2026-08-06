@@ -1109,9 +1109,11 @@ ok((HTML.match(/new THREE\.Scene\(\)/g) || []).length === 1, 'Genau eine Szene (
 ok((HTML.match(/new THREE\.PerspectiveCamera/g) || []).length === 1, 'Genau eine Kamera (keine neue Kamera)');
 ok((HTML.match(/new THREE\.WebGLRenderer/g) || []).length === 1, 'Genau ein Renderer (bestehende Szene wiederverwendet)');
 
-// ── HUD-Hinweis aktualisiert ──
+// ── Untere Statuszeile: die Labels der Integrations-Shell sind vollstaendig weg ──
+// (UX-Phase 2B: der finale Football-Modus zeigt unten gar keine Meldung mehr; wer am Zug
+// ist, traegt die aktive Teamkarte im HUD. Details in Abschnitt "UX-PHASE 2B" unten.)
 ok(!/Tore folgen im nächsten Schritt/.test(HTML), "HUD-Hinweis enthaelt nicht mehr 'Tore folgen im naechsten Schritt'");
-ok(/Arena Football · Visuelle Integration/.test(HTML), "HUD-Hinweis aktualisiert auf 'Arena Football · Visuelle Integration'");
+ok(!/Arena Football · Visuelle Integration/.test(HTML), "alte Shell-Meldung 'Arena Football · Visuelle Integration' entfernt");
 
 // ── Tor-Integration: Asset & Kernskalierung/Rotation unveraendert (nur Radialposition korrigiert) ──
 ok(/g\.position\.set\(sign\*GOAL_R,\s*GOAL_WALK_Y,\s*0\)/.test(HTML), 'Torpositionen radial auf GOAL_R (nach innen versetzt)');
@@ -1519,6 +1521,165 @@ for (const p of ['PROD', 'BASELINE']) {
   ok(maxR <= M.R0 - M.BR + 1e-6, p + ': keine Kugel jenseits der Bandenlinie (maxR ' + maxR.toFixed(4) + ')');
   ok(box.x0 === buildEnv('football', 'single', 'BASELINE').box().x0,
      p + ': Sockelgeometrie durch die Football-Physik unveraendert');
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// UX-PHASE 2 — ARENA-FOOTBALL-MATCH-HUD
+// Geprueft wird die Abgrenzung, nicht die Optik: dass das HUD ausschliesslich im
+// Football-Modus greift, dass es die BESTEHENDE Statusleiste nutzt statt einer zweiten
+// Score-Engine, dass die Matchregel nur aus FOOTBALL_WIN_SCORE stammt und dass die
+// Einblendungen keinen Spielzustand beruehren.
+// ══════════════════════════════════════════════════════════════════════════════
+const fbHudSrc = grab(/const FB_POP_MS=[\s\S]*?\nfunction updateHud\(\)\{/, 'Football-HUD-Block');
+const updateHudSrc = grab(/function updateHud\(\)\{[\s\S]*?\n\}/, 'updateHud');
+const newGameSrc = grab(/function newGame\(\)\{[\s\S]*?startRound\(\);\}/, 'newGame');
+const showMenuSrc = grab(/function showMenu\(\)\{[\s\S]*?updScrollHint\(\);\}/, 'showMenu');
+const setPhaseTextSrc = grab(/function setPhaseText\(\)\{[\s\S]*?\n\}/, 'setPhaseText');
+const fbCssSrc = grab(/#game\.fb \.status\{[\s\S]*?\n\.arena-wrap\{/, 'Football-HUD-CSS');
+
+// ── A. Aufbau: bestehende Statusleiste, Blau links, Score mittig, Rot rechts ──
+{
+  const iCard0 = HTML.indexOf('id="card0"'), iBox = HTML.indexOf('class="scorebox"'), iCard1 = HTML.indexOf('id="card1"');
+  ok(iCard0 > 0 && iBox > iCard0 && iCard1 > iBox,
+     'Reihenfolge in der Statusleiste: card0 (Blau) -> scorebox -> card1 (Rot)');
+  ok(/\.status\{[^}]*grid-template-columns:1fr auto 1fr/.test(HTML),
+     'Statusleiste bleibt das bestehende 1fr-auto-1fr-Raster (kein zweites HUD-Layout)');
+  ok(/#game\.fb #card0 \.pn\{color:var\(--p1\)\}/.test(HTML) && /#game\.fb #card1 \.pn\{color:var\(--p2\)\}/.test(HTML),
+     'Blau links, Rot rechts — ueber die IDs adressiert, nicht ueber die Kindreihenfolge');
+  ok(/#game\.fb #card0\{border-left:2px solid rgba\(0,212,255/.test(HTML) &&
+     /#game\.fb #card1\{border-right:2px solid rgba\(255,77,77/.test(HTML),
+     'Teamakzent nur als Kante: blau ausschliesslich links, rot ausschliesslich rechts');
+  ok(/#game\.fb \.score\{font-size:30px/.test(HTML) && /#game\.fb \.pcard \.pn\{font-size:11px/.test(HTML),
+     'Score ist der visuelle Schwerpunkt (30px gegen 11px Teamname)');
+  ok(/#game\.fb \.score\{[^}]*font-variant-numeric:tabular-nums/.test(HTML) &&
+     /#game\.fb \.score \.s0,#game\.fb \.score \.s1\{display:inline-block;min-width:/.test(HTML),
+     'feste Ziffernbreite -> kein Layoutsprung beim Wechsel 0/1/2/3');
+  ok(/@media\(max-width:380px\)/.test(fbCssSrc), 'eigener Kompaktzustand fuer schmale Fenster vorhanden');
+  ok(/#game\.fb \.scorebox\{[^}]*border-color:rgba\(255,201,64/.test(HTML),
+     'feine Goldkante am Score-Panel (bestehende Goldsprache)');
+  ok(!/<img|<svg/.test(fbCssSrc), 'keine Icons/Portraits/Wappen im HUD');
+}
+
+// ── B. Mode-Scoping: ausserhalb Football existiert das HUD nicht ──
+{
+  const rules = fbCssSrc.split('\n').map((l) => l.trim())
+    .filter((l) => l.includes('{') && !l.startsWith('/*') && !l.startsWith('*'))
+    .map((l) => l.slice(0, l.indexOf('{')).trim()).filter(Boolean);
+  const NEUTRAL = ['@keyframes fbpop', '@media(max-width:380px)', '.arena-wrap'];
+  ok(rules.length > 10, 'HUD-CSS-Block gefunden (' + rules.length + ' Regeln)');
+  ok(rules.every((s) => s.startsWith('#game.fb') || NEUTRAL.includes(s)),
+     'jede HUD-Regel haengt an #game.fb (Ausnahmen nur: Keyframes, Media-Query)');
+  ok(/function fbHudOn\(\)\{return mode==='football'&&!menuVisible;\}/.test(HTML),
+     "die Football-Klasse haengt an mode==='football' UND !menuVisible");
+  ok(/g\.classList\.toggle\('fb',on\);/.test(fbHudSrc) && /if\(!on\)fbClearHudFx\(\);/.test(fbHudSrc),
+     'beim Verlassen des Football-Modus wird die Klasse entfernt und alles abgeraeumt');
+  ok(/applyFootballHud\(\);/.test(showMenuSrc),
+     'showMenu() raeumt das Football-HUD ab (Menuewechsel, Moduswechsel)');
+  ok(/fbClearHudFx\(\)\{[\s\S]*?clearTimeout\(fbPopT\[t\]\)[\s\S]*?classList\.remove\('pop'\)/.test(fbHudSrc),
+     'Abraeumen stoppt die Score-Animation restlos (keine Reste in anderen Modi)');
+  ok(/if\(mode==='football'\)fbScorePulse\(\);/.test(updateHudSrc),
+     'die Score-Reaktion laeuft ausschliesslich im Football-Modus');
+  // Kein Football-Text ausserhalb von Football: der Untertitel ist explizit verzweigt.
+  ok(/\$\('rinfo'\)\.textContent=mode==='football'/.test(updateHudSrc) && /:'Runde '\+roundNo;/.test(updateHudSrc),
+     'andere Modi behalten im Untertitel unveraendert die Rundenanzeige');
+}
+
+// ── C. First-to-N: genau eine Quelle fuer die Matchregel, deutscher Text im HUD ──
+{
+  ok(/function fbFirstToText\(\)\{return I18N\.de\.fbFirstTo\.replace\('\{n\}',FOOTBALL_WIN_SCORE\);\}/.test(HTML),
+     'die Zahl im Untertitel stammt aus FOOTBALL_WIN_SCORE');
+  ok(/\$\('rinfo'\)\.textContent=mode==='football'\?fbFirstToText\(\)/.test(updateHudSrc),
+     'der Football-Untertitel kommt aus genau dieser Funktion');
+  // URSACHE des englischen Textes: LANG faellt ohne gespeicherte Auswahl auf 'en' zurueck,
+  // waehrend die gesamte In-Game-Ebene ('Runde N', 'zielt…', 'BLAU'/'ROT') hart Deutsch ist.
+  // Der Untertitel folgt deshalb seinen Nachbarn statt der Menue-i18n.
+  ok(/return I18N\[l\]\?l:'en';/.test(HTML), 'LANG-Default ist unveraendert (globale Sprachlogik nicht angefasst)');
+  ok(/:'Runde '\+roundNo;/.test(updateHudSrc), 'der Nachbartext im selben Feld ist unveraendert deutsch');
+  for (const [lang, txt] of [['en', 'FIRST TO {n}'], ['de', 'ERSTER BIS {n}']]) {
+    ok(HTML.includes("fbFirstTo:'" + txt + "'"), 'i18n ' + lang + ": '" + txt + "'");
+  }
+  ok(/fbFirstTo:'İLK \{n\}'/.test(HTML), "i18n tr: 'ILK {n}'");
+  ok((HTML.match(/fbFirstTo:/g) || []).length === 3, 'fbFirstTo in allen drei Sprachen gepflegt');
+  // Keine der Uebersetzungen darf die Zahl selbst enthalten — sonst gaebe es eine zweite
+  // Wahrheit neben FOOTBALL_WIN_SCORE.
+  ok(!/fbFirstTo:'[^']*[0-9][^']*'/.test(HTML),
+     'keine Uebersetzung hardcodiert die Zahl (nur der {n}-Platzhalter)');
+  ok(buildEnv('football', 'single').winScore === 3, 'FOOTBALL_WIN_SCORE ist weiterhin die Regel (3)');
+  // Und das Ergebnis, wie es im HUD steht — mit derselben Rechnung wie im Produktivcode.
+  const de = (HTML.match(/fbFirstTo:'(ERSTER BIS \{n\})'/) || [])[1];
+  ok(de && de.replace('{n}', 3) === 'ERSTER BIS 3', 'deutsche Anzeige lautet "ERSTER BIS 3"');
+  ok((HTML.match(/fbFirstTo:'(FIRST TO \{n\})'/) || [])[1].replace('{n}', 3) === 'FIRST TO 3',
+     'englische Fassung lautet "FIRST TO 3"');
+  ok((HTML.match(/fbFirstTo:'(İLK \{n\})'/) || [])[1].replace('{n}', 3) === 'İLK 3',
+     'tuerkische Fassung lautet "ILK 3"');
+}
+
+// ── D. UX-PHASE 2B: Anstosshinweis vollstaendig entfernt ──
+{
+  for (const id of ['fbIntro', 'fbIntroTxt', 'fbShowIntro', 'FB_INTRO_MS', 'fbIntroT', 'fbintro'])
+    ok(!HTML.includes(id), 'kein Rest von "' + id + '" im Produktivcode');
+  ok(!/BLAU<\/b><em>/.test(HTML) && !/→<\/em>/.test(HTML), 'keine Pfeil-/Anstossgrafik mehr vorhanden');
+  ok(!/fbShowIntro|fbIntro/.test(newGameSrc), 'newGame() hat keinen Intro-Hook mehr');
+  ok((fbHudSrc.match(/setTimeout/g) || []).length === 1,
+     'nur noch EIN einmaliger Timer im HUD (die Score-Reaktion)');
+  ok(!/setInterval/.test(fbHudSrc), 'weiterhin kein permanenter Timer');
+}
+
+// ── E2. UX-PHASE 2B: keine sekundaeren Teamstatuswoerter im Football-HUD ──
+{
+  ok(/#game\.fb \.pcard \.pw\{display:none\}/.test(HTML),
+     '"zielt…"/"bereit" sind im Football-HUD ausgeblendet');
+  ok(/#game\.fb \.pcard\{[^}]*align-content:center/.test(HTML),
+     'der verbliebene Teamname sitzt mittig in der Karte');
+  // Andere Modi behalten ihre Statusanzeige: die Regel ist .fb-gescoped und updateHud()
+  // befuellt ready0/ready1 unveraendert fuer alle Modi.
+  ok(/\.pcard \.pw\{font-size:8px;color:#7688a6/.test(HTML), 'Basisregel fuer .pw unveraendert (andere Modi)');
+  ok(/\$\('ready0'\)\.textContent=readyText\(0\);/.test(updateHudSrc) &&
+     /\$\('ready1'\)\.textContent=readyText\(1\);/.test(updateHudSrc),
+     'readyText() wird weiterhin fuer alle Modi gesetzt (nur die Football-Darstellung blendet aus)');
+}
+
+// ── E3. UX-PHASE 2B: alte untere Integrationsmeldung entfernt ──
+{
+  ok(!/Arena Football · Visuelle Integration/.test(HTML), "'Arena Football · Visuelle Integration' entfernt");
+  ok(!/Arena Football — Shell/.test(HTML), "'Arena Football — Shell' entfernt");
+  ok(!/Beide aufgedeckt…'/.test(setPhaseTextSrc.slice(0, setPhaseTextSrc.indexOf('if(online)'))),
+     'keine Football-Phasentexte mehr im Football-Zweig');
+  ok(/p\.textContent=r3dActive\?'':'3D-Szene nicht verfügbar/.test(setPhaseTextSrc),
+     'im Football bleibt unten nur die echte 3D-Fehlermeldung, sonst leer');
+  ok(/if\(online\)\{/.test(setPhaseTextSrc), 'die Statuszeilen der anderen Modi sind unveraendert vorhanden');
+}
+
+// ── E. Score-Reaktion: kurz, dekorativ, ohne Rueckwirkung ──
+{
+  ok(/const FB_POP_MS=460;/.test(HTML), 'Tor-Reaktion dauert 460 ms (kurz und kontrolliert)');
+  ok(/@keyframes fbpop\{0%\{transform:scale\(1\)\}30%\{transform:scale\(1\.26\)\}100%\{transform:scale\(1\)\}\}/.test(HTML),
+     'die Reaktion ist eine einmalige kurze Skalierung (kein Dauerblinken)');
+  ok(/const v=score\[t\]\|0,el=\$\(t\?'sc1':'sc0'\);/.test(fbHudSrc),
+     'die Reaktion liest ausschliesslich score[] — keine eigene Zaehlung');
+  ok(/if\(el&&v>fbScoreShown\[t\]\)/.test(fbHudSrc),
+     'ausgeloest wird nur bei einem echten Anstieg des angezeigten Standes');
+  ok(/fbScoreShown=\[score\[0\]\|0,score\[1\]\|0\];/.test(newGameSrc),
+     'beim Matchstart wird der Anzeigestand gleichgezogen (kein Puls auf 0:0)');
+  ok(!/setInterval/.test(fbHudSrc), 'kein permanenter Timer im HUD (nur einmalige setTimeout)');
+  ok(!/shake|confetti|particle|spawn\(|SFX\./i.test(fbHudSrc),
+     'keine Partikel, kein Shake, keine neuen Sounds im HUD');
+  ok(!/firebase|fetch\(|XMLHttpRequest|db\./.test(fbHudSrc), 'keine neue Netzwerkabhaengigkeit im HUD');
+}
+
+// ── F. Die Spiellogik bleibt unberuehrt ──
+{
+  const HUD_IDS = /fbShowIntro|fbScorePulse|applyFootballHud|fbClearHudFx|classList/;
+  for (const [nm, src] of [['footballTryGoal', tryGoalSrc], ['footballGoalSide', goalSideSrc],
+                           ['footballResetRound', resetRoundSrc], ['footballTickGoal', tickGoalSrc],
+                           ['footballMatchEnd', matchEndSrc], ['footballResetMatchState', resetMatchStateSrc]])
+    ok(!HUD_IDS.test(src), nm + ' enthaelt keinen HUD-Code (Wertung und Ablauf unveraendert)');
+  ok(/score\[side\]=\(score\[side\]\|\|0\)\+1;/.test(tryGoalSrc),
+     'die Wertung selbst ist unveraendert (score[side]++ in footballTryGoal)');
+  ok(/if\(score\[side\]>=FOOTBALL_WIN_SCORE\)footballWinner=side;/.test(tryGoalSrc),
+     'First-to-3 wird weiterhin genau an der Wertungsstelle geprueft');
+  // Das HUD haengt an updateHud() — dem bestehenden, einzigen Anzeige-Einstiegspunkt.
+  ok(/updateHud\(\);/.test(tryGoalSrc), 'das Tor aktualisiert die Anzeige ueber den bestehenden updateHud()-Pfad');
 }
 
 console.log('\nFootball-Shell: ' + pass + ' passed, ' + fail + ' failed');

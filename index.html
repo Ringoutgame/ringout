@@ -271,6 +271,46 @@ header{width:100%;max-width:460px;display:flex;align-items:center;justify-conten
 .score .s0{color:var(--p1)}.score .s1{color:var(--p2)}.score .sep{color:rgba(255,201,64,.75);margin:0 5px;font-size:14px}
 .rinfo{font-size:7.5px;color:#8b99b4;text-transform:uppercase;letter-spacing:.22em;text-align:center;font-weight:800}
 
+/* ── Arena Football: Match-HUD ────────────────────────────────────────────────
+   Kein zweites HUD: die BESTEHENDE Statusleiste (card0 | scorebox | card1) wird nur
+   nachgeschaerft, sobald #game die Klasse .fb traegt. Jede Regel ist an .fb gebunden —
+   ohne die Klasse ist dieser Block vollstaendig wirkungslos, alle anderen Modi bleiben
+   damit strukturell unveraendert. Material: dasselbe dunkle Glas, dieselbe Goldkante,
+   dieselben Teamfarben wie im restlichen Spiel. */
+#game.fb .status{max-width:404px;gap:6px}
+#game.fb .scorebox{padding:6px 17px;border-color:rgba(255,201,64,.44);
+  box-shadow:0 10px 26px rgba(5,9,18,.45),inset 0 1px 0 rgba(255,255,255,.055)}
+/* Score ist der visuelle Schwerpunkt: 30px gegen 11px Teamname. tabular-nums + feste
+   Ziffernbreite -> der Wechsel 0->1->2->3 verschiebt das Layout nicht. */
+#game.fb .score{font-size:30px;letter-spacing:.01em;line-height:1.06;font-variant-numeric:tabular-nums}
+#game.fb .score .s0,#game.fb .score .s1{display:inline-block;min-width:.66em;text-align:center}
+#game.fb .score .sep{font-size:18px;margin:0 6px;color:rgba(255,201,64,.62)}
+#game.fb .rinfo{font-size:8px;letter-spacing:.24em;color:#93a3bd}
+/* Teamakzent als schmale Kante — blau nur links, rot nur rechts, keine bunten Flaechen.
+   Ueber die IDs adressiert (nicht ueber :first-child/:last-child), damit die Zuordnung
+   unabhaengig von der Kindreihenfolge in .status eindeutig ist. */
+#game.fb #card0{border-left:2px solid rgba(0,212,255,.5)}
+#game.fb #card1{border-right:2px solid rgba(255,77,77,.5);text-align:right}
+#game.fb #card0 .pn{color:var(--p1)}
+#game.fb #card1 .pn{color:var(--p2)}
+/* Teamkarten tragen im Football nur noch BLAU bzw. ROT. Die sekundaere Statuszeile
+   ("zielt…"/"bereit") entfaellt hier — wer am Zug ist, zeigt bereits die aktive Kante.
+   Nur .fb-gescoped: alle anderen Modi behalten ihre Statusanzeige unveraendert.
+   align-content zentriert den verbliebenen Namen in der Kartenhoehe. */
+#game.fb .pcard{padding:9px 12px;display:grid;align-content:center}
+#game.fb .pcard .pn{font-size:11px;letter-spacing:.13em}
+#game.fb .pcard .pw{display:none}
+/* Toranzeige: sehr kurze Skalierung plus ein Hauch Teamfarbe. Rein dekorativ — die Klasse
+   wird nach FB_POP_MS wieder entfernt und beruehrt keinen Spielzustand. */
+@keyframes fbpop{0%{transform:scale(1)}30%{transform:scale(1.26)}100%{transform:scale(1)}}
+#game.fb .score .pop{animation:fbpop .42s cubic-bezier(.2,.9,.25,1)}
+#game.fb .score .s0.pop{text-shadow:0 0 15px rgba(0,212,255,.6)}
+#game.fb .score .s1.pop{text-shadow:0 0 15px rgba(255,77,77,.6)}
+@media(max-width:380px){
+  #game.fb .score{font-size:26px}
+  #game.fb .pcard .pn{font-size:10px;letter-spacing:.1em}
+}
+
 .arena-wrap{width:100%;max-width:460px;flex:1 1 0;min-height:0;display:flex;align-items:center;justify-content:center;position:relative}
 /* 3D-Render-Adapter (Standard-Modus): WebGL-Canvas fuellt den Viewport HINTER der gesamten UI */
 #cv{position:relative;z-index:1}
@@ -1389,6 +1429,7 @@ en:{tagline:'PULL BACK · RELEASE · KNOCK THEM OUT',chip:'FEATURED',
   createRoom:'Create room',join:'Join',enterCode:'ENTER CODE',back:'↩ Back',yourCode:'YOUR CODE',waitMate:'Waiting for opponent…',lobby:'LOBBY',lobbyGo:'▶ Start',
   leaveT:'Leave online match?',leaveS:'Your opponent can’t continue without you.',leaveNo:'Cancel',leaveYes:'Leave match',
   rematch:'🔄 Rematch',replayB:'🎬 Watch replay',menuB:'↩ Menu',fbNewMatch:'🔄 New match',
+  fbFirstTo:'FIRST TO {n}',   // {n} kommt aus FOOTBALL_WIN_SCORE — keine zweite Matchregel
   creating:'Creating room…',ffaShare:'FFA · Share the code with 1–4 friends.',shareCode:'Share the code with your friend.',
   code4:'Please enter the 4-letter code.',joining:'Joining…',noRoom:'Room not found.',roomFull:'Room is already full.',
   connWait:'Connected! Waiting for the host…',connStart:'Connected! Game starting…',
@@ -1430,6 +1471,7 @@ de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'FEATURED',
   createRoom:'Raum erstellen',join:'Beitreten',enterCode:'CODE EINGEBEN',back:'↩ Zurück',yourCode:'DEIN CODE',waitMate:'Warte auf Gegner…',lobby:'LOBBY',lobbyGo:'▶ Start',
   leaveT:'Online-Match verlassen?',leaveS:'Dein Gegner kann dann nicht weiterspielen.',leaveNo:'Abbrechen',leaveYes:'Match verlassen',
   rematch:'🔄 Rematch',replayB:'🎬 Replay ansehen',menuB:'↩ Menü',fbNewMatch:'🔄 Neues Match',
+  fbFirstTo:'ERSTER BIS {n}',
   creating:'Erstelle Raum…',ffaShare:'FFA · Schick den Code an 1–4 Freunde.',shareCode:'Schick den Code an deinen Kumpel.',
   code4:'Bitte 4-stelligen Code eingeben.',joining:'Trete bei…',noRoom:'Raum nicht gefunden.',roomFull:'Raum ist schon voll.',
   connWait:'Verbunden! Warte auf den Host…',connStart:'Verbunden! Spiel startet…',
@@ -1471,6 +1513,7 @@ tr:{tagline:'GERİ ÇEK · BIRAK · DIŞARI İT',chip:'FEATURED',
   createRoom:'Oda kur',join:'Katıl',enterCode:'KOD GİR',back:'↩ Geri',yourCode:'KODUN',waitMate:'Rakip bekleniyor…',lobby:'LOBİ',lobbyGo:'▶ Başlat',
   leaveT:'Online maçtan çıkılsın mı?',leaveS:'Rakibin sensiz devam edemez.',leaveNo:'İptal',leaveYes:'Maçtan çık',
   rematch:'🔄 Rövanş',replayB:'🎬 Tekrarı izle',menuB:'↩ Menü',fbNewMatch:'🔄 Yeni maç',
+  fbFirstTo:'İLK {n}',
   creating:'Oda kuruluyor…',ffaShare:'FFA · Kodu 1–4 arkadaşına gönder.',shareCode:'Kodu arkadaşına gönder.',
   code4:'Lütfen 4 haneli kodu gir.',joining:'Katılınıyor…',noRoom:'Oda bulunamadı.',roomFull:'Oda zaten dolu.',
   connWait:'Bağlandı! Host bekleniyor…',connStart:'Bağlandı! Oyun başlıyor…',
@@ -1641,6 +1684,7 @@ $('nameInput').addEventListener('input',e=>{ setOnlineName(e.target.value);
 $('rejoinBtn').onclick=()=>{ const sr=savedRoom(); if(!sr)return; $('onRejoin').style.display='none';
   attemptRejoin(sr.code).then(ok=>{ if(!ok&&savedRoom()&&!online)$('onRejoin').style.display=''; }); };
 function showMenu(){menuVisible=true;$('menu').style.display='flex';$('game').style.display='none';updateMenuPreview();resize();
+  applyFootballHud();          // Football-HUD-Klasse, Anstosshinweis und Score-Animation restlos abraeumen
   footballResetMatchState();   // zurueck im Menue: kein Football-Latch, keine Eingabesperre und kein Gewinner bleiben stehen (in anderen Modi wirkungslos)
   if(r3dActive&&r3d&&r3d.flushEnvProfile)r3d.flushEnvProfile();   // waehrend des Matches aufgeschobenen Env-Wechsel jetzt (sicherer Idle) anwenden
   whenFB(()=>{if(fbReady()&&menuVisible)startPublicListing();});updScrollHint();}   // Home-Rooms-Vorschau reaktivieren
@@ -2212,6 +2256,10 @@ function newGame(){resize();R=R0;score=[];for(let p=0;p<np();p++)score.push(0);r
     $('card0').querySelector('.pn').textContent=mode==='football'?'BLAU':'SPIELER 1';
     $('n1').textContent=mode==='football'?'ROT':(mode==='bot'?'BOT':'SPIELER 2');
   }
+  // Football-HUD: Klasse setzen und den Anzeigestand gleichziehen, damit der Startstand
+  // 0:0 nicht als Torereignis pulst.
+  fbScoreShown=[score[0]|0,score[1]|0];
+  applyFootballHud();
   startRound();}
 function resetCommits(){aimSet=[];commitIdx=[];commitAim=[];commitSpin=[];
   for(let p=0;p<np();p++){aimSet.push(false);commitIdx.push(-1);commitAim.push({dx:0,dy:0});commitSpin.push(0);}}
@@ -2255,24 +2303,70 @@ function renderTeamBar(){
     bar.appendChild(chip);
   }
 }
+// ══ ARENA FOOTBALL: MATCH-HUD (rein visuell) ══════════════════════════════════
+// Es gibt KEINE zweite Score-Engine: angezeigt wird ausschliesslich score[] aus der
+// bestehenden Spiellogik, in der bestehenden Statusleiste. Dieser Block schaltet nur
+// eine CSS-Klasse zu, formatiert den Untertitel und startet zwei kurze, rein
+// dekorative Einblendungen. Kein Timer beeinflusst einen Spielzustand.
+const FB_POP_MS=460;                    // Dauer der Tor-Reaktion am Score
+let fbPopT=[0,0],fbScoreShown=[0,0];
+function fbHudOn(){return mode==='football'&&!menuVisible;}
+// Football-Klasse an/aus. Wird beim Matchstart und beim Menuewechsel aufgerufen; ausserhalb
+// Football raeumt sie laufende Animationen restlos ab.
+function applyFootballHud(){
+  const g=$('game');if(!g)return;
+  const on=fbHudOn();
+  g.classList.toggle('fb',on);
+  if(!on)fbClearHudFx();
+}
+function fbClearHudFx(){
+  for(let t=0;t<2;t++){
+    if(fbPopT[t]){clearTimeout(fbPopT[t]);fbPopT[t]=0;}
+    const s=$(t?'sc1':'sc0');if(s)s.classList.remove('pop');
+  }
+}
+// Untertitel des Score-Panels. Die Zahl kommt AUSSCHLIESSLICH aus FOOTBALL_WIN_SCORE.
+// Sprache: die In-Game-Ebene ist projektweit Deutsch (siehe 'Runde N', 'zielt…',
+// 'BLAU'/'ROT'), waehrend die i18n-Ebene bisher nur Menue und Online-Dialog abdeckt und
+// per Default auf 'en' steht. Der Untertitel folgt deshalb seinen direkten Nachbarn und
+// nimmt den deutschen Eintrag; en/tr bleiben gepflegt, damit die Zeile beim spaeteren
+// Lokalisieren des HUDs ohne Codeaenderung einrastet.
+function fbFirstToText(){return I18N.de.fbFirstTo.replace('{n}',FOOTBALL_WIN_SCORE);}
+// Kurze Reaktion auf einen Torstand-Wechsel. Vergleicht nur den ZULETZT ANGEZEIGTEN Wert
+// mit score[] — keine eigene Zaehlung, keine Rueckwirkung auf die Wertung.
+function fbScorePulse(){
+  for(let t=0;t<2;t++){
+    const v=score[t]|0,el=$(t?'sc1':'sc0');
+    if(el&&v>fbScoreShown[t]){
+      el.classList.remove('pop');void el.offsetWidth;   // Animation neu starten
+      el.classList.add('pop');
+      if(fbPopT[t])clearTimeout(fbPopT[t]);
+      fbPopT[t]=setTimeout(()=>{el.classList.remove('pop');fbPopT[t]=0;},FB_POP_MS);
+    }
+    fbScoreShown[t]=v;
+  }
+}
 function updateHud(){
   if(mode==='ffa'){if(fmt==='team_duel')renderTeamBar();else renderFfaBar();return;}
   // Online 1v1/2v2: show the durable roster names (textContent — never innerHTML).
   if(online){ $('n0').textContent=pName(0); $('n1').textContent=pName(1); }
   $('sc0').textContent=score[0];$('sc1').textContent=score[1];
-  $('rinfo').textContent=mode==='football'?'Arena Football 1v1 · Integrations-Shell':'Runde '+roundNo;
+  // Untertitel: im Football die Matchregel, und zwar aus FOOTBALL_WIN_SCORE abgeleitet —
+  // die Zahl ist nirgends ein zweites Mal hinterlegt.
+  $('rinfo').textContent=mode==='football'?fbFirstToText():'Runde '+roundNo;
+  if(mode==='football')fbScorePulse();
   $('ready0').textContent=readyText(0);
   $('ready1').textContent=readyText(1);
   $('card0').className='pcard'+(online&&myPlayer===0?' mine':'')+(phase==='aim'&&((online&&myPlayer===0)||(!online&&(mode==='bot'||curAimer===0)))&&!aimSet[0]?' act0':'');
   $('card1').className='pcard'+(online&&myPlayer===1?' mine':'')+(phase==='aim'&&((online&&myPlayer===1)||(!online&&(mode==='pvp'||mode==='football')&&curAimer===1))&&!aimSet[1]?' act1':'');
 }
 function setPhaseText(){const p=$('phase');
-  if(mode==='football'){   // Integrations-Shell: Blau/Rot am Zug, klarer Hinweis auf die kommende Torlogik
-    if(!r3dActive)p.textContent='3D-Szene nicht verfügbar — Arena Football benötigt sie.';
-    else if(phase==='aim')p.innerHTML='<span class="me'+curAimer+'">'+(curAimer===0?'BLAU':'ROT')+'</span> zieht — Arena Football · Visuelle Integration';
-    else if(phase==='reveal')p.textContent='Beide aufgedeckt…';
-    else if(phase==='sim')p.textContent='⚽ Arena Football — Shell';
-    else p.textContent='';
+  if(mode==='football'){
+    // Die untere Statuszeile gehoerte zur Integrations-Shell und entfaellt im finalen
+    // Football-Modus ersatzlos — wer am Zug ist, zeigt bereits die aktive Teamkarte im HUD.
+    // Einzige Ausnahme bleibt die echte Fehlermeldung, wenn die 3D-Szene fehlt: sie ist
+    // kein Shell-Label, sondern der Hinweis auf einen nicht spielbaren Zustand.
+    p.textContent=r3dActive?'':'3D-Szene nicht verfügbar — Arena Football benötigt sie.';
     return;
   }
   if(online){
