@@ -4546,7 +4546,10 @@ function drawBall(b){
   }
 
   // ── 5. Weißes Label — NUR 2D. In 3D traegt Farbe/HUD die Erkennung (saubere Murmeln). ──
-  if(!r3dActive){
+  // Arena Football traegt gar kein Kugellabel: die drei Kugeln sind ueber ihre Farbe
+  // eindeutig, und der neutrale Ball gehoert keinem Spieler. Nur mode-scoped ausgeblendet,
+  // die Labelstruktur selbst bleibt fuer alle anderen Modi unveraendert.
+  if(!r3dActive&&mode!=='football'){
     ctx.fillStyle='#ffffff';
     ctx.font='900 '+(BR*1.05)+'px system-ui';
     ctx.textAlign='center';ctx.textBaseline='middle';
@@ -4560,7 +4563,10 @@ function drawBall(b){
 
   // ── 6. Spielername ueber der Kugel — 2D+3D via OP(), nur im Stillstand/Aiming ──
   // Premium-Stil: kraeftige Edelstein-Farbe (NAME_COL) + dunkle Kontur fuer Lesbarkeit auf Dawn/Day.
-  if(phase!=='sim'){
+  // Nicht im Football-Modus: der neutrale Ball (owner 4) hat keinen Spieler und wuerde von
+  // pName() als "Spieler 5" beschriftet, und ueber Blau/Rot verdeckt der Name nur das Feld.
+  // Mode-scoped — alle anderen Modi behalten ihre Namenslabels unveraendert.
+  if(phase!=='sim'&&mode!=='football'){
     const q=OP(b.x,b.y,0),name=pName(b.owner);
     ctx.save();
     const fs=Math.max(12,BR*.66*q.s);
@@ -4900,12 +4906,68 @@ async function initR3D(){
       const GOAL_CURVE_R=6.95;                 // Blender-Kruemmungsradius (Balldurchmesser) des Tor-Bogens
       const GOAL_R=GOAL_CURVE_R*goalScale;     // -> Kruemmungszentrum == Arenazentrum (konzentrisch)
       goalGroup=new THREE.Group();goalGroup.position.set(cx,0,cy);goalGroup.visible=false;scene.add(goalGroup);
+      // ---- Torzuordnung (rein visuell, keine Physik/Wertung) --------------------------
+      // Jedes Tor traegt die Farbe der Mannschaft, die es VERTEIDIGT. Blau startet auf -X
+      // (placeBalls: cx-off) und verteidigt das -X-Tor, Rot startet auf +X und verteidigt
+      // +X; gewertet wird spiegelbildlich (footballGoalSide: Durchtritt bei +X = Punkt fuer
+      // Blau). Fuer beide Seiten gilt damit dieselbe, sofort lesbare Regel: das Tor in
+      // meiner Farbe steht hinter mir und gehoert mir — geschossen wird auf das andere.
+      const goalTeam=(sign)=>(sign>0?1:0);                   // +X = Rot, -X = Blau (PCOLS-Index)
+      const GOAL_EMBLEM_EMISSIVE=1.10;                       // Wappen: sekundaerer Akzent, ruhig
+      const GOAL_FRAME_EMISSIVE=.55;                         // vordere Gold-Keyline: traegt die Farbe in die Senkrechte
+      const GOAL_LINE_W=.30;                                 // radiale Breite der Torlinie (GLB) — waechst nach AUSSEN
+      const GOAL_LINE_LIFT=.012;                             // knapp ueber dem Randweg
+      const GOAL_LINE_EMISSIVE=2.40;                         // kraeftig, aber in der Teamfarbe (kein Weissglut-Clip)
+      // Innenkante der Torlinie = dokumentierte Fuss-Innenkante / Walkway-Innenlippe. Die
+      // Linie waechst von dort NACH AUSSEN in die Toroeffnung hinein und ragt damit nie ins
+      // Spielfeld. Halbwinkel exakt die LICHTE Toroeffnung — footballGoalClearHalf() ist
+      // dieselbe Weite, die die Physik nutzt, also keine neue Torbreiten-Konstante.
+      const goalLineR=(GOAL_CURVE_R-.42)*goalScale;
+      const goalLineHalf=Math.asin(Math.min(1,footballGoalClearHalf()*(GLB_R/R0)/goalLineR));
       const mkGoal=(sign)=>{                                 // sign +1 -> +X, sign -1 -> -X (exakt 180 Grad gegenueber)
         const g=(sign>0)?goalProto:goalProto.clone(true);    // zweite Instanz: Clone desselben Assets (geteilte Ressourcen)
         g.scale.setScalar(goalScale);
         g.position.set(sign*GOAL_R,GOAL_WALK_Y,0);           // radial auf dem Walkway (nach innen versetzt) -> Fuesse stehen sauber auf, kein Schweben
         g.rotation.set(0,-sign*Math.PI/2,0);                 // Oeffnung (+Z lokal) zeigt zur Arenamitte; Rotationsdifferenz = PI
-        goalGroup.add(g);return g;
+        // Farbakzente am Tor. Die Bauteile stecken bereits im Asset und tragen alle dasselbe
+        // Gold-Material — unterschieden wird deshalb ueber den OBJEKTNAMEN, nicht ueber den
+        // Materialnamen. Marmor, Glas, Torform und das uebrige Gold bleiben unberuehrt.
+        //   AF_Goal_Emblem            -> Wappen mittig ueber dem Bogen, eigenes Farbmaterial
+        //   AF_Goal_GoldInner/-Outer  -> vordere Gold-Doppel-Keyline, nur ein Farbschimmer
+        // Die Keyline traegt die Zuordnung in die SENKRECHTE: aus flacher Spielkamera ist ein
+        // Bodenband stark verkuerzt, der aufrechte Rahmen dagegen nicht.
+        const col=PCOLS[goalTeam(sign)].m3;
+        const tinted=new Map();
+        g.traverse(o=>{
+          if(!o.isMesh)return;
+          const on=o.name||'';
+          if(on.includes('Emblem')){
+            o.material=new THREE.MeshStandardMaterial({color:col,emissive:col,
+              emissiveIntensity:GOAL_EMBLEM_EMISSIVE,metalness:.35,roughness:.28,envMapIntensity:1.0});
+            return;
+          }
+          if(!/Gold(Inner|Outer)/.test(on)||on.includes('Back'))return;   // nur die VORDERE Keyline
+          const src=o.material;if(!src)return;
+          let cp=tinted.get(src);
+          if(!cp){                                    // kopieren: das Gold-Material teilen sich alle Torteile
+            cp=src.clone();cp.emissive=new THREE.Color(col);cp.emissiveIntensity=GOAL_FRAME_EMISSIVE;
+            tinted.set(src,cp);
+          }
+          o.material=cp;
+        });
+        goalGroup.add(g);
+        // Torlinie: breites, farbiges Band buendig im Randweg, exakt so breit wie die lichte
+        // Oeffnung. Bewusst OPAK (kein transparent/depthWrite:false): so kann es weder durch
+        // den Marmorsockel scheinen noch in der Transparenzsortierung flackern; der
+        // Polygon-Offset haelt es zusaetzlich frei vom Randweg darunter.
+        const lineMat=new THREE.MeshStandardMaterial({color:col,emissive:col,
+          emissiveIntensity:GOAL_LINE_EMISSIVE,roughness:.30,metalness:.05,
+          polygonOffset:true,polygonOffsetFactor:-2,polygonOffsetUnits:-2});
+        const line=new THREE.Mesh(new THREE.RingGeometry(goalLineR,goalLineR+GOAL_LINE_W,
+          72,1,(sign>0?0:Math.PI)-goalLineHalf,goalLineHalf*2),lineMat);
+        line.rotation.x=-Math.PI/2;line.position.y=GOAL_WALK_Y+GOAL_LINE_LIFT;line.renderOrder=2;
+        goalGroup.add(line);
+        return g;
       };
       goalPlus=mkGoal(1);goalMinus=mkGoal(-1);
     }catch(_){goalGroup=null;}   // Tor ist additiv: fehlt/streikt das GLB, bleibt die Arena voellig unveraendert
