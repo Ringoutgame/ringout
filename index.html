@@ -2632,6 +2632,9 @@ function tickOnlineClock(){
     const idx=onlineNoShotIdx(s);
     if(idx<0)continue;                                // kein eigener Zugkandidat -> nichts schreiben
     onlineTimeoutTried[key]=true;
+    // 6B2A: im aktiven Barrier-Net-Gate braucht der EIGENE Timeout-Stand zuerst
+    // sein Commitment (Segment immer NONE); fremde Seats bleiben unveraendert.
+    if(typeof barrierNetTimeoutCommit==='function'&&barrierNetTimeoutCommit(s,idx))continue;
     writeTurnSlot(s,{idx:idx,dx:0,dy:0,sp:0},{sentinel:true});
   }
 }
@@ -3281,6 +3284,9 @@ function applyCommit(who,shooterIdx,fx,fy,spin){
     // Leave-Sentinel nach Presence-Flap), simulierten die anderen den Sentinel,
     // dieser Client aber seinen echten Move -> divergente Sims, verschiedene
     // Ringouts/Sieger, Haenger. Jetzt simulieren alle exakt den DB-Wert.
+    // 6B2A: im aktiven Barrier-Net-Gate uebernimmt der Commit-Reveal-Pfad —
+    // erst Commitment write-once, dann derselbe vierfeldrige Move wie bisher.
+    if(typeof barrierNetOwnCommit==='function'&&barrierNetOwnCommit(m)){setPhaseText();updateHud();return;}
     onlineSendCommit(m.idx,m.dx,m.dy,m.sp);
     setPhaseText();updateHud();
     return;}
@@ -3575,7 +3581,10 @@ const BARRIER_RESTITUTION=0.55;
 // bestaetigten Segmente werden erst beim Reveal zur gemeinsamen Wandliste.
 // -1 = keine UI (online, Replay, Menue, oder ein hier nicht behandelter Modus).
 function barrierUiSeat(){
-  if(!BARRIER_DEBUG||online||replaying||menuVisible)return -1;
+  if(!BARRIER_DEBUG||replaying||menuVisible)return -1;
+  // 6B2A: im aktiven Barrier-Net-Gate gehoert die bestehende Debug-UI dem
+  // EIGENEN Seat; ausserhalb des Gates bleibt sie online vollstaendig aus.
+  if(online)return (typeof barrierNetActive==='function'&&barrierNetActive())?myPlayer:-1;
   if(mode==='bot')return 0;
   if(mode==='pvp')return curAimer>=0&&curAimer<barrierStakesBySeat.length?curAimer:-1;
   return -1;
@@ -3592,12 +3601,21 @@ function barrierSeats(fn){for(let s=0;s<barrierStakesBySeat.length;s++)fn(s);}
 // Aktiv ausschliesslich waehrend der Physikphase, und nur wenn dieser Zug ueberhaupt
 // Segmente traegt. Der Mehrfach-Wand-Pfad (?bsegs) bleibt ein davon unabhaengiger
 // reiner Physik-Debugpfad: er umgeht bewusst den Verbrauchsvertrag.
-function barrierOn(){return BARRIER_DEBUG&&!online&&!replaying&&phase==='sim'
-  &&(BARRIER_MULTI||barrierTurnSegments.length>0);}
+function barrierOn(){
+  if(!BARRIER_DEBUG||replaying||phase!=='sim')return false;
+  // 6B2A: online zaehlen AUSSCHLIESSLICH die verifizierten Netz-Segmente des
+  // laufenden Turns; der lokale ?bsegs-Debugpfad bleibt online immer aus.
+  if(online)return typeof barrierNetSimOn==='function'&&barrierNetSimOn();
+  return BARRIER_MULTI||barrierTurnSegments.length>0;
+}
 // Waehlbar nur in der eigenen offenen Planungsphase, solange der Seat lebt, Einsaetze
 // uebrig sind und in dieser Runde noch keine Wand von ihm stand.
 function barrierCanArmSeat(s){
-  return BARRIER_DEBUG&&!online&&!replaying&&!menuVisible
+  // 6B2A: online nur im aktiven Barrier-Net-Gate, nur fuer den eigenen Seat und
+  // nur solange kein Commit-Reveal-Ablauf laeuft (Wandwahl ist ab da gesperrt).
+  if(online&&!(typeof barrierNetActive==='function'&&barrierNetActive()
+    &&s===myPlayer&&!barrierNetOwnLocked()))return false;
+  return BARRIER_DEBUG&&!replaying&&!menuVisible
     &&phase==='aim'&&!inputLocked()&&s>=0&&s<barrierStakesBySeat.length
     &&!aimSet[s]&&aliveCount(s)>0
     &&barrierStakesBySeat[s]>0&&!barrierRoundUsedBySeat[s];
@@ -3611,7 +3629,10 @@ function barrierToggle(){if(!barrierCanArm())return;
 // barrierCommitHook(). Kein URL-Vertrag, keine Produktmechanik — nur lokal, nur mit
 // ?barrier=1, nie online, nie im Replay.
 function barrierDebugSelect(s,segment){
-  if(!BARRIER_DEBUG||online||replaying)return false;
+  if(!BARRIER_DEBUG||replaying)return false;
+  // 6B2A: online nur im aktiven Gate, nur eigener Seat, nie waehrend Pending.
+  if(online&&!(typeof barrierNetActive==='function'&&barrierNetActive()
+    &&s===myPlayer&&!barrierNetOwnLocked()))return false;
   if(!Number.isInteger(s)||s<0||s>=barrierStakesBySeat.length)return false;
   if(segment==null){barrierArmedBySeat[s]=false;barrierUi();return true;}
   if(!Number.isInteger(segment)||segment<0||segment>=BARRIER_SEG_COUNT)return false;
@@ -3685,7 +3706,8 @@ function barrierMatchReset(){
 // Prototyp ueberhaupt laeuft — ohne ?barrier=1 entsteht kein DOM-Knoten.
 let barrierHudLast='';
 function barrierHud(){
-  if(!BARRIER_DEBUG||online||replaying)return;
+  if(!BARRIER_DEBUG||replaying)return;
+  if(online&&!(typeof barrierNetActive==='function'&&barrierNetActive()))return;
   // Eine aktive Wand hat Vorrang vor der Bestandsmeldung: solange der Seat ein
   // bestaetigtes Segment traegt,
   // steht das Segment im Bild — auch wenn es der letzte Einsatz war (dann "0 LEFT").
@@ -3745,7 +3767,8 @@ let barrierPlacing=false;
 // Vorschau nach der Auswahl. Die Vorschau kollidiert NICHT — barrierOn() bleibt der
 // alleinige Physikschalter.
 function barrierPreviewOn(){const s=barrierUiSeat();
-  return BARRIER_DEBUG&&!online&&!replaying&&s>=0&&!coverOpen&&barrierArmedBySeat[s]&&phase==='aim';}
+  // barrierUiSeat() liefert online nur im aktiven 6B2A-Gate einen Seat (-1 sonst).
+  return BARRIER_DEBUG&&!replaying&&s>=0&&!coverOpen&&barrierArmedBySeat[s]&&phase==='aim';}
 function barrierMeshOn(){return barrierOn()||barrierPreviewOn();}
 function barrierCanPlace(){return barrierCanArm();}
 function barrierOpenPlacing(){
@@ -3813,7 +3836,8 @@ function barrierPaint(){
 // mittig/rechts). Sie entsteht nur, wenn der Prototyp laeuft.
 let barrierBtnLast='';
 function barrierBtn(){
-  if(!BARRIER_DEBUG||online||replaying)return;
+  if(!BARRIER_DEBUG||replaying)return;
+  if(online&&!(typeof barrierNetActive==='function'&&barrierNetActive()))return;
   // Sie gehoert immer genau dem Seat, der gerade plant, und ist waehrend der
   // verdeckten Uebergabe komplett aus.
   const s=barrierUiSeat();
@@ -3846,6 +3870,352 @@ function barrierBtn(){
   if(txt!==barrierBtnLast){barrierBtnLast=txt;b.textContent=txt;}
 }
 function barrierUi(){barrierHud();barrierBtn();}
+// ── Etappe 6B2A: RTDB-Transport des Commit-Reveal-Vertrags (nur Emulator) ─────
+// Der reine 6B1-Vertrag bekommt hier seinen einzigen Netzwerkpfad: zwei getrennte
+// Bereiche unter dem BESTEHENDEN Turn-Knoten — bc/<seat> traegt das oeffentliche
+// Commitment {v,seat,turn,hash}, br/<seat> das oeffentliche Reveal
+// {v,seat,turn,seg?,nonce}. Gelesen wird ueber den VORHANDENEN Turn-Listener
+// (onValue auf dem Turn-Knoten liefert bc/br im selben Snapshot wie die Moves,
+// derselbe Auf- und Abbau, dieselbe Kontextbindung via isCurrentCtx), geschrieben
+// ausschliesslich per Write-once-Transaction nach dem writeTurnSlot-Muster.
+// Der normale Move-Slot bleibt exakt vierfeldrig; Segment und Nonce reisen NIE
+// darin mit.
+//
+// HARTES GATE: aktiv nur mit ?barrier=1 UND ?barrierNet=1 UND online UND exakt
+// zwei Seats UND nachgewiesener lokaler Emulator-Verbindung. Der Nachweis ist
+// window.__E2E_EMULATOR===true — dieser Marker wird AUSSCHLIESSLICH vom
+// E2E-Harness unmittelbar an dessen connectDatabaseEmulator-Aufruf gesetzt; die
+// ausgelieferte Produktionsseite traegt ihn nie. localhost oder URL-Parameter
+// allein aktivieren nichts. Ausserhalb des Gates existiert weder ein Lese- noch
+// ein Schreibpfad und der v3-Online-Ablauf bleibt unveraendert (Commits bleiben
+// vierfeldrig, maybeReveal bleibt ungesperrt).
+//
+// Das Gate haengt bewusst NUR an deterministischen Groessen (Flags, np(),
+// seatGone aus der DB, Replay-/Rehydrierungs-/Terminalzustand) — nie an Praesenz
+// oder lokalen Timern. Beide Clients treffen damit fuer denselben Turn immer
+// dieselbe Gate-Entscheidung; ein Leave-Sentinel deaktiviert das Gate auf beiden
+// Seiten am selben DB-Datenpunkt, bevor eine Simulation starten kann.
+const BARRIER_NET_FLAG=new URLSearchParams(location.search).get('barrierNet')==='1';
+let barrierNetRehydrated=false;   // Generation kam per Reconnect-Rehydrierung -> Gate hart aus
+let barrierNetS=null;             // Zustand GENAU EINES Turns, gebunden an room/gen/turnNo
+let barrierNetLastTurn=null;      // Diagnose des zuletzt verifizierten Turns (nur oeffentliche Daten)
+function barrierNetEmulatorProven(){
+  return window.__E2E_EMULATOR===true&&window.__FB_READY===true&&!!(window.FB&&window.FB.db);
+}
+function barrierNetActive(){
+  return BARRIER_DEBUG&&BARRIER_NET_FLAG&&online&&!replaying&&!barrierNetRehydrated
+    &&gameStarted&&!isOnlineTerminated()&&np()===2&&(myPlayer===0||myPlayer===1)
+    &&!seatGone[0]&&!seatGone[1]&&barrierNetEmulatorProven();
+}
+// Turn-gebundener Zustand. Kein Feld ueberlebt einen Wechsel von Raum, Generation
+// oder Turn: barrierNetEnsure() verwirft bei jeder Abweichung den kompletten
+// Zustand einschliesslich der privaten Reveal-Daten (Nonce, Segment, Move).
+function barrierNetEnsure(){
+  if(!barrierNetActive())return null;
+  const S=barrierNetS;
+  if(S&&S.room===roomCode&&S.gen===gen&&S.turn===turnNo)return S;
+  barrierNetS={room:roomCode,gen:gen,turn:turnNo,status:'idle',blocked:null,
+    commits:{},reveals:{},consumed:{},verified:null,verifying:false,ready:false,
+    own:{lock:false,auto:false,priv:null,reveal:null,hash:null,registered:false,
+      revealWriting:false,revealDone:false,revealWrites:0,moveMismatch:false,consumeDone:false},
+    advancing:false,dirty:false};
+  return barrierNetS;
+}
+function barrierNetTurnReset(){barrierNetS=null;}
+function barrierNetReset(){barrierNetS=null;barrierNetRehydrated=false;barrierNetLastTurn=null;}
+function barrierNetMarkRehydrated(){barrierNetRehydrated=true;barrierNetS=null;}
+function barrierNetCurrent(){const S=barrierNetS;return (S&&S.room===roomCode&&S.gen===gen&&S.turn===turnNo)?S:null;}
+function barrierNetOwnLocked(){const S=barrierNetCurrent();return !!(S&&S.own.lock);}
+// Debug-Status (idle/hashing/commitment-pending/move-pending/commitments-complete/
+// reveal-pending/verifying/ready/blocked:<reason>). Nie Nonces, nie fremde Segmente.
+function barrierNetStatus(S,st){if(S.blocked)return;S.status=st;if(DEV_MENU)console.log('[barrierNet] '+st+' turn='+S.turn);}
+function barrierNetBlock(S,reason){
+  if(S.blocked)return;
+  S.blocked=reason;S.status='blocked:'+reason;
+  if(DEV_MENU)console.log('[barrierNet] blocked:'+reason+' turn='+S.turn);
+}
+// Simulationssperre: solange das Gate aktiv ist, darf maybeReveal die Reveal-/
+// Sim-Phase erst starten, wenn beide Moves, beide Commitments und beide Reveals
+// vorliegen und verifiziert sind (S.ready). Blockierte oder wartende Turns
+// starten nie eine Simulation — kein Fallback auf NONE, keine Reparatur.
+function barrierNetRevealBlocked(){
+  if(!barrierNetActive())return false;
+  const S=barrierNetEnsure();
+  return !(S&&S.ready);
+}
+// Physikschalter online: NUR verifizierte Netz-Segmente dieses Turns; der lokale
+// ?bsegs-Debugpfad bleibt online grundsaetzlich aus.
+function barrierNetSimOn(){
+  const S=barrierNetCurrent();
+  return !!(S&&S.ready)&&barrierTurnSegments.length>0;
+}
+// Kanonischer Move eines Seats aus dem DB-autoritativen Empfangszustand — exakt
+// die Werte, die beide Clients simulieren (processSlot hat sie sanitisiert).
+function barrierNetMoveOf(s){
+  if(!aimSet[s])return null;
+  return {idx:commitIdx[s],dx:commitAim[s].dx,dy:commitAim[s].dy,sp:commitSpin[s]||0};
+}
+function barrierNetMovesIn(){return !!(barrierNetMoveOf(0)&&barrierNetMoveOf(1));}
+// Write-once-Transaction fuer bc/br — dasselbe Muster wie writeTurnSlot:
+// applyLocally:false, erster gueltiger Wert gewinnt, identische Wiederholung ist
+// idempotent, inhaltlicher Widerspruch blockiert den lokalen Ablauf dauerhaft.
+function barrierNetWriteOnce(S,kind,payload,same){
+  const ref=window.FB.ref(window.FB.db,'rooms/'+S.room+'/g/'+S.gen+'/t/'+S.turn+'/'+kind+'/'+payload.seat);
+  return window.FB.runTransaction(ref,cur=>cur==null?payload:undefined,{applyLocally:false})
+    .then(res=>{
+      const v=res&&res.snapshot?res.snapshot.val():null;
+      if(res&&res.committed)return {ok:true};
+      if(v&&same(v))return {ok:true};
+      return {ok:false,reason:kind+'-conflict'};
+    })
+    .catch(()=>({ok:false,reason:kind+'-write'}));
+}
+// Eigener bewusst bestaetigter Zug im Gate — Ablauf laut Vertrag:
+// 1) Eingabe und Wandwahl sperren (own.lock), 2) exakt kanonischen Move
+// einfrieren, 3) Segment oder NONE einfrieren, 4) 256-Bit-Nonce, 5) SHA-256-
+// Commitment (6B1), 6) Commitment write-once registrieren, 7) ERST DANACH den
+// normalen vierfeldrigen Move ueber den bestehenden Pfad senden, 8) private
+// Reveal-Daten nur lokal halten, 9) aimSet setzt weiterhin nur das DB-Echo.
+// true = uebernommen (Aufrufer beendet den Commit-Pfad), false = Gate aus.
+function barrierNetOwnCommit(m){
+  if(!barrierNetActive())return false;
+  const S=barrierNetEnsure();
+  if(!S)return false;
+  if(S.blocked)return true;                 // blockierter Turn: keine neuen Zuege
+  if(aimSet[myPlayer])return true;          // eigener Move bereits DB-autoritativ
+  if(S.own.lock){
+    // Pending: kein zweiter Commit, keine Aenderung. Einzige Ausnahme: der
+    // registrierte Move liegt noch nicht im Slot und kein Write laeuft -> den
+    // GEBUNDENEN Move erneut senden (Write-once bleibt der Schiedsrichter);
+    // ein abweichender neuer Zug wird verworfen — das Commitment ist bindend.
+    if(S.own.registered&&S.own.priv&&!pendingSlot[myPlayer])
+      onlineSendCommit(S.own.priv.move.idx,S.own.priv.move.dx,S.own.priv.move.dy,S.own.priv.move.sp);
+    return true;
+  }
+  S.own.lock=true;
+  let seg=null;
+  if(barrierArmedBySeat[myPlayer]&&barrierStakesBySeat[myPlayer]>0
+    &&!barrierRoundUsedBySeat[myPlayer]&&aliveCount(myPlayer)>0)
+    seg=barrierSelectedSegmentBySeat[myPlayer];
+  barrierUi();
+  barrierNetBeginCommit(S,{idx:m.idx,dx:m.dx,dy:m.dy,sp:m.sp},seg,false);
+  return true;
+}
+// Zeitablauf des EIGENEN Seats im Gate: kanonischer 0/0-Stand, Segment immer
+// NONE, eine offene Vorschau verfaellt und wird nie uebernommen, kein Einsatz-
+// verbrauch. Fremde Seats fuellt der bestehende Pfad unveraendert per
+// writeTurnSlot — deren Commitment kann nur der jeweilige Client selbst liefern.
+function barrierNetTimeoutCommit(s,idx){
+  if(s!==myPlayer||!barrierNetActive())return false;
+  const S=barrierNetEnsure();
+  if(!S)return false;
+  if(S.blocked||S.own.lock||aimSet[myPlayer])return true;
+  S.own.lock=true;
+  barrierArmedBySeat[myPlayer]=false;barrierClosePlacing();barrierUi();
+  const m=sanitizeMove(myPlayer,idx,0,0,0);
+  barrierNetBeginCommit(S,{idx:m.idx,dx:m.dx,dy:m.dy,sp:m.sp},null,true);
+  return true;
+}
+function barrierNetBeginCommit(S,move,seg,auto,late){
+  S.own.auto=auto;
+  barrierNetStatus(S,'hashing');
+  const ctx={room:S.room,gen:S.gen,turn:S.turn,seat:myPlayer};
+  barrierCrCommit(ctx,move,seg).then(cr=>{
+    if(barrierNetCurrent()!==S||S.blocked)return;
+    if(!cr){barrierNetBlock(S,'hash');return;}
+    S.own.priv=cr.priv;S.own.reveal=cr.reveal;S.own.hash=cr.pub.hash;
+    barrierNetStatus(S,'commitment-pending');
+    return barrierNetWriteOnce(S,'bc',cr.pub,v=>v.v===cr.pub.v&&v.seat===cr.pub.seat
+      &&v.turn===cr.pub.turn&&v.hash===cr.pub.hash).then(r=>{
+      if(barrierNetCurrent()!==S||S.blocked)return;
+      if(!r.ok){barrierNetBlock(S,r.reason);return;}
+      S.own.registered=true;
+      if(!S.commits[myPlayer])S.commits[myPlayer]={hash:cr.pub.hash};
+      barrierNetStatus(S,'move-pending');
+      // Erst NACH dem registrierten Commitment den normalen Move senden: der
+      // Timeout-Stand ueber den Sentinel-Retry-Pfad, der bewusste Zug ueber den
+      // bestehenden 6A-Encoder. Beides bleibt exakt vierfeldrig. Im late-Fall
+      // ist der Slot bereits autoritativ befuellt — es wird nichts gesendet.
+      if(!late){
+        if(S.own.auto)writeTurnSlot(myPlayer,{idx:move.idx,dx:move.dx,dy:move.dy,sp:move.sp},{sentinel:true});
+        else onlineSendCommit(move.idx,move.dx,move.dy,move.sp);
+      }
+      barrierNetAdvance(S);
+    });
+  }).catch(()=>{ if(barrierNetCurrent()===S)barrierNetBlock(S,'hash'); });
+}
+// Empfang: bc/br reisen im selben Turn-Snapshot wie die Moves (ein Listener, eine
+// Kontextbindung). Jede Zustellung laeuft durch die 6B1-Validatoren; Write-once
+// macht identische Wiederholungen idempotent, jeder inhaltliche Widerspruch
+// blockiert dauerhaft — es gibt keine automatische Reparatur.
+function barrierNetTurnValue(val){
+  if(!barrierNetActive())return;
+  const S=barrierNetEnsure();
+  if(!S||S.blocked)return;
+  for(let s=0;s<2;s++){
+    const c=val&&val.bc?val.bc[s]:null;
+    if(c){
+      if(!(c.v===BARRIER_CR_VERSION&&c.seat===s&&c.turn===S.turn&&barrierCrHashValid(c.hash))){
+        barrierNetBlock(S,'commit-invalid');return;
+      }
+      // Eigenkonflikt: ein OEFFENTLICHES Commitment fuer den eigenen Seat, das
+      // nicht dem eigenen (bereits berechneten) Hash entspricht, ist ein
+      // Widerspruch — kein Ueberschreiben, kein Weiterlaufen.
+      if(s===myPlayer&&S.own.hash&&c.hash!==S.own.hash){barrierNetBlock(S,'bc-conflict');return;}
+      if(S.commits[s]){ if(S.commits[s].hash!==c.hash){barrierNetBlock(S,'commit-conflict');return;} }
+      else S.commits[s]={hash:c.hash};
+    }
+    const r=val&&val.br?val.br[s]:null;
+    if(r){
+      const rseg=(r.seg===undefined||r.seg===null)?null:r.seg;
+      if(!(r.v===BARRIER_CR_VERSION&&r.seat===s&&r.turn===S.turn&&barrierCrNonceValid(r.nonce)
+        &&(rseg===null||barrierSegCanon(rseg)>=0))){
+        barrierNetBlock(S,'reveal-invalid');return;
+      }
+      // Eigenkonflikt: ein Reveal fuer den eigenen Seat, das nicht den eigenen
+      // privaten Reveal-Daten entspricht, ist ein Widerspruch (jeder Client darf
+      // nur sein eigenes Reveal veroeffentlichen) — blockieren, nie uebernehmen.
+      if(s===myPlayer&&S.own.reveal){
+        const ownSeg=(S.own.reveal.seg===undefined||S.own.reveal.seg===null)?null:S.own.reveal.seg;
+        if(S.own.reveal.nonce!==r.nonce||ownSeg!==rseg){barrierNetBlock(S,'reveal-conflict');return;}
+      }
+      if(S.reveals[s]){
+        if(S.reveals[s].nonce!==r.nonce||S.reveals[s].seg!==rseg){barrierNetBlock(S,'reveal-conflict');return;}
+      }else S.reveals[s]={seg:rseg,nonce:r.nonce};
+    }
+  }
+  barrierNetAdvance(S);
+}
+// Fortschaltung — rein datengetrieben aus DB-Zustand und kanonischen Moves; die
+// Zustellreihenfolge (Move vor Commitment oder umgekehrt) ist beliebig. async
+// wegen SHA-256; der advancing/dirty-Guard serialisiert alle Durchlaeufe.
+function barrierNetAdvance(S){
+  if(barrierNetCurrent()!==S||S.blocked||S.ready)return;
+  if(S.advancing){S.dirty=true;return;}
+  S.advancing=true;
+  barrierNetStep(S).catch(()=>{ if(barrierNetCurrent()===S)barrierNetBlock(S,'verify'); })
+    .then(()=>{ S.advancing=false; if(S.dirty){S.dirty=false;barrierNetAdvance(S);} });
+}
+async function barrierNetStep(S){
+  // Timeout-Race: gewinnt der FREMD geschriebene 0/0-Stand das Write-once-Race,
+  // bevor der eigene Timeout-Ablauf startete, wuerde ohne Gegenmassnahme nie ein
+  // eigenes Commitment entstehen und der Turn haengen. Der bereits akzeptierte
+  // kanonische Stand wird deshalb nachtraeglich committet — Segment immer NONE,
+  // eine offene Vorschau verfaellt, kein Einsatzverbrauch, kein Move-Write.
+  if(!S.own.lock&&!S.own.priv&&!S.commits[myPlayer]&&aimSet[myPlayer]){
+    const acc=barrierNetMoveOf(myPlayer);
+    if(acc.dx===0&&acc.dy===0&&(acc.sp||0)===0){
+      S.own.lock=true;
+      barrierArmedBySeat[myPlayer]=false;barrierClosePlacing();barrierUi();
+      barrierNetBeginCommit(S,acc,null,true,true);
+    }
+    return;
+  }
+  // Einsatzverbrauch: GENAU EINMAL, sobald der eigene Move DB-autoritativ
+  // akzeptiert wurde UND das eigene Commitment registriert ist. Hash-, Schreib-
+  // oder Konfliktfehler erreichen diesen Punkt nie (blocked) — kein Verbrauch.
+  if(!S.own.consumeDone&&S.own.registered&&S.own.priv&&aimSet[myPlayer]){
+    const acc=barrierNetMoveOf(myPlayer);
+    if(barrierMoveKey(acc)!==barrierMoveKey(S.own.priv.move)){
+      // Der Slot traegt einen anderen Move als den gebundenen (z. B. verlorenes
+      // Write-once-Race gegen einen fremd geschriebenen Timeout-Stand): kein
+      // Verbrauch; die Verifikation unten blockiert auf beiden Clients identisch.
+      S.own.moveMismatch=true;S.own.consumeDone=true;
+    }else{
+      S.own.consumeDone=true;
+      if(S.own.priv.seg>=0&&!S.consumed[myPlayer]){
+        S.consumed[myPlayer]=true;
+        barrierStakesBySeat[myPlayer]--;barrierRoundUsedBySeat[myPlayer]=true;barrierUi();
+      }
+    }
+  }
+  if(!(S.commits[0]&&S.commits[1]))return;
+  if(S.status==='move-pending'||S.status==='idle'||S.status==='hashing'||S.status==='commitment-pending')
+    barrierNetStatus(S,'commitments-complete');
+  if(!barrierNetMovesIn())return;
+  // Phase 2: das eigene Reveal erst, wenn beide gueltigen Moves UND beide
+  // gueltigen Commitments lokal vorliegen. Jeder Client schreibt ausschliesslich
+  // sein eigenes Reveal (br/<myPlayer>).
+  if(!S.reveals[myPlayer]&&S.own.priv&&!S.own.revealWriting&&!S.own.revealDone){
+    S.own.revealWriting=true;
+    barrierNetStatus(S,'reveal-pending');
+    const rev=S.own.reveal;
+    const wire={v:rev.v,seat:rev.seat,turn:rev.turn,nonce:rev.nonce};
+    if(rev.seg!==null&&rev.seg!==undefined)wire.seg=rev.seg;
+    const r=await barrierNetWriteOnce(S,'br',wire,v=>v.v===wire.v&&v.seat===wire.seat
+      &&v.turn===wire.turn&&v.nonce===wire.nonce
+      &&((v.seg===undefined||v.seg===null)?(wire.seg===undefined):(v.seg===wire.seg)));
+    if(barrierNetCurrent()!==S||S.blocked)return;
+    S.own.revealWriting=false;
+    if(!r.ok){barrierNetBlock(S,r.reason);return;}
+    S.own.revealDone=true;S.own.revealWrites++;
+    if(!S.reveals[myPlayer])S.reveals[myPlayer]={seg:(wire.seg===undefined?null:wire.seg),nonce:wire.nonce};
+  }
+  if(!(S.reveals[0]&&S.reveals[1])){barrierNetStatus(S,'reveal-pending');return;}
+  if(S.verifying||S.verified)return;
+  S.verifying=true;
+  barrierNetStatus(S,'verifying');
+  // Beide Reveals gegen Commitment, kanonischen Move, roomCode, gen, turnNo und
+  // Seat verifizieren — jede Abweichung blockiert, nichts faellt auf NONE zurueck.
+  const segs=[];
+  for(let s=0;s<2;s++){
+    const ctx={room:S.room,gen:S.gen,turn:S.turn,seat:s};
+    const rev={v:BARRIER_CR_VERSION,seat:s,turn:S.turn,seg:S.reveals[s].seg,nonce:S.reveals[s].nonce};
+    const res=await barrierCrVerify(ctx,barrierNetMoveOf(s),S.commits[s].hash,rev);
+    if(barrierNetCurrent()!==S||S.blocked)return;
+    if(!res.ok){barrierNetBlock(S,'verify-'+s+'-'+res.reason);return;}
+    segs.push(res.seg);
+  }
+  S.verified=segs;
+  // Verifizierte Segmente in den BESTEHENDEN Aufbau einspeisen: beim Reveal baut
+  // barrierPhaseHook -> barrierBuildTurn daraus dieselbe deduplizierte, sortierte
+  // Zugliste wie im lokalen Spiel, barrierBuildArcs verschmilzt Nachbarn. Es gibt
+  // keinen zweiten Aufbaupfad und keine zweite Turn-Engine.
+  for(let s=0;s<2;s++)barrierCommittedSegmentBySeat[s]=segs[s]>=0?segs[s]:-1;
+  for(let s=0;s<2;s++){
+    if(segs[s]>=0&&!S.consumed[s]){
+      S.consumed[s]=true;
+      barrierStakesBySeat[s]--;barrierRoundUsedBySeat[s]=true;
+    }
+  }
+  S.ready=true;
+  barrierNetStatus(S,'ready');
+  barrierNetLastTurn={gen:S.gen,turn:S.turn,
+    segments:segs.filter(k=>k>=0).filter((k,i,a)=>a.indexOf(k)===i).sort((a,b)=>a-b),
+    reflectionsBefore:barrierStat.reflections};
+  barrierUi();
+  maybeReveal();
+}
+// Test-/Debug-Zugaenge, nur mit ?barrier=1: reine Diagnose bzw. Auswahl ueber den
+// bestehenden Debug-Hook. Keine Nonces, keine privaten Reveal-Daten; fremde
+// Segmente erscheinen erst nach erfolgreicher Verifikation (vorher nur -1).
+if(BARRIER_DEBUG){
+  window.__BARRIER_NET_PROBE=function(){
+    const S=barrierNetCurrent();
+    return {
+      active:barrierNetActive(),flag:BARRIER_NET_FLAG,rehydrated:barrierNetRehydrated,
+      gen:gen,turn:turnNo,seat:myPlayer,phase:phase,
+      status:S?S.status:'idle',blocked:S?S.blocked:null,ready:!!(S&&S.ready),
+      commitsSeen:[!!(S&&S.commits[0]),!!(S&&S.commits[1])],
+      revealsSeen:[!!(S&&S.reveals[0]),!!(S&&S.reveals[1])],
+      ownRevealWrites:S?S.own.revealWrites:0,ownLocked:!!(S&&S.own.lock),
+      ownConsumed:!!(S&&S.consumed[myPlayer]),
+      stakes:barrierStakesBySeat.slice(),roundUsed:barrierRoundUsedBySeat.slice(),
+      committedSegs:barrierCommittedSegmentBySeat.slice(),
+      turnSegments:barrierTurnSegments.slice(),
+      reflections:barrierStat.reflections,
+      lastTurn:barrierNetLastTurn?{gen:barrierNetLastTurn.gen,turn:barrierNetLastTurn.turn,
+        segments:barrierNetLastTurn.segments.slice(),
+        arcs:barrierBuildArcs(barrierNetLastTurn.segments).map(a=>({segs:a.segs,first:a.first,full:a.full})),
+        reflectionsBefore:barrierNetLastTurn.reflectionsBefore}:null
+    };
+  };
+  window.__BARRIER_NET_SELECT=function(seg){
+    const s=online?(barrierNetActive()?myPlayer:-1):barrierUiSeat();
+    if(s<0)return false;
+    return barrierDebugSelect(s,seg);
+  };
+}
 // ── Etappe 5A: mehrere gleichzeitig aktive Randwaende ─────────────────────────
 // Die freigegebene Einzelwand-Physik bleibt unveraendert; sie wird nur auf mehrere
 // Boegen angewandt. Jeder Bogen benutzt exakt dieselbe Breite je Segment (30 Grad),
@@ -4877,7 +5247,7 @@ function maybeStart(){ if(gameStarted)return; gameStarted=true; if(roomPublic&&m
 // fastForwardMatch hierueber einsteigt). seatLeft bleibt bewusst stehen: das ist
 // Praesenzwissen, kein Zugdatum — onlineArmTurn schreibt fuer einen wirklich
 // verlassenen Seat sofort wieder den Sentinel des neuen Turns.
-function startOnlineGame(){ replaying=false;repPlaying=false;$('replay').classList.remove('show'); runningGen=gen; turnNo=-1; seatGone=[]; if(turnUnsub){turnUnsub();turnUnsub=null;} if(typeof onlineResetClock==='function')onlineResetClock(); clearGameOverOverlayTimer(); $('ov').classList.remove('show'); newGame(); }
+function startOnlineGame(){ replaying=false;repPlaying=false;$('replay').classList.remove('show'); runningGen=gen; turnNo=-1; seatGone=[]; if(turnUnsub){turnUnsub();turnUnsub=null;} if(typeof onlineResetClock==='function')onlineResetClock(); if(typeof barrierNetReset==='function')barrierNetReset(); clearGameOverOverlayTimer(); $('ov').classList.remove('show'); newGame(); }
 // ════ B2 canonical match rehydration ════
 // Rebuilds a RUNNING match purely from the turn history under
 // rooms/<code>/g/<gen>/t. The lockstep sim is deterministic, so replaying every
@@ -4894,6 +5264,10 @@ function fastForwardMatch(turns){
   const snd=soundOn; soundOn=false;
   try{
     startOnlineGame();
+    // 6B2A: eine rehydrierte Generation laeuft ausdruecklich OHNE Barrier-Netz
+    // (kein Reconnect im Scope) — das Gate bleibt bis zur naechsten frischen
+    // Generation hart deaktiviert.
+    if(typeof barrierNetMarkRehydrated==='function')barrierNetMarkRehydrated();
     let iter=0;
     while(phase==='aim'&&iter++<=GEN_MAX){
       const slots=turns&&turns[turnNo];
@@ -4932,6 +5306,7 @@ function onlineArmTurn(){
   turnNo++;
   pendingSlot={};   // P0-Fix: neue Turn-Runde -> keine Altlast aus vorherigen Pending-Writes
   clearAllSentinelRetries();   // P0-Nachbesserung: Retries der alten Turn-Runde sind ab hier gegenstandslos
+  if(typeof barrierNetTurnReset==='function')barrierNetTurnReset();   // 6B2A: kein Nonce/Reveal/Segment ueberlebt den Turnwechsel
   if(turnUnsub){turnUnsub();turnUnsub=null;}
   const ctx={sid:onlineSessionId,room:roomCode,gen:gen,turnNo:turnNo};
   const ref=window.FB.ref(window.FB.db,'rooms/'+ctx.room+'/g/'+ctx.gen+'/t/'+ctx.turnNo);
@@ -5030,6 +5405,7 @@ function onlineConnectionLost(ctx){
   clearGameOverOverlayTimer();                     // eigenes Abbruch-Overlay -> ein offener Game-Over-Auftrag ist gegenstandslos
   clearAllSentinelRetries();
   clearAllMatchGrace();
+  if(typeof barrierNetTurnReset==='function')barrierNetTurnReset();   // 6B2A: Abbruch -> kein Commit/Reveal dieser Session mehr
   pendingSlot={};                                  // Pending-State entwerten: spaete Transaction-Callbacks laufen ins Leere (settleSlot: p!==ctx)
   // Alle Raum-Listener sauber loesen (Rueckweg ins Menue via Overlay -> leaveOnline
   // raeumt den Rest ab). Die isOnlineTerminated-Guards fangen zusaetzlich jeden
@@ -5118,6 +5494,10 @@ function maybeReveal(){
   // Keine neue Phase auf halbfertigem Stempelzustand: die eigene Stempel-Nachlese
   // (stampOnlinePhase.adopt) loest die Sperre garantiert selbst wieder aus.
   if(typeof onlineRevealBlocked==='function'&&onlineRevealBlocked())return;
+  // 6B2A: im aktiven Barrier-Net-Gate startet die Reveal-/Sim-Phase erst nach
+  // vollstaendig verifiziertem Commit-Reveal-Turn (beide Moves, beide
+  // Commitments, beide Reveals verifiziert). Ausserhalb des Gates: inert.
+  if(typeof barrierNetRevealBlocked==='function'&&barrierNetRevealBlocked())return;
   if(allAliveCommitted()&&phase==='aim'&&!Object.keys(pendingSlot).length){
     if(turnUnsub){turnUnsub();turnUnsub=null;} beginReveal();
   }
@@ -5134,6 +5514,10 @@ function onlineTurnValue(val){
   // Phasenstempel reist im selben Turn-Knoten mit — jede Zustellung traegt ihn.
   if(typeof val.s==='number'){onTurnStamp[turnNo]=val.s;onStampProbe[turnNo]='done';}
   for(let s=0;s<np();s++) processSlot(s,val[s]);   // ALLE Seats inkl. des eigenen: die DB ist der alleinige Arbiter
+  // 6B2A: bc/br reisen im selben Turn-Snapshot mit — nach den Moves einlesen,
+  // damit die Fortschaltung den aktuellen aimSet-Stand sieht. Ausserhalb des
+  // Barrier-Net-Gates ist der Aufruf wirkungslos.
+  if(typeof barrierNetTurnValue==='function')barrierNetTurnValue(val);
   maybeReveal();
 }
 function onlineSendCommit(idx,fx,fy,spin){
@@ -5153,6 +5537,7 @@ function leaveOnline(){
   onlineSessionId++;   // P0-Fix: laufende Transaktionen/Listener dieser Session sofort entwerten (auch bei sofortigem Wiederbeitritt zum selben Raum)
   onlineTerminatedSession=-1;   // terminalen Abbruchzustand sicher zuruecksetzen (die neue Session ist ohnehin != gespeicherter Session)
   clearAllSentinelRetries();   // P0-Nachbesserung: Raum wird verlassen -> kein Sentinel-Retry darf danach noch feuern
+  if(typeof barrierNetReset==='function')barrierNetReset();   // 6B2A: privater Commit-Reveal-Zustand gehoert dem verlassenen Raum
   clearLobbyHostGrace();       // deliberate leave -> no pending lobby grace may fire afterwards
   clearAllMatchGrace(); roomP={};   // B2: in-match grace timers of this room are void as well
   if(typeof onlineResetClock==='function')onlineResetClock();   // Online-Uhr dieser Session zuruecksetzen
