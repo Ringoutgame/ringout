@@ -3549,9 +3549,14 @@ function barrierActiveSegments(){
   if(BARRIER_MULTI)return BARRIER_MULTI_SEGS;
   if(phase==='reveal'||phase==='sim')return barrierTurnSegments;
   // Vorschau: NUR die des gerade planenden Seats. Bereits bestaetigte Segmente
-  // anderer Seats bleiben bis zum Reveal unsichtbar.
+  // anderer Seats bleiben bis zum Reveal unsichtbar. Waehrend eines Wand-Drags
+  // (7A) zaehlt das live eingerastete Segment; ueber der Abwahlzone und abseits
+  // des Randes ist die Vorschau leer.
   const s=barrierUiSeat();
-  return s>=0&&barrierArmedBySeat[s]?[barrierSelectedSegmentBySeat[s]]:[];
+  if(s<0)return [];
+  if(typeof barrierDragPid!=='undefined'&&barrierDragPid>=0&&barrierDragSeat===s)
+    return (barrierDragSeg>=0&&!barrierDragCancelHover)?[barrierDragSeg]:[];
+  return barrierArmedBySeat[s]?[barrierSelectedSegmentBySeat[s]]:[];
 }
 // Messwerte des Prototyps (nur Diagnose, keine Rueckwirkung auf die Simulation).
 const barrierStat={reflections:0,resolves:0,stepReflections:0,maxPerBallStep:0,earliestT:1};
@@ -3604,9 +3609,15 @@ function barrierUiSeat(){
   if(mode==='pvp')return curAimer>=0&&curAimer<barrierStakesBySeat.length?curAimer:-1;
   return -1;
 }
-const BARRIER_STAKES_START=2;                  // Einsaetze je SEAT und Match
+// Einsatzregel (Produktentscheidung nach dem 7A-Spieltest): DREI Einsaetze je
+// Seat und Match, hoechstens EINE Wand je Seat und ZUG. Es gibt keine
+// Rundensperre mehr — ein Seat darf in direkt aufeinanderfolgenden Zuegen
+// Waende setzen, ohne dass ein Ring-out oder Rundenwechsel noetig ist. Die
+// Ein-Wand-pro-Zug-Grenze steckt bereits im Ablauf selbst: genau EINE Vorwahl
+// je Seat, Verbrauch genau einmal beim bestaetigten Zug, danach sperrt
+// aimSet/own.lock jede weitere Wahl bis zum naechsten Zug.
+const BARRIER_STAKES_START=3;                  // Einsaetze je SEAT und Match
 let barrierStakesBySeat=[];                    // verbleibende Einsaetze je Seat
-let barrierRoundUsedBySeat=[];                 // hoechstens eine Wand je Seat und Runde
 let barrierArmedBySeat=[];                     // Vorschau je Seat (noch nicht bestaetigt)
 let barrierSelectedSegmentBySeat=[];           // vorgewaehltes Segment je Seat
 let barrierCommittedSegmentBySeat=[];          // verbindlich bestaetigtes Segment je Seat, -1 = keins
@@ -3623,8 +3634,10 @@ function barrierOn(){
   if(online)return typeof barrierNetSimOn==='function'&&barrierNetSimOn();
   return BARRIER_MULTI||barrierTurnSegments.length>0;
 }
-// Waehlbar nur in der eigenen offenen Planungsphase, solange der Seat lebt, Einsaetze
-// uebrig sind und in dieser Runde noch keine Wand von ihm stand.
+// Waehlbar nur in der eigenen offenen Planungsphase, solange der Seat lebt und
+// Einsaetze uebrig sind. Bewusst OHNE Rundenbezug: !aimSet[s] (bzw. online der
+// Pending-Lock) sperrt nach dem Commit bis zum naechsten Zug — mehr Grenze
+// braucht die Ein-Wand-pro-Zug-Regel nicht.
 function barrierCanArmSeat(s){
   // 6B2A: online nur im aktiven Barrier-Net-Gate, nur fuer den eigenen Seat und
   // nur solange kein Commit-Reveal-Ablauf laeuft (Wandwahl ist ab da gesperrt).
@@ -3633,12 +3646,12 @@ function barrierCanArmSeat(s){
   return BARRIER_DEBUG&&!replaying&&!menuVisible
     &&phase==='aim'&&!inputLocked()&&s>=0&&s<barrierStakesBySeat.length
     &&!aimSet[s]&&aliveCount(s)>0
-    &&barrierStakesBySeat[s]>0&&!barrierRoundUsedBySeat[s];
+    &&barrierStakesBySeat[s]>0;
 }
-// Die Debug-UI aus Etappe 4 steuert weiterhin AUSSCHLIESSLICH Seat 0 im Bot-1v1.
+// Zentrale Freigabe der Bedienung: Seat der Debug-UI, keine verdeckte Uebergabe,
+// und der Seat darf nach den bestehenden Regeln (Einsatz, Rundensperre, Commit-
+// Zustand) seine Wahl noch aendern. Etappe 7A haengt den Drag daran.
 function barrierCanArm(){const s=barrierUiSeat();return s>=0&&!coverOpen&&barrierCanArmSeat(s);}
-function barrierToggle(){if(!barrierCanArm())return;
-  const s=barrierUiSeat();barrierArmedBySeat[s]=!barrierArmedBySeat[s];barrierUi();}
 // Test-/Debug-Hook fuer die uebrigen Seats. Er setzt AUSSCHLIESSLICH die Vorschau;
 // Verbrauch und Verbindlichkeit laufen danach unveraendert ueber commit() und
 // barrierCommitHook(). Kein URL-Vertrag, keine Produktmechanik — nur lokal, nur mit
@@ -3660,8 +3673,8 @@ function barrierCommitHook(who){
   if(!BARRIER_DEBUG||online||replaying)return;
   if(!(who>=0&&who<barrierArmedBySeat.length)||!barrierArmedBySeat[who])return;
   barrierArmedBySeat[who]=false;
-  if(barrierStakesBySeat[who]<=0||barrierRoundUsedBySeat[who]||aliveCount(who)<=0)return;
-  barrierStakesBySeat[who]--;barrierRoundUsedBySeat[who]=true;
+  if(barrierStakesBySeat[who]<=0||aliveCount(who)<=0)return;
+  barrierStakesBySeat[who]--;
   barrierCommittedSegmentBySeat[who]=barrierSelectedSegmentBySeat[who];
   barrierUi();
 }
@@ -3678,7 +3691,7 @@ function barrierAutoStandHook(who){
 // enden hier. Die bereits bestaetigte Wahl bleibt gespeichert, aber unsichtbar.
 function barrierCoverHook(){
   if(!BARRIER_DEBUG||online||replaying)return;
-  barrierClosePlacing();barrierUi();
+  barrierDragCancel();barrierUi();
 }
 // Aus allen committeten Segmenten die kanonische Liste des Zuges bilden: dedupliziert
 // und aufsteigend. Mehrere Seats auf demselben Segment ergeben genau EINEN Eintrag.
@@ -3696,26 +3709,27 @@ function barrierClearTurn(){barrierTurnSegments=[];barrierSeats((s)=>{barrierCom
 function barrierPhaseHook(p){
   if(p==='reveal')barrierBuildTurn();
   else if(p!=='sim')barrierClearTurn();
-  if(p!=='aim'){barrierSeats((s)=>{barrierArmedBySeat[s]=false;});barrierClosePlacing();}
+  if(p!=='aim'){barrierSeats((s)=>{barrierArmedBySeat[s]=false;});barrierDragCancel();}
   barrierUi();
 }
-// Neue Runde: nur die Rundensperre faellt. Bestaende bleiben, es wird nie aufgefuellt.
+// Neue Runde: offene Vorwahlen und Zugbindung fallen. Bestaende bleiben, es wird
+// nie aufgefuellt (eine Rundensperre existiert nicht mehr).
 function barrierRoundReset(){
-  barrierSeats((s)=>{barrierRoundUsedBySeat[s]=false;barrierArmedBySeat[s]=false;});
-  barrierClearTurn();barrierClosePlacing();barrierUi();
+  barrierSeats((s)=>{barrierArmedBySeat[s]=false;});
+  barrierClearTurn();barrierDragCancel();barrierUi();
 }
 // Neues Match und Rematch setzen ALLE Seats auf den Startbestand; eine neue Runde
 // oder eine Collapse-Stufe nie.
 function barrierMatchReset(){
   const n=barrierSeatCount();
-  barrierStakesBySeat=[];barrierRoundUsedBySeat=[];barrierArmedBySeat=[];
+  barrierStakesBySeat=[];barrierArmedBySeat=[];
   barrierSelectedSegmentBySeat=[];barrierCommittedSegmentBySeat=[];
   for(let s=0;s<n;s++){
-    barrierStakesBySeat.push(BARRIER_STAKES_START);barrierRoundUsedBySeat.push(false);
+    barrierStakesBySeat.push(BARRIER_STAKES_START);
     barrierArmedBySeat.push(false);barrierSelectedSegmentBySeat.push(BARRIER_SEG);
     barrierCommittedSegmentBySeat.push(-1);
   }
-  barrierTurnSegments=[];barrierClosePlacing();barrierUi();
+  barrierTurnSegments=[];barrierDragCancel();barrierUi();
 }
 // Einfache Debug-Anzeige, bewusst ohne Gestaltung. Wird nur angelegt, wenn der
 // Prototyp ueberhaupt laeuft — ohne ?barrier=1 entsteht kein DOM-Knoten.
@@ -3755,96 +3769,131 @@ function barrierHud(){
   el.style.display=txt===''?'none':'';
   el.textContent=txt;
 }
-if(BARRIER_DEBUG)addEventListener('keydown',e=>{
-  if(e.repeat||e.key!=='b'&&e.key!=='B')return;
-  barrierToggle();
-});
-
-// ── Etappe 4: lokaler Bedienungsprototyp fuer die Segmentauswahl ──────────────
-// Geprueft wird nur, ob die Auswahl INNERHALB der bestehenden Zugzeit schnell und
-// eindeutig gelingt. Bewusst neutrale Diagnose-Optik, keine Produktgestaltung.
+// ── Etappe 7A: Drag-and-Snap-Bedienung der Wandplatzierung ────────────────────
+// Ersetzt den Etappe-4-Platzierungsmodus (Button-Tap -> Overlay mit zwoelf
+// nummerierten Trefferbaendern) VOLLSTAENDIG durch einen direkten Drag:
 //
-// Ablauf: WAND-Schaltflaeche -> Platzierungsmodus -> Tippen am Rand waehlt das
-// Segment, bewaffnet die Wand und schliesst den Modus. Verbrauch und Verbindlichkeit
-// bleiben unveraendert beim bestehenden barrierCommitHook.
+//   Wandsymbol druecken und halten -> ziehen -> nahe dem Arenarand rastet eine
+//   neutrale Vorschau in das naechstgelegene der zwoelf Segmente ein
+//   (barrierSegAt, dieselbe Zuordnung wie der Collider) -> Loslassen ueber einem
+//   gueltigen Segment fixiert die VORWAHL (armed, kein Verbrauch, kein Commit).
 //
-// Input-Trennung: der Platzierungsmodus zeichnet auf einer eigenen Ebene mit
-// pointer-events:none und faengt Eingaben ueber EINEN Fensterlauscher in der
-// CAPTURE-Phase ab — er liegt damit vor dem pointerdown des Canvas. Ein Tipp im
-// Randring waehlt und wird geschluckt (kein Kugel-Drag, kein Kameradrag); ein Tipp
-// weiter innen schliesst nur den Modus und laeuft normal weiter. Beim Schliessen
-// werden Lauscher UND Ebene entfernt — es bleibt nichts zurueck, das Eingaben
-// abfangen koennte.
-const BARRIER_PICK_INNER=0.55;            // Innenrand des Trefferrings (Anteil von R)
-const BARRIER_PICK_OUTER=1.60;            // Aussenrand des Trefferrings (Anteil von R)
-let barrierPlacing=false;
-// Sichtbarkeit des Debug-Bogens: waehrend der Physikphase (echte Wand) ODER als
-// Vorschau nach der Auswahl. Die Vorschau kollidiert NICHT — barrierOn() bleibt der
-// alleinige Physikschalter.
+//   Eine fixierte Vorschau kann am Randbogen erneut gegriffen und verschoben
+//   werden (ersetzt die alte Auswahl, nie eine zweite Wand). Loslassen ueber dem
+//   Wandsymbol bzw. in dessen Abwahlzone entfernt die Wand. Ungueltiges
+//   Loslassen behaelt die letzte gueltige Vorwahl; eine neue, nie gueltige
+//   Platzierung waehlt nichts.
+//
+// Input-Trennung: EIN Satz permanenter Fensterlauscher in der CAPTURE-Phase,
+// intern hart gegated (ohne ?barrier=1 werden sie gar nicht registriert). Der
+// Drag-Start schluckt sein pointerdown (preventDefault+stopPropagation), bevor
+// das Canvas es sieht — es entsteht nie ein Kugel- oder Kameradrag aus einem
+// Wand-Griff, und das Wand-Loslassen kann nie einen Kugelzug bestaetigen (der
+// Kugel-Commit haengt an aimPid, das dieser Pointer nie wird). Umgekehrt startet
+// ein Wand-Griff nie waehrend eines laufenden Kugel-Drags (aimPid>=0). Es gibt
+// keine Overlays und keinen Moduszustand — nach Ende oder Abbruch des Drags
+// blockiert nichts weitere Eingaben.
+const BARRIER_SNAP_INNER=0.55;            // Snap-Band Innenrand (Anteil von R)
+const BARRIER_SNAP_OUTER=1.60;            // Snap-Band Aussenrand (Anteil von R)
+const BARRIER_CANCEL_PAD_PX=30;           // Abwahlzone: Symbol-Rect allseitig +30 CSS-px
+const BARRIER_GRAB_BAND_BR=1.5;           // Greifband der fixierten Vorschau: |d-R| <= BR*1.5
+let barrierDragPid=-1;                    // Pointer des laufenden Wand-Drags (-1 = keiner)
+let barrierDragSeat=-1;                   // Seat, dem der Drag gehoert
+let barrierDragSeg=-1;                    // aktuell eingerastetes Segment (-1 = nicht am Rand)
+let barrierDragPrev=-1;                   // gueltige Vorwahl VOR dem Drag (-1 = neue Platzierung)
+let barrierDragCancelHover=false;         // Pointer schwebt ueber der Abwahlzone
+// Sichtbarkeit des Debug-Bogens: echte Wand (Physikphase), fixierte Vorwahl oder
+// die live einrastende Drag-Vorschau. Die Vorschau kollidiert NICHT —
+// barrierOn() bleibt der alleinige Physikschalter.
 function barrierPreviewOn(){const s=barrierUiSeat();
-  // barrierUiSeat() liefert online nur im aktiven 6B2A-Gate einen Seat (-1 sonst).
-  return BARRIER_DEBUG&&!replaying&&s>=0&&!coverOpen&&barrierArmedBySeat[s]&&phase==='aim';}
+  if(!BARRIER_DEBUG||replaying||s<0||coverOpen||phase!=='aim')return false;
+  if(barrierDragPid>=0&&barrierDragSeat===s)return barrierDragSeg>=0&&!barrierDragCancelHover;
+  return barrierArmedBySeat[s];}
 function barrierMeshOn(){return barrierOn()||barrierPreviewOn();}
-function barrierCanPlace(){return barrierCanArm();}
-function barrierOpenPlacing(){
-  if(!barrierCanPlace())return;
-  barrierPlacing=true;
-  addEventListener('pointerdown',barrierPickDown,true);
-  barrierPaint();
-  barrierUi();
+// Abwahlzone: das Wandsymbol-Rect, allseitig um BARRIER_CANCEL_PAD_PX vergroessert.
+// Gross genug fuer Touch, aber weit weg von Aktionsleiste (unten Mitte/rechts)
+// und Arenazentrum — sie wirkt AUSSCHLIESSLICH als Loslass-Ziel des Wand-Drags
+// und schluckt ausserhalb eines Drags keinerlei Eingaben.
+function barrierCancelZoneHit(e){
+  const b=document.getElementById('barrierBtn');
+  if(!b)return false;
+  const r=b.getBoundingClientRect(),pad=BARRIER_CANCEL_PAD_PX;
+  return e.clientX>=r.left-pad&&e.clientX<=r.right+pad&&e.clientY>=r.top-pad&&e.clientY<=r.bottom+pad;
 }
-function barrierClosePlacing(){
-  if(!barrierPlacing)return;
-  barrierPlacing=false;
-  removeEventListener('pointerdown',barrierPickDown,true);
-  const c=document.getElementById('barrierPick');if(c)c.remove();
-  barrierUi();
-}
-// Auswahl aus einem Zeigerereignis. Der Punkt wird ueber dieselbe Abbildung wie das
-// Zielen in Arenakoordinaten gebracht (r3d.s2w bzw. localPt) — die getroffene
-// Segmentnummer ist damit exakt die des Colliders.
-function barrierPickDown(e){
-  if(!barrierPlacing)return;
-  const ui=document.getElementById('barrierBtn');
-  if(ui&&e.target&&ui.contains(e.target))return;     // die eigene Schaltflaeche behandelt sich selbst
-  if(!barrierCanPlace()){barrierClosePlacing();return;}
+// Pointer -> Arenaebene (r3d.s2w bzw. localPt, exakt die Ziel-Abbildung) ->
+// naechstes Segment, wenn der Punkt im Snap-Band um den AKTUELLEN Radius R liegt
+// (Collapse-Radius damit automatisch beruecksichtigt). -1 = nicht am Rand.
+function barrierDragSnapSeg(e){
   const p=localPt(e);
   const rr=Math.hypot(p.x-cx,p.y-cy)/R;
-  if(rr<BARRIER_PICK_INNER||rr>BARRIER_PICK_OUTER){barrierClosePlacing();return;}   // ausserhalb des Rings: nur schliessen
-  e.preventDefault();e.stopPropagation();            // kein Kugel-Drag, kein Kameradrag aus diesem Tipp
-  const seat=barrierUiSeat();
-  barrierSelectedSegmentBySeat[seat]=barrierSegAt(p.x,p.y);
-  barrierArmedBySeat[seat]=true;
-  barrierClosePlacing();
+  return (rr>=BARRIER_SNAP_INNER&&rr<=BARRIER_SNAP_OUTER)?barrierSegAt(p.x,p.y):-1;
 }
-// Zwoelf duenne Randbereiche + Nummern, nur im Platzierungsmodus. Projektion ueber
-// OP() — dieselbe Abbildung, die das Spiel fuer seine Overlays nutzt; die Baender
-// liegen dadurch exakt auf dem Collider und folgen jedem Radius (auch nach Collapse).
-function barrierPaint(){
-  if(!barrierPlacing)return;
-  let c=document.getElementById('barrierPick');
-  if(!c){c=document.createElement('canvas');c.id='barrierPick';
-    c.style.cssText='position:fixed;left:0;top:0;z-index:65;pointer-events:none';
-    document.body.appendChild(c);}
-  const w=innerWidth,h=innerHeight;
-  if(c.width!==w||c.height!==h){c.width=w;c.height=h;c.style.width=w+'px';c.style.height=h+'px';}
-  const g=c.getContext('2d');g.clearRect(0,0,w,h);
-  const pk=barrierUiSeat();                   // hervorgehoben wird nur die EIGENE Wahl
-  const rect=cv.getBoundingClientRect();
-  const px=(ax,ay)=>{const q=OP(ax,ay,0);
-    return{x:rect.left+q.x/1000*rect.width,y:rect.top+q.y/1000*rect.width};};
-  for(let k=0;k<BARRIER_SEG_COUNT;k++){
-    const mid=-Math.PI/2+k*BARRIER_SPAN,sel=(pk>=0&&k===barrierSelectedSegmentBySeat[pk]&&barrierArmedBySeat[pk]);
-    g.beginPath();
-    for(let i=0;i<=14;i++){const a=mid-BARRIER_HALF+BARRIER_SPAN*i/14,q=px(cx+Math.cos(a)*R,cy+Math.sin(a)*R);
-      if(i===0)g.moveTo(q.x,q.y);else g.lineTo(q.x,q.y);}
-    g.lineWidth=sel?9:5;g.strokeStyle=sel?'rgba(53,224,255,.95)':'rgba(255,255,255,.32)';g.stroke();
-    const lp=px(cx+Math.cos(mid)*R*1.16,cy+Math.sin(mid)*R*1.16);
-    g.font='bold 15px ui-monospace,Menlo,Consolas,monospace';g.textAlign='center';g.textBaseline='middle';
-    g.lineWidth=4;g.strokeStyle='rgba(0,0,0,.8)';g.strokeText(String(k),lp.x,lp.y);
-    g.fillStyle=sel?'#35e0ff':'#ffffff';g.fillText(String(k),lp.x,lp.y);
+function barrierDragStart(e,seat){
+  barrierDragPid=e.pointerId;barrierDragSeat=seat;
+  barrierDragPrev=barrierArmedBySeat[seat]?barrierSelectedSegmentBySeat[seat]:-1;
+  barrierDragSeg=barrierDragSnapSeg(e);
+  barrierDragCancelHover=barrierCancelZoneHit(e);
+  try{e.target.setPointerCapture(e.pointerId);}catch(_){}
+  e.preventDefault();e.stopPropagation();
+  barrierUi();
+}
+// Harter Abbruch (pointercancel, Phasen-/Seatwechsel, Reset, Commit waehrenddessen):
+// die Vorwahl von VOR dem Drag bleibt unveraendert bestehen, nichts blockiert.
+function barrierDragCancel(){
+  if(barrierDragPid<0)return;
+  barrierDragPid=-1;barrierDragSeat=-1;barrierDragSeg=-1;barrierDragPrev=-1;barrierDragCancelHover=false;
+  barrierUi();
+}
+function barrierDragDown(e){
+  if(barrierDragPid>=0)return;                       // Multi-Touch: genau EIN Wand-Drag
+  if(aimPid>=0)return;                               // laufender Kugel-Drag greift nie eine Wand
+  const s=barrierUiSeat();
+  if(s<0||coverOpen||phase!=='aim')return;
+  const btn=document.getElementById('barrierBtn');
+  if(btn&&e.target&&btn.contains(e.target)){
+    // Symbol gedrueckt: neue Platzierung oder bestehende Vorwahl vom Symbol aus
+    // bewegen. Gesperrt (Commit/Pending/kein Einsatz/Rundensperre): inert.
+    if(!barrierCanArm())return;
+    barrierDragStart(e,s);
+    return;
   }
-  requestAnimationFrame(barrierPaint);
+  // Fixierte Vorschau erneut greifen: Druck im Greifband um den Rand, im Winkel
+  // des gewaehlten Segments. Alles andere laeuft unveraendert weiter (Kugel/Kamera).
+  if(!barrierArmedBySeat[s]||!barrierCanArm())return;
+  const p=localPt(e);
+  if(Math.abs(Math.hypot(p.x-cx,p.y-cy)-R)>BR*BARRIER_GRAB_BAND_BR)return;
+  if(barrierSegAt(p.x,p.y)!==barrierSelectedSegmentBySeat[s])return;
+  barrierDragStart(e,s);
+}
+function barrierDragMove(e){
+  if(e.pointerId!==barrierDragPid)return;
+  // Kontext weg (Phase, Seat, Commit/Pending, Menue): Drag sofort beenden —
+  // die Vorwahl von vor dem Drag bleibt, es haengt nichts nach.
+  if(barrierUiSeat()!==barrierDragSeat||phase!=='aim'||!barrierCanArmSeat(barrierDragSeat)){barrierDragCancel();return;}
+  e.preventDefault();e.stopPropagation();
+  barrierDragCancelHover=barrierCancelZoneHit(e);
+  barrierDragSeg=barrierDragSnapSeg(e);
+  barrierUi();
+}
+function barrierDragUp(e){
+  if(e.pointerId!==barrierDragPid)return;
+  e.preventDefault();e.stopPropagation();
+  const s=barrierDragSeat,prev=barrierDragPrev;
+  const cancel=barrierCancelZoneHit(e);
+  const seg=barrierDragSnapSeg(e);
+  barrierDragPid=-1;barrierDragSeat=-1;barrierDragSeg=-1;barrierDragPrev=-1;barrierDragCancelHover=false;
+  if(s<0||barrierUiSeat()!==s){barrierUi();return;}
+  if(cancel)barrierArmedBySeat[s]=false;                                   // Abwahl am Symbol
+  else if(seg>=0&&barrierCanArmSeat(s)){barrierSelectedSegmentBySeat[s]=seg;barrierArmedBySeat[s]=true;}
+  else if(prev>=0&&barrierCanArmSeat(s)){barrierSelectedSegmentBySeat[s]=prev;barrierArmedBySeat[s]=true;}
+  else barrierArmedBySeat[s]=false;                                        // neu und nie gueltig: keine Wand
+  barrierUi();
+}
+if(BARRIER_DEBUG){
+  addEventListener('pointerdown',barrierDragDown,true);
+  addEventListener('pointermove',barrierDragMove,true);
+  addEventListener('pointerup',barrierDragUp,true);
+  addEventListener('pointercancel',e=>{if(e.pointerId===barrierDragPid)barrierDragCancel();},true);
 }
 // Debug-Schaltflaeche. Bewusst unten links: dort liegen weder Match- noch Zugtimer
 // (oben), noch Menue-/Ton-Schaltflaeche (oben rechts), noch die Aktionsleiste (unten
@@ -3859,28 +3908,35 @@ function barrierBtn(){
   let b=document.getElementById('barrierBtn');
   if(!b&&s<0)return;                             // ohne planenden Seat entsteht kein Knoten
   if(!b){b=document.createElement('button');b.id='barrierBtn';b.type='button';
+    // 7A: KEIN eigener Handler und nie disabled — der Drag-Start laeuft ueber den
+    // zentralen Capture-Lauscher (barrierDragDown), und ein disabled-Button
+    // wuerde gar keine Pointer-Events mehr liefern. touch-action:none, damit der
+    // Halten-und-Ziehen-Start auf Touch nie als Scroll interpretiert wird.
     b.style.cssText='position:fixed;left:10px;bottom:84px;z-index:71;padding:9px 13px;border-radius:8px;'
       +'border:1px solid rgba(53,224,255,.55);background:rgba(5,8,14,.86);color:#35e0ff;'
       +'font:700 13px/1.1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.06em;'
-      +'touch-action:manipulation;cursor:pointer';
-    // pointerdown statt click: identisch fuer Maus und Touch, und der Tipp erreicht
-    // das Canvas nie (eigener DOM-Knoten ausserhalb von cv, Propagation gestoppt).
-    b.addEventListener('pointerdown',e=>{e.preventDefault();e.stopPropagation();
-      const s=barrierUiSeat();if(s<0)return;
-      if(barrierArmedBySeat[s]){barrierArmedBySeat[s]=false;barrierClosePlacing();barrierUi();return;}
-      if(barrierPlacing){barrierClosePlacing();return;}
-      barrierOpenPlacing();});
+      +'touch-action:none;cursor:grab';
     document.body.appendChild(b);}
   const show=s>=0&&!coverOpen&&phase==='aim';
   b.style.display=show?'':'none';
-  if(!show){b.disabled=true;barrierBtnLast='';return;}   // nichts anzeigen, nichts verraten
-  const usable=barrierCanArm()||(s>=0&&barrierArmedBySeat[s]);
-  b.disabled=!usable;
-  b.style.opacity=usable?'1':'.42';
+  if(!show){barrierBtnLast='';return;}   // nichts anzeigen, nichts verraten
+  const dragging=barrierDragPid>=0&&barrierDragSeat===s;
+  // EINE Wahrheit fuer Bedienbarkeit und Optik: exakt die Drag-Start-Bedingung
+  // barrierCanArm() (Einsatz, Rundensperre, Commit-/Pending-Zustand). Ist sie
+  // false, ist der Button ECHT disabled (liefert keine Pointer-Events mehr) und
+  // zeigt keinen Greif-Cursor — ein verbrauchter Rundeneinsatz wirkt damit
+  // eindeutig gesperrt statt "greifbar, aber tot".
+  const usable=barrierCanArm();
+  b.disabled=!(usable||dragging);
+  b.style.cursor=dragging?'grabbing':(usable?'grab':'not-allowed');
+  b.style.opacity=usable||dragging?'1':'.42';
   // Zustand ueber den Rahmen, nicht ueber den Text: die Beschriftung bleibt exakt
-  // "WAND ×N" (Restbestand), damit sie eindeutig ablesbar ist.
-  b.style.borderColor=(barrierPlacing||(s>=0&&barrierArmedBySeat[s]))?'#35e0ff':'rgba(53,224,255,.55)';
-  b.style.background=barrierPlacing?'rgba(53,224,255,.20)':'rgba(5,8,14,.86)';
+  // "WAND ×N" (Restbestand). Waehrend des Drags markiert ein roter Rahmen die
+  // Abwahlzone, sobald der Pointer darueber schwebt (dezente Abwahl-Markierung).
+  b.style.borderColor=dragging?(barrierDragCancelHover?'#ff6b6b':'#35e0ff')
+    :(s>=0&&barrierArmedBySeat[s])?'#35e0ff':'rgba(53,224,255,.55)';
+  b.style.background=dragging?(barrierDragCancelHover?'rgba(255,107,107,.22)':'rgba(53,224,255,.20)')
+    :'rgba(5,8,14,.86)';
   const txt='WAND ×'+barrierStakesBySeat[s];
   if(txt!==barrierBtnLast){barrierBtnLast=txt;b.textContent=txt;}
 }
@@ -4010,7 +4066,7 @@ function barrierNetOwnCommit(m){
   S.own.lock=true;
   let seg=null;
   if(barrierArmedBySeat[myPlayer]&&barrierStakesBySeat[myPlayer]>0
-    &&!barrierRoundUsedBySeat[myPlayer]&&aliveCount(myPlayer)>0)
+    &&aliveCount(myPlayer)>0)
     seg=barrierSelectedSegmentBySeat[myPlayer];
   barrierUi();
   barrierNetBeginCommit(S,{idx:m.idx,dx:m.dx,dy:m.dy,sp:m.sp},seg,false);
@@ -4026,7 +4082,7 @@ function barrierNetTimeoutCommit(s,idx){
   if(!S)return false;
   if(S.blocked||S.own.lock||aimSet[myPlayer])return true;
   S.own.lock=true;
-  barrierArmedBySeat[myPlayer]=false;barrierClosePlacing();barrierUi();
+  barrierArmedBySeat[myPlayer]=false;barrierDragCancel();barrierUi();
   const m=sanitizeMove(myPlayer,idx,0,0,0);
   barrierNetBeginCommit(S,{idx:m.idx,dx:m.dx,dy:m.dy,sp:m.sp},null,true);
   return true;
@@ -4121,7 +4177,7 @@ async function barrierNetStep(S){
     const acc=barrierNetMoveOf(myPlayer);
     if(acc.dx===0&&acc.dy===0&&(acc.sp||0)===0){
       S.own.lock=true;
-      barrierArmedBySeat[myPlayer]=false;barrierClosePlacing();barrierUi();
+      barrierArmedBySeat[myPlayer]=false;barrierDragCancel();barrierUi();
       barrierNetBeginCommit(S,acc,null,true,true);
     }
     return;
@@ -4140,7 +4196,7 @@ async function barrierNetStep(S){
       S.own.consumeDone=true;
       if(S.own.priv.seg>=0&&!S.consumed[myPlayer]){
         S.consumed[myPlayer]=true;
-        barrierStakesBySeat[myPlayer]--;barrierRoundUsedBySeat[myPlayer]=true;barrierUi();
+        barrierStakesBySeat[myPlayer]--;barrierUi();
       }
     }
   }
@@ -4190,7 +4246,7 @@ async function barrierNetStep(S){
   for(let s=0;s<2;s++){
     if(segs[s]>=0&&!S.consumed[s]){
       S.consumed[s]=true;
-      barrierStakesBySeat[s]--;barrierRoundUsedBySeat[s]=true;
+      barrierStakesBySeat[s]--;
     }
   }
   S.ready=true;
@@ -4215,9 +4271,15 @@ if(BARRIER_DEBUG){
       revealsSeen:[!!(S&&S.reveals[0]),!!(S&&S.reveals[1])],
       ownRevealWrites:S?S.own.revealWrites:0,ownLocked:!!(S&&S.own.lock),
       ownConsumed:!!(S&&S.consumed[myPlayer]),
-      stakes:barrierStakesBySeat.slice(),roundUsed:barrierRoundUsedBySeat.slice(),
+      stakes:barrierStakesBySeat.slice(),
       committedSegs:barrierCommittedSegmentBySeat.slice(),
       turnSegments:barrierTurnSegments.slice(),
+      armed:barrierArmedBySeat.slice(),selected:barrierSelectedSegmentBySeat.slice(),
+      drag:{pid:barrierDragPid,seat:barrierDragSeat,seg:barrierDragSeg,cancelHover:barrierDragCancelHover},
+      guards:{uiSeat:barrierUiSeat(),canArm:barrierCanArm(),aimPid:aimPid,coverOpen:coverOpen,
+        menuVisible:menuVisible,locked:inputLocked(),
+        ownLocked:typeof barrierNetOwnLocked==='function'?barrierNetOwnLocked():null},
+      geo:{R:R,cx:cx,cy:cy,BR:BR},
       reflections:barrierStat.reflections,
       lastTurn:barrierNetLastTurn?{gen:barrierNetLastTurn.gen,turn:barrierNetLastTurn.turn,
         segments:barrierNetLastTurn.segments.slice(),
@@ -5322,6 +5384,11 @@ function onlineArmTurn(){
   pendingSlot={};   // P0-Fix: neue Turn-Runde -> keine Altlast aus vorherigen Pending-Writes
   clearAllSentinelRetries();   // P0-Nachbesserung: Retries der alten Turn-Runde sind ab hier gegenstandslos
   if(typeof barrierNetTurnReset==='function')barrierNetTurnReset();   // 6B2A: kein Nonce/Reveal/Segment ueberlebt den Turnwechsel
+  // 7A: Die Debug-UI wurde beim setPhase('aim') des Settlements gerendert, als
+  // turnNo/Netz-Zustand noch zum ALTEN Turn gehoerten (own.lock -> gesperrt
+  // dargestellt). Nach dem Aufsetzen des neuen Turns einmal neu rendern, damit
+  // Button-disabled/Cursor dieselbe Wahrheit zeigen wie barrierCanArmSeat().
+  if(typeof barrierUi==='function')barrierUi();
   if(turnUnsub){turnUnsub();turnUnsub=null;}
   const ctx={sid:onlineSessionId,room:roomCode,gen:gen,turnNo:turnNo};
   const ref=window.FB.ref(window.FB.db,'rooms/'+ctx.room+'/g/'+ctx.gen+'/t/'+ctx.turnNo);
