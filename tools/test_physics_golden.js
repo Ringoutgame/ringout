@@ -34,6 +34,10 @@ const constSrc1 = grab(/const MAXPULL_FRAC=[^\n]*/, 'physics constants');
 const constSrc2 = grab(/const SPIN_K=[^\n]*/, 'spin constants');
 // stepSim references the central player color table (cosmetic only, results unaffected)
 const pcolsSrc = grab(/const PCOLS=[^\n]*/, 'player colors (PCOLS)');
+// Physikphase 4B-2: stepSim resolves restitution through curRestBall/Band/Post. The block
+// is taken verbatim from index.html; with mode='bot' footballPhys() returns null and all
+// three accessors yield the unchanged global REST — the golden hashes stay untouched.
+const footballRestSrc = grab(/const FOOTBALL_PHYS=\{[\s\S]*?\nfunction curRestPost\(\)[^\n]*/, 'football restitution accessors');
 
 // Rebuild the exact runtime environment; all side-effect surfaces are inert stubs.
 function buildEnv(frictionOverride) {
@@ -47,6 +51,7 @@ function buildEnv(frictionOverride) {
     function curFE(){return ${frictionOverride ? '__FR' : 'FEND'};}
     function curST(){return STOPV;}
     function maxPull(){return R0*MAXPULL_FRAC;}
+    ${footballRestSrc}
     let balls=[], phase='sim', outBall=-1;
     let aimSet=[false,false], commitIdx=[-1,-1], commitAim=[{dx:0,dy:0},{dx:0,dy:0}], commitSpin=[0,0];
     let curAimer=0, bgPulse=0, bgPulseRGB='';

@@ -29,6 +29,10 @@ const actBtnSrc = grab(/\$\('actBtn'\)\.onclick=\(\)=>\{[\s\S]*?commit\(who,idx,
 const constSrc = grab(/const MAXPULL_FRAC=[^\n]*/, 'Physik-Konstanten');
 const spinSrc = grab(/const SPIN_K=[^\n]*/, 'Spin-Konstanten');
 const pcolsSrc = grab(/const PCOLS=[^\n]*/, 'PCOLS');
+// Physikphase 4B-2: stepSim holt die Restitution ueber curRestBall/Band/Post. Der Block
+// wird unveraendert aus index.html uebernommen; bei mode='bot' liefert footballPhys()
+// null und alle drei Accessoren geben den unveraenderten globalen REST-Wert zurueck.
+const footballRestSrc = grab(/const FOOTBALL_PHYS=\{[\s\S]*?\nfunction curRestPost\(\)[^\n]*/, 'Football-Restitutions-Accessoren');
 
 // Minimale Sandbox mit stubs fuer alle externen Symbole der extrahierten Produktfunktionen.
 // Echt (aus index.html extrahiert): Collapse-Core, stepSim inkl. Ring-out/Decisive,
@@ -67,6 +71,7 @@ const prefix = `
   ${constSrc}
   ${spinSrc}
   function curFR(){return FRICTION;} function curFE(){return FEND;} function curST(){return STOPV;}
+  ${footballRestSrc}
   function maxPull(){return R0*MAXPULL_FRAC;}
   function np(){return mode==='ffa'?ffaN:2;}
   function aliveCount(o){let n=0;for(const b of balls)if(b.alive&&b.owner===o)n++;return n;}

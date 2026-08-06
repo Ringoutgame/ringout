@@ -1,6 +1,6 @@
 # PROJECT.md — RingOut
 
-**Zuletzt aktualisiert:** 2026-07-14
+**Zuletzt aktualisiert:** 2026-08-06 (Arena-Football-Physik 4B-3: GLIDE als finaler Standard, Anti-Wedge — lokal, kein Push)
 
 ---
 
@@ -62,6 +62,37 @@ RingOut ist ein kompetitives, physikbasiertes Browser-Spiel für 1–5 Spieler. 
 - Kreisel/Drall (Magnus-Effekt) via zweitem Touch-Finger
 - Elastische Kollisionsauflösung (Koeffizient `REST = 0.25`)
 - Deterministische logische Spielfeldgröße (`LOGICAL = 1000`) für Netzwerk-Lockstep
+- Dämpfung, Settlement und Restitution laufen seit der Arena-Football-Physik über die
+  Accessoren `curFR()` / `curFE()` / `curST()` bzw. `curRestBall()` / `curRestBand()` /
+  `curRestPost()`. Außerhalb von `mode === 'football'` liefern sie exakt die globalen
+  Konstanten — alle Bestandsmodi rechnen unverändert weiter (Golden-Physik 13/13).
+
+### Arena-Football-Physik (Phasen 4A–4B-3, Browser-Freigabe für GLIDE)
+Football-spezifische Physik, **ausschließlich** in `mode === 'football'` wirksam.
+Einziger Zugriffspunkt ist `footballPhys()`; liefert die Funktion `null`, gilt das
+bisherige Verhalten. Es gibt bewusst **keine Preset-Auswahl, keinen Debug-Schalter und
+keinen URL-Parameter** — Produktionsphysik hängt nicht von der Adresszeile ab.
+
+- **Wertesatz** `FOOTBALL_PHYS`: `friction 0.9968` · `fend 0.9935` · `stopv 0.035` ·
+  `restBall 0.40` · `restBand 0.52` · `restPost 0.47`. `fend` ist bewusst **härter** als
+  `friction` und reaktiviert damit den vorhandenen Zwei-Regime-Entwurf: lange gleiten,
+  am Ende trotzdem nicht endlos kriechen.
+- **Iterative Kontaktauflösung** `FOOTBALL_CONTACT_ITERATIONS = 3`: dieselben Formeln in
+  derselben Reihenfolge, nur mehrfach. Integration, Dämpfung und Spin laufen weiterhin
+  genau einmal pro Micro-Step; Treffer-Feedback nur im ersten Durchgang.
+- **Getrennte Restitution nach Kontaktart** statt einer gemeinsamen Konstante;
+  `restBand > restPost > restBall`.
+- **Deterministische Wedge-Erkennung + Anti-Wedge-Escape** gegen tote Mehrfachkontakte:
+  feste benannte Schwellen, feste Kandidatenliste für die Fluchtrichtung, reine
+  Umlenkung der vorhandenen Geschwindigkeit; nur im Stillstand ein eng begrenzter
+  Mindest-Escape (`FOOTBALL_ESCAPE_MIN_V = 0.12` px/Micro-Step). Kein Zufall, keine
+  Zeitabhängigkeit → lockstep-tauglich.
+- **Kein Massenmodell**, keine Maximalgeschwindigkeit, `LAUNCH` unverändert.
+- Messnotiz mit allen Zahlen und der Herleitung:
+  `artifacts/football-physics-audit/README.md`.
+- Tests: `tools/test_football_shell.js` (Struktur, Werte, Abgrenzung) und
+  `tools/test_football_flow.js` (Wirkungsmessung, 43 Szenarien gegen die
+  Vergleichsmodelle CURRENT und ICE, die **nicht produktiv** sind).
 
 ### Bot-KI
 - **Leicht:** Zufallswinkel ±60°, Zufallskraft *(nur `?dev=1`)*
@@ -205,3 +236,6 @@ Ringout/
 - Synchrone Bot-Simulation im UI-Thread (Hard-Bot kann auf schwachen Geräten kurz stocken)
 - Kein PWA-Manifest / kein Offline-Support
 - Lokalisierung nur v1 (Hauptmenü/Online-Dialog EN/DE/TR): In-Game-Texte und testgebundene Status-/Fehlertexte sind weiterhin nur Deutsch
+- Arena Football: exakt frontales 1D-Pinning bleibt bestehen — liegen Bande, Ball und Stoßender auf einer Radiallinie, gibt es keine geometrische Fluchtrichtung; 0 px Verlagerung ist dort physikalisch korrekt und nur über ein Massenmodell lösbar (bewusst nicht umgesetzt)
+- Arena Football: der Mindest-Escape bei bestätigtem Static Wedge erzeugt minimal Energie (≤ ½·0.12² = 0.0072 je Kugel). Die Nullenergie-Invariante gilt damit außerhalb dieser Frames, nicht mehr absolut; der Harness prüft beide Fälle getrennt
+- Fünf Offline-Suiten sind vorbestehend rot (FFA-Kern, FFA-Online-Flow, FFA-Online-Race, Reconnect-B2, Team-Duel) — nachweislich schon an HEAD `3577ec5`, unabhängig von der Arena-Football-Arbeit

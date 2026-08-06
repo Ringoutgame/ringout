@@ -2147,9 +2147,12 @@ if(TUNE){
   b.style.cssText='position:fixed;top:8px;left:50%;transform:translateX(-50%);z-index:9999;background:rgba(120,58,4,.88);color:#ffd9a0;font:700 10px/1.7 system-ui;padding:2px 12px;border-radius:12px;letter-spacing:.08em;pointer-events:none';
   document.body.appendChild(b);
 }
-function curFR(){return FRICTION;}
-function curFE(){return TUNE&&TUNE.fend!=null?TUNE.fend:FEND;}
-function curST(){return TUNE&&TUNE.stopv!=null?TUNE.stopv:STOPV;}
+// Daempfung und Settlement-Schwelle. Im Football-Modus mit aktivem Physik-Preset
+// (Physikphase 4B-2) liefern sie die Preset-Werte, sonst unveraendert die globalen
+// Konstanten inkl. bestehender TUNE-Overrides — alle anderen Modi bleiben identisch.
+function curFR(){const c=footballPhys();return c?c.friction:FRICTION;}
+function curFE(){const c=footballPhys();if(c)return c.fend;return TUNE&&TUNE.fend!=null?TUNE.fend:FEND;}
+function curST(){const c=footballPhys();if(c)return c.stopv;return TUNE&&TUNE.stopv!=null?TUNE.stopv:STOPV;}
 function maxPull(){return R0*MAXPULL_FRAC;}
 function setPhase(p){phase=p;phaseStart=performance.now();}
 
@@ -2742,6 +2745,52 @@ const FOOTBALL_POST_INNER=3.300;                      // Sockel-Innenkante in BR
 const FOOTBALL_POST_OUTER=5.626;                      // Sockel-Aussenkante in BR (== 2.813 Blender-Einheiten)
 const FOOTBALL_POST_FRONT=12.150;                     // Sockel-Vorderkante in BR (radial, zur Arenamitte)
 const FOOTBALL_POST_BACK=14.646;                      // Sockel-Hinterkante in BR (radial, nach aussen)
+// ITERATIVE KONTAKTAUFLOESUNG (Physikphase 4B-1) — NUR mode==='football'.
+// Messung 4A: die einmalige Aufloesung pro Sub-Step laesst Ball-Ball-Trennung und
+// Banden-/Sockelkorrektur GEGENEINANDER arbeiten. Die Bande klemmt die Kugel auf
+// R-BR zurueck und stellt damit genau die Ueberlappung wieder her, die der Ball-Ball-
+// Pass gerade beseitigt hat -> bleibende Ueberlappung (gemessen 2.50 px) und ein an
+// der Bande liegender Ball, der sich nach VIER 100-%-Treffern um 0.00 px bewegt.
+// Gegenmassnahme: dieselben Formeln, dieselbe Reihenfolge, nur MEHRFACH ausgefuehrt.
+// Integration und Daempfung bleiben strikt EINMAL pro Sub-Step — wiederholt wird
+// ausschliesslich die Kontaktaufloesung. Feste Iterationszahl, keine Toleranz-
+// Abbruchbedingung, kein Zufall -> lockstep-tauglich deterministisch.
+// KEIN zusaetzlicher Impuls: Ball-Ball wirkt nur bei vn<0, die Bande nur bei fvn>0,
+// footballResolvePost nur bei echter Penetration (d<BR). Ein bereits getrennter
+// Kontakt erhaelt in Iteration 2/3 daher keinen zweiten Bounce, nur noch die rein
+// positionale Restkorrektur.
+const FOOTBALL_CONTACT_ITERATIONS=3;
+// ── ARENA FOOTBALL: PHYSIKSTANDARD (Physikphase 4B-3, final) ──────────────────────
+// EIN Wertesatz, ausschliesslich im Football-Modus wirksam. Jeder andere Modus laeuft
+// unveraendert ueber die globalen Konstanten FRICTION/FEND/STOPV/REST.
+// Es gibt bewusst KEINE Auswahl, KEINEN Debug-Schalter und KEINEN URL-Parameter:
+// Produktionsphysik darf nicht von der Adresszeile abhaengen.
+//
+// Herkunft der Werte: Phase 4B-2 hat drei Kandidaten gegeneinander vermessen und im
+// Browser vergleichen lassen. GLIDE wurde manuell freigegeben, CURRENT (zu stumpf) und
+// ICE (zu rutschig, zu lange Zuege) verworfen. Die beiden verworfenen Wertesaetze leben
+// nur noch als Vergleichsmodelle in tools/test_football_flow.js weiter.
+//
+// Herleitung (Messbasis: 4A-Audit + Flow-Harness, 120 Micro-Steps/s):
+//   friction 0.9968/Micro-Step = 0.681 Restgeschwindigkeit pro Sekunde
+//     (der alte Wert 0.992 ergab 0.383/s -> "schwerer Teppich")
+//   fend greift erst unterhalb SLOWV und ist HAERTER als friction. Damit ist der seit je
+//     vorhandene, aber wirkungslose Zwei-Regime-Entwurf reaktiviert (Audit U6:
+//     FRICTION===FEND): lange gleiten, am Ende trotzdem nicht endlos kriechen.
+//   stopv 0.035 statt 0.10 — sonst frisst die Settlement-Schwelle den Gleitgewinn.
+//   restBand > restPost > restBall: die Bande wirft am lebendigsten zurueck, der Pfosten
+//     ist hart aber nicht federnd, der Pass gibt kontrolliert weiter.
+const FOOTBALL_PHYS={friction:0.9968,fend:0.9935,stopv:0.035,restBall:0.40,restBand:0.52,restPost:0.47};
+// EINZIGE Stelle, die entscheidet, ob die Football-Physik gilt. Jeder Konsument
+// (Daempfung, Settlement, Restitution, Anti-Wedge) fragt hier — null heisst
+// "kein Football", also Bestandsverhalten.
+function footballPhys(){return mode==='football'?FOOTBALL_PHYS:null;}
+// Restitution nach Kontaktart getrennt (Audit-Empfehlung #2/#3/#6). Ausserhalb Football
+// liefert jede der drei Funktionen den bestehenden globalen REST-Wert — eine einzige
+// Konstante bleibt damit die Wahrheit fuer alle Nicht-Football-Modi.
+function curRestBall(){const c=footballPhys();return c?c.restBall:REST;}
+function curRestBand(){const c=footballPhys();return c?c.restBand:REST;}
+function curRestPost(){const c=footballPhys();return c?c.restPost:REST;}
 function footballGoalClearHalf(){return FOOTBALL_POST_INNER*BR;}         // lichte Halbbreite auf Ballhoehe
 function footballGoalCenterHalf(){return footballGoalClearHalf()-BR;}    // nutzbare Zentrums-Halbbreite (2.300*BR)
 // Zentrale Toroeffnungs-Pruefung: darf DIESE Kugel an ihrer aktuellen Position die runde
@@ -2763,16 +2812,20 @@ function footballCanPassGoal(b){
 // wenn |y-cy| <= INNER - BR = 3.300*BR - BR = 2.300*BR == footballGoalCenterHalf().
 // Gate und Pfosten beschreiben damit exakt dieselbe lichte Weite — keine zweite Geometrie.
 // Rueckgabe true = Pfostentreffer aufgeloest (Aufrufer ueberspringt die Grenzentscheidung).
-function footballResolvePost(b){
+// Geometrieabfrage zum naechstgelegenen Sockel — GEMEINSAME Grundlage der Aufloesung
+// (footballResolvePost) und der Wedge-Erkennung (footballContacts). Rein lesend, damit
+// es nur EINE Sockelgeometrie im Code gibt. null = Ball ausserhalb des Einzugsbereichs.
+// d = Abstand Ballmitte zur Rechteckkante (0 = Mitte im Rechteck), nx/ny = Normale im
+// kanonischen Quadranten (mit sx/sy zurueckspiegeln fuer Weltkoordinaten).
+function footballPostProbe(b){
   const sx=(b.x-cx)>=0?1:-1,sy=(b.y-cy)>=0?1:-1;        // naechstes Tor / naechste Sockelseite
   const X=sx*(b.x-cx),Y=sy*(b.y-cy);
   const x0=FOOTBALL_POST_FRONT*BR,x1=FOOTBALL_POST_BACK*BR;
   const y0=FOOTBALL_POST_INNER*BR,y1=FOOTBALL_POST_OUTER*BR;
-  if(X<=x0-BR||X>=x1+BR||Y<=y0-BR||Y>=y1+BR)return false;   // schnelle Ablehnung
+  if(X<=x0-BR||X>=x1+BR||Y<=y0-BR||Y>=y1+BR)return null;    // schnelle Ablehnung
   const qx=X<x0?x0:(X>x1?x1:X),qy=Y<y0?y0:(Y>y1?y1:Y);      // naechster Punkt auf dem Rechteck
   let nx,ny,d=Math.sqrt((X-qx)*(X-qx)+(Y-qy)*(Y-qy));
   if(d>1e-9){
-    if(d>=BR)return false;
     nx=(X-qx)/d;ny=(Y-qy)/d;
   }else{
     // Ballmitte IM Rechteck (nur bei extremer Penetration): entlang der kleinsten
@@ -2783,10 +2836,139 @@ function footballResolvePost(b){
     d=0;
   }
   const px=(nx<0?x0:(nx>0?x1:qx)),py=(ny<0?y0:(ny>0?y1:qy));
-  b.x=cx+sx*((d>1e-9?qx:px)+nx*BR);                     // Penetration exakt auf Beruehrabstand korrigiert
-  b.y=cy+sy*((d>1e-9?qy:py)+ny*BR);
+  return {sx,sy,nx,ny,d,qx,qy,px,py};
+}
+function footballResolvePost(b){
+  const p=footballPostProbe(b);
+  if(!p||p.d>=BR)return false;                          // kein Kontakt / nur Beruehrabstand
+  const sx=p.sx,sy=p.sy,nx=p.nx,ny=p.ny,d=p.d;
+  b.x=cx+sx*((d>1e-9?p.qx:p.px)+nx*BR);                 // Penetration exakt auf Beruehrabstand korrigiert
+  b.y=cy+sy*((d>1e-9?p.qy:p.py)+ny*BR);
   const vX=sx*b.vx,vY=sy*b.vy,vn=vX*nx+vY*ny;           // Normalanteil (auswaerts vom Sockel)
-  if(vn<0){b.vx=sx*(vX-(1+REST)*vn*nx);b.vy=sy*(vY-(1+REST)*vn*ny);}   // nur Normalanteil reflektiert (bestehende REST), Tangentialanteil bleibt
+  const e=curRestPost();
+  if(vn<0){b.vx=sx*(vX-(1+e)*vn*nx);b.vy=sy*(vY-(1+e)*vn*ny);}   // nur Normalanteil reflektiert, Tangentialanteil bleibt
+  return true;
+}
+// ── ARENA FOOTBALL: WEDGE-ERKENNUNG UND ANTI-WEDGE-ESCAPE (Physikphase 4B-2) ──────
+// Befund aus dem manuellen Test: drei Kugeln koennen sich zwischen Bande und Torsockel
+// so einschliessen, dass jede weitere Kontaktaufloesung sie nur noch gegeneinander
+// klemmt. Die Iteration aus 4B-1 loest die UEBERLAPPUNG, aber nicht die GESCHWINDIGKEITS-
+// starre: in einem geschlossenen Keil zeigt jede zulaessige Verschiebung in ein anderes
+// Hindernis.
+// Gegenmassnahme: eine benannte, rein geometrische Keildefinition und eine Reaktion, die
+// vorhandene Geschwindigkeit nur UMLENKT. Alle Schwellen sind feste Konstanten, es gibt
+// keinen Zufall und keine Zeitabhaengigkeit -> lockstep-tauglich deterministisch.
+// Die Werte stammen aus dem Beobachtungsmodell von tools/test_football_flow.js, das die
+// 4A-Baseline vermessen hat (dort: PIN_COS -0.5, PIN_V 0.25, PIN_DX 0.40, 6 Frames).
+const FOOTBALL_WEDGE_MIN_CONTACTS=2;      // unabhaengige Kontakt-Normalen
+const FOOTBALL_WEDGE_DOT=-0.45;           // n1*n2 <= -0.45  ==  Oeffnungswinkel >= 117 Grad
+const FOOTBALL_WEDGE_V=0.25;              // px/Micro-Step (2.5 x altes STOPV)
+const FOOTBALL_WEDGE_PROGRESS=0.40;       // px pro FRAME (Frame = 2 Micro-Steps)
+// Dauer: 8 Micro-Steps (= 4 Frames = 0.067 s). Gemessen am Drei-Kugel-Keil aus dem
+// Browserbefund: der bestaetigte Keil haelt dort 5–7 Micro-Steps am Stueck, danach
+// verliert einer der Druecker den Kontakt und der Zaehler faellt zurueck. 12 Micro-Steps
+// wurden deshalb nie erreicht; 8 ist der kleinste Wert des zulaessigen Bereichs [8,16],
+// der die reale Klemmdauer noch trifft, ohne auf normale Einzelkontakte anzuspringen.
+const FOOTBALL_WEDGE_STEPS=8;
+const FOOTBALL_WEDGE_PRESS=0.01;          // px/Micro-Step Annaeherung eines Nachbarballs
+const FOOTBALL_WEDGE_EPS=0.5;             // px Kontakttoleranz (1.6 % von BR)
+// Mindest-Escape: 0.12 px/Micro-Step = 14.4 px/s = 1.8 % der Launch-Obergrenze. Gross
+// genug, dass sich ein stehender Ball in gut einer Sekunde aus der Ecke schiebt, klein
+// genug, dass es optisch ein Gleiten und kein Wegschnippen ist.
+const FOOTBALL_ESCAPE_MIN_V=0.12;
+const fbContactBuf=[];                    // wiederverwendet: kein Array-Muell im Sub-Step
+// Alle Kontakt-Normalen einer Kugel. Konvention: n zeigt VOM Hindernis ZUM Ball.
+function footballContacts(b,out){
+  out.length=0;
+  for(const o of balls){
+    if(o===b||!o.alive)continue;
+    const dx=b.x-o.x,dy=b.y-o.y,d=Math.sqrt(dx*dx+dy*dy);
+    if(d>BR*2+FOOTBALL_WEDGE_EPS||d<=1e-9)continue;
+    out.push({nx:dx/d,ny:dy/d,other:o});
+  }
+  const p=footballPostProbe(b);
+  if(p&&p.d<=BR+FOOTBALL_WEDGE_EPS)out.push({nx:p.sx*p.nx,ny:p.sy*p.ny,other:null});
+  // Die Bande zaehlt nur, wenn sie fuer DIESE Kugel ueberhaupt gilt — ein bereits
+  // ausgetretener oder in der Toroeffnung stehender neutraler Ball ist nicht eingeklemmt.
+  const rx=b.x-cx,ry=b.y-cy,r=Math.sqrt(rx*rx+ry*ry);
+  if(r>=R-BR-FOOTBALL_WEDGE_EPS&&r>1e-9&&!b.fbPassed&&!footballCanPassGoal(b))
+    out.push({nx:-rx/r,ny:-ry/r,other:null});
+  return out;
+}
+// Ein Micro-Step der Keilbeobachtung. Alle Bedingungen muessen GLEICHZEITIG gelten;
+// die erste Verletzung setzt den Zaehler auf 0 — es gibt keine Erinnerung an alte Keile.
+// Rueckgabe true = Keil ist bestaetigt und lange genug stabil.
+function footballWedgeStep(b,cs){
+  let wedged=cs.length>=FOOTBALL_WEDGE_MIN_CONTACTS&&
+             Math.sqrt(b.vx*b.vx+b.vy*b.vy)<FOOTBALL_WEDGE_V;
+  if(wedged){                                            // geometrischer Einschluss
+    let closed=false;
+    for(let i=0;i<cs.length&&!closed;i++)
+      for(let j=i+1;j<cs.length;j++)
+        if(cs[i].nx*cs[j].nx+cs[i].ny*cs[j].ny<=FOOTBALL_WEDGE_DOT){closed=true;break;}
+    wedged=closed;
+  }
+  if(wedged){                                            // Positionsfortschritt
+    const dx=b.x-(b.fbWx==null?b.x:b.fbWx),dy=b.y-(b.fbWy==null?b.y:b.fbWy);
+    wedged=Math.sqrt(dx*dx+dy*dy)<FOOTBALL_WEDGE_PROGRESS*0.5;   // Schwelle gilt je Frame
+  }
+  if(wedged){                                            // aeusserer Druck / Nachschlag
+    let pressed=false;
+    for(const c of cs){
+      const o=c.other;if(!o)continue;
+      if(o.vx*-c.nx+o.vy*-c.ny>FOOTBALL_WEDGE_PRESS){pressed=true;break;}
+    }
+    wedged=pressed;
+  }
+  b.fbWx=b.x;b.fbWy=b.y;
+  b.fbWedge=wedged?(b.fbWedge||0)+1:0;
+  return b.fbWedge>=FOOTBALL_WEDGE_STEPS;
+}
+// Deterministische Fluchtrichtung. Kandidatenliste in FESTER Reihenfolge: die normierte
+// Summe aller Normalen, danach je Kontakt beide Tangenten. Gewaehlt wird die Richtung mit
+// dem groessten MINIMALEN Skalarprodukt gegen alle Normalen — also die, die am wenigsten
+// in ein Hindernis zeigt. Gleichstand faellt an den frueheren Kandidaten. Kein Zufall.
+function footballEscapeDir(cs){
+  let sx=0,sy=0;
+  for(const c of cs){sx+=c.nx;sy+=c.ny;}
+  const cand=[],sl=Math.sqrt(sx*sx+sy*sy);
+  if(sl>1e-9)cand.push([sx/sl,sy/sl]);
+  for(const c of cs){cand.push([-c.ny,c.nx]);cand.push([c.ny,-c.nx]);}
+  let best=null,bestScore=-Infinity;
+  for(const d of cand){
+    let s=Infinity;
+    for(const c of cs){const dot=d[0]*c.nx+d[1]*c.ny;if(dot<s)s=dot;}
+    if(s>bestScore+1e-12){bestScore=s;best=d;}
+  }
+  if(!best)return null;
+  if(bestScore>=0)return best;                          // bereits vollstaendig frei
+  // Zeigt die beste Kandidatenrichtung noch in ein Hindernis, wird der Anteil entlang der
+  // am staerksten verletzten Normalen herausprojiziert — die Richtung legt sich damit an
+  // das blockierende Hindernis an, statt dagegen zu druecken. Feste Anzahl Durchgaenge,
+  // keine Toleranzschleife: gleiche Lage -> gleiches Ergebnis.
+  let dx=best[0],dy=best[1];
+  for(let k=0;k<3;k++){
+    let wn=null,wd=0;
+    for(const c of cs){const dot=dx*c.nx+dy*c.ny;if(dot<wd){wd=dot;wn=c;}}
+    if(!wn)break;
+    dx-=wd*wn.nx;dy-=wd*wn.ny;
+    const l=Math.sqrt(dx*dx+dy*dy);
+    if(l<1e-9)return best;                              // rundum eingeschlossen
+    dx/=l;dy/=l;
+  }
+  return [dx,dy];
+}
+// Anti-Wedge-Reaktion. Vorhandene Geschwindigkeit wird ausschliesslich UMGELENKT — der
+// Betrag bleibt exakt erhalten, es entsteht keine kinetische Energie. Nur wenn die Kugel
+// praktisch stillsteht, greift der eng begrenzte, benannte Mindest-Escape.
+function footballEscape(b,cs){
+  const d=footballEscapeDir(cs);
+  if(!d)return false;
+  const v=Math.sqrt(b.vx*b.vx+b.vy*b.vy);
+  const s=v>FOOTBALL_ESCAPE_MIN_V?v:FOOTBALL_ESCAPE_MIN_V;
+  b.vx=d[0]*s;b.vy=d[1]*s;
+  b.fbWedge=0;                                            // Zaehler neu -> Mindestdauer gilt erneut
+  b.fbEscapes=(b.fbEscapes||0)+1;
   return true;
 }
 // ── ARENA FOOTBALL: Torablauf (Goal Detection -> Ballfall -> Rundenreset) ──
@@ -2887,41 +3069,58 @@ function footballMatchEnd(){
 // Score/Kugeln/Aim-Zustaende setzt der bestehende Pfad newGame() -> startRound() -> placeBalls().
 function footballResetMatchState(){fbGoalState='play';fbGoalTick=0;footballWinner=null;}
 function stepSim(){
-  const FR=curFR(),FE=curFE();
+  // Restitution nach Kontaktart (4B-2). Ohne aktives Football-Preset liefern alle drei
+  // Funktionen den bestehenden REST-Wert — Bestandsmodi rechnen unveraendert weiter.
+  const FR=curFR(),FE=curFE(),RB=curRestBall(),RBAND=curRestBand();
   // Torablauf: Spieler stehen still, bevor ueberhaupt integriert wird. Der neutrale Ball
   // laeuft planar weiter (der Renderer legt den Fall als reine Hoehe darueber).
   const fbSeq=mode==='football'&&fbGoalState!=='play';
   if(fbSeq)footballFreezePlayers();
   for(let s=0;s<2;s++){
     for(const b of balls){if(!b.alive)continue;b.x+=b.vx;b.y+=b.vy;const f=Math.sqrt(b.vx*b.vx+b.vy*b.vy)<SLOWV?FE:FR;b.vx*=f;b.vy*=f;if(b.spin){const v=Math.sqrt(b.vx*b.vx+b.vy*b.vy);if(v>0.01){const sx=-b.vy/v,sy=b.vx/v,sa=SPIN_K*b.spin*v;b.vx+=sx*sa;b.vy+=sy*sa;}b.spin*=SPIN_DECAY;}}
+    // KONTAKTAUFLOESUNG — im Football-Modus FOOTBALL_CONTACT_ITERATIONS mal, sonst
+    // GENAU EINMAL (ci=1 -> bit-identisch zum bisherigen Pfad, kein Risiko fuer
+    // Golden-Physik, Ring-Collapse, FFA, Team-Duel und Online-Lockstep).
+    // Integration/Daempfung stehen bewusst OBERHALB dieser Schleife.
+    const ci=mode==='football'?FOOTBALL_CONTACT_ITERATIONS:1;
+    for(let it=0;it<ci;it++){
     for(let i=0;i<balls.length;i++){const a=balls[i];if(!a.alive)continue;
       for(let j=i+1;j<balls.length;j++){const b=balls[j];if(!b.alive)continue;
         let dx=b.x-a.x,dy=b.y-a.y,d=Math.sqrt(dx*dx+dy*dy);
         if(d>0&&d<BR*2){const nx=dx/d,ny=dy/d,ov=BR*2-d;
           a.x-=nx*ov/2;a.y-=ny*ov/2;b.x+=nx*ov/2;b.y+=ny*ov/2;
           const rvx=b.vx-a.vx,rvy=b.vy-a.vy,vn=rvx*nx+rvy*ny;
-          if(vn<0){const imp=-(1+REST)*vn/2;a.vx-=imp*nx;a.vy-=imp*ny;b.vx+=imp*nx;b.vy+=imp*ny;
+          if(vn<0){const imp=-(1+RB)*vn/2;a.vx-=imp*nx;a.vy-=imp*ny;b.vx+=imp*nx;b.vy+=imp*ny;
+            // Treffer-Feedback (Sound, Partikel, Hintergrundpuls) haengt am ERSTEN
+            // Durchgang. Die Nachiterationen korrigieren denselben Kontakt zu Ende und
+            // duerfen dafuer weder ein zweites Mal knallen noch ein zweites Mal funken —
+            // ausserhalb 'football' ist it immer 0, dort aendert sich damit gar nichts.
+            if(it===0){
             const mag=Math.min(1,Math.abs(vn)/5);SFX.hit(mag,i*8+j);
             const mx=(a.x+b.x)/2,my=(a.y+b.y)/2;
             if(r3dActive)fx3Hit(mx,my,mag);
             else spawn(mx,my,14+Math.floor(mag*16),['#00d4ff','#ff4d4d','#ffffff','#ffc940'],Math.abs(vn)*0.7+2,1);
             bgPulse=Math.max(bgPulse,mag*0.5);bgPulseRGB='255,235,180';}
+          }
         }
       }
     }
     // ring-out: alle Grenzueberschreitungen dieses Sub-Steps ueber den gemeinsamen Pfad
     // Football-Shell: mode-scoped geschlossene runde Bande (radiale Reflexion) statt Ring-Out —
     // keine Elimination, keine Wertung. Inert ausserhalb 'football' (Golden-Harness: mode='bot').
-    // Football: EINE autoritative radiale Grenzentscheidung pro Kugel und Sub-Step.
+    // Football: EINE autoritative radiale Grenzentscheidung pro Kugel und ITERATION
+    // (4B-1: der Sub-Step enthaelt FOOTBALL_CONTACT_ITERATIONS solcher Durchgaenge).
     // Regel: geschlossene runde Bande (radiale Reflexion, keine Elimination, keine Wertung) —
     // AUSSER der neutrale Ball steht in einer der beiden Toroeffnungen, dann faellt die
     // Kollision fuer ihn ersatzlos weg. Inert ausserhalb 'football' (Golden-Harness: mode='bot').
     if(mode==='football'){for(const fb of balls){if(!fb.alive)continue;
       // Torpfosten zuerst: der Marmor-Sockel ist ein solides Hindernis und steht INNERHALB
-      // der Bandenlinie. Ein aufgeloester Pfostentreffer ist die Entscheidung dieses
-      // Sub-Steps — danach keine zusaetzliche Grenzreflexion (genau ein Impuls pro
-      // Kugel und Sub-Step) und insbesondere KEIN fbPassed: durchgelassen wird nur,
-      // wer die freie Oeffnung ohne Pfostenkontakt erreicht.
+      // der Bandenlinie. Ein aufgeloester Pfostentreffer ist die Entscheidung dieser
+      // Iteration — danach keine zusaetzliche Grenzreflexion (genau ein Impuls pro
+      // Kugel und Iteration) und insbesondere KEIN fbPassed: durchgelassen wird nur,
+      // wer die freie Oeffnung ohne Pfostenkontakt erreicht. footballResolvePost meldet
+      // nur ECHTE Penetration (d<BR) — eine bereits auf Beruehrabstand korrigierte Kugel
+      // liefert false und erhaelt in den Folgeiterationen keinen zweiten Bounce.
       if(footballResolvePost(fb))continue;
       // Bereits durch ein Tor ausgetretener neutraler Ball: die Bande gilt fuer ihn nicht mehr.
       // Ohne dieses Latch wuerde ihn die runde Grenze, sobald er draussen tangential aus dem
@@ -2932,7 +3131,7 @@ function stepSim(){
       if(fbd>flim&&fbd>0){
         if(footballCanPassGoal(fb)){fb.fbPassed=true;continue;}   // Toroeffnung: keine radiale Kollision
         const fnx=fbx/fbd,fny=fby/fbd;fb.x=cx+fnx*flim;fb.y=cy+fny*flim;
-        const fvn=fb.vx*fnx+fb.vy*fny;if(fvn>0){fb.vx-=(1+REST)*fvn*fnx;fb.vy-=(1+REST)*fvn*fny;}
+        const fvn=fb.vx*fnx+fb.vy*fny;if(fvn>0){fb.vx-=(1+RBAND)*fvn*fnx;fb.vy-=(1+RBAND)*fvn*fny;}
         // Die Bandenkorrektur setzt die Kugel auf die Linie R-BR — die durch den Sockel
         // laeuft. Sie darf sie dabei nicht in den Marmor schieben: einmal nachkorrigieren.
         footballResolvePost(fb);
@@ -2940,6 +3139,19 @@ function stepSim(){
     }}
     else{const crossed=ballsOutside();
     if(crossed.length&&resolveRingOuts(crossed))return;}
+    }   // Ende Kontakt-Iteration (ci=1 ausserhalb 'football')
+    // ── ANTI-WEDGE (Physikphase 4B-2/4B-3) ──
+    // Laeuft NACH der vollstaendig aufgeloesten Kontaktlage dieses Micro-Steps, nur bei
+    // aktiver Football-Physik und nur ausserhalb des Torablaufs. footballPhys() ist die
+    // gleiche Weiche wie fuer Daempfung und Restitution — ausserhalb Football null.
+    const fbPhys=footballPhys();
+    if(fbPhys&&fbGoalState==='play'){
+      for(const b of balls){
+        if(!b.alive)continue;
+        const cs=footballContacts(b,fbContactBuf);
+        if(footballWedgeStep(b,cs))footballEscape(b,cs);
+      }
+    }
   }
   // Waehrend Ballfall/Spawn uebernimmt die Football-Zustandsmaschine: kein Settlement,
   // kein Phasenwechsel, keine neue Planungsphase — die Eingabe bleibt gesperrt.

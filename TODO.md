@@ -1,12 +1,14 @@
 # TODO.md — RingOut
 
-**Zuletzt aktualisiert:** 2026-07-14 (Paket A — letzte Blocker-Korrektur: einheitlicher Room-State + atomarer Seat-Claim — lokal, kein Cutover)
+**Zuletzt aktualisiert:** 2026-08-06 (Arena-Football-Physik 4B-3: GLIDE als finaler Standard, Anti-Wedge — lokal, kein Commit/Push)
 
 Offene Aufgaben nach Priorität. Abgeschlossene Aufgaben werden nach `CHANGELOG.md` verschoben.
 
 ---
 
 ## P0 — Kritisch (Sicherheit / Stabilität)
+
+- [ ] **Fünf vorbestehende rote Offline-Suiten reparieren (2026-08-06):** `test_ffa.js` und `test_team_duel.js` scheitern mit `ReferenceError: ballsOutside is not defined`, `test_ffa_flow.js` und `test_ffa_race.js` mit `SyntaxError` beim Sandbox-Aufbau, `test_reconnect.js` mit 7 Assertion-Fehlern (u. a. „replay rehydrates bit-identical state"). Nachweislich schon an HEAD `3577ec5` rot und **unabhängig von der Arena-Football-Arbeit** (Apples-to-apples-Vergleich HEAD vs. Working Tree: identische Exit-Codes und identische FAIL-Zahlen). Der Runner meldet dadurch dauerhaft 12/17 — solange das so bleibt, ist ein echter Regressionsfund schwerer zu erkennen.
 
 - [ ] **Live-Validierung: FFA-Desync-Fix mit 4–5 echten Handys (2026-07-10):** Der Fix (`commit()`/`onlineTurnValue` DB-authoritativ für eigene Moves) ist automatisiert (Flow-Suite F5 + F6, 4- und 5-Client-Regression, 64/64) und lokal am PC mit mehreren simulierten Clients verifiziert — identische Commit-Slots, gone-/alive-Flags, Reveal-Phase, Ballzustände, Gewinner, Scores und State-Hashes, kein Hänger. **Noch offen:** Realgeräte-Test mit 4–5 echten Handys über echte Mobilfunk-/WLAN-Netze, inkl. gezieltem Presence-Flap (Bildschirm sperren / App wechseln während der Aim-Phase) auf einem Gerät. Erst nach bestandenem Live-Test gilt der P0 als vollständig geschlossen.
 
@@ -45,6 +47,12 @@ Offene Aufgaben nach Priorität. Abgeschlossene Aufgaben werden nach `CHANGELOG.
 ---
 
 ## P2 — Mittel (Spieler-Erfahrung)
+
+- [x] ~~**Arena-Football-Physik: Audit, Anti-Pinning, Tuning (Phasen 4A–4B-3)**~~ → **abgeschlossen, GLIDE im Browser freigegeben (2026-08-06, lokal — kein Commit/Push)**: `FOOTBALL_PHYS` als einziger Produktivstandard (`friction 0.9968`, `fend 0.9935`, `stopv 0.035`, `restBall 0.40`, `restBand 0.52`, `restPost 0.47`), `FOOTBALL_CONTACT_ITERATIONS = 3`, getrennte Restitution nach Kontaktart, deterministische Wedge-Erkennung mit energieneutralem Escape. CURRENT und ICE verworfen und nur noch testintern. Siehe CHANGELOG und `artifacts/football-physics-audit/README.md`.
+
+- [ ] **Arena Football: Massenmodell prüfen (2026-08-06, aus dem 4A-Audit):** Neutral- und Spielerball sind physikalisch identisch (`imp = -(1+RB)·vn/2`, m = 1 fest verdrahtet). Der Schütze behält bei `restBall = 0.40` 30 % seiner Geschwindigkeit in Passrichtung und läuft seinem eigenen Pass hinterher. Ein leichterer Neutralball (Audit-Vorschlag 0.55–0.75 bei Spieler = 1.0) würde das lösen **und** das verbliebene exakt frontale 1D-Pinning entschärfen. Bewusst zurückgestellt: eigene Phase mit eigener Freigabe, da es das Spielgefühl breit verändert.
+
+- [ ] **Arena Football: `FOOTBALL_CONTACT_ITERATIONS = 4` bewerten (2026-08-06):** Mit `ci = 3` bleiben 0.0929 px Ball-Ball-Überlappung (0.15 % von 2·BR, optisch unsichtbar); die Audit-Zielmarke `< 0.05 px` wird erst ab `ci = 4` erreicht (0.0201 px). Nutzen bei der Keillösung nur noch +4 %, Kosten ein weiterer Auflösungsdurchgang. Niedrige Priorität, Entscheidung liegt beim Projektinhaber.
 
 - [x] ~~**Rollsound-Asset besorgen**~~ → **abgeschlossen & Hörprüfung bestanden (2026-07-10)**: `assets/sfx/marble_roll_loop.m4a` (CC0 „Bowling Ball Rolling" von qubodup/OpenGameArt, 24 KB, nahtloser 1,85-s-Loop, Lizenzdoku in `assets/sfx/README.md`), Gain-Kennlinie nach Hörtest +6 dB. Siehe CHANGELOG.
 

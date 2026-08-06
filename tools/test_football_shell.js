@@ -63,6 +63,18 @@ const postInnerSrc = grab(/const FOOTBALL_POST_INNER=[^\n]*/, 'FOOTBALL_POST_INN
 const postOuterSrc = grab(/const FOOTBALL_POST_OUTER=[^\n]*/, 'FOOTBALL_POST_OUTER');
 const postFrontSrc = grab(/const FOOTBALL_POST_FRONT=[^\n]*/, 'FOOTBALL_POST_FRONT');
 const postBackSrc = grab(/const FOOTBALL_POST_BACK=[^\n]*/, 'FOOTBALL_POST_BACK');
+// Physikphase 4B-1: Iterationszahl der Kontaktaufloesung. Wird wie jede andere
+// Produktivkonstante AUS index.html extrahiert (kein Wert im Test dupliziert) —
+// ohne sie wirft das extrahierte stepSim im Football-Modus einen ReferenceError.
+const contactIterSrc = grab(/const FOOTBALL_CONTACT_ITERATIONS=[^\n]*/, 'FOOTBALL_CONTACT_ITERATIONS');
+// Physikphase 4B-3: der EINE produktive Football-Physikstandard, getrennte Restitution,
+// Daempfung/Settlement und Anti-Wedge. Als zusammenhaengender Quellblock uebernommen.
+const presetSrc = grab(/const FOOTBALL_PHYS=\{[\s\S]*?\nfunction curRestPost\(\)[^\n]*/, 'FOOTBALL_PHYS block');
+const curFRSrc = grab(/function curFR\(\)[^\n]*/, 'curFR');
+const curFESrc = grab(/function curFE\(\)[^\n]*/, 'curFE');
+const curSTSrc = grab(/function curST\(\)[^\n]*/, 'curST');
+const postProbeSrc = grab(/function footballPostProbe\(b\)\{[\s\S]*?\n\}/, 'footballPostProbe');
+const wedgeSrc = grab(/const FOOTBALL_WEDGE_MIN_CONTACTS=[\s\S]*?\nfunction footballEscape\(b,cs\)\{[\s\S]*?\n\}/, 'wedge block');
 const goalClearHalfSrc = grab(/function footballGoalClearHalf\([^\n]*/, 'footballGoalClearHalf');
 const goalCenterHalfSrc = grab(/function footballGoalCenterHalf\([^\n]*/, 'footballGoalCenterHalf');
 const goalCanPassSrc = grab(/function footballCanPassGoal\(b\)\{[\s\S]*?\n\}/, 'footballCanPassGoal');
@@ -88,13 +100,14 @@ const npSrc = grab(/function np\([^\n]*/, 'np');
 const resetCommitsSrc = grab(/function resetCommits\(\)\{[\s\S]*?\n\}/, 'resetCommits');
 const startRoundSrc = grab(/function startRound\(\)\{[\s\S]*?\n\}/, 'startRound');
 
-function buildEnv(startMode, startFmt) {
+function buildEnv(startMode, startFmt, startPreset) {
   const env = `
     const LOGICAL=1000; const cx=500, cy=500, R0=LOGICAL*0.485, BR=LOGICAL*0.032; let R=R0;
     ${consts}
     ${spin}
     ${pcols}
-    function curFR(){return FRICTION;} function curFE(){return FEND;} function curST(){return STOPV;}
+    // Kein Browser-TUNE-Override im Harness — curFE/curST greifen darauf zurueck.
+    const TUNE=null;
     function maxPull(){return R0*MAXPULL_FRAC;}
     let balls=[], phase='sim', outBall=-1, roundWinner=-1;
     let aimSet=[false,false], commitIdx=[-1,-1], commitAim=[{dx:0,dy:0},{dx:0,dy:0}], commitSpin=[0,0];
@@ -117,10 +130,23 @@ function buildEnv(startMode, startFmt) {
     ${postOuterSrc}
     ${postFrontSrc}
     ${postBackSrc}
+    ${contactIterSrc}
+    ${presetSrc}
+    // Vergleichsmodell des Laufs. Default ist der PRODUKTIVSTAND (GLIDE) — die Sandbox
+    // laeuft damit standardmaessig durch denselben Code wie das Spiel. 'BASELINE' schaltet
+    // die Football-Physik komplett ab und liefert den Stand vor 4B-2; das wird nur dort
+    // benutzt, wo genau dieser Vergleich gebraucht wird.
+    ${startPreset === 'BASELINE' ? 'footballPhys=function(){return null;};' : ''}
+    const __model=${JSON.stringify(startPreset || 'PROD')};
+    ${curFRSrc}
+    ${curFESrc}
+    ${curSTSrc}
     ${goalClearHalfSrc}
     ${goalCenterHalfSrc}
     ${goalCanPassSrc}
+    ${postProbeSrc}
     ${resolvePostSrc}
+    ${wedgeSrc}
     ${fallTicksSrc}
     ${spawnTicksSrc}
     ${spawnHeightSrc}
@@ -150,8 +176,40 @@ function buildEnv(startMode, startFmt) {
     ${inputLockedSrc}
     ${canCommitSrc}
     ${stepSimSrc}
+    // ── Kontaktpass-Zaehler (Physikphase 4B-1) ──
+    // Rein beobachtend: beide Wrapper reichen Argumente und Rueckgabewert unveraendert
+    // durch und aendern kein Verhalten. Gezaehlt wird, WIE OFT die Kontaktaufloesung je
+    // Micro-Step durchlaufen wird. footballResolvePost steht am Kopf des Football-
+    // Grenzblocks, ballsOutside am Kopf des Nicht-Football-Zweigs — beide liegen INNERHALB
+    // der Iterationsschleife und werden je Kontaktpass einmal je Kugel erreicht.
+    // (footballResolvePost wird nach einer Bandenklemmung ein zweites Mal aufgerufen; die
+    // Messszenarien unten halten die Kugel deshalb bewusst kontaktfrei im Feldinneren.)
+    let postPassCalls=0, outsidePassCalls=0;
+    const __resolvePostOrig=footballResolvePost, __ballsOutsideOrig=ballsOutside;
+    footballResolvePost=function(b){postPassCalls++;return __resolvePostOrig(b);};
+    ballsOutside=function(){outsidePassCalls++;return __ballsOutsideOrig();};
     return {
       cx, cy, R0, BR,
+      // ── Physikphase 4B-1 ──
+      contactIterations: FOOTBALL_CONTACT_ITERATIONS,
+      tune(){ return {MAXPULL_FRAC,LAUNCH,FRICTION,FEND,SLOWV,REST,STOPV,SPIN_K,SPIN_DECAY}; },
+      // ── Physikphase 4B-2 / 4B-3 ──
+      presetName(){ return __model; },
+      prodPhys(){ return FOOTBALL_PHYS; },
+      preset(){ return footballPhys(); },
+      // Effektive Physik, wie stepSim sie sieht — geht durch dieselben Accessoren.
+      effective(){ return {fr:curFR(), fe:curFE(), stopv:curST(),
+                           restBall:curRestBall(), restBand:curRestBand(), restPost:curRestPost()}; },
+      wedgeConst(){ return {minContacts:FOOTBALL_WEDGE_MIN_CONTACTS, dot:FOOTBALL_WEDGE_DOT,
+                            v:FOOTBALL_WEDGE_V, progress:FOOTBALL_WEDGE_PROGRESS,
+                            steps:FOOTBALL_WEDGE_STEPS, press:FOOTBALL_WEDGE_PRESS,
+                            eps:FOOTBALL_WEDGE_EPS, minEscapeV:FOOTBALL_ESCAPE_MIN_V}; },
+      escapes(){ let n=0; for(const b of balls) n+=(b.fbEscapes||0); return n; },
+      wedgeCounters(){ return balls.map(b=>b.fbWedge||0); },
+      escapeDir(list){ return footballEscapeDir(list); },
+      energy(){ let e=0; for(const b of balls) if(b.alive) e+=b.vx*b.vx+b.vy*b.vy; return 0.5*e; },
+      resetPassCounts(){ postPassCalls=0; outsidePassCalls=0; },
+      passCounts(){ return {post:postPassCalls, outside:outsidePassCalls}; },
       // ── Gameplayphase 2 ──
       goalState(){ return fbGoalState; },
       goalTick(){ return fbGoalTick; },
@@ -437,8 +495,13 @@ for (const owner of [0, 1]) for (const dir of [+1, -1]) {
 ok(/if\(footballResolvePost\(fb\)\)continue;/.test(HTML), 'Pfostenkollision laeuft VOR der Grenzentscheidung und beendet den Sub-Step');
 ok(HTML.indexOf('footballResolvePost(fb)') < HTML.indexOf('if(fb.fbPassed){footballTryGoal(fb);continue;}'), 'Pfostenpruefung steht vor dem fbPassed-Latch');
 ok((HTML.match(/footballResolvePost\(/g) || []).length === 3, 'Genau eine Definition + zwei Aufrufe von footballResolvePost (keine zweite Pfostenlogik)');
-ok(/\(1\+REST\)\*vn\*nx/.test(resolvePostSrc) && /\(1\+REST\)\*vn\*ny/.test(resolvePostSrc),
-  'Sockelreflexion nutzt die bestehende Restitution REST (keine neue Bounciness)');
+// 4B-2: die Formel ist unveraendert, nur der eingesetzte Restitutionswert kommt jetzt
+// aus der zentralen Kontaktart-Auswahl. Ohne Football-Preset liefert sie exakt REST —
+// die urspruengliche Aussage "keine neue Bounciness" gilt damit weiterhin fuer CURRENT
+// und fuer jeden Nicht-Football-Modus (Laufzeitnachweis in Abschnitt B/C).
+ok(/\(1\+e\)\*vn\*nx/.test(resolvePostSrc) && /\(1\+e\)\*vn\*ny/.test(resolvePostSrc) &&
+   /const e=curRestPost\(\);/.test(resolvePostSrc),
+  'Sockelreflexion nutzt unveraenderte Formel mit e=curRestPost() (kontaktartabhaengige Restitution)');
 ok(!/REST\s*=|REST\*\s*[0-9]/.test(resolvePostSrc), 'Sockelreflexion definiert keine eigene Restitution');
 ok((HTML.match(/footballResolvePost\(fb\)/g) || []).length === 2,
   'Sockelaufloesung: einmal vor der Grenzentscheidung, einmal als Nachkorrektur der Bandenkorrektur');
@@ -481,7 +544,10 @@ ok(F.canPass({ owner: 4, x: F.cx + 450, y: F.cy + F.centerHalf() - 1e-6 }) === t
 ok(/if\(mode==='football'\)\{for\(const fb of balls\)/.test(HTML), "Boundary-Ausnahme ist an mode==='football' gebunden");
 ok(/footballCanPassGoal\(fb\)/.test(HTML), 'stepSim nutzt die zentrale Toroeffnungs-Pruefung');
 // Genau EINE autoritative Passage-Entscheidung im gesamten Quelltext.
-ok((HTML.match(/footballCanPassGoal\(/g) || []).length === 2, 'Genau eine Definition + ein Aufruf von footballCanPassGoal (keine zweite Physiklogik)');
+// 4B-2: ein zweiter Aufruf kam in footballContacts dazu — die Wedge-Erkennung fragt
+// DIESELBE zentrale Funktion, statt die Toroeffnung ein zweites Mal zu modellieren.
+ok((HTML.match(/footballCanPassGoal\(/g) || []).length === 3, 'Genau eine Definition + zwei Aufrufe von footballCanPassGoal (keine zweite Physiklogik)');
+ok(/!footballCanPassGoal\(b\)\)/.test(wedgeSrc), 'Wedge-Erkennung nutzt die zentrale Toroeffnungs-Pruefung');
 // Neutraler Ball (owner 4) existiert in normalen Modi gar nicht -> kein Mode-Leck moeglich.
 const Bn = buildEnv('bot', 'single');
 Bn.setBalls([{ x: Bn.cx + Bn.R0 * 0.55, y: Bn.cy, vx: 5, vy: 0, owner: 4 }, { x: Bn.cx, y: Bn.cy, vx: 0, vy: 0, owner: 0 }]);
@@ -1035,7 +1101,8 @@ ok(/mainBMat=mainMat/.test(HTML), 'Grenz-Puls-Material (mainBMat) unveraendert a
 
 // ── Kollisions-/Physik-Bande unveraendert geschlossen (radiale Reflexion in stepSim) ──
 ok(/const off=R\*0\.42/.test(HTML), 'Football-Spawn (stepSim/Setup) unveraendert');
-ok(/flim=R-BR[\s\S]*fb\.vx-=\(1\+REST\)\*fvn\*fnx/.test(HTML), 'Radiale Kollisions-Reflexion (flim=R-BR) unveraendert — Bande physikalisch weiter geschlossen');
+// 4B-2: Formel und Grenzlinie unveraendert, nur der Restitutionswert ist jetzt RBAND.
+ok(/flim=R-BR[\s\S]*fb\.vx-=\(1\+RBAND\)\*fvn\*fnx/.test(HTML), 'Radiale Kollisions-Reflexion (flim=R-BR) unveraendert — Bande physikalisch weiter geschlossen');
 
 // ── Keine neue Szene/Kamera/Renderer (bestehende Infrastruktur wiederverwendet) ──
 ok((HTML.match(/new THREE\.Scene\(\)/g) || []).length === 1, 'Genau eine Szene (keine zweite Arena/Szene)');
@@ -1087,6 +1154,372 @@ ok(!/m\.side=THREE\.DoubleSide/.test(HTML), 'Keine DoubleSide-Glasflaeche mehr (
 ok(/nm\.includes\('Gold'\)/.test(HTML) && /nm\.includes\('Marble'\)/.test(HTML), 'Gold- und Marmor-Material unveraendert behandelt (nicht Teil dieser Glas-Korrektur)');
 // Geometrie/Asset der Bande bleiben unangetastet (nur Glas-Materialparameter veraendert).
 ok(!/bandProto\.scale|bandProto\.position\.set/.test(HTML), 'Banden-Geometrie/Transform der Bande unveraendert (nur Glasmaterial korrigiert)');
+
+// ══════════════════════════════════════════════════════════════════════════════
+// PHYSIKPHASE 4B-1 — ITERATIVE KONTAKTAUFLOESUNG GEGEN PINNING
+// Geprueft wird ausschliesslich die STRUKTUR der Aenderung, nicht ihr Tuning-Effekt:
+// Iterationszahl, Mode-Scoping, genau EINE Integration je Micro-Step und die
+// Unveraendertheit aller Tuning-Konstanten. Die Wirkungsmessung (Restueberlappung,
+// Bandenkeil, A/B gegen ci=1) liegt in tools/test_football_flow.js.
+// ══════════════════════════════════════════════════════════════════════════════
+
+// ── A. Iterationszahl ──
+{
+  const it = buildEnv('football', 'single');
+  ok(it.contactIterations === 3,
+     'FOOTBALL_CONTACT_ITERATIONS traegt zur Laufzeit den Wert 3 (erhalten: ' + it.contactIterations + ')');
+  ok(/const FOOTBALL_CONTACT_ITERATIONS=3;/.test(HTML),
+     'FOOTBALL_CONTACT_ITERATIONS=3 ist als benannte Konstante in index.html definiert');
+  ok(Number.isInteger(it.contactIterations) && it.contactIterations >= 1,
+     'Iterationszahl ist eine feste ganze Zahl >= 1 (deterministisch, keine Toleranz-Abbruchbedingung)');
+}
+
+// ── B. Mode-Scoping: Football iteriert, alle anderen Modi genau einmal ──
+// Strukturell UND verhaltensbasiert. Gezaehlt wird der Kopf des jeweiligen
+// Grenzblocks: footballResolvePost (Football-Zweig) bzw. ballsOutside (Ring-Out-Zweig).
+// Beide liegen innerhalb der Iterationsschleife -> Aufrufe = Micro-Steps x Kontaktpaesse.
+ok(/const ci=mode==='football'\?FOOTBALL_CONTACT_ITERATIONS:1;/.test(HTML),
+   "Iterationszahl ist auf mode==='football' gescoped (sonst hart 1)");
+ok(/for\(let it=0;it<ci;it\+\+\)\{/.test(HTML), 'Kontaktaufloesung laeuft in einer Schleife ueber ci');
+{
+  const MICRO = 2;   // stepSim() fuehrt zwei Micro-Steps pro Aufruf aus
+  const probe = { vx: 0.5, vy: 0, owner: 0 };   // ruhig, kontaktfrei, weit weg von Sockel und Bande
+
+  const Fi = buildEnv('football', 'single');
+  Fi.setBalls([{ x: Fi.cx + 120, y: Fi.cy, ...probe }]);
+  Fi.resetPassCounts();
+  Fi.step();
+  const cF = Fi.passCounts();
+  ok(cF.post === MICRO * Fi.contactIterations,
+     'Football: ' + MICRO + ' Micro-Steps x ' + Fi.contactIterations + ' Kontaktpaesse = ' +
+     (MICRO * Fi.contactIterations) + ' Grenzdurchgaenge (erhalten: ' + cF.post + ')');
+  ok(cF.outside === 0, 'Football nutzt den Ring-Out-Pfad nicht (ballsOutside 0x)');
+
+  const Bi = buildEnv('bot', 'single');
+  Bi.setBalls([{ x: Bi.cx + 120, y: Bi.cy, ...probe }]);
+  Bi.resetPassCounts();
+  Bi.step();
+  const cB = Bi.passCounts();
+  ok(cB.outside === MICRO,
+     'Nicht-Football: genau EIN Kontaktpass je Micro-Step (' + MICRO + ' Durchgaenge, erhalten: ' + cB.outside + ')');
+  ok(cB.post === 0, 'Nicht-Football beruehrt den Football-Grenzblock nicht (footballResolvePost 0x)');
+  ok(cB.outside < cF.post, 'Nur der Football-Modus iteriert die Kontaktaufloesung mehrfach');
+}
+
+// ── C. Integration und Daempfung laufen genau EINMAL je Micro-Step ──
+// Nachweis ueber die kontaktfreie Flugbahn: waeren Integration oder Daempfung mit in
+// die Iterationsschleife gerutscht, waeren Weg und Restgeschwindigkeit nach einem
+// stepSim() messbar anders. Der Erwartungswert wird aus den EXTRAHIERTEN Konstanten
+// gebildet, nicht aus duplizierten Zahlen.
+{
+  const start = { x: 300, y: 500, vx: 3.0, vy: 0 };
+  // Erwartungswert aus der TATSAECHLICH aktiven Daempfung des jeweiligen Modells
+  // (seit 4B-2 bringt der Football-Modus eigene Werte mit; SLOWV ist global unveraendert).
+  const expect = (env) => {
+    const E = env.effective(), SLOWV = env.tune().SLOWV;
+    let x = start.x, y = start.y, vx = start.vx, vy = start.vy;
+    for (let s = 0; s < 2; s++) {
+      x += vx; y += vy;
+      const f = Math.sqrt(vx * vx + vy * vy) < SLOWV ? E.fe : E.fr;
+      vx *= f; vy *= f;
+    }
+    return { x, y, vx, vy };
+  };
+  const oneStep = (env) => { env.setBalls([{ ...start, x: env.cx - 200, y: env.cy, owner: 0 }]);
+    env.step(); return env.get().balls[0]; };
+  for (const m of ['PROD', 'BASELINE']) {
+    const env = buildEnv('football', 'single', m);
+    const e = expect(env), g = oneStep(env);
+    ok(g.x === e.x - start.x + (env.cx - 200) && g.y === env.cy,
+       m + ': kontaktfreie Position nach einem stepSim exakt = 2x Integration (kein zusaetzlicher Schritt)');
+    ok(g.vx === e.vx && g.vy === e.vy,
+       m + ': kontaktfreie Geschwindigkeit exakt = 2x Daempfung (Daempfung nicht in der Iterationsschleife)');
+  }
+  // Die Kontakt-Iteration selbst hat keine Nebenwirkung: mit abgeschalteter Football-Physik
+  // ist die kontaktfreie Flugbahn im Football-Modus bit-identisch zum Bot-Modus.
+  const gF = oneStep(buildEnv('football', 'single', 'BASELINE'));
+  const gB = oneStep(buildEnv('bot', 'single'));
+  ok(gF.x === gB.x && gF.y === gB.y && gF.vx === gB.vx && gF.vy === gB.vy,
+     'kontaktfreie Flugbahn in Football (Baseline) und Nicht-Football bit-identisch (Iteration ohne Nebenwirkung)');
+}
+// Strukturell: genau eine Integrationsanweisung, und sie steht VOR der Iterationsschleife.
+{
+  const iInteg = stepSimSrc.indexOf('b.x+=b.vx;b.y+=b.vy;');
+  const iLoop = stepSimSrc.indexOf('for(let it=0;it<ci;it++)');
+  ok(iInteg >= 0 && iLoop > iInteg,
+     'Integration/Daempfung steht oberhalb der Kontakt-Iterationsschleife');
+  ok(stepSimSrc.split('b.x+=b.vx;b.y+=b.vy;').length - 1 === 1,
+     'es gibt genau EINE Integrationsanweisung in stepSim');
+  ok(stepSimSrc.split('for(let it=0;it<ci;it++)').length - 1 === 1,
+     'es gibt genau EINE Kontakt-Iterationsschleife in stepSim');
+}
+// Treffer-Feedback haengt am ersten Kontaktpass (keine doppelten Sounds/Partikel).
+ok(/if\(it===0\)\{/.test(HTML), 'Treffer-Feedback ist auf den ersten Kontaktpass begrenzt (if(it===0))');
+
+// ── D. Tuning-Konstanten unveraendert (Pin gegen versehentliche Aenderung in 4B) ──
+// 4B-1 ist eine reine Aufloesungs-Aenderung. Masse, Restitution, Daempfung und Launch
+// bleiben exakt auf dem Stand der 4A-Baseline; jede Abweichung muss hier auffallen.
+{
+  const T = buildEnv('football', 'single').tune();
+  ok(T.REST === 0.25, 'REST unveraendert 0.25 (erhalten: ' + T.REST + ')');
+  ok(T.FRICTION === 0.992, 'FRICTION unveraendert 0.992 (erhalten: ' + T.FRICTION + ')');
+  ok(T.FEND === 0.992, 'FEND unveraendert 0.992 (erhalten: ' + T.FEND + ')');
+  ok(T.STOPV === 0.10, 'STOPV unveraendert 0.10 (erhalten: ' + T.STOPV + ')');
+  ok(T.SLOWV === 0.35, 'SLOWV unveraendert 0.35 (erhalten: ' + T.SLOWV + ')');
+  ok(T.LAUNCH === 0.034, 'LAUNCH unveraendert 0.034 (erhalten: ' + T.LAUNCH + ')');
+  ok(T.MAXPULL_FRAC === 0.40, 'MAXPULL_FRAC unveraendert 0.40 (erhalten: ' + T.MAXPULL_FRAC + ')');
+  ok(T.SPIN_K === 0.004 && T.SPIN_DECAY === 0.985, 'Spin-Konstanten unveraendert (0.004 / 0.985)');
+  // Kein Massenmodell eingefuehrt: der Stossimpuls bleibt die m=1-Zweikoerperformel.
+  // Seit 4B-2 traegt sie die kontaktartabhaengige Restitution RB=curRestBall(); die
+  // Division durch 2 (gleiche Massen) und die Struktur der Formel sind unveraendert.
+  ok(/const imp=-\(1\+RB\)\*vn\/2;/.test(HTML),
+     'Ball-Ball-Impuls bleibt die m=1-Zweikoerperformel -(1+RB)*vn/2 (keine Masse eingefuehrt)');
+  ok(/const FR=curFR\(\),FE=curFE\(\),RB=curRestBall\(\),RBAND=curRestBand\(\);/.test(HTML),
+     'RB stammt aus curRestBall() (zentrale Konfiguration, keine Magic Number in stepSim)');
+  ok(/a\.x-=nx\*ov\/2;a\.y-=ny\*ov\/2;b\.x\+=nx\*ov\/2;b\.y\+=ny\*ov\/2;/.test(HTML),
+     'Positionskorrektur unveraendert strikt haelftig (keine gewichtete Trennung)');
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// PHYSIKPHASE 4B-3 — GLIDE ALS EINZIGER PRODUKTIVSTANDARD
+// Geprueft wird der FINALE Zustand: dass es im Produktivcode genau einen Wertesatz gibt,
+// dass er exakt den freigegebenen GLIDE-Werten entspricht, dass keine Auswahl und kein
+// URL-Parameter mehr existieren, und dass die Wedge-Erkennung deterministisch und
+// schwellengebunden bleibt. Die Sandbox laeuft standardmaessig durch den Produktivpfad;
+// 'BASELINE' schaltet die Football-Physik ab und liefert den Stand vor 4B-2.
+// Die Wirkungsmessung (Ausrollzeiten, Rueckprall, Keilloesung, ICE-Referenz) liegt in
+// tools/test_football_flow.js.
+// ══════════════════════════════════════════════════════════════════════════════
+
+// ── A. Genau ein Produktivstandard mit den freigegebenen Werten ──
+{
+  const FINAL = { friction: 0.9968, fend: 0.9935, stopv: 0.035,
+                  restBall: 0.40, restBand: 0.52, restPost: 0.47 };
+  const P = buildEnv('football', 'single'), prod = P.prodPhys();
+  for (const k of Object.keys(FINAL))
+    ok(prod[k] === FINAL[k], 'FOOTBALL_PHYS.' + k + ' = ' + FINAL[k] + ' (erhalten: ' + prod[k] + ')');
+  ok(Object.keys(prod).length === 6, 'FOOTBALL_PHYS enthaelt genau diese sechs Werte, keine Restfelder');
+  ok((HTML.match(/const FOOTBALL_PHYS=/g) || []).length === 1,
+     'FOOTBALL_PHYS ist genau einmal definiert (zentrale Konfiguration)');
+  ok(/function footballPhys\(\)\{return mode==='football'\?FOOTBALL_PHYS:null;\}/.test(HTML),
+     'ein einziger Zugriffspunkt footballPhys(), ohne Auswahl');
+  // Der Prototyp aus 4B-2 ist vollstaendig verschwunden.
+  ok(!/FOOTBALL_PRESETS/.test(HTML), 'keine FOOTBALL_PRESETS mehr im Produktivcode');
+  ok(!/FOOTBALL_PRESET_DEFAULT/.test(HTML), 'kein FOOTBALL_PRESET_DEFAULT mehr im Produktivcode');
+  ok(!/footballPreset/.test(HTML), 'keine Preset-Variable mehr im Produktivcode');
+  ok(!/fbphys/.test(HTML), 'kein URL-Parameter ?fbphys mehr im Produktivcode');
+  ok(!/wedge:\s*true/.test(HTML), 'kein Preset-Flag mehr fuer den Anti-Wedge-Block');
+  // Die freigegebenen Werte liegen in den fuer GLIDE vorgegebenen Zielbereichen.
+  const inRange = (v, lo, hi) => v >= lo && v <= hi;
+  ok(inRange(prod.friction, 0.9960, 0.9975) && inRange(prod.fend, 0.9920, 0.9950) &&
+     inRange(prod.stopv, 0.025, 0.050) && inRange(prod.restBall, 0.35, 0.45) &&
+     inRange(prod.restBand, 0.45, 0.60) && inRange(prod.restPost, 0.40, 0.55),
+     'alle Produktivwerte liegen in den fuer GLIDE vorgegebenen Zielbereichen');
+  ok(prod.restBand > prod.restPost && prod.restPost > prod.restBall,
+     'restBand > restPost > restBall (Bande am lebendigsten, Pass kontrolliert)');
+  ok(P.contactIterations === 3, 'FOOTBALL_CONTACT_ITERATIONS bleibt 3');
+}
+
+// ── B. Baseline-Vergleich: der Stand vor 4B-2 ist als Testmodell weiter erreichbar ──
+{
+  const C = buildEnv('football', 'single', 'BASELINE');
+  const T = C.tune(), E = C.effective();
+  ok(C.preset() === null, 'BASELINE liefert keine Football-Physik (footballPhys() === null)');
+  ok(E.fr === T.FRICTION && E.fe === T.FEND && E.stopv === T.STOPV,
+     'BASELINE: Daempfung und Stoppschwelle exakt die globalen Konstanten');
+  ok(E.restBall === T.REST && E.restBand === T.REST && E.restPost === T.REST,
+     'BASELINE: alle drei Restitutionen exakt der globale REST-Wert');
+  const P = buildEnv('football', 'single').effective();
+  ok(P.fr !== E.fr && P.stopv !== E.stopv && P.restBand !== E.restBand,
+     'der Produktivstand unterscheidet sich messbar von der Baseline');
+}
+
+// ── C. Die Football-Physik wirkt ausschliesslich im Football-Modus ──
+{
+  const T = buildEnv('bot', 'single').tune();
+  const Bn = buildEnv('bot', 'single'), E = Bn.effective();
+  ok(Bn.preset() === null && E.fr === T.FRICTION && E.fe === T.FEND && E.stopv === T.STOPV &&
+     E.restBall === T.REST && E.restBand === T.REST && E.restPost === T.REST,
+     'Bot-Modus laeuft unveraendert ueber die globalen Konstanten');
+  // Verhaltensbasiert: die kontaktfreie Flugbahn im Bot-Modus ist unabhaengig davon, ob
+  // die Football-Physik geladen ist.
+  const traj = (p) => { const e = buildEnv('bot', 'single', p);
+    e.setBalls([{ x: e.cx - 200, y: e.cy, vx: 3.0, vy: 0, owner: 0 }]);
+    for (let i = 0; i < 30; i++) e.step();
+    const b = e.get().balls[0]; return [b.x, b.y, b.vx, b.vy].join('|'); };
+  ok(traj('PROD') === traj('BASELINE'),
+     'Bot-Modus: Flugbahn ueber 30 Frames bit-identisch mit und ohne geladene Football-Physik');
+}
+
+// ── D. Glide: getrennte Daempfung, getrennte Stoppschwelle, spaeteres Settlement ──
+{
+  const T = buildEnv('football', 'single').tune();
+  ok(T.FRICTION === T.FEND, 'globale Konstanten unveraendert: FRICTION === FEND (Audit-Fixpunkt U6)');
+  const E = buildEnv('football', 'single').effective();
+  ok(E.fr > T.FRICTION, 'Gleitdaempfung schwaecher als bisher (' + E.fr + ' > ' + T.FRICTION + ')');
+  ok(E.fe < E.fr, 'Endphasendaempfung HAERTER als die Gleitdaempfung (Zwei-Regime reaktiviert)');
+  ok(E.stopv < T.STOPV, 'Settlement-Schwelle tiefer als bisher (' + E.stopv + ' < ' + T.STOPV + ')');
+  // Verhaltensbasiert: gleicher Schuss, laengerer Weg und spaeteres Settlement.
+  const roll = (p) => { const e = buildEnv('football', 'single', p);
+    e.setBalls([{ x: e.cx, y: e.cy - 260, vx: 0, vy: 3.0, owner: 4 }]);
+    let f = 0, dist = 0, prev = e.get().balls[0];
+    while (f++ < 4000 && e.get().phase === 'sim') { e.step();
+      const b = e.get().balls[0]; dist += Math.hypot(b.x - prev.x, b.y - prev.y); prev = b; }
+    return { frames: f, dist }; };
+  const rB = roll('BASELINE'), rP = roll('PROD');
+  ok(rP.frames > rB.frames * 1.5,
+     'Ausrollzeit steigt deutlich: Baseline ' + rB.frames + ' -> produktiv ' + rP.frames + ' Frames');
+  ok(rP.dist > rB.dist * 1.5,
+     'Ausrollstrecke steigt deutlich: ' + rB.dist.toFixed(0) + ' -> ' + rP.dist.toFixed(0) + ' px');
+  ok(rP.frames < 4000, 'der Produktivstand settled endlich (kein ewiges Mikrokriechen)');
+}
+
+// ── E. Getrennte Restitution wirkt kontaktartabhaengig ──
+{
+  // Bande: Normalanteil nach dem Abprall / Normalanteil davor.
+  const bandRatio = (p) => { const e = buildEnv('football', 'single', p);
+    e.setBalls([{ x: e.cx, y: e.cy + e.R0 - e.BR - 90, vx: 0, vy: 2.0, owner: 4 }]);
+    let vIn = 2.0;
+    for (let i = 0; i < 200; i++) { const before = e.get().balls[0]; e.step();
+      const after = e.get().balls[0];
+      if (after.vy < 0) { vIn = before.vy; return Math.abs(after.vy) / vIn; } }
+    return null; };
+  const bB = bandRatio('BASELINE'), bP = bandRatio('PROD');
+  ok(bB !== null && bP !== null, 'Bandenabprall in Baseline und Produktivstand messbar');
+  ok(bP > bB * 1.5,
+     'Banden-Rueckprall steigt: ' + bB.toFixed(3) + ' -> ' + bP.toFixed(3));
+  ok(bP < 1.0, 'Bande bleibt dissipativ (kein Energiegewinn am Rand)');
+  // Pfosten und Ball-Ball nutzen eigene Werte — strukturell nachgewiesen.
+  ok(/const e=curRestPost\(\);/.test(HTML), 'Pfostenreflexion nutzt curRestPost()');
+  ok(/\(1\+RBAND\)\*fvn\*fnx/.test(HTML), 'Bandenreflexion nutzt RBAND=curRestBand()');
+  // In den PRODUKTIVEN Kontaktformeln (stepSim, Sockelaufloesung) darf kein direkter
+  // REST-Zugriff mehr stehen. Die Bot-KI-Vorausberechnung (simExchange/simSnap) rechnet
+  // weiterhin mit REST — sie laeuft ausschliesslich im Bot-Modus und bleibt unangetastet.
+  ok(!/\(1\+REST\)/.test(stepSimSrc) && !/\(1\+REST\)/.test(resolvePostSrc),
+     'keine direkte (1+REST)-Verwendung mehr in stepSim und footballResolvePost');
+  ok((HTML.match(/\(1\+REST\)/g) || []).length === 2,
+     'die beiden verbliebenen (1+REST) stehen ausschliesslich in der Bot-Vorausberechnung');
+}
+
+// ── F. Wedge-Erkennung: finale, benannte Schwellen, deterministisch ──
+{
+  const W = buildEnv('football', 'single').wedgeConst();
+  // Exakte Endwerte — jede spaetere Aenderung muss hier bewusst nachgezogen werden.
+  const FINAL_W = { minContacts: 2, dot: -0.45, v: 0.25, progress: 0.40,
+                    steps: 8, press: 0.01, eps: 0.5, minEscapeV: 0.12 };
+  for (const k of Object.keys(FINAL_W))
+    ok(W[k] === FINAL_W[k], 'FOOTBALL_WEDGE ' + k + ' = ' + FINAL_W[k] + ' (erhalten: ' + W[k] + ')');
+  // ... und weiterhin innerhalb der vorgegebenen Bereiche.
+  ok(W.dot <= -0.35 && W.dot >= -0.50, 'Normalen-Dot ' + W.dot + ' liegt in [-0.50,-0.35]');
+  ok(W.v >= 0.20 && W.v <= 0.30, 'Geschwindigkeitsschwelle ' + W.v + ' liegt in [0.20,0.30]');
+  ok(W.progress >= 0.30 && W.progress <= 0.50, 'Fortschrittsschwelle ' + W.progress + ' liegt in [0.30,0.50]');
+  ok(W.steps >= 8 && W.steps <= 16, 'Mindestdauer ' + W.steps + ' Micro-Steps liegt in [8,16]');
+  ok(Number.isInteger(W.steps), 'Mindestdauer ist eine feste ganze Zahl (keine Zufallserkennung)');
+  ok(W.minEscapeV > 0 && W.minEscapeV <= 0.15,
+     'Mindest-Escape ' + W.minEscapeV + ' px/Micro-Step ist eng begrenzt (<= 0.15)');
+  ok(!/Math\.random/.test(wedgeSrc), 'Wedge-Block enthaelt keinen Zufall');
+  // Fluchtrichtung: gleiche Kontaktlage -> exakt gleiche Richtung, reproduzierbar.
+  const E = buildEnv('football', 'single');
+  const cs = [{ nx: 1, ny: 0, other: null }, { nx: -1, ny: 0, other: null }];
+  const d1 = E.escapeDir(cs), d2 = E.escapeDir(cs);
+  ok(d1[0] === d2[0] && d1[1] === d2[1], 'Fluchtrichtung ist bei gleicher Lage identisch (deterministisch)');
+  ok(Math.abs(Math.hypot(d1[0], d1[1]) - 1) < 1e-12, 'Fluchtrichtung ist normiert');
+  ok(Math.abs(d1[0]) < 1e-12, 'exakt gegenlaeufige Normalen -> tangentiale Flucht (nicht in ein Hindernis)');
+}
+
+// ── G. Escape feuert nur nach Mindestdauer und nur im echten Keil ──
+{
+  // Einzelkontakt: Ball ruht an der Bande, ein zweiter Ball drueckt. Nur EINE Normalenrichtung
+  // klemmt -> kein Keil, niemals ein Escape, egal wie lange.
+  const E = buildEnv('football', 'single');
+  E.setBalls([{ x: E.cx, y: E.cy + E.R0 - E.BR, vx: 0, vy: 0, owner: 4 },
+              { x: E.cx, y: E.cy + E.R0 - E.BR - 2 * E.BR, vx: 0, vy: 0.05, owner: 0 }]);
+  for (let i = 0; i < 400; i++) E.step();
+  ok(E.escapes() === 0, 'kein Escape bei einem einzelnen frontalen Kontaktpaar (erhalten: ' + E.escapes() + ')');
+
+  // Freier Flug ohne jeden Kontakt: Zaehler bleibt bei 0.
+  const F2 = buildEnv('football', 'single');
+  F2.setBalls([{ x: F2.cx - 200, y: F2.cy, vx: 1.0, vy: 0, owner: 4 }]);
+  for (let i = 0; i < 60; i++) F2.step();
+  ok(F2.escapes() === 0 && F2.wedgeCounters().every((c) => c === 0),
+     'kontaktfreier Ball erzeugt weder Wedge-Zaehler noch Escape');
+
+  // Die Baseline hat den Anti-Wedge-Block ueberhaupt nicht.
+  const C = buildEnv('football', 'single', 'BASELINE');
+  C.setBalls([{ x: C.cx, y: C.cy + C.R0 - C.BR, vx: 0, vy: 0, owner: 4 },
+              { x: C.cx - 2 * C.BR * 0.5, y: C.cy + C.R0 - C.BR - 2 * C.BR * 0.866, vx: 0.6, vy: 1.0, owner: 0 },
+              { x: C.cx + 2 * C.BR * 0.5, y: C.cy + C.R0 - C.BR - 2 * C.BR * 0.866, vx: -0.6, vy: 1.0, owner: 1 }]);
+  for (let i = 0; i < 600; i++) C.step();
+  ok(C.escapes() === 0, 'BASELINE loest nie einen Escape aus (Referenzmodell bleibt der alte Zustand)');
+}
+
+// ── H. Escape ist energieneutral, ausser im eng begrenzten Stillstandsfall ──
+{
+  const E = buildEnv('football', 'single');
+  const W = E.wedgeConst();
+  // Umlenkung: der Betrag der Geschwindigkeit bleibt erhalten -> keine kinetische Energie.
+  ok(/const s=v>FOOTBALL_ESCAPE_MIN_V\?v:FOOTBALL_ESCAPE_MIN_V;/.test(HTML),
+     'Escape uebernimmt den vorhandenen Betrag und hebt ihn nur im Stillstand auf den Mindestwert');
+  ok(/b\.vx=d\[0\]\*s;b\.vy=d\[1\]\*s;/.test(HTML),
+     'Escape setzt nur die RICHTUNG neu (reine Umverteilung, kein additiver Impuls)');
+  // 120 Micro-Steps/s: 0.12 px/Micro-Step = 14.4 px/s. Ein Ballradius (32 px) braucht
+  // damit gut zwei Sekunden — sichtbar als Gleiten, nicht als Wegschnippen.
+  ok(W.minEscapeV * 120 < 20, 'Mindest-Escape entspricht ' + (W.minEscapeV * 120).toFixed(1) + ' px/s (keine Explosion)');
+  const TUNE2 = E.tune();
+  ok(W.minEscapeV < TUNE2.MAXPULL_FRAC * 1000 * 0.485 * TUNE2.LAUNCH * 0.02,
+     'Mindest-Escape liegt unter 2 % der Launch-Obergrenze');
+  ok(/b\.fbWedge=0;/.test(HTML), 'nach einem Escape startet die Mindestdauer neu (kein Dauerfeuer)');
+}
+
+// ── I. Die Football-Physik veraendert Geometrie, Tor- und Matchlogik nicht ──
+// Beide Modelle muessen dasselbe Ergebnis liefern: der Produktivstand und die Baseline.
+for (const p of ['PROD', 'BASELINE']) {
+  const M = buildEnv('football', 'single', p);
+  // Torpassage mittig -> Tor, Score, Ballfall
+  M.setBalls([{ x: M.cx, y: M.cy, vx: 5.0, vy: 0, owner: 4 }]);
+  let f = 0; while (f++ < 1200 && M.goalState() === 'play') M.step();
+  ok(M.goalState() === 'fall' && JSON.stringify(M.score()) === '[1,0]',
+     p + ': Torpassage wertet unveraendert (Zustand ' + M.goalState() + ', Score ' + JSON.stringify(M.score()) + ')');
+  // Vollstaendiger Ablauf fall -> spawn -> play mit frischen Kugeln
+  const seq = [M.goalState()];
+  for (let k = 0; k < 300; k++) { M.step(); if (seq[seq.length - 1] !== M.goalState()) seq.push(M.goalState()); }
+  ok(seq.join('->') === 'fall->spawn->play', p + ': Torablauf fall->spawn->play unveraendert (' + seq.join('->') + ')');
+  ok(M.get().balls.length === 3, p + ': Rundenreset stellt wieder genau drei Kugeln auf');
+  // Spielerkugel wird an der Toroeffnung weiterhin geblockt
+  const B2 = buildEnv('football', 'single', p);
+  B2.setBalls([{ x: B2.cx, y: B2.cy, vx: 5.0, vy: 0, owner: 0 }]);
+  let g = 0; while (g++ < 1200 && B2.get().phase === 'sim') B2.step();
+  const pb = B2.get().balls[0];
+  ok(Math.hypot(pb.x - B2.cx, pb.y - B2.cy) <= B2.R0 - B2.BR + 1e-6 && JSON.stringify(B2.score()) === '[0,0]',
+     p + ': Spielerbarriere haelt, kein Score');
+  // First-to-3 unveraendert
+  ok(M.winScore === 3, p + ': FOOTBALL_WIN_SCORE bleibt 3');
+}
+
+// ── J. Keine Penetration unter der produktiven Football-Physik ──
+{
+  const p = 'PROD';
+  const M = buildEnv('football', 'single');
+  const box = M.box();
+  M.setBalls([{ x: M.cx, y: M.cy + M.R0 - M.BR, vx: 0, vy: 0, owner: 4 },
+              { x: M.cx - M.BR, y: M.cy + M.R0 - M.BR - 2 * M.BR * 0.866, vx: 0.9, vy: 1.4, owner: 0 },
+              { x: M.cx + M.BR, y: M.cy + M.R0 - M.BR - 2 * M.BR * 0.866, vx: -0.9, vy: 1.4, owner: 1 }]);
+  let maxR = 0, minGap = Infinity;
+  for (let i = 0; i < 900; i++) {
+    M.step();
+    for (const b of M.get().balls) {
+      if (!b.alive) continue;
+      const gap = M.boxGap(b);
+      if (gap < minGap) minGap = gap;
+      const r = Math.hypot(b.x - M.cx, b.y - M.cy);
+      if (gap > M.BR + 0.5 && r > maxR) maxR = r;   // Sockelflanke liegt legitim jenseits flim
+    }
+  }
+  ok(minGap >= M.BR - 1e-6, p + ': keine Sockelpenetration im Drei-Kugel-Keil (minGap ' + minGap.toFixed(4) + ')');
+  ok(maxR <= M.R0 - M.BR + 1e-6, p + ': keine Kugel jenseits der Bandenlinie (maxR ' + maxR.toFixed(4) + ')');
+  ok(box.x0 === buildEnv('football', 'single', 'BASELINE').box().x0,
+     p + ': Sockelgeometrie durch die Football-Physik unveraendert');
+}
 
 console.log('\nFootball-Shell: ' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);
