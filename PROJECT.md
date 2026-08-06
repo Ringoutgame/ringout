@@ -1,6 +1,9 @@
 # PROJECT.md — RingOut
 
-**Zuletzt aktualisiert:** 2026-08-06 (Arena Football: UX-Phase 3 abgeschlossen — Premium-Torfeedback, HUD-Reaktion, Celebration Window; stabiler HEAD `babbbe78ee388489321d1f0cb3e032bbaabd0725`)
+**Zuletzt aktualisiert:** 2026-08-06 (Arena Football: UX-Phase 3 abgeschlossen — Premium-Torfeedback, HUD-Reaktion, Celebration Window; technischer Teststand aufgefrischt)
+
+- **Aktueller stabiler Projekt-HEAD:** `5a23dc424fb3126c33c29543b7c6571b87a65ec7`
+- **Implementierungs-Commit UX-Phase 3:** `babbbe78ee388489321d1f0cb3e032bbaabd0725`
 
 ---
 
@@ -20,10 +23,53 @@ RingOut ist ein kompetitives, physikbasiertes Browser-Spiel für 1–5 Spieler. 
 | Audio | Web Audio API (prozedural, kein Asset-Loading) |
 | Netzwerk | Firebase Realtime Database (Lockstep) |
 | Build-System | keines – direktes Öffnen im Browser |
-| Tests | Vollständige lokale Batterie unter `tools/` — zentraler Runner `tools/run_all_tests.js` fasst 12 Offline-Suiten zusammen: Syntax, Golden-Physik (13 bit-exakt), r3d-Mapping (48), Sanitize (19), Identity (45), ValidateRoom (40), Lockstep (24), FFA-Kern (18), FFA-Online-Prep (40), FFA-Online-Flow (107), FFA-Online-Race (115), Rules (100). Dazu die E2E-Fünf-Client-Harness `tools/e2e/run-ffa-e2e.js` (`npm run test:e2e:ffa`) und der E2E-Spike (`npm run test:e2e:spike`) — beide gegen echten JDK-21-RTDB-Emulator + Playwright, Produktions-Firebase hart geblockt. Live-REST-Verify (`tools/rest_verify_v3.js`) bleibt manuell (`--live`-Pflichtflag; sinnvoll erst nach dem v3-Publish). |
+| Tests | Lokale Batterie unter `tools/`; der zentrale Runner `tools/run_all_tests.js` fasst **17 Offline-Suiten** zusammen — aktuell **12/17 grün**. Suite-für-Suite-Übersicht im Abschnitt „Teststand" unten. |
 | CI | GitHub Actions (`.github/workflows/tests.yml`) führt bei `push`/`pull_request`/`workflow_dispatch` automatisch `node tools/run_all_tests.js` aus (Node 20, kein `npm install`). Reiner Sicherheitscheck — kein Build, kein Deployment, kein Firebase-Zugriff; Live-REST-Verify läuft nie in CI. |
 | TypeScript | nein |
 | UI-Sprache | Deutsch |
+
+### Teststand
+
+Stand: HEAD `5a23dc424fb3126c33c29543b7c6571b87a65ec7` (2026-08-06), frisch gemessen mit
+`node tools/run_all_tests.js`. Die Spalte „Assertions" nennt die Zahl aus der Suite-Ausgabe
+(`N passed, M failed`); der Runner schlägt auch dann fehl, wenn die Zahl von der in
+`run_all_tests.js` erwarteten abweicht.
+
+| Suite | Datei | Assertions | Status |
+|---|---|---|---|
+| Syntax | `test_syntax.js` | kein Zähler (3 Blöcke geparst) | grün |
+| Golden-Physik | `test_physics_golden.js` | 13/0 | grün |
+| Football-Shell | `test_football_shell.js` | 738/0 | grün |
+| Football-Flow | `test_football_flow.js` | 118/0 | grün |
+| r3d-Mapping | `test_r3d_mapping.js` | 52/0 | grün |
+| Sanitize | `test_sanitize.js` | 24/0 | grün |
+| Identity | `test_identity.js` | 45/0 | grün |
+| ValidateRoom | `test_validateroom.js` | 45/0 | grün |
+| Lockstep | `test_lockstep.js` | 24/0 | grün |
+| FFA-Kern | `test_ffa.js` | — (Abbruch: `ReferenceError: curRestBall is not defined`) | **rot** |
+| FFA-Online-Prep | `test_ffa_online.js` | 53/0 | grün |
+| FFA-Online-Flow | `test_ffa_flow.js` | — (Abbruch: `SyntaxError` beim Sandbox-Aufbau) | **rot** |
+| FFA-Online-Race | `test_ffa_race.js` | — (Abbruch: `SyntaxError` beim Sandbox-Aufbau) | **rot** |
+| Reconnect-B2 | `test_reconnect.js` | 7 Assertion-Fehler, danach `TypeError` | **rot** |
+| Rules | `test_rules.js` | 174/0 | grün |
+| Public-Lobby | `test_public_lobby.js` | 30/0 | grün |
+| Team-Duel | `test_team_duel.js` | — (Abbruch: `ReferenceError: curRestBall is not defined`) | **rot** |
+
+**Gesamt: 12/17 grün.** Die fünf roten Suiten (FFA-Kern, FFA-Online-Flow, FFA-Online-Race,
+Reconnect-B2, Team-Duel) sind **bekannte, vorbestehende Altlasten** — Ursachen und Nachweis
+siehe „Bekannte Einschränkungen" und `TODO.md` (P0). Die Arena-Football-Arbeit inklusive
+UX-Phase 3 hat **keine neue Suite rot gemacht** und keine grüne Suite verschlechtert.
+
+Nicht im Runner registriert, separat auszuführen:
+
+| Suite | Aufruf | Assertions | Status |
+|---|---|---|---|
+| Ring-Collapse | `node tools/test_collapse.js` | 235/0 | grün |
+| E2E FFA (5 Clients) | `npm run test:e2e:ffa` | — | braucht JDK-21-RTDB-Emulator + Playwright |
+| E2E Spike | `npm run test:e2e:spike` | — | braucht JDK-21-RTDB-Emulator + Playwright |
+| Live-REST-Verify | `node tools/rest_verify_v3.js --live` | — | bewusst manuell, nie in CI; sinnvoll erst nach dem v3-Publish |
+
+Bei den E2E-Harnessen ist die Produktions-Firebase hart geblockt.
 
 ---
 
@@ -95,7 +141,7 @@ keinen URL-Parameter** — Produktionsphysik hängt nicht von der Adresszeile ab
   Vergleichsmodelle CURRENT und ICE, die **nicht produktiv** sind).
 
 ### Arena-Football-UX (Phasen 1 bis 3, im Browser freigegeben)
-Stabiler Stand: HEAD `babbbe78ee388489321d1f0cb3e032bbaabd0725`
+Implementierungs-Stand: HEAD `babbbe78ee388489321d1f0cb3e032bbaabd0725`
 (UX-Phase 1 `e162c51`, UX-Phase 2 `c4c9135`, UX-Phase 3 `babbbe7`).
 
 **Spielfeld**
