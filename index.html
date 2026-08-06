@@ -300,12 +300,54 @@ header{width:100%;max-width:460px;display:flex;align-items:center;justify-conten
 #game.fb .pcard{padding:9px 12px;display:grid;align-content:center}
 #game.fb .pcard .pn{font-size:11px;letter-spacing:.13em}
 #game.fb .pcard .pw{display:none}
-/* Toranzeige: sehr kurze Skalierung plus ein Hauch Teamfarbe. Rein dekorativ — die Klasse
-   wird nach FB_POP_MS wieder entfernt und beruehrt keinen Spielzustand. */
-@keyframes fbpop{0%{transform:scale(1)}30%{transform:scale(1.26)}100%{transform:scale(1)}}
-#game.fb .score .pop{animation:fbpop .42s cubic-bezier(.2,.9,.25,1)}
-#game.fb .score .s0.pop{text-shadow:0 0 15px rgba(0,212,255,.6)}
-#game.fb .score .s1.pop{text-shadow:0 0 15px rgba(255,77,77,.6)}
+/* Toranzeige (UX-3): der Punkt bekommt einen kurzen Gold-Impuls, der in die Teamfarbe
+   zurueckfaellt. Gold traegt den Treffermoment, die Teamfarbe traegt die ZUORDNUNG —
+   exakt dieselbe Farblogik wie am Tor selbst. Genau EINE Seite animiert, die andere
+   bleibt unangetastet. Rein dekorativ: jede Klasse wird nach ihrem Timer wieder
+   entfernt und beruehrt keinen Spielzustand. Dauer == FB_POP_MS. */
+@keyframes fbgoal0{
+  0%{transform:scale(1);color:var(--p1);text-shadow:none}
+  15%{transform:scale(1.21);color:#fff6e6;text-shadow:0 0 18px rgba(255,215,154,.95),0 0 38px rgba(0,212,255,.42)}
+  52%{transform:scale(1.05);color:#a8e6ff;text-shadow:0 0 12px rgba(255,215,154,.44),0 0 24px rgba(0,212,255,.3)}
+  100%{transform:scale(1);color:var(--p1);text-shadow:none}
+}
+@keyframes fbgoal1{
+  0%{transform:scale(1);color:var(--p2);text-shadow:none}
+  15%{transform:scale(1.21);color:#fff2e2;text-shadow:0 0 18px rgba(255,215,154,.95),0 0 38px rgba(255,77,77,.42)}
+  52%{transform:scale(1.05);color:#ffb9b9;text-shadow:0 0 12px rgba(255,215,154,.44),0 0 24px rgba(255,77,77,.3)}
+  100%{transform:scale(1);color:var(--p2);text-shadow:none}
+}
+#game.fb .score .s0.pop{animation:fbgoal0 .46s cubic-bezier(.2,.85,.3,1)}
+#game.fb .score .s1.pop{animation:fbgoal1 .46s cubic-bezier(.2,.85,.3,1)}
+/* Score-Panel: ein einmal durchlaufender Gold-Schimmer plus ein Glow, der die Kante der
+   punktenden Seite anhebt. Zwei getrennte Animationen — die eine schiebt nur die
+   Hintergrundschicht, die andere nur Rahmen/Schatten; sie ueberschreiben sich nicht.
+   Der Schimmer laeuft ueber eine zusaetzliche Gradientenschicht, damit das Panel keinen
+   overflow:hidden braucht (der wuerde die skalierende Ziffer beschneiden).
+   Dauer == FB_GOAL_HUD_MS. UX-3B: die Dauer waechst auf 1.2s, der Glow-Stop wandert von
+   16% auf 12% — so bleibt die absolute Anstiegszeit (~144 ms) unveraendert scharf und
+   nur der Nachklang wird laenger. */
+#game.fb .scorebox.fbgoal0,#game.fb .scorebox.fbgoal1{
+  background-image:linear-gradient(105deg,rgba(255,224,168,0) 34%,rgba(255,232,186,.22) 50%,rgba(255,224,168,0) 66%),
+                   linear-gradient(180deg,rgba(24,33,54,.82),rgba(14,21,36,.9));
+  background-size:280% 100%,100% 100%;background-repeat:no-repeat}
+@keyframes fbsheen{0%{background-position:-130% 0,0 0}100%{background-position:130% 0,0 0}}
+@keyframes fbglow0{
+  0%{border-color:rgba(255,201,64,.44);box-shadow:0 10px 26px rgba(5,9,18,.45),inset 0 1px 0 rgba(255,255,255,.055)}
+  12%{border-color:rgba(255,226,170,.92);box-shadow:0 0 0 1px rgba(255,215,154,.4),0 12px 34px rgba(255,201,64,.24),inset 15px 0 30px -15px rgba(0,212,255,.55)}
+  100%{border-color:rgba(255,201,64,.44);box-shadow:0 10px 26px rgba(5,9,18,.45),inset 0 1px 0 rgba(255,255,255,.055)}
+}
+@keyframes fbglow1{
+  0%{border-color:rgba(255,201,64,.44);box-shadow:0 10px 26px rgba(5,9,18,.45),inset 0 1px 0 rgba(255,255,255,.055)}
+  12%{border-color:rgba(255,226,170,.92);box-shadow:0 0 0 1px rgba(255,215,154,.4),0 12px 34px rgba(255,201,64,.24),inset -15px 0 30px -15px rgba(255,77,77,.55)}
+  100%{border-color:rgba(255,201,64,.44);box-shadow:0 10px 26px rgba(5,9,18,.45),inset 0 1px 0 rgba(255,255,255,.055)}
+}
+#game.fb .scorebox.fbgoal0{animation:fbsheen 1.2s cubic-bezier(.3,.7,.35,1),fbglow0 1.2s ease-out}
+#game.fb .scorebox.fbgoal1{animation:fbsheen 1.2s cubic-bezier(.3,.7,.35,1),fbglow1 1.2s ease-out}
+@media(prefers-reduced-motion:reduce){
+  #game.fb .score .s0.pop,#game.fb .score .s1.pop,
+  #game.fb .scorebox.fbgoal0,#game.fb .scorebox.fbgoal1{animation:none}
+}
 @media(max-width:380px){
   #game.fb .score{font-size:26px}
   #game.fb .pcard .pn{font-size:10px;letter-spacing:.1em}
@@ -2309,7 +2351,8 @@ function renderTeamBar(){
 // eine CSS-Klasse zu, formatiert den Untertitel und startet zwei kurze, rein
 // dekorative Einblendungen. Kein Timer beeinflusst einen Spielzustand.
 const FB_POP_MS=460;                    // Dauer der Tor-Reaktion am Score
-let fbPopT=[0,0],fbScoreShown=[0,0];
+const FB_GOAL_HUD_MS=1200;              // Dauer von Gold-Schimmer und Seiten-Glow am Score-Panel (UX-3B: laengerer Nachklang)
+let fbPopT=[0,0],fbScoreShown=[0,0],fbGoalPanelT=0;
 function fbHudOn(){return mode==='football'&&!menuVisible;}
 // Football-Klasse an/aus. Wird beim Matchstart und beim Menuewechsel aufgerufen; ausserhalb
 // Football raeumt sie laufende Animationen restlos ab.
@@ -2324,7 +2367,12 @@ function fbClearHudFx(){
     if(fbPopT[t]){clearTimeout(fbPopT[t]);fbPopT[t]=0;}
     const s=$(t?'sc1':'sc0');if(s)s.classList.remove('pop');
   }
+  if(fbGoalPanelT){clearTimeout(fbGoalPanelT);fbGoalPanelT=0;}
+  const box=fbScoreBox();if(box)box.classList.remove('fbgoal0','fbgoal1');
 }
+// Das zentrale Score-Panel wird ueber denselben Selektor adressiert wie im uebrigen Spiel
+// (scorePulse) — kein zweiter Zugriffsweg, keine neue ID im Markup.
+function fbScoreBox(){return document.querySelector('.scorebox');}
 // Untertitel des Score-Panels. Die Zahl kommt AUSSCHLIESSLICH aus FOOTBALL_WIN_SCORE.
 // Sprache: die In-Game-Ebene ist projektweit Deutsch (siehe 'Runde N', 'zielt…',
 // 'BLAU'/'ROT'), waehrend die i18n-Ebene bisher nur Menue und Online-Dialog abdeckt und
@@ -2342,9 +2390,21 @@ function fbScorePulse(){
       el.classList.add('pop');
       if(fbPopT[t])clearTimeout(fbPopT[t]);
       fbPopT[t]=setTimeout(()=>{el.classList.remove('pop');fbPopT[t]=0;},FB_POP_MS);
+      fbGoalPanelFx(t);
     }
     fbScoreShown[t]=v;
   }
+}
+// Gold-Schimmer + Seiten-Glow am zentralen Score-Panel. Es ist immer GENAU EINE
+// Seitenklasse aktiv — damit bleibt die Zuordnung eindeutig und ein schnelles zweites Tor
+// der Gegenseite kann nie beide Seiten gleichzeitig leuchten lassen. Der Timer nimmt die
+// Klasse restlos wieder zurueck; ausserdem raeumt fbClearHudFx() sie beim Menuewechsel ab.
+function fbGoalPanelFx(side){
+  const box=fbScoreBox();if(!box)return;
+  box.classList.remove('fbgoal0','fbgoal1');void box.offsetWidth;   // Animation sauber neu starten
+  box.classList.add(side?'fbgoal1':'fbgoal0');
+  if(fbGoalPanelT)clearTimeout(fbGoalPanelT);
+  fbGoalPanelT=setTimeout(()=>{box.classList.remove('fbgoal0','fbgoal1');fbGoalPanelT=0;},FB_GOAL_HUD_MS);
 }
 function updateHud(){
   if(mode==='ffa'){if(fmt==='team_duel')renderTeamBar();else renderFfaBar();return;}
@@ -3080,12 +3140,21 @@ function footballEscape(b,cs){
 // moeglich und zaehlen regulaer. Keine Last-Touch-/Assist-Logik.
 const FOOTBALL_GOAL_FALL_TICKS=72;    // Sub-Step-Ticks Ballfall (~1.2 s bei 60 fps; Renderer blendet bei t~1.07 s aus)
 const FOOTBALL_GOAL_SPAWN_TICKS=30;   // Sub-Step-Ticks Spawn-Drop des neutralen Balls (~0.5 s)
+// CELEBRATION WINDOW (UX-3C): eine Wartephase ZWISCHEN Ballfall und Rundenreset. In ihr ist
+// kein Ball im Bild — der alte ist bereits hinter der Arena ausgeblendet, der neue wird erst
+// am ENDE der Phase erzeugt (footballResetRound laeuft dort, nicht mehr am Fallende). Der
+// Torimpuls und das HUD-Feedback laufen unabhaengig davon weiter; hier steht ausschliesslich
+// Timing. Wie jede andere Phase tickgetrieben im Fixed-Step — kein setTimeout, keine Wanduhr.
+const FOOTBALL_GOAL_CELEBRATE_TICKS=51;      // ~0.85 s bei 60 fps: Zeit, den Treffer wahrzunehmen
+// Der Matchpunkt bekommt bewusst etwas mehr Raum, bevor das Result-Overlay uebernimmt —
+// aber nur so viel, dass keine spuerbare Leere entsteht (der Torimpuls endet bei 1.5 s).
+const FOOTBALL_GOAL_WIN_CELEBRATE_TICKS=66;  // ~1.1 s bei 60 fps
 function footballSpawnHeight(){return BR*10;}   // rein visuelle Starthoehe des Spawn-Drops
 // FIRST-TO-3: Arena Football 1v1 laeuft bis zum ersten Score >= FOOTBALL_WIN_SCORE.
 // Keine Zwei-Tore-Differenz, kein Zeitlimit, keine Verlaengerung, kein Unentschieden.
 // Eigentore zaehlen regulaer (entscheidend ist allein das ueberquerte Tor, s. footballGoalSide).
 const FOOTBALL_WIN_SCORE=3;
-let fbGoalState='play';               // 'play' -> 'fall' -> 'spawn' -> 'play'; entscheidendes Tor: 'play' -> 'fall' -> 'result' (Endzustand)
+let fbGoalState='play';               // 'play' -> 'fall' -> 'celebrate' -> 'spawn' -> 'play'; entscheidendes Tor: 'play' -> 'fall' -> 'celebrate' -> 'result' (Endzustand)
 let fbGoalTick=0;                     // deterministischer Tickzaehler (kein setTimeout, keine Wanduhr)
 let footballWinner=null;              // 0=Blau, 1=Rot, null=Match laeuft — KANONISCHE Quelle, nie aus DOM-Text/Farbe abgeleitet
 // Laeuft gerade ein Torablauf? Sperrt jede Benutzereingabe (s. inputLocked).
@@ -3106,6 +3175,47 @@ function footballGoalSide(b){
 function footballFreezePlayers(){
   for(const b of balls)if(b.alive&&b.owner!==FOOTBALL_NEUTRAL_OWNER){b.vx=0;b.vy=0;b.spin=0;}
 }
+// ── ARENA FOOTBALL: TOR-FEEDBACK (REIN VISUELL) ──
+// Ein einziger, kurzer Aktivierungsimpuls am GETROFFENEN Tor. Der Zustand ist bewusst nur
+// eine Startzeit plus die Torseite — keine zweite Goal-State-Maschine, kein Timer, kein
+// Eingriff in Physik, Wertung oder Ablauf. Gelesen wird er ausschliesslich vom 3D-Renderer
+// (footballGoalFxLevel je Frame); fehlt die 3D-Szene, bleibt der Zustand folgenlos.
+// ZEITBASIS ist bewusst die RENDER-Uhr (performance.now), nicht der Physik-Tick: der Impuls
+// ist Praesentation und darf den deterministischen Fixed-Step nicht beruehren.
+// UX-3B: Der Impuls klingt bewusst laenger aus als der Torablauf dauert — das Tor leuchtet
+// noch, waehrend der neue Ball bereits gespawnt ist. Das ist REIN visuell: Fallzeit, Spawn
+// und Eingabefreigabe (FOOTBALL_GOAL_FALL_TICKS / _SPAWN_TICKS) bleiben unveraendert.
+const FB_GOAL_FX_MS=1500;               // Gesamtdauer des Torimpulses (kurzer Impuls, lange goldene Nachglut)
+// Der ANTEIL sinkt mit der laengeren Gesamtdauer, damit die ABSOLUTE Anstiegszeit gleich
+// bleibt: 0.075*1500 == 112.5 ms (vorher 0.12*940 == 112.8 ms). Der Treffer reagiert also
+// unveraendert schnell, nur der Nachklang ist laenger.
+const FB_GOAL_FX_ATTACK=0.075;          // Anteil der Dauer bis zum Spitzenwert (weicher Anstieg, kein Blinken)
+let fbGoalFxSide=-1;                    // 0 = Punkt Blau, 1 = Punkt Rot, -1 = inaktiv
+let fbGoalFxStart=0;                    // performance.now() des Trefferimpulses
+// Genau einmal pro Tor: der einzige Aufrufer ist footballTryGoal, das nur aus 'play' wertet.
+function footballGoalFxTrigger(side){fbGoalFxSide=side;fbGoalFxStart=performance.now();}
+// Vollstaendiger Reset. Der Renderer faellt daraufhin im naechsten Frame auf die Ruhewerte
+// der Tormaterialien zurueck — es kann kein Glow haengen bleiben.
+function footballClearGoalFx(){fbGoalFxSide=-1;fbGoalFxStart=0;}
+// Welches Tor leuchtet? Getroffen wird immer das Tor der GEGENSEITE: ein Punkt fuer Blau
+// (side 0) faellt im +X-Tor, ein Punkt fuer Rot (side 1) im -X-Tor — dieselbe Zuordnung
+// wie in footballGoalSide, nur umgekehrt gelesen. Rueckgabe: +1 = +X-Tor, -1 = -X-Tor.
+function footballGoalFxSign(){return fbGoalFxSide<0?0:(fbGoalFxSide===0?1:-1);}
+// Huellkurve 0..1 fuer das Tor auf der Seite `sign`. Kurzer weicher Anstieg (Smoothstep),
+// danach eine quadratische Ease-Out-Abklingkurve. QUADRATISCH statt kubisch (UX-3B): der
+// kubische Ausklang war nach einem Drittel der Nachglut praktisch unsichtbar, die Dauer
+// allein haette sich deshalb kaum bemerkbar gemacht. q^2 traegt die Goldglut sichtbar
+// weiter und laeuft trotzdem mit Steigung 0 in den Ruhewert (kein Abschaltkante).
+// Ausserhalb des Fensters exakt 0 — daran erkennt der Renderer den Ruhezustand und
+// schreibt dann gar nichts mehr.
+function footballGoalFxLevel(sign,nowMs){
+  if(fbGoalFxSide<0||sign!==footballGoalFxSign())return 0;
+  const p=(nowMs-fbGoalFxStart)/FB_GOAL_FX_MS;
+  if(p<=0||p>=1)return 0;
+  if(p<FB_GOAL_FX_ATTACK){const u=p/FB_GOAL_FX_ATTACK;return u*u*(3-2*u);}
+  const q=1-(p-FB_GOAL_FX_ATTACK)/(1-FB_GOAL_FX_ATTACK);
+  return q*q;
+}
 // Genau EINE Wertung pro Torereignis: nur aus 'play' heraus erreichbar.
 function footballTryGoal(b){
   if(fbGoalState!=='play')return;
@@ -3119,6 +3229,7 @@ function footballTryGoal(b){
   fbGoalState='fall';fbGoalTick=0;
   cancelAimDrag();                    // laufende Eingabe sauber abbrechen
   footballFreezePlayers();
+  footballGoalFxTrigger(side);        // rein visueller Torimpuls am getroffenen Tor (kein Spielzustand)
   updateHud();
 }
 // Rundenreset nach dem Ballfall. placeBalls() erzeugt FRISCHE Kugelobjekte (mkBall) —
@@ -3126,6 +3237,11 @@ function footballTryGoal(b){
 function footballResetRound(){
   placeBalls();resetCommits();cancelAimDrag();
   roundWinner=-1;outBall=-1;
+}
+// Laenge des Celebration Windows. Die Verzweigung haengt am KANONISCHEN footballWinner —
+// derselben Quelle, die auch ueber Matchende entscheidet. Kein zweiter Zustand, kein Flag.
+function footballCelebrateTicks(){
+  return footballWinner!==null?FOOTBALL_GOAL_WIN_CELEBRATE_TICKS:FOOTBALL_GOAL_CELEBRATE_TICKS;
 }
 // Tickgetriebene Zustandsmaschine des Torablaufs. Laeuft ausschliesslich in stepSim und
 // damit im selben Fixed-Step wie die Physik — deterministisch und ohne setTimeout-Kaskade.
@@ -3135,12 +3251,16 @@ function footballTickGoal(){
   // (footballResetMatchState) oder den Modus verlaesst.
   if(fbGoalState==='result')return;
   fbGoalTick++;
+  // Der Ballfall laeuft fuer JEDES Tor exakt gleich lang (FOOTBALL_GOAL_FALL_TICKS) und wird
+  // nie abgeschnitten — auch nicht beim entscheidenden. Danach folgt IMMER das Celebration
+  // Window; erst dessen Ende verzweigt in Matchende oder Rundenreset.
   if(fbGoalState==='fall'&&fbGoalTick>=FOOTBALL_GOAL_FALL_TICKS){
-    // TICKGRENZE DES MATCHENDES: der Ballfall des entscheidenden Tores laeuft exakt so lange
-    // wie jeder andere (FOOTBALL_GOAL_FALL_TICKS = 72 Sub-Step-Ticks) und wird nicht abrupt
-    // abgeschnitten. Erst danach 'fall' -> 'result'. Die 'spawn'-Phase wird bewusst
-    // UEBERSPRUNGEN: nach dem Sieg gibt es keinen Rundenreset und faellt kein neuer Ball
-    // in die Arena.
+    fbGoalState='celebrate';fbGoalTick=0;return;
+  }
+  if(fbGoalState==='celebrate'&&fbGoalTick>=footballCelebrateTicks()){
+    // ENDE DES CELEBRATION WINDOWS. Erst HIER entsteht der neue Ball (footballResetRound) —
+    // davor ist die Arena bewusst leer. Beim entscheidenden Tor wird 'spawn' uebersprungen:
+    // nach dem Sieg gibt es keinen Rundenreset und faellt kein neuer Ball in die Arena.
     if(footballWinner!==null){fbGoalState='result';fbGoalTick=0;footballMatchEnd();return;}
     footballResetRound();fbGoalState='spawn';fbGoalTick=0;return;
   }
@@ -3157,11 +3277,12 @@ function footballTickGoal(){
 function footballMatchEnd(){
   cancelAimDrag();                    // offener Drag/Pointer-Capture sauber weg
   footballFreezePlayers();
+  footballClearGoalFx();              // der Impuls des Siegtores ist hier laengst abgelaufen — Ergebnisbild startet garantiert ruhig
   gameOver(footballWinner);
 }
 // ZENTRALE Initialisierung des Football-Matchzustands: neues Match, Moduswechsel, Menue.
 // Score/Kugeln/Aim-Zustaende setzt der bestehende Pfad newGame() -> startRound() -> placeBalls().
-function footballResetMatchState(){fbGoalState='play';fbGoalTick=0;footballWinner=null;}
+function footballResetMatchState(){fbGoalState='play';fbGoalTick=0;footballWinner=null;footballClearGoalFx();}
 function stepSim(){
   // Restitution nach Kontaktart (4B-2). Ohne aktives Football-Preset liefern alle drei
   // Funktionen den bestehenden REST-Wert — Bestandsmodi rechnen unveraendert weiter.
@@ -4980,6 +5101,24 @@ async function initR3D(){
     // System wie bGroup/platform: Gruppe bei (cx,0,cy), pro Frame mit sc skaliert + schwebend.
     // Sichtbar AUSSCHLIESSLICH bei mode==='football' (nie Menue-Preview/normale Modi).
     let goalGroup=null,goalPlus=null,goalMinus=null;
+    // Tor-Feedback (UX-3): je Tor die drei bereits farbig gefassten Bauteile — Wappen,
+    // vordere Keyline, Torlinie. Gehalten werden Material UND Ruhewerte, damit der Impuls
+    // exakt auf den Ruhezustand zurueckfaellt (kein Drift, kein haengender Glow). Bleibt
+    // leer, wenn das Tor-GLB fehlt -> die Arena verhaelt sich dann voellig unveraendert.
+    const goalFxParts=[];
+    const GOAL_FX_GOLD=new THREE.Color(0xffd79a);   // warmes Gold-Weiss: die Haupt-Feedbackfarbe
+    const GOAL_FX_MIX=.72;                          // Spitzenanteil Gold ueber der Teamfarbe (Gold dominiert, Farbe bleibt lesbar)
+    // Ein Frame Tor-Feedback: pro Material genau EINE Schreiboperation und nur, wenn sich
+    // der Pegel geaendert hat. Im Ruhezustand (Pegel 0 bereits gesetzt) wird nichts angefasst.
+    const applyGoalFx=(nowMs)=>{
+      for(const p of goalFxParts){
+        const lv=footballGoalFxLevel(p.sign,nowMs);
+        if(lv===p.lv)continue;
+        p.lv=lv;
+        p.mat.emissive.copy(p.col).lerp(GOAL_FX_GOLD,GOAL_FX_MIX*lv);
+        p.mat.emissiveIntensity=p.int*(1+p.gain*lv);
+      }
+    };
     try{
       const goalGlb=await new Promise((res,rej)=>new GLTFLoader().load('assets/arena_football_goal_curved.glb',res,undefined,rej));
       const goalProto=goalGlb.scene;
@@ -5012,6 +5151,14 @@ async function initR3D(){
       const GOAL_LINE_W=.30;                                 // radiale Breite der Torlinie (GLB) — waechst nach AUSSEN
       const GOAL_LINE_LIFT=.012;                             // knapp ueber dem Randweg
       const GOAL_LINE_EMISSIVE=2.40;                         // kraeftig, aber in der Teamfarbe (kein Weissglut-Clip)
+      // Zuwachs der Emissive-Intensitaet auf dem Spitzenwert des Torimpulses (Faktor auf den
+      // jeweiligen Ruhewert). Die Keyline traegt am meisten zu, weil sie im Ruhezustand am
+      // dunkelsten sitzt; die ohnehin helle Torlinie am wenigsten — so bleibt der Impuls
+      // ausgewogen und nichts clippt in Weissglut.
+      const GOAL_FX_GAIN_EMBLEM=2.00, GOAL_FX_GAIN_FRAME=3.40, GOAL_FX_GAIN_LINE=0.90;
+      const addGoalFx=(sign,mat,gain)=>{
+        goalFxParts.push({sign,mat,gain,col:mat.emissive.clone(),int:mat.emissiveIntensity,lv:0});
+      };
       // Innenkante der Torlinie = dokumentierte Fuss-Innenkante / Walkway-Innenlippe. Die
       // Linie waechst von dort NACH AUSSEN in die Toroeffnung hinein und ragt damit nie ins
       // Spielfeld. Halbwinkel exakt die LICHTE Toroeffnung — footballGoalClearHalf() ist
@@ -5038,6 +5185,7 @@ async function initR3D(){
           if(on.includes('Emblem')){
             o.material=new THREE.MeshStandardMaterial({color:col,emissive:col,
               emissiveIntensity:GOAL_EMBLEM_EMISSIVE,metalness:.35,roughness:.28,envMapIntensity:1.0});
+            addGoalFx(sign,o.material,GOAL_FX_GAIN_EMBLEM);
             return;
           }
           if(!/Gold(Inner|Outer)/.test(on)||on.includes('Back'))return;   // nur die VORDERE Keyline
@@ -5046,6 +5194,7 @@ async function initR3D(){
           if(!cp){                                    // kopieren: das Gold-Material teilen sich alle Torteile
             cp=src.clone();cp.emissive=new THREE.Color(col);cp.emissiveIntensity=GOAL_FRAME_EMISSIVE;
             tinted.set(src,cp);
+            addGoalFx(sign,cp,GOAL_FX_GAIN_FRAME);    // je Tor genau eine Keyline-Materialkopie
           }
           o.material=cp;
         });
@@ -5057,6 +5206,7 @@ async function initR3D(){
         const lineMat=new THREE.MeshStandardMaterial({color:col,emissive:col,
           emissiveIntensity:GOAL_LINE_EMISSIVE,roughness:.30,metalness:.05,
           polygonOffset:true,polygonOffsetFactor:-2,polygonOffsetUnits:-2});
+        addGoalFx(sign,lineMat,GOAL_FX_GAIN_LINE);   // Oeffnungs-/Walkway-Akzent: dieselbe Torlinie, kurz hochgezogen
         const line=new THREE.Mesh(new THREE.RingGeometry(goalLineR,goalLineR+GOAL_LINE_W,
           72,1,(sign>0?0:Math.PI)-goalLineHalf,goalLineHalf*2),lineMat);
         line.rotation.x=-Math.PI/2;line.position.y=GOAL_WALK_Y+GOAL_LINE_LIFT;line.renderOrder=2;
@@ -5192,6 +5342,10 @@ async function initR3D(){
       if(bandGroup)bandGroup.visible=footballView;             // Blender-Bande nur im Football-Modus sichtbar (erbt sc/bob als bGroup-Kind)
       if(boundaryFull)for(const bm of boundaryFull)bm.visible=!footballView;   // Vollkreis-Sichtringe nur in normalen Modi sichtbar (360 Grad unveraendert)
       if(goalGroup){goalGroup.visible=footballView;goalGroup.scale.setScalar(sc);goalGroup.position.y=bob;}   // skaliert + schwebt exakt mit der Plattform (gleiches sc/bob wie bGroup)
+      // Tor-Feedback: bewusst UNABHAENGIG von footballView. Faellt der Modus mitten im Impuls
+      // weg (Menue, neues Match), liefert footballGoalFxLevel 0 und genau dieser Aufruf setzt
+      // die Materialien im naechsten Frame auf ihre Ruhewerte zurueck.
+      if(goalFxParts.length)applyGoalFx(t0+nowS*1000);
       ringG.rotation.y=nowS*.07;ringG.position.y=-646+bob;
       cloudG.rotation.y=nowS*.006;                    // Wolken driften
       island.position.y=-404+Math.sin(nowS*.3+2.3)*35;
@@ -5217,6 +5371,11 @@ async function initR3D(){
         // ohne das wuerde er beim Wechsel 'fall' -> 'result' hinter der Bande wieder auftauchen.
         const out=(!b.alive)||((phase==='result'||phase==='over')&&i===outBall)
           ||(mode==='football'&&fbGoalState==='fall'&&b.owner===FOOTBALL_NEUTRAL_OWNER)
+          // Celebration Window: der gefallene Ball bleibt unten. Ohne diesen Zweig wuerde er
+          // beim Wechsel 'fall' -> 'celebrate' wieder hinter der Bande auftauchen — die Arena
+          // soll aber genau jetzt leer sein. Reine Fortsetzung DESSELBEN Falls (fallT bleibt
+          // gesetzt), der Ball ist zu diesem Zeitpunkt ohnehin schon ausgeblendet.
+          ||(mode==='football'&&fbGoalState==='celebrate'&&b.owner===FOOTBALL_NEUTRAL_OWNER)
           ||(mode==='football'&&fbGoalState==='result'&&b.owner===FOOTBALL_NEUTRAL_OWNER);
         if(out){
           if(fallT[i]==null){fallT[i]=nowS;

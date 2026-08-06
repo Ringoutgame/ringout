@@ -71,10 +71,17 @@ const goalCanPassSrc     = grab(/function footballCanPassGoal\(b\)\{[\s\S]*?\n\}
 const resolvePostSrc     = grab(/function footballResolvePost\(b\)\{[\s\S]*?\n\}/, 'footballResolvePost');
 const fallTicksSrc       = grab(/const FOOTBALL_GOAL_FALL_TICKS=[^\n]*/, 'FOOTBALL_GOAL_FALL_TICKS');
 const spawnTicksSrc      = grab(/const FOOTBALL_GOAL_SPAWN_TICKS=[^\n]*/, 'FOOTBALL_GOAL_SPAWN_TICKS');
+// UX-PHASE 3C: Celebration Window zwischen Ballfall und Rundenreset.
+const celebTicksSrc      = grab(/const FOOTBALL_GOAL_CELEBRATE_TICKS=[^\n]*/, 'FOOTBALL_GOAL_CELEBRATE_TICKS');
+const winCelebTicksSrc   = grab(/const FOOTBALL_GOAL_WIN_CELEBRATE_TICKS=[^\n]*/, 'FOOTBALL_GOAL_WIN_CELEBRATE_TICKS');
+const celebFnSrc         = grab(/function footballCelebrateTicks\(\)\{[\s\S]*?\n\}/, 'footballCelebrateTicks');
 const spawnHeightSrc     = grab(/function footballSpawnHeight\([^\n]*/, 'footballSpawnHeight');
 const goalBusySrc        = grab(/function footballGoalBusy\([^\n]*/, 'footballGoalBusy');
 const goalSideSrc        = grab(/function footballGoalSide\(b\)\{[\s\S]*?\n\}/, 'footballGoalSide');
 const freezeSrc          = grab(/function footballFreezePlayers\(\)\{[\s\S]*?\n\}/, 'footballFreezePlayers');
+// UX-PHASE 3: rein visueller Tor-Impuls. Echt injiziert, damit die Flow-Suite mit der
+// Produktivquelle laeuft und nicht gegen einen Stub testet.
+const goalFxSrc          = grab(/const FB_GOAL_FX_MS=[\s\S]*?\nfunction footballGoalFxLevel\(sign,nowMs\)\{[\s\S]*?\n\}/, 'Football-Goal-FX-Block');
 const tryGoalSrc         = grab(/function footballTryGoal\(b\)\{[\s\S]*?\n\}/, 'footballTryGoal');
 const resetRoundSrc      = grab(/function footballResetRound\(\)\{[\s\S]*?\n\}/, 'footballResetRound');
 const tickGoalSrc        = grab(/function footballTickGoal\(\)\{[\s\S]*?\n\}/, 'footballTickGoal');
@@ -162,6 +169,8 @@ function buildEnv(ci, preset) {
     ${wedgeSrc}
     ${fallTicksSrc}
     ${spawnTicksSrc}
+    ${celebTicksSrc}
+    ${winCelebTicksSrc}
     ${spawnHeightSrc}
     ${winScoreSrc}
     let fbGoalState='play', fbGoalTick=0;
@@ -169,11 +178,13 @@ function buildEnv(ci, preset) {
     ${goalBusySrc}
     ${goalSideSrc}
     ${freezeSrc}
+    ${goalFxSrc}
     ${tryGoalSrc}
     ${npSrc}
     ${resetCommitsSrc}
     ${resetRoundSrc}
     ${startRoundSrc}
+    ${celebFnSrc}
     ${tickGoalSrc}
     ${matchEndSrc}
     ${resetMatchStateSrc}

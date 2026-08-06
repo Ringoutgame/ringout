@@ -82,10 +82,17 @@ const resolvePostSrc = grab(/function footballResolvePost\(b\)\{[\s\S]*?\n\}/, '
 // Gameplayphase 2: Goal Detection, Ballfall-Zustandsmaschine, Rundenreset
 const fallTicksSrc = grab(/const FOOTBALL_GOAL_FALL_TICKS=[^\n]*/, 'FOOTBALL_GOAL_FALL_TICKS');
 const spawnTicksSrc = grab(/const FOOTBALL_GOAL_SPAWN_TICKS=[^\n]*/, 'FOOTBALL_GOAL_SPAWN_TICKS');
+// UX-PHASE 3C: Celebration Window zwischen Ballfall und Rundenreset.
+const celebTicksSrc = grab(/const FOOTBALL_GOAL_CELEBRATE_TICKS=[^\n]*/, 'FOOTBALL_GOAL_CELEBRATE_TICKS');
+const winCelebTicksSrc = grab(/const FOOTBALL_GOAL_WIN_CELEBRATE_TICKS=[^\n]*/, 'FOOTBALL_GOAL_WIN_CELEBRATE_TICKS');
+const celebFnSrc = grab(/function footballCelebrateTicks\(\)\{[\s\S]*?\n\}/, 'footballCelebrateTicks');
 const spawnHeightSrc = grab(/function footballSpawnHeight\([^\n]*/, 'footballSpawnHeight');
 const goalBusySrc = grab(/function footballGoalBusy\([^\n]*/, 'footballGoalBusy');
 const goalSideSrc = grab(/function footballGoalSide\(b\)\{[\s\S]*?\n\}/, 'footballGoalSide');
 const freezeSrc = grab(/function footballFreezePlayers\(\)\{[\s\S]*?\n\}/, 'footballFreezePlayers');
+// UX-PHASE 3: rein visueller Tor-Impuls. Wird ECHT injiziert (nicht gestubbt), damit die
+// Suite Trigger, Zuordnung und Abklingen an der Produktivquelle prueft.
+const goalFxSrc = grab(/const FB_GOAL_FX_MS=[\s\S]*?\nfunction footballGoalFxLevel\(sign,nowMs\)\{[\s\S]*?\n\}/, 'Football-Goal-FX-Block');
 const tryGoalSrc = grab(/function footballTryGoal\(b\)\{[\s\S]*?\n\}/, 'footballTryGoal');
 const resetRoundSrc = grab(/function footballResetRound\(\)\{[\s\S]*?\n\}/, 'footballResetRound');
 const tickGoalSrc = grab(/function footballTickGoal\(\)\{[\s\S]*?\n\}/, 'footballTickGoal');
@@ -149,6 +156,8 @@ function buildEnv(startMode, startFmt, startPreset) {
     ${wedgeSrc}
     ${fallTicksSrc}
     ${spawnTicksSrc}
+    ${celebTicksSrc}
+    ${winCelebTicksSrc}
     ${spawnHeightSrc}
     ${winScoreSrc}
     let fbGoalState='play', fbGoalTick=0;
@@ -165,11 +174,13 @@ function buildEnv(startMode, startFmt, startPreset) {
     ${goalBusySrc}
     ${goalSideSrc}
     ${freezeSrc}
+    ${goalFxSrc}
     ${tryGoalSrc}
     ${npSrc}
     ${resetCommitsSrc}
     ${resetRoundSrc}
     ${startRoundSrc}
+    ${celebFnSrc}
     ${tickGoalSrc}
     ${matchEndSrc}
     ${resetMatchStateSrc}
@@ -220,6 +231,9 @@ function buildEnv(startMode, startFmt, startPreset) {
       locked(){ return inputLocked(); },
       canCommit(who){ aimSet=[false,false]; phase='aim'; return canCommitInput(who); },
       fallTicks: FOOTBALL_GOAL_FALL_TICKS, spawnTicks: FOOTBALL_GOAL_SPAWN_TICKS,
+      celebrateTicks: FOOTBALL_GOAL_CELEBRATE_TICKS,
+      winCelebrateTicks: FOOTBALL_GOAL_WIN_CELEBRATE_TICKS,
+      celebrateTicksNow(){ return footballCelebrateTicks(); },
       spawnHeight(){ return footballSpawnHeight(); },
       dragCalls(){ return cancelDragCalls; },
       aimState(){ return {aimSet:aimSet.slice(), commitIdx:commitIdx.slice(), phase}; },
@@ -234,6 +248,14 @@ function buildEnv(startMode, startFmt, startPreset) {
       overCalls(){ return gameOverCalls.slice(); },
       resetMatchState(){ footballResetMatchState(); },
       setGoalState(s){ fbGoalState=s; },
+      // ── UX-Phase 3: rein visueller Tor-Impuls ──
+      fxSide(){ return fbGoalFxSide; },
+      fxStart(){ return fbGoalFxStart; },
+      fxSign(){ return footballGoalFxSign(); },
+      fxLevel(sign,nowMs){ return footballGoalFxLevel(sign,nowMs); },
+      matchEnd(){ footballMatchEnd(); },
+      fxDur: FB_GOAL_FX_MS,
+      fxAttack: FB_GOAL_FX_ATTACK,
       clearHalf(){ return footballGoalClearHalf(); },
       centerHalf(){ return footballGoalCenterHalf(); },
       canPass(b){ return footballCanPassGoal(b); },
@@ -586,7 +608,11 @@ for (const owner of [0, 1])
     (owner === 0 ? 'Blauer' : 'Roter') + ' Spielerball zaehlt nie als Tor');
 // Quelltext: genau EINE Goal-Detection, ohne Renderer-/GLB-Abfrage.
 const goalLogicSrc = goalSideSrc + tryGoalSrc + tickGoalSrc + resetRoundSrc + freezeSrc;
-ok(!/THREE|scene|renderer|camera|ballMeshes|\.glb|document|window/i.test(goalLogicSrc), 'Torlogik ohne Renderer-/GLB-/DOM-Abfrage');
+// Geprueft wird der CODE, nicht die Prosa: Kommentare erst entfernen. Sonst schlaegt der
+// Test schon an, wenn in einer Erklaerung ein Fachbegriff wie "Celebration Window" steht.
+const stripComments = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+ok(!/THREE|scene|renderer|camera|ballMeshes|\.glb|document|window/i.test(stripComments(goalLogicSrc)),
+   'Torlogik ohne Renderer-/GLB-/DOM-Abfrage');
 ok((HTML.match(/function footballGoalSide\(/g) || []).length === 1, 'Genau eine Goal-Detection-Funktion');
 ok((HTML.match(/footballTryGoal\(/g) || []).length === 2, 'footballTryGoal: eine Definition, genau ein Aufruf');
 ok(/FOOTBALL_POST_BACK\*BR/.test(goalSideSrc), 'Torlinie aus FOOTBALL_POST_BACK abgeleitet');
@@ -613,13 +639,13 @@ kickToGoal(G, +1);
 ok(G.goalState() === 'fall', 'Gueltiges Tor wechselt play -> fall');
 ok(JSON.stringify(G.score()) === '[1,0]', '+X-Tor (rotes Tor) gibt BLAU den Punkt — erhalten ' + JSON.stringify(G.score()));
 // Kein Doppelpunkten waehrend des gesamten Fallablaufs.
-for (let i = 0; i < G.fallTicks + G.spawnTicks + 20; i++) G.step();
+for (let i = 0; i < G.fallTicks + G.celebrateTicks + G.spawnTicks + 20; i++) G.step();
 ok(JSON.stringify(G.score()) === '[1,0]', 'Kein Doppelpunkten waehrend Fall/Spawn/Reset');
 ok(G.goalState() === 'play', 'Nach Fall + Spawn zurueck in play');
 // -X-Tor gibt der Gegenseite den Punkt.
 kickToGoal(G, -1);
 ok(JSON.stringify(G.score()) === '[1,1]', '-X-Tor (blaues Tor) gibt ROT den Punkt — erhalten ' + JSON.stringify(G.score()));
-for (let i = 0; i < G.fallTicks + G.spawnTicks + 20; i++) G.step();
+for (let i = 0; i < G.fallTicks + G.celebrateTicks + G.spawnTicks + 20; i++) G.step();
 ok(JSON.stringify(G.score()) === '[1,1]', 'Score bleibt ueber den Rundenreset erhalten');
 // Eigentore sind erlaubt: entscheidend ist NUR das ueberquerte Tor, nicht der letzte Kontakt.
 ok(G.goalSide({ owner: 4, fbPassed: true, x: G.cx + GOAL_LINE + G.BR + 1, y: G.cy }) === 0 &&
@@ -686,7 +712,10 @@ ok(!/setTimeout\([^)]*fbGoal/.test(HTML) && !/setInterval\([^)]*fbGoal/.test(HTM
   I2.setAim();                                  // simulierte Aim-/Commit-Reste
   let guard = 0;
   while (I2.goalState() === 'fall' && guard++ < 500) I2.step();
-  ok(I2.goalState() === 'spawn', 'Nach fester Tickzahl wechselt goal_fall -> goal_reset/spawn');
+  // UX-3C: zwischen Ballfall und Rundenreset liegt jetzt das Celebration Window.
+  ok(I2.goalState() === 'celebrate', 'Nach fester Tickzahl wechselt goal_fall -> celebrate');
+  guard = 0; while (I2.goalState() === 'celebrate' && guard++ < 500) I2.step();
+  ok(I2.goalState() === 'spawn', 'Nach dem Celebration Window folgt der Rundenreset (spawn)');
   // Kanonische Referenz aus einer SEPARATEN Instanz — I2.place() wuerde die gerade
   // zurueckgesetzten Kugeln ueberschreiben, die hier genau geprueft werden sollen.
   const ref = buildEnv('football', 'single').place();
@@ -725,8 +754,13 @@ ok(!/setTimeout\([^)]*fbGoal/.test(HTML) && !/setInterval\([^)]*fbGoal/.test(HTM
 // (Gameplayphase 3). Deterministisch: kein Timer, kein DOM als Source of Truth.
 // ════════════════════════════════════════════════════════════════════════════
 
-// Ballfall bis zum naechsten Zustandswechsel ('spawn' bei normalem Tor, 'result' beim Sieg).
-function runFall(env) { let g = 0; while (env.goalState() === 'fall' && g++ < 500) env.step(); }
+// Ballfall UND Celebration Window bis zum naechsten Zustandswechsel ('spawn' bei normalem
+// Tor, 'result' beim Sieg). Beide Phasen sind reines Warten; wer die Tickgrenzen einzeln
+// pruefen will, tut das ueber goalState()/goalTick() (s. F2 und J1).
+function runFall(env) {
+  let g = 0;
+  while ((env.goalState() === 'fall' || env.goalState() === 'celebrate') && g++ < 500) env.step();
+}
 // Frische Instanz auf Stand a:b, dann genau ein Tor in Richtung dir, Ballfall komplett.
 function matchAfterGoal(a, b, dir) {
   const M = buildEnv('football', 'single');
@@ -769,7 +803,16 @@ ok(!/overtime|goldenGoal|extraTime|timeLimit|matchClock/i.test(HTML), 'Kein Over
   ok(M.goalState() === 'fall' && M.goalTick() === M.fallTicks - 1, 'Ballfall laeuft bis unmittelbar vor die kanonische Tickgrenze (FOOTBALL_GOAL_FALL_TICKS)');
   ok(M.overCalls().length === 0, 'Vor der Tickgrenze noch kein Matchende');
   M.step();
-  ok(M.goalState() === 'result', 'Genau bei FOOTBALL_GOAL_FALL_TICKS: fall -> result (spawn wird uebersprungen)');
+  // UX-3C: auch das entscheidende Tor bekommt zuerst sein Celebration Window — das
+  // Result-Overlay darf den Trefferimpuls nicht sofort ueberdecken.
+  ok(M.goalState() === 'celebrate', 'Genau bei FOOTBALL_GOAL_FALL_TICKS: fall -> celebrate');
+  ok(M.overCalls().length === 0, 'im Celebration Window ist das Matchende noch NICHT ausgeloest');
+  let gw = 0;
+  while (M.goalState() === 'celebrate' && M.goalTick() < M.winCelebrateTicks - 1 && gw++ < 500) M.step();
+  ok(M.goalState() === 'celebrate' && M.overCalls().length === 0,
+     'das Matchende wartet die volle Matchpunkt-Celebration ab');
+  M.step();
+  ok(M.goalState() === 'result', 'erst am Ende des Celebration Windows: celebrate -> result (spawn wird uebersprungen)');
   ok(M.goalTick() === 0, 'fbGoalTick beim Eintritt in result zurueckgesetzt');
   ok(M.overCalls().length === 1 && M.overCalls()[0] === 0, 'Bestehende Result-Struktur genau einmal mit dem gespeicherten Gewinner aufgerufen');
   ok(M.get().phase === 'over', 'Matchende nutzt die bestehende Result-Phase (over) — keine zweite Matchengine');
@@ -1485,7 +1528,8 @@ for (const p of ['PROD', 'BASELINE']) {
   // Vollstaendiger Ablauf fall -> spawn -> play mit frischen Kugeln
   const seq = [M.goalState()];
   for (let k = 0; k < 300; k++) { M.step(); if (seq[seq.length - 1] !== M.goalState()) seq.push(M.goalState()); }
-  ok(seq.join('->') === 'fall->spawn->play', p + ': Torablauf fall->spawn->play unveraendert (' + seq.join('->') + ')');
+  ok(seq.join('->') === 'fall->celebrate->spawn->play',
+     p + ': Torablauf fall->celebrate->spawn->play (' + seq.join('->') + ')');
   ok(M.get().balls.length === 3, p + ': Rundenreset stellt wieder genau drei Kugeln auf');
   // Spielerkugel wird an der Toroeffnung weiterhin geblockt
   const B2 = buildEnv('football', 'single', p);
@@ -1564,8 +1608,13 @@ const fbCssSrc = grab(/#game\.fb \.status\{[\s\S]*?\n\.arena-wrap\{/, 'Football-
 {
   const rules = fbCssSrc.split('\n').map((l) => l.trim())
     .filter((l) => l.includes('{') && !l.startsWith('/*') && !l.startsWith('*'))
+    // Keyframe-Stops ("0%{…}", "52%{…}") sind keine Selektoren — sie koennen ausserhalb
+    // eines @keyframes-Blocks gar nicht vorkommen und tragen deshalb kein Mode-Scoping.
+    .filter((l) => !/^\d+(\.\d+)?%\s*\{/.test(l))
     .map((l) => l.slice(0, l.indexOf('{')).trim()).filter(Boolean);
-  const NEUTRAL = ['@keyframes fbpop', '@media(max-width:380px)', '.arena-wrap'];
+  const NEUTRAL = ['@keyframes fbgoal0', '@keyframes fbgoal1', '@keyframes fbsheen',
+                   '@keyframes fbglow0', '@keyframes fbglow1',
+                   '@media(prefers-reduced-motion:reduce)', '@media(max-width:380px)', '.arena-wrap'];
   ok(rules.length > 10, 'HUD-CSS-Block gefunden (' + rules.length + ' Regeln)');
   ok(rules.every((s) => s.startsWith('#game.fb') || NEUTRAL.includes(s)),
      'jede HUD-Regel haengt an #game.fb (Ausnahmen nur: Keyframes, Media-Query)');
@@ -1620,8 +1669,10 @@ const fbCssSrc = grab(/#game\.fb \.status\{[\s\S]*?\n\.arena-wrap\{/, 'Football-
     ok(!HTML.includes(id), 'kein Rest von "' + id + '" im Produktivcode');
   ok(!/BLAU<\/b><em>/.test(HTML) && !/→<\/em>/.test(HTML), 'keine Pfeil-/Anstossgrafik mehr vorhanden');
   ok(!/fbShowIntro|fbIntro/.test(newGameSrc), 'newGame() hat keinen Intro-Hook mehr');
-  ok((fbHudSrc.match(/setTimeout/g) || []).length === 1,
-     'nur noch EIN einmaliger Timer im HUD (die Score-Reaktion)');
+  // UX-Phase 3 ergaenzt genau EINEN weiteren einmaligen Timer: den Gold-Schimmer am
+  // Score-Panel. Mehr darf es nicht werden — jeder zusaetzliche Timer ist ein Leckrisiko.
+  ok((fbHudSrc.match(/setTimeout/g) || []).length === 2,
+     'genau ZWEI einmalige Timer im HUD (Score-Reaktion + Panel-Schimmer)');
   ok(!/setInterval/.test(fbHudSrc), 'weiterhin kein permanenter Timer');
 }
 
@@ -1653,8 +1704,16 @@ const fbCssSrc = grab(/#game\.fb \.status\{[\s\S]*?\n\.arena-wrap\{/, 'Football-
 // ── E. Score-Reaktion: kurz, dekorativ, ohne Rueckwirkung ──
 {
   ok(/const FB_POP_MS=460;/.test(HTML), 'Tor-Reaktion dauert 460 ms (kurz und kontrolliert)');
-  ok(/@keyframes fbpop\{0%\{transform:scale\(1\)\}30%\{transform:scale\(1\.26\)\}100%\{transform:scale\(1\)\}\}/.test(HTML),
-     'die Reaktion ist eine einmalige kurze Skalierung (kein Dauerblinken)');
+  // UX-Phase 3: die Reaktion ist weiterhin EINE einmalige kurze Bewegung — jetzt mit
+  // Gold-Impuls, der wieder exakt auf den Ruhezustand (Teamfarbe, kein Schatten) faellt.
+  for (const side of ['0', '1']) {
+    const kf = (HTML.match(new RegExp('@keyframes fbgoal' + side + '\\{[\\s\\S]*?\\n\\}')) || [])[0] || '';
+    ok(/0%\{transform:scale\(1\)/.test(kf) && /100%\{transform:scale\(1\);color:var\(--p[12]\);text-shadow:none\}/.test(kf),
+       'fbgoal' + side + ' startet und endet exakt im Ruhezustand (kein Dauerleuchten)');
+    ok(!/infinite|alternate/.test(kf), 'fbgoal' + side + ' laeuft einmalig (kein Dauerblinken)');
+    const peak = Number((kf.match(/transform:scale\((1\.\d+)\)/) || [])[1]);
+    ok(peak > 1 && peak <= 1.25, 'fbgoal' + side + ': Spitzenskalierung bleibt dezent (' + peak + ' <= 1.25)');
+  }
   ok(/const v=score\[t\]\|0,el=\$\(t\?'sc1':'sc0'\);/.test(fbHudSrc),
      'die Reaktion liest ausschliesslich score[] — keine eigene Zaehlung');
   ok(/if\(el&&v>fbScoreShown\[t\]\)/.test(fbHudSrc),
@@ -1665,6 +1724,25 @@ const fbCssSrc = grab(/#game\.fb \.status\{[\s\S]*?\n\.arena-wrap\{/, 'Football-
   ok(!/shake|confetti|particle|spawn\(|SFX\./i.test(fbHudSrc),
      'keine Partikel, kein Shake, keine neuen Sounds im HUD');
   ok(!/firebase|fetch\(|XMLHttpRequest|db\./.test(fbHudSrc), 'keine neue Netzwerkabhaengigkeit im HUD');
+  // UX-3B: JS-Timer und CSS-Animation MUESSEN dieselbe Dauer haben — laeuft der Timer
+  // frueher ab, schneidet er die Animation ab; laeuft er spaeter, haengt die Klasse nach.
+  const popMs = Number(HTML.match(/const FB_POP_MS=(\d+);/)[1]);
+  const hudMs = Number(HTML.match(/const FB_GOAL_HUD_MS=(\d+);/)[1]);
+  ok(popMs === 460, 'die Score-Zahl behaelt ihren praegnanten Pop (460 ms)');
+  ok(hudMs >= 1100 && hudMs <= 1250, 'Panel-Nachklang im vorgegebenen Fenster 1100–1250 ms (' + hudMs + ' ms)');
+  ok(hudMs > popMs, 'der goldene Nachklang ueberdauert den Score-Pop');
+  const cssSec = (s) => Number(s) * 1000;
+  for (const side of ['0', '1']) {
+    const decl = (HTML.match(new RegExp('#game\\.fb \\.scorebox\\.fbgoal' + side + '\\{animation:([^}]+)\\}')) || [])[1] || '';
+    const durs = (decl.match(/([\d.]+)s/g) || []).map((x) => cssSec(x.slice(0, -1)));
+    ok(durs.length === 2 && durs.every((d) => d === hudMs),
+       'fbgoal' + side + ': beide CSS-Animationen laufen exakt FB_GOAL_HUD_MS (' + durs.join('/') + ')');
+  }
+  for (const side of ['0', '1']) {
+    const decl = (HTML.match(new RegExp('#game\\.fb \\.score \\.s' + side + '\\.pop\\{animation:([^}]+)\\}')) || [])[1] || '';
+    const d = cssSec(((decl.match(/([\d.]+)s/) || [])[1] || 0));
+    ok(d === popMs, 's' + side + '.pop laeuft exakt FB_POP_MS (' + d + ' ms)');
+  }
 }
 
 // ── F. Die Spiellogik bleibt unberuehrt ──
@@ -1680,6 +1758,439 @@ const fbCssSrc = grab(/#game\.fb \.status\{[\s\S]*?\n\.arena-wrap\{/, 'Football-
      'First-to-3 wird weiterhin genau an der Wertungsstelle geprueft');
   // Das HUD haengt an updateHud() — dem bestehenden, einzigen Anzeige-Einstiegspunkt.
   ok(/updateHud\(\);/.test(tryGoalSrc), 'das Tor aktualisiert die Anzeige ueber den bestehenden updateHud()-Pfad');
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// UX-PHASE 3 — PREMIUM GOAL FEEDBACK
+// Geprueft wird die Abgrenzung und die Aufraeumbarkeit, nicht der Geschmack:
+// dass das Tor-Feedback genau EINMAL pro Tor feuert, dass genau EINE Seite reagiert,
+// dass es restlos in den Ruhezustand zurueckfaellt und dass es Physik, Wertung und
+// Ablauf nirgends beruehrt.
+// ══════════════════════════════════════════════════════════════════════════════
+
+// ── G1. Der In-World-Impuls: Existenz, Benennung, Abgrenzung ──
+{
+  for (const id of ['FB_GOAL_FX_MS', 'FB_GOAL_FX_ATTACK', 'fbGoalFxSide', 'fbGoalFxStart',
+                    'footballGoalFxTrigger', 'footballClearGoalFx', 'footballGoalFxSign',
+                    'footballGoalFxLevel'])
+    ok(goalFxSrc.includes(id), 'Goal-FX-Helfer "' + id + '" existiert im Produktivcode');
+  ok(!/setTimeout|setInterval|requestAnimationFrame/.test(goalFxSrc),
+     'der Impuls ist zustandslos ueber die Renderuhr geloest (kein Timer, keine Timeout-Kaskade)');
+  ok(!/score|fbGoalState|fbGoalTick|footballWinner|balls|\bvx\b|\bvy\b/.test(goalFxSrc),
+     'der Impuls liest und schreibt keinen Spielzustand (kein Score, kein Ablauf, keine Physik)');
+  ok(!/textContent|innerHTML|getElementById|classList|querySelector/.test(goalFxSrc),
+     'der Impuls fasst kein DOM an — das HUD ist eine eigene Ebene');
+  // UX-3B: laengerer Nachklang. Der Impuls DARF und SOLL ueber den Ball-Respawn hinaus
+  // sichtbar bleiben — geprueft wird das weiter unten gegen die echte Zustandsmaschine.
+  const dur = Number(goalFxSrc.match(/FB_GOAL_FX_MS=(\d+)/)[1]);
+  ok(dur >= 1450 && dur <= 1600, 'Impulsdauer im vorgegebenen Fenster 1450–1600 ms (' + dur + ' ms)');
+  const atk = Number(goalFxSrc.match(/FB_GOAL_FX_ATTACK=([\d.]+)/)[1]);
+  ok(atk * dur <= 200, 'der Peak bleibt frueh: Anstiegszeit ' + (atk * dur).toFixed(1) + ' ms (<= 200 ms)');
+  ok(/return q\*q;/.test(goalFxSrc),
+     'quadratischer Ausklang — traegt die Goldglut sichtbar weiter als eine kubische Kurve');
+}
+
+// ── G2. Genau EIN Trigger pro Tor, an der einzigen Wertungsstelle ──
+{
+  ok((HTML.match(/footballGoalFxTrigger\(/g) || []).length === 2,
+     'footballGoalFxTrigger existiert genau einmal und wird genau einmal aufgerufen');
+  ok(/footballGoalFxTrigger\(side\);/.test(tryGoalSrc),
+     'der Aufruf sitzt in footballTryGoal — der einzigen Stelle, die aus play heraus wertet');
+  ok(/if\(fbGoalState!=='play'\)return;/.test(tryGoalSrc),
+     'und damit hinter der bestehenden Einmal-Sperre (kein Doppelfeuer im selben Tor)');
+
+  const G3 = buildEnv('football', 'single');
+  ok(G3.fxSide() === -1, 'vor dem ersten Tor ist der Impuls inaktiv (-1)');
+  G3.setScore(0, 0);
+  kickToGoal(G3, +1);                       // echtes Tor durch die +X-Oeffnung -> Punkt fuer Blau
+  ok(G3.goalState() === 'fall', 'Testtor ist gewertet (play -> fall)');
+  ok(JSON.stringify(G3.score()) === '[1,0]', 'gewertet wurde genau eine Seite (Blau)');
+  ok(G3.fxSide() === 0, 'der Impuls kennt die punktende Seite (0 = Blau)');
+  ok(G3.fxSign() === 1, 'und leuchtet am +X-Tor — dem Tor, das getroffen wurde');
+  const start = G3.fxStart();
+  // Weiterlaufende Ticks des Torablaufs duerfen den Impuls nicht erneut ausloesen.
+  for (let i = 0; i < G3.fallTicks + G3.spawnTicks + 20; i++) G3.step();
+  ok(G3.fxStart() === start, 'der Impuls feuert waehrend des Torablaufs kein zweites Mal');
+}
+
+// ── G3. Huellkurve: startet bei 0, klingt sauber aus, genau EIN Tor leuchtet ──
+{
+  const G4 = buildEnv('football', 'single');
+  G4.setScore(0, 0);
+  kickToGoal(G4, +1);
+  const t = G4.fxStart(), D = G4.fxDur;
+  ok(G4.fxLevel(1, t) === 0, 'Pegel bei t=0 exakt 0 (kein harter Blitz zum Start)');
+  // Exakt 0 (nicht "fast 0"): nur so stellt der Renderer die Ruhewerte bitgenau wieder her.
+  ok(G4.fxLevel(1, t + D + 1) === 0 && G4.fxLevel(1, t + D * 2) === 0 && G4.fxLevel(1, t + D * 100) === 0,
+     'nach Ablauf exakt 0 — der Ruhezustand wird garantiert wieder erreicht');
+  const A = G4.fxAttack;
+  const peak = G4.fxLevel(1, t + D * A);
+  ok(Math.abs(peak - 1) < 1e-9, 'Spitzenwert 1.0 genau am Ende der Anstiegsphase');
+  // Anstieg selbst monoton steigend: der Treffer baut sich sauber auf, ohne Zwischenabfall.
+  let up = true, prevUp = 0;
+  for (let p = 0; p <= A; p += A / 20) { const v = G4.fxLevel(1, t + D * p); if (v < prevUp - 1e-12) up = false; prevUp = v; }
+  ok(up, 'der Aktivierungsimpuls steigt monoton bis zur Spitze');
+  // Monoton fallend nach der Spitze: sauberes Ease-Out statt Flackern.
+  let mono = true, prev = peak;
+  for (let p = A + 0.01; p < 1; p += 0.01) { const v = G4.fxLevel(1, t + D * p); if (v > prev + 1e-12) mono = false; prev = v; }
+  ok(mono, 'nach der Spitze faellt der Pegel monoton (Ease-Out, kein Strobing)');
+  // Kein statisches Festhalten: auf halber Nachglut ist der Pegel bereits deutlich gefallen,
+  // aber noch klar sichtbar — genau das Fenster zwischen "haelt fest" und "schon weg".
+  const half = G4.fxLevel(1, t + D * (A + (1 - A) * 0.5));
+  ok(half > 0.15 && half < 0.4,
+     'auf halber Nachglut noch sichtbar, aber klar abklingend (' + half.toFixed(3) + ')');
+  // Und immer nur EIN Tor: das gegenueberliegende bleibt vollstaendig unberuehrt.
+  let other = 0;
+  for (let p = 0; p <= 1.5; p += 0.01) other = Math.max(other, G4.fxLevel(-1, t + D * p));
+  ok(other === 0, 'das gegenueberliegende Tor bleibt waehrend des gesamten Impulses bei 0');
+  // Spiegelbildlich: ein Punkt fuer Rot leuchtet am -X-Tor.
+  const G5 = buildEnv('football', 'single');
+  G5.setScore(0, 0);
+  kickToGoal(G5, -1);
+  ok(G5.score()[1] === 1 && G5.fxSide() === 1 && G5.fxSign() === -1,
+     'Punkt fuer Rot leuchtet spiegelbildlich am -X-Tor');
+}
+
+// ── G3b. UX-PHASE 3B: der Nachklang ueberdauert den Ball-Respawn — OHNE ihn zu verzoegern ──
+{
+  // Gameplay-Timing zuerst: die Tickzahlen des Torablaufs sind unveraendert. Waere hier
+  // etwas verschoben worden, waere der laengere Effekt mit einem langsameren Spiel erkauft.
+  ok(G.fallTicks === 72 && G.spawnTicks === 30,
+     'Fall- und Spawn-Ticks unveraendert (72/30) — der Effekt verzoegert den neuen Ball nicht');
+  ok(!/FB_GOAL_FX|GoalFx/.test(tickGoalSrc + resetRoundSrc),
+     'die Zustandsmaschine des Torablaufs kennt die Effektdauer nicht');
+
+  const G7 = buildEnv('football', 'single');
+  G7.setScore(0, 0);
+  kickToGoal(G7, +1);
+  const t = G7.fxStart();
+  // Frames bis zur Eingabefreigabe MESSEN statt annehmen — gegen die echte Zustandsmaschine.
+  let frames = 0;
+  while (G7.goalState() !== 'play' && frames < 600) { G7.step(); frames++; }
+  ok(G7.goalState() === 'play', 'Ball ist regulaer zurueck im Spiel');
+  // MESSWERT: footballTickGoal laeuft einmal je stepSim-Frame, nicht je Sub-Step —
+  // (72+51+30) Ticks sind damit ~2550 ms bei 60 fps. Referenz 60 fps, wie die Renderuhr.
+  const playableMs = frames * 1000 / 60;
+  const ballVisibleMs = (G7.fallTicks + G7.celebrateTicks) * 1000 / 60;   // ab hier existiert der neue Ball
+  ok(playableMs >= 2200 && playableMs <= 2800,
+     'Gesamtzeit Tor -> naechste spielbare Runde im Zielfenster 2.2–2.8 s (' +
+     Math.round(playableMs) + ' ms)');
+  // UX-3C: der neue Ball erscheint erst NACH dem Torimpuls — genau das war der Befund.
+  ok(ballVisibleMs > G7.fxDur,
+     'der neue Ball erscheint erst nach dem Ende des Torimpulses (Ball ~' +
+     Math.round(ballVisibleMs) + ' ms > Impuls ' + G7.fxDur + ' ms)');
+  ok(G7.fxLevel(1, t + ballVisibleMs) === 0,
+     'und damit ist der Impuls beim Erscheinen des neuen Balls bereits im Ruhewert');
+  // Entscheidend fuer die Entkopplung: footballResetRound() feuert am Ende der Fallphase
+  // (fallTicks) und erzeugt dort komplett frische Kugelobjekte — der Impuls laeuft darueber
+  // hinweg unveraendert weiter, weil er an keinem kugel- oder rundengebundenen Zustand haengt.
+  const resetMs = G7.fallTicks * 1000 / 60;
+  ok(resetMs < G7.fxDur && G7.fxLevel(1, t + resetMs) > 0,
+     'der Rundenreset bei ~' + Math.round(resetMs) + ' ms schneidet den Impuls nicht ab');
+  // Aber er haelt nicht ewig: kurz nach Ablauf ist der Ruhewert erreicht.
+  ok(G7.fxLevel(1, t + G7.fxDur + 1) === 0, 'danach exakt Ruhewert (kein Dauerleuchten)');
+}
+
+// ── G4. Aufraeumen: newGame(), showMenu() und Matchende lassen nichts stehen ──
+{
+  ok(/footballClearGoalFx\(\);\}/.test(resetMatchStateSrc),
+     'footballResetMatchState() setzt den Impuls zurueck (newGame + showMenu laufen hier durch)');
+  ok(/footballResetMatchState\(\);/.test(newGameSrc), 'newGame() ruft footballResetMatchState()');
+  ok(/footballResetMatchState\(\);/.test(showMenuSrc), 'showMenu() ruft footballResetMatchState()');
+  ok(/footballClearGoalFx\(\);/.test(matchEndSrc), 'footballMatchEnd() setzt den Impuls zurueck');
+
+  const G6 = buildEnv('football', 'single');
+  G6.setScore(0, 0);
+  kickToGoal(G6, +1);
+  ok(G6.fxSide() === 0, 'Impuls laeuft');
+  G6.newMatch();
+  ok(G6.fxSide() === -1 && G6.fxStart() === 0, 'neues Match: Impuls vollstaendig zurueckgesetzt');
+  ok(G6.fxLevel(1, 1e12) === 0 && G6.fxLevel(-1, 1e12) === 0,
+     'und beide Tore liefern danach dauerhaft Pegel 0 (kein haengender Glow)');
+  G6.resetMatchState();
+  ok(G6.fxSide() === -1, 'Menuewechsel (footballResetMatchState) ist idempotent');
+  G6.matchEnd();
+  ok(G6.fxSide() === -1, 'Matchende hinterlaesst keinen aktiven Impuls');
+}
+
+// ── G5. Renderer-Ebene: Ruhewerte werden gehalten und exakt wiederhergestellt ──
+{
+  const fxRenderSrc = grab(/const goalFxParts=\[\];[\s\S]*?\n    \};/, 'Renderer-Goal-FX-Block');
+  ok(/col:mat\.emissive\.clone\(\),int:mat\.emissiveIntensity/.test(HTML),
+     'je Bauteil werden Ruhefarbe und Ruheintensitaet als Kopie festgehalten');
+  ok(/p\.mat\.emissive\.copy\(p\.col\)\.lerp\(GOAL_FX_GOLD,GOAL_FX_MIX\*lv\);/.test(fxRenderSrc),
+     'die Emissive-Farbe wird IMMER aus der Ruhefarbe neu berechnet (kein Aufaddieren, kein Drift)');
+  ok(/p\.mat\.emissiveIntensity=p\.int\*\(1\+p\.gain\*lv\);/.test(fxRenderSrc),
+     'die Intensitaet ist ein Faktor auf den Ruhewert -> lv=0 stellt exakt den Ruhezustand her');
+  ok(/if\(lv===p\.lv\)continue;/.test(fxRenderSrc),
+     'im Ruhezustand wird kein Material angefasst (keine Schreiblast pro Frame)');
+  const mix = Number(HTML.match(/const GOAL_FX_MIX=([\d.]+);/)[1]);
+  ok(mix > 0.5 && mix < 1, 'Gold dominiert den Impuls, die Teamfarbe bleibt aber lesbar (MIX=' + mix + ')');
+  ok(/const GOAL_FX_GOLD=new THREE\.Color\(0xffd79a\);/.test(HTML),
+     'Feedbackfarbe ist warmes Gold-Weiss (kein Neon, kein RGB-Wechsel)');
+  ok(/addGoalFx\(sign,o\.material,GOAL_FX_GAIN_EMBLEM\)/.test(HTML) &&
+     /addGoalFx\(sign,cp,GOAL_FX_GAIN_FRAME\)/.test(HTML) &&
+     /addGoalFx\(sign,lineMat,GOAL_FX_GAIN_LINE\)/.test(HTML),
+     'drei Bauteile reagieren: Wappen, vordere Keyline, Torlinie/Oeffnungsakzent');
+  // Der Impuls wird bewusst UNABHAENGIG von footballView gerechnet — nur so faellt er auch
+  // dann in den Ruhezustand zurueck, wenn der Modus mitten im Impuls verlassen wird.
+  ok(/if\(goalFxParts\.length\)applyGoalFx\(t0\+nowS\*1000\);/.test(HTML),
+     'der Renderer wertet den Impuls in jedem Frame aus (auch ausserhalb der Football-Ansicht)');
+  ok(!/goalFxParts|applyGoalFx|GOAL_FX_/.test(stepSimSrc),
+     'stepSim (Physik) kennt das Tor-Feedback nicht');
+}
+
+// ── G6. HUD-Ebene funktional: genau EINE Seite reagiert, Abraeumen ist vollstaendig ──
+{
+  // Kleiner DOM-Ersatz: nur was der HUD-Block wirklich anfasst (classList + offsetWidth).
+  function mkEl() {
+    const cls = new Set();
+    return { cls, offsetWidth: 0,
+      classList: { add: (...c) => c.forEach((x) => cls.add(x)),
+                   remove: (...c) => c.forEach((x) => cls.delete(x)),
+                   contains: (x) => cls.has(x) } };
+  }
+  const hudBody = fbHudSrc.slice(0, fbHudSrc.lastIndexOf('function updateHud'));
+  function buildHud() {
+    const els = { sc0: mkEl(), sc1: mkEl(), box: mkEl() };
+    const timers = [];
+    const make = new Function('els', 'timers', `
+      let mode='football', menuVisible=false, score=[0,0];
+      const $=(id)=>els[id]||null;
+      const document={querySelector:(s)=>s==='.scorebox'?els.box:null};
+      let __seq=0;
+      const setTimeout=(f)=>{const id=++__seq;timers.push({id,f});return id;};
+      const clearTimeout=(id)=>{const i=timers.findIndex(t=>t.id===id);if(i>=0)timers.splice(i,1);};
+      const I18N={de:{fbFirstTo:'ERSTER BIS {n}'}};
+      const FOOTBALL_WIN_SCORE=3;
+      ${hudBody}
+      return { pulse(s){score=s;fbScorePulse();},
+               clear(){fbClearHudFx();},
+               fire(){const due=timers.splice(0);for(const t of due)t.f();},
+               pending(){return timers.length;} };
+    `);
+    return { els, api: make(els, timers) };
+  }
+
+  // Tor fuer Blau: nur die linke Score-Seite und die linke Panel-Klasse reagieren.
+  {
+    const { els, api } = buildHud();
+    api.pulse([1, 0]);
+    ok(els.sc0.classList.contains('pop') && !els.sc1.classList.contains('pop'),
+       'Tor fuer Blau: nur die BLAUE Score-Zahl reagiert');
+    ok(els.box.classList.contains('fbgoal0') && !els.box.classList.contains('fbgoal1'),
+       'und am Score-Panel leuchtet genau die blaue Seite');
+    api.fire();
+    ok(!els.sc0.classList.contains('pop') && !els.box.classList.contains('fbgoal0'),
+       'nach Ablauf der Timer sind alle Klassen wieder entfernt');
+  }
+  // Tor fuer Rot: spiegelbildlich.
+  {
+    const { els, api } = buildHud();
+    api.pulse([0, 1]);
+    ok(els.sc1.classList.contains('pop') && !els.sc0.classList.contains('pop'),
+       'Tor fuer Rot: nur die ROTE Score-Zahl reagiert');
+    ok(els.box.classList.contains('fbgoal1') && !els.box.classList.contains('fbgoal0'),
+       'und am Score-Panel leuchtet genau die rote Seite');
+  }
+  // Zweites Tor der Gegenseite: die Seitenklasse WECHSELT, sie stapelt sich nicht.
+  {
+    const { els, api } = buildHud();
+    api.pulse([1, 0]);
+    api.pulse([1, 1]);
+    ok(els.box.classList.contains('fbgoal1') && !els.box.classList.contains('fbgoal0'),
+       'schnelles Gegentor: immer genau EINE Seitenklasse am Panel (kein Stapeln)');
+    // 2 Score-Timer (je Seite einer) + GENAU EIN Panel-Timer. Waere der alte Panel-Timer
+    // nicht ersetzt worden, stuenden hier 4 — und der erste wuerde den zweiten Effekt killen.
+    ok(api.pending() === 3, 'der alte Panel-Timer wurde ersetzt, nicht zusaetzlich angelegt');
+  }
+  // Unveraenderter Stand loest gar nichts aus.
+  {
+    const { els, api } = buildHud();
+    api.pulse([0, 0]);
+    ok(!els.sc0.classList.contains('pop') && !els.sc1.classList.contains('pop') &&
+       els.box.cls.size === 0, 'ohne Score-Anstieg passiert nichts (kein Puls auf 0:0)');
+  }
+  // Menuewechsel raeumt mitten im laufenden Effekt vollstaendig ab.
+  {
+    const { els, api } = buildHud();
+    api.pulse([1, 0]);
+    api.clear();
+    ok(els.sc0.cls.size === 0 && els.box.cls.size === 0,
+       'fbClearHudFx() entfernt Score-Puls UND Panel-Schimmer restlos');
+    ok(api.pending() === 0, 'und stoppt beide Timer (kein Nachfeuern in einem anderen Modus)');
+  }
+}
+
+// ── G7. Physik, Wertung und Ablauf sind nachweislich unberuehrt ──
+{
+  const FX_IDS = /GoalFx|goalFxParts|applyGoalFx|GOAL_FX_|fbGoalPanelFx|fbgoal/;
+  for (const [nm, src] of [['footballGoalSide', goalSideSrc], ['footballCanPassGoal', goalCanPassSrc],
+                           ['footballResolvePost', resolvePostSrc], ['footballTickGoal', tickGoalSrc],
+                           ['footballResetRound', resetRoundSrc], ['stepSim', stepSimSrc],
+                           ['FOOTBALL_PHYS/Wedge', presetSrc + wedgeSrc]])
+    ok(!FX_IDS.test(src), nm + ' enthaelt kein Tor-Feedback (Physik/Detection unveraendert)');
+  ok(/score\[side\]=\(score\[side\]\|\|0\)\+1;/.test(tryGoalSrc) &&
+     /if\(score\[side\]>=FOOTBALL_WIN_SCORE\)footballWinner=side;/.test(tryGoalSrc),
+     'Wertung und First-to-3 stehen unveraendert vor dem Feedback-Aufruf');
+  // Andere Modi: das Feedback existiert dort strukturell nicht.
+  ok(/if\(mode!=='football'\)return -1;/.test(goalSideSrc),
+     'ausserhalb Football wird nie ein Tor erkannt — damit feuert der Impuls dort nie');
+  ok(/if\(mode==='football'\)fbScorePulse\(\);/.test(updateHudSrc),
+     'auch die HUD-Reaktion bleibt auf den Football-Modus beschraenkt');
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// UX-PHASE 3C — CELEBRATION WINDOW VOR BALL-RESPAWN
+// Geprueft wird ausschliesslich das TIMING des bestehenden Torablaufs: dass die neue
+// Wartephase Teil DERSELBEN Zustandsmaschine ist, dass in ihr kein Ball im Bild ist,
+// und dass Wertung, Goal-FX und Aufraeumen davon voellig unberuehrt bleiben.
+// ══════════════════════════════════════════════════════════════════════════════
+
+// ── H1. Die Phase ist Teil der bestehenden Maschine, nicht eine zweite ──
+{
+  ok(/const FOOTBALL_GOAL_CELEBRATE_TICKS=51;/.test(HTML),
+     'Celebration Window als benannte Tickkonstante (51 Ticks)');
+  const cMs = 51 * 1000 / 60;
+  ok(cMs >= 700 && cMs <= 1000, 'Celebration Window ~' + Math.round(cMs) + ' ms (Zielfenster 700–1000 ms)');
+  const wMs = Number(HTML.match(/const FOOTBALL_GOAL_WIN_CELEBRATE_TICKS=(\d+);/)[1]) * 1000 / 60;
+  ok(wMs >= 1100 && wMs <= 1400, 'Matchpunkt-Celebration ~' + Math.round(wMs) + ' ms (Zielfenster 1100–1400 ms)');
+  ok(wMs > cMs, 'der Matchpunkt bekommt mehr Raum als ein normales Tor');
+  // Keine zweite Zustandsmaschine, kein loser Timer, keine Wanduhr.
+  ok((HTML.match(/function footballTickGoal\(/g) || []).length === 1,
+     'weiterhin genau EINE Torzustandsmaschine');
+  ok(!/setTimeout|setInterval|performance\.now|Date\.now/.test(tickGoalSrc),
+     'die Wartephase ist rein tickgetrieben (kein setTimeout, keine Wanduhr im Torablauf)');
+  ok(!/setTimeout\([^)]*celebrat|setInterval\([^)]*celebrat/i.test(HTML),
+     'nirgends eine setTimeout-basierte Celebration-Gameplaylogik');
+  ok(/function footballCelebrateTicks\(\)\{[\s\S]*?footballWinner!==null\?FOOTBALL_GOAL_WIN_CELEBRATE_TICKS:FOOTBALL_GOAL_CELEBRATE_TICKS/.test(HTML),
+     'die Laenge haengt am kanonischen footballWinner — kein zweites Flag');
+  ok(/function footballGoalBusy\(\)\{return mode==='football'&&fbGoalState!=='play';\}/.test(HTML),
+     "die Eingabesperre greift unveraendert ueber fbGoalState!=='play' (keine neue Sperre)");
+  ok(!/pauseGame|globalPause|freezeAll|__paused/i.test(HTML), 'keine neue globale Pausefunktion');
+}
+
+// ── H2. Ablauf und Zeiten am echten Tor ──
+{
+  const C = buildEnv('football', 'single');
+  C.setScore(0, 0);
+  kickToGoal(C, +1);
+  const scoreAtGoal = JSON.stringify(C.score());
+  ok(scoreAtGoal === '[1,0]', 'Score reagiert SOFORT beim Tor (vor jeder Wartephase)');
+  ok(C.fxSide() === 0 && C.fxStart() > 0, 'Goal-FX startet ebenfalls sofort beim Tor');
+
+  // Fallphase unveraendert, dann Celebration. Der Torframe selbst hat bereits einen Tick
+  // gefahren (stepSim wertet und tickt im selben Aufruf) — deshalb startet der Zaehler bei 1.
+  ok(C.goalTick() === 1, 'der Torframe hat bereits einen Falltick gefahren');
+  let g = 1; while (C.goalState() === 'fall' && g < 500) { C.step(); g++; }
+  ok(g === C.fallTicks, 'Fallphase unveraendert ' + C.fallTicks + ' Ticks (nicht verlaengert)');
+  ok(C.goalState() === 'celebrate' && C.goalTick() === 0, 'danach celebrate mit frischem Tickzaehler');
+  ok(C.celebrateTicksNow() === C.celebrateTicks, 'normales Tor nutzt die kurze Celebration');
+
+  // WAEHREND der Celebration: kein neuer Ball, kein Score, keine Eingabe.
+  const neutralOutside = () => {
+    const nb = C.get().balls.find((b) => b.owner === 4);
+    return Math.hypot(nb.x - C.cx, nb.y - C.cy) > C.R0;
+  };
+  let stillOutside = true, scoreStable = true, lockedAll = true;
+  let c = 0;
+  while (C.goalState() === 'celebrate' && c++ < 500) {
+    if (!neutralOutside()) stillOutside = false;
+    if (JSON.stringify(C.score()) !== scoreAtGoal) scoreStable = false;
+    if (!C.locked()) lockedAll = false;
+    C.step();
+  }
+  ok(c === C.celebrateTicks, 'Celebration laeuft exakt FOOTBALL_GOAL_CELEBRATE_TICKS (' + c + ')');
+  ok(stillOutside, 'waehrend der Celebration liegt kein neuer Ball im Feld (der alte ist ausserhalb)');
+  ok(scoreStable, 'die Celebration veraendert den Score nicht');
+  ok(lockedAll, 'die Eingabe bleibt ueber die bestehende Torsperre durchgehend gesperrt');
+  ok(C.goalState() === 'spawn', 'erst danach beginnt der bestehende Spawn-Ablauf');
+
+  // Der Rundenreset passiert wirklich erst JETZT — nicht schon am Fallende.
+  const nb = C.get().balls.find((b) => b.owner === 4);
+  ok(Math.hypot(nb.x - C.cx, nb.y - C.cy) < 1e-9, 'der neue Ball entsteht erst am Ende der Celebration (Mitte)');
+  ok(C.passedFlags().every((f) => f === false), 'footballResetRound() lief genau hier (fbPassed geloescht)');
+  ok(C.locked() === true, 'waehrend des Spawn-Drops bleibt die Eingabe gesperrt');
+
+  let s = 0; while (C.goalState() === 'spawn' && s++ < 500) C.step();
+  ok(s === C.spawnTicks, 'Spawn-Ablauf unveraendert ' + C.spawnTicks + ' Ticks');
+  ok(C.goalState() === 'play' && C.locked() === false, 'erst danach ist die naechste Runde spielbar');
+  ok(JSON.stringify(C.score()) === '[1,0]', 'ueber den gesamten Ablauf genau EIN Punkt');
+
+  // Gesamtbilanz in ms (60 fps).
+  const toBall = (C.fallTicks + C.celebrateTicks) * 1000 / 60;
+  const toPlay = (C.fallTicks + C.celebrateTicks + C.spawnTicks) * 1000 / 60;
+  ok(toBall >= 1900 && toBall <= 2300, 'neuer Ball sichtbar nach ~' + Math.round(toBall) + ' ms');
+  ok(toPlay >= 2200 && toPlay <= 2800, 'naechste Runde spielbar nach ~' + Math.round(toPlay) + ' ms');
+  ok(toPlay < 3000, 'der Ablauf bleibt unter 3 s (ruhiger, aber nicht traege)');
+}
+
+// ── H3. Matchpunkt: Goal-FX vor dem Result-Overlay ──
+{
+  const W = buildEnv('football', 'single');
+  W.setScore(2, 0);
+  kickToGoal(W, +1);
+  ok(W.winner() === 0 && W.overCalls().length === 0, 'Gewinner steht fest, Overlay noch nicht');
+  let g = 0; while (W.goalState() === 'fall' && g++ < 500) W.step();
+  ok(W.goalState() === 'celebrate', 'auch das entscheidende Tor bekommt ein Celebration Window');
+  ok(W.celebrateTicksNow() === W.winCelebrateTicks, 'und zwar die laengere Matchpunkt-Variante');
+  // JETZT messen: footballMatchEnd() raeumt den Impuls am Ende bewusst ab, danach ist er 0.
+  ok(W.fxLevel(1, W.fxStart() + W.fallTicks * 1000 / 60) > 0,
+     'der Trefferimpuls ist beim Eintritt in die Matchpunkt-Celebration noch sichtbar');
+  let c = 0, overlayEarly = false;
+  while (W.goalState() === 'celebrate' && c++ < 500) { if (W.overCalls().length) overlayEarly = true; W.step(); }
+  ok(!overlayEarly, 'das Result-Overlay erscheint zu keinem Zeitpunkt waehrend der Celebration');
+  ok(c === W.winCelebrateTicks, 'Matchpunkt-Celebration laeuft exakt ' + c + ' Ticks');
+  ok(W.goalState() === 'result' && W.overCalls().length === 1, 'erst danach uebernimmt die bestehende Result-Struktur');
+  // Der Torimpuls war bis dahin sichtbar: sein Ende liegt VOR dem Overlay.
+  const overlayMs = (W.fallTicks + W.winCelebrateTicks) * 1000 / 60;
+  ok(overlayMs > W.fxDur,
+     'der Trefferimpuls laeuft vollstaendig ab, bevor das Overlay kommt (Overlay ~' +
+     Math.round(overlayMs) + ' ms > Impuls ' + W.fxDur + ' ms)');
+  ok(W.fxSide() === -1, 'footballMatchEnd() hat den Impuls danach sauber abgeraeumt');
+  // Kein neuer Ball nach dem Sieg — der Rundenreset wird uebersprungen.
+  const nb = W.get().balls.find((b) => b.owner === 4);
+  ok(Math.hypot(nb.x - W.cx, nb.y - W.cy) > W.R0, 'nach dem Sieg entsteht kein neuer Ball');
+}
+
+// ── H4. Aufraeumen und Abgrenzung ──
+{
+  // Aus jeder Phase heraus raeumen newGame() und der Menuewechsel sauber auf.
+  for (const stopAt of ['fall', 'celebrate', 'spawn']) {
+    const E = buildEnv('football', 'single');
+    E.setScore(0, 0);
+    kickToGoal(E, +1);
+    let g = 0; while (E.goalState() !== stopAt && E.goalState() !== 'play' && g++ < 500) E.step();
+    ok(E.goalState() === stopAt, 'Setup: Zustand ' + stopAt + ' erreicht');
+    E.newMatch();
+    ok(E.goalState() === 'play' && E.goalTick() === 0 && E.fxSide() === -1,
+       'newGame() aus "' + stopAt + '" heraus: Zustand, Tick und Goal-FX sauber zurueckgesetzt');
+    ok(JSON.stringify(E.score()) === '[0,0]' && E.winner() === null,
+       'und Score/Gewinner ebenfalls (kein Rest aus der Wartephase)');
+  }
+  {
+    const E = buildEnv('football', 'single');
+    E.setScore(2, 0); kickToGoal(E, +1);
+    let g = 0; while (E.goalState() !== 'celebrate' && g++ < 500) E.step();
+    E.resetMatchState();                       // == showMenu()-Pfad
+    ok(E.goalState() === 'play' && E.winner() === null && E.fxSide() === -1,
+       'Menuewechsel mitten in der Matchpunkt-Celebration raeumt vollstaendig ab');
+  }
+  // Andere Modi und Physik bleiben unberuehrt.
+  ok(/if\(mode!=='football'\)return -1;/.test(goalSideSrc),
+     'ausserhalb Football gibt es kein Tor — und damit auch keine Celebration');
+  ok(!/celebrat/i.test(stripComments(stepSimSrc)),
+     'stepSim selbst kennt die Wartephase nicht (nur der bestehende Torablauf-Zweig)');
+  ok(!/celebrat/i.test(presetSrc + wedgeSrc + goalSideSrc + goalCanPassSrc + resolvePostSrc),
+     'Physikpreset, Anti-Wedge und Goal Detection sind unberuehrt');
+  ok(!/celebrat/i.test(stripComments(goalFxSrc)),
+     'die Goal-FX-Ebene kennt die Wartephase nicht (Effektdauern unveraendert)');
+  ok(/const FB_GOAL_FX_MS=1500;/.test(HTML) && /const FB_GOAL_HUD_MS=1200;/.test(HTML) &&
+     /const FB_POP_MS=460;/.test(HTML),
+     'Goal-FX-Dauern aus UX-3/3B unveraendert (1500 / 1200 / 460 ms)');
+  // Der Renderer haelt den gefallenen Ball auch in der neuen Phase unten.
+  ok(/mode==='football'&&fbGoalState==='celebrate'&&b\.owner===FOOTBALL_NEUTRAL_OWNER/.test(HTML),
+     'der Renderer blendet den gefallenen Ball auch waehrend der Celebration aus');
 }
 
 console.log('\nFootball-Shell: ' + pass + ' passed, ' + fail + ' failed');
