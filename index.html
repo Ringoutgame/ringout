@@ -6654,6 +6654,136 @@ async function initR3D(){
       m.rotation.y=-k*BARRIER_SPAN;m.visible=false;m.renderOrder=2;
       scene.add(m);barrierMeshes.push(m);
     }
+    // ── Etappe 8A: freigegebene Polish-2-Wand (GLB) als Spiel-Visualisierung ──
+    // Rein visuell: Collider, Segmente, Einsaetze, Drag und Commit-Reveal bleiben
+    // unveraendert; die Debug-Schalen oben bleiben Lade-/Fehler-Fallback.
+    // Asset-Vertrag (assets/temporary_barrier/README.md): Root = Arenamitte mit
+    // Identitaetstransform, kanonisch Segment 0 -> Platzierung exakt wie die
+    // Debug-Schalen: rotation.y=-k*BARRIER_SPAN, Position (cx,bob,cy),
+    // horizontale Skalierung R/10.1. Die Hoehe skaliert NICHT mit dem
+    // Collapse-Radius (wie das feste BARRIER_H): vertikal gilt der
+    // Vollradius-Massstab. Genau EIN Netz-Load pro Sitzung.
+    const BARRIER_GLB_R=10.1;
+    const barrierGlb={ready:false,failed:false,active:[],preview:null};
+    if(BARRIER_DEBUG)new GLTFLoader().load('assets/temporary_barrier/export/temporary_barrier_polish2.glb',(g)=>{
+      // Grenzbauteil-Teilung: Pfeiler, Goldband und Halsring sitzen exakt AUF
+      // der Segmentgrenze — bei zwei aktiven Nachbarwaenden laegen sie doppelt
+      // und deckungsgleich uebereinander (Z-Fighting). Das Template wird darum
+      // einmalig deterministisch in Kern + zwei Grenz-Sets geteilt:
+      //   endA = Grenze Richtung (k+1)%12 (kanonisch x>0), endB = Richtung k-1.
+      // Die Andock-Kanaele sind je Wand zur EIGENEN Feldmitte versetzt, also
+      // nie deckungsgleich — sie bleiben im Kern (zwei Kanaele an einem
+      // geteilten Pfeiler sind der konstruktive Soll-Zustand des Assets).
+      const meshes={};
+      g.scene.traverse((o)=>{if(o.isMesh)meshes[o.name]=o;});
+      const parts=[];   // {geom, side:'core'|'a'|'b', mat}
+      const addPart=(mesh)=>{
+        const byX=mesh.name==='BarrierPylons'||mesh.name==='BarrierGold';
+        const neckY=mesh.name==='BarrierFrame'?2.0:null;   // im Frame sind nur die Halsringe (y>2) Grenzteile
+        if(!byX&&neckY===null){parts.push({geom:mesh.geometry,side:'core',mat:mesh.material});return;}
+        const pos=mesh.geometry.attributes.position,idx=mesh.geometry.index.array;
+        const buckets={core:[],a:[],b:[]};
+        for(let i=0;i<idx.length;i+=3){
+          let x=0,y=0;
+          for(let j=0;j<3;j++){x+=pos.getX(idx[i+j]);y+=pos.getY(idx[i+j]);}
+          const end=byX||y/3>neckY;
+          buckets[end?(x>0?'a':'b'):'core'].push(idx[i],idx[i+1],idx[i+2]);
+        }
+        for(const side of ['core','a','b'])if(buckets[side].length){
+          const g2=mesh.geometry.clone();g2.setIndex(buckets[side]);g2.computeBoundingSphere();
+          parts.push({geom:g2,side,mat:mesh.material});
+        }
+      };
+      for(const n of ['BarrierField','BarrierEmitters','BarrierDockGlow','BarrierFrame','BarrierPylons','BarrierGold']){
+        if(meshes[n])addPart(meshes[n]);
+        else console.warn('[barrier] GLB-Node fehlt im Template:',n);
+      }
+      // ── 8A.1 Runtime-Materialkalibrierung ────────────────────────────────
+      // Ingame-Befund: der freigegebene Blender-Look lebt auch vom blick-
+      // winkelabhaengigen Facing-Glow, der in glTF-Core nicht existiert
+      // (dokumentierte Export-Abweichung), und die Cycles-kalibrierte
+      // Emission faellt unter ACES + hellem Tages-HDRI deutlich ab — aus der
+      // Gameplay-Kamera war die Wand dadurch zu blass. Kalibriert werden
+      // AUSSCHLIESSLICH Runtime-Werte auf KLONEN: die geladenen Template-
+      // Materialien bleiben unveraendert, aktive Instanzen teilen sich einen
+      // kalibrierten Klon-Satz, die Vorschau bekommt davon eigene Klone.
+      const BARRIER_CAL={
+        fieldAlpha:2.2,      // Alpha-Multiplikator NUR fuer M_BarrierField: material.opacity
+                             // multipliziert den gebackenen Alphakanal; das GPU-Blending
+                             // clampt das Ergebnis pro Pixel auf <=1 (kein Shader-Eingriff)
+        fieldEmissive:1.65,  // Feldemission (GLB-Basis 1.0)
+        emitEmissive:12.5,   // Emitter-Saeume oben/unten (GLB-Basis 10.08)
+        dockEmissive:6.2,    // Andock-Glimmen (GLB-Basis 5.04)
+        marbleTint:[0.80,0.83,0.88],   // Marmor: leicht dunkler/kuehler gegen den hellen Himmel
+        marbleRoughness:0.9,           // multipliziert die gebackene Roughness-Map (Texturen bleiben)
+        previewFactor:0.6              // Vorschau ~60% der aktiven Intensitaet
+      };
+      const calCache=new Map(),pvCache=new Map();
+      const activeMat=(m)=>{
+        if(!calCache.has(m)){
+          const c=m.clone();
+          if(c.name==='M_BarrierField'){c.depthWrite=false;c.opacity=BARRIER_CAL.fieldAlpha;
+            c.emissiveIntensity=BARRIER_CAL.fieldEmissive;}
+          else if(c.name==='M_BarrierEmit')c.emissiveIntensity=BARRIER_CAL.emitEmissive;
+          else if(c.name==='M_BarrierDock')c.emissiveIntensity=BARRIER_CAL.dockEmissive;
+          else if(c.name==='M_BarrierMarble'){c.color.setRGB(BARRIER_CAL.marbleTint[0],
+            BARRIER_CAL.marbleTint[1],BARRIER_CAL.marbleTint[2]);c.roughness=BARRIER_CAL.marbleRoughness;}
+          calCache.set(m,c);
+        }
+        return calCache.get(m);
+      };
+      const previewMat=(m)=>{
+        if(!pvCache.has(m)){
+          const p=activeMat(m).clone();
+          p.transparent=true;p.depthWrite=false;
+          p.emissiveIntensity*=BARRIER_CAL.previewFactor;
+          p.opacity=p.name==='M_BarrierField'
+            ?BARRIER_CAL.fieldAlpha*BARRIER_CAL.previewFactor
+            :.5;
+          pvCache.set(m,p);
+        }
+        return pvCache.get(m);
+      };
+      const mkInstance=(mode)=>{
+        const grp=new THREE.Group(),endA=new THREE.Group(),endB=new THREE.Group();
+        grp.add(endA);grp.add(endB);
+        for(const part of parts){
+          const m=new THREE.Mesh(part.geom,mode==='active'?activeMat(part.mat):previewMat(part.mat));
+          m.raycast=function(){};   // rein visuell: nie Ziel von Pointer-/Raycast-Logik
+          m.renderOrder=mode==='active'?(part.mat.name==='M_BarrierField'?2:0):3;
+          (part.side==='a'?endA:part.side==='b'?endB:grp).add(m);
+        }
+        grp.visible=false;scene.add(grp);
+        return {grp,endA,endB};
+      };
+      for(let k=0;k<BARRIER_SEG_COUNT;k++){
+        const inst=mkInstance('active');
+        inst.grp.rotation.y=-k*BARRIER_SPAN;
+        barrierGlb.active.push(inst);
+      }
+      barrierGlb.preview=mkInstance('preview');
+      barrierGlb.ready=true;
+      console.log('[barrier] Polish-2-GLB aktiv: 12 Segment-Instanzen + lokale Vorschau, Debug-Schalen abgeloest');
+    },undefined,(err)=>{
+      barrierGlb.failed=true;
+      console.error('[barrier] Polish-2-GLB konnte nicht geladen werden — Debug-Schalen bleiben als Fallback aktiv.',err&&err.message||err);
+    });
+    // Test-/Diagnose-Sonde (nur mit ?barrier=1): liest ausschliesslich, steuert nichts.
+    if(BARRIER_DEBUG)window.barrierGlbProbe=()=>({
+      ready:barrierGlb.ready,failed:barrierGlb.failed,
+      active:barrierGlb.active.map((i)=>i.grp.visible?1:0),
+      endA:barrierGlb.active.map((i)=>i.grp.visible&&i.endA.visible?1:0),
+      preview:barrierGlb.preview&&barrierGlb.preview.grp.visible
+        ?((Math.round(-barrierGlb.preview.grp.rotation.y/BARRIER_SPAN)%12)+12)%12:-1,
+      debugVisible:barrierMeshes.map((m)=>m.visible?1:0),
+      scale:barrierGlb.active.length?[barrierGlb.active[0].grp.scale.x,barrierGlb.active[0].grp.scale.y]:null,
+      pscale:barrierGlb.preview?[barrierGlb.preview.grp.scale.x,barrierGlb.preview.grp.scale.y]:null,
+      renderInfo:{geometries:renderer.info.memory.geometries,textures:renderer.info.memory.textures,
+        programs:renderer.info.programs.length},
+      frame:renderer.info.render.frame,
+      cnt:colvCount(),div:colv.div,
+      segPx:(k)=>{const m=-Math.PI/2+k*BARRIER_SPAN;      // Testtreiber: Segmentmitte -> Canvas-Punkt
+        return r3d?r3d.w2s(cx+Math.cos(m)*R,cy+Math.sin(m)*R,0):null;}});
     // Kugeln: Radius exakt BR (Physik-Wahrheit), Material aus dem akzeptierten Prototyp
     // Polierte Murmeln: satter/dunkler Grundton, klarer Lack, kraeftige Reflexe -> liest sich
     // deutlich gegen den hellen Marmor, ohne Plastik-Look
@@ -6762,10 +6892,43 @@ async function initR3D(){
       // Auswahl. barrierMeshOn() ist bewusst getrennt von barrierOn() — die Vorschau
       // in der Planungsphase zeigt nur an, sie kollidiert nicht.
       const barrierVis=barrierMeshOn(),barrierAct=barrierVis?barrierActiveSegments():null;
+      // 8A: sobald das GLB-Template bereit ist, uebernehmen die Polish-2-Waende;
+      // die Debug-Schalen bleiben reiner Lade-/Fehler-Fallback. Physikphase
+      // (und ?bsegs-Debugpfad) = volle aktive Waende; Planungsphase = NUR die
+      // lokale Vorschau-Instanz (max. ein Segment, nie fremde Vorwahlen).
+      const barrierGlbOn=barrierGlb.ready;
+      const barrierLive=phase==='reveal'||phase==='sim'||BARRIER_MULTI;
+      const barrierScH=R/BARRIER_GLB_R;   // horizontal: aktueller Collider-Radius
+      // vertikal: Vollradius-Massstab ueber DIESELBE Wahrheit wie die Plattform
+      // (colv.div = GLB_R*0.82^cnt, transitionssynchron gepflegt) — die Hoehe
+      // schrumpft im Collapse nicht mit und springt in Uebergangsframes nie.
+      const barrierScV=R/colv.div;
       for(let k=0;k<BARRIER_SEG_COUNT;k++){
-        const m=barrierMeshes[k],on=barrierVis&&barrierAct.indexOf(k)>=0;
-        m.visible=on;
-        if(on){m.scale.set(R,BARRIER_H,R);m.position.set(cx,bob+BARRIER_H/2,cy);}
+        const on=barrierVis&&barrierAct.indexOf(k)>=0;
+        const m=barrierMeshes[k];
+        m.visible=on&&!barrierGlbOn;
+        if(m.visible){m.scale.set(R,BARRIER_H,R);m.position.set(cx,bob+BARRIER_H/2,cy);}
+        if(barrierGlbOn){
+          const inst=barrierGlb.active[k],act=on&&barrierLive;
+          inst.grp.visible=act;
+          if(act){
+            inst.grp.scale.set(barrierScH,barrierScV,barrierScH);
+            inst.grp.position.set(cx,bob,cy);
+            // Grenz-Dedup (inkl. Wrap 11->0): das AUF der gemeinsamen Grenze
+            // liegende Pfeiler-Set zeichnet genau EINE der beiden Nachbarwaende.
+            inst.endA.visible=barrierAct.indexOf((k+1)%BARRIER_SEG_COUNT)<0;
+          }
+        }
+      }
+      if(barrierGlbOn){
+        const pv=barrierGlb.preview;
+        const pseg=!barrierLive&&barrierVis&&barrierAct.length?barrierAct[0]:-1;
+        pv.grp.visible=pseg>=0;
+        if(pseg>=0){
+          pv.grp.rotation.y=-pseg*BARRIER_SPAN;
+          pv.grp.scale.set(barrierScH,barrierScV,barrierScH);
+          pv.grp.position.set(cx,bob,cy);
+        }
       }
       for(let i=0;i<balls.length;i++){
         let m=ballMeshes[i],d=decals[i];
