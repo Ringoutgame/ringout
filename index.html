@@ -6665,6 +6665,26 @@ async function initR3D(){
     // Vollradius-Massstab. Genau EIN Netz-Load pro Sitzung.
     const BARRIER_GLB_R=10.1;
     const barrierGlb={ready:false,failed:false,active:[],preview:null};
+    const BARRIER_CAL={
+        fieldAlpha:2.2,      // Alpha-Multiplikator NUR fuer M_BarrierField: material.opacity
+                             // multipliziert den gebackenen Alphakanal; das GPU-Blending
+                             // clampt das Ergebnis pro Pixel auf <=1 (kein Shader-Eingriff)
+        fieldEmissive:1.65,  // Feldemission (GLB-Basis 1.0)
+        emitEmissive:12.5,   // Emitter-Saeume oben/unten (GLB-Basis 10.08)
+        dockEmissive:6.2,    // Andock-Glimmen (GLB-Basis 5.04)
+        marbleTint:[0.80,0.83,0.88],   // Marmor: leicht dunkler/kuehler gegen den hellen Himmel
+        marbleRoughness:0.9,           // multipliziert die gebackene Roughness-Map (Texturen bleiben)
+        previewFactor:0.6,             // Vorschau ~60% der aktiven Intensitaet
+        // ── 8B: subtile Energieanimation (rein dekorativ) ────────────────────
+        // Alle Werte oszillieren UM die freigegebenen 8A.1-Basiswerte oben —
+        // die Baseline selbst bleibt unveraendert. Zeitquelle ist die reine
+        // Visualuhr nowS des Renderers (wie Grenz-Puls/Wolkendrift): kein
+        // Gameplay-State, kein simHash, keine Netzwerkwirkung.
+        animEmisAmp:.06,   animEmisPeriod:7.3,    // Feldemission ±6%, sehr langsames Atmen
+        animAlphaAmp:.04,  animAlphaPeriod:9.7,   // Feld-Alpha ±4%, eigene Periode (kein Gleichtakt)
+        animDriftAmp:.010, animDriftPeriod:16.0,  // vertikaler UV-Drift ±1% Texturhoehe (~1.7cm Welt)
+        animPreviewAmp:.025, animPreviewSlow:.5   // Vorschau: NUR Emission ±2.5% bei halbem Tempo
+    };
     if(BARRIER_DEBUG)new GLTFLoader().load('assets/temporary_barrier/export/temporary_barrier_polish2.glb',(g)=>{
       // Grenzbauteil-Teilung: Pfeiler, Goldband und Halsring sitzen exakt AUF
       // der Segmentgrenze — bei zwei aktiven Nachbarwaenden laegen sie doppelt
@@ -6707,23 +6727,18 @@ async function initR3D(){
       // AUSSCHLIESSLICH Runtime-Werte auf KLONEN: die geladenen Template-
       // Materialien bleiben unveraendert, aktive Instanzen teilen sich einen
       // kalibrierten Klon-Satz, die Vorschau bekommt davon eigene Klone.
-      const BARRIER_CAL={
-        fieldAlpha:2.2,      // Alpha-Multiplikator NUR fuer M_BarrierField: material.opacity
-                             // multipliziert den gebackenen Alphakanal; das GPU-Blending
-                             // clampt das Ergebnis pro Pixel auf <=1 (kein Shader-Eingriff)
-        fieldEmissive:1.65,  // Feldemission (GLB-Basis 1.0)
-        emitEmissive:12.5,   // Emitter-Saeume oben/unten (GLB-Basis 10.08)
-        dockEmissive:6.2,    // Andock-Glimmen (GLB-Basis 5.04)
-        marbleTint:[0.80,0.83,0.88],   // Marmor: leicht dunkler/kuehler gegen den hellen Himmel
-        marbleRoughness:0.9,           // multipliziert die gebackene Roughness-Map (Texturen bleiben)
-        previewFactor:0.6              // Vorschau ~60% der aktiven Intensitaet
-      };
       const calCache=new Map(),pvCache=new Map();
       const activeMat=(m)=>{
         if(!calCache.has(m)){
           const c=m.clone();
           if(c.name==='M_BarrierField'){c.depthWrite=false;c.opacity=BARRIER_CAL.fieldAlpha;
-            c.emissiveIntensity=BARRIER_CAL.fieldEmissive;}
+            c.emissiveIntensity=BARRIER_CAL.fieldEmissive;
+            // 8B: eigene Texturinstanzen (geteilte Bilddaten, einmalig beim
+            // Laden) — der UV-Drift der aktiven Waende darf Template- und
+            // Vorschau-Texturen nicht mitbewegen.
+            if(c.map)c.map=c.map.clone();
+            if(c.emissiveMap)c.emissiveMap=c.emissiveMap.clone();
+            barrierGlb.fieldMat=c;}
           else if(c.name==='M_BarrierEmit')c.emissiveIntensity=BARRIER_CAL.emitEmissive;
           else if(c.name==='M_BarrierDock')c.emissiveIntensity=BARRIER_CAL.dockEmissive;
           else if(c.name==='M_BarrierMarble'){c.color.setRGB(BARRIER_CAL.marbleTint[0],
@@ -6740,6 +6755,13 @@ async function initR3D(){
           p.opacity=p.name==='M_BarrierField'
             ?BARRIER_CAL.fieldAlpha*BARRIER_CAL.previewFactor
             :.5;
+          if(p.name==='M_BarrierField'){
+            // 8B: Vorschau bekommt wieder EIGENE, ruhende Texturinstanzen
+            // (der Klon oben teilt sonst die driftenden Aktiv-Texturen).
+            if(p.map)p.map=p.map.clone();
+            if(p.emissiveMap)p.emissiveMap=p.emissiveMap.clone();
+            barrierGlb.fieldMatPv=p;
+          }
           pvCache.set(m,p);
         }
         return pvCache.get(m);
@@ -6778,6 +6800,12 @@ async function initR3D(){
       debugVisible:barrierMeshes.map((m)=>m.visible?1:0),
       scale:barrierGlb.active.length?[barrierGlb.active[0].grp.scale.x,barrierGlb.active[0].grp.scale.y]:null,
       pscale:barrierGlb.preview?[barrierGlb.preview.grp.scale.x,barrierGlb.preview.grp.scale.y]:null,
+      anim:barrierGlb.fieldMat?{
+        e:barrierGlb.fieldMat.emissiveIntensity,o:barrierGlb.fieldMat.opacity,
+        dy:barrierGlb.fieldMat.map?barrierGlb.fieldMat.map.offset.y:0,
+        pvE:barrierGlb.fieldMatPv?barrierGlb.fieldMatPv.emissiveIntensity:null,
+        pvO:barrierGlb.fieldMatPv?barrierGlb.fieldMatPv.opacity:null,
+        pvDy:barrierGlb.fieldMatPv&&barrierGlb.fieldMatPv.map?barrierGlb.fieldMatPv.map.offset.y:null}:null,
       renderInfo:{geometries:renderer.info.memory.geometries,textures:renderer.info.memory.textures,
         programs:renderer.info.programs.length},
       frame:renderer.info.render.frame,
@@ -6903,6 +6931,7 @@ async function initR3D(){
       // (colv.div = GLB_R*0.82^cnt, transitionssynchron gepflegt) — die Hoehe
       // schrumpft im Collapse nicht mit und springt in Uebergangsframes nie.
       const barrierScV=R/colv.div;
+      let barrierAnyActive=false;
       for(let k=0;k<BARRIER_SEG_COUNT;k++){
         const on=barrierVis&&barrierAct.indexOf(k)>=0;
         const m=barrierMeshes[k];
@@ -6912,6 +6941,7 @@ async function initR3D(){
           const inst=barrierGlb.active[k],act=on&&barrierLive;
           inst.grp.visible=act;
           if(act){
+            barrierAnyActive=true;
             inst.grp.scale.set(barrierScH,barrierScV,barrierScH);
             inst.grp.position.set(cx,bob,cy);
             // Grenz-Dedup (inkl. Wrap 11->0): das AUF der gemeinsamen Grenze
@@ -6928,6 +6958,27 @@ async function initR3D(){
           pv.grp.rotation.y=-pseg*BARRIER_SPAN;
           pv.grp.scale.set(barrierScH,barrierScV,barrierScH);
           pv.grp.position.set(cx,bob,cy);
+        }
+        // ── 8B: subtile Energieanimation der Energieflaeche ────────────────
+        // Rein dekorativ: weiche Sinuskurven um die freigegebenen 8A.1-Werte,
+        // Visualuhr nowS (wie Grenz-Puls), NUR sichtbare Feldmaterialien
+        // werden angefasst — kein Gameplay-/Netz-/simHash-Bezug, keine
+        // Allokationen, keine Geometriebewegung (UV-Drift der Texturmatrix).
+        const CAL=BARRIER_CAL;
+        if(barrierAnyActive&&barrierGlb.fieldMat){
+          const f=barrierGlb.fieldMat,TAU=Math.PI*2;
+          f.emissiveIntensity=CAL.fieldEmissive*(1+CAL.animEmisAmp*Math.sin(TAU*nowS/CAL.animEmisPeriod));
+          f.opacity=CAL.fieldAlpha*(1+CAL.animAlphaAmp*Math.sin(TAU*nowS/CAL.animAlphaPeriod+1.7));
+          const dy=CAL.animDriftAmp*Math.sin(TAU*nowS/CAL.animDriftPeriod);
+          if(f.map)f.map.offset.y=dy;
+          if(f.emissiveMap)f.emissiveMap.offset.y=dy;
+        }
+        if(pv.grp.visible&&barrierGlb.fieldMatPv){
+          // Vorschau deutlich ruhiger: nur Emission, kleinere Amplitude,
+          // halbes Tempo — kein Alpha-Atmen, kein Drift.
+          const p=barrierGlb.fieldMatPv;
+          p.emissiveIntensity=CAL.fieldEmissive*CAL.previewFactor
+            *(1+CAL.animPreviewAmp*Math.sin(Math.PI*2*nowS*CAL.animPreviewSlow/CAL.animEmisPeriod));
         }
       }
       for(let i=0;i<balls.length;i++){
