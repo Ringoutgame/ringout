@@ -1,6 +1,6 @@
 # PROJECT.md — RingOut
 
-**Zuletzt aktualisiert:** 2026-08-06 (Arena Football: UX-Phase 3 abgeschlossen — Premium-Torfeedback, HUD-Reaktion, Celebration Window; technischer Teststand aufgefrischt)
+**Zuletzt aktualisiert:** 2026-08-07 (Arena Football finalisiert: Rounded-Rectangle-Arena B, buendige Torintegration, Movement M1, neutraler Ballradius 25; Prototyp-Umschaltungen entfernt, Tests migriert)
 
 - **Aktueller stabiler Projekt-HEAD:** `5a23dc424fb3126c33c29543b7c6571b87a65ec7`
 - **Implementierungs-Commit UX-Phase 3:** `babbbe78ee388489321d1f0cb3e032bbaabd0725`
@@ -113,16 +113,56 @@ Bei den E2E-Harnessen ist die Produktions-Firebase hart geblockt.
   `curRestPost()`. Außerhalb von `mode === 'football'` liefern sie exakt die globalen
   Konstanten — alle Bestandsmodi rechnen unverändert weiter (Golden-Physik 13/13).
 
-### Arena-Football-Physik (Phasen 4A–4B-3, Browser-Freigabe für GLIDE)
+### Arena-Football-Arena (final: Rounded Rectangle B)
+Die Football-Spielflaeche ist seit 2026-08-07 ein **Rounded Rectangle** (die fruehere
+Kreisarena ist kein Produktpfad mehr). Einzige Quelle der Wahrheit fuer Physik,
+Rendering, Spawns und Kamera ist `FOOTBALL_ARENA` (Werte in BR = 32 logische Einheiten):
+
+- **Masse:** Innenlaenge **1152** (`halfLen 18.00`), Innenbreite **812.8**
+  (`halfWid 12.70`, Verhaeltnis 1.417:1), Eckradius **219.2** (`corner 6.85`,
+  27 % der Innenbreite). Spawnabstand `spawn 7.65` (±244.8), Ball exakt im Mittelpunkt.
+- **Grenze:** `footballShapeSD` (Signed Distance + Aussennormale; gerade Segmente,
+  exakte Eckboegen, C1-stetige Uebergaenge, keine Polygonnaeherung) und
+  `footballBoundSD(b)` (um `ballRad(b)` nach innen versetzt). `corner == halfLen ==
+  halfWid` reproduziert exakt den alten Kreis — es gibt keine zweite Grenzgeometrie.
+- **Tor (buendig):** gerades Torasset `assets/arena_football_goal.glb`
+  (1 Blender-Einheit = 2·BR). Sockelkanten tangential 3.560..5.282 BR → lichte
+  Torbreite **227.84**; `postFront == halfLen` legt die Sockelvorderkante exakt auf
+  die Bandeninnenflaeche → keine Ballfang-Tasche, der Sockel ist aus dem Feld heraus
+  unerreichbar (Mindestabstand exakt ein Ballradius). Torlinie bei `postBack 20.368 BR`
+  (= 651.776); `goalAnchor` mittig im Sockel. Spieler werden an der Oeffnung von der
+  Grenze geblockt (`footballCanPassGoal` nur fuer den neutralen Ball, mit explizitem
+  Stirnseiten-Term `|x−cx| > |y−cy|`).
+- **Neutraler Ball:** `FOOTBALL_BALL_RADIUS = 25` (Spieler bleiben BR = 32).
+  `ballRad(b)` ist die einzige Radiusquelle fuer Physik UND Rendering (Kontaktdistanz,
+  Bandengrenze, Pfosten, Toroeffnung, Torlinie, Anti-Wedge, Mesh-/Decal-Scale,
+  Bodenhoehe, Rollwinkel). Tor/Durchmesser-Verhaeltnis ≈ 4.56.
+- **Rendering:** Spielflaeche, Randweg, Sockel, Bodenmarkierungen und transparente
+  Bande entstehen **prozedural** (`fbBuildShape`) aus denselben `FOOTBALL_ARENA`-
+  Parametern wie die Physikgrenze; die Materialien (Glas/Gold/Marmor) kommen
+  unveraendert aus `assets/arena_football_band.glb`, das nur noch als
+  **Materialquelle** geladen wird. Die runde Plattform wird im Football-Modus
+  vollstaendig ausgeblendet. Kamera-Framing rechnet mit `fbHalfLen()/fbHalfWid()`.
+- Herkunft/Vergleichsdaten der Prototypphasen (Arena A/B/C, Movement M1–M3,
+  Ballgroessen B0–B3): lokale, nicht committete Artefakte unter
+  `artifacts/rounded-rectangle-prototype/`, `artifacts/football-movement-prototype/`,
+  `artifacts/football-ball-size-prototype/`.
+- Tests: `tools/test_football_arena.js` (Regressionssuite des finalen Standes).
+
+### Arena-Football-Physik (final: M1)
 Football-spezifische Physik, **ausschließlich** in `mode === 'football'` wirksam.
 Einziger Zugriffspunkt ist `footballPhys()`; liefert die Funktion `null`, gilt das
 bisherige Verhalten. Es gibt bewusst **keine Preset-Auswahl, keinen Debug-Schalter und
 keinen URL-Parameter** — Produktionsphysik hängt nicht von der Adresszeile ab.
 
-- **Wertesatz** `FOOTBALL_PHYS`: `friction 0.9968` · `fend 0.9935` · `stopv 0.035` ·
-  `restBall 0.40` · `restBand 0.52` · `restPost 0.47`. `fend` ist bewusst **härter** als
-  `friction` und reaktiviert damit den vorhandenen Zwei-Regime-Entwurf: lange gleiten,
-  am Ende trotzdem nicht endlos kriechen.
+- **Wertesatz** `FOOTBALL_PHYS` (final **M1**, Movement-Phase 2026-08-07; loeste den
+  GLIDE-Satz der Phase 4B-3 ab): Spieler `friction 0.9976`, neutraler Ball
+  `frictionBall 0.9982` (erstmals **getrennte** Spieler-/Ball-Daempfung), Auslauf
+  `slowv 0.50` / `fend = fendBall 0.9905`, Settlement `stopv 0.050`, Restitution
+  `restBall 0.44` · `restBand 0.60` · `restPost 0.50`. Die Stellschrauben laufen
+  bewusst gegenlaeufig: laengere schnelle Gleitphase, aber frueher und haerter
+  beendeter Kriechauslauf — mehr Momentum ohne laengere Zuege. Accessoren:
+  `curFRBall()` / `curFEBall()` / `curSLOWV()` zusaetzlich zu den bestehenden.
 - **Iterative Kontaktauflösung** `FOOTBALL_CONTACT_ITERATIONS = 3`: dieselben Formeln in
   derselben Reihenfolge, nur mehrfach. Integration, Dämpfung und Spin laufen weiterhin
   genau einmal pro Micro-Step; Treffer-Feedback nur im ersten Durchgang.
