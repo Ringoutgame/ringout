@@ -3087,7 +3087,7 @@ function barrierMoveKey(m){
 // zu diesem Zeitpunkt ein gebundenes Segment (barrierCommitHook lief unmittelbar
 // davor); der Timeout-Pfad hat keins. Online und Replay: immer keine Wand.
 function barrierMoveSeg(who){
-  if(!BARRIER_DEBUG||online||replaying)return null;
+  if(!barrierRuntimeOn()||online)return null;
   if(!(who>=0&&who<barrierCommittedSegmentBySeat.length))return null;
   const s=barrierCommittedSegmentBySeat[who];
   return s>=0?s:null;
@@ -3095,7 +3095,7 @@ function barrierMoveSeg(who){
 // Diagnoseanhang fuer devSync: die kanonischen Commit-Identitaeten des Zuges
 // einschliesslich Wandsegment. Nur mit ?dev=1 sichtbar (devSync filtert selbst).
 function barrierLaunchTag(){
-  if(!BARRIER_DEBUG)return '';
+  if(!BARRIER_DEV)return '';
   const out=[];
   for(let p=0;p<commitIdx.length;p++){
     const seg=(p<barrierCommittedSegmentBySeat.length&&barrierCommittedSegmentBySeat[p]>=0)
@@ -3108,7 +3108,7 @@ function barrierLaunchTag(){
 // Test-/Debug-Hook fuer diesen Vertrag: reine Funktion, sendet nichts und veraendert
 // keinen Spielzustand. Nur lokal und nur mit ?barrier=1.
 function barrierContractCheck(idx,dx,dy,sp,seg){
-  if(!BARRIER_DEBUG||online||replaying)return null;
+  if(!BARRIER_DEV||online||replaying)return null;
   const m=barrierSegAttach(sanitizeMove(0,idx,dx,dy,sp),seg);
   return {move:m,payload:barrierPayload(Object.assign({},m)),key:barrierMoveKey(m),
     canon:barrierSegCanon(seg),valid:barrierSegValid(seg),
@@ -3260,7 +3260,7 @@ function barrierCrSegments(S){
 }
 // Test-/Debug-Hook: der EINZIGE Zugang zu diesem Vertrag in Etappe 6B1.
 function barrierCrHook(){
-  if(!BARRIER_DEBUG||online||replaying)return null;
+  if(!BARRIER_DEV||online||replaying)return null;
   return {tag:BARRIER_CR_TAG,version:BARRIER_CR_VERSION,
     nonce:barrierCrNonce,preimage:barrierCrPreimage,sha256:barrierCrSha256,
     commit:barrierCrCommit,verify:barrierCrVerify,context:barrierCrContext,
@@ -3506,7 +3506,73 @@ function popBall(b){if(r3dActive)fx3Dust(b.x,b.y,b.vx,b.vy);else spawn(b.x,b.y,2
 //
 // Der Bogen liegt exakt auf der aktuellen Ring-Out-Grenze R. Der Kugelmittelpunkt
 // wird dadurch auf R-BR begrenzt und erreicht die Grenze (R+BR*0.1) nie.
-const BARRIER_DEBUG=new URLSearchParams(location.search).get('barrier')==='1';
+// ── Etappe 9B: zentraler Produkt-Gate ────────────────────────────────────────
+// Bis 8B entschied ausschliesslich ?barrier=1 (online zusaetzlich ?barrierNet=1
+// plus nachgewiesener Emulator) darueber, ob es die Wand ueberhaupt gibt. Ab 9B
+// entscheidet GENAU EINE Funktion anhand des Match-Kontexts, ob die Wand in
+// diesem Spiel Bestandteil des normalen Ablaufs ist. Alle Produktpfade (UI,
+// Vorschau, Verbrauch, Physikschalter, Netzvertrag, GLB-Laden) fragen sie —
+// verstreute Einzelbedingungen gibt es nicht mehr.
+//
+// FREIGEGEBEN sind ausschliesslich die Kontexte, die der bestehende, getestete
+// Barrier-Code vollstaendig traegt:
+//   lokal   mode 'bot' (1v1/2v2) und mode 'pvp' (Hotseat) — beide zwei Seats
+//   online  ausschliesslich Matches mit exakt ZWEI Seats (np()===2), weil der
+//           produktive bc/br-Rules-Vertrag nur Seat 0 und 1 kennt
+// NICHT freigegeben: lokales FFA, Online mit 3-5 Seats (ffa/triple_ffa/
+// team_duel), Replay, Menue/Nicht-Spielzustaende und jeder kuenftige Modus, der
+// hier nicht ausdruecklich gelistet ist (Positivliste, kein Ausschlussprinzip).
+//
+// Die alten Query-Flags sind KEINE Voraussetzung des Produktpfads mehr. Sie
+// bleiben als reine Development-Overrides erhalten:
+//   ?barrier=1  schaltet die Test-/Diagnosehooks frei (Probes, Debug-Select)
+//   ?barrier=0  schaltet die Wand lokal ab (Regressionslaeufe ohne Wandpfad)
+// Sicherheitsrelevant: KEIN URL-Parameter kann einen nicht unterstuetzten
+// produktiven Kontext erzwingen — die Seat-/Modusbedingungen unten gelten in
+// jedem Pfad, und der Emulator-Zweig verlangt zusaetzlich window.__E2E_EMULATOR,
+// das die ausgelieferte Seite nie traegt.
+const BARRIER_DEV=new URLSearchParams(location.search).get('barrier')==='1';
+const BARRIER_FORCE_OFF=new URLSearchParams(location.search).get('barrier')==='0';
+// Deploy-Kopplung des Online-Pfads: der Commit-Reveal-Transport schreibt bc/br
+// unter dem Turn-Knoten. Die getrackte firebase.rules.json traegt diesen Vertrag
+// seit Etappe 9A — solange er NICHT publiziert ist, wuerde der erste bc-Write
+// mit PERMISSION_DENIED abgelehnt, der Turn bliebe nach dem bestehenden
+// Anti-Desync-Vertrag blockiert (barrierNetRevealBlocked) und das Match haengen.
+// Dieser Schalter geht deshalb erst mit dem Rules-Publish auf true; er ist die
+// einzige verbleibende Bedingung des produktiven Online-Pfads.
+const BARRIER_ONLINE_RULES_LIVE=false;
+// Lokale Modi, die der bestehende Barrier-Code vollstaendig unterstuetzt.
+function barrierSupportedLocalMode(){return mode==='bot'||mode==='pvp';}
+// Online-Kontext, den der produktive bc/br-Rules-Vertrag abdeckt: exakt zwei
+// Seats, eigener Seat 0 oder 1. Gilt fuer 1v1, 2v2 und ein FFA-Match mit zwei
+// Seats gleichermassen; ab drei Seats ist die Wand aus.
+function barrierSupportedOnlineSeats(){return np()===2&&(myPlayer===0||myPlayer===1);}
+// Entwicklerpfad, unveraenderter Bestand aus 5A-8B: mit ?barrier=1 bleiben die
+// LOKALEN Debug-/Regressionspfade offen (?bsegs-Physikpfad, barrierDebugSelect,
+// Hotseat- und lokale FFA-Regressionen) — auch in Modi, die das Produkt nicht
+// anbietet. ONLINE aendert er nichts: dort entscheidet ausschliesslich der
+// Produkt-Gate, ein URL-Parameter kann kein zusaetzliches Match freischalten.
+function barrierDevLocal(){return BARRIER_DEV&&!BARRIER_FORCE_OFF&&!replaying&&!menuVisible&&!online;}
+// EIN Laufzeitschalter fuer alle Barrier-Pfade: online strikt der Produkt-Gate,
+// lokal Produkt-Gate ODER Entwicklerpfad.
+function barrierRuntimeOn(){return online?barrierAvailableForMatch():(barrierAvailableForMatch()||barrierDevLocal());}
+function barrierAvailableForMatch(){
+  // Nur in einem laufenden Spiel — nie im Hauptmenue, in der Online-Lobby oder
+  // sonstigen Nicht-Spielzustaenden. menuVisible kippt ausschliesslich beim
+  // Betreten/Verlassen des Spielbildschirms (showGame/showMenu), nie waehrend
+  // eines Matches; der Physikschalter kann dadurch nicht mitten im Zug umspringen.
+  if(BARRIER_FORCE_OFF||replaying||menuVisible)return false;
+  if(!online)return barrierSupportedLocalMode();
+  // Produktiv genau dann, wenn die Rules den Vertrag tragen; im E2E-Harness
+  // ersatzweise ueber den nachgewiesenen lokalen Emulator (unveraenderter
+  // Entwicklungsvertrag: beide Flags UND __E2E_EMULATOR).
+  // gameStarted schliesst das transiente Beitrittsfenster: bis der Raumtyp
+  // feststeht, kann mode kurzzeitig 'online' sein und np() faelschlich 2 liefern.
+  // Erst der gestartete Match traegt die endgueltige Seatzahl.
+  return gameStarted&&barrierSupportedOnlineSeats()
+    &&(BARRIER_ONLINE_RULES_LIVE
+       ||(BARRIER_DEV&&BARRIER_NET_FLAG&&barrierNetEmulatorProven()));
+}
 // Der Rand ist in zwoelf feste Segmente zu je 30 Grad geteilt. Segment 0 liegt oben
 // (Mittelpunkt -90 Grad); die Nummerierung laeuft im Uhrzeigersinn 0..11. In den
 // Arenakoordinaten (y zeigt nach unten) ist das die Richtung WACHSENDER Winkel:
@@ -3542,7 +3608,10 @@ function barrierParseMultiSegs(){
   return out.length?out:null;
 }
 const BARRIER_MULTI_SEGS=barrierParseMultiSegs();
-const BARRIER_MULTI=BARRIER_MULTI_SEGS!==null;
+// ?bsegs ist und bleibt ein reiner Entwickler-Physikpfad: er umgeht den
+// Einsatzvertrag und darf deshalb NIE im Produktpfad greifen (vorher implizit
+// ueber BARRIER_DEBUG in barrierOn, seit 9B explizit an der Definition).
+const BARRIER_MULTI=BARRIER_DEV&&BARRIER_MULTI_SEGS!==null;
 // Massgebliche Segmentliste: in der Physikphase die beim Reveal gebildete Zugliste,
 // in der Planungsphase die Vorschau des von der Debug-UI gesteuerten Seats.
 function barrierActiveSegments(){
@@ -3601,7 +3670,7 @@ const BARRIER_RESTITUTION=0.55;
 // bestaetigten Segmente werden erst beim Reveal zur gemeinsamen Wandliste.
 // -1 = keine UI (online, Replay, Menue, oder ein hier nicht behandelter Modus).
 function barrierUiSeat(){
-  if(!BARRIER_DEBUG||replaying||menuVisible)return -1;
+  if(!barrierRuntimeOn()||menuVisible)return -1;
   // 6B2A: im aktiven Barrier-Net-Gate gehoert die bestehende Debug-UI dem
   // EIGENEN Seat; ausserhalb des Gates bleibt sie online vollstaendig aus.
   if(online)return (typeof barrierNetActive==='function'&&barrierNetActive())?myPlayer:-1;
@@ -3628,7 +3697,7 @@ function barrierSeats(fn){for(let s=0;s<barrierStakesBySeat.length;s++)fn(s);}
 // Segmente traegt. Der Mehrfach-Wand-Pfad (?bsegs) bleibt ein davon unabhaengiger
 // reiner Physik-Debugpfad: er umgeht bewusst den Verbrauchsvertrag.
 function barrierOn(){
-  if(!BARRIER_DEBUG||replaying||phase!=='sim')return false;
+  if(!barrierRuntimeOn()||phase!=='sim')return false;
   // 6B2A: online zaehlen AUSSCHLIESSLICH die verifizierten Netz-Segmente des
   // laufenden Turns; der lokale ?bsegs-Debugpfad bleibt online immer aus.
   if(online)return typeof barrierNetSimOn==='function'&&barrierNetSimOn();
@@ -3643,7 +3712,7 @@ function barrierCanArmSeat(s){
   // nur solange kein Commit-Reveal-Ablauf laeuft (Wandwahl ist ab da gesperrt).
   if(online&&!(typeof barrierNetActive==='function'&&barrierNetActive()
     &&s===myPlayer&&!barrierNetOwnLocked()))return false;
-  return BARRIER_DEBUG&&!replaying&&!menuVisible
+  return barrierRuntimeOn()&&!menuVisible
     &&phase==='aim'&&!inputLocked()&&s>=0&&s<barrierStakesBySeat.length
     &&!aimSet[s]&&aliveCount(s)>0
     &&barrierStakesBySeat[s]>0;
@@ -3657,7 +3726,7 @@ function barrierCanArm(){const s=barrierUiSeat();return s>=0&&!coverOpen&&barrie
 // barrierCommitHook(). Kein URL-Vertrag, keine Produktmechanik — nur lokal, nur mit
 // ?barrier=1, nie online, nie im Replay.
 function barrierDebugSelect(s,segment){
-  if(!BARRIER_DEBUG||replaying)return false;
+  if(!BARRIER_DEV||replaying)return false;
   // 6B2A: online nur im aktiven Gate, nur eigener Seat, nie waehrend Pending.
   if(online&&!(typeof barrierNetActive==='function'&&barrierNetActive()
     &&s===myPlayer&&!barrierNetOwnLocked()))return false;
@@ -3670,7 +3739,7 @@ function barrierDebugSelect(s,segment){
 // Verbrauch: genau hier, beim bewusst bestaetigten Zug DIESES Seats — unabhaengig
 // davon, ob es ein Schuss oder ein bewusstes 0/0 ist.
 function barrierCommitHook(who){
-  if(!BARRIER_DEBUG||online||replaying)return;
+  if(!barrierRuntimeOn()||online)return;
   if(!(who>=0&&who<barrierArmedBySeat.length)||!barrierArmedBySeat[who])return;
   barrierArmedBySeat[who]=false;
   if(barrierStakesBySeat[who]<=0||aliveCount(who)<=0)return;
@@ -3683,14 +3752,14 @@ function barrierCommitHook(who){
 // barrierCommitHook — nur so bleibt kein Seat mit stehender Vorschau zurueck, waehrend
 // andere Seats ihre Planungsphase noch offen haben.
 function barrierAutoStandHook(who){
-  if(!BARRIER_DEBUG||online||replaying)return;
+  if(!barrierRuntimeOn()||online)return;
   if(who>=0&&who<barrierArmedBySeat.length)barrierArmedBySeat[who]=false;
   barrierUi();
 }
 // Verdeckte Uebergabe im Hotseat: Platzierungsmodus und Anzeige des abgebenden Seats
 // enden hier. Die bereits bestaetigte Wahl bleibt gespeichert, aber unsichtbar.
 function barrierCoverHook(){
-  if(!BARRIER_DEBUG||online||replaying)return;
+  if(!barrierRuntimeOn()||online)return;
   barrierDragCancel();barrierUi();
 }
 // Aus allen committeten Segmenten die kanonische Liste des Zuges bilden: dedupliziert
@@ -3735,7 +3804,7 @@ function barrierMatchReset(){
 // Prototyp ueberhaupt laeuft — ohne ?barrier=1 entsteht kein DOM-Knoten.
 let barrierHudLast='';
 function barrierHud(){
-  if(!BARRIER_DEBUG||replaying)return;
+  if(!barrierRuntimeOn())return;
   if(online&&!(typeof barrierNetActive==='function'&&barrierNetActive()))return;
   // Eine aktive Wand hat Vorrang vor der Bestandsmeldung: solange der Seat ein
   // bestaetigtes Segment traegt,
@@ -3806,7 +3875,7 @@ let barrierDragCancelHover=false;         // Pointer schwebt ueber der Abwahlzon
 // die live einrastende Drag-Vorschau. Die Vorschau kollidiert NICHT —
 // barrierOn() bleibt der alleinige Physikschalter.
 function barrierPreviewOn(){const s=barrierUiSeat();
-  if(!BARRIER_DEBUG||replaying||s<0||coverOpen||phase!=='aim')return false;
+  if(!barrierRuntimeOn()||s<0||coverOpen||phase!=='aim')return false;
   if(barrierDragPid>=0&&barrierDragSeat===s)return barrierDragSeg>=0&&!barrierDragCancelHover;
   return barrierArmedBySeat[s];}
 function barrierMeshOn(){return barrierOn()||barrierPreviewOn();}
@@ -3889,7 +3958,7 @@ function barrierDragUp(e){
   else barrierArmedBySeat[s]=false;                                        // neu und nie gueltig: keine Wand
   barrierUi();
 }
-if(BARRIER_DEBUG){
+{
   addEventListener('pointerdown',barrierDragDown,true);
   addEventListener('pointermove',barrierDragMove,true);
   addEventListener('pointerup',barrierDragUp,true);
@@ -3900,7 +3969,7 @@ if(BARRIER_DEBUG){
 // mittig/rechts). Sie entsteht nur, wenn der Prototyp laeuft.
 let barrierBtnLast='';
 function barrierBtn(){
-  if(!BARRIER_DEBUG||replaying)return;
+  if(!barrierRuntimeOn())return;
   if(online&&!(typeof barrierNetActive==='function'&&barrierNetActive()))return;
   // Sie gehoert immer genau dem Seat, der gerade plant, und ist waehrend der
   // verdeckten Uebergabe komplett aus.
@@ -3974,9 +4043,9 @@ function barrierNetEmulatorProven(){
   return window.__E2E_EMULATOR===true&&window.__FB_READY===true&&!!(window.FB&&window.FB.db);
 }
 function barrierNetActive(){
-  return BARRIER_DEBUG&&BARRIER_NET_FLAG&&online&&!replaying&&!barrierNetRehydrated
-    &&gameStarted&&!isOnlineTerminated()&&np()===2&&(myPlayer===0||myPlayer===1)
-    &&!seatGone[0]&&!seatGone[1]&&barrierNetEmulatorProven();
+  return barrierAvailableForMatch()&&online&&!barrierNetRehydrated
+    &&gameStarted&&!isOnlineTerminated()
+    &&!seatGone[0]&&!seatGone[1];
 }
 // Turn-gebundener Zustand. Kein Feld ueberlebt einen Wechsel von Raum, Generation
 // oder Turn: barrierNetEnsure() verwirft bei jeder Abweichung den kompletten
@@ -4260,7 +4329,7 @@ async function barrierNetStep(S){
 // Test-/Debug-Zugaenge, nur mit ?barrier=1: reine Diagnose bzw. Auswahl ueber den
 // bestehenden Debug-Hook. Keine Nonces, keine privaten Reveal-Daten; fremde
 // Segmente erscheinen erst nach erfolgreicher Verifikation (vorher nur -1).
-if(BARRIER_DEBUG){
+if(BARRIER_DEV){
   window.__BARRIER_NET_PROBE=function(){
     const S=barrierNetCurrent();
     return {
@@ -6664,7 +6733,7 @@ async function initR3D(){
     // Collapse-Radius (wie das feste BARRIER_H): vertikal gilt der
     // Vollradius-Massstab. Genau EIN Netz-Load pro Sitzung.
     const BARRIER_GLB_R=10.1;
-    const barrierGlb={ready:false,failed:false,active:[],preview:null};
+    const barrierGlb={ready:false,failed:false,requested:false,active:[],preview:null};
     const BARRIER_CAL={
         fieldAlpha:2.2,      // Alpha-Multiplikator NUR fuer M_BarrierField: material.opacity
                              // multipliziert den gebackenen Alphakanal; das GPU-Blending
@@ -6685,7 +6754,12 @@ async function initR3D(){
         animDriftAmp:.010, animDriftPeriod:16.0,  // vertikaler UV-Drift ±1% Texturhoehe (~1.7cm Welt)
         animPreviewAmp:.025, animPreviewSlow:.5   // Vorschau: NUR Emission ±2.5% bei halbem Tempo
     };
-    if(BARRIER_DEBUG)new GLTFLoader().load('assets/temporary_barrier/export/temporary_barrier_polish2.glb',(g)=>{
+    // 9B: genau EIN Netz-Load, und zwar erst wenn ein unterstuetztes Match
+    // laeuft (barrierGlbLoad() wird aus der Renderschleife angestossen).
+    const barrierGlbLoad=()=>{
+      if(barrierGlb.requested)return;
+      barrierGlb.requested=true;
+      new GLTFLoader().load('assets/temporary_barrier/export/temporary_barrier_polish2.glb',(g)=>{
       // Grenzbauteil-Teilung: Pfeiler, Goldband und Halsring sitzen exakt AUF
       // der Segmentgrenze — bei zwei aktiven Nachbarwaenden laegen sie doppelt
       // und deckungsgleich uebereinander (Z-Fighting). Das Template wird darum
@@ -6789,9 +6863,10 @@ async function initR3D(){
     },undefined,(err)=>{
       barrierGlb.failed=true;
       console.error('[barrier] Polish-2-GLB konnte nicht geladen werden — Debug-Schalen bleiben als Fallback aktiv.',err&&err.message||err);
-    });
+      });
+    };
     // Test-/Diagnose-Sonde (nur mit ?barrier=1): liest ausschliesslich, steuert nichts.
-    if(BARRIER_DEBUG)window.barrierGlbProbe=()=>({
+    if(BARRIER_DEV)window.barrierGlbProbe=()=>({
       ready:barrierGlb.ready,failed:barrierGlb.failed,
       active:barrierGlb.active.map((i)=>i.grp.visible?1:0),
       endA:barrierGlb.active.map((i)=>i.grp.visible&&i.endA.visible?1:0),
@@ -6919,6 +6994,7 @@ async function initR3D(){
       // Debug-Schutzwand: sichtbar waehrend der Physikphase UND als Vorschau nach der
       // Auswahl. barrierMeshOn() ist bewusst getrennt von barrierOn() — die Vorschau
       // in der Planungsphase zeigt nur an, sie kollidiert nicht.
+      if(barrierRuntimeOn())barrierGlbLoad();   // 9B: lazy, nur im unterstuetzten Match
       const barrierVis=barrierMeshOn(),barrierAct=barrierVis?barrierActiveSegments():null;
       // 8A: sobald das GLB-Template bereit ist, uebernehmen die Polish-2-Waende;
       // die Debug-Schalen bleiben reiner Lade-/Fehler-Fallback. Physikphase
