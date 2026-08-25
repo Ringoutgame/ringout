@@ -57,14 +57,37 @@
                   ".validate": "$turn.matches(/^[0-9]{1,4}$/) && newData.isNumber() && newData.val() === now"
                 },
                 "$pl": {
-                  ".write": "!data.exists() && newData.exists() && $gen === root.child('rooms').child($code).child('gen').val() + '' && root.child('rooms').child($code).child('p').child($pl).child('on').val() === true && root.child('rooms').child($code).child('g').child($gen).child('e').child($pl).val() !== true && (!root.child('rooms').child($code).child('g').child($gen).child('t').child($turn).child('s').exists() || now <= root.child('rooms').child($code).child('g').child($gen).child('t').child($turn).child('s').val() + 7000 || (newData.child('dx').val() === 0 && newData.child('dy').val() === 0 && newData.child('sp').val() === 0))",
-                  ".validate": "($pl === '0' || $pl === '1' || ($pl === '2' && (root.child('rooms').child($code).child('config/fmt').val() === 'ffa' || root.child('rooms').child($code).child('config/fmt').val() === 'triple_ffa')) || (($pl === '3' || $pl === '4') && root.child('rooms').child($code).child('config/fmt').val() === 'ffa') || (($pl === '2' || $pl === '3') && root.child('rooms').child($code).child('config/fmt').val() === 'team_duel')) && $turn.matches(/^[0-9]{1,4}$/) && ((root.child('rooms').child($code).child('g').child($gen).child('t').child($turn).child('s').exists() && newData.hasChildren(['idx','dx','dy','sp','ts'])) || (!root.child('rooms').child($code).child('g').child($gen).child('t').child($turn).child('s').exists() && newData.hasChildren(['idx','dx','dy','sp']) && !newData.child('ts').exists()))",
+                  ".write": "!data.exists() && newData.exists() && $gen === root.child('rooms').child($code).child('gen').val() + '' && root.child('rooms').child($code).child('p').child($pl).child('on').val() === true && root.child('rooms').child($code).child('g').child($gen).child('e').child($pl).val() !== true",
+                  ".validate": "($pl === '0' || $pl === '1' || ($pl === '2' && (root.child('rooms').child($code).child('config/fmt').val() === 'ffa' || root.child('rooms').child($code).child('config/fmt').val() === 'triple_ffa')) || (($pl === '3' || $pl === '4') && root.child('rooms').child($code).child('config/fmt').val() === 'ffa') || (($pl === '2' || $pl === '3') && root.child('rooms').child($code).child('config/fmt').val() === 'team_duel')) && $turn.matches(/^[0-9]{1,4}$/) && ((newData.parent().child('s').exists() && newData.hasChildren(['idx','dx','dy','sp','ts'])) || (!newData.parent().child('s').exists() && newData.hasChildren(['idx','dx','dy','sp']) && !newData.child('ts').exists()))",
                   "idx": { ".validate": "newData.val() === 0 || newData.val() === 1 || newData.val() === 2 || newData.val() === 3 || (newData.val() === 4 && root.child('rooms').child($code).child('config/fmt').val() === 'ffa') || ((newData.val() === 4 || newData.val() === 5) && root.child('rooms').child($code).child('config/fmt').val() === 'triple_ffa')" },
                   "dx": { ".validate": "newData.isNumber() && newData.val() >= -195 && newData.val() <= 195" },
                   "dy": { ".validate": "newData.isNumber() && newData.val() >= -195 && newData.val() <= 195" },
                   "sp": { ".validate": "newData.isNumber() && newData.val() >= -1 && newData.val() <= 1" },
                   "ts": { ".validate": "newData.isNumber() && newData.val() === now" },
                   "$other": { ".validate": false }
+                },
+                "bc": {
+                  "$seat": {
+                    ".write": "!data.exists() && newData.exists() && $gen === root.child('rooms').child($code).child('gen').val() + '' && root.child('rooms').child($code).child('p').child($seat).child('on').val() === true",
+                    ".validate": "($seat === '0' || $seat === '1') && $turn.matches(/^[0-9]{1,4}$/) && newData.hasChildren(['v','seat','turn','hash'])",
+                    "v": { ".validate": "newData.val() === 1" },
+                    "seat": { ".validate": "newData.isNumber() && newData.val() + '' === $seat" },
+                    "turn": { ".validate": "newData.isNumber() && newData.val() + '' === $turn" },
+                    "hash": { ".validate": "newData.isString() && newData.val().matches(/^[0-9a-f]{64}$/)" },
+                    "$other": { ".validate": false }
+                  }
+                },
+                "br": {
+                  "$seat": {
+                    ".write": "!data.exists() && newData.exists() && $gen === root.child('rooms').child($code).child('gen').val() + '' && data.parent().parent().child('bc').child('0').exists() && data.parent().parent().child('bc').child('1').exists()",
+                    ".validate": "($seat === '0' || $seat === '1') && $turn.matches(/^[0-9]{1,4}$/) && newData.hasChildren(['v','seat','turn','nonce'])",
+                    "v": { ".validate": "newData.val() === 1" },
+                    "seat": { ".validate": "newData.isNumber() && newData.val() + '' === $seat" },
+                    "turn": { ".validate": "newData.isNumber() && newData.val() + '' === $turn" },
+                    "nonce": { ".validate": "newData.isString() && newData.val().matches(/^[0-9a-f]{64}$/)" },
+                    "seg": { ".validate": "newData.isNumber() && newData.val() % 1 === 0 && newData.val() >= 0 && newData.val() <= 11" },
+                    "$other": { ".validate": false }
+                  }
                 }
               }
             },

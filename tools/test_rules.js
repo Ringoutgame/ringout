@@ -281,24 +281,30 @@ deny('clock: ts kein Zahlenwert', stamped(3000), 'rooms/KX7P/g/0/t/0/0', Object.
 deny('clock: ts ohne aktive Uhr verboten (v3-Schema)', playing(twoOn), 'rooms/KX7P/g/0/t/0/0', MOVETS);
 allow('clock: ohne Phasenstempel bleibt v3-Verhalten unveraendert', playing(twoOn), 'rooms/KX7P/g/0/t/0/0', MOVE);
 
-// Deadline-Gate: bis zur Deadline zaehlt jeder Zug, danach NUR noch der No-Shot.
-// Damit kann kein Client einen Timeout verfruehen — der Server entscheidet anhand
-// seiner eigenen Uhr (now), nicht der Client.
+// 9A: Die fruehere 7-Sekunden-Schreibdeadline ("bis zur Deadline jeder Zug,
+// danach NUR No-Shot") ist ENTFERNT. Sie stammte aus der Online-Zugzeit-Aera;
+// seit 6d6dffc gilt TURN_TIMER_ENABLED=false fuer alle Modi, es gibt keinen
+// 7s-Autostand mehr — die Klausel haette ansonsten gueltige spaete Zuege
+// abgelehnt. Der Phasenstempel s und der atomare Serverzeit-ts bleiben als
+// Schema-/Zeitwahrheit vollstaendig erhalten (oben geprueft); entfernt ist
+// AUSSCHLIESSLICH das zeitbasierte Schreibverbot echter Zuege.
 const NOSHOT = { idx: 1, dx: 0, dy: 0, sp: 0, ts: NOW };
-allow('clock: echter Zug vor der Deadline', stamped(3000), 'rooms/KX7P/g/0/t/0/0', MOVETS);
-allow('clock: echter Zug exakt auf der Deadline', stamped(7000), 'rooms/KX7P/g/0/t/0/0', MOVETS);
-deny('clock: echter Zug nach der Deadline abgewiesen', stamped(7001), 'rooms/KX7P/g/0/t/0/0', MOVETS);
-allow('clock: No-Shot nach der Deadline erlaubt', stamped(7001), 'rooms/KX7P/g/0/t/0/1', NOSHOT);
-// BESTANDSGRENZE (unveraendert, nicht durch diesen Timer verursacht): v3 kennt keine
-// Authentifizierung, die Rules koennen einen fremden Stand-Zug vor der Deadline nicht
-// vom eigenen Stand-Button unterscheiden. Genau darauf beruht schon der bestehende
-// Leave-Sentinel. Der Timer verschaerft das NICHT — er verbietet nach der Deadline
-// zusaetzlich jeden echten Zug und macht die Deadline selbst faelschungssicher.
-allow('clock: Stand vor der Deadline bleibt erlaubt (v3-Bestand, Stand-Button)', stamped(3000), 'rooms/KX7P/g/0/t/0/1', NOSHOT);
-allow('clock: No-Shot bleibt write-once geschuetzt (erster gewinnt)', stamped(7001), 'rooms/KX7P/g/0/t/0/0', { idx: 0, dx: 0, dy: 0, sp: 0, ts: NOW });
-deny('clock: bestaetigter Zug wird auch nach der Deadline nicht ueberschrieben',
+allow('clock: echter Zug frueh im Zug', stamped(3000), 'rooms/KX7P/g/0/t/0/0', MOVETS);
+allow('clock: echter Zug bei 7s', stamped(7000), 'rooms/KX7P/g/0/t/0/0', MOVETS);
+allow('9A: echter Zug NACH 7s wird nicht mehr allein wegen der Zeit abgelehnt', stamped(7001), 'rooms/KX7P/g/0/t/0/0', MOVETS);
+allow('9A: echter Zug auch sehr spaet gueltig (keine Zeitklausel mehr)', stamped(600000), 'rooms/KX7P/g/0/t/0/0', MOVETS);
+allow('clock: No-Shot spaet weiterhin erlaubt', stamped(7001), 'rooms/KX7P/g/0/t/0/1', NOSHOT);
+// BESTANDSGRENZE (unveraendert): v3 kennt keine Authentifizierung — die Rules
+// konnten einen fremden Zug in einen LEEREN Slot noch nie vom eigenen
+// unterscheiden (darauf beruht der Leave-Sentinel). Mit dem Wegfall der
+// Deadline gilt fuer spaete Zuege wieder exakt dieselbe Grenze wie fuer
+// fruehe — es entsteht keine NEUE Faehigkeitsklasse; die Schutzwirkung
+// "nach 7s nur No-Shot" entfaellt ersatzlos, weil es die 7s-Deadline im
+// Produkt nicht mehr gibt.
+allow('clock: Stand frueh bleibt erlaubt (v3-Bestand, Stand-Button)', stamped(3000), 'rooms/KX7P/g/0/t/0/1', NOSHOT);
+allow('clock: Slot bleibt write-once geschuetzt (erster gewinnt)', stamped(7001), 'rooms/KX7P/g/0/t/0/0', { idx: 0, dx: 0, dy: 0, sp: 0, ts: NOW });
+deny('clock: bestaetigter Zug wird nie ueberschrieben (write-once, zeitunabhaengig)',
   stampedWith(7001, { 0: MOVETS }), 'rooms/KX7P/g/0/t/0/0', { idx: 0, dx: 0, dy: 0, sp: 0, ts: NOW });
-deny('clock: getarnter Fremdzug nach der Deadline (dx!=0) abgewiesen', stamped(7001), 'rooms/KX7P/g/0/t/0/1', Object.assign({}, MOVETS, { idx: 1, dx: 100, dy: 0 }));
 // Ein isolierter Kind-Write auf t/<turn>/<seat>/ts (Vorstempeln ohne Zug) scheitert an
 // der $pl-.validate (hasChildren idx/dx/dy/sp/ts). Die lokale Mock-Engine wertet
 // Ancestor-Validates bei Kind-Writes nicht aus — dieser Fall wird deshalb gegen den
@@ -415,6 +421,104 @@ allow('team leave-sentinel pl 3 idx 0 (foreign idx)', teamMatch, 'rooms/KX7P/g/0
 deny('team move idx 4', teamMatch, 'rooms/KX7P/g/0/t/0/0', { idx: 4, dx: 0, dy: 0, sp: 0 });
 deny('team move idx 5', teamMatch, 'rooms/KX7P/g/0/t/0/0', { idx: 5, dx: 0, dy: 0, sp: 0 });
 deny('team move pl 4 (seat gate, presence pre-seeded)', playing({ p: { 0: P(H_TAB, true), 1: P(G_TAB, true), 2: P(G2_TAB, true), 3: P(G3_TAB, true), 4: P(G4_TAB, true) }, seats: 4 }, 'team_duel'), 'rooms/KX7P/g/0/t/0/4', MOVE);
+
+// ── (17) Temporary Barrier — Commit-Reveal-Vertrag bc/br (9A) ─────────────────
+//        Exakt der seit 6B2A implementierte und in den Emulator-E2E-Laeufen
+//        getestete Contract (2-Seat-Gate): bc/<seat> = {v:1, seat, turn,
+//        hash(64-hex)} write-once vom Online-Seat; br/<seat> = {v:1, seat,
+//        turn, nonce(64-hex) [, seg 0..11]} write-once erst wenn bc/0 UND
+//        bc/1 existieren. Keine Wildcard-Freigaben: bc/br sind benannte
+//        Knoten, $pl greift fuer sie nicht mehr; $other bleibt ueberall false.
+const HEX64 = 'a'.repeat(64);
+const BCV = (seat, turn) => ({ v: 1, seat, turn, hash: HEX64 });
+const BRV = (seat, turn, seg) => { const r = { v: 1, seat, turn, nonce: HEX64 }; if (seg !== undefined) r.seg = seg; return r; };
+const barrierBase = (turnOver, pOver) => playing({ p: pOver || { 0: P(H_TAB, true), 1: P(G_TAB, true) }, g: { 0: { t: { 0: turnOver || {} } } } });
+const bothBc = { bc: { 0: BCV(0, 0), 1: BCV(1, 0) } };
+
+// (T1/T13) barrier-freier Bestand: normale Zuege unveraendert gueltig
+allow('barrier T1: normaler Move ohne bc/br bleibt erlaubt', barrierBase(), 'rooms/KX7P/g/0/t/0/0', MOVE);
+// (T2) gueltige Commits
+allow('barrier T2: gueltiges bc/0', barrierBase(), 'rooms/KX7P/g/0/t/0/bc/0', BCV(0, 0));
+allow('barrier T2: gueltiges bc/1', barrierBase(), 'rooms/KX7P/g/0/t/0/bc/1', BCV(1, 0));
+// (T3) gueltige Reveals — erst nach BEIDEN Commits; seg optional (0..11)
+allow('barrier T3: gueltiges br/0 mit seg', barrierBase(bothBc), 'rooms/KX7P/g/0/t/0/br/0', BRV(0, 0, 7));
+allow('barrier T3: gueltiges br/1 ohne seg (kein Wandeinsatz)', barrierBase(bothBc), 'rooms/KX7P/g/0/t/0/br/1', BRV(1, 0));
+deny('barrier T3: br vor beiden Commits (nur bc/0)', barrierBase({ bc: { 0: BCV(0, 0) } }), 'rooms/KX7P/g/0/t/0/br/0', BRV(0, 0, 7));
+deny('barrier T3: br ganz ohne Commits', barrierBase(), 'rooms/KX7P/g/0/t/0/br/0', BRV(0, 0, 7));
+// (T5) unbekannte Zusatzfelder bleiben verboten
+deny('barrier T5: bc mit Zusatzfeld', barrierBase(), 'rooms/KX7P/g/0/t/0/bc/0', Object.assign({}, BCV(0, 0), { hack: 1 }));
+deny('barrier T5: br mit Zusatzfeld', barrierBase(bothBc), 'rooms/KX7P/g/0/t/0/br/0', Object.assign({}, BRV(0, 0, 7), { hack: 1 }));
+deny('barrier T5: fremder Turn-Kindknoten (weder Slot noch bc/br)', barrierBase(), 'rooms/KX7P/g/0/t/0/xx/0', BCV(0, 0));
+// (T6) falsche bc-Typen/-Werte
+deny('barrier T6: bc hash als Zahl', barrierBase(), 'rooms/KX7P/g/0/t/0/bc/0', { v: 1, seat: 0, turn: 0, hash: 123 });
+deny('barrier T6: bc hash falsches Format (kein 64-hex)', barrierBase(), 'rooms/KX7P/g/0/t/0/bc/0', { v: 1, seat: 0, turn: 0, hash: 'XYZ' });
+deny('barrier T6: bc falsche Protokollversion v=2', barrierBase(), 'rooms/KX7P/g/0/t/0/bc/0', Object.assign({}, BCV(0, 0), { v: 2 }));
+// (T7) falsche br-Typen
+deny('barrier T7: br nonce als Zahl', barrierBase(bothBc), 'rooms/KX7P/g/0/t/0/br/0', { v: 1, seat: 0, turn: 0, nonce: 7 });
+deny('barrier T7: br nonce falsches Format', barrierBase(bothBc), 'rooms/KX7P/g/0/t/0/br/0', { v: 1, seat: 0, turn: 0, nonce: 'GG'.repeat(32) });
+// (T8) ungueltiges Commit-Format
+deny('barrier T8: bc ohne hash', barrierBase(), 'rooms/KX7P/g/0/t/0/bc/0', { v: 1, seat: 0, turn: 0 });
+deny('barrier T8: bc seat-Feld passt nicht zum Slot', barrierBase(), 'rooms/KX7P/g/0/t/0/bc/0', BCV(1, 0));
+deny('barrier T8: bc turn-Feld passt nicht zum Turn-Pfad', barrierBase(), 'rooms/KX7P/g/0/t/0/bc/0', BCV(0, 3));
+// (T9) ungueltiges Reveal-Format
+deny('barrier T9: br ohne nonce', barrierBase(bothBc), 'rooms/KX7P/g/0/t/0/br/0', { v: 1, seat: 0, turn: 0, seg: 7 });
+deny('barrier T9: br seg=12 (ausserhalb 0..11)', barrierBase(bothBc), 'rooms/KX7P/g/0/t/0/br/0', BRV(0, 0, 12));
+deny('barrier T9: br seg=-1', barrierBase(bothBc), 'rooms/KX7P/g/0/t/0/br/0', BRV(0, 0, -1));
+deny('barrier T9: br seat-Feld passt nicht zum Slot', barrierBase(bothBc), 'rooms/KX7P/g/0/t/0/br/0', BRV(1, 0, 7));
+// (T10) Seat-Gate: nur Seats 0/1 (2-Seat-Barrier-Gate); offline-Seat gesperrt
+deny('barrier T10: bc/2 ausserhalb des 2-Seat-Gates', barrierBase(undefined, { 0: P(H_TAB, true), 1: P(G_TAB, true), 2: P(G2_TAB, true) }), 'rooms/KX7P/g/0/t/0/bc/2', { v: 1, seat: 2, turn: 0, hash: HEX64 });
+deny('barrier T10: br/2 ausserhalb des 2-Seat-Gates', barrierBase(Object.assign({}, bothBc), { 0: P(H_TAB, true), 1: P(G_TAB, true), 2: P(G2_TAB, true) }), 'rooms/KX7P/g/0/t/0/br/2', { v: 1, seat: 2, turn: 0, nonce: HEX64 });
+deny('barrier T10: bc fuer offline-Seat', barrierBase(undefined, { 0: P(H_TAB, true), 1: P(G_TAB, false) }), 'rooms/KX7P/g/0/t/0/bc/1', BCV(1, 0));
+// (T11) ungueltiger Turn/Generation
+deny('barrier T11: bc in fremder Generation', barrierBase(), 'rooms/KX7P/g/5/t/0/bc/0', BCV(0, 0));
+deny('barrier T11: bc unter nicht-numerischem Turn-Schluessel', barrierBase(), 'rooms/KX7P/g/0/t/x/bc/0', BCV(0, 0));
+deny('barrier T11: bc Turn-Schluessel zu lang (5 Ziffern)', barrierBase(), 'rooms/KX7P/g/0/t/12345/bc/0', { v: 1, seat: 0, turn: 12345, hash: HEX64 });
+// (T12) nachtraegliche Mutation bleibt verboten (write-once)
+deny('barrier T12: bc-Ueberschreiben verboten', barrierBase({ bc: { 0: BCV(0, 0) } }), 'rooms/KX7P/g/0/t/0/bc/0', Object.assign({}, BCV(0, 0), { hash: 'b'.repeat(64) }));
+deny('barrier T12: br-Ueberschreiben verboten', barrierBase(Object.assign({ br: { 0: BRV(0, 0, 7) } }, bothBc)), 'rooms/KX7P/g/0/t/0/br/0', BRV(0, 0, 3));
+// ── (17b) 9A.1 — P1-Fixes und weitere Review-Luecken ────────────────────────
+//        P1 #2: br.seg muss GANZZAHL sein. br ist write-once — ein akzeptierter
+//        Dezimalwert wuerde den Turn dauerhaft blockieren, weil der Client
+//        Number.isInteger(seg) verlangt und den Reveal verwirft.
+allow('9A.1 seg: 0 (untere Grenze)', barrierBase(bothBc), 'rooms/KX7P/g/0/t/0/br/0', BRV(0, 0, 0));
+allow('9A.1 seg: 11 (obere Grenze)', barrierBase(bothBc), 'rooms/KX7P/g/0/t/0/br/0', BRV(0, 0, 11));
+allow('9A.1 seg: 7 (Mitte)', barrierBase(bothBc), 'rooms/KX7P/g/0/t/0/br/0', BRV(0, 0, 7));
+deny('9A.1 seg: 7.5 (Dezimalwert)', barrierBase(bothBc), 'rooms/KX7P/g/0/t/0/br/0', BRV(0, 0, 7.5));
+deny('9A.1 seg: 0.5', barrierBase(bothBc), 'rooms/KX7P/g/0/t/0/br/0', BRV(0, 0, 0.5));
+deny('9A.1 seg: 10.999', barrierBase(bothBc), 'rooms/KX7P/g/0/t/0/br/0', BRV(0, 0, 10.999));
+deny('9A.1 seg: -1', barrierBase(bothBc), 'rooms/KX7P/g/0/t/0/br/0', BRV(0, 0, -1));
+deny('9A.1 seg: 12', barrierBase(bothBc), 'rooms/KX7P/g/0/t/0/br/0', BRV(0, 0, 12));
+deny('9A.1 seg: String statt Zahl', barrierBase(bothBc), 'rooms/KX7P/g/0/t/0/br/0', BRV(0, 0, '7'));
+
+// P1 #1 (Einzelpfad-Sicht): die Schemaentscheidung liest jetzt den
+// RESULTIERENDEN Turn-Zustand (newData.parent()). Bei Einzelpfad-Writes ist das
+// deckungsgleich mit der frueheren root-Sicht — hier abgesichert; der
+// Multi-Path-Fall (s + Move in EINEM Update) ist mit dieser Mock-Engine
+// grundsaetzlich nicht darstellbar und wird gegen den ECHTEN Emulator bewiesen
+// (artifacts/temporary_barrier_step9a_rules/rules_security_emu.js, Faelle A2/A3).
+allow('9A.1 s/ts: ungestempelter Turn + Move ohne ts', playing(twoOn), 'rooms/KX7P/g/0/t/0/0', MOVE);
+deny('9A.1 s/ts: ungestempelter Turn + Move MIT ts', playing(twoOn), 'rooms/KX7P/g/0/t/0/0', MOVETS);
+deny('9A.1 s/ts: gestempelter Turn + Move OHNE ts', stamped(1000), 'rooms/KX7P/g/0/t/0/0', MOVE);
+allow('9A.1 s/ts: gestempelter Turn + Move MIT korrektem ts', stamped(1000), 'rooms/KX7P/g/0/t/0/0', MOVETS);
+deny('9A.1 s/ts: gestempelter Turn + falsches ts', stamped(1000), 'rooms/KX7P/g/0/t/0/0', Object.assign({}, MOVE, { ts: NOW - 500 }));
+
+// Hex-Randfaelle (Commit-Hash und Reveal-Nonce, je 64 lowercase Hex)
+deny('9A.1 hex: bc hash 63 Stellen', barrierBase(), 'rooms/KX7P/g/0/t/0/bc/0', { v: 1, seat: 0, turn: 0, hash: 'a'.repeat(63) });
+deny('9A.1 hex: bc hash 65 Stellen', barrierBase(), 'rooms/KX7P/g/0/t/0/bc/0', { v: 1, seat: 0, turn: 0, hash: 'a'.repeat(65) });
+deny('9A.1 hex: bc hash uppercase', barrierBase(), 'rooms/KX7P/g/0/t/0/bc/0', { v: 1, seat: 0, turn: 0, hash: 'A'.repeat(64) });
+deny('9A.1 hex: br nonce 63 Stellen', barrierBase(bothBc), 'rooms/KX7P/g/0/t/0/br/0', { v: 1, seat: 0, turn: 0, nonce: 'a'.repeat(63) });
+deny('9A.1 hex: br nonce 65 Stellen', barrierBase(bothBc), 'rooms/KX7P/g/0/t/0/br/0', { v: 1, seat: 0, turn: 0, nonce: 'a'.repeat(65) });
+deny('9A.1 hex: br nonce uppercase', barrierBase(bothBc), 'rooms/KX7P/g/0/t/0/br/0', { v: 1, seat: 0, turn: 0, nonce: 'A'.repeat(64) });
+
+// br-Bindungen: Turn-Pfad, Generation, unvollstaendige Commit-Lage
+deny('9A.1 br: turn-Feld passt nicht zum Turn-Pfad', barrierBase(bothBc), 'rooms/KX7P/g/0/t/0/br/0', BRV(0, 3, 7));
+deny('9A.1 br: fremde Generation', barrierBase(bothBc), 'rooms/KX7P/g/5/t/0/br/0', BRV(0, 0, 7));
+deny('9A.1 br: nur bc/1 vorhanden (bc/0 fehlt)', barrierBase({ bc: { 1: BCV(1, 0) } }), 'rooms/KX7P/g/0/t/0/br/0', BRV(0, 0, 7));
+deny('9A.1 br: Loeschen verboten', barrierBase(Object.assign({ br: { 0: BRV(0, 0, 7) } }, bothBc)), 'rooms/KX7P/g/0/t/0/br/0', null);
+deny('9A.1 bc: Loeschen verboten', barrierBase({ bc: { 0: BCV(0, 0) } }), 'rooms/KX7P/g/0/t/0/bc/0', null);
+
+// (T13) Kompatibilitaet: Moves neben vorhandenen bc/br unveraendert gueltig
+allow('barrier T13: normaler Move im Turn mit bc/br-Knoten', barrierBase(Object.assign({ br: { 0: BRV(0, 0, 7) } }, bothBc)), 'rooms/KX7P/g/0/t/0/1', { idx: 1, dx: 20, dy: 20, sp: 0 });
 
 console.log('\nRules-Suite (lokal, echte firebase.rules.json): ' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);
