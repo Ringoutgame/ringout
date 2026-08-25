@@ -30,7 +30,7 @@ RingOut ist ein kompetitives, physikbasiertes Browser-Spiel für 1–5 Spieler. 
 
 ### Teststand
 
-Stand: HEAD `5a23dc424fb3126c33c29543b7c6571b87a65ec7` (2026-08-06), frisch gemessen mit
+Stand: Arena-Finalisierung (2026-08-08), frisch gemessen mit
 `node tools/run_all_tests.js`. Die Spalte „Assertions" nennt die Zahl aus der Suite-Ausgabe
 (`N passed, M failed`); der Runner schlägt auch dann fehl, wenn die Zahl von der in
 `run_all_tests.js` erwarteten abweicht.
@@ -39,8 +39,9 @@ Stand: HEAD `5a23dc424fb3126c33c29543b7c6571b87a65ec7` (2026-08-06), frisch geme
 |---|---|---|---|
 | Syntax | `test_syntax.js` | kein Zähler (3 Blöcke geparst) | grün |
 | Golden-Physik | `test_physics_golden.js` | 13/0 | grün |
-| Football-Shell | `test_football_shell.js` | 738/0 | grün |
-| Football-Flow | `test_football_flow.js` | 118/0 | grün |
+| Football-Shell | `test_football_shell.js` | 818/0 | grün |
+| Football-Flow | `test_football_flow.js` | 148/0 | grün |
+| Football-Arena | `test_football_arena.js` | 61/0 | grün |
 | r3d-Mapping | `test_r3d_mapping.js` | 52/0 | grün |
 | Sanitize | `test_sanitize.js` | 24/0 | grün |
 | Identity | `test_identity.js` | 45/0 | grün |

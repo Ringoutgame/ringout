@@ -1173,12 +1173,20 @@ for (const helper of ['fbOutline', 'fbBandPath', 'fbSweep', 'fbStrip', 'fbFill']
 ok(/if\(footballView&&!fbShapeGroup\)fbBuildShape\(\);/.test(HTML), 'Aufbau laeuft einmalig, sobald die Materialquelle geladen ist');
 // ── Sichtbarkeiten: prozedurale Arena + Tore im Football, runde Plattform + Ringe sonst ──
 ok(/if\(fbShapeGroup\)fbShapeGroup\.visible=footballView/.test(HTML), 'fbShapeGroup.visible haengt am football-scoped footballView-Gate');
-ok(/for\(const o of fbPlatformTops\)o\.visible=!footballView/.test(HTML), 'Runde Plattform weicht im Football-Modus der Rechteckarena');
+// Review-Fix der Finalisierung: die runde Plattform weicht nur, wenn die prozedurale
+// Rechteckarena wirklich gebaut wurde (rectReady) — faellt das Band-GLB aus, bleibt sie
+// als Notboden sichtbar statt Baelle/Tore vor dem Himmel schweben zu lassen.
+ok(/const rectReady=footballView&&!!fbShapeGroup;/.test(HTML), 'rectReady koppelt das Ausblenden der runden Plattform an die gebaute Rechteckarena');
+ok(/for\(const o of fbPlatformTops\)o\.visible=!rectReady/.test(HTML), 'Runde Plattform weicht im Football-Modus der Rechteckarena (nur wenn gebaut)');
 ok(/boundaryFull=\[zone,main,g\]/.test(HTML), 'boundaryFull haelt die drei Vollkreis-Sichtringe (Warnzone/Leuchtring/Goldring)');
-ok(/if\(boundaryFull\)for\(const bm of boundaryFull\)bm\.visible=!footballView/.test(HTML), 'Vollkreis-Sichtringe nur in normalen Modi sichtbar (im Football-Modus aus)');
+ok(/if\(boundaryFull\)for\(const bm of boundaryFull\)bm\.visible=!rectReady/.test(HTML), 'Vollkreis-Sichtringe nur in normalen Modi sichtbar (bzw. als Fallback ohne Rechteckarena)');
 // ── Kamera-Framing folgt der Rechteckarena (getrennte Bedarfe je Achse) ──
-ok(/const needX=fbFrame\?fbHalfLen\(\)\+\(need-R0\):need, needZ=fbFrame\?fbHalfWid\(\)\+\(need-R0\):need;/.test(HTML),
-  'Kamera-Framing nutzt fbHalfLen/fbHalfWid (Rechteck), andere Modi den symmetrischen Bedarf');
+// Review-Fix: horizontal zaehlt die Deck-/Toraussenkante (postBack + Ballradius), sonst
+// beschneidet ein schmaler Viewport die Tore; vertikal weiter fbHalfWid.
+ok(/const fbEdgeX=fbFrame\?fbArena\(\)\.postBack\*BR\+FOOTBALL_BALL_RADIUS:0;/.test(HTML),
+  'Kamera-Framing deckt horizontal die Deck-Aussenkante (postBack + Ballradius)');
+ok(/const needX=fbFrame\?fbEdgeX\+\(need-R0\):need, needZ=fbFrame\?fbHalfWid\(\)\+\(need-R0\):need;/.test(HTML),
+  'Kamera-Framing nutzt Rechteckbedarfe je Achse, andere Modi den symmetrischen Bedarf');
 
 // ── Drei originale Vollkreis-Sichtringe unveraendert vorhanden ──
 ok(/new THREE\.TorusGeometry\(GLB_R,\.075,12,176\)/.test(HTML), '360-Grad Leuchtring-Vollkreis unveraendert (normale Modi)');

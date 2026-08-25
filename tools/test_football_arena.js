@@ -220,6 +220,25 @@ ok(/const rb=ballRad\(b\);/.test(footballBlock), 'Anti-Wedge-Kontakte nutzen bal
   ok(G.ballR() === gg.BR && G.rad(4) === gg.BR, 'ausserhalb Football hat jede Kugel Radius BR (FFA-Slot 4 inklusive)');
 }
 
+// ── TOR: Totzonen-Schutz (Review-Befund der Finalisierung) ─────────────────────
+// Ein langsam durchgetretener Ball kann VOR der Torlinie liegenbleiben, jenseits der
+// maximalen Spielerreichweite (halfLen + Ballradius = 601). Ohne Wertung waere das Match
+// dauerhaft blockiert. footballGoalSide wertet einen RUHENDEN, unerreichbaren Kanalball
+// als Tor; ein noch erreichbarer Kanalball (|dx| <= 601) bleibt dagegen im Spiel.
+{
+  const V = F.launchV();
+  // Startgeschwindigkeit so, dass der Ball hinter der Bandenlinie, aber vor der Torlinie
+  // liegenbliebe (reproduzierter Softlock: Endlage ~649 > Reichweite 601).
+  F.reset(); F.setBalls([{ x: 500 + 430, y: 500, vx: 0.8, vy: 0, owner: F.neutral() }]);
+  let goal = false;
+  for (let i = 0; i < 2400 && !goal; i++) { F.step(); goal = F.goalState() !== 'play'; }
+  ok(goal && F.score()[0] === 1, 'Totzonen-Schutz: unerreichbar ruhender Kanalball wird als Tor gewertet');
+  // Gegenprobe: Ball ruht knapp HINTER der Bandenlinie, aber innerhalb der Reichweite —
+  // kein Tor, der Ball bleibt spielbar.
+  ok(F.goalSide({ owner: F.neutral(), fbPassed: true, x: 500 + 590, y: 500, vx: 0, vy: 0 }) === -1,
+     'erreichbarer Kanalball (|dx|=590) wird NICHT gewertet');
+}
+
 // ── SPAWNS ─────────────────────────────────────────────────────────────────────
 {
   const pl = F.place();

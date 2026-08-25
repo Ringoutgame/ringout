@@ -3102,7 +3102,7 @@ function curFRBall(){const c=footballPhys();return c?c.frictionBall:FRICTION;}
 function curFEBall(){const c=footballPhys();return c?c.fendBall:FEND;}
 // Umschaltschwelle zwischen Gleit- und Auslaufdaempfung. Ausserhalb Football exakt die
 // globale Konstante — die Bestandsmodi rechnen damit unveraendert.
-function curSLOWV(){const c=footballPhys();return c&&c.slowv!=null?c.slowv:SLOWV;}
+function curSLOWV(){const c=footballPhys();return c?c.slowv:SLOWV;}
 function curRestPost(){const c=footballPhys();return c?c.restPost:REST;}
 function footballGoalClearHalf(){return fbArena().postInner*BR;}         // lichte Halbbreite auf Ballhoehe
 function footballGoalCenterHalf(){return footballGoalClearHalf()-fbBallR();}    // nutzbare Zentrums-Halbbreite fuer den NEUTRALEN Ball (Bestand: clearHalf-BR)
@@ -3294,12 +3294,12 @@ function footballEscape(b,cs){
   return true;
 }
 // ── ARENA FOOTBALL: Torablauf (Goal Detection -> Ballfall -> Rundenreset) ──
-// Kanonische TORLINIE: die Hinterkante des Sockel-Fussabdrucks (FOOTBALL_POST_BACK*BR).
+// Kanonische TORLINIE: die Hinterkante des Sockel-Fussabdrucks (fbArena().postBack*BR).
 // Erst wenn die dem Spielfeld zugewandte Ballkante DIESE Linie passiert hat, hat der Ball
-// das Tor vollstaendig verlassen -> r - BR > FOOTBALL_POST_BACK*BR. Keine neue Magic Number:
-// die Linie ist exakt die bereits fuer die Pfostenkollision hergeleitete Sockel-Hinterkante.
-// Radial statt kartesisch, weil die Arena rund ist und die gesamte Football-Geometrie radial
-// definiert ist; im Torfenster (|y-cy| <= 2.300*BR) weichen r und |x-cx| um < 6 LOGICAL ab.
+// das Tor vollstaendig verlassen -> |x-cx| - fbBallR() > postBack*BR. Keine neue Magic
+// Number: die Linie ist exakt die bereits fuer die Pfostenkollision hergeleitete
+// Sockel-Hinterkante; gemessen wird kartesisch entlang der Tor-zu-Tor-Achse, weil die
+// Stirnseite der Rounded-Rectangle-Arena eine Gerade ist.
 //
 // TORSEITE: placeBalls() stellt Blau (owner 0) links (-X) und Rot (owner 1) rechts (+X) auf.
 // Jede Seite verteidigt das Tor auf ihrer Seite -> der Ball im +X-Tor ist ein Treffer ins
@@ -3335,12 +3335,20 @@ function footballGoalBusy(){return mode==='football'&&fbGoalState!=='play';}
 function footballGoalSide(b){
   if(mode!=='football')return -1;
   if(b.owner!==FOOTBALL_NEUTRAL_OWNER||!b.fbPassed)return -1;
-  // Die Torlinie ist eine GERADE quer zur Tor-zu-Tor-Achse — auf dem Rechteck ist das die
-  // natuerliche Beschreibung, auf dem Kreis die konservativere (der Ball muss minimal
-  // weiter laufen als beim frueheren Radialtest). Beide Tore bleiben exakt symmetrisch.
+  // Die Torlinie ist eine GERADE quer zur Tor-zu-Tor-Achse. Beide Tore bleiben exakt
+  // symmetrisch (fbBallR = Radius des neutralen Balls, postBack*BR = Laengeneinheit).
   const dx=b.x-cx;
-  if(Math.abs(dx)-fbBallR()<=fbArena().postBack*BR)return -1;   // noch nicht VOLLSTAENDIG hinter der Torlinie (fbBallR = Radius des neutralen Balls, postBack*BR = Laengeneinheit)
-  return dx>=0?0:1;
+  if(Math.abs(dx)-fbBallR()>fbArena().postBack*BR)return dx>=0?0:1;   // vollstaendig hinter der Torlinie
+  // TOTZONEN-SCHUTZ (Review-Befund der Arena-Finalisierung): Auf dem Rechteck kann ein
+  // langsam durchgetretener Ball VOR der Torlinie liegenbleiben — jenseits der maximalen
+  // Spielerreichweite (Spielerzentrum hoechstens halfLen-BR, Kontakt bei BR+fbBallR ->
+  // erreichbare Ballmitte hoechstens halfLen+fbBallR). Auf der Kreisarena war diese Lage
+  // geometrisch unmoeglich; ohne Wertung waere das Match dauerhaft blockiert (kein Tor,
+  // kein Reset, Ball unerreichbar). Ein RUHENDER (v < stopv), unerreichbarer Ball im
+  // Torkanal zaehlt deshalb als Tor der Seite, in deren Kanal er liegt — deterministisch,
+  // tickbasiert, kein Teleport, keine Aenderung am regulaeren Linienkriterium.
+  if(Math.abs(dx)>fbHalfLen()+fbBallR()&&Math.sqrt(b.vx*b.vx+b.vy*b.vy)<curST())return dx>=0?0:1;
+  return -1;
 }
 // Spielerkugeln anhalten (nie eliminieren) — waehrend des Torablaufs rollt niemand weiter.
 function footballFreezePlayers(){
@@ -4901,8 +4909,10 @@ function drawBall(b){
     ctx.strokeStyle='rgba('+glowRGB+','+Math.min(.38,sp*.033)+')';ctx.stroke();}
 
   // ── Rand-Warnung ──
+  // Rand-Warnglow = Ring-Out-Warnung — im Football gibt es keine Elimination, und die
+  // Kreisformel (R) passt nicht zur Rechteckarena (Review-Befund): dort komplett aus.
   const edge=R-Math.hypot(b.x-cx,b.y-cy);
-  if(edge<R*.26){const q=OP(b.x,b.y,0);ctx.beginPath();ctx.arc(q.x,q.y,BR*2.2*q.s,0,7);
+  if(mode!=='football'&&edge<R*.26){const q=OP(b.x,b.y,0);ctx.beginPath();ctx.arc(q.x,q.y,BR*2.2*q.s,0,7);
     ctx.fillStyle='rgba('+glowRGB+','+(0.13*(1-edge/(R*.26))+0.02)+')';ctx.fill();}
 
   // ── Eigene-Kugel-Marker (Online): dezenter weisser Ring, screen-space via OP() ──
@@ -5278,12 +5288,14 @@ async function initR3D(){
     // auf dem inneren Randweg. Deshalb wandert die Randbreite nach aussen: innen bleibt nur eine
     // schmale Stufe, aussen traegt der Sockel das Tor bis hinter die Torlinie.
     const FB_PLAY_INSET=0.70;    // Grenze -> Kante der Spielflaeche (innerer Randweg)
-    // Aussenkante = Torlinie + Ballradius: der Ball verlaesst die Plattform genau dann, wenn das
-    // Tor gewertet ist (footballGoalSide: |dx| - BR > postBack). Exakt die Beziehung des runden
-    // Aufbaus, nur an die neue Torposition angepasst.
-    const FB_DECK_OUT=2.245;     // Grenze -> sichtbare Aussenkante der Plattform
     const FB_WALK_Y=0.16;        // Oberkante Randweg (wie Walkway im GLB)
     const FB_U=GLB_R/R0;         // logische Einheiten -> Arena-GLB-Einheiten
+    // Aussenkante = Torlinie + Ballradius: der Ball verlaesst die Plattform GENAU dann,
+    // wenn das Tor gewertet ist (footballGoalSide: |dx| - fbBallR > postBack*BR). Aus den
+    // Quellwerten berechnet statt hart codiert (Review-Befund: die alte Literalherleitung
+    // nutzte BR=32 statt des neutralen Ballradius 25 — der Ball fiel 7 Einheiten vor der
+    // sichtbaren Kante).
+    const FB_DECK_OUT=(fbArena().postBack*BR+FOOTBALL_BALL_RADIUS)*FB_U-fbHalfLen()*FB_U;   // Grenze -> sichtbare Aussenkante der Plattform
     const fbMat={};              // geteilte Materialinstanzen aus den freigegebenen GLBs
     const goldM=new THREE.MeshStandardMaterial({color:0xc9a052,metalness:1,roughness:.35,envMapIntensity:1.1});
     let mainBMat=null;   // Referenz fuer den ruhigen Grenz-Puls
@@ -5423,7 +5435,7 @@ async function initR3D(){
       // Hinterer Torbereich: dezente Teamfarbe auf dem Aussensockel hinter der Oeffnung —
       // dieselbe Teamfarbe wie Torlinie und Wappen, als halbtransparente TOENUNG (der Marmor
       // bleibt sichtbar). Bewusst NICHT am Tor-Feedback beteiligt.
-      const backX0=AV.halfLen*BR*FB_U,backX1=(AV.postBack+1)*BR*FB_U-.20;
+      const backX0=AV.halfLen*BR*FB_U,backX1=(AV.postBack*BR+FOOTBALL_BALL_RADIUS)*FB_U-.20;   // bis zur Deck-Aussenkante (Torlinie + Ballradius)
       const backHalf=AV.postOuter*BR*FB_U;
       for(const sign of [1,-1]){
         const bcol=PCOLS[goalTeam(sign)].m3;
@@ -5472,7 +5484,7 @@ async function initR3D(){
         // beide Arenaformen garantiert identisch aussehen (keine zweite Materialpflege).
         if(nm.includes('Glass'))fbMat.glass=m;else if(nm.includes('Gold'))fbMat.gold=m;else if(nm.includes('Marble'))fbMat.marble=m;
       });
-    }catch(_){}   // Materialquelle ist additiv: ohne GLB bleibt fbMat leer und der 2D-Fallback greift
+    }catch(_){}   // Materialquelle ist additiv: ohne GLB bleibt fbMat leer, fbBuildShape baut nichts und die runde Plattform bleibt als Notboden sichtbar (rectReady unten)
     // ==== Arena-Football: prozedurale Rounded-Rectangle-Arena (produktiv) ====
     // Spielflaeche, Randweg, Sockelstufen, Bodenmarkierungen und transparente Bande werden aus
     // DENSELBEN Parametern gebaut, aus denen footballShapeSD die Physikgrenze bildet. Sichtbare
@@ -5678,17 +5690,12 @@ async function initR3D(){
     let camYaw=0,camPolar=POLAR0,camDistF=1;
     let camYawT=0,camPolarT=POLAR0,camDistFT=1;
     let camP=null,math=null,curVA=0,orbitCtl=null,geo=null;   // curVA: aktive Ansichts-Rotation (viewAngle)
-    let devCamLock=null;                             // nur ?dev=1: [ex,ey,ez,tx,ty,tz] fuer Vorschaubilder
     function updateCam(){                            // leichtgewichtig: nur Auge/Mathe (kein Resize)
       const dist=geo.baseDist*camDistF;
       const yawW=curVA+camYaw;                       // Kamera-Azimut folgt der Ansichts-Rotation (1v1: 0/PI wie bisher)
       const spol=Math.sin(camPolar),cpol=Math.cos(camPolar);
       camP={ex:cx+dist*spol*Math.sin(yawW),ey:35+dist*cpol,ez:cy+dist*spol*Math.cos(yawW),tx:cx,ty:35,tz:cy,
             fov:45,vw:geo.vw,vh:geo.vh,ox:geo.ox,oy:geo.oy,os:geo.os,shx:geo.shx,shy:geo.shy,py:camP?camP.py:0};
-      // Dev-Preview (?dev=1): feste Kamerapose fuer die Prototyp-Vorschaubilder. Ohne ?dev=1
-      // existiert devCamLock nicht und dieser Zweig ist unerreichbar.
-      if(devCamLock){camP.ex=devCamLock[0];camP.ey=devCamLock[1];camP.ez=devCamLock[2];
-                     camP.tx=devCamLock[3];camP.ty=devCamLock[4];camP.tz=devCamLock[5];}
       math=r3dCamMath(camP);
       if(!r3dOrbit){camera.position.set(camP.ex,camP.ey,camP.ez);camera.up.set(0,1,0);
         camera.lookAt(camP.tx,camP.ty,camP.tz);}
@@ -5701,7 +5708,12 @@ async function initR3D(){
       // bleibt exakt der bestehende (need - R0 = 45). Jeder andere Modus und die Kreisvariante
       // laufen unveraendert ueber den symmetrischen Bedarf.
       const fbFrame=mode==='football'&&!menuVisible;
-      const needX=fbFrame?fbHalfLen()+(need-R0):need, needZ=fbFrame?fbHalfWid()+(need-R0):need;
+      // Horizontal zaehlt die AUSSENKANTE des Decks hinter den Toren (postBack + Ballradius),
+      // nicht die Bandeninnenflaeche — sonst beschneidet ein schmaler Viewport die Tore
+      // (Review-Befund). Auf breiten Screens bindet weiterhin die Vertikale -> Framing wie
+      // freigegeben.
+      const fbEdgeX=fbFrame?fbArena().postBack*BR+FOOTBALL_BALL_RADIUS:0;
+      const needX=fbFrame?fbEdgeX+(need-R0):need, needZ=fbFrame?fbHalfWid()+(need-R0):need;
       const baseDist=Math.max(needX/(tanV*aspect),needZ/tanV)*1.10;
       curVA=viewAngle();
       if(menuVisible){
@@ -5721,14 +5733,6 @@ async function initR3D(){
       renderer.setSize(vw,vh,false);
       updateCam();
     }
-    // Dev-Zugang fuer die Prototyp-Vorschau (?dev=1). Rein lesend bis auf die Kamerapose;
-    // ohne ?dev=1 wird nichts exportiert und es gibt keinen Produktionspfad hierher.
-    if(DEV_MENU)window.__fbDev={
-      frameScale:()=>geo.baseDist,                    // Kameraframeskalierung der aktiven Variante
-      metrics:()=>({hx:fbHalfLen(),hz:fbHalfWid(),rc:fbCorner(),baseDist:geo.baseDist}),
-      pose:(ex,ey,ez,tx,ty,tz)=>{devCamLock=[ex,ey,ez,tx,ty,tz];updateCam();},
-      poseReset:()=>{devCamLock=null;updateCam();},
-    };
     function sync(){                                  // NUR lesen: balls, R, phase, outBall, online, myPlayer
       const nowS=(performance.now()-t0)/1000;
       const va=viewAngle();
@@ -5749,9 +5753,13 @@ async function initR3D(){
       bGroup.scale.setScalar(sc);bGroup.position.y=bob;
       const footballView=(mode==='football')&&!menuVisible;   // Football-Ansicht: prozedurale Arena + zwei Tore — nie Menue-Preview/normale Modi
       if(footballView&&!fbShapeGroup)fbBuildShape();          // einmaliger Aufbau, sobald die Materialquelle geladen ist
+      // Additiver Fallback (Review-Befund): die runde Plattform weicht NUR, wenn die
+      // prozedurale Rechteckarena wirklich steht. Faellt das Band-GLB (Materialquelle)
+      // aus, bleibt sonst gar kein Boden — Baelle und Tore schwebten vor dem Himmel.
+      const rectReady=footballView&&!!fbShapeGroup;
       if(fbShapeGroup)fbShapeGroup.visible=footballView;
-      for(const o of fbPlatformTops)o.visible=!footballView;  // runde Plattform weicht der Rechteckarena
-      if(boundaryFull)for(const bm of boundaryFull)bm.visible=!footballView;   // Vollkreis-Sichtringe nur in normalen Modi sichtbar (360 Grad unveraendert)
+      for(const o of fbPlatformTops)o.visible=!rectReady;     // runde Plattform weicht der Rechteckarena
+      if(boundaryFull)for(const bm of boundaryFull)bm.visible=!rectReady;   // Vollkreis-Sichtringe nur in normalen Modi sichtbar (360 Grad unveraendert)
       if(goalGroup){goalGroup.visible=footballView;goalGroup.scale.setScalar(sc);goalGroup.position.y=bob;}   // skaliert + schwebt exakt mit der Plattform (gleiches sc/bob wie bGroup)
       // Tor-Feedback: bewusst UNABHAENGIG von footballView. Faellt der Modus mitten im Impuls
       // weg (Menue, neues Match), liefert footballGoalFxLevel 0 und genau dieser Aufruf setzt
@@ -5801,8 +5809,13 @@ async function initR3D(){
           if(drop>1700){m.visible=false;d.visible=false;continue;}
           const drift=60*t/(1+1.2*t);                  // Schwung laeuft weiter, klingt weich ab
           const px=b.alive?b.x:f.x+f.vx*drift, pz=b.alive?b.y:f.y+f.vy*drift;   // Out-Ball driftet live (resultDrift)
-          const rrF=Math.hypot(px-cx,pz-cy)/sc;
-          const liftF=rrF>8.55?Math.min(1,(rrF-8.55)/.3)*.165*sc:0;
+          // Stufenkante der jeweiligen Arenaform (Review-Befund): Football = Abstand zur
+          // Rounded-Rectangle-Spielflaechenkante (Innenversatz FB_PLAY_INSET-Aequivalent
+          // 0.70 GLB), sonst der Kreisradius 8.55/8.7 der runden Plattform.
+          const edF=mode==='football'
+            ?footballShapeSD(px-cx,pz-cy,fbHalfLen(),fbHalfWid(),fbCorner()).sd/sc+.85
+            :Math.hypot(px-cx,pz-cy)/sc-8.55;
+          const liftF=edF>0?Math.min(1,edF/.3)*.165*sc:0;
           m.visible=true;m.position.set(px,bob+liftF+rad-drop,pz);
           m.rotation.set((f.vy*60*t)/rad,0,-(f.vx*60*t)/rad);   // rollt sichtbar beim Fallen
           d.visible=drop<300;
@@ -5814,8 +5827,10 @@ async function initR3D(){
           if(prevP[i]){const rdx=b.x-prevP[i].x,rdy=b.y-prevP[i].y,rd=Math.hypot(rdx,rdy);
             if(rd>1e-3){rollAx.set(rdy/rd,0,-rdx/rd);rollQ.setFromAxisAngle(rollAx,rd/rad);m.quaternion.premultiply(rollQ);}}
           // Kosmetische Auffahrt auf die Randweg-Stufe (GLB: Stufe bei 8.7, Hoehe 0.165)
-          const rrG=Math.hypot(b.x-cx,b.y-cy)/sc;
-          const lift=rrG>8.55?Math.min(1,(rrG-8.55)/.3)*.165*sc:0;
+          const edG=mode==='football'
+            ?footballShapeSD(b.x-cx,b.y-cy,fbHalfLen(),fbHalfWid(),fbCorner()).sd/sc+.85
+            :Math.hypot(b.x-cx,b.y-cy)/sc-8.55;
+          const lift=edG>0?Math.min(1,edG/.3)*.165*sc:0;
           // Football-Spawn: der neutrale Ball kommt nach dem Reset kurz von oben herein.
           // Rein visuelle Hoehe aus dem deterministischen Tickzaehler — die Simulation steht
           // bereits auf der Startposition, Physik und Score sind unberuehrt.

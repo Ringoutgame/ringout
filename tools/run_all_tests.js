@@ -15,9 +15,9 @@ const path = require('path'), { spawnSync } = require('child_process');
 const SUITES = [
   { name: 'Syntax',           file: 'test_syntax.js',         expectPassed: null },
   { name: 'Golden-Physik',    file: 'test_physics_golden.js', expectPassed: 13 },
-  { name: 'Football-Shell',   file: 'test_football_shell.js', expectPassed: 816 },   // Arena-Finalisierung 2026-08-07: Rounded Rectangle B, gerades Tor, M1, Ballradius 25
+  { name: 'Football-Shell',   file: 'test_football_shell.js', expectPassed: 818 },   // Arena-Finalisierung + Review-Fixes: Rounded Rectangle B, gerades Tor, M1, Ballradius 25
   { name: 'Football-Flow',    file: 'test_football_flow.js',  expectPassed: 148 },   // Arena-Finalisierung 2026-08-07: M1-Wirkungsmessung, Rechteckgrenze, Ballradius 25
-  { name: 'Football-Arena',   file: 'test_football_arena.js', expectPassed: 59 },    // finaler Produktivstand: Arena B, buendiges Tor, M1, Ballradius 25
+  { name: 'Football-Arena',   file: 'test_football_arena.js', expectPassed: 61 },    // finaler Produktivstand: Arena B, buendiges Tor, M1, Ballradius 25
   { name: 'r3d-Mapping',      file: 'test_r3d_mapping.js',    expectPassed: 52 },
   { name: 'Sanitize',         file: 'test_sanitize.js',       expectPassed: 24 },
   { name: 'Identity',         file: 'test_identity.js',       expectPassed: 45 },
