@@ -1,6 +1,6 @@
 # PROJECT.md — RingOut
 
-**Zuletzt aktualisiert:** 2026-08-07 (Arena Football finalisiert: Rounded-Rectangle-Arena B, buendige Torintegration, Movement M1, neutraler Ballradius 25; Prototyp-Umschaltungen entfernt, Tests migriert)
+**Zuletzt aktualisiert:** 2026-08-25 (Arena Football: zwei Produktmodi — Classic 1v1 als Standard und Tactical 1v1 als zweiter Modus; Modusauswahl im Menue, neue Produktsuite `test_football_tactical.js`)
 
 - **Aktueller stabiler Projekt-HEAD:** `5a23dc424fb3126c33c29543b7c6571b87a65ec7`
 - **Implementierungs-Commit UX-Phase 3:** `babbbe78ee388489321d1f0cb3e032bbaabd0725`
@@ -23,7 +23,7 @@ RingOut ist ein kompetitives, physikbasiertes Browser-Spiel für 1–5 Spieler. 
 | Audio | Web Audio API (prozedural, kein Asset-Loading) |
 | Netzwerk | Firebase Realtime Database (Lockstep) |
 | Build-System | keines – direktes Öffnen im Browser |
-| Tests | Lokale Batterie unter `tools/`; der zentrale Runner `tools/run_all_tests.js` fasst **17 Offline-Suiten** zusammen — aktuell **12/17 grün**. Suite-für-Suite-Übersicht im Abschnitt „Teststand" unten. |
+| Tests | Lokale Batterie unter `tools/`; der zentrale Runner `tools/run_all_tests.js` fasst **19 Offline-Suiten** zusammen — aktuell **14/19 grün**. Suite-für-Suite-Übersicht im Abschnitt „Teststand" unten. |
 | CI | GitHub Actions (`.github/workflows/tests.yml`) führt bei `push`/`pull_request`/`workflow_dispatch` automatisch `node tools/run_all_tests.js` aus (Node 20, kein `npm install`). Reiner Sicherheitscheck — kein Build, kein Deployment, kein Firebase-Zugriff; Live-REST-Verify läuft nie in CI. |
 | TypeScript | nein |
 | UI-Sprache | Deutsch |
@@ -42,6 +42,7 @@ Stand: Arena-Finalisierung (2026-08-08), frisch gemessen mit
 | Football-Shell | `test_football_shell.js` | 818/0 | grün |
 | Football-Flow | `test_football_flow.js` | 148/0 | grün |
 | Football-Arena | `test_football_arena.js` | 61/0 | grün |
+| Football-Tactical | `test_football_tactical.js` | 219/0 | grün |
 | r3d-Mapping | `test_r3d_mapping.js` | 52/0 | grün |
 | Sanitize | `test_sanitize.js` | 24/0 | grün |
 | Identity | `test_identity.js` | 45/0 | grün |
@@ -56,7 +57,7 @@ Stand: Arena-Finalisierung (2026-08-08), frisch gemessen mit
 | Public-Lobby | `test_public_lobby.js` | 30/0 | grün |
 | Team-Duel | `test_team_duel.js` | — (Abbruch: `ReferenceError: curRestBall is not defined`) | **rot** |
 
-**Gesamt: 12/17 grün.** Die fünf roten Suiten (FFA-Kern, FFA-Online-Flow, FFA-Online-Race,
+**Gesamt: 14/19 grün.** Die fünf roten Suiten (FFA-Kern, FFA-Online-Flow, FFA-Online-Race,
 Reconnect-B2, Team-Duel) sind **bekannte, vorbestehende Altlasten** — Ursachen und Nachweis
 siehe „Bekannte Einschränkungen" und `TODO.md` (P0). Die Arena-Football-Arbeit inklusive
 UX-Phase 3 hat **keine neue Suite rot gemacht** und keine grüne Suite verschlechtert.
@@ -81,6 +82,7 @@ Bei den E2E-Harnessen ist die Produktions-Firebase hart geblockt.
 | ONLINE FFA | ✅ Flaggschiff (Default-Auswahl) | 2–5 Spieler via Firebase, Raum erstellen/Code teilen, Host startet ab 2 |
 | ONLINE VERSUS | ✅ | **2 echte Spieler** via Firebase; CTA öffnet Format-Modal: 1v1 DUEL (`fmt='single'`, 1 Kugel/Spieler) oder 2v2 DUO DUEL (`fmt='double'`, 2 Kugeln/Spieler). Bewusst nicht „Team Battle" — reserviert für einen echten 4-Spieler-Modus |
 | BOT TRAINING | ✅ | Spieler gegen Hard-Bot; CTA öffnet Format-Modal: 1v1 VS BOT oder 2v2 DUO VS BOT (`botMove()` routet fmt-abhängig auf `bot1v1`/`bot2v2`) |
+| ARENA FOOTBALL | ✅ | **Lokal/Hotseat**, nie online. CTA öffnet die Modusauswahl (`#fbModeOv`, gleiche Modalstruktur wie das Bot-Format-Modal): **Classic 1v1** (Standard, hervorgehoben) oder **Tactical 1v1**. Details unten unter „Arena-Football-Modi" |
 | 2 Spieler (Hotseat) | ❌ nur `?dev=1` | Lokales Pass-and-Play mit Sichtschutz-Bildschirm — als Testbasis erhalten |
 | FFA lokal | ❌ nur `?dev=1` | 2–5 Spieler Hotseat (M8-T2) inkl. Spieleranzahl-Auswahl — Testbasis für Online-FFA |
 
@@ -113,6 +115,52 @@ Bei den E2E-Harnessen ist die Produktions-Firebase hart geblockt.
   Accessoren `curFR()` / `curFE()` / `curST()` bzw. `curRestBall()` / `curRestBand()` /
   `curRestPost()`. Außerhalb von `mode === 'football'` liefern sie exakt die globalen
   Konstanten — alle Bestandsmodi rechnen unverändert weiter (Golden-Physik 13/13).
+
+### Arena-Football-Modi (final: Classic 1v1 + Tactical 1v1)
+
+Arena Football hat genau **zwei Produktmodi**. Beide laufen durch dieselbe Commit/Reveal-Pipeline
+wie jeder lokale Hotseat-Modus: verdeckte Aim-Phase je Team (`openCover`), beide Seiten
+committen, danach Reveal — `applyLaunch()` setzt **alle** Startgeschwindigkeiten vor
+`setPhase('sim')`, es gibt also keinen Frame-, Microstep- oder Teamversatz.
+
+| | Classic 1v1 (Standard) | Tactical 1v1 |
+|---|---|---|
+| Spielerfiguren je Spieler | 1 | 2 (`B1`/`B2` bzw. `R1`/`R2`) |
+| Bodies gesamt | 3 | 5 (inkl. neutralem Ball) |
+| Zuege je Team und Runde | 1 | 1 — das Team waehlt vorher, **welche** seiner beiden Figuren zieht |
+| Nicht gewaehlte Figur | — | erhaelt keinen Startimpuls, bleibt aber vollstaendig kollidierbar |
+
+**Umschaltung:** `fbVariant` (`'classic'` oder `'tactical'`) ist die einzige Weiche; `fbTactical()`
+ist der einzige Konsument. Jeder andere Wert faellt auf `'classic'` zurueck. `startFootball(variant)`
+ist der **einzige** Startpfad und clamped die Variante zusaetzlich. Dev-Direktlinks:
+`?dev=1&fb=classic` und `?dev=1&fb=tactical` ueberspringen die Modusauswahl; ein ungueltiger
+Wert (z. B. `fb=tactical-dual`) zeigt die Auswahl und startet Classic.
+
+**Tactical-Aufstellung** (`FOOTBALL_TACTICAL_SPAWN`, Einheiten in BR): offensive Figur
+(±6.40, −2.80), tiefe Figur (±12.20, +4.60), Rot an der Mittelachse gespiegelt, Ball exakt im
+Mittelpunkt. Die tiefe Figur steht ausserhalb der lichten Torbreite (`postInner` 3.560) — keine
+Figur startet im Tor. Rollen entstehen ausschliesslich aus der Position, es gibt keine
+Figurenklassen. **Auswahl-UX:** dezenter Bodenring in Teamfarbe (`FB_RING_SELECTABLE` 0.34 /
+`FB_RING_SELECTED` 0.95, gewaehlte Figur zusaetzlich 1.10× groesser), keine dauerhaften Labels.
+Hidden Information: waehrend der Aim-Phase traegt nur das Team am Zug einen Ring; im Reveal
+sind die beiden gestarteten Figuren markiert.
+
+**Physik, Arena, Tor, Score, Goal-FX und Goal-Sound sind in beiden Modi identisch** — Tactical
+aendert ausschliesslich Bodyanzahl und Figurenwahl.
+
+**Online:** Arena Football ist in **beiden** Modi ein rein lokaler Modus. `mode='football'` wird
+an genau zwei Stellen gesetzt: im Startpfad (`online=false`) und in der Menue-Vorschau, die bei
+`online` sofort aussteigt. Online-Raeume tragen kein `mode`-Feld — Football ist ueber den
+Lockstep-Pfad nicht erreichbar. Eine Online-Unterstuetzung fuer Tactical (mehr Bodies im
+Snapshot, Owner-/Index-Annahmen, Reconnect) ist **nicht** implementiert und waere ein eigener
+Auftrag mit Protokollarbeit.
+
+**Verworfen:** eine dritte Variante „Tactical Dual" (beide Figuren je Team gleichzeitig planbar)
+wurde prototypisch gebaut und im Spieltest verworfen — unuebersichtlicher, deutlich defensiver,
+weniger Tore. Sie ist vollstaendig aus dem Produktivcode entfernt; lokale Prototyp-Artefakte
+liegen untracked unter `artifacts/football-tactical-dual-prototype/`.
+
+---
 
 ### Arena-Football-Arena (final: Rounded Rectangle B)
 Die Football-Spielflaeche ist seit 2026-08-07 ein **Rounded Rectangle** (die fruehere

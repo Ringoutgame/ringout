@@ -194,6 +194,9 @@ body.r3d #menu{z-index:2;background:linear-gradient(180deg,rgba(6,10,18,.55) 0%,
 /* Versus-/Bot-Modal: grosse Touch-Auswahlkarten im Glass/Navy/Gold-Stil des Menues */
 .vswb{width:330px;max-width:90vw;background:linear-gradient(180deg,rgba(17,24,40,.96),rgba(10,15,26,.97));border:1px solid rgba(255,201,64,.25);backdrop-filter:blur(8px)}
 .vopt{width:100%;display:flex;flex-direction:column;gap:6px;align-items:center;padding:19px 14px;margin-bottom:10px;border-radius:16px;cursor:pointer;font:inherit;border:1px solid rgba(255,201,64,.28);background:linear-gradient(180deg,rgba(32,42,66,.92),rgba(15,21,36,.96));box-shadow:0 10px 26px rgba(5,9,18,.45);transition:transform .12s,border-color .12s,box-shadow .12s}
+/* Empfohlene Option (Standardmodus): dauerhaft der Hover-Akzent, keine neue Farbe.
+   Steht VOR :hover, damit der Hover-Zustand auch auf der empfohlenen Option greift. */
+.vopt.rec{border-color:rgba(255,201,64,.55);box-shadow:0 10px 30px rgba(255,178,40,.14)}
 .vopt:hover{border-color:rgba(255,201,64,.6);box-shadow:0 10px 30px rgba(255,178,40,.16)}
 .vopt:active{transform:scale(.97)}
 .vopt-t{font-size:15px;font-weight:900;letter-spacing:.12em;color:#ffd97a}
@@ -763,6 +766,23 @@ body:not(.r3d) .ohero{height:12px}
       <span class="vopt-s" id="bot2v2S">2 BALLS EACH</span>
     </button>
     <button class="wbtn" id="botBack">↩ Back</button>
+  </div>
+</div>
+
+<!-- Arena Football: Auswahl der beiden Produktmodi. Gleiche Modalstruktur wie das
+     Bot-Format-Modal — Classic ist der Standard und deshalb als erste Option empfohlen. -->
+<div class="ov" id="fbModeOv">
+  <div class="wb vswb">
+    <div class="wt" id="fbModeTitle">ARENA FOOTBALL</div>
+    <button class="vopt rec" id="fbClassicBtn">
+      <span class="vopt-t" id="fbClassicT">CLASSIC 1V1</span>
+      <span class="vopt-s" id="fbClassicS">1 FIGURE PER PLAYER</span>
+    </button>
+    <button class="vopt" id="fbTacticalBtn">
+      <span class="vopt-t" id="fbTacticalT">TACTICAL 1V1</span>
+      <span class="vopt-s" id="fbTacticalS">2 FIGURES · 1 MOVE PER ROUND</span>
+    </button>
+    <button class="wbtn" id="fbModeBack">↩ Back</button>
   </div>
 </div>
 
@@ -1379,6 +1399,10 @@ function setOnAria(grp,id){document.querySelectorAll('#'+grp+' button').forEach(
 // Dev-/Testpfad (?dev=1): zeigt das Legacy-Panel mit allen versteckten Modi
 // (Hotseat-2-Spieler, FFA lokal inkl. Spieleranzahl, Bot-Stufen, Format, Runden).
 const DEV_MENU=new URLSearchParams(location.search).get('dev')==='1';
+// Prototyp-Zugang zur Football-Variante (?dev=1&fb=tactical). EINZIGE Stelle, die dafuer die
+// URL liest — der Football-Block selbst bleibt frei von Umgebungszugriffen und ist damit in
+// den Offline-Harnessen unveraendert lauffaehig. Ohne ?dev=1 immer null -> Classic.
+const DEV_FB_VARIANT=DEV_MENU?new URLSearchParams(location.search).get('fb'):null;
 if(DEV_MENU)$('devPanel').style.display='';
 $('mBot').onclick=()=>{mode=menuMode='bot';setOn('modeGrp','mBot');$('diffSec').style.display='';$('fmtSec').style.display='';$('ffaSec').style.display='none';};
 $('mPvp').onclick=()=>{mode=menuMode='pvp';setOn('modeGrp','mPvp');$('diffSec').style.display='none';$('fmtSec').style.display='';$('ffaSec').style.display='none';};
@@ -1453,6 +1477,8 @@ en:{tagline:'PULL BACK · RELEASE · KNOCK THEM OUT',chip:'FEATURED',
   teamBlue:'TEAM BLUE',teamRed:'TEAM RED',teamBlueWins:'TEAM BLUE WINS',teamRedWins:'TEAM RED WINS',teamDraw:'DRAW',
   vsT:'ONLINE VERSUS',vsS:'2 PLAYERS · 2 BALLS EACH',
   botT:'BOT TRAINING',botS:'VS AI',
+  fbT:'ARENA FOOTBALL',fbClassicT:'CLASSIC 1V1',fbClassicS:'1 FIGURE PER PLAYER',
+  fbTacticalT:'TACTICAL 1V1',fbTacticalS:'2 FIGURES · 1 MOVE PER ROUND',
   secPlay:'PLAY',secRooms:'ONLINE ROOMS',secHow:'HOW TO PLAY',viewAll:'VIEW ALL',
   joinCodeBtn:'JOIN CODE',howLead:'Learn the rules and master the ring.',
   createRoomSub:'Invite your friends',joinCodeSub:'Enter room code',
@@ -1495,6 +1521,8 @@ de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'FEATURED',
   teamBlue:'TEAM BLAU',teamRed:'TEAM ROT',teamBlueWins:'TEAM BLAU GEWINNT',teamRedWins:'TEAM ROT GEWINNT',teamDraw:'UNENTSCHIEDEN',
   vsT:'ONLINE VERSUS',vsS:'2 SPIELER · 2 KUGELN PRO SPIELER',
   botT:'BOT-TRAINING',botS:'GEGEN KI',
+  fbT:'ARENA FOOTBALL',fbClassicT:'CLASSIC 1V1',fbClassicS:'1 FIGUR PRO SPIELER',
+  fbTacticalT:'TACTICAL 1V1',fbTacticalS:'2 FIGUREN · 1 ZUG PRO RUNDE',
   secPlay:'SPIELEN',secRooms:'ONLINE-RÄUME',secHow:'SO WIRD GESPIELT',viewAll:'ALLE ANZEIGEN',
   scrollHint:'SCROLLEN FÜR MEHR',soonT:'BALD MEHR',soonS:'Neue Modi und Features sind in Arbeit.',
   joinCodeBtn:'CODE BEITRETEN',howLead:'Lerne die Regeln und meistere den Ring.',
@@ -1537,6 +1565,8 @@ tr:{tagline:'GERİ ÇEK · BIRAK · DIŞARI İT',chip:'FEATURED',
   teamBlue:'MAVİ TAKIM',teamRed:'KIRMIZI TAKIM',teamBlueWins:'MAVİ TAKIM KAZANDI',teamRedWins:'KIRMIZI TAKIM KAZANDI',teamDraw:'BERABERE',
   vsT:'ONLINE VERSUS',vsS:'2 OYUNCU · KİŞİ BAŞI 2 TOP',
   botT:'BOT ANTRENMANI',botS:'YAPAY ZEKÂYA KARŞI',
+  fbT:'ARENA FOOTBALL',fbClassicT:'CLASSIC 1V1',fbClassicS:'OYUNCU BAŞINA 1 FİGÜR',
+  fbTacticalT:'TACTICAL 1V1',fbTacticalS:'2 FİGÜR · TUR BAŞINA 1 HAMLE',
   secPlay:'OYNA',secRooms:'ONLINE ODALAR',secHow:'NASIL OYNANIR',viewAll:'TÜMÜNÜ GÖR',
   scrollHint:'KAYDIR VE KEŞFET',soonT:'ÇOK YAKINDA DAHA FAZLASI',soonS:'Yeni modlar ve özellikler yolda.',
   joinCodeBtn:'KODLA KATIL',howLead:'Kuralları öğren ve ringe hâkim ol.',
@@ -1603,6 +1633,9 @@ function applyLang(){
   $('botTitle').textContent=T('botT');$('botBack').textContent=T('back');
   $('bot1v1T').textContent=T('bot1v1T');$('bot1v1S').textContent=T('bot1v1S');
   $('bot2v2T').textContent=T('bot2v2T');$('bot2v2S').textContent=T('bot2v2S');
+  $('fbModeTitle').textContent=T('fbT');$('fbModeBack').textContent=T('back');
+  $('fbClassicT').textContent=T('fbClassicT');$('fbClassicS').textContent=T('fbClassicS');
+  $('fbTacticalT').textContent=T('fbTacticalT');$('fbTacticalS').textContent=T('fbTacticalS');
   $('onInput').placeholder=T('enterCode');
   $('nameLbl').textContent=T('nameLbl');$('nameInput').placeholder=T('namePh');$('rejoinBtn').textContent=T('rejoinBtn');
   {const bt=$('bootTxt');if(bt)bt.textContent=T('loading');}   // Boot-Overlay existiert nur bis zum First-Frame
@@ -1652,7 +1685,12 @@ $('modePrev').onclick=()=>stepMenuMode(-1);
 $('modeNext').onclick=()=>stepMenuMode(1);
 $('ctaBtn').onclick=()=>{
   SFX.unlock();
-  if(menuSel==='football'){if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);if(!r3dActive){toast('Arena Football benötigt die echte 3D-Szene (nicht verfügbar).');return;}mode=menuMode='football';fmt='single';online=false;SFX.footballGoalPreload();showGame();newGame();return;}   // Arena-Football-Integrations-Shell (nur echte 3D-Szene); Torsound aus dieser Geste vorladen
+  // ARENA FOOTBALL: Modusauswahl statt Sofortstart. Ein gueltiger Dev-Direktlink
+  // (?dev=1&fb=classic|tactical) ueberspringt die Auswahl bewusst.
+  if(menuSel==='football'){if(SFX.click())vibrateMs(VIBE_CLICK_MS);   // oeffnet nur die Auswahl — wie beim Bot-Dialog
+    if(!r3dActive){toast('Arena Football benötigt die echte 3D-Szene (nicht verfügbar).');return;}
+    if(DEV_FB_VARIANT==='classic'||DEV_FB_VARIANT===FOOTBALL_VARIANT_TACTICAL){startFootball(DEV_FB_VARIANT);return;}
+    $('fbModeOv').classList.add('show');return;}
   if(menuSel==='bot'){if(SFX.click())vibrateMs(VIBE_CLICK_MS);$('botOv').classList.add('show');return;}       // Format-Auswahl: 1v1 / 2v2 Duo vs Bot
   if(TUNE){if(SFX.click())vibrateMs(VIBE_CLICK_MS);toast('Tuning aktiv — Online deaktiviert');return;}
   // "Play Online FFA": normaler Klick, aber weiterhin die deutlichere Vibration
@@ -1669,6 +1707,19 @@ $('ctaBtn').onclick=()=>{
 $('bot1v1').onclick=()=>{$('botOv').classList.remove('show');mode=menuMode='bot';fmt='single';online=false;showGame();newGame();};
 $('bot2v2').onclick=()=>{$('botOv').classList.remove('show');mode=menuMode='bot';fmt='double';online=false;showGame();newGame();};
 $('botBack').onclick=()=>$('botOv').classList.remove('show');
+// Arena Football: EINZIGER Startpfad beider Produktmodi. Er setzt die Variante und laeuft
+// danach durch exakt denselben Bestandsablauf wie zuvor (lokales Match, nie online).
+// Torsound wird aus dieser Nutzergeste vorgeladen.
+function startFootball(variant){
+  fbVariant=variant===FOOTBALL_VARIANT_TACTICAL?FOOTBALL_VARIANT_TACTICAL:'classic';   // jeder andere Wert -> Standardmodus
+  $('fbModeOv').classList.remove('show');
+  mode=menuMode='football';fmt='single';online=false;
+  SFX.footballGoalPreload();showGame();newGame();
+  if(DEV_MENU)console.log('[football] Modus: '+fbVariant);
+}
+$('fbClassicBtn').onclick=()=>{if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);startFootball('classic');};
+$('fbTacticalBtn').onclick=()=>{if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);startFootball(FOOTBALL_VARIANT_TACTICAL);};
+$('fbModeBack').onclick=()=>$('fbModeOv').classList.remove('show');
 $('menuSnd').onclick=()=>{soundOn=!soundOn;const g=soundOn?'🔊':'🔇';$('menuSnd').textContent=g;$('sndBtn').textContent=g;if(!soundOn)SFX.charge.stop();};
 // ── Menue-Preview: die ECHTE 3D-Szene zeigt den gewaehlten Modus. Setzt nur den
 //    Pre-Game-Zustand (wie frueher die Menue-Pills) und laesst den echten Spawner
@@ -1728,6 +1779,7 @@ $('rejoinBtn').onclick=()=>{ const sr=savedRoom(); if(!sr)return; $('onRejoin').
 function showMenu(){menuVisible=true;$('menu').style.display='flex';$('game').style.display='none';updateMenuPreview();resize();
   applyFootballHud();          // Football-HUD-Klasse, Anstosshinweis und Score-Animation restlos abraeumen
   footballResetMatchState();   // zurueck im Menue: kein Football-Latch, keine Eingabesperre und kein Gewinner bleiben stehen (in anderen Modi wirkungslos)
+  fbVariant='classic';         // Menue zeigt immer den Standardmodus — startFootball() setzt die Variante beim Start ohnehin neu
   SFX.footballGoalStop();      // ein noch laufender Torsound blendet weich aus, statt ins Menue hineinzuklingen
   if(r3dActive&&r3d&&r3d.flushEnvProfile)r3d.flushEnvProfile();   // waehrend des Matches aufgeschobenen Env-Wechsel jetzt (sicherer Idle) anwenden
   whenFB(()=>{if(fbReady()&&menuVisible)startPublicListing();});updScrollHint();}   // Home-Rooms-Vorschau reaktivieren
@@ -2328,7 +2380,7 @@ function aliveCount(owner){let n=0;for(const b of balls)if(b.alive&&b.owner===ow
 function np(){return mode==='ffa'?ffaN:2;}   // Spieleranzahl der Partie (Bestandsmodi: immer 2)
 // Kugeln pro Spieler: 2 im 2v2-Doppel UND im TRIPLE FFA (fmt 'triple_ffa' —
 // FFA-Variante mit exakt 3 Spielern, laeuft komplett ueber die FFA-Systeme).
-function teamCap(){return (mode!=='ffa'&&fmt==='double')||fmt==='triple_ffa'?2:1;}
+function teamCap(){if(typeof fbTactical==='function'&&fbTactical())return 2;return (mode!=='ffa'&&fmt==='double')||fmt==='triple_ffa'?2:1;}
 // FFA-Raeume: 'ffa', 'triple_ffa' und 'team_duel' teilen Lobby/Seats/Sentinel-Pfad …
 function ffaRoom(){return fmt==='ffa'||fmt==='triple_ffa'||fmt==='team_duel';}
 // … aber TRIPLE FFA hat exakt 3, TEAM DUEL exakt 4 Sitze (Rules-gesichert), klassisches FFA 5.
@@ -2358,6 +2410,14 @@ function placeBalls(){
   }else if(fmt==='double'){const ox=R*0.30,oy=R*0.55;
     balls.push(mkBall(cx-ox,cy+oy,0),mkBall(cx+ox,cy+oy,0));
     balls.push(mkBall(cx-ox,cy-oy,1),mkBall(cx+ox,cy-oy,1));
+  }else if(mode==='football'&&typeof fbTactical==='function'&&fbTactical()){
+    // TACTICAL: 2 Figuren je Team + neutraler Ball (owner 4). Blau bei -x, Rot exakt daran
+    // gespiegelt bei +x. Reihenfolge B1,B2,R1,R2,Ball haelt die Ballindizes ueber alle
+    // Runden stabil — die Auswahl (fbSel) darf sich darauf verlassen.
+    const S=FOOTBALL_TACTICAL_SPAWN;
+    balls.push(mkBall(cx-S.frontX*BR,cy-S.frontY*BR,0),mkBall(cx-S.backX*BR,cy+S.backY*BR,0),
+               mkBall(cx+S.frontX*BR,cy-S.frontY*BR,1),mkBall(cx+S.backX*BR,cy+S.backY*BR,1),
+               mkBall(cx,cy,4));
   }else if(mode==='football'){const off=fbArena().spawn*BR;   // Football-Shell: Blau links (owner 0), Rot rechts (owner 1), neutraler Ball mittig (owner 4 = dunkler PCOLS-Slot, nie waehlbar); Abstand aus der Arenavariante (Kreis: 6.365625*BR == altes R*0.42)
     balls.push(mkBall(cx-off,cy,0),mkBall(cx+off,cy,1),mkBall(cx,cy,4));
   }else{const off=R*0.57;
@@ -2387,6 +2447,7 @@ function newGame(){resize();R=R0;score=[];for(let p=0;p<np();p++)score.push(0);r
 function resetCommits(){aimSet=[];commitIdx=[];commitAim=[];commitSpin=[];
   for(let p=0;p<np();p++){aimSet.push(false);commitIdx.push(-1);commitAim.push({dx:0,dy:0});commitSpin.push(0);}}
 function startRound(){placeBalls();resetCommits();roundWinner=-1;
+  if(typeof fbClearSelection==='function')fbClearSelection();   // Tactical: jede Runde waehlt jedes Team seine Figur neu (in anderen Modi wirkungslos)
   cancelAimDrag();outBall=-1;setPhase('aim');updateHud();   // vollstaendiger Drag-Reset inkl. Pointer-Capture
   if(online){curAimer=myPlayer;onlineArmTurn();}
   else if(mode==='pvp'||mode==='ffa'||mode==='football'){curAimer=0;openCover(0);}else curAimer=0;
@@ -2551,7 +2612,11 @@ function openCover(pi){const c=$('cover');$('coverWho').textContent='Spieler '+(
 $('coverBtn').onclick=()=>{$('cover').classList.remove('show');setPhaseText();updateHud();};
 
 $('actBtn').onclick=()=>{if(r3dOrbit)return;if(phase!=='aim')return;const who=online?myPlayer:(mode==='bot'?0:curAimer);if(aimSet[who]||!aliveCount(who))return;
-  const own=aliveBalls(who);const idx=own.length?balls.indexOf(own[0]):-1;commit(who,idx,0,0);};
+  const own=aliveBalls(who);let idx=own.length?balls.indexOf(own[0]):-1;
+  // Tactical: "Stehen bleiben" gilt fuer die GEWAEHLTE Figur. Der Zug ist ein Nullzug, aber
+  // commitIdx steuert die Reveal-Markierung — sonst leuchtet dort die falsche Figur auf.
+  if(typeof fbTactical==='function'&&fbTactical()&&fbSel[who]>=0)idx=fbSel[who];
+  commit(who,idx,0,0);};
 
 // ════ INPUT (slingshot: drag back, fling forward) ════
 function localPt(e){
@@ -2605,7 +2670,9 @@ cv.addEventListener('pointerdown',e=>{
   const who=whoCanAim();
   if(who>=0&&aimPid<0&&camPid<0){                   // Aim nur, wenn KEIN Kamera-Drag aktiv
     const idx=pickOwnBall3D(who,e);
-    if(idx>=0){startAim(who,idx,localPt(e),e);return;}
+    // Tactical: derselbe Griff waehlt die Figur UND startet den Zug — pickOwnBall3D laesst
+    // ohnehin nur eigene Figuren zu, Gegner und neutraler Ball sind nie greifbar.
+    if(idx>=0){if(typeof fbTactical==='function'&&fbTactical())fbSelectFigure(who,idx);startAim(who,idx,localPt(e),e);return;}
   }
   if(aimPid>=0&&spinPid<0&&e.pointerId!==aimPid){   // 2. Finger WAEHREND Zielen: Drall (Kamera gesperrt)
     try{cv.setPointerCapture(e.pointerId);}catch(_){}
@@ -2656,6 +2723,9 @@ window.addEventListener('pointerup',e=>{
   let px=dragPull.x,py=dragPull.y;const mp=maxPull(),pl=Math.sqrt(px*px+py*py);
   if(pl>mp){px*=mp/pl;py*=mp/pl;}
   let fx=-px,fy=-py,spin=0;
+  // TACTICAL: ein Tipp ohne echten Zug WAEHLT nur die Figur. Er darf den einzigen Zug des
+  // Spielers nicht als "stehen bleiben" verbrauchen — die Auswahl steht bereits (pointerdown).
+  if(pl<BR*0.4&&typeof fbTactical==='function'&&fbTactical()){updateHud();return;}
   if(pl<BR*0.4){fx=0;fy=0;spin=0;}else{spin=dragSpin;}   // dragSpin ist bereits -1..+1
   commit(who,sh,fx,fy,spin);});
 window.addEventListener('pointercancel',e=>{
@@ -2709,7 +2779,7 @@ function applyCommit(who,shooterIdx,fx,fy,spin){
     return;}
   commitIdx[who]=m.idx;commitAim[who]={dx:m.dx,dy:m.dy};commitSpin[who]=m.sp;aimSet[who]=true;updateHud();
   if(mode==='bot'){const bm=botMove();commitIdx[1]=bm.idx;commitAim[1]={dx:bm.dx,dy:bm.dy};commitSpin[1]=0;aimSet[1]=true;beginReveal();}
-  else{ // pvp/ffa: naechster lebender Spieler ohne Commit zielt verdeckt, sonst Reveal
+  else{ // pvp/ffa/football: naechster lebender Spieler ohne Commit zielt verdeckt, sonst Reveal
     let nx=-1;for(let p=who+1;p<np();p++){if(!aimSet[p]&&aliveCount(p)>0){nx=p;break;}}
     if(nx>=0){curAimer=nx;openCover(nx);setPhaseText();updateHud();}else beginReveal();
   }
@@ -3463,9 +3533,82 @@ function footballMatchEnd(){
   footballClearGoalFx();              // der Impuls des Siegtores ist hier laengst abgelaufen — Ergebnisbild startet garantiert ruhig
   gameOver(footballWinner);
 }
+// ══ ARENA FOOTBALL TACTICAL 1V1 — 2 Figuren je Spieler, EINE Figur pro Runde ════════
+// Tactical ist eine VARIANTE des Football-Modus, kein eigener mode. Das ZUGMODELL ist exakt
+// das von Classic: verdeckte Aim-Phase je Team (openCover), beide Seiten committen, erst
+// danach Reveal — und applyLaunch startet BEIDE committeten Figuren im selben
+// Simulationsstart. Es gibt bewusst KEINE zweite Zug-Zustandsmaschine.
+//
+// Tactical fuegt der bestehenden Pipeline nur EINE Information hinzu: WELCHE der beiden
+// eigenen Figuren das Team in dieser Runde bewegt. Diese Information steckt bereits im
+// bestehenden commitIdx — fbSel haelt sie lediglich VOR dem Commit fest, damit der
+// Auswahlring sie anzeigen kann.
+//
+// Es gibt genau zwei Produktmodi:
+//   classic    1 Figur je Spieler  — Standard, jeder Tactical-Zweig ist dort unerreichbar
+//   tactical   2 Figuren je Spieler, genau EIN Zug je Team und Runde
+// fbVariant ist die EINZIGE Weiche. Jeder andere Wert (auch ein manipulierter URL-Parameter)
+// faellt auf 'classic' zurueck — der Produktstandard.
+//
+// Die Startvariante kommt aus DEV_FB_VARIANT (dort und NUR dort wird die URL gelesen — der
+// Football-Block bleibt frei von Umgebungszugriffen). In den Test-Harnessen existiert die
+// Konstante nicht; der typeof-Guard laesst die Variante dann auf 'classic'.
+const FOOTBALL_VARIANT_TACTICAL='tactical';
+let fbVariant=(typeof DEV_FB_VARIANT!=='undefined'&&DEV_FB_VARIANT===FOOTBALL_VARIANT_TACTICAL)?FOOTBALL_VARIANT_TACTICAL:'classic';
+function fbTactical(){return mode==='football'&&fbVariant===FOOTBALL_VARIANT_TACTICAL;}
+// Startaufstellung in BR (gleiche Konvention wie FOOTBALL_ARENA). Blau steht bei -x, Rot
+// exakt an der Mittelachse gespiegelt bei +x -> identische Distanzverhaeltnisse zu Ball,
+// eigenem Tor und Gegnertor. 'front' ist die offensivere Figur nahe der Mittellinie, 'back'
+// die tiefere. Bewusst KEINE Rollen im Code: Torwart oder Stuermer entsteht allein aus der
+// Position. backY liegt ausserhalb der lichten Torbreite (postInner 3.560), damit keine
+// Figur bereits im Tor steht.
+const FOOTBALL_TACTICAL_SPAWN={frontX:6.40,frontY:2.80,backX:12.20,backY:4.60};
+// Vorauswahl je Team (Ballindex, -1 = noch keine). Sie lebt NUR bis zum Commit: ab dann ist
+// commitIdx[who] die Wahrheit, genau wie in Classic. Zuruecksetzen passiert dort, wo auch
+// die Commits zurueckgesetzt werden (startRound und das Settlement in stepSim).
+const fbSel=[-1,-1];
+function fbClearSelection(){fbSel[0]=-1;fbSel[1]=-1;}
+// Auswahl vor dem Commit. Nur eigene, lebende Figuren: Gegnerfiguren und der neutrale Ball
+// scheitern an derselben Ownerpruefung, die auch pickOwnBall/pickOwnBall3D anwenden.
+function fbSelectFigure(who,idx){
+  if(!fbTactical()||who<0||who>1)return false;
+  const b=balls[idx];
+  if(!b||!b.alive||b.owner!==who)return false;
+  fbSel[who]=idx;
+  if(typeof DEV_MENU!=='undefined'&&DEV_MENU)console.log('[tactical] verdeckte Wahl '+(who?'ROT':'BLAU')+' — Figur '+fbFigureId(idx));
+  return true;
+}
+// Kennung einer Figur (B1/B2/R1/R2/BALL) — ausschliesslich fuer Dev-Konsolenausgaben.
+// Im Spiel gibt es bewusst KEINE dauerhaften Labels an den Kugeln.
+function fbFigureId(idx){
+  const b=balls[idx];if(!b)return '?';
+  if(b.owner===FOOTBALL_NEUTRAL_OWNER)return 'BALL';
+  let n=0;for(let i=0;i<=idx;i++)if(balls[i]&&balls[i].owner===b.owner)n++;
+  return (b.owner===0?'B':'R')+n;
+}
+// Deckkraft des Auswahlrings fuer Ballindex i (0 = kein Ring). Rein visuell und zustandslos:
+// der Renderer fragt jeden Frame denselben Spielzustand ab, den auch die Eingabe liest.
+//
+// HIDDEN INFORMATION: waehrend der Aim-Phase traegt AUSSCHLIESSLICH das Team einen Ring, das
+// gerade verdeckt zielt (curAimer). Sobald es committet hat, uebernimmt der Gegner curAimer —
+// die eigene Wahl verschwindet damit vom Schirm, bevor der Verdeck-Screen aufgeht. Erst im
+// Reveal duerfen BEIDE gestarteten Figuren markiert sein; dort ist commitIdx die Quelle,
+// nicht fbSel.
+const FB_RING_SELECTED=0.95, FB_RING_SELECTABLE=0.34, FB_RING_SCALE_SELECTED=1.10;
+function fbTacticalRingLevel(i){
+  if(!fbTactical()||fbGoalState!=='play')return 0;
+  if(typeof menuVisible!=='undefined'&&menuVisible)return 0;
+  const b=balls[i];
+  if(!b||!b.alive)return 0;
+  if(phase==='reveal')return (commitIdx[0]===i||commitIdx[1]===i)?FB_RING_SELECTED:0;
+  if(phase!=='aim')return 0;
+  if(typeof inputLocked==='function'&&inputLocked())return 0;
+  if(aimSet[curAimer]||b.owner!==curAimer)return 0;
+  return fbSel[curAimer]===i?FB_RING_SELECTED:FB_RING_SELECTABLE;
+}
 // ZENTRALE Initialisierung des Football-Matchzustands: neues Match, Moduswechsel, Menue.
 // Score/Kugeln/Aim-Zustaende setzt der bestehende Pfad newGame() -> startRound() -> placeBalls().
-function footballResetMatchState(){fbGoalState='play';fbGoalTick=0;footballWinner=null;footballClearGoalFx();}
+function footballResetMatchState(){fbGoalState='play';fbGoalTick=0;footballWinner=null;fbClearSelection();footballClearGoalFx();}
 function stepSim(){
   // Restitution nach Kontaktart (4B-2). Ohne aktives Football-Preset liefern alle drei
   // Funktionen den bestehenden REST-Wert — Bestandsmodi rechnen unveraendert weiter.
@@ -3571,6 +3714,9 @@ function stepSim(){
     const n=mode==='ffa'?ffaN:2;   // bewusst inline (kein np()): stepSim laeuft auch im Golden-Harness
     aimSet=[];commitIdx=[];commitAim=[];commitSpin=[];
     for(let p=0;p<n;p++){aimSet.push(false);commitIdx.push(-1);commitAim.push({dx:0,dy:0});commitSpin.push(0);}
+    // Tactical: die naechste verdeckte Commit-Runde startet ohne Vorauswahl. typeof-Guard,
+    // weil stepSim auch in Harnessen ohne Football-Block laeuft.
+    if(typeof fbClearSelection==='function')fbClearSelection();
     // Ring-Collapse (nur lokales Bot-Training): ein faelliger Collapse wird NOCH IN DIESEM
     // Settlement verarbeitet — sonst laege dazwischen ein Frame mit freigegebener Aim-Phase.
     // typeof-Guard: stepSim laeuft auch im Golden-Physics-Harness ohne Collapse-Modul.
@@ -5675,7 +5821,7 @@ async function initR3D(){
     // 5 Materialien aus der zentralen Farbtabelle (Slots 0/1 = bisherige Werte)
     const ballMat=PCOLS.map(pc=>new THREE.MeshPhysicalMaterial({color:pc.m3,map:ballTex,roughness:.07,metalness:.05,
       clearcoat:1.0,clearcoatRoughness:.07,envMapIntensity:1.15,specularIntensity:1.0}));
-    const ballMeshes=[],fallT=[],decals=[],fallV=[],prevP=[];
+    const ballMeshes=[],fallT=[],decals=[],fallV=[],prevP=[],selRings=[];
     const rollAx=new THREE.Vector3(),rollQ=new THREE.Quaternion();   // Roll-Temps (keine Allokation pro Frame)
     // Kontaktschatten-Decal (Prototyp): erdet die Kugeln zusaetzlich zum echten Schatten
     const cCan=document.createElement('canvas');cCan.width=cCan.height=128;
@@ -5776,6 +5922,12 @@ async function initR3D(){
           d=new THREE.Mesh(new THREE.CircleGeometry(BR*1.5,24),
             new THREE.MeshBasicMaterial({map:contactTex,transparent:true,depthWrite:false,opacity:.85}));
           d.rotation.x=-Math.PI/2;d.renderOrder=1;decals[i]=d;scene.add(d);}
+        // Tactical-Auswahlring: dezente Bodenmarkierung statt Label. Lazy erzeugt wie das
+        // Kontakt-Decal, ausserhalb von Tactical dauerhaft unsichtbar (kein Draw-Call).
+        let sr=selRings[i];
+        if(!sr){sr=new THREE.Mesh(new THREE.RingGeometry(BR*1.28,BR*1.42,56),
+            new THREE.MeshBasicMaterial({transparent:true,depthWrite:false,opacity:0}));
+          sr.rotation.x=-Math.PI/2;sr.renderOrder=2;sr.visible=false;selRings[i]=sr;scene.add(sr);}
         const b=balls[i];
         m.material=ballMat[colorSlot(b.owner)];   // TEAM DUEL: Teamfarbe (0/2 Blau, 1/3 Rot)
         // Sichtbarer Radius == Physikradius (ballRad): die geteilte BR-Kugelgeometrie wird
@@ -5801,6 +5953,7 @@ async function initR3D(){
           ||(mode==='football'&&fbGoalState==='celebrate'&&b.owner===FOOTBALL_NEUTRAL_OWNER)
           ||(mode==='football'&&fbGoalState==='result'&&b.owner===FOOTBALL_NEUTRAL_OWNER);
         if(out){
+          sr.visible=false;                            // gefallene/ausgeschiedene Kugel traegt nie einen Auswahlring
           if(fallT[i]==null){fallT[i]=nowS;
             let fvx=b.vx,fvy=b.vy;                     // echte letzte Geschwindigkeit (nur lesend) …
             if(Math.hypot(fvx,fvy)<.05&&prevP[i]){fvx=b.x-prevP[i].x;fvy=b.y-prevP[i].y;}   // … sonst Render-Delta
@@ -5838,12 +5991,22 @@ async function initR3D(){
             ?footballSpawnHeight()*Math.max(0,1-fbGoalTick/FOOTBALL_GOAL_SPAWN_TICKS):0;
           m.visible=true;m.position.set(b.x,bob+lift+rad+spawnLift,b.y);
           d.visible=true;d.material.opacity=spawnLift>0?.85*(1-spawnLift/footballSpawnHeight()):.85;d.position.set(b.x,bob+lift+.6,b.y);
+          // Tactical: Ring an den eigenen Figuren des Spielers am Zug — schwach bei
+          // "waehlbar", deutlich bei "gewaehlt". Der Zustand lebt in fbSel, nicht hier.
+          const ringLv=typeof fbTacticalRingLevel==='function'?fbTacticalRingLevel(i):0;
+          sr.visible=ringLv>0;
+          if(ringLv>0){sr.material.color.set(PCOLS[colorSlot(b.owner)].ui);sr.material.opacity=ringLv;
+            // Die gewaehlte Figur bekommt zusaetzlich zur Deckkraft einen minimal groesseren
+            // Ring — der Unterschied bleibt auf einen Blick lesbar, auch bei flacher Kamera.
+            sr.scale.setScalar(rs*(ringLv===FB_RING_SELECTED?FB_RING_SCALE_SELECTED:1));
+            sr.position.set(b.x,bob+lift+.7,b.y);}
           if(!prevP[i])prevP[i]={x:b.x,y:b.y};else{prevP[i].x=b.x;prevP[i].y=b.y;}
         }
       }
       for(let i=balls.length;i<ballMeshes.length;i++){
         if(ballMeshes[i])ballMeshes[i].visible=false;
         if(decals[i])decals[i].visible=false;
+        if(selRings[i])selRings[i].visible=false;
       }
     }
     r3d={

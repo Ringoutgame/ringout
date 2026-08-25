@@ -1,6 +1,6 @@
 # TODO.md — RingOut
 
-**Zuletzt aktualisiert:** 2026-08-07 (Arena Football finalisiert: Rounded-Rectangle-Arena B, M1-Movement, Ballradius 25; Football-Tests migriert, neue Suite test_football_arena.js)
+**Zuletzt aktualisiert:** 2026-08-25 (Arena Football: zwei Produktmodi — Classic 1v1 als Standard, Tactical 1v1 ergaenzt; Prototypvariante Tactical Dual verworfen; neue Produktsuite test_football_tactical.js)
 
 Offene Aufgaben nach Priorität. Abgeschlossene Aufgaben werden nach `CHANGELOG.md` verschoben.
 
@@ -47,6 +47,8 @@ Offene Aufgaben nach Priorität. Abgeschlossene Aufgaben werden nach `CHANGELOG.
 ---
 
 ## P2 — Mittel (Spieler-Erfahrung)
+
+- [ ] **Arena Football Tactical online (offen, 2026-08-25):** Tactical 1v1 ist ausschliesslich lokal/Hotseat spielbar. Der Lockstep-Pfad ist unveraendert auf Classic-Bodyzahlen ausgelegt (Snapshot, Commit-Payload, Owner-/Index-Annahmen, Reconnect, State-Hash); `mode='football'` wird nie mit `online=true` gesetzt und Online-Raeume tragen kein `mode`-Feld. Eine Online-Unterstuetzung waere ein eigener Auftrag mit Protokollarbeit — bis dahin darf die UI Tactical in keinem Online-Kontext anbieten.
 
 - [x] ~~**Arena Football: Rounded-Rectangle-Arena, Movement-Tuning, Ballgroesse**~~ → **finalisiert (2026-08-07)**: Arena B (1152 × 812.8, Eckradius 219.2) mit buendiger Torintegration (postFront == halfLen, keine Ballfang-Tasche, lichte Torbreite 227.84), Movement M1 (Spieler 0.9976 / Ball 0.9982 getrennt, slowv 0.50, fend 0.9905, stopv 0.050, Restitution 0.44/0.60/0.50) und neutraler Ballradius 25 (Spieler 32) als Produktivstandard. Alle Dev-/Preset-Umschaltungen entfernt; `tools/test_football_shell.js` und `tools/test_football_flow.js` migriert, neue Regressionssuite `tools/test_football_arena.js`. Verworfene Varianten (Kreis, A, C; Baseline/M2/M3; B0–B2) nur noch als lokale Artefakte. Siehe CHANGELOG.
 
