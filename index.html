@@ -281,6 +281,10 @@ header{width:100%;max-width:460px;display:flex;align-items:center;justify-conten
    damit strukturell unveraendert. Material: dasselbe dunkle Glas, dieselbe Goldkante,
    dieselben Teamfarben wie im restlichen Spiel. */
 #game.fb .status{max-width:404px;gap:6px}
+/* Elimination4 (Dev-Prototyp): die Statusleiste ist ein 3-Spalten-Grid fuer zwei Spieler-
+   karten und die Scorebox. Hier traegt sie stattdessen EINE Chipleiste fuer vier Spieler —
+   also eine zentrierte Zeile ueber die volle Breite, sonst braeche der Phasenkopf um. */
+#game.fb.fbelim .status{max-width:660px;display:flex;justify-content:center}
 #game.fb .scorebox{padding:6px 17px;border-color:rgba(255,201,64,.44);
   box-shadow:0 10px 26px rgba(5,9,18,.45),inset 0 1px 0 rgba(255,255,255,.055)}
 /* Score ist der visuelle Schwerpunkt: 30px gegen 11px Teamname. tabular-nums + feste
@@ -1689,7 +1693,7 @@ $('ctaBtn').onclick=()=>{
   // (?dev=1&fb=classic|tactical) ueberspringt die Auswahl bewusst.
   if(menuSel==='football'){if(SFX.click())vibrateMs(VIBE_CLICK_MS);   // oeffnet nur die Auswahl — wie beim Bot-Dialog
     if(!r3dActive){toast('Arena Football benötigt die echte 3D-Szene (nicht verfügbar).');return;}
-    if(DEV_FB_VARIANT==='classic'||DEV_FB_VARIANT===FOOTBALL_VARIANT_TACTICAL){startFootball(DEV_FB_VARIANT);return;}
+    if(DEV_FB_VARIANT==='classic'||DEV_FB_VARIANT===FOOTBALL_VARIANT_TACTICAL||DEV_FB_VARIANT===FOOTBALL_VARIANT_ELIM4){startFootball(DEV_FB_VARIANT);return;}
     $('fbModeOv').classList.add('show');return;}
   if(menuSel==='bot'){if(SFX.click())vibrateMs(VIBE_CLICK_MS);$('botOv').classList.add('show');return;}       // Format-Auswahl: 1v1 / 2v2 Duo vs Bot
   if(TUNE){if(SFX.click())vibrateMs(VIBE_CLICK_MS);toast('Tuning aktiv — Online deaktiviert');return;}
@@ -1711,7 +1715,10 @@ $('botBack').onclick=()=>$('botOv').classList.remove('show');
 // danach durch exakt denselben Bestandsablauf wie zuvor (lokales Match, nie online).
 // Torsound wird aus dieser Nutzergeste vorgeladen.
 function startFootball(variant){
-  fbVariant=variant===FOOTBALL_VARIANT_TACTICAL?FOOTBALL_VARIANT_TACTICAL:'classic';   // jeder andere Wert -> Standardmodus
+  // Genau drei zulaessige Werte, jeder andere faellt auf den Standardmodus zurueck.
+  // 'elimination4' ist der DEV-PROTOTYP und nur ueber den Dev-Direktlink erreichbar — die
+  // sichtbare Modusauswahl bietet weiterhin ausschliesslich Classic und Tactical an.
+  fbVariant=(variant===FOOTBALL_VARIANT_TACTICAL||variant===FOOTBALL_VARIANT_ELIM4)?variant:'classic';
   $('fbModeOv').classList.remove('show');
   mode=menuMode='football';fmt='single';online=false;
   SFX.footballGoalPreload();showGame();newGame();
@@ -2196,6 +2203,10 @@ function canCommitInput(who){
   if(online)return true;
   if(phase!=='aim')return false;
   if(inputLocked())return false;
+  // Elimination4: ein ausgeschiedener Spieler hat keine lebende Figur mehr und damit keinen
+  // Zug. Bewusst variantengated — in allen anderen Modi haben in der Planungsphase immer
+  // alle Spieler lebende Kugeln, dort bleibt die Freigabe bitgenau die bisherige.
+  if(typeof fbElim4==='function'&&fbElim4()&&aliveCount(who)<=0)return false;
   return who>=0&&!aimSet[who];
 }
 // Interner Auto-Stand bei Timerablauf — der EINZIGE Commit-Pfad an der Eingabesperre vorbei.
@@ -2377,7 +2388,10 @@ function setPhase(p){phase=p;phaseStart=performance.now();}
 function mkBall(x,y,owner){return{x,y,vx:0,vy:0,sx:x,sy:y,owner,alive:true,spin:0};}
 function aliveBalls(owner){return balls.filter(b=>b.alive&&b.owner===owner);}
 function aliveCount(owner){let n=0;for(const b of balls)if(b.alive&&b.owner===owner)n++;return n;}
-function np(){return mode==='ffa'?ffaN:2;}   // Spieleranzahl der Partie (Bestandsmodi: immer 2)
+// Spieleranzahl der Partie. Bestandsmodi: immer 2. Elimination4 (Dev-Prototyp) ist die
+// einzige Ausnahme im Football-Modus — der typeof-Guard haelt die Offline-Harnesse ohne
+// Football-Block unveraendert lauffaehig (dort greift der Bestandszweig).
+function np(){return mode==='ffa'?ffaN:(typeof fbElim4==='function'&&fbElim4()?FOOTBALL_ELIM4_PLAYERS:2);}
 // Kugeln pro Spieler: 2 im 2v2-Doppel UND im TRIPLE FFA (fmt 'triple_ffa' —
 // FFA-Variante mit exakt 3 Spielern, laeuft komplett ueber die FFA-Systeme).
 function teamCap(){if(typeof fbTactical==='function'&&fbTactical())return 2;return (mode!=='ffa'&&fmt==='double')||fmt==='triple_ffa'?2:1;}
@@ -2410,6 +2424,16 @@ function placeBalls(){
   }else if(fmt==='double'){const ox=R*0.30,oy=R*0.55;
     balls.push(mkBall(cx-ox,cy+oy,0),mkBall(cx+ox,cy+oy,0));
     balls.push(mkBall(cx-ox,cy-oy,1),mkBall(cx+ox,cy-oy,1));
+  }else if(mode==='football'&&typeof fbElim4==='function'&&fbElim4()){
+    // ELIMINATION4 (Dev-Prototyp): vier Spielerfiguren (owner 0-3) je vor dem eigenen Tor,
+    // neutraler Ball (owner 4) exakt im Zentrum. Die Reihenfolge P1,P2,P3,P4,Ball haelt die
+    // Ballindizes ueber alle Runden stabil. Jede Position entsteht aus DERSELBEN Distanz
+    // entlang der eigenen Torrichtung — die vier Spawns sind damit per Konstruktion durch
+    // 90-Grad-Drehung ineinander ueberfuehrbar (s. FOOTBALL_ELIM4_DIRS).
+    // Dieselbe geometrische Spawnregel, die auch nach jeder Eliminierung greift
+    // (fbElimSpawnBodies) — es gibt nur EINE Beschreibung der fairen Startaufstellung.
+    for(let o=0;o<FOOTBALL_ELIM4_PLAYERS;o++)balls.push(mkBall(fbElimSpawnX(o),fbElimSpawnY(o),o));
+    balls.push(mkBall(cx,cy,FOOTBALL_NEUTRAL_OWNER));
   }else if(mode==='football'&&typeof fbTactical==='function'&&fbTactical()){
     // TACTICAL: 2 Figuren je Team + neutraler Ball (owner 4). Blau bei -x, Rot exakt daran
     // gespiegelt bei +x. Reihenfolge B1,B2,R1,R2,Ball haelt die Ballindizes ueber alle
@@ -2429,13 +2453,16 @@ function newGame(){resize();R=R0;score=[];for(let p=0;p<np();p++)score.push(0);r
   footballResetMatchState();                         // neues/verlassenes Football-Match: Torablauf + Gewinner sauber initialisiert (Score startet 0:0)
   SFX.footballGoalStop();                            // Rematch: Torsound des letzten Matches klingt nicht in die erste Runde hinein
   const ffa=mode==='ffa';                            // FFA: kompakte Chip-Leiste statt der 2 Spielerkarten
-  $('card0').style.display=ffa?'none':'';$('card1').style.display=ffa?'none':'';
-  document.querySelector('.scorebox').style.display=ffa?'none':'';
-  $('ffaBar').style.display=ffa?'flex':'none';
+  // Elimination4 nutzt DIESELBE Chip-Leiste (vier Spieler passen nicht in die zwei
+  // Spielerkarten) — kein zweites HUD-Bauteil, nur ein zweiter Nutzer des bestehenden.
+  const chips=ffa||(typeof fbElim4==='function'&&fbElim4());
+  $('card0').style.display=chips?'none':'';$('card1').style.display=chips?'none':'';
+  document.querySelector('.scorebox').style.display=chips?'none':'';
+  $('ffaBar').style.display=chips?'flex':'none';
   if(online&&!ffa){
     $('card0').querySelector('.pn').textContent = (myPlayer===0)?'DU':'GEGNER';
     $('n1').textContent = (myPlayer===1)?'DU':'GEGNER';
-  } else if(!ffa){
+  } else if(!chips){
     $('card0').querySelector('.pn').textContent=mode==='football'?'BLAU':'SPIELER 1';
     $('n1').textContent=mode==='football'?'ROT':(mode==='bot'?'BOT':'SPIELER 2');
   }
@@ -2450,7 +2477,9 @@ function startRound(){placeBalls();resetCommits();roundWinner=-1;
   if(typeof fbClearSelection==='function')fbClearSelection();   // Tactical: jede Runde waehlt jedes Team seine Figur neu (in anderen Modi wirkungslos)
   cancelAimDrag();outBall=-1;setPhase('aim');updateHud();   // vollstaendiger Drag-Reset inkl. Pointer-Capture
   if(online){curAimer=myPlayer;onlineArmTurn();}
-  else if(mode==='pvp'||mode==='ffa'||mode==='football'){curAimer=0;openCover(0);}else curAimer=0;
+  // fbElimFirstAimer(): nur Elimination4 weicht von "Spieler 0 beginnt" ab (Eliminierte
+  // werden uebersprungen). typeof-Guard wie bei fbClearSelection — ohne Football-Block 0.
+  else if(mode==='pvp'||mode==='ffa'||mode==='football'){curAimer=(typeof fbElimFirstAimer==='function')?fbElimFirstAimer():0;openCover(curAimer);}else curAimer=0;
   setPhaseText();}
 
 function ballDots(owner){const n=aliveCount(owner),cap=teamCap();return '●'.repeat(n)+'○'.repeat(Math.max(0,cap-n));}
@@ -2487,6 +2516,26 @@ function renderTeamBar(){
     bar.appendChild(chip);
   }
 }
+// ELIMINATION4 (Dev-Prototyp): dieselbe Chip-Leiste wie FFA/Team Duel, nur mit der
+// Elimination-Wahrheit. V2 kennt weder Punkte noch Zeit — angezeigt wird deshalb NUR, wer
+// noch im Match ist, wer gerade verdeckt zielt und wie viele Spieler uebrig sind.
+function renderElimBar(){
+  const bar=$('ffaBar');bar.textContent='';
+  const hd=document.createElement('span');hd.className='frnd';hd.textContent=fbElimHeadText();
+  bar.appendChild(hd);
+  for(let o=0;o<FOOTBALL_ELIM4_PLAYERS;o++){
+    const out=!fbElimActive[o];
+    const act=phase==='aim'&&curAimer===o&&!aimSet[o]&&!out;
+    const chip=document.createElement('span');
+    chip.className='fchip'+(out?' out':'')+(act?' act':'');
+    chip.style.setProperty('--fc',PCOLS[o].ui);
+    chip.appendChild(document.createElement('i'));
+    const nm=document.createElement('b');
+    nm.textContent='P'+(o+1);
+    chip.appendChild(nm);
+    bar.appendChild(chip);
+  }
+}
 // ══ ARENA FOOTBALL: MATCH-HUD (rein visuell) ══════════════════════════════════
 // Es gibt KEINE zweite Score-Engine: angezeigt wird ausschliesslich score[] aus der
 // bestehenden Spiellogik, in der bestehenden Statusleiste. Dieser Block schaltet nur
@@ -2502,6 +2551,9 @@ function applyFootballHud(){
   const g=$('game');if(!g)return;
   const on=fbHudOn();
   g.classList.toggle('fb',on);
+  // Elimination4 zeigt statt der zwei Spielerkarten vier Chips — die schmale Football-
+  // Statusleiste wuerde sie umbrechen. Eigene Klasse, damit Classic/Tactical unveraendert bleiben.
+  g.classList.toggle('fbelim',on&&typeof fbElim4==='function'&&fbElim4());
   if(!on)fbClearHudFx();
 }
 function fbClearHudFx(){
@@ -2549,6 +2601,9 @@ function fbGoalPanelFx(side){
   fbGoalPanelT=setTimeout(()=>{box.classList.remove('fbgoal0','fbgoal1');fbGoalPanelT=0;},FB_GOAL_HUD_MS);
 }
 function updateHud(){
+  // Elimination4 zuerst: vier Spieler passen nicht in die Zwei-Karten-Ansicht, und die
+  // Football-Scorebox (First-to-3) hat in diesem Modus keine Bedeutung.
+  if(typeof fbElim4==='function'&&fbElim4()){renderElimBar();return;}
   if(mode==='ffa'){if(fmt==='team_duel')renderTeamBar();else renderFfaBar();return;}
   // Online 1v1/2v2: show the durable roster names (textContent — never innerHTML).
   if(online){ $('n0').textContent=pName(0); $('n1').textContent=pName(1); }
@@ -2568,7 +2623,18 @@ function setPhaseText(){const p=$('phase');
     // Football-Modus ersatzlos — wer am Zug ist, zeigt bereits die aktive Teamkarte im HUD.
     // Einzige Ausnahme bleibt die echte Fehlermeldung, wenn die 3D-Szene fehlt: sie ist
     // kein Shell-Label, sondern der Hinweis auf einen nicht spielbaren Zustand.
-    p.textContent=r3dActive?'':'3D-Szene nicht verfügbar — Arena Football benötigt sie.';
+    if(!r3dActive){p.textContent='3D-Szene nicht verfügbar — Arena Football benötigt sie.';return;}
+    // Elimination4 (Dev-Prototyp) hat keine Spielerkarten — vier Spieler laufen ueber die
+    // Chipleiste. Deshalb traegt hier die Statuszeile, wer gerade verdeckt zielt; Classic und
+    // Tactical bleiben unveraendert leer.
+    if(typeof fbElim4==='function'&&fbElim4()){
+      if(phase==='aim')p.innerHTML='<span style="color:'+PCOLS[curAimer].ui+'">Spieler '+(curAimer+1)+'</span> zielt – verdeckt';
+      else if(phase==='reveal')p.textContent='Alle aufgedeckt…';
+      else if(phase==='sim')p.textContent='💥';
+      else p.textContent='';
+      return;
+    }
+    p.textContent='';
     return;
   }
   if(online){
@@ -3063,7 +3129,81 @@ const FOOTBALL_ARENA={
   halfLen:18.00,halfWid:12.70,corner:6.85,spawn:7.65,
   postInner:3.560,postOuter:5.282,postFront:18.00,
   postBack:18.00+2*FB_GOAL_HALF_DEPTH,goalAnchor:18.00+FB_GOAL_HALF_DEPTH};
-function fbArena(){return FOOTBALL_ARENA;}
+// ── ARENA FOOTBALL: ELIMINATION4-ARENEN (Dev-Prototyp, V3 adaptiv) ────────────────
+// Die Elimination-Arena hat drei Phasen — eine je aktiver Spielerzahl. Sie ist die EINZIGE
+// Quelle fuer Grenze, Torrichtungen, Rendering und Kamera; es gibt keine verstreuten
+// Sonderfaelle. Umgeschaltet wird ausschliesslich ueber fbElimPhaseN (s. fbElimApplyPhase).
+//
+//   4 Spieler  ELIM_ARENA_4  Rounded Square, vier Tore auf N/O/S/W (90-Grad-Symmetrie)
+//   3 Spieler  ELIM_ARENA_3  abgerundetes gleichseitiges Dreieck, drei Tore im 120-Grad-Raster
+//   2 Spieler  ELIM_ARENA_2  Rounded Rectangle mit zwei GEGENUEBERLIEGENDEN Toren (Classic-Achse)
+//   1 Spieler  WIN           kein Umbau mehr
+//
+// Die Torwerte (postInner/postOuter und damit die lichte Breite 227.84) sind in ALLEN Phasen
+// unveraendert aus der Produktivarena uebernommen — in diesem Auftrag wird keine Torbreite
+// retuned und keine Physik angefasst.
+//
+// V3-ECKENGEOMETRIE: der Eckradius der Vier-Spieler-Arena faellt von 9.00 BR auf 3.50 BR.
+// Befund aus dem V2-Spieltest: die starke Squircle-Rundung trug den Ball tangential um die
+// Arena herum, statt ihn zurueck ins Feld zu werfen. Eine kurze Ecke reflektiert deutlich
+// steiler nach innen. Das ist die GEOMETRISCHE Loesung — es gibt bewusst keine Center-Kraft,
+// keinen Magneten, keine Zusatzdaempfung und keine unsichtbaren Hindernisse.
+//
+//   ELIM_ARENA_4  half 17.50 · corner 3.50 · gerades Seitensegment +-14.00 BR
+//                 Spielflaeche 35.0 x 35.0 BR, Schussdistanz 17.50 BR
+//   ELIM_ARENA_3  apothem 11.50 · corner 3.50 · gerades Seitensegment +-13.86 BR
+//                 Schussdistanz 11.50 BR — kuerzer, weil drei Spieler mehr Tore brauchen
+//   ELIM_ARENA_2  halfLen 14.00 · halfWid 10.50 · corner 4.00 · Seitensegment +-6.50 BR
+//                 Schussdistanz 14.00 BR auf einer klaren Laengsachse (Classic-Layout)
+// In jeder Phase gilt: gerades Seitensegment > postOuter (5.282 BR), das Tor sitzt also
+// vollstaendig im flachen Teil der Seite und nie im Eckbogen.
+const FOOTBALL_ELIM4_PLAYERS=4;
+// Torrichtungen der Vier-Spieler-Phase. Index == Slot, Wert == Einheitsvektor der Torrichtung
+// vom Zentrum aus in SIMULATIONSKOORDINATEN (x,y). Jeder Eintrag ist der Vorgaenger, gedreht
+// um exakt 90 Grad ueber (x,y) -> (-y,x); weil alle vier Achseneinheitsvektoren sind, ist die
+// Drehung in Gleitkomma EXAKT — Spawns und Torpositionen sind perfekt rotationssymmetrisch.
+//   Slot 0 Nord (0,-1) · 1 Ost (1,0) · 2 Sued (0,1) · 3 West (-1,0)
+const FOOTBALL_ELIM4_DIRS=[[0,-1],[1,0],[0,1],[-1,0]];
+// Drei-Spieler-Phase: 120-Grad-Raster, flache Seite im Norden, Spitze im Sueden.
+// COS30/TAN60 stehen als benannte Konstanten, damit Grenze, Bande und Fuellflaeche exakt
+// dieselben Zahlen benutzen.
+const FB_TRI_COS30=0.8660254037844387, FB_TRI_TAN60=1.7320508075688772;
+const FOOTBALL_ELIM3_DIRS=[[0,-1],[FB_TRI_COS30,0.5],[-FB_TRI_COS30,0.5]];
+// Winkelhalbierende zu den drei Ecken: FB_TRI_VERT[k] liegt zwischen Seite k und Seite k+1.
+// Der Eckpunkt des geschrumpften Dreiecks liegt bei FB_TRI_VERT[k] * 2*(apothem-corner).
+const FB_TRI_VERT=[[FB_TRI_COS30,-0.5],[0,1],[-FB_TRI_COS30,-0.5]];
+// Zwei-Spieler-Finale: exakt gegenueberliegende Tore auf der +-X-Achse (wie Classic).
+const FOOTBALL_ELIM2_DIRS=[[1,0],[-1,0]];
+const FOOTBALL_ARENA_ELIM4={
+  halfLen:17.50,halfWid:17.50,corner:3.50,spawn:11.50,sides:4,tri:false,dirs:FOOTBALL_ELIM4_DIRS,
+  postInner:3.560,postOuter:5.282,postFront:17.50,
+  postBack:17.50+2*FB_GOAL_HALF_DEPTH,goalAnchor:17.50+FB_GOAL_HALF_DEPTH};
+// Beim Dreieck ist das Apothem (Zentrum -> Seitenmitte) die Rolle von halfLen; halfWid traegt
+// denselben Wert, damit jede Bestandsrechnung (fbHalfLen/fbHalfWid) sinnvolle Masse sieht.
+const FOOTBALL_ARENA_ELIM3={
+  halfLen:11.50,halfWid:11.50,corner:3.50,spawn:7.50,sides:3,tri:true,apothem:11.50,dirs:FOOTBALL_ELIM3_DIRS,
+  postInner:3.560,postOuter:5.282,postFront:11.50,
+  postBack:11.50+2*FB_GOAL_HALF_DEPTH,goalAnchor:11.50+FB_GOAL_HALF_DEPTH};
+const FOOTBALL_ARENA_ELIM2={
+  halfLen:14.00,halfWid:10.50,corner:4.00,spawn:9.00,sides:2,tri:false,dirs:FOOTBALL_ELIM2_DIRS,
+  postInner:3.560,postOuter:5.282,postFront:14.00,
+  postBack:14.00+2*FB_GOAL_HALF_DEPTH,goalAnchor:14.00+FB_GOAL_HALF_DEPTH};
+// EINZIGE Arenaquelle. Elimination4 waehlt nach der aktiven Phase; Classic und Tactical
+// teilen sich unveraendert FOOTBALL_ARENA.
+function fbElimArena(){return fbElimPhaseN===3?FOOTBALL_ARENA_ELIM3:(fbElimPhaseN===2?FOOTBALL_ARENA_ELIM2:FOOTBALL_ARENA_ELIM4);}
+function fbArena(){return fbElim4()?fbElimArena():FOOTBALL_ARENA;}
+// Torrichtungen der AKTIVEN Arena. Ausserhalb Elimination4 gibt es die beiden Stirnseiten.
+function fbElimDirs(){return fbArena().dirs||FOOTBALL_ELIM2_DIRS;}
+// Sichtradius der aktiven Elimination-Arena (logische Einheiten): das Maximum aus der
+// Deck-Aussenkante hinter den Toren und dem aeussersten Punkt der Grenze — beim Rechteck die
+// Ecke, beim Dreieck die Spitze. Einzige Quelle des Kamera-Framings je Phase.
+function fbElimViewR(){
+  const av=fbArena();
+  const deck=av.postBack*BR+FOOTBALL_BALL_RADIUS;
+  const outer=av.tri?(2*av.apothem-av.corner)*BR
+    :(Math.hypot(av.halfLen-av.corner,av.halfWid-av.corner)+av.corner)*BR;
+  return deck>outer?deck:outer;
+}
 function fbHalfLen(){return fbArena().halfLen*BR;}    // logische Einheiten, Innenflaeche Stirnbande
 function fbHalfWid(){return fbArena().halfWid*BR;}    // logische Einheiten, Innenflaeche Laengsbande
 function fbCorner(){return fbArena().corner*BR;}
@@ -3086,10 +3226,47 @@ function footballShapeSD(dx,dz,hx,hz,rc){
   if(qx>=qz){fbSD.sd=qx-rc;fbSD.nx=sx;fbSD.nz=0;return fbSD;}   // Stirnseite (gerade)
   fbSD.sd=qz-rc;fbSD.nx=0;fbSD.nz=sz;return fbSD;               // Laengsseite (gerade)
 }
-// Grenze fuer BALLMITTEN: dieselbe Form, um genau BR nach innen versetzt. Der Versatz
-// eines Rounded Rectangle ist wieder ein Rounded Rectangle — deshalb bleibt die Grenze
-// exakt und braucht keine zweite Beschreibung.
-function footballBoundSD(b){const r=ballRad(b);return footballShapeSD(b.x-cx,b.y-cy,fbHalfLen()-r,fbHalfWid()-r,fbCorner()-r);}
+// Signed Distance und AUSSENnormale eines abgerundeten gleichseitigen DREIECKS (Drei-Spieler-
+// Phase). Beschrieben wird exakt dieselbe Konstruktion wie beim Rounded Rectangle: die Form
+// ist die Minkowski-Summe eines geschrumpften Dreiecks mit einer Scheibe vom Radius rc.
+// Drei gerade Seiten, drei exakte Kreisboegen, C1-stetige Normale.
+// PARAMETERKONVENTION (identisch zu footballShapeSD und zu fbTriOutline im Renderer):
+// `ap` ist der Abstand Zentrum -> Seite der FERTIGEN Form, `rc` der Eckradius. Genau diese
+// beiden Zahlen beschreiben auch die sichtbare Bande — es gibt keine zweite Geometrie.
+// Gerechnet wird ueber den naechsten Punkt auf dem geschrumpften Dreieck — das ist fuer eine
+// konvexe Form exakt und kommt ohne Fallunterscheidung nach Zonen aus.
+// Ergebnis im gemeinsamen Ruecklieferobjekt fbSD (kein Allokationsmuell im Sub-Step).
+function footballTriSD(dx,dz,ap,rc){
+  // ap ist — wie hx/hz bei footballShapeSD — der Abstand Zentrum -> SEITE der fertigen Form.
+  // Das geschrumpfte Dreieck darunter hat deshalb das Apothem ap-rc und den Umkreisradius
+  // 2*(ap-rc). Beide Zahlen sind dieselben, aus denen fbTriOutline die sichtbare Bande baut.
+  const S=ap-rc,R=2*S;                             // Apothem und Umkreisradius des geschrumpften Dreiecks
+  let best=Infinity,bx=0,bz=0,inside=true;
+  for(let k=0;k<3;k++){
+    const a=FB_TRI_VERT[(k+2)%3],b=FB_TRI_VERT[k];  // Seite k laeuft von Ecke k-1 nach Ecke k
+    const ax=a[0]*R,az=a[1]*R,ex=b[0]*R-ax,ez=b[1]*R-az;
+    let t=((dx-ax)*ex+(dz-az)*ez)/(ex*ex+ez*ez);
+    t=t<0?0:(t>1?1:t);
+    const qx=ax+ex*t,qz=az+ez*t,d2=(dx-qx)*(dx-qx)+(dz-qz)*(dz-qz);
+    if(d2<best){best=d2;bx=qx;bz=qz;}
+    const n=FOOTBALL_ELIM3_DIRS[k];
+    if(dx*n[0]+dz*n[1]>S)inside=false;
+  }
+  const d=Math.sqrt(best);
+  fbSD.sd=(inside?-d:d)-rc;
+  if(d>1e-9){const s=inside?-1:1;fbSD.nx=s*(dx-bx)/d;fbSD.nz=s*(dz-bz)/d;}
+  else{fbSD.nx=FOOTBALL_ELIM3_DIRS[0][0];fbSD.nz=FOOTBALL_ELIM3_DIRS[0][1];}
+  return fbSD;
+}
+// Grenze fuer BALLMITTEN: dieselbe Form, um genau den Kugelradius nach innen versetzt. Der
+// Versatz eines Rounded Rectangle ist wieder ein Rounded Rectangle, der eines abgerundeten
+// Dreiecks wieder ein abgerundetes Dreieck (apothem-r, corner-r) — deshalb bleibt die Grenze
+// in beiden Formfamilien exakt und braucht keine zweite Beschreibung.
+function footballBoundSD(b){
+  const r=ballRad(b),av=fbArena();
+  if(av.tri)return footballTriSD(b.x-cx,b.y-cy,av.apothem*BR-r,fbCorner()-r);
+  return footballShapeSD(b.x-cx,b.y-cy,fbHalfLen()-r,fbHalfWid()-r,fbCorner()-r);
+}
 // ITERATIVE KONTAKTAUFLOESUNG (Physikphase 4B-1) — NUR mode==='football'.
 // Messung 4A: die einmalige Aufloesung pro Sub-Step laesst Ball-Ball-Trennung und
 // Banden-/Sockelkorrektur GEGENEINANDER arbeiten. Die Bande klemmt die Kugel auf
@@ -3186,9 +3363,49 @@ function footballGoalCenterHalf(){return footballGoalClearHalf()-fbBallR();}    
 // nahe +-X); auf dem Rechteck muss die Zugehoerigkeit zur Stirnseite ausgesprochen werden,
 // damit kein Eckbogen versehentlich als Toroeffnung zaehlt. Fuer den Kreis ist der Term
 // erfuellt und aendert nichts.
+// ── SEITENFALTUNG: EINE Torgeometrie fuer zwei ODER vier Tore ─────────────────────
+// Classic/Tactical haben zwei Tore auf +-X, Elimination4 vier in 90-Grad-Schritten. Statt
+// einer zweiten Torgeometrie wird ein Punkt zuerst in den KANONISCHEN Rahmen der naechst-
+// gelegenen Torseite gedreht — dort liegt das Tor immer auf +X und die bereits hergeleitete
+// Rechnung (lichte Oeffnung, Sockel, Torlinie) gilt unveraendert weiter.
+// Ausserhalb Elimination4 ist die Faltung die IDENTITAET (cs=1, sn=0): jeder Bestandspfad
+// rechnet bitgenau wie zuvor, es kommt kein zusaetzlicher Term und keine Rundung hinzu.
+// Das Ergebnis liegt in einem wiederverwendeten Objekt (kein Allokationsmuell im Sub-Step);
+// jeder Aufrufer liest die Werte SOFORT aus.
+//   x      Anteil ENTLANG der Torrichtung (in Elimination4 immer >= 0)
+//   y      Anteil QUER dazu
+//   cs/sn  Drehung fuer den Rueckweg: x = X*cs - Y*sn, y = X*sn + Y*cs
+//   side   Elimination4: SLOT-Index der Torseite in der aktiven Arenaphase (0..n-1).
+//          Sonst 1 (+X) bzw. 3 (-X) — derselbe Index bedeutet in beiden Faellen "welche Seite".
+// Die Seitenwahl ist das groesste Skalarprodukt mit den Torrichtungen der aktiven Phase; bei
+// einem exakten Gleichstand (Diagonale) gewinnt der KLEINERE Slot — deterministisch, ohne Zufall.
+const fbFold={x:0,y:0,cs:1,sn:0,side:1};
+function footballFold(dx,dy){
+  if(!fbElim4()){fbFold.x=dx;fbFold.y=dy;fbFold.cs=1;fbFold.sn=0;fbFold.side=dx>=0?1:3;return fbFold;}
+  const D=fbElimDirs();
+  let side=0,best=-Infinity;
+  for(let k=0;k<D.length;k++){const v=dx*D[k][0]+dy*D[k][1];if(v>best){best=v;side=k;}}
+  const c=D[side][0],s=D[side][1];
+  fbFold.x=dx*c+dy*s;fbFold.y=dy*c-dx*s;fbFold.cs=c;fbFold.sn=s;fbFold.side=side;
+  return fbFold;
+}
+// Wem gehoert der Torslot der aktiven Phase? Die Zuordnung ist deterministisch: beim
+// Arenawechsel werden die AKTIVEN Spieler-IDs aufsteigend sortiert und in dieser Reihenfolge
+// auf die Slots 0..n-1 gelegt (s. fbElimApplyPhase). -1 = Slot in dieser Phase nicht belegt.
+function fbElimSlotOwner(slot){return fbElimSlots[slot];}
+// Ist das Tor dieses Slots ein gueltiges Ziel? In V3 verschwinden Tore beim Arenawechsel ganz;
+// zwischen dem Gegentor und dem Umbau (Torablauf) bleibt das getroffene Tor jedoch noch
+// stehen und ist ab der Eliminierung sofort GESCHLOSSEN — der Ball kann dort weder ein
+// zweites Mal werten noch verschwinden. Ausserhalb Elimination4 ist jedes Tor immer offen.
+function footballGoalOpen(slot){
+  if(!fbElim4())return true;
+  const o=fbElimSlotOwner(slot);
+  return o>=0&&!!fbElimActive[o];
+}
 function footballCanPassGoal(b){
-  return b.owner===FOOTBALL_NEUTRAL_OWNER&&Math.abs(b.y-cy)<=footballGoalCenterHalf()
-    &&Math.abs(b.x-cx)>Math.abs(b.y-cy);
+  if(b.owner!==FOOTBALL_NEUTRAL_OWNER)return false;
+  const F=footballFold(b.x-cx,b.y-cy);
+  return footballGoalOpen(F.side)&&Math.abs(F.y)<=footballGoalCenterHalf()&&Math.abs(F.x)>Math.abs(F.y);
 }
 // Torpfosten-Kollision (Marmor-Sockel) — gilt fuer ALLE Kugeln, auch fuer bereits
 // ausgetretene neutrale Baelle: ein Pfosten ist ein echtes Hindernis, kein Grenzsonderfall.
@@ -3207,8 +3424,12 @@ function footballCanPassGoal(b){
 // d = Abstand Ballmitte zur Rechteckkante (0 = Mitte im Rechteck), nx/ny = Normale im
 // kanonischen Quadranten (mit sx/sy zurueckspiegeln fuer Weltkoordinaten).
 function footballPostProbe(b){
-  const sx=(b.x-cx)>=0?1:-1,sy=(b.y-cy)>=0?1:-1;        // naechstes Tor / naechste Sockelseite
-  const X=sx*(b.x-cx),Y=sy*(b.y-cy);
+  // Zuerst in den kanonischen +X-Rahmen der naechsten Torseite falten; ausserhalb
+  // Elimination4 ist das die Identitaet und die Rechnung bleibt Zeile fuer Zeile dieselbe.
+  // cs/sn reist mit, damit footballResolvePost das Ergebnis zurueckdrehen kann.
+  const F=footballFold(b.x-cx,b.y-cy),cs=F.cs,sn=F.sn;
+  const sx=F.x>=0?1:-1,sy=F.y>=0?1:-1;                  // naechstes Tor / naechste Sockelseite
+  const X=sx*F.x,Y=sy*F.y;
   const av=fbArena(),r=ballRad(b);                      // r = Radius DIESER Kugel (BR bzw. fbBallR)
   const x0=av.postFront*BR,x1=av.postBack*BR;           // Sockelkanten: BR ist hier LAENGENEINHEIT, kein Ballradius
   const y0=av.postInner*BR,y1=av.postOuter*BR;
@@ -3226,17 +3447,30 @@ function footballPostProbe(b){
     d=0;
   }
   const px=(nx<0?x0:(nx>0?x1:qx)),py=(ny<0?y0:(ny>0?y1:qy));
-  return {sx,sy,nx,ny,d,qx,qy,px,py};
+  return {sx,sy,nx,ny,d,qx,qy,px,py,cs,sn};
 }
+// Rueckweg der Seitenfaltung (s. footballFold). Fuer cs=1/sn=0 — also ueberall ausser in
+// Elimination4 — liefern beide exakt ihr erstes Argument zurueck; der Bestandspfad bleibt
+// dadurch bitgenau, weil X*1-Y*0 in Gleitkomma genau X ist.
+function fbUnfoldX(X,Y,cs,sn){return X*cs-Y*sn;}
+function fbUnfoldY(X,Y,cs,sn){return X*sn+Y*cs;}
 function footballResolvePost(b){
   const p=footballPostProbe(b),r=ballRad(b);
   if(!p||p.d>=r)return false;                          // kein Kontakt / nur Beruehrabstand
-  const sx=p.sx,sy=p.sy,nx=p.nx,ny=p.ny,d=p.d;
-  b.x=cx+sx*((d>1e-9?p.qx:p.px)+nx*r);                 // Penetration exakt auf Beruehrabstand korrigiert
-  b.y=cy+sy*((d>1e-9?p.qy:p.py)+ny*r);
-  const vX=sx*b.vx,vY=sy*b.vy,vn=vX*nx+vY*ny;           // Normalanteil (auswaerts vom Sockel)
+  const sx=p.sx,sy=p.sy,nx=p.nx,ny=p.ny,d=p.d,cs=p.cs,sn=p.sn;
+  // Position und Geschwindigkeit werden vollstaendig IM KANONISCHEN RAHMEN gerechnet und
+  // erst am Ende zurueckgedreht — es gibt weiterhin nur EINE Sockelaufloesung.
+  const PX=sx*((d>1e-9?p.qx:p.px)+nx*r);               // Penetration exakt auf Beruehrabstand korrigiert
+  const PY=sy*((d>1e-9?p.qy:p.py)+ny*r);
+  b.x=cx+fbUnfoldX(PX,PY,cs,sn);
+  b.y=cy+fbUnfoldY(PX,PY,cs,sn);
+  const FVX=b.vx*cs+b.vy*sn,FVY=b.vy*cs-b.vx*sn;        // Geschwindigkeit in den kanonischen Rahmen
+  const vX=sx*FVX,vY=sy*FVY,vn=vX*nx+vY*ny;             // Normalanteil (auswaerts vom Sockel)
   const e=curRestPost();
-  if(vn<0){b.vx=sx*(vX-(1+e)*vn*nx);b.vy=sy*(vY-(1+e)*vn*ny);}   // nur Normalanteil reflektiert, Tangentialanteil bleibt
+  if(vn<0){                                             // nur Normalanteil reflektiert, Tangentialanteil bleibt
+    const RX=sx*(vX-(1+e)*vn*nx),RY=sy*(vY-(1+e)*vn*ny);
+    b.vx=fbUnfoldX(RX,RY,cs,sn);b.vy=fbUnfoldY(RX,RY,cs,sn);
+  }
   return true;
 }
 // ── ARENA FOOTBALL: WEDGE-ERKENNUNG UND ANTI-WEDGE-ESCAPE (Physikphase 4B-2) ──────
@@ -3402,13 +3636,18 @@ function footballGoalBusy(){return mode==='football'&&fbGoalState!=='play';}
 // fbPassed ist die Vorbedingung und wird ausschliesslich beim beruehrungsfreien Durchtritt
 // durch die lichte Oeffnung gesetzt -> Pfostentreffer und Wege ausserhalb der Oeffnung
 // koennen hier gar nicht ankommen.
-function footballGoalSide(b){
+// WELCHES Tor wurde ueberquert? Rueckgabe ist der Seitenindex der Faltung (footballFold):
+// Classic/Tactical 1 = +X-Tor, 3 = -X-Tor; Elimination4 der Ownerindex des Torbesitzers.
+// -1 = kein Tor. Es gibt damit genau EINE Linienpruefung fuer beide Arenaformen.
+function footballGoalCrossed(b){
   if(mode!=='football')return -1;
   if(b.owner!==FOOTBALL_NEUTRAL_OWNER||!b.fbPassed)return -1;
   // Die Torlinie ist eine GERADE quer zur Tor-zu-Tor-Achse. Beide Tore bleiben exakt
   // symmetrisch (fbBallR = Radius des neutralen Balls, postBack*BR = Laengeneinheit).
-  const dx=b.x-cx;
-  if(Math.abs(dx)-fbBallR()>fbArena().postBack*BR)return dx>=0?0:1;   // vollstaendig hinter der Torlinie
+  // Gemessen wird im kanonischen Rahmen der ueberquerten Seite; ausserhalb Elimination4 ist
+  // die Faltung die Identitaet und dx bleibt exakt b.x-cx wie zuvor.
+  const F=footballFold(b.x-cx,b.y-cy),dx=F.x;
+  if(Math.abs(dx)-fbBallR()>fbArena().postBack*BR)return F.side;   // vollstaendig hinter der Torlinie
   // TOTZONEN-SCHUTZ (Review-Befund der Arena-Finalisierung): Auf dem Rechteck kann ein
   // langsam durchgetretener Ball VOR der Torlinie liegenbleiben — jenseits der maximalen
   // Spielerreichweite (Spielerzentrum hoechstens halfLen-BR, Kontakt bei BR+fbBallR ->
@@ -3417,8 +3656,14 @@ function footballGoalSide(b){
   // kein Reset, Ball unerreichbar). Ein RUHENDER (v < stopv), unerreichbarer Ball im
   // Torkanal zaehlt deshalb als Tor der Seite, in deren Kanal er liegt — deterministisch,
   // tickbasiert, kein Teleport, keine Aenderung am regulaeren Linienkriterium.
-  if(Math.abs(dx)>fbHalfLen()+fbBallR()&&Math.sqrt(b.vx*b.vx+b.vy*b.vy)<curST())return dx>=0?0:1;
+  if(Math.abs(dx)>fbHalfLen()+fbBallR()&&Math.sqrt(b.vx*b.vx+b.vy*b.vy)<curST())return F.side;
   return -1;
+}
+// Classic/Tactical: Punkt fuer die GEGENSEITE des ueberquerten Tores. 0 = Punkt Blau
+// (+X-Tor), 1 = Punkt Rot (-X-Tor), -1 = kein Tor — unveraendertes Bestandsverhalten.
+function footballGoalSide(b){
+  const s=footballGoalCrossed(b);
+  return s<0?-1:(s===1?0:1);
 }
 // Spielerkugeln anhalten (nie eliminieren) — waehrend des Torablaufs rollt niemand weiter.
 function footballFreezePlayers(){
@@ -3450,6 +3695,10 @@ function footballClearGoalFx(){fbGoalFxSide=-1;fbGoalFxStart=0;}
 // (side 0) faellt im +X-Tor, ein Punkt fuer Rot (side 1) im -X-Tor — dieselbe Zuordnung
 // wie in footballGoalSide, nur umgekehrt gelesen. Rueckgabe: +1 = +X-Tor, -1 = -X-Tor.
 function footballGoalFxSign(){return fbGoalFxSide<0?0:(fbGoalFxSide===0?1:-1);}
+// Schluessel des getroffenen Tores — genau der Wert, den der Renderer je Torbauteil
+// hinterlegt hat. Classic/Tactical: +1 = +X-Tor, -1 = -X-Tor. Elimination4: der Ownerindex
+// 0..3 des getroffenen Tores; dort IST fbGoalFxSide bereits dieser Index.
+function footballGoalFxKey(){return fbElim4()?fbGoalFxSide:footballGoalFxSign();}
 // Huellkurve 0..1 fuer das Tor auf der Seite `sign`. Kurzer weicher Anstieg (Smoothstep),
 // danach eine quadratische Ease-Out-Abklingkurve. QUADRATISCH statt kubisch (UX-3B): der
 // kubische Ausklang war nach einem Drittel der Nachglut praktisch unsichtbar, die Dauer
@@ -3457,8 +3706,8 @@ function footballGoalFxSign(){return fbGoalFxSide<0?0:(fbGoalFxSide===0?1:-1);}
 // weiter und laeuft trotzdem mit Steigung 0 in den Ruhewert (kein Abschaltkante).
 // Ausserhalb des Fensters exakt 0 — daran erkennt der Renderer den Ruhezustand und
 // schreibt dann gar nichts mehr.
-function footballGoalFxLevel(sign,nowMs){
-  if(fbGoalFxSide<0||sign!==footballGoalFxSign())return 0;
+function footballGoalFxLevel(key,nowMs){
+  if(fbGoalFxSide<0||key!==footballGoalFxKey())return 0;
   const p=(nowMs-fbGoalFxStart)/FB_GOAL_FX_MS;
   if(p<=0||p>=1)return 0;
   if(p<FB_GOAL_FX_ATTACK){const u=p/FB_GOAL_FX_ATTACK;return u*u*(3-2*u);}
@@ -3468,6 +3717,9 @@ function footballGoalFxLevel(sign,nowMs){
 // Genau EINE Wertung pro Torereignis: nur aus 'play' heraus erreichbar.
 function footballTryGoal(b){
   if(fbGoalState!=='play')return;
+  // Elimination4 wertet GEGENTORE statt Punkte und hat damit ein eigenes Wertungsziel —
+  // aber denselben Torablauf, denselben Impuls und denselben Sound (s. footballElimTryGoal).
+  if(fbElim4()){footballElimTryGoal(b);return;}
   const side=footballGoalSide(b);
   if(side<0)return;
   score[side]=(score[side]||0)+1;
@@ -3515,10 +3767,20 @@ function footballTickGoal(){
     // davor ist die Arena bewusst leer. Beim entscheidenden Tor wird 'spawn' uebersprungen:
     // nach dem Sieg gibt es keinen Rundenreset und faellt kein neuer Ball in die Arena.
     if(footballWinner!==null){fbGoalState='result';fbGoalTick=0;footballMatchEnd();return;}
-    footballResetRound();fbGoalState='spawn';fbGoalTick=0;return;
+    // Elimination4: eigener Rundenreset. Er baut die Arena auf die neue Spielerzahl um,
+    // stellt alle Ueberlebenden auf die faire Startaufstellung dieser Phase und schickt
+    // nur den neutralen Ball zentral zurueck (V3.1).
+    if(fbElim4())footballElimResetBall();else footballResetRound();
+    fbGoalState='spawn';fbGoalTick=0;return;
   }
   if(fbGoalState==='spawn'&&fbGoalTick>=FOOTBALL_GOAL_SPAWN_TICKS){
-    fbGoalState='play';fbGoalTick=0;startRound();   // gibt Eingabe/Planungsphase regulaer wieder frei
+    fbGoalState='play';fbGoalTick=0;
+    // Elimination4 oeffnet die neue Runde NICHT ueber startRound(): das wuerde placeBalls()
+    // ausfuehren und die Spielerfiguren zurueckstellen. Stattdessen uebernimmt das REGULAERE
+    // Settlement im naechsten stepSim — alle Kugeln stehen bereits still, und dort werden
+    // Commits, Phase, Cover und Zieler ohnehin schon exakt so gesetzt. Kein zweiter
+    // Rundenstartpfad, nur ein anderer Einstieg in denselben.
+    if(!fbElim4())startRound();   // gibt Eingabe/Planungsphase regulaer wieder frei
   }
 }
 // AUTORITATIVES MATCHENDE. Uebergibt an die BESTEHENDE Result-Struktur (gameOver -> phase
@@ -3554,8 +3816,13 @@ function footballMatchEnd(){
 // Football-Block bleibt frei von Umgebungszugriffen). In den Test-Harnessen existiert die
 // Konstante nicht; der typeof-Guard laesst die Variante dann auf 'classic'.
 const FOOTBALL_VARIANT_TACTICAL='tactical';
-let fbVariant=(typeof DEV_FB_VARIANT!=='undefined'&&DEV_FB_VARIANT===FOOTBALL_VARIANT_TACTICAL)?FOOTBALL_VARIANT_TACTICAL:'classic';
+// DEV-PROTOTYP, kein Produktmodus: 4-Spieler-Elimination. Erreichbar ausschliesslich ueber
+// den Dev-Direktlink (?dev=1&fb=elimination4) — die Modusauswahl im Spiel kennt ihn nicht.
+const FOOTBALL_VARIANT_ELIM4='elimination4';
+// Jeder andere Wert (auch ein manipulierter URL-Parameter) faellt auf 'classic' zurueck.
+let fbVariant=(typeof DEV_FB_VARIANT!=='undefined'&&(DEV_FB_VARIANT===FOOTBALL_VARIANT_TACTICAL||DEV_FB_VARIANT===FOOTBALL_VARIANT_ELIM4))?DEV_FB_VARIANT:'classic';
 function fbTactical(){return mode==='football'&&fbVariant===FOOTBALL_VARIANT_TACTICAL;}
+function fbElim4(){return mode==='football'&&fbVariant===FOOTBALL_VARIANT_ELIM4;}
 // Startaufstellung in BR (gleiche Konvention wie FOOTBALL_ARENA). Blau steht bei -x, Rot
 // exakt an der Mittelachse gespiegelt bei +x -> identische Distanzverhaeltnisse zu Ball,
 // eigenem Tor und Gegnertor. 'front' ist die offensivere Figur nahe der Mittellinie, 'back'
@@ -3606,9 +3873,164 @@ function fbTacticalRingLevel(i){
   if(aimSet[curAimer]||b.owner!==curAimer)return 0;
   return fbSel[curAimer]===i?FB_RING_SELECTED:FB_RING_SELECTABLE;
 }
+// ══ ARENA FOOTBALL ELIMINATION4 — 4 Spieler · 4 Tore · 1 neutraler Ball (DEV-PROTOTYP) ══
+// Vier Menschen an einem Geraet. Jeder besitzt genau EINE Figur und genau EIN Tor. Alle
+// planen verdeckt, alle starten gleichzeitig.
+//
+// V2-KERNREGEL: EIN GEGENTOR = SOFORT AUSGESCHIEDEN.
+// Das Tor selbst IST die Eliminationsentscheidung. Es gibt bewusst KEINEN Timer, KEINE
+// Gegentorzaehlung, KEINE Zeitphasen und KEINEN Tiebreak — der V1-Prototyp hat im Spieltest
+// gezeigt, dass eine Zeitwertung bei dieser Torhaeufigkeit aufgesetzt wirkt. Der Match laeuft
+// direkt 4 -> 3 -> 2 -> 1.
+//
+// Wie Tactical ist das eine VARIANTE des Football-Modus (fbVariant), KEIN eigener mode und
+// KEINE zweite Zug-Zustandsmaschine. Die verdeckte Commit/Reveal-Pipeline ist unveraendert
+// die von Classic; sie ist ohnehin ueber np() parametrisiert (FFA faehrt sie mit 5 Spielern).
+// Elimination4 fuegt der Pipeline nur EINE Information hinzu: WER noch im Match ist.
+// Alles andere — Physik (M1, unveraendert), Torablauf, Torimpuls, Sound, Privacy, Reveal —
+// kommt unveraendert aus dem Bestand.
+//
+// Bewusst NICHT bewertet wird, wer geschossen hat: keine Torschuetzen, keine Assists, kein
+// Last-Touch, keine Eigentor-Sonderregel. Entscheidend ist allein das getroffene Tor.
+// Ebenso bewusst gibt es KEINE Anti-Teaming-Regel, keine Immunitaet und keine
+// Fairnesskorrektur — gemeinsames Fokussieren eines Spielers ist Teil des Partymodus.
+//
+// Matchzustand:
+//   fbElimActive[owner]  noch im Match? false = ausgeschieden (Figur tot)
+//   fbElimPhaseN         aktive Arenaphase (4/3/2) — EINZIGE Weiche fuer Grenze, Tore,
+//                        Rendering und Kamera
+//   fbElimSlots[slot]    Besitzer des Torslots der aktiven Phase (-1 = nicht belegt)
+const fbElimActive=[true,true,true,true];
+const fbElimSlots=[0,1,2,3];
+let fbElimPhaseN=FOOTBALL_ELIM4_PLAYERS;
+// Vollstaendiger Reset (neues Match, Moduswechsel, Menue) — Aufrufer ist footballResetMatchState.
+function fbElimReset(){
+  for(let o=0;o<FOOTBALL_ELIM4_PLAYERS;o++){fbElimActive[o]=true;fbElimSlots[o]=o;}
+  fbElimPhaseN=FOOTBALL_ELIM4_PLAYERS;
+}
+function fbElimActiveOwners(){const a=[];for(let o=0;o<FOOTBALL_ELIM4_PLAYERS;o++)if(fbElimActive[o])a.push(o);return a;}
+// Erster Spieler der verdeckten Commit-Runde. Bestandsmodi beginnen immer bei Spieler 0;
+// in Elimination4 wird in FESTER Reihenfolge P1 -> P4 der erste noch aktive gesucht.
+// Aufgerufen aus startRound und dem Settlement in stepSim (jeweils typeof-geguardet).
+function fbElimFirstAimer(){
+  if(!fbElim4())return 0;
+  for(let o=0;o<FOOTBALL_ELIM4_PLAYERS;o++)if(aliveCount(o)>0)return o;
+  return 0;
+}
+// Kopfzeile der HUD-Chipleiste (s. renderElimBar). Reine Formatierung des Spielzustands:
+// wie viele Spieler noch im Match sind — mehr braucht die Regel SURVIVE nicht.
+function fbElimHeadText(){
+  if(footballWinner!==null)return 'SIEGER P'+(footballWinner+1);
+  const n=fbElimActiveOwners().length;
+  return n===2?'FINAL':n+' VERBLEIBEND';
+}
+// ── V3: ADAPTIVE ARENA ────────────────────────────────────────────────────────────
+// Nach einer Eliminierung wechselt die Arenaform auf die Phase der verbleibenden Spieler.
+// Aufgerufen wird das GENAU EINMAL pro Umbau, aus footballElimResetBall — also erst am Ende
+// des Torablaufs. Waehrend Ballfall und Celebration steht die alte Arena bewusst noch: der
+// getroffene Ball ist dort schon draussen, die Spieler sind eingefroren, und der Spieler
+// sieht das Tor, das ihn erwischt hat.
+//
+// TORZUORDNUNG: die aktiven Spieler-IDs werden AUFSTEIGEND sortiert und in dieser Reihenfolge
+// auf die Slots 0..n-1 gelegt. Bleiben P1/P3/P4 uebrig, gehoert Slot 0 dem P1, Slot 1 dem P3
+// und Slot 2 dem P4 — deterministisch, keine Permutation, keine Zufallszuteilung.
+function fbElimApplyPhase(){
+  const act=fbElimActiveOwners(),n=act.length;
+  if(n<2||n>FOOTBALL_ELIM4_PLAYERS)return false;   // 1 Spieler = Sieg, kein Umbau mehr
+  for(let k=0;k<FOOTBALL_ELIM4_PLAYERS;k++)fbElimSlots[k]=k<n?act[k]:-1;
+  if(n===fbElimPhaseN)return false;
+  fbElimPhaseN=n;
+  fbElimSpawnBodies();
+  return true;
+}
+// ── FAIRE STARTAUFSTELLUNG (V3.1) ────────────────────────────────────────────────
+// EINE geometrische Regel fuer jede Phase: die Figur auf Torslot s steht auf der Achse
+// IHRES Tores, im Abstand spawn*BR vom Zentrum. Daraus folgt ohne Sonderfaelle:
+//   - vollstaendig symmetrisch zur jeweiligen Arenaform (90 Grad, 120 Grad, gegenueber)
+//   - gleiche Zentrumsdistanz fuer alle
+//   - gleiche Distanz zum eigenen Tor fuer alle
+//   - niemand steht am Ball, an der Bande, im Torkorridor oder auf einer anderen Figur
+// Dieselbe Regel benutzt placeBalls fuer die Startaufstellung des Matches - es gibt keine
+// zweite Spawnbeschreibung und keine per-Spieler-Offsets.
+function fbElimSpawnX(slot){return cx+fbElimDirs()[slot][0]*fbArena().spawn*BR;}
+function fbElimSpawnY(slot){return cy+fbElimDirs()[slot][1]*fbArena().spawn*BR;}
+// Alle ueberlebenden Figuren auf die faire Startaufstellung der AKTIVEN Phase setzen.
+// V3 liess sie bis hierher stehen; der Spieltest hat gezeigt, dass daraus zufaellige
+// Positionsvorteile und Spawn-Traps aus der vorherigen Phase entstehen. Ab V3.1 startet
+// jede neue Phase fuer alle Verbliebenen gleich - deterministisch, ohne Zufall.
+function fbElimSpawnBodies(){
+  const D=fbElimDirs();
+  for(let s=0;s<D.length;s++){
+    const o=fbElimSlotOwner(s);
+    if(o<0)continue;
+    const px=fbElimSpawnX(s),py=fbElimSpawnY(s);
+    for(const b of balls){
+      if(b.owner!==o||!b.alive)continue;
+      b.x=px;b.y=py;b.sx=px;b.sy=py;b.vx=0;b.vy=0;b.spin=0;
+    }
+  }
+}
+// Spieler ausscheiden lassen. alive=false ist die BESTEHENDE Sperre und wirkt sofort ueberall:
+// Kontaktaufloesung, Auswahl (pickOwnBall), Commit-Freigabe (canCommitInput), Commit-Reihen-
+// folge (applyCommit prueft aliveCount), Reveal-Bedingung und Renderer ueberspringen tote
+// Kugeln bereits — es bleibt keine Kollisionshuelle zurueck. Das zugehoerige Tor schliesst
+// footballGoalOpen() ueber fbElimActive; es wird ab hier physikalisch zur Bande.
+// EINZIGER Aufrufer ist footballElimTryGoal: in V2 eliminiert ausschliesslich ein Gegentor.
+function footballElimEliminate(o){
+  if(!fbElim4()||o<0||o>=FOOTBALL_ELIM4_PLAYERS||!fbElimActive[o])return;
+  fbElimActive[o]=false;
+  for(const b of balls)if(b.owner===o){b.alive=false;b.vx=0;b.vy=0;b.spin=0;}
+  const act=fbElimActiveOwners();
+  if(act.length===1){
+    footballWinner=act[0];
+    // Faellt die Entscheidung mitten im Torablauf (der Regelfall), uebernimmt footballTickGoal
+    // das Matchende am Ende des Celebration Windows — dort wird dann auch KEIN neuer Ball mehr
+    // gespawnt. Nur ausserhalb eines Torablaufs endet das Match sofort.
+    if(fbGoalState==='play')footballMatchEnd();
+  }
+  updateHud();
+}
+// Torwertung in Elimination4 (V2). Genau EINE Auswertung pro Torereignis (Aufrufer
+// footballTryGoal wertet nur aus 'play'), und ausschliesslich fuer den neutralen Ball —
+// footballGoalCrossed prueft owner und fbPassed. Wer das Tor kassiert, ist SOFORT raus.
+function footballElimTryGoal(b){
+  const slot=footballGoalCrossed(b);        // SLOT der aktiven Phase, nicht der Ownerindex
+  if(slot<0)return;
+  const own=fbElimSlotOwner(slot);
+  if(own<0||!fbElimActive[own])return;      // ein geschlossenes Tor wertet nie (dort ist Bande)
+  fbGoalState='fall';fbGoalTick=0;
+  cancelAimDrag();
+  footballFreezePlayers();
+  footballGoalFxTrigger(slot);              // rein visueller Torimpuls am getroffenen Tor
+  footballElimEliminate(own);               // EIN GEGENTOR = SOFORT AUSGESCHIEDEN
+  SFX.footballGoal(footballWinner!==null);
+  updateHud();
+}
+// Rundenreset nach dem Tor. Anders als in Classic (footballResetRound -> placeBalls) werden
+// KEINE neuen Kugelobjekte erzeugt; weil das Ballobjekt erhalten bleibt, muessen die kugel-
+// gebundenen Football-Latches hier AUSDRUECKLICH geloescht werden.
+//
+// REIHENFOLGE (V3.1) - deterministisch und in genau dieser Abfolge:
+//   1. Arenaform auf die verbleibende Spielerzahl umstellen und die Torslots neu zuordnen
+//   2. ALLE ueberlebenden Figuren auf die faire Startaufstellung dieser Phase setzen
+//   3. neutralen Ball zentral zuruecksetzen, Latches und Geschwindigkeiten leeren
+//   4. Commit-/Aim-Zustand vollstaendig raeumen
+// Schritt 1 und 2 stecken zusammen in fbElimApplyPhase und laufen im selben Tick - der
+// Renderer sieht also nie eine halb umgestellte Arena, und der Ball faellt erst danach.
+function footballElimResetBall(){
+  fbElimApplyPhase();
+  for(const b of balls){
+    b.vx=0;b.vy=0;b.spin=0;
+    if(b.owner!==FOOTBALL_NEUTRAL_OWNER)continue;
+    b.x=cx;b.y=cy;b.sx=cx;b.sy=cy;
+    b.fbPassed=false;b.fbWedge=0;b.fbEscapes=0;
+  }
+  resetCommits();cancelAimDrag();
+  roundWinner=-1;outBall=-1;
+}
 // ZENTRALE Initialisierung des Football-Matchzustands: neues Match, Moduswechsel, Menue.
 // Score/Kugeln/Aim-Zustaende setzt der bestehende Pfad newGame() -> startRound() -> placeBalls().
-function footballResetMatchState(){fbGoalState='play';fbGoalTick=0;footballWinner=null;fbClearSelection();footballClearGoalFx();}
+function footballResetMatchState(){fbGoalState='play';fbGoalTick=0;footballWinner=null;fbClearSelection();fbElimReset();footballClearGoalFx();}
 function stepSim(){
   // Restitution nach Kontaktart (4B-2). Ohne aktives Football-Preset liefern alle drei
   // Funktionen den bestehenden REST-Wert — Bestandsmodi rechnen unveraendert weiter.
@@ -3711,7 +4133,9 @@ function stepSim(){
   if(fbSeq||(mode==='football'&&fbGoalState!=='play')){footballTickGoal();return;}
   let moving=false;for(const b of balls){if(b.alive&&Math.sqrt(b.vx*b.vx+b.vy*b.vy)>curST()){moving=true;break;}}
   if(!moving){
-    const n=mode==='ffa'?ffaN:2;   // bewusst inline (kein np()): stepSim laeuft auch im Golden-Harness
+    // bewusst inline (kein np()): stepSim laeuft auch im Golden-Harness. Der typeof-Guard
+    // haelt genau diese Eigenschaft aufrecht — ohne Football-Block bleibt es bei 2.
+    const n=mode==='ffa'?ffaN:(typeof fbElim4==='function'&&fbElim4()?FOOTBALL_ELIM4_PLAYERS:2);
     aimSet=[];commitIdx=[];commitAim=[];commitSpin=[];
     for(let p=0;p<n;p++){aimSet.push(false);commitIdx.push(-1);commitAim.push({dx:0,dy:0});commitSpin.push(0);}
     // Tactical: die naechste verdeckte Commit-Runde startet ohne Vorauswahl. typeof-Guard,
@@ -3723,7 +4147,7 @@ function stepSim(){
     if(typeof settleCollapse==='function'&&settleCollapse())return;
     setPhase('aim');updateHud();setPhaseText();
     if(online){curAimer=myPlayer;onlineArmTurn();}
-    else if(mode==='pvp'||mode==='football'){curAimer=0;openCover(0);}
+    else if(mode==='pvp'||mode==='football'){curAimer=(typeof fbElimFirstAimer==='function')?fbElimFirstAimer():0;openCover(curAimer);}
     else if(mode==='ffa'){for(let p=0;p<ffaN;p++)if(aliveCount(p)>0){curAimer=p;openCover(p);break;}}
   }
 }
@@ -5441,7 +5865,9 @@ async function initR3D(){
     // Quellwerten berechnet statt hart codiert (Review-Befund: die alte Literalherleitung
     // nutzte BR=32 statt des neutralen Ballradius 25 — der Ball fiel 7 Einheiten vor der
     // sichtbaren Kante).
-    const FB_DECK_OUT=(fbArena().postBack*BR+FOOTBALL_BALL_RADIUS)*FB_U-fbHalfLen()*FB_U;   // Grenze -> sichtbare Aussenkante der Plattform
+    // Als FUNKTION statt Konstante: die Arenavariante steht beim Aufbau der 3D-Szene noch
+    // nicht fest (die Szene entsteht im Menue), und Elimination4 hat eine eigene postBack-Kante.
+    const fbDeckOut=()=>(fbArena().postBack*BR+FOOTBALL_BALL_RADIUS)*FB_U-fbHalfLen()*FB_U;   // Grenze -> sichtbare Aussenkante der Plattform
     const fbMat={};              // geteilte Materialinstanzen aus den freigegebenen GLBs
     const goldM=new THREE.MeshStandardMaterial({color:0xc9a052,metalness:1,roughness:.35,envMapIntensity:1.1});
     let mainBMat=null;   // Referenz fuer den ruhigen Grenz-Puls
@@ -5464,22 +5890,68 @@ async function initR3D(){
     // System wie bGroup/platform: Gruppe bei (cx,0,cy), pro Frame mit sc skaliert + schwebend.
     // Sichtbar AUSSCHLIESSLICH bei mode==='football' (nie Menue-Preview/normale Modi).
     let goalGroup=null;   // gerades Tor an der Stirnseite (einzige produktive Torvariante)
+    let fbBuildGoals=null;   // (Neu-)Aufbau der Torinstanzen fuer die aktive Arenavariante; null = kein Tor-GLB
+    let fbLayout='',fbGoalLayout='';   // zuletzt gebaute Arenavariante fuer Form bzw. Tore ('' = noch nichts gebaut)
     // Tor-Feedback (UX-3): je Tor die drei bereits farbig gefassten Bauteile — Wappen,
     // vordere Keyline, Torlinie. Gehalten werden Material UND Ruhewerte, damit der Impuls
     // exakt auf den Ruhezustand zurueckfaellt (kein Drift, kein haengender Glow). Bleibt
     // leer, wenn das Tor-GLB fehlt -> die Arena verhaelt sich dann voellig unveraendert.
     const goalFxParts=[];
+    const goalDeadParts=[];                         // Elimination4: dimmen nur, kein Torimpuls (Sockeltoenung)
+    const goalShutPanels=[];                        // Elimination4: Verschluss der Toroeffnung je Torschluessel
     const GOAL_FX_GOLD=new THREE.Color(0xffd79a);   // warmes Gold-Weiss: die Haupt-Feedbackfarbe
     const GOAL_FX_MIX=.72;                          // Spitzenanteil Gold ueber der Teamfarbe (Gold dominiert, Farbe bleibt lesbar)
+    // ── Elimination4: AUSGESCHIEDENES TOR (rein visuell) ────────────────────────────────
+    // Ein geschlossenes Tor ist physikalisch bereits Bande (footballGoalOpen). Damit ein
+    // Spieler das auf EINEN BLICK sieht, verliert es zusaetzlich seine Teamfarbe: Wappen,
+    // Keyline, Torlinie und Sockeltoenung fallen auf einen neutralen Schiefer zurueck, das
+    // Eigenleuchten geht praktisch aus, und ein Panel schliesst die Oeffnung sichtbar.
+    // Der Torimpuls des entscheidenden Treffers laeuft dabei ZUERST vollstaendig ab
+    // (Pegel > 0) — erst danach kippt das Tor in den toten Zustand: "Tor! … und dieses Tor
+    // ist jetzt zu." Keine Animation, keine zweite Zustandsmaschine.
+    const GOAL_DEAD_COLOR=new THREE.Color(0x59626f);    // neutraler Schiefer statt Teamfarbe
+    const GOAL_DEAD_EMISSIVE=new THREE.Color(0x0b0e13); // fast schwarz — kein Eigenleuchten mehr
+    const GOAL_DEAD_MIX=.86;                            // Anteil Schiefer ueber der Grundfarbe
+    const GOAL_DEAD_EMIT=.06;                           // Restanteil der Ruhe-Emissivitaet
+    // Ist DIESES Tor tot? Nur Elimination4 kennt geschlossene Tore; footballGoalOpen ist
+    // dieselbe Quelle, die auch die Physik befragt — es gibt keinen zweiten Torzustand.
+    const goalDead=(key)=>typeof fbElim4==='function'&&fbElim4()&&!footballGoalOpen(key);
     // Ein Frame Tor-Feedback: pro Material genau EINE Schreiboperation und nur, wenn sich
-    // der Pegel geaendert hat. Im Ruhezustand (Pegel 0 bereits gesetzt) wird nichts angefasst.
+    // Pegel oder Totzustand geaendert haben. Im Ruhezustand wird nichts angefasst.
     const applyGoalFx=(nowMs)=>{
       for(const p of goalFxParts){
-        const lv=footballGoalFxLevel(p.sign,nowMs);
-        if(lv===p.lv)continue;
-        p.lv=lv;
-        p.mat.emissive.copy(p.col).lerp(GOAL_FX_GOLD,GOAL_FX_MIX*lv);
-        p.mat.emissiveIntensity=p.int*(1+p.gain*lv);
+        const lv=footballGoalFxLevel(p.key,nowMs);
+        const dead=(lv===0&&goalDead(p.key))?1:0;
+        if(lv===p.lv&&dead===p.dead)continue;
+        p.lv=lv;p.dead=dead;
+        if(dead){
+          p.mat.color.copy(p.base).lerp(GOAL_DEAD_COLOR,GOAL_DEAD_MIX);
+          p.mat.emissive.copy(GOAL_DEAD_EMISSIVE);
+          p.mat.emissiveIntensity=p.int*GOAL_DEAD_EMIT;
+        }else{
+          p.mat.color.copy(p.base);
+          p.mat.emissive.copy(p.col).lerp(GOAL_FX_GOLD,GOAL_FX_MIX*lv);
+          p.mat.emissiveIntensity=p.int*(1+p.gain*lv);
+        }
+      }
+      // Bauteile ohne Torimpuls (Sockeltoenung): sie kennen nur Ruhe und Tod.
+      for(const p of goalDeadParts){
+        const dead=(footballGoalFxLevel(p.key,nowMs)===0&&goalDead(p.key))?1:0;
+        if(dead===p.dead)continue;
+        p.dead=dead;
+        if(dead){
+          p.mat.color.copy(p.base).lerp(GOAL_DEAD_COLOR,GOAL_DEAD_MIX);
+          p.mat.emissive.copy(GOAL_DEAD_EMISSIVE);
+          p.mat.emissiveIntensity=p.int*GOAL_DEAD_EMIT;
+        }else{
+          p.mat.color.copy(p.base);
+          p.mat.emissive.copy(p.col);
+          p.mat.emissiveIntensity=p.int;
+        }
+      }
+      for(const s of goalShutPanels){
+        const on=goalDead(s.key)&&footballGoalFxLevel(s.key,nowMs)===0;
+        if(s.mesh.visible!==on)s.mesh.visible=on;
       }
     };
     try{
@@ -5497,12 +5969,30 @@ async function initR3D(){
       const GOAL_WALK_Y=.165;   // Oberkante Randweg in GLB-Einheiten (== bGroup WALK_Y) -> Tor-Basisebene (Blender Z=0) sitzt buendig auf dem Randweg
       goalGroup=new THREE.Group();goalGroup.position.set(cx,0,cy);goalGroup.visible=false;scene.add(goalGroup);
       // ---- Torzuordnung (rein visuell, keine Physik/Wertung) --------------------------
-      // Jedes Tor traegt die Farbe der Mannschaft, die es VERTEIDIGT. Blau startet auf -X
-      // (placeBalls: cx-off) und verteidigt das -X-Tor, Rot startet auf +X und verteidigt
-      // +X; gewertet wird spiegelbildlich (footballGoalSide: Durchtritt bei +X = Punkt fuer
-      // Blau). Fuer beide Seiten gilt damit dieselbe, sofort lesbare Regel: das Tor in
-      // meiner Farbe steht hinter mir und gehoert mir — geschossen wird auf das andere.
-      const goalTeam=(sign)=>(sign>0?1:0);                   // +X = Rot, -X = Blau (PCOLS-Index)
+      // Classic/Tactical: jedes Tor traegt die Farbe der Mannschaft, die es VERTEIDIGT. Blau
+      // startet auf -X (placeBalls: cx-off) und verteidigt das -X-Tor, Rot startet auf +X und
+      // verteidigt +X; gewertet wird spiegelbildlich (footballGoalSide: Durchtritt bei +X =
+      // Punkt fuer Blau). Fuer beide Seiten gilt damit dieselbe, sofort lesbare Regel: das Tor
+      // in meiner Farbe steht hinter mir und gehoert mir — geschossen wird auf das andere.
+      // Elimination4: jedes Tor traegt die Farbe SEINES Besitzers, in derselben Richtungs-
+      // ordnung wie FOOTBALL_ELIM4_DIRS. Auch hier steht das eigene Tor hinter der eigenen Figur.
+      //   dir  Torrichtung vom Zentrum aus, in (x,z) der Arena — identisch zur Simulation
+      //   col  PCOLS-Slot der Torfarbe
+      //   key  Schluessel des Tor-Feedbacks; genau das, was footballGoalFxKey() liefert
+      // In Elimination4 traegt jeder SLOT der aktiven Phase die Farbe SEINES Besitzers
+      // (fbElimSlotOwner) — nach einem Arenawechsel erscheinen die Tore also direkt in den
+      // Farben der verbliebenen Spieler. Slots ohne Besitzer entstehen nicht: es gibt genau
+      // so viele Tore wie aktive Spieler.
+      const goalDefs=()=>fbElim4()
+        ? fbElimDirs().map((d,s)=>({dir:d,col:Math.max(0,fbElimSlotOwner(s)),key:s}))
+        : [{dir:[1,0],col:1,key:1},{dir:[-1,0],col:0,key:-1}];
+      // Drehungen aus der Torrichtung. Fuer die Achsenrichtungen liefert atan2 exakt die
+      // bisherigen Werte (-PI/2 fuer +X, +PI/2 fuer -X) — Classic bleibt damit unveraendert —
+      // und fuer das 120-Grad-Raster der Drei-Spieler-Phase gilt dieselbe Formel weiter.
+      //   GOAL_ROT   Toroeffnung zeigt zur Arenamitte: R(t)*(0,1) == -dir
+      //   GOAL_TURN  legt die kanonische +X-Konstruktion (Torlinie, Sockeltoenung) auf dir
+      const GOAL_ROT=(d)=>Math.atan2(-d[0],-d[1]);
+      const GOAL_TURN=(d)=>Math.atan2(-d[1],d[0]);
       const GOAL_EMBLEM_EMISSIVE=1.10;                       // Wappen: sekundaerer Akzent, ruhig
       const GOAL_FRAME_EMISSIVE=.55;                         // vordere Gold-Keyline: traegt die Farbe in die Senkrechte
       const GOAL_LINE_W=.30;                                 // Breite der Torlinie in Torrichtung (GLB) — waechst nach AUSSEN
@@ -5513,28 +6003,32 @@ async function initR3D(){
       // dunkelsten sitzt; die ohnehin helle Torlinie am wenigsten — so bleibt der Impuls
       // ausgewogen und nichts clippt in Weissglut.
       const GOAL_FX_GAIN_EMBLEM=2.00, GOAL_FX_GAIN_FRAME=3.40, GOAL_FX_GAIN_LINE=0.90;
-      const addGoalFx=(sign,mat,gain)=>{
-        goalFxParts.push({sign,mat,gain,col:mat.emissive.clone(),int:mat.emissiveIntensity,lv:0});
+      // Verschlusspanel eines ausgeschiedenen Tores (Elimination4). Oberkante auf Hoehe der
+      // Glasbande daneben, damit der Verschluss buendig in die Bandenlinie einrastet.
+      const GOAL_SHUT_TOP=1.20;                              // == Bandenoberkante (fbSweep glass: y0 .30 + Profilhoehe .90)
+      const GOAL_SHUT_COLOR=0x707a88, GOAL_SHUT_EMISSIVE=0x0b0e13;
+      // base = Ruhe-Grundfarbe, col = Ruhe-Emissive, int = Ruhe-Intensitaet. Alle drei werden
+      // gebraucht, damit der Torimpuls UND der Totzustand exakt auf den Ruhewert zurueckfallen.
+      const addGoalFx=(key,mat,gain)=>{
+        goalFxParts.push({key,mat,gain,col:mat.emissive.clone(),int:mat.emissiveIntensity,
+                          base:mat.color.clone(),lv:0,dead:0});
       };
       // Torlinie: gerades Band quer ueber die lichte Oeffnung. Innenkante = Kante der
       // Spielflaeche; die Linie waechst nach AUSSEN und ragt nie ins Spielfeld. Halbbreite
       // exakt die LICHTE Toroeffnung — footballGoalClearHalf() ist dieselbe Weite, die die
       // Physik nutzt, also keine neue Torbreiten-Konstante.
-      const AV=fbArena();
-      const rectLineX=AV.halfLen*BR*FB_U-FB_PLAY_INSET;
-      const rectLineHalf=AV.postInner*BR*FB_U;
-      // Die Mesh-Drehung (rotation.x = -PI/2) bildet lokales (x,y) auf Welt (x,-z) ab:
-      // lokale Breite laeuft also in Torrichtung, lokale Hoehe quer ueber die Oeffnung.
-      const rectLineGeo=(sign)=>{
-        const g2=new THREE.PlaneGeometry(GOAL_LINE_W,rectLineHalf*2);
-        g2.translate(sign*(rectLineX+GOAL_LINE_W/2),0,0);
-        return g2;
-      };
-      const mkGoal=(sign)=>{                                 // sign +1 -> +X, sign -1 -> -X (exakt 180 Grad gegenueber)
-        const g=(sign>0)?goalProto:goalProto.clone(true);    // zweite Instanz: Clone desselben Assets (geteilte Ressourcen)
+      // Selbst erzeugte Geometrien/Materialien dieses Toraufbaus. Nur DIESE werden beim
+      // Neuaufbau entsorgt — die geteilten Ressourcen des GLB-Prototyps bleiben unangetastet,
+      // sonst wuerde der zweite Aufbau auf entsorgte Geometrie zugreifen.
+      const goalOwned=[];
+      const mkGoal=(def)=>{
+        const d=def.dir,AV=fbArena();
+        const rectLineX=AV.halfLen*BR*FB_U-FB_PLAY_INSET;
+        const rectLineHalf=AV.postInner*BR*FB_U;
+        const g=goalProto.clone(true);                       // jede Instanz ein Clone desselben Assets (geteilte Ressourcen)
         g.scale.setScalar(goalScale);
-        g.position.set(sign*AV.goalAnchor*BR*FB_U,GOAL_WALK_Y,0);   // Sockelvorderkante exakt auf der Bandeninnenflaeche (postFront == halfLen)
-        g.rotation.set(0,-sign*Math.PI/2,0);                 // Oeffnung zeigt zur Arenamitte; Rotationsdifferenz = PI
+        g.position.set(d[0]*AV.goalAnchor*BR*FB_U,GOAL_WALK_Y,d[1]*AV.goalAnchor*BR*FB_U);   // Sockelvorderkante exakt auf der Bandeninnenflaeche (postFront == halfLen)
+        g.rotation.set(0,GOAL_ROT(d),0);                     // Oeffnung zeigt zur Arenamitte
         // Farbakzente am Tor. Die Bauteile stecken bereits im Asset und tragen alle dasselbe
         // Gold-Material — unterschieden wird deshalb ueber den OBJEKTNAMEN, nicht ueber den
         // Materialnamen. Marmor, Glas, Torform und das uebrige Gold bleiben unberuehrt.
@@ -5542,7 +6036,7 @@ async function initR3D(){
         //   AF_Goal_GoldInner/-Outer  -> vordere Gold-Doppel-Keyline, nur ein Farbschimmer
         // Die Keyline traegt die Zuordnung in die SENKRECHTE: aus flacher Spielkamera ist ein
         // Bodenband stark verkuerzt, der aufrechte Rahmen dagegen nicht.
-        const col=PCOLS[goalTeam(sign)].m3;
+        const col=PCOLS[def.col].m3;
         const tinted=new Map();
         g.traverse(o=>{
           if(!o.isMesh)return;
@@ -5550,7 +6044,8 @@ async function initR3D(){
           if(on.includes('Emblem')){
             o.material=new THREE.MeshStandardMaterial({color:col,emissive:col,
               emissiveIntensity:GOAL_EMBLEM_EMISSIVE,metalness:.35,roughness:.28,envMapIntensity:1.0});
-            addGoalFx(sign,o.material,GOAL_FX_GAIN_EMBLEM);
+            goalOwned.push(o.material);
+            addGoalFx(def.key,o.material,GOAL_FX_GAIN_EMBLEM);
             return;
           }
           if(!/Gold(Inner|Outer)/.test(on)||on.includes('Back'))return;   // nur die VORDERE Keyline
@@ -5558,12 +6053,16 @@ async function initR3D(){
           let cp=tinted.get(src);
           if(!cp){                                    // kopieren: das Gold-Material teilen sich alle Torteile
             cp=src.clone();cp.emissive=new THREE.Color(col);cp.emissiveIntensity=GOAL_FRAME_EMISSIVE;
-            tinted.set(src,cp);
-            addGoalFx(sign,cp,GOAL_FX_GAIN_FRAME);    // je Tor genau eine Keyline-Materialkopie
+            tinted.set(src,cp);goalOwned.push(cp);
+            addGoalFx(def.key,cp,GOAL_FX_GAIN_FRAME);    // je Tor genau eine Keyline-Materialkopie
           }
           o.material=cp;
         });
         goalGroup.add(g);
+        // Traegergruppe fuer alle Bodenteile dieses Tores. Sie werden IMMER kanonisch entlang
+        // +X gebaut (identisch zum bisherigen Aufbau) und erst durch diese Gruppe auf die
+        // tatsaechliche Torrichtung gedreht. Fuer das +X-Tor ist die Drehung exakt 0.
+        const turn=new THREE.Group();turn.rotation.y=GOAL_TURN(d);goalGroup.add(turn);
         // Torlinie: breites, farbiges Band buendig im Randweg, exakt so breit wie die lichte
         // Oeffnung. Bewusst OPAK (kein transparent/depthWrite:false): so kann es weder durch
         // den Marmorsockel scheinen noch in der Transparenzsortierung flackern; der
@@ -5571,30 +6070,60 @@ async function initR3D(){
         const lineMat=new THREE.MeshStandardMaterial({color:col,emissive:col,
           emissiveIntensity:GOAL_LINE_EMISSIVE,roughness:.30,metalness:.05,
           polygonOffset:true,polygonOffsetFactor:-2,polygonOffsetUnits:-2});
-        addGoalFx(sign,lineMat,GOAL_FX_GAIN_LINE);   // Oeffnungs-/Walkway-Akzent: dieselbe Torlinie, kurz hochgezogen
-        const line=new THREE.Mesh(rectLineGeo(sign),lineMat);
+        goalOwned.push(lineMat);
+        addGoalFx(def.key,lineMat,GOAL_FX_GAIN_LINE);   // Oeffnungs-/Walkway-Akzent: dieselbe Torlinie, kurz hochgezogen
+        // Die Mesh-Drehung (rotation.x = -PI/2) bildet lokales (x,y) auf Welt (x,-z) ab:
+        // lokale Breite laeuft also in Torrichtung, lokale Hoehe quer ueber die Oeffnung.
+        const lineGeo=new THREE.PlaneGeometry(GOAL_LINE_W,rectLineHalf*2);
+        lineGeo.translate(rectLineX+GOAL_LINE_W/2,0,0);goalOwned.push(lineGeo);
+        const line=new THREE.Mesh(lineGeo,lineMat);
         line.rotation.x=-Math.PI/2;line.position.y=GOAL_WALK_Y+GOAL_LINE_LIFT;line.renderOrder=2;
-        goalGroup.add(line);
-        return g;
-      };
-      mkGoal(1);mkGoal(-1);
-      // Hinterer Torbereich: dezente Teamfarbe auf dem Aussensockel hinter der Oeffnung —
-      // dieselbe Teamfarbe wie Torlinie und Wappen, als halbtransparente TOENUNG (der Marmor
-      // bleibt sichtbar). Bewusst NICHT am Tor-Feedback beteiligt.
-      const backX0=AV.halfLen*BR*FB_U,backX1=(AV.postBack*BR+FOOTBALL_BALL_RADIUS)*FB_U-.20;   // bis zur Deck-Aussenkante (Torlinie + Ballradius)
-      const backHalf=AV.postOuter*BR*FB_U;
-      for(const sign of [1,-1]){
-        const bcol=PCOLS[goalTeam(sign)].m3;
-        const bmat=new THREE.MeshStandardMaterial({color:bcol,emissive:bcol,emissiveIntensity:.18,
+        turn.add(line);
+        // Hinterer Torbereich: dezente Teamfarbe auf dem Aussensockel hinter der Oeffnung —
+        // dieselbe Torfarbe wie Torlinie und Wappen, als halbtransparente TOENUNG (der Marmor
+        // bleibt sichtbar). Bewusst NICHT am Tor-Feedback beteiligt.
+        const backX0=AV.halfLen*BR*FB_U,backX1=(AV.postBack*BR+FOOTBALL_BALL_RADIUS)*FB_U-.20;   // bis zur Deck-Aussenkante (Torlinie + Ballradius)
+        const backHalf=AV.postOuter*BR*FB_U;
+        const bmat=new THREE.MeshStandardMaterial({color:col,emissive:col,emissiveIntensity:.18,
           roughness:.45,metalness:.05,transparent:true,opacity:.26,depthWrite:false,
           polygonOffset:true,polygonOffsetFactor:-2,polygonOffsetUnits:-2});
         const bg=new THREE.PlaneGeometry(backX1-backX0,backHalf*2);
-        bg.translate(sign*(backX0+(backX1-backX0)/2),0,0);
+        bg.translate(backX0+(backX1-backX0)/2,0,0);
+        goalOwned.push(bmat,bg);
         const bm=new THREE.Mesh(bg,bmat);
         bm.rotation.x=-Math.PI/2;bm.position.y=GOAL_WALK_Y+.006;bm.renderOrder=1;
-        goalGroup.add(bm);
-      }
-    }catch(_){goalGroup=null;}   // Tor ist additiv: fehlt/streikt das GLB, bleibt die Arena voellig unveraendert
+        turn.add(bm);
+        goalDeadParts.push({key:def.key,mat:bmat,base:bmat.color.clone(),col:bmat.emissive.clone(),
+                            int:bmat.emissiveIntensity,dead:0});
+        // ── Elimination4: Verschluss der Toroeffnung ────────────────────────────────────
+        // Aufrechtes Panel exakt auf der Bandeninnenflaeche, genau so breit wie die LICHTE
+        // Oeffnung und so hoch wie die Glasbande daneben — die Oeffnung wirkt damit
+        // geschlossen, so wie sie es physikalisch bereits ist. Standardmaessig unsichtbar;
+        // applyGoalFx blendet es ein, sobald das Tor tot ist. In Classic/Tactical wird es
+        // nie sichtbar (goalDead liefert dort immer false).
+        const shutX=AV.halfLen*BR*FB_U, shutH=GOAL_SHUT_TOP-GOAL_WALK_Y;
+        const shutGeo=new THREE.PlaneGeometry(rectLineHalf*2,shutH);
+        shutGeo.rotateY(Math.PI/2);                          // Breite laeuft quer ueber die Oeffnung
+        shutGeo.translate(shutX,GOAL_WALK_Y+shutH/2,0);
+        const shutMat=new THREE.MeshStandardMaterial({color:GOAL_SHUT_COLOR,roughness:.58,metalness:.06,
+          emissive:GOAL_SHUT_EMISSIVE,emissiveIntensity:.20,side:THREE.DoubleSide});
+        goalOwned.push(shutGeo,shutMat);
+        const shut=new THREE.Mesh(shutGeo,shutMat);
+        shut.castShadow=shut.receiveShadow=true;shut.visible=false;
+        turn.add(shut);
+        goalShutPanels.push({key:def.key,mesh:shut});
+        return g;
+      };
+      // Tore (neu) aufbauen. Die Arenavariante steht beim Erzeugen der 3D-Szene noch NICHT
+      // fest — die Szene entsteht bereits im Menue. Deshalb ist der Toraufbau eine Funktion,
+      // die beim ersten Football-Frame und bei jedem Variantenwechsel erneut laeuft.
+      fbBuildGoals=()=>{
+        for(const r of goalOwned)if(r&&r.dispose)r.dispose();
+        goalOwned.length=0;goalFxParts.length=0;goalDeadParts.length=0;goalShutPanels.length=0;
+        for(let i=goalGroup.children.length-1;i>=0;i--)goalGroup.remove(goalGroup.children[i]);
+        for(const def of goalDefs())mkGoal(def);
+      };
+    }catch(_){goalGroup=null;fbBuildGoals=null;}   // Tor ist additiv: fehlt/streikt das GLB, bleibt die Arena voellig unveraendert
     // ==== Arena-Football: Banden-GLB als MATERIALQUELLE ====
     // Das freigegebene Banden-GLB liefert die veredelten Glas-/Gold-/Marmor-Materialinstanzen
     // (fbMat) fuer den prozeduralen Rounded-Rectangle-Aufbau. Seine KREISFOERMIGE Geometrie
@@ -5668,6 +6197,48 @@ async function initR3D(){
       return p;
     };
     const fbTurn=(path)=>path.map(q=>({x:-q.x,z:-q.z,nx:-q.nx,nz:-q.nz}));   // 180-Grad-Drehung: zweites Segment, gleicher Umlaufsinn
+    // Elimination4: EIN Viertelsegment der Bande — von der Oeffnung einer Torseite ueber die
+    // dazwischenliegende Ecke bis zur Oeffnung der naechsten Seite. Vier davon, jeweils um
+    // 90 Grad weitergedreht, ergeben die vollstaendige Bande der quadratischen Arena und
+    // lassen exakt die vier Toroeffnungen frei. Gleiche Konvention wie fbBandPath.
+    const fbBandQuarter=(h,rc,gap,seg)=>{
+      const a=h-rc,p=[{x:h,z:gap,nx:1,nz:0},{x:h,z:a,nx:1,nz:0}];
+      for(let i=1;i<=seg;i++){const t=(Math.PI/2)*i/seg,nx=Math.cos(t),nz=Math.sin(t);p.push({x:a+nx*rc,z:a+nz*rc,nx,nz});}
+      p.push({x:gap,z:h,nx:0,nz:1});
+      return p;
+    };
+    // 90-Grad-Drehung eines Pfads: (x,z) -> (-z,x). Dieselbe Drehung wie in
+    // FOOTBALL_ELIM4_DIRS, damit Bande, Tore und Spawns exakt dieselbe Symmetrie teilen.
+    const fbRot90=(path)=>path.map(q=>({x:-q.z,z:q.x,nx:-q.nz,nz:q.nx}));
+    // ── Drei-Spieler-Phase: abgerundetes gleichseitiges Dreieck ──────────────────────
+    // Umriss mit Aussennormalen, exakt dieselbe Konstruktion wie footballTriSD: drei gerade
+    // Seiten im Abstand `ap` vom Zentrum, drei Kreisboegen mit Radius rc um die Ecken des
+    // geschrumpften Dreiecks. Sichtbare Bande und Physikgrenze teilen sich damit dieselben
+    // Zahlen — es gibt keine zweite Formbeschreibung.
+    const fbTriOutline=(ap,rc,seg)=>{
+      const p=[],R=2*(ap-rc);
+      for(let k=0;k<3;k++){
+        const v=FB_TRI_VERT[k],ox=v[0]*R,oz=v[1]*R;
+        const a0=-Math.PI/2+k*2*Math.PI/3,a1=a0+2*Math.PI/3;
+        for(let i=0;i<=seg;i++){const a=a0+(a1-a0)*i/seg,nx=Math.cos(a),nz=Math.sin(a);p.push({x:ox+nx*rc,z:oz+nz*rc,nx,nz});}
+      }
+      p.push({x:p[0].x,z:p[0].z,nx:p[0].nx,nz:p[0].nz});   // Ring schliessen
+      return p;
+    };
+    // Ein Bandensegment der Dreiecksarena: von der Toroeffnung auf Seite k ueber die Ecke k
+    // bis zur Oeffnung auf Seite k+1. Drei davon lassen exakt die drei Toroeffnungen frei.
+    const fbTriBand=(ap,rc,gap,seg,k)=>{
+      const n0=FOOTBALL_ELIM3_DIRS[k],n1=FOOTBALL_ELIM3_DIRS[(k+1)%3];
+      const t0=[-n0[1],n0[0]],t1=[-n1[1],n1[0]];
+      const L=(ap-rc)*FB_TRI_TAN60;                       // halbe Laenge des geraden Seitenteils
+      const p=[{x:n0[0]*ap+t0[0]*gap,z:n0[1]*ap+t0[1]*gap,nx:n0[0],nz:n0[1]},
+               {x:n0[0]*ap+t0[0]*L,  z:n0[1]*ap+t0[1]*L,  nx:n0[0],nz:n0[1]}];
+      const v=FB_TRI_VERT[k],R=2*(ap-rc),ox=v[0]*R,oz=v[1]*R;
+      const a0=-Math.PI/2+k*2*Math.PI/3,a1=a0+2*Math.PI/3;
+      for(let i=1;i<=seg;i++){const a=a0+(a1-a0)*i/seg,nx=Math.cos(a),nz=Math.sin(a);p.push({x:ox+nx*rc,z:oz+nz*rc,nx,nz});}
+      p.push({x:n1[0]*ap-t1[0]*gap,z:n1[1]*ap-t1[1]*gap,nx:n1[0],nz:n1[1]});
+      return p;
+    };
     // Sweep eines geschlossenen Profils entlang eines Pfads. prof = [[radial,vertikal],...] gegen
     // den Uhrzeigersinn; radial > 0 zeigt nach aussen. Ergibt ein geschlossenes Band mit korrekt
     // nach aussen zeigenden Normalen (wichtig fuer das Glas, das FrontSide gerendert wird).
@@ -5717,6 +6288,19 @@ async function initR3D(){
       g.rotateX(-Math.PI/2);g.translate(0,y,0);
       const m=new THREE.Mesh(g,mat);m.receiveShadow=true;return m;
     };
+    // Gefuellte Dreiecksflaeche (Spielflaeche, Bodenabschluss) — Gegenstueck zu fbFill.
+    // Die Mesh-Drehung rotateX(-PI/2) bildet Shape-y auf Welt -z ab, deshalb werden die
+    // z-Werte gespiegelt und die Boegen entsprechend im Uhrzeigersinn gefuehrt.
+    const fbTriFill=(ap,rc,y,mat)=>{
+      const s=new THREE.Shape(),R=2*(ap-rc);
+      for(let k=0;k<3;k++){
+        const v=FB_TRI_VERT[k],a0=-Math.PI/2+k*2*Math.PI/3;
+        s.absarc(v[0]*R,-v[1]*R,rc,-a0,-(a0+2*Math.PI/3),true);
+      }
+      const g=new THREE.ShapeGeometry(s,24);
+      g.rotateX(-Math.PI/2);g.translate(0,y,0);
+      const m=new THREE.Mesh(g,mat);m.receiveShadow=true;return m;
+    };
     const fbOct=(r)=>{const a=[];for(let i=0;i<8;i++){const t=Math.PI*2*i/8;a.push([Math.cos(t)*r,Math.sin(t)*r]);}return a;};
     const fbDispose=(root)=>{root.traverse(o=>{if(o.isMesh&&o.geometry)o.geometry.dispose();});};
     // Baut die komplette sichtbare Arena fuer die aktive Rechteckvariante neu auf.
@@ -5725,6 +6309,12 @@ async function initR3D(){
       if(fbShapeGroup){bGroup.remove(fbShapeGroup);fbDispose(fbShapeGroup);fbShapeGroup=null;}
       if(!fbMat.glass)return;                             // Materialquelle (Band-GLB) noch nicht geladen
       const hx=av.halfLen*BR*FB_U,hz=av.halfWid*BR*FB_U,rc=av.corner*BR*FB_U;
+      // Drei-Spieler-Phase: dieselbe Bauabfolge, nur mit der Dreiecksform. Umriss, Fuellung
+      // und Bandensegmente kommen dann aus fbTriOutline/fbTriFill/fbTriBand; alle uebrigen
+      // Bauteile (Stufen, Randweg, Sockel, Bande, Pfosten) arbeiten pfadgenerisch weiter.
+      const tri=!!av.tri,ap=tri?av.apothem*BR*FB_U:0;
+      const fill=(inset,y,mat)=>tri?fbTriFill(ap-inset,Math.max(.1,rc-inset),y,mat)
+                                   :fbFill(hx-inset,hz-inset,Math.max(.1,rc-inset),y,mat);
       // Die Bande endet exakt an der AUSSENkante des Torsockels: das Tor fuellt die Oeffnung
       // vollstaendig aus, es bleibt kein offener Streifen Randweg zwischen Bandenende und Tor
       // (genau der Eindruck des "davor gestellten" Tors aus Iteration 1).
@@ -5732,7 +6322,7 @@ async function initR3D(){
       const G=new THREE.Group();fbShapeGroup=G;bGroup.add(G);
       const marble=fbPlatMat['M_Marble']||fbMat.marble,wall=fbPlatMat['M_MarbleWall']||fbMat.marble;
       const stone=fbPlatMat['M_Stone']||wall,gold=fbMat.gold||goldM;
-      const ring=fbOutline(hx,hz,rc,20);
+      const ring=tri?fbTriOutline(ap,rc,20):fbOutline(hx,hz,rc,20);
       // Materialkopie fuer prozedurale Geometrie: Kachelung passend zu den UV in echter
       // Bogenlaenge, beidseitig gerendert (opake Bauteile, Umlaufrichtung unkritisch).
       const fbTex=(src,rep)=>{const m=src.clone();
@@ -5741,20 +6331,21 @@ async function initR3D(){
       // 1) Spielflaeche + Stufe zum Randweg. Die Marmorierung liegt bewusst als EINE grosse
       //    Kachel ueber der Flaeche (wie auf der runden Platte) — sonst waeren Kachelkanten
       //    auf dem ruhigen Boden sichtbar.
-      G.add(fbFill(hx-FB_PLAY_INSET,hz-FB_PLAY_INSET,rc-FB_PLAY_INSET,0,fbTex(marble,.040)));
+      G.add(fill(FB_PLAY_INSET,0,fbTex(marble,.040)));
       const stepMat=fbTex(wall,.11);
       G.add(fbStrip(ring,-FB_PLAY_INSET,-FB_PLAY_INSET,0,FB_WALK_Y,stepMat));          // Stufenriss
       G.add(fbSweep(ring,fbOct(.045),FB_WALK_Y-.014,gold));                            // Gold-Stufenkante
       // 2) Randweg bis zur sichtbaren Aussenkante
-      G.add(fbStrip(ring,-FB_PLAY_INSET,FB_DECK_OUT,FB_WALK_Y,FB_WALK_Y,fbTex(marble,.11)));
+      const DECK_OUT=fbDeckOut();
+      G.add(fbStrip(ring,-FB_PLAY_INSET,DECK_OUT,FB_WALK_Y,FB_WALK_Y,fbTex(marble,.11)));
       G.add(fbSweep(ring,fbOct(.022),FB_WALK_Y+.006,gold));                            // feiner Goldring an der Bandenlinie
-      G.add(fbSweep(ring,fbOct(.022).map(p=>[p[0]+FB_DECK_OUT-.20,p[1]]),FB_WALK_Y+.006,gold));   // zweiter Goldring an der Aussenkante — gliedert den breiteren Aussensockel
+      G.add(fbSweep(ring,fbOct(.022).map(p=>[p[0]+DECK_OUT-.20,p[1]]),FB_WALK_Y+.006,gold));   // zweiter Goldring an der Aussenkante — gliedert den breiteren Aussensockel
       // 3) Unterbau: Schuerze, Gesimsstufen und gestufte Verjuengung nach unten. Die runde
       //    Plattform kann das nicht liefern (feste Radien), also folgt der Sockel derselben
       //    Grundform. Rein visuell — nie Kollision, nie Spielfeld.
       const skirt=fbTex(wall,.11),stoneM=fbTex(stone,.11);
-      const tiers=[[FB_DECK_OUT,FB_WALK_Y,-1.20,skirt],[FB_DECK_OUT+.34,-1.20,-1.62,stoneM],
-                   [FB_DECK_OUT+.06,-1.62,-2.00,stoneM],[-.55,-2.00,-3.30,skirt],
+      const tiers=[[DECK_OUT,FB_WALK_Y,-1.20,skirt],[DECK_OUT+.34,-1.20,-1.62,stoneM],
+                   [DECK_OUT+.06,-1.62,-2.00,stoneM],[-.55,-2.00,-3.30,skirt],
                    [-1.15,-3.30,-4.40,stoneM],[-2.45,-4.40,-5.70,stoneM],[-4.15,-5.70,-7.10,stoneM]];
       for(let i=0;i<tiers.length;i++){
         const[o,y0,y1,mt]=tiers[i];
@@ -5762,12 +6353,15 @@ async function initR3D(){
         G.add(fbStrip(ring,o,o,y0,y1,mt,i===0));                      // senkrechte Wand
       }
       G.add(fbSweep(ring,fbOct(.030),-1.16,gold));                    // Goldkante am obersten Gesims
-      G.add(fbFill(hx-4.15,hz-4.15,Math.max(.1,rc-4.15),-7.10,stoneM));
+      G.add(fill(4.15,-7.10,stoneM));
       // 4) Bodenmarkierungen — bewusst ruhig: Mittellinie, reduzierter Mittelkreis, Mittelpunkt
       const markMat=gold.clone();markMat.side=THREE.DoubleSide;
       markMat.polygonOffset=true;markMat.polygonOffsetFactor=-2;markMat.polygonOffsetUnits=-2;
       const mkFlat=(geo)=>{geo.rotateX(-Math.PI/2);geo.translate(0,.006,0);const m=new THREE.Mesh(geo,markMat);m.renderOrder=2;return m;};
-      G.add(mkFlat(new THREE.PlaneGeometry(.10,(hz-FB_PLAY_INSET)*2)));
+      // Mittellinie nur bei ZWEI gegenueberliegenden Toren — also in Classic/Tactical und im
+      // Elimination-Finale. Bei vier oder drei Toren gibt es keine Haelften; eine Linie wuerde
+      // dort eine Achse bevorzugen und die Rotationssymmetrie optisch brechen.
+      if(av.sides===2||!fbElim4())G.add(mkFlat(new THREE.PlaneGeometry(.10,(hz-FB_PLAY_INSET)*2)));
       G.add(mkFlat(new THREE.RingGeometry(2.20,2.28,96)));
       G.add(mkFlat(new THREE.CircleGeometry(.24,32)));
       // 5) Transparente Bande: zwei Segmente zwischen den Toroeffnungen, Innenflaeche exakt auf
@@ -5775,7 +6369,22 @@ async function initR3D(){
       const rail=[[-.065,-.05],[.065,-.05],[.065,.05],[-.065,.05]];
       const glass=[[0,0],[.045,0],[.045,.90],[0,.90]];
       const bandMarble=fbMat.marble||wall;
-      for(const seg of [fbBandPath(hx,hz,rc,gap,20),fbTurn(fbBandPath(hx,hz,rc,gap,20))]){
+      // Classic/Tactical und das Elimination-Finale: zwei Haelften zwischen den beiden
+      // gegenueberliegenden Toroeffnungen. Vier-Spieler-Phase: vier Viertel, jeweils 90 Grad
+      // weitergedreht. Drei-Spieler-Phase: drei Drittel um die drei Ecken.
+      // Die Bande entsteht IMMER aus derselben Geometriequelle wie die Physikgrenze — es kann
+      // keine sichtbar offene Wand bei physikalisch geschlossener Wand geben.
+      let fbSegs;
+      if(tri){
+        fbSegs=[];
+        for(let k=0;k<3;k++)fbSegs.push(fbTriBand(ap,rc,gap,20,k));
+      }else if(fbElim4()&&av.sides===4){
+        fbSegs=[];let q=fbBandQuarter(hx,rc,gap,20);
+        for(let k=0;k<4;k++){fbSegs.push(q);q=fbRot90(q);}
+      }else{
+        fbSegs=[fbBandPath(hx,hz,rc,gap,20),fbTurn(fbBandPath(hx,hz,rc,gap,20))];
+      }
+      for(const seg of fbSegs){
         G.add(fbSweep(seg,glass,.30,fbMat.glass));
         G.add(fbSweep(seg,rail,1.26,bandMarble));
         G.add(fbSweep(seg,rail,.25,bandMarble));
@@ -5859,7 +6468,13 @@ async function initR3D(){
       // (Review-Befund). Auf breiten Screens bindet weiterhin die Vertikale -> Framing wie
       // freigegeben.
       const fbEdgeX=fbFrame?fbArena().postBack*BR+FOOTBALL_BALL_RADIUS:0;
-      const needX=fbFrame?fbEdgeX+(need-R0):need, needZ=fbFrame?fbHalfWid()+(need-R0):need;
+      // Elimination4: die Arenaform wechselt mit der Spielerzahl, deshalb bindet dort ein
+      // gemeinsamer SICHTRADIUS auf beiden Achsen — das Maximum aus Deck-Aussenkante und dem
+      // aeussersten Punkt der Grenze (Ecke des Rechtecks bzw. Spitze des Dreiecks). Damit ist
+      // in jeder Phase die komplette Arena im Bild. Classic/Tactical bleiben unveraendert.
+      const elimView=fbFrame&&fbElim4()?fbElimViewR():0;
+      const needX=fbFrame?(elimView||fbEdgeX)+(need-R0):need;
+      const needZ=fbFrame?(elimView||fbHalfWid())+(need-R0):need;
       const baseDist=Math.max(needX/(tanV*aspect),needZ/tanV)*1.10;
       curVA=viewAngle();
       if(menuVisible){
@@ -5897,8 +6512,15 @@ async function initR3D(){
       const sc=R/GLB_R;
       platform.scale.setScalar(sc);platform.position.y=bob;
       bGroup.scale.setScalar(sc);bGroup.position.y=bob;
-      const footballView=(mode==='football')&&!menuVisible;   // Football-Ansicht: prozedurale Arena + zwei Tore — nie Menue-Preview/normale Modi
-      if(footballView&&!fbShapeGroup)fbBuildShape();          // einmaliger Aufbau, sobald die Materialquelle geladen ist
+      const footballView=(mode==='football')&&!menuVisible;   // Football-Ansicht: prozedurale Arena + Tore — nie Menue-Preview/normale Modi
+      // Aufbau, sobald die Materialquelle geladen ist — und NEUaufbau, sobald die Arenavariante
+      // wechselt: Elimination4 hat eine andere Grundform und vier statt zwei Tore. Form und
+      // Tore fuehren je einen eigenen Stand, weil die Form auf das Banden-GLB warten kann.
+      // Der Schluessel traegt in Elimination4 die AKTIVE PHASE: beim Wechsel 4 -> 3 -> 2
+      // werden Form UND Tore vollstaendig neu gebaut, es bleibt kein Altsegment stehen.
+      const fbWant=footballView?(fbElim4()?'elim'+fbElimPhaseN:'std'):'';
+      if(fbWant&&(!fbShapeGroup||fbLayout!==fbWant)){fbBuildShape();if(fbShapeGroup)fbLayout=fbWant;}
+      if(fbWant&&fbBuildGoals&&fbGoalLayout!==fbWant){fbBuildGoals();fbGoalLayout=fbWant;}
       // Additiver Fallback (Review-Befund): die runde Plattform weicht NUR, wenn die
       // prozedurale Rechteckarena wirklich steht. Faellt das Band-GLB (Materialquelle)
       // aus, bleibt sonst gar kein Boden — Baelle und Tore schwebten vor dem Himmel.

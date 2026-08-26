@@ -1,6 +1,6 @@
 # PROJECT.md — RingOut
 
-**Zuletzt aktualisiert:** 2026-08-25 (Arena Football: zwei Produktmodi — Classic 1v1 als Standard und Tactical 1v1 als zweiter Modus; Modusauswahl im Menue, neue Produktsuite `test_football_tactical.js`)
+**Zuletzt aktualisiert:** 2026-08-26 (Arena Football: Elimination als stabiler lokaler Dev-Modus — 4 Spieler, One Goal = Out, adaptive Arena 4→3→2→1, fairer Respawn nach jeder Eliminierung; neue Suite `test_football_elimination4.js`)
 
 - **Aktueller stabiler Projekt-HEAD:** `5a23dc424fb3126c33c29543b7c6571b87a65ec7`
 - **Implementierungs-Commit UX-Phase 3:** `babbbe78ee388489321d1f0cb3e032bbaabd0725`
@@ -43,6 +43,7 @@ Stand: Arena-Finalisierung (2026-08-08), frisch gemessen mit
 | Football-Flow | `test_football_flow.js` | 148/0 | grün |
 | Football-Arena | `test_football_arena.js` | 61/0 | grün |
 | Football-Tactical | `test_football_tactical.js` | 219/0 | grün |
+| Football-Elim4 | `test_football_elimination4.js` | 843/0 | grün |
 | r3d-Mapping | `test_r3d_mapping.js` | 52/0 | grün |
 | Sanitize | `test_sanitize.js` | 24/0 | grün |
 | Identity | `test_identity.js` | 45/0 | grün |
@@ -159,6 +160,64 @@ Auftrag mit Protokollarbeit.
 wurde prototypisch gebaut und im Spieltest verworfen — unuebersichtlicher, deutlich defensiver,
 weniger Tore. Sie ist vollstaendig aus dem Produktivcode entfernt; lokale Prototyp-Artefakte
 liegen untracked unter `artifacts/football-tactical-dual-prototype/`.
+
+---
+
+### Arena-Football · Elimination (lokaler Dev-Modus, 4 Spieler)
+
+Dritte Football-Variante `fbVariant === 'elimination4'`. Sie ist **stabil und vollstaendig
+getestet**, aber bewusst **nicht** in der sichtbaren Modusauswahl: erreichbar ausschliesslich
+ueber `?dev=1&fb=elimination4`. Classic bleibt Standard, Tactical bleibt zweiter sichtbarer
+Produktmodus.
+
+**Regeln**
+- 4 Spieler, je **eine** Figur, dazu **ein** neutraler Ball (5 Bodies).
+- Verdecktes Commit fuer alle noch aktiven Spieler, danach **ein** gemeinsamer Reveal —
+  alle aktiven Figuren starten simultan (derselbe `applyLaunch()`-Pfad wie Classic/Tactical).
+- **One Goal = Out:** wer ein Gegentor kassiert, scheidet sofort aus. Kein Timer, keine
+  Gegentor-Punkte, kein Tiebreak.
+- Das Tor eines ausgeschiedenen Spielers wird physikalisch zur Bande und optisch als totes
+  Tor dargestellt.
+- Der letzte verbliebene Spieler gewinnt; nach dem entscheidenden Tor faellt kein neuer Ball.
+
+**Adaptive Arena 4 → 3 → 2 → 1.** Die Arenaform folgt der Spielerzahl. Einzige Quelle sind
+`FOOTBALL_ARENA_ELIM4/3/2`, ausgewaehlt ueber `fbArena()`; Physik, Renderer, Spawns und Kamera
+lesen dieselben Werte.
+
+| Phase | Form | Ausdehnung | Eckradius | Tore | Spawnabstand |
+|---|---|---:|---:|---|---:|
+| 4 Spieler | Rounded Square | `halfLen/halfWid 17.50` | `3.50` | 4 × 90° | `11.50` |
+| 3 Spieler | abgerundetes Dreieck | Apothem `11.50` | `3.50` | 3 × 120° | `7.50` |
+| 2 Spieler | Rounded Rectangle | `14.00 × 10.50` | `4.00` | 2 gegenueber | `9.00` |
+
+Eine Torgeometrie bedient alle drei Phasen: `footballFold()` dreht einen Punkt in das
+kanonische +X-Bezugssystem des naechstliegenden Tores. Ausserhalb von Elimination ist die
+Faltung die Identitaet, der Classic-/Tactical-Pfad rechnet bitgenau wie zuvor.
+
+Die Eckrundung ist gegenueber der ersten Prototypfassung deutlich reduziert (`9.00` → `3.50` BR).
+Damit sinkt der gekruemmte Konturanteil von 45.4 % auf 16.4 % — der Ball laeuft messbar weniger
+dauerhaft aussen herum. Es gibt **keine** kuenstliche Zentrumskraft und keine Physik-Retunes.
+
+**Faire Startaufstellung nach jeder Eliminierung.** Ueberlebende behalten ihre Positionen
+**nicht**. Ablauf: Tor faellt → Spieler scheidet aus → Arena wechselt auf die neue Geometrie →
+alle Ueberlebenden stehen auf den symmetrischen Spawns der neuen Phase → alle Velocities 0 →
+Ball faellt zentral von oben ein → neuer Hidden-Commit-Zyklus. Arenawechsel und Aufstellung
+passieren im selben Anweisungsblock (`fbElimApplyPhase`), der Renderer sieht nie eine neue
+Arena mit alten Positionen.
+
+Es gibt **eine** geometrische Spawnregel (`fbElimSpawnX/Y(slot)`): die Figur auf Torslot `s`
+steht auf der Achse ihres eigenen Tores im Abstand `spawn * BR` vom Zentrum. `placeBalls()`
+benutzt fuer die Startaufstellung dieselben Helfer — Matchstart und Respawn koennen nicht
+auseinanderlaufen. Daraus folgen ohne Sonderfaelle gleiche Zentrumsdistanz, gleiche Distanz
+zum eigenen Tor und garantierter Abstand zu Ball, Bande, Torkorridor und den anderen Figuren.
+
+**Torzuordnung:** die aktiven Spieler-IDs werden aufsteigend sortiert und in dieser Reihenfolge
+auf die Slots `0..n-1` gelegt (`fbElimSlots`) — deterministisch, keine Permutation, kein Zufall.
+
+**Status:** lokal / Hotseat. **Online ist nicht implementiert** und waere ein eigener Auftrag
+(mehr Bodies im Snapshot, Owner-/Slot-Annahmen, Reconnect, Protokollarbeit).
+
+Regressionssuite: `tools/test_football_elimination4.js` (im Runner als `Football-Elim4`).
 
 ---
 

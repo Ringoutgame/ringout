@@ -267,7 +267,10 @@ console.log('ARENA FOOTBALL — Produktsuite: Classic 1v1 (Standard) + Tactical 
      'fbVariant kennt nur noch classic und tactical');
 
   // ── Der EINZIGE Startpfad clamped jeden fremden Wert auf den Standardmodus ──
-  ok(/fbVariant=variant===FOOTBALL_VARIANT_TACTICAL\?FOOTBALL_VARIANT_TACTICAL:'classic'/.test(startFootballSrc),
+  // Zulaessig sind genau die beiden Produktmodi plus der Dev-Prototyp Elimination4; jeder
+  // andere Wert faellt auf den Standardmodus zurueck. Die sichtbare Modusauswahl bietet
+  // weiterhin ausschliesslich Classic und Tactical an (s. CTA-Assertion unten).
+  ok(/fbVariant=\(variant===FOOTBALL_VARIANT_TACTICAL\|\|variant===FOOTBALL_VARIANT_ELIM4\)\?variant:'classic'/.test(startFootballSrc),
      'startFootball() clamped jede unbekannte Variante auf Classic');
   ok(/online=false/.test(startFootballSrc), 'startFootball() startet immer lokal (online=false)');
   ok(/fmt='single'/.test(startFootballSrc), 'startFootball() setzt das Bestandsformat single');

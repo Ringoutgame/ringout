@@ -1,6 +1,6 @@
 # TODO.md — RingOut
 
-**Zuletzt aktualisiert:** 2026-08-25 (Arena Football: zwei Produktmodi — Classic 1v1 als Standard, Tactical 1v1 ergaenzt; Prototypvariante Tactical Dual verworfen; neue Produktsuite test_football_tactical.js)
+**Zuletzt aktualisiert:** 2026-08-26 (Arena Football: Elimination als stabiler lokaler Dev-Modus abgeschlossen — One Goal = Out, adaptive Arena 4→3→2→1, fairer Respawn; neue Suite test_football_elimination4.js)
 
 Offene Aufgaben nach Priorität. Abgeschlossene Aufgaben werden nach `CHANGELOG.md` verschoben.
 
@@ -47,6 +47,12 @@ Offene Aufgaben nach Priorität. Abgeschlossene Aufgaben werden nach `CHANGELOG.
 ---
 
 ## P2 — Mittel (Spieler-Erfahrung)
+
+- [ ] **Arena Football Elimination online (offen, 2026-08-26):** Elimination ist ausschliesslich lokal/Hotseat spielbar und nur ueber `?dev=1&fb=elimination4` erreichbar. Der Lockstep-Pfad kennt weder vier Spieler mit Slot-Zuordnung noch den Arenawechsel 4→3→2 (Snapshot, Commit-Payload, Owner-/Slot-Annahmen, Reconnect, State-Hash). Eigener Auftrag mit Protokollarbeit; bis dahin darf die UI Elimination in keinem Online-Kontext anbieten.
+
+- [ ] **Arena Football Elimination: Uebergangsanimation des Arenawechsels (offen, 2026-08-26):** Der Wechsel 4→3→2 ist heute ein harter Rebuild am Ende des Torablaufs. Ein sichtbares Morphen der Bande (oder ein kurzer Kamera-/Blendenmoment) wuerde den Phasenwechsel lesbarer machen. Rein visuell — Geometrie, Physik und Spawnregel bleiben unveraendert.
+
+- [ ] **Arena Football Elimination: Produktintegration entscheiden (offen, 2026-08-26):** Der Modus ist stabil und getestet, steht aber bewusst nicht in der sichtbaren Modusauswahl. Offen ist die Produktfrage, ob und wann Elimination neben Classic und Tactical angeboten wird.
 
 - [ ] **Arena Football Tactical online (offen, 2026-08-25):** Tactical 1v1 ist ausschliesslich lokal/Hotseat spielbar. Der Lockstep-Pfad ist unveraendert auf Classic-Bodyzahlen ausgelegt (Snapshot, Commit-Payload, Owner-/Index-Annahmen, Reconnect, State-Hash); `mode='football'` wird nie mit `online=true` gesetzt und Online-Raeume tragen kein `mode`-Feld. Eine Online-Unterstuetzung waere ein eigener Auftrag mit Protokollarbeit — bis dahin darf die UI Tactical in keinem Online-Kontext anbieten.
 

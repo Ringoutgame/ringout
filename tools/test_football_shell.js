@@ -80,9 +80,14 @@ const goalClearHalfSrc = grab(/function footballGoalClearHalf\([^\n]*/, 'footbal
 const goalCenterHalfSrc = grab(/function footballGoalCenterHalf\([^\n]*/, 'footballGoalCenterHalf');
 const goalCanPassSrc = grab(/function footballCanPassGoal\(b\)\{[\s\S]*?\n\}/, 'footballCanPassGoal');
 const resolvePostSrc = grab(/function footballResolvePost\(b\)\{[\s\S]*?\n\}/, 'footballResolvePost');
-const goalSideSrc = grab(/function footballGoalSide\(b\)\{[\s\S]*?\n\}/, 'footballGoalSide');
+// Goal Detection: seit der Vier-Tore-Faltung liegt die Linienpruefung in
+// footballGoalCrossed (liefert die getroffene TORSEITE), footballGoalSide ist nur noch die
+// Classic-Abbildung "Punkt fuer die Gegenseite". Geprueft wird deshalb beides als eine Einheit.
+const goalSideSrc = grab(/function footballGoalCrossed\(b\)\{[\s\S]*?\nfunction footballGoalSide\(b\)\{[\s\S]*?\n\}/, 'footballGoalSide');
 const freezeSrc = grab(/function footballFreezePlayers\(\)\{[\s\S]*?\n\}/, 'footballFreezePlayers');
-const goalFxSrc = grab(/const FB_GOAL_FX_MS=[\s\S]*?\nfunction footballGoalFxLevel\(sign,nowMs\)\{[\s\S]*?\n\}/, 'Football-Goal-FX-Block');
+// Der Parameter heisst seit der Vier-Tore-Faltung `key` statt `sign`: Classic/Tactical
+// uebergeben weiterhin +-1, Elimination4 den Ownerindex des getroffenen Tores.
+const goalFxSrc = grab(/const FB_GOAL_FX_MS=[\s\S]*?\nfunction footballGoalFxLevel\(key,nowMs\)\{[\s\S]*?\n\}/, 'Football-Goal-FX-Block');
 const tryGoalSrc = grab(/function footballTryGoal\(b\)\{[\s\S]*?\n\}/, 'footballTryGoal');
 const resetRoundSrc = grab(/function footballResetRound\(\)\{[\s\S]*?\n\}/, 'footballResetRound');
 const tickGoalSrc = grab(/function footballTickGoal\(\)\{[\s\S]*?\n\}/, 'footballTickGoal');
@@ -858,7 +863,9 @@ ok(/function footballGoalBusy\(\)\{return mode==='football'&&fbGoalState!=='play
 
 // ── F4. GEWINNERANZEIGE (bestehende Result-Struktur, football-scoped) ──
 ok((HTML.match(/function gameOver\(/g) || []).length === 1, 'Genau eine Result-/Gewinnerfunktion — keine neue Praesentationsschicht');
-ok((HTML.match(/footballMatchEnd\(/g) || []).length === 2, 'footballMatchEnd: eine Definition, genau ein Aufruf');
+// Eine Definition und zwei Aufrufer: der Torablauf (Classic/Tactical, First-to-3) und die
+// Elimination4-Entscheidung, wenn der vorletzte Spieler ausserhalb eines Torablaufs ausscheidet.
+ok((HTML.match(/footballMatchEnd\(/g) || []).length === 3, 'footballMatchEnd: eine Definition, genau zwei Aufrufer');
 ok(/gameOver\(footballWinner\);/.test(matchEndSrc), 'Matchende uebergibt den KANONISCHEN Gewinner (kein DOM-Text, keine Farbe)');
 ok(!/textContent|innerHTML|getElementById|\$\(/.test(matchEndSrc), 'Matchende selbst schreibt kein DOM — das macht die bestehende Result-Struktur');
 ok(/colName\(winner\)\+' '\+T\('wins'\)/.test(HTML), 'Gewinnertext kommt aus der bestehenden i18n-Zeile');
@@ -1047,14 +1054,22 @@ ok(loadCount === 1, "Tor-GLB wird genau EINMAL geladen (erhalten: " + loadCount 
 ok(!/arena_football_goal_curved/.test(HTML), 'Das gekruemmte Kreis-Tor (arena_football_goal_curved.glb) wird nicht mehr geladen');
 // Zweite Instanz ist ein Clone desselben geladenen Assets (geteilte Geometrie/Materialien).
 ok(/goalProto\.clone\(true\)/.test(HTML), 'Zweite Torinstanz nutzt einen Clone desselben Assets (kein zweiter Load)');
-// Genau zwei Instanzen: mkGoal(1) UND mkGoal(-1).
-ok(/mkGoal\(1\);mkGoal\(-1\);/.test(HTML), 'Genau zwei Torinstanzen im Football-Modus (+X und -X)');
+// Genau zwei Instanzen in den Produktmodi: goalDefs() liefert dort exakt +X (Rot) und -X (Blau).
+// Der vierte Eintrag entsteht nur in der Dev-Variante Elimination4.
+ok(/:\s*\[\{dir:\[1,0\],col:1,key:1\},\{dir:\[-1,0\],col:0,key:-1\}\]/.test(HTML),
+   'Genau zwei Torinstanzen im Football-Modus (+X und -X)');
 // Position: Tor-Mitte auf goalAnchor = halfLen + FB_GOAL_HALF_DEPTH -> Sockelvorderkante
 // exakt auf der Bandeninnenflaeche. Dieselbe FOOTBALL_ARENA-Quelle wie die Physik.
-ok(/const AV=fbArena\(\);/.test(HTML), 'Renderer-Torgeometrie kommt aus fbArena() (eine Quelle mit der Physik)');
-ok(/g\.position\.set\(sign\*AV\.goalAnchor\*BR\*FB_U,GOAL_WALK_Y,0\)/.test(HTML), 'Torposition sign*goalAnchor*BR*FB_U (Sockelvorderkante == Bandeninnenflaeche)');
-// Rotationsdifferenz exakt PI: rotation.y = -sign*PI/2 -> (+PI/2) vs (-PI/2), Differenz = PI.
-ok(/g\.rotation\.set\(0,-sign\*Math\.PI\/2,0\)/.test(HTML), 'Rotationsdifferenz beider Tore exakt PI (Oeffnung zur Arenamitte)');
+ok(/AV=fbArena\(\)/.test(HTML), 'Renderer-Torgeometrie kommt aus fbArena() (eine Quelle mit der Physik)');
+ok(/g\.position\.set\(d\[0\]\*AV\.goalAnchor\*BR\*FB_U,GOAL_WALK_Y,d\[1\]\*AV\.goalAnchor\*BR\*FB_U\)/.test(HTML),
+   'Torposition dir*goalAnchor*BR*FB_U (Sockelvorderkante == Bandeninnenflaeche)');
+// Rotationsdifferenz exakt PI: GOAL_ROT = atan2(-dx,-dz) liefert fuer +X exakt -PI/2 und
+// fuer -X exakt +PI/2 — dieselben Zahlen wie zuvor, jetzt aus einer Formel statt aus einer
+// Achsentabelle (die Elimination-Phasen brauchen auch 120-Grad-Richtungen).
+ok(/g\.rotation\.set\(0,GOAL_ROT\(d\),0\)/.test(HTML) &&
+   /const GOAL_ROT=\(d\)=>Math\.atan2\(-d\[0\],-d\[1\]\);/.test(HTML) &&
+   Math.atan2(-1, -0) === -Math.PI / 2 && Math.atan2(1, -0) === Math.PI / 2,
+   'Rotationsdifferenz beider Tore exakt PI (Oeffnung zur Arenamitte)');
 // Gleiche Skalierung: EIN goalScale fuer beide, aus BR/GLB_R/R0 abgeleitet (keine Magic-Number).
 ok(/const goalScale=\(2\*BR\)\*GLB_R\/R0/.test(HTML), 'Tor-Skalierung aus 2*BR*GLB_R/R0 abgeleitet (keine eigenstaendige Torbreiten-Magic-Number)');
 // Gerade Torlinie: PlaneGeometry quer ueber die lichte Oeffnung, Halbbreite = postInner.
@@ -1170,7 +1185,10 @@ ok(/const hx=av\.halfLen\*BR\*FB_U,hz=av\.halfWid\*BR\*FB_U,rc=av\.corner\*BR\*F
 ok(/const gap=av\.postOuter\*BR\*FB_U;/.test(HTML), 'Bandenoeffnung endet an der Sockel-Aussenkante (postOuter) — kein offener Streifen neben dem Tor');
 for (const helper of ['fbOutline', 'fbBandPath', 'fbSweep', 'fbStrip', 'fbFill'])
   ok(new RegExp('const ' + helper + '=').test(HTML), 'Prozeduraler Aufbau-Helfer ' + helper + ' vorhanden');
-ok(/if\(footballView&&!fbShapeGroup\)fbBuildShape\(\);/.test(HTML), 'Aufbau laeuft einmalig, sobald die Materialquelle geladen ist');
+// Aufbau einmalig, sobald die Materialquelle geladen ist — und erneut ausschliesslich bei
+// einem echten Wechsel der Arenavariante (fbLayout). In Classic/Tactical bleibt es damit bei
+// genau einem Aufbau; ein zweiter entsteht nur beim Wechsel in die Dev-Variante Elimination4.
+ok(/if\(fbWant&&\(!fbShapeGroup\|\|fbLayout!==fbWant\)\)\{fbBuildShape\(\);/.test(HTML), 'Aufbau laeuft einmalig, sobald die Materialquelle geladen ist');
 // ── Sichtbarkeiten: prozedurale Arena + Tore im Football, runde Plattform + Ringe sonst ──
 ok(/if\(fbShapeGroup\)fbShapeGroup\.visible=footballView/.test(HTML), 'fbShapeGroup.visible haengt am football-scoped footballView-Gate');
 // Review-Fix der Finalisierung: die runde Plattform weicht nur, wenn die prozedurale
@@ -1185,7 +1203,11 @@ ok(/if\(boundaryFull\)for\(const bm of boundaryFull\)bm\.visible=!rectReady/.tes
 // beschneidet ein schmaler Viewport die Tore; vertikal weiter fbHalfWid.
 ok(/const fbEdgeX=fbFrame\?fbArena\(\)\.postBack\*BR\+FOOTBALL_BALL_RADIUS:0;/.test(HTML),
   'Kamera-Framing deckt horizontal die Deck-Aussenkante (postBack + Ballradius)');
-ok(/const needX=fbFrame\?fbEdgeX\+\(need-R0\):need, needZ=fbFrame\?fbHalfWid\(\)\+\(need-R0\):need;/.test(HTML),
+// Classic/Tactical: getrennte Bedarfe je Achse (elimView ist dort 0 und faellt weg).
+// Elimination4: ein gemeinsamer Sichtradius je Arenaphase.
+ok(/const elimView=fbFrame&&fbElim4\(\)\?fbElimViewR\(\):0;/.test(HTML) &&
+   /const needX=fbFrame\?\(elimView\|\|fbEdgeX\)\+\(need-R0\):need;/.test(HTML) &&
+   /const needZ=fbFrame\?\(elimView\|\|fbHalfWid\(\)\)\+\(need-R0\):need;/.test(HTML),
   'Kamera-Framing nutzt Rechteckbedarfe je Achse, andere Modi den symmetrischen Bedarf');
 
 // ── Drei originale Vollkreis-Sichtringe unveraendert vorhanden ──
@@ -1214,7 +1236,7 @@ ok(!/Arena Football · Visuelle Integration/.test(HTML), "alte Shell-Meldung 'Ar
 
 // ── Tor-Load bleibt gekapselt; initR3D-Fehler weiterhin protokolliert ──
 ok(/g\.scale\.setScalar\(goalScale\)/.test(HTML), 'Torskalierung (goalScale) unveraendert');
-ok(/\}catch\(_\)\{goalGroup=null;\}/.test(HTML), 'Tor-GLB-Load bleibt in try/catch gekapselt (additiv)');
+ok(/\}catch\(_\)\{goalGroup=null;fbBuildGoals=null;\}/.test(HTML), 'Tor-GLB-Load bleibt in try/catch gekapselt (additiv)');
 ok(/console\.error\('INITR3D_FAIL'/.test(HTML), 'initR3D-Fehler wird weiterhin protokolliert (kein stiller Abbruch)');
 // Das gekruemmte Tor der Kreisarena ist restlos weg (Konstanten inklusive).
 ok(!/GOAL_CURVE_R/.test(HTML), 'GOAL_CURVE_R (Kruemmungsradius des Kreis-Tors) vollstaendig entfernt');
@@ -1749,7 +1771,10 @@ const fbCssSrc = grab(/#game\.fb \.status\{[\s\S]*?\n\.arena-wrap\{/, 'Football-
   ok(!/Arena Football — Shell/.test(HTML), "'Arena Football — Shell' entfernt");
   ok(!/Beide aufgedeckt…'/.test(setPhaseTextSrc.slice(0, setPhaseTextSrc.indexOf('if(online)'))),
      'keine Football-Phasentexte mehr im Football-Zweig');
-  ok(/p\.textContent=r3dActive\?'':'3D-Szene nicht verfügbar/.test(setPhaseTextSrc),
+  // Classic/Tactical: entweder die echte 3D-Fehlermeldung oder eine leere Zeile. Die
+  // Statuszeile mit dem aktiven Zieler existiert ausschliesslich in der Dev-Variante Elimination4.
+  ok(/if\(!r3dActive\)\{p\.textContent='3D-Szene nicht verfügbar/.test(setPhaseTextSrc) &&
+     /fbElim4\(\)\)\{/.test(setPhaseTextSrc),
      'im Football bleibt unten nur die echte 3D-Fehlermeldung, sonst leer');
   ok(/if\(online\)\{/.test(setPhaseTextSrc), 'die Statuszeilen der anderen Modi sind unveraendert vorhanden');
 }
@@ -1845,8 +1870,10 @@ const fbCssSrc = grab(/#game\.fb \.status\{[\s\S]*?\n\.arena-wrap\{/, 'Football-
 
 // ── G2. Genau EIN Trigger pro Tor, an der einzigen Wertungsstelle ──
 {
-  ok((HTML.match(/footballGoalFxTrigger\(/g) || []).length === 2,
-     'footballGoalFxTrigger existiert genau einmal und wird genau einmal aufgerufen');
+  // Eine Definition und genau ein Aufruf JE WERTUNGSPFAD: footballTryGoal (Classic/Tactical)
+  // und footballElimTryGoal (Elimination4). Beide werten nur aus fbGoalState==='play'.
+  ok((HTML.match(/footballGoalFxTrigger\(/g) || []).length === 3,
+     'footballGoalFxTrigger existiert genau einmal und wird genau einmal je Wertungspfad aufgerufen');
   ok(/footballGoalFxTrigger\(side\);/.test(tryGoalSrc),
      'der Aufruf sitzt in footballTryGoal — der einzigen Stelle, die aus play heraus wertet');
   ok(/if\(fbGoalState!=='play'\)return;/.test(tryGoalSrc),
@@ -1975,15 +2002,17 @@ const fbCssSrc = grab(/#game\.fb \.status\{[\s\S]*?\n\.arena-wrap\{/, 'Football-
      'die Emissive-Farbe wird IMMER aus der Ruhefarbe neu berechnet (kein Aufaddieren, kein Drift)');
   ok(/p\.mat\.emissiveIntensity=p\.int\*\(1\+p\.gain\*lv\);/.test(fxRenderSrc),
      'die Intensitaet ist ein Faktor auf den Ruhewert -> lv=0 stellt exakt den Ruhezustand her');
-  ok(/if\(lv===p\.lv\)continue;/.test(fxRenderSrc),
+  // Geschrieben wird nur bei einer echten Zustandsaenderung — Torimpuls ODER (nur
+  // Elimination4) der Wechsel in ein ausgeschiedenes, totes Tor.
+  ok(/if\(lv===p\.lv&&dead===p\.dead\)continue;/.test(fxRenderSrc),
      'im Ruhezustand wird kein Material angefasst (keine Schreiblast pro Frame)');
   const mix = Number(HTML.match(/const GOAL_FX_MIX=([\d.]+);/)[1]);
   ok(mix > 0.5 && mix < 1, 'Gold dominiert den Impuls, die Teamfarbe bleibt aber lesbar (MIX=' + mix + ')');
   ok(/const GOAL_FX_GOLD=new THREE\.Color\(0xffd79a\);/.test(HTML),
      'Feedbackfarbe ist warmes Gold-Weiss (kein Neon, kein RGB-Wechsel)');
-  ok(/addGoalFx\(sign,o\.material,GOAL_FX_GAIN_EMBLEM\)/.test(HTML) &&
-     /addGoalFx\(sign,cp,GOAL_FX_GAIN_FRAME\)/.test(HTML) &&
-     /addGoalFx\(sign,lineMat,GOAL_FX_GAIN_LINE\)/.test(HTML),
+  ok(/addGoalFx\(def\.key,o\.material,GOAL_FX_GAIN_EMBLEM\)/.test(HTML) &&
+     /addGoalFx\(def\.key,cp,GOAL_FX_GAIN_FRAME\)/.test(HTML) &&
+     /addGoalFx\(def\.key,lineMat,GOAL_FX_GAIN_LINE\)/.test(HTML),
      'drei Bauteile reagieren: Wappen, vordere Keyline, Torlinie/Oeffnungsakzent');
   // Der Impuls wird bewusst UNABHAENGIG von footballView gerechnet — nur so faellt er auch
   // dann in den Ruhezustand zurueck, wenn der Modus mitten im Impuls verlassen wird.
@@ -2346,8 +2375,10 @@ const fbCssSrc = grab(/#game\.fb \.status\{[\s\S]*?\n\.arena-wrap\{/, 'Football-
   ok(!/setInterval/.test(sfxSrc), 'kein setInterval im Sound-Modul');
 
   // ── D. Trigger: genau einmal, nur Football, ohne Rueckwirkung ──
-  ok((HTML.match(/SFX\.footballGoal\(/g) || []).length === 2,
-     'SFX.footballGoal() hat genau zwei Aufrufer: den Torpfad und die ?dev=1-Hoerprobe');
+  // Drei Aufrufer: die beiden Wertungspfade (footballTryGoal fuer Classic/Tactical,
+  // footballElimTryGoal fuer Elimination4) und die ?dev=1-Hoerprobe. Je Tor genau einer.
+  ok((HTML.match(/SFX\.footballGoal\(/g) || []).length === 3,
+     'SFX.footballGoal() hat genau drei Aufrufer: die zwei Torpfade und die ?dev=1-Hoerprobe');
   ok(/if\(mode==='football'\)SFX\.footballGoal\(footballWinner!==null\);/.test(trySrc),
      'der Torsound haengt im Torpfad und ausschliesslich an mode===\'football\'');
   ok(/if\(fbGoalState!=='play'\)return;/.test(trySrc),
