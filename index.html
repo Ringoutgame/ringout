@@ -923,6 +923,21 @@ function perfTick(now){
 // Restore wird der Renderer kontrolliert wieder aufgebaut. Erst ein bestaetigter
 // Frame gibt die Eingabe wieder frei.
 let r3dContextLost=false,r3dRecoveryFailed=false,r3dHintEl=null;
+// Monotone Recovery-Generation: jeder Kontextverlust startet einen neuen Zyklus.
+// Ein Restore darf nur dann etwas freigeben, wenn er noch der aktuelle Zyklus ist —
+// sonst koennte ein langsamer, laengst ueberholter Restore einen neueren Verlust
+// wieder entsperren.
+let r3dRecoveryGen=0;
+// Beim Kontextverlust werden ALLE laufenden lokalen Gesten commit-frei verworfen:
+// kein Move-Commit, kein Barrier-Verbrauch, kein Kamera-Reset. Dadurch beginnt die
+// naechste Geste nach dem Restore garantiert bei Null.
+function r3dCancelLocalGestures(){
+  if(typeof cancelAimDrag==='function')cancelAimDrag();        // Aim + Drall, gibt Capture frei
+  if(typeof barrierDragCancel==='function')barrierDragCancel();// Wand-Drag; Vorwahl bleibt wie vor dem Drag
+  for(const pid of [camPid,cam2Pid]){if(pid>=0){try{cv.releasePointerCapture(pid);}catch(_){}}}
+  camPid=-1;cam2Pid=-1;
+  camTapT=0;   // kein Doppeltipp-Fenster ueber den Verlust hinweg -> kein cam.reset()
+}
 // EIN Gate fuer den Recovery-Zustand. Es wird an den bereits vorhandenen
 // kanonischen Freigaben ausgewertet (canCommitInput, whoCanAim,
 // barrierCanArmSeat, Kamerageste) — keine verstreuten Sonderbedingungen.
@@ -3080,7 +3095,7 @@ cv.addEventListener('pointerdown',e=>{
     try{cv.setPointerCapture(e.pointerId);}catch(_){}
     spinPid=e.pointerId;spinStartX=e.clientX;return;// Drall in Screen-px: kamerafest, rechts = +Drall
   }
-  if(r3dOrbit||aimPid>=0)return;
+  if(r3dOrbit||aimPid>=0||r3dInputBlocked())return;   // Recovery: auch Kamera-Drag und Doppeltipp-Reset gesperrt
   if(camPid<0){                                     // Kamera-Drag starten (Doppeltipp = Reset)
     const now=performance.now();
     if(now-camTapT<300&&Math.hypot(e.clientX-camTapX,e.clientY-camTapY)<24){r3d.cam.reset();camTapT=0;return;}
@@ -6442,8 +6457,8 @@ async function initR3D(){
         const chain=[p.hdri,...ENV_FALLBACKS].filter((v,i,a)=>a.indexOf(v)===i);
         let r;
         try{ r=await loadEnvHDR(chain); }
-        catch(e){ if(initial)throw e; return; }      // live: bestehendes funktionierendes Environment sichtbar lassen
-        if(gen!==envGen){ r.tex.dispose(); return; } // schnelles Umschalten -> dieses Ergebnis ist veraltet
+        catch(e){ if(initial)throw e; return false; } // live: bestehendes funktionierendes Environment sichtbar lassen
+        if(gen!==envGen){ r.tex.dispose(); return false; } // schnelles Umschalten -> dieses Ergebnis ist veraltet
         tex=r.tex;texPath=r.path;
         tex.mapping=THREE.EquirectangularReflectionMapping;
       }
@@ -6459,6 +6474,7 @@ async function initR3D(){
        sun.position.set(cx+Math.cos(el)*Math.cos(az)*D, Math.sin(el)*D, cy+Math.cos(el)*Math.sin(az)*D);}
       if(old&&old!==tex)old.dispose();               // erst jetzt entsorgen (nur die eigene, ersetzte Texture)
       envApplied=key;envTexPath=texPath;
+      return true;   // eindeutiger Erfolg — der Recovery-Pfad darf sich nicht auf eine alte Referenz verlassen
     }
     await applyEnvProfile(envProfile,true);          // initialer Load: Totalausfall -> outer catch -> 2D-Fallback
     // Wolkenmeer-Sprites unter der Arena (Prototyp-Baender, x57.7 skaliert)
@@ -7273,14 +7289,18 @@ async function initR3D(){
     // werden dabei NICHT angefasst — nur lokale Eingabe und Rendering pausieren.
     c3.addEventListener('webglcontextlost',(e)=>{
       e.preventDefault();
+      r3dRecoveryGen++;                    // neuer Zyklus: alle aelteren Restores sind ab jetzt veraltet
       r3dContextLost=true;r3dRecoveryFailed=false;
-      if(typeof cancelAimDrag==='function')cancelAimDrag();   // laufender Zug endet ohne Commit
+      r3dCancelLocalGestures();            // Aim, Wand-Drag und Kamerazeiger commit-frei verwerfen
       r3dRecoveryHint(true);
     });
     c3.addEventListener('webglcontextrestored',()=>{r3dRestore();});
     // Kontrollierter Wiederaufbau: Renderer-Konfiguration, Geometrie, Environment,
     // Schatten — danach ein bestaetigter Frame, erst dann Eingabe wieder frei.
     async function r3dRestore(){
+      // Nur der aktuelle Zyklus darf bestaetigen, entsperren oder einen Fehlerzustand
+      // melden. Ein ueberholter Restore bricht still ab, ohne Nebenwirkungen.
+      const myGen=r3dRecoveryGen, current=()=>myGen===r3dRecoveryGen;
       try{
         renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,2));
         renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;
@@ -7292,23 +7312,32 @@ async function initR3D(){
         // kontextgebundenen Render-Targets. envTexPath zuruecksetzen erzwingt im
         // vorhandenen Helper einen frischen Aufbau — keine zweite Ladepfad-Kopie.
         envTexPath=null;
-        await applyEnvProfile(envApplied||envProfile,false);
+        const envOk=await applyEnvProfile(envApplied||envProfile,false);
+        if(!current())return;                     // ueberholt: nichts rendern, nichts freigeben
+        // Ein noch vorhandenes scene.environment beweist nichts — es koennte die alte
+        // Referenz sein. Nur der explizite Erfolg des Neuaufbaus zaehlt.
+        if(!envOk)throw new Error('Environment-Neuaufbau fehlgeschlagen');
         renderer.shadowMap.needsUpdate=true;      // Schattenkarten neu zeichnen
         r3d.render();                             // ein bestaetigter Frame aus dem AKTUELLEN Spielzustand
         const gl=renderer.getContext();
         if(gl.isContextLost()||gl.drawingBufferWidth<=0)throw new Error('Kontext weiterhin ungueltig');
         if(!scene.environment)throw new Error('Environment nicht wiederhergestellt');
+        if(!current())return;                     // letzte Pruefung vor dem Entsperren
         r3dContextLost=false;r3dRecoveryFailed=false;r3dRecoveryHint(false);
       }catch(err){
         // Fehlgeschlagene Wiederherstellung: Eingabe bleibt gesperrt, klarer Zustand,
         // kein stilles Weiterspielen, kein automatischer Reload, kein Match-Reset.
+        if(!current())return;                     // ein ueberholter Zyklus meldet keinen Fehler
         r3dRecoveryFailed=true;
         r3dRecoveryHint(true,'Grafik konnte nicht wiederhergestellt werden.\nBitte die Seite neu laden.');
         console.error('r3d: Context-Restore fehlgeschlagen',err&&err.message||err);
       }
     }
     // Testhaken (nur ?mobileDiag=1): liest den Recovery-Zustand, steuert nichts.
-    if(MOBILE_DIAG)window.__r3dRecoveryState=()=>({lost:r3dContextLost,failed:r3dRecoveryFailed,
+    if(MOBILE_DIAG)window.__r3dRecoveryState=()=>({lost:r3dContextLost,failed:r3dRecoveryFailed,gen:r3dRecoveryGen,
+      gestures:{aimPid:aimPid,spinPid:spinPid,dragging:dragging,barrierDragPid:barrierDragPid,
+        camPid:camPid,cam2Pid:cam2Pid,camTapT:camTapT},
+      camTargets:{yaw:camYawT,polar:camPolarT,dist:camDistFT},
       hint:!!r3dHintEl&&document.body.contains(r3dHintEl),hintText:r3dHintEl?r3dHintEl.textContent:null,
       env:!!scene.environment,envProfile:envApplied,
       shadow:{enabled:renderer.shadowMap.enabled,type:renderer.shadowMap.type},
@@ -7319,6 +7348,8 @@ async function initR3D(){
       match:{turn:turnNo,gen:gen,phase:phase,score:score.slice(),aimSet:aimSet.slice()},
       cam:{yaw:camYawT,polar:camPolarT,dist:camDistFT},
       canArm:(typeof barrierCanArm==='function')?barrierCanArm():null,
+      barrier:{stakes:barrierStakesBySeat.slice(),selected:barrierSelectedSegmentBySeat.slice(),
+        armed:barrierArmedBySeat.slice(),uiSeat:barrierUiSeat()},
       inputBlocked:r3dInputBlocked()});
 
     // Invalidierung der Spielflaeche: window-resize deckt den klassischen Fall ab,

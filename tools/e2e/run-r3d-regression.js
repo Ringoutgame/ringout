@@ -450,6 +450,294 @@ async function caseContextRecovery(browser, navUrl) {
   }
 }
 
+
+// ── Fall F — Recovery-Haertung (Codex-P2 zu Mobile Bug 2B) ──────────────────
+// Sechs Szenarien, die der erste Recovery-Wurf offen liess: laufende Gesten beim
+// Verlust, ueberholte Restores, und ein Environment-Neuaufbau, der scheitert.
+// Geprueft wird gegen Produktverhalten — kein Commit, kein Verbrauch, kein
+// Kamera-Reset, und nur der neueste Zyklus darf die Eingabe wieder freigeben.
+const HDR_GLOB = '**/*.hdr';
+
+async function caseRecoveryHardening(browser, navUrl) {
+  console.log('\nFall F — Recovery-Haertung: Gesten, Generation, Environment-Fehler');
+  const c = await newClient(browser, navUrl + '?mobileDiag=1', null);
+  try {
+    await c.page.waitForFunction(() => !document.body.classList.contains('booting'), null, { timeout: 20000 });
+    const diag = () => c.page.evaluate(() => window.__mobileDiag());
+    const rec = () => c.page.evaluate(() => window.__r3dRecoveryState());
+    const lose = () => c.page.evaluate(() => window.__testLose.loseContext());
+    const restore = () => c.page.evaluate(() => window.__testLose.restoreContext());
+    const waitFree = (ms) => c.page.waitForFunction(() => {
+      const r = window.__r3dRecoveryState(); return r && r.lost === false && r.failed === false;
+    }, null, { timeout: ms || 20000 }).then(() => true).catch(() => false);
+    await c.page.evaluate(() => {
+      const el = document.getElementById('cv3d');
+      const gl = el.getContext('webgl2') || el.getContext('webgl');
+      window.__testLose = gl && gl.getExtension('WEBGL_lose_context');
+    });
+    if (!await c.page.evaluate(() => !!window.__testLose)) { fail('Fall F: WEBGL_lose_context nicht verfuegbar'); return; }
+    await startBotMatch(c.page);
+    await sleep(900);
+    const cdp = await c.page.context().newCDPSession(c.page);
+
+    // ══ A — Verlust waehrend eines laufenden Aim-Drags ═══════════════════════
+    {
+      const d = await diag();
+      const stateA = (await rec()).match;
+      await c.page.mouse.move(d.ball.draw.x, d.ball.draw.y);
+      await c.page.mouse.down();
+      await c.page.mouse.move(d.ball.draw.x, d.ball.draw.y + 40);
+      await sleep(120);
+      const during = await rec();
+      check(during.gestures.dragging === true && during.gestures.aimPid >= 0,
+        'A Aim-Drag ist vor dem Verlust wirklich aktiv', JSON.stringify(during.gestures));
+      await lose();
+      await sleep(700);
+      const afterLoss = await rec();
+      check(afterLoss.gestures.dragging === false && afterLoss.gestures.aimPid === -1,
+        'A Aim-Drag wird beim Verlust commit-frei verworfen', JSON.stringify(afterLoss.gestures));
+      await c.page.mouse.up();   // spaetes pointerup darf nichts mehr ausloesen
+      await sleep(400);
+      const afterUp = await rec();
+      check(JSON.stringify(afterUp.match.aimSet) === JSON.stringify(stateA.aimSet) &&
+            afterUp.match.turn === stateA.turn,
+        'A kein Move-Commit durch den abgebrochenen Drag', JSON.stringify({ vor: stateA, nach: afterUp.match }));
+      await restore();
+      check(await waitFree(), 'A Restore nach dem abgebrochenen Aim erfolgreich');
+      const d2 = await diag();
+      const before = d2.ball.logical;
+      await c.page.mouse.move(d2.ball.draw.x, d2.ball.draw.y);
+      await c.page.mouse.down();
+      for (let i = 1; i <= 6; i++) { await c.page.mouse.move(d2.ball.draw.x, d2.ball.draw.y + i * 9); await sleep(16); }
+      await c.page.mouse.up();
+      await sleep(2600);
+      const d3 = await diag();
+      check(!!d3.ball && Math.hypot(d3.ball.logical.x - before.x, d3.ball.logical.y - before.y) > 1,
+        'A neue Aim-Geste nach dem Restore funktioniert wieder',
+        JSON.stringify({ vor: before, nach: d3.ball && d3.ball.logical }));
+      await sleep(1600);
+    }
+
+    // ══ B — Verlust waehrend eines laufenden Barrier-Drags ═══════════════════
+    {
+      const r0 = await rec();
+      const hasBtn = await c.page.evaluate(() => !!document.getElementById('barrierBtn'));
+      check(hasBtn && r0.barrier.uiSeat >= 0, 'B Wandsymbol im lokalen Match vorhanden',
+        'btn=' + hasBtn + ' uiSeat=' + r0.barrier.uiSeat);
+      if (hasBtn) {
+        const stakesBefore = r0.barrier.stakes.slice();
+        const selBefore = r0.barrier.selected.slice();
+        const box = await c.page.evaluate(() => {
+          const b = document.getElementById('barrierBtn').getBoundingClientRect();
+          const s = window.__mobileDiag().surface;
+          return { bx: (b.left + b.right) / 2, by: (b.top + b.bottom) / 2,
+                   tx: s.l + s.w / 2, ty: s.t + s.h * 0.18 };   // klar oberhalb der Arenamitte
+        });
+        await c.page.mouse.move(box.bx, box.by);
+        await c.page.mouse.down();
+        for (let i = 1; i <= 6; i++) {
+          await c.page.mouse.move(box.bx + (box.tx - box.bx) * i / 6, box.by + (box.ty - box.by) * i / 6);
+          await sleep(20);
+        }
+        const during = await rec();
+        check(during.gestures.barrierDragPid >= 0, 'B Barrier-Drag ist vor dem Verlust wirklich aktiv',
+          JSON.stringify(during.gestures));
+        await lose();
+        await sleep(700);
+        const afterLoss = await rec();
+        check(afterLoss.gestures.barrierDragPid === -1, 'B Barrier-Drag wird beim Verlust sicher beendet',
+          JSON.stringify(afterLoss.gestures));
+        await c.page.mouse.up();
+        await sleep(400);
+        const afterUp = await rec();
+        check(JSON.stringify(afterUp.barrier.stakes) === JSON.stringify(stakesBefore),
+          'B kein Barrier-Verbrauch durch den abgebrochenen Drag',
+          JSON.stringify({ vor: stakesBefore, nach: afterUp.barrier.stakes }));
+        check(JSON.stringify(afterUp.barrier.selected) === JSON.stringify(selBefore),
+          'B Vorwahl bleibt auf dem Stand von vor dem Drag',
+          JSON.stringify({ vor: selBefore, nach: afterUp.barrier.selected }));
+        await restore();
+        check(await waitFree(), 'B Restore nach dem abgebrochenen Barrier-Drag erfolgreich');
+        await c.page.mouse.move(box.bx, box.by);
+        await c.page.mouse.down();
+        for (let i = 1; i <= 6; i++) {
+          await c.page.mouse.move(box.bx + (box.tx - box.bx) * i / 6, box.by + (box.ty - box.by) * i / 6);
+          await sleep(20);
+        }
+        const dragAgain = await rec();
+        await c.page.mouse.up();
+        await sleep(300);
+        check(dragAgain.gestures.barrierDragPid >= 0, 'B neue Barrier-Geste nach dem Restore moeglich',
+          JSON.stringify(dragAgain.gestures));
+        await c.page.evaluate(() => { if (typeof barrierDragCancel === 'function') barrierDragCancel(); });
+      }
+    }
+
+    // ══ C — Verlust waehrend einer Kamera-Geste (ein und zwei Finger) ════════
+    {
+      const s = (await diag()).surface;
+      const p1 = { x: s.l + s.w * 0.22, y: s.t + s.h * 0.30 };
+      const p2 = { x: s.l + s.w * 0.78, y: s.t + s.h * 0.30 };
+      const touch = (type, pts) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: pts });
+      await touch('touchStart', [{ x: p1.x, y: p1.y, id: 1 }]);
+      await sleep(60);
+      await touch('touchMove', [{ x: p1.x + 30, y: p1.y, id: 1 }]);
+      await sleep(60);
+      await touch('touchStart', [{ x: p1.x + 30, y: p1.y, id: 1 }, { x: p2.x, y: p2.y, id: 2 }]);
+      await sleep(80);
+      const during = await rec();
+      check(during.gestures.camPid >= 0 && during.gestures.cam2Pid >= 0,
+        'C Kamera-Geste mit zwei Zeigern ist vor dem Verlust aktiv', JSON.stringify(during.gestures));
+      const camBefore = during.camTargets;
+      await lose();
+      await sleep(700);
+      const afterLoss = await rec();
+      check(afterLoss.gestures.camPid === -1 && afterLoss.gestures.cam2Pid === -1,
+        'C beide Kamera-Zeiger werden beim Verlust zurueckgesetzt', JSON.stringify(afterLoss.gestures));
+      check(afterLoss.gestures.camTapT === 0, 'C Doppeltipp-Fenster wird verworfen', 'camTapT=' + afterLoss.gestures.camTapT);
+      await touch('touchEnd', [{ x: p2.x, y: p2.y, id: 2 }]);
+      await touch('touchEnd', []);
+      // Doppeltipp waehrend des Verlusts darf die Kamera nicht zuruecksetzen.
+      for (let i = 0; i < 2; i++) {
+        await touch('touchStart', [{ x: p1.x, y: p1.y, id: 3 }]);
+        await touch('touchEnd', []);
+        await sleep(80);
+      }
+      const afterTap = await rec();
+      check(JSON.stringify(afterTap.camTargets) === JSON.stringify(camBefore),
+        'C Doppeltipp/cam.reset waehrend des Verlusts blockiert',
+        JSON.stringify({ vor: camBefore, nach: afterTap.camTargets }));
+      await restore();
+      check(await waitFree(), 'C Restore nach der abgebrochenen Kamera-Geste erfolgreich');
+      const camPre = (await rec()).camTargets;
+      await c.page.mouse.move(p1.x, p1.y);
+      await c.page.mouse.down();
+      for (let i = 1; i <= 6; i++) { await c.page.mouse.move(p1.x + i * 14, p1.y); await sleep(16); }
+      await c.page.mouse.up();
+      await sleep(300);
+      const camPost = (await rec()).camTargets;
+      check(Math.abs(camPost.yaw - camPre.yaw) > 1e-6, 'C Orbit nach dem Restore wieder moeglich',
+        JSON.stringify({ vor: camPre, nach: camPost }));
+    }
+
+    // ══ D — Ueberholter Restore darf nichts freigeben ════════════════════════
+    {
+      const genStart = (await rec()).gen;
+      // Erster Restore wird kuenstlich ausgebremst: das HDRI haengt.
+      let release = null;
+      const hold = new Promise((r) => { release = r; });
+      await c.page.context().route(HDR_GLOB, async (route) => { await hold; await route.continue(); });
+      await lose();
+      await sleep(400);
+      await restore();
+      await sleep(600);
+      const stalled = await rec();
+      check(stalled.lost === true, 'D erster Restore haengt im Environment-Schritt (noch gesperrt)', JSON.stringify({ lost: stalled.lost, gen: stalled.gen }));
+      // Zweiter Verlust: ab jetzt ist der erste Restore veraltet.
+      await lose();
+      await sleep(300);
+      const gen2 = (await rec()).gen;
+      check(gen2 > stalled.gen, 'D zweiter Verlust erhoeht die Recovery-Generation',
+        JSON.stringify({ vorher: stalled.gen, nachher: gen2 }));
+      // Den haengenden ersten Restore jetzt durchlaufen lassen — er ist ueberholt
+      // und darf NICHT entsperren.
+      release();
+      await sleep(2500);
+      const afterStale = await rec();
+      check(afterStale.lost === true && afterStale.failed === false,
+        'D der ueberholte Restore entsperrt nicht und meldet keinen Fehler',
+        JSON.stringify({ lost: afterStale.lost, failed: afterStale.failed, gen: afterStale.gen }));
+      await c.page.context().unroute(HDR_GLOB);
+      // Erst der neueste Zyklus gibt frei.
+      await restore();
+      check(await waitFree(25000), 'D erst der neueste Restore gibt die Eingabe frei');
+      const done = await rec();
+      check(done.gen === gen2, 'D Freigabe erfolgt in der aktuellen Generation',
+        JSON.stringify({ erwartet: gen2, ist: done.gen }));
+      const geo = await diag();
+      check(geo.projectionGeometryMismatch === false && geo.mismatchPx < 1,
+        'D Geometrievertrag nach dem ueberlappenden Zyklus (' + geo.mismatchPx.toFixed(2) + ' px)',
+        JSON.stringify(geo.mismatch));
+    }
+
+    // ══ E — Environment-Neuaufbau schlaegt fehl ══════════════════════════════
+    {
+      await c.page.context().route(HDR_GLOB, (route) => route.abort('failed'));
+      await lose();
+      await sleep(400);
+      await restore();
+      await sleep(4000);
+      const failed = await rec();
+      check(failed.failed === true, 'E fehlgeschlagener Environment-Aufbau gilt als Recovery-Fehler',
+        JSON.stringify({ failed: failed.failed, lost: failed.lost }));
+      check(failed.lost === true && failed.inputBlocked === true, 'E Eingabe bleibt nach dem Fehler gesperrt',
+        JSON.stringify({ lost: failed.lost, blocked: failed.inputBlocked }));
+      check(failed.hint === true && /neu laden/i.test(failed.hintText || ''),
+        'E Reload-Hinweis bleibt sichtbar', failed.hintText);
+      // Umgebung wieder heilen, damit der letzte Abschnitt sauber laeuft.
+      await c.page.context().unroute(HDR_GLOB);
+      await lose();
+      await sleep(300);
+      await restore();
+      check(await waitFree(25000), 'E nach behobener Ursache ist die Wiederherstellung wieder moeglich');
+    }
+
+    // ══ F — Match-Fortschritt waehrend des Verlusts ══════════════════════════
+    {
+      const d = await diag();
+      const posBefore = d.ball.logical;
+      const phaseBefore = (await rec()).match.phase;
+      // Schuss ausloesen und den Verlust MITTEN in die Simulation legen.
+      await c.page.mouse.move(d.ball.draw.x, d.ball.draw.y);
+      await c.page.mouse.down();
+      for (let i = 1; i <= 6; i++) { await c.page.mouse.move(d.ball.draw.x, d.ball.draw.y + i * 10); await sleep(16); }
+      await c.page.mouse.up();
+      await sleep(700);                    // Reveal/Sim laeuft
+      await lose();
+      // Fortschritt heisst hier: der Spielzustand bewegt sich waehrend des Verlusts
+      // weiter — die Kugel kommt an einer anderen Stelle zur Ruhe und die Phase
+      // durchlaeuft die Aufloesung. Beides liest der Haken aus dem LIVE-Zustand.
+      const advanced = await c.page.waitForFunction((p0) => {
+        const d = window.__mobileDiag();
+        return !!(d && d.ball) && Math.hypot(d.ball.logical.x - p0.x, d.ball.logical.y - p0.y) > 5;
+      }, posBefore, { timeout: 20000 }).then(() => true).catch(() => false);
+      check(advanced, 'F Match laeuft waehrend des Kontextverlusts weiter (Zustand schreitet fort)');
+      const midLoss = await rec();
+      check(midLoss.lost === true, 'F Kontext ist waehrend des Fortschritts weiterhin verloren');
+      await restore();
+      check(await waitFree(25000), 'F Restore nach dem Fortschritt erfolgreich');
+      await sleep(400);
+      const after = await diag(), recAfter = await rec();
+      // Der Restore kann mitten in der Aufloesung fertig werden (reveal/sim/result).
+      // Entscheidend ist, dass der Zug danach regulaer bis zur naechsten Zielphase
+      // durchlaeuft — der Phasenautomat lief ueber den Verlust hinweg normal weiter.
+      const settled = await c.page.waitForFunction(() => {
+        const r = window.__r3dRecoveryState(); return r && r.match.phase === 'aim';
+      }, null, { timeout: 20000 }).then(() => true).catch(() => false);
+      check(settled && phaseBefore === 'aim',
+        'F Zug wurde ueber den Verlust hinweg regulaer aufgeloest (zurueck in aim)',
+        JSON.stringify({ vor: phaseBefore, beiMessung: recAfter.match.phase, settled: settled }));
+      check(!!after.ball && Math.hypot(after.ball.logical.x - posBefore.x, after.ball.logical.y - posBefore.y) > 1,
+        'F dargestellt wird der AKTUELLE Zustand, kein Schnappschuss von vor dem Verlust',
+        JSON.stringify({ vorVerlust: posBefore, nachRestore: after.ball && after.ball.logical }));
+      check(after.projectionGeometryMismatch === false && after.mismatchPx < 1,
+        'F Geometrievertrag nach dem Fortschritts-Zyklus (' + after.mismatchPx.toFixed(2) + ' px)',
+        JSON.stringify(after.mismatch));
+    }
+
+    const hardErrs = hardConsoleErrors(c.diag);
+    check(c.diag.pageErrors.length === 0, 'Haertung ohne harte Console-Exception', c.diag.pageErrors.join(' | '));
+    // Der bewusst erzeugte Environment-Fehler protokolliert eine Zeile — die ist erwartet.
+    // Szenario E bricht HDR-Anfragen absichtlich ab; die daraus folgenden
+    // Ressourcen- und Restore-Meldungen sind erwartetes Rauschen der Fehlerinjektion.
+    const injected = /Context-Restore fehlgeschlagen|net::ERR_FAILED|Failed to load resource/i;
+    const unexpected = hardErrs.filter((t) => !injected.test(t));
+    check(unexpected.length === 0, 'Haertung ohne unerwartete Console-Fehler', unexpected.join(' | '));
+  } finally {
+    await c.context.close();
+  }
+}
+
 (async () => {
   let server = null, browser = null;
   try {
@@ -481,6 +769,8 @@ async function caseContextRecovery(browser, navUrl) {
     await caseGeometry(browser, navUrl);
 
     await caseContextRecovery(browser, navUrl);
+
+    await caseRecoveryHardening(browser, navUrl);
   } catch (e) {
     fail('Testlauf abgebrochen', String((e && e.message) || e));
   } finally {
