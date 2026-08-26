@@ -3258,6 +3258,9 @@ const FOOTBALL_ARENA_ELIM2=Object.assign(
 // EINZIGE Arenaquelle je Phase. Elimination4 waehlt nach der aktiven Phase; Classic und
 // Tactical teilen sich unveraendert FOOTBALL_ARENA. Phase 1 ist der Sieg - kein Umbau mehr.
 const FB_ELIM_ARENAS={4:FOOTBALL_ARENA_ELIM4,3:FOOTBALL_ARENA_ELIM3,2:FOOTBALL_ARENA_ELIM2};
+// Torrichtungen je Phase - dieselbe Tabellenform, damit die Arena-Transition Start- und
+// Zielrichtung eines Tores generisch nachschlagen kann statt sie fest zu verdrahten.
+const FB_ELIM_DIRS={4:FOOTBALL_ELIM4_DIRS,3:FOOTBALL_ELIM3_DIRS,2:FOOTBALL_ELIM2_DIRS};
 function fbElimArena(){return FB_ELIM_ARENAS[fbElimPhaseN]||FOOTBALL_ARENA_ELIM4;}
 function fbArena(){return fbElim4()?fbElimArena():FOOTBALL_ARENA;}
 // Torrichtungen der AKTIVEN Arena. Ausserhalb Elimination4 gibt es die beiden Stirnseiten.
@@ -3266,10 +3269,11 @@ function fbElimDirs(){return fbArena().dirs||FOOTBALL_ELIM2_DIRS;}
 // Deck-Aussenkante hinter den Toren und dem aeussersten Punkt der Grenze — beim Rechteck die
 // Ecke, beim Dreieck die Spitze. Einzige Quelle des Kamera-Framings je Phase.
 function fbElimViewR(){
-  // V2: waehrend der Transition bleibt das Framing FEST auf dem Wert der Vier-Tore-Arena.
-  // Ein Fit-to-current-shape haette die Bewegung mitgezogen und den Eindruck verstaerkt, die
-  // Arena wuerde schrumpfen. Kein Zoom, kein Orbit, kein Shake — die Kamera steht still.
-  if(fbMorphActive())return fbArenaViewR(FOOTBALL_ARENA_ELIM4);
+  // Waehrend der Transition bleibt das Framing FEST auf der AUSGANGSform: bei 4 -> 3 die
+  // Vier-Tore-Arena, bei 3 -> 2 die Drei-Tore-Arena. Ein Fit-to-current-shape haette die
+  // Bewegung mitgezogen und den Eindruck verstaerkt, die Arena wuerde schrumpfen.
+  // Kein Zoom, kein Orbit, kein Shake — die Kamera steht still.
+  if(fbMorphActive())return fbArenaViewR(fbMorphFromArena());
   return fbArenaViewR(fbArena());
 }
 function fbArenaViewR(av){
@@ -3803,18 +3807,27 @@ function fbMorphBegin(){
     const t=act.indexOf(o);
     goals.push({owner:o,slot:s,target:t,dead:t<0});
   }
-  fbMorphPlan={goals};
+  // from/to halten die Ausgangs- und die Zielphase fest. Damit schlagen Kontur, Torrichtung
+  // und Framing ihre Endzustaende generisch nach - es gibt nur EINEN Transitionspfad.
+  fbMorphPlan={goals,from:fbElimPhaseN,to:act.length};
   // Alle Koerper kontrolliert einfrieren. Die Figuren stehen bereits (footballFreezePlayers
   // beim Tor); der neutrale Ball ist zu diesem Zeitpunkt laengst hinter der Bande
   // ausgeblendet, trug aber noch seine Restgeschwindigkeit. Waehrend der Transition laeuft
   // damit KEINE freie Ballphysik mehr — die Positionen setzt danach footballElimResetBall.
   for(const b of balls){b.vx=0;b.vy=0;b.spin=0;}
 }
-// Startet die Transition genau dann, wenn die Vier-Tore-Arena auf drei Tore wechselt.
-// Prototyp deckt bewusst NUR 4 -> 3 ab; jeder andere Wechsel laeuft unveraendert direkt.
+// Startet die Transition bei jedem Arenawechsel der Elimination: 4 -> 3 und 3 -> 2.
+// Der letzte Wechsel 2 -> 1 ist der Sieg und baut nicht mehr um.
 function fbMorphWanted(){
-  return fbElim4()&&footballWinner===null&&fbElimPhaseN===FOOTBALL_ELIM4_PLAYERS
-         &&fbElimActiveOwners().length===3;
+  if(!fbElim4()||footballWinner!==null)return false;
+  const n=fbElimActiveOwners().length;
+  return (fbElimPhaseN===4&&n===3)||(fbElimPhaseN===3&&n===2);
+}
+// Arena der AUSGANGSphase einer laufenden Transition. Framing und Torversatz beziehen sich
+// darauf: die Kamera steht auf dem Bild, aus dem der Umbau kommt, und die Torinstanzen
+// gehoeren bis zum Einrasten noch zu dieser Phase.
+function fbMorphFromArena(){
+  return (fbMorphPlan&&FB_ELIM_ARENAS[fbMorphPlan.from])||FOOTBALL_ARENA_ELIM4;
 }
 // Nur-lesende Dev-Sonde fuer reproduzierbare Previews der Arena-Transition. Sie schreibt
 // nichts, existiert ausschliesslich mit ?dev=1 und haengt keine UI in die Seite — das
@@ -3969,8 +3982,9 @@ function footballTickGoal(){
     // davor ist die Arena bewusst leer. Beim entscheidenden Tor wird 'spawn' uebersprungen:
     // nach dem Sieg gibt es keinen Rundenreset und faellt kein neuer Ball in die Arena.
     if(footballWinner!==null){fbGoalState='result';fbGoalTick=0;footballMatchEnd();return;}
-    // Elimination 4 -> 3: erst die sichtbare Arena-Transition, dann der Umbau. Waehrend
-    // 'morph' bleibt alles eingefroren; Phase, Spawns und Ball wechseln erst an ihrem Ende.
+    // Elimination 4 -> 3 und 3 -> 2: erst die sichtbare Arena-Transition, dann der Umbau.
+    // Waehrend 'morph' bleibt alles eingefroren; Phase, Spawns und Ball wechseln erst an
+    // ihrem Ende. Der letzte Wechsel 2 -> 1 ist der Sieg und laeuft nicht mehr hier durch.
     if(fbMorphWanted()){fbGoalState='morph';fbGoalTick=0;fbMorphBegin();return;}
     // Elimination4: eigener Rundenreset. Er baut die Arena auf die neue Spielerzahl um,
     // stellt alle Ueberlebenden auf die faire Startaufstellung dieser Phase und schickt
@@ -6343,8 +6357,11 @@ async function initR3D(){
       fbPoseGoals=(rd)=>{
         if(!goalNodes.length||!fbMorphPlan||!rd)return;
         const gp=fbMorphGoalE();
-        const A4=FOOTBALL_ARENA_ELIM4;
-        const half=A4.postOuter*BR*FB_U,back=FB_GOAL_HALF_DEPTH*BR*FB_U,base=A4.halfLen*BR*FB_U;
+        // Die Torinstanzen gehoeren noch zur AUSGANGSphase (mkGoal baut ihre Bodenteile
+        // kanonisch bei deren halfLen). Der Versatz muss deshalb aus derselben Phase kommen -
+        // bei 4 -> 3 ist das unveraendert die Vier-Tore-Arena.
+        const AV=fbMorphFromArena();
+        const half=AV.postOuter*BR*FB_U,back=FB_GOAL_HALF_DEPTH*BR*FB_U,base=AV.halfLen*BR*FB_U;
         for(const g of fbMorphPlan.goals){
           const nd=goalNodes.find(q=>q.key===g.slot);
           if(!nd)continue;
@@ -6650,18 +6667,22 @@ async function initR3D(){
     // Kernpolygone beider Phasen in gleichem Umlaufsinn (gegen den Uhrzeigersinn).
     // Kernpolygone der AKTIVEN Formfamilie. Rechteck, Dreieck und beliebiges Kernpolygon
     // (z. B. das gekappte Dreieck der refined-Form) werden gleich behandelt — die
-    // Minkowski-Kombination braucht nur zwei konvexe Kerne mit demselben Eckradius.
-    // Fuer den Default liefert das exakt dieselben Zahlen wie zuvor.
-    const fbMorphCore=(a,rc)=>{
+    // Minkowski-Kombination braucht nur zwei konvexe Kerne - ihre Eckenzahl darf sich
+    // unterscheiden (Phase 3 hat sechs, Phase 2 acht), ihr Eckradius ebenfalls.
+    const fbMorphCore=(a)=>{
       if(a.poly)return a.poly.map(v=>[v[0]*BR*FB_U,v[1]*BR*FB_U]);
       if(a.tri){const R=2*(a.apothem-a.corner)*BR*FB_U;return FB_TRI_VERT.map(v=>[v[0]*R,v[1]*R]);}
       const x=(a.halfLen-a.corner)*BR*FB_U,y=(a.halfWid-a.corner)*BR*FB_U;
       return [[x,-y],[x,y],[-x,y],[-x,-y]];
     };
-    // Start- und Endform des 4 -> 3 Umbaus, direkt aus den finalen Arenakonstanten.
-    const fbMorphCores=()=>{
-      const A4=FOOTBALL_ARENA_ELIM4,A3=FOOTBALL_ARENA_ELIM3,rc=A4.corner*BR*FB_U;
-      return {rc,sq:fbMorphCore(A4,rc),tri:fbMorphCore(A3,rc)};
+    // Start- und Endform des Umbaus, direkt aus den finalen Arenakonstanten der beiden
+    // Phasen. Der Eckradius gehoert dazu: 4 -> 3 laeuft beidseitig auf 3.50, 3 -> 2 fuehrt
+    // ihn von 3.50 auf 2.60 mit.
+    const fbMorphCores=(plan)=>{
+      const A=(plan&&FB_ELIM_ARENAS[plan.from])||FOOTBALL_ARENA_ELIM4;
+      const B=(plan&&FB_ELIM_ARENAS[plan.to])||FOOTBALL_ARENA_ELIM3;
+      return {a:fbMorphCore(A),b:fbMorphCore(B),
+              rcA:A.corner*BR*FB_U,rcB:B.corner*BR*FB_U};
     };
     // Flaechenschwerpunkt eines Polygons.
     const fbPolyCentroid=(P)=>{
@@ -6683,11 +6704,18 @@ async function initR3D(){
     // wackeln. Der Flaechenschwerpunkt wandert dadurch in der Mitte der Bewegung um maximal
     // 21 Einheiten nach Sueden (1.5 % der Arenabreite) und kommt exakt ins Zentrum zurueck —
     // das ist die ehrliche Folge davon, dass das Dreieck dort eine Spitze ausbildet.
-    const fbMorphRing=(e)=>{
-      const C=fbMorphCores();
-      const A=C.sq.map(v=>[v[0]*(1-e),v[1]*(1-e)]);
-      const B=C.tri.map(v=>[v[0]*e,v[1]*e]);
-      return {ring:fbRoundPoly(fbMinkowski(A,B),C.rc,20)};
+    //
+    // Der Eckradius wird im SELBEN Fortschritt linear mitgefuehrt. Weil die Stuetzfunktion
+    // der abgerundeten Form h(t) = h_kern(t) + rc ist und die Minkowski-Kombination
+    // h_kern exakt linear zwischen beiden Kernen interpoliert, ist damit auch h selbst
+    // exakt linear zwischen Start- und Endform: der Wandabstand jeder Richtung laeuft
+    // monoton, ohne Ueberschwingen, und beide Endzustaende sind exakt. Gemessen ueber 201
+    // Stufen x 720 Richtungen: 0 Gegenbewegungen, 0 Ueberschwingen.
+    const fbMorphRing=(e,plan)=>{
+      const C=fbMorphCores(plan||fbMorphPlan);
+      const A=C.a.map(v=>[v[0]*(1-e),v[1]*(1-e)]);
+      const B=C.b.map(v=>[v[0]*e,v[1]*e]);
+      return {ring:fbRoundPoly(fbMinkowski(A,B),C.rcA+(C.rcB-C.rcA)*e,20)};
     };
     // Normierte Bogenlaengenposition des Strahls unter Winkel th auf einem beliebigen Ring.
     const fbRingU=(ring,th)=>{
@@ -6812,11 +6840,14 @@ async function initR3D(){
     const FB_MORPH_RETRACT=0.55;     // Anteil von Abschnitt A, in dem sich das tote Tor zurueckzieht
     // Zwischenkontur und Bandenoeffnungen fuer den aktuellen Stand beider Abschnitte.
     // Die Oeffnung des ausgeschiedenen Tores schrumpft auf 0 — dort schliesst sich die Bande.
-    // Torrichtung bei Fortschritt gp: kuerzester Winkelweg vom Phase-4- zum Phase-3-Tor.
+    // Torrichtung bei Fortschritt gp: kuerzester Winkelweg von der Torachse der Ausgangs-
+    // phase auf die der Zielphase. Das ausgeschiedene Tor bleibt auf seinem Winkel stehen.
     const fbMorphGoalAngle=(g,gp)=>{
-      const d0=FOOTBALL_ELIM4_DIRS[g.slot],a0=Math.atan2(d0[1],d0[0]);
+      const D0=FB_ELIM_DIRS[fbMorphPlan.from]||FOOTBALL_ELIM4_DIRS;
+      const d0=D0[g.slot],a0=Math.atan2(d0[1],d0[0]);
       if(g.dead)return a0;
-      const d1=FOOTBALL_ELIM3_DIRS[g.target];
+      const D1=FB_ELIM_DIRS[fbMorphPlan.to]||FOOTBALL_ELIM3_DIRS;
+      const d1=D1[g.target];
       let d=Math.atan2(d1[1],d1[0])-a0;
       while(d>Math.PI)d-=2*Math.PI;
       while(d<-Math.PI)d+=2*Math.PI;

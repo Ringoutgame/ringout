@@ -1,6 +1,6 @@
 # PROJECT.md — RingOut
 
-**Zuletzt aktualisiert:** 2026-08-26 (Arena Football: finale adaptive Elimination-Arenaformen — Rounded Square / Broad Rounded Triangle / Shouldered Wide, 4→3 als V3-Morph; **drei** sichtbare Modi — Classic 1v1 als Standard, Tactical 1v1, Elimination; Elimination ist jetzt regulaer ueber die Modusauswahl startbar, weiterhin lokal/Hotseat)
+**Zuletzt aktualisiert:** 2026-08-27 (Arena Football: finale adaptive Elimination-Arenaformen — Rounded Square / Broad Rounded Triangle / Shouldered Wide; **beide** Arenawechsel 4→3 und 3→2 sind animiert; **drei** sichtbare Modi — Classic 1v1 als Standard, Tactical 1v1, Elimination; Elimination ist jetzt regulaer ueber die Modusauswahl startbar, weiterhin lokal/Hotseat)
 
 - **Aktueller stabiler Projekt-HEAD:** `5a23dc424fb3126c33c29543b7c6571b87a65ec7`
 - **Implementierungs-Commit UX-Phase 3:** `babbbe78ee388489321d1f0cb3e032bbaabd0725`
@@ -249,9 +249,31 @@ getrennt neu gesetzt, danach faehrt die Bande um; die Kamera steht dabei fest au
 Phase-4-Framing, Eingaben sind gesperrt und alle Koerper stehen still. Die Tore sitzen ueber
 eine Sehnenkonstruktion (`fbRingChord`) auch waehrend des Umbaus vollstaendig auf dem Deck.
 
-Der Wechsel **3 → 2** ist bewusst noch **nicht** animiert und bleibt der bestehende harte
-Rebuild am Ende des Torablaufs — das Finale hat einen anderen Eckradius, die Transition
-dafuer wird als eigener Auftrag entworfen.
+**Arenawechsel 3 → 2.** Derselbe Transitionspfad, nur mit anderer Ausgangs- und Zielform.
+Er ist der schwierigere Fall, weil die beiden Formen weder dieselbe Eckenzahl noch denselben
+Eckradius haben: **sechs Kernecken (rc 3.50) gegen acht (rc 2.60)**. Beides braucht trotzdem
+keine Sonderlogik.
+
+- **Eckenzahl 6 → 8:** Die Minkowski-Kombination fuehrt schlicht alle vierzehn Kanten-
+  richtungen beider Kerne mit. Die jeweils fremden haben am zugehoerigen Ende Laenge 0 und
+  wachsen linear — die vier Schulterflaechen entstehen dadurch stetig aus dem Nichts, und
+  die nicht mehr benoetigte dritte Torseite zieht sich ebenso stetig auf 0 zurueck.
+- **Eckradius 3.50 → 2.60:** wird im selben Fortschritt linear mitgefuehrt. Weil die
+  Stuetzfunktion der abgerundeten Form `h = h_kern + rc` ist und `h_kern` exakt linear
+  zwischen beiden Kernen interpoliert, ist `h` selbst exakt linear zwischen Start- und
+  Endform. Gemessen ueber 201 Stufen x 720 Richtungen: **0 Gegenbewegungen, 0 Ueberschwingen**,
+  beide Endzustaende exakt.
+
+Dieselbe Dramaturgie wie bei 4 → 3: erst die Torneuordnung (die beiden Ueberlebenden fahren
+auf dem kuerzesten Winkelweg auf ihre 180-Grad-Achsen, das ausgeschiedene Tor zieht sich
+zurueck und die Bande schliesst sich dort), danach der Arenaumbau. Kamera fest, Eingaben
+gesperrt, Koerper eingefroren; die Reihenfolge **Arena rastet ein → Figuren auf den
+2P-Spawns → Ball faellt zentral → Commit** ist bindend. Der letzte Wechsel **2 → 1** ist der
+Sieg und baut nicht mehr um.
+
+Beide Transitionen teilen sich **eine** Zeittabelle (Hold 12 / Tore 24 / Arena 54 / Settle 10
+Ticks), **einen** Satz Bausteine und **einen** Plan (`fbMorphPlan` haelt Ausgangs- und
+Zielphase). Es gibt keine zweite Morph-Engine und keine Sonderbehandlung nach Eckenzahl.
 
 **Faire Startaufstellung nach jeder Eliminierung.** Ueberlebende behalten ihre Positionen
 **nicht**. Ablauf: Tor faellt → Spieler scheidet aus → Arena wechselt auf die neue Geometrie →
