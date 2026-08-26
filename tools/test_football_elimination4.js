@@ -287,7 +287,83 @@ function scoreOn(E, slot) {
   return E.phase() === 'aim';
 }
 
-console.log('ARENA FOOTBALL - Dev-Prototyp ELIMINATION4 V3: ONE GOAL = OUT + ADAPTIVE ARENA\n');
+console.log('ARENA FOOTBALL - ELIMINATION: ONE GOAL = OUT + ADAPTIVE ARENA + FAIRER RESPAWN\n');
+
+// =================================================================================
+// A0 - PRODUKTINTEGRATION: MENUESTART == DEV-DIREKTSTART, MODE-SWITCH-SAFETY
+// =================================================================================
+// Elimination ist der dritte sichtbare Modus. Der Menuebutton ruft denselben
+// startFootball()-Pfad wie der Dev-Direktlink - es darf keinen zweiten Startzustand geben.
+// Geprueft wird der ZUSTAND nach dem Start; die DOM-Verdrahtung prueft die Produktsuite.
+{
+  const snap = (E) => JSON.stringify({
+    variant: E.variant(), elim: E.elim(), np: E.np(), teamCap: E.teamCap(),
+    phaseN: E.phaseN(), active: E.active(), slots: E.slots(), winner: E.winner(),
+    bodies: E.snapshot().map(b => ({ o: b.owner, x: b.x, y: b.y, alive: b.alive })),
+  });
+
+  // Dev-Direktlink: die Variante steht schon beim Laden fest.
+  const dev = buildEnv('elimination4');
+  dev.newMatch();
+
+  // Menue: das Spiel steht in Classic und wechselt erst durch die Auswahl - genau das macht
+  // startFootball(), gefolgt vom bestehenden newGame() -> startRound().
+  const menu = buildEnv();
+  menu.newMatch();
+  menu.setVariant('elimination4');
+  menu.newMatch();
+
+  ok(snap(menu) === snap(dev),
+     'der Menuestart erzeugt exakt denselben Zustand wie der Dev-Direktstart');
+  ok(menu.np() === 4 && menu.snapshot().length === 5,
+     'nach dem Menuestart stehen vier Spieler und ein Ball in der Arena');
+  ok(menu.phaseN() === 4 && menu.dirs().length === 4,
+     'nach dem Menuestart steht die Vier-Tore-Arena');
+  ok(JSON.stringify(menu.active()) === JSON.stringify([true, true, true, true]),
+     'nach dem Menuestart ist kein Spieler ausgeschieden');
+
+  // Rueckweg: Classic nach einem laufenden Elimination-Match traegt keinen Rest.
+  const back = buildEnv();
+  back.setVariant('elimination4');
+  back.newMatch();
+  back.eliminate(1);
+  back.setVariant('classic');
+  back.newMatch();
+  ok(back.elim() === false && back.np() === 2 && back.teamCap() === 1,
+     'Elimination -> Classic: zwei Spieler, eine Figur je Spieler');
+  ok(back.snapshot().length === 3, 'Elimination -> Classic: wieder genau drei Koerper');
+  ok(JSON.stringify(back.active()) === JSON.stringify([true, true, true, true]),
+     'Elimination -> Classic: der Eliminierungszustand ist zurueckgesetzt');
+  ok(back.phaseN() === 4, 'Elimination -> Classic: die Arenaphase ist zurueckgesetzt');
+  ok(JSON.stringify(back.slots()) === JSON.stringify([0, 1, 2, 3]),
+     'Elimination -> Classic: die Torzuordnung ist zurueckgesetzt');
+  ok(back.winner() === null, 'Elimination -> Classic: kein Gewinner aus dem Vormatch');
+
+  // Hinweg: Elimination nach einem Classic-Match ist ebenfalls sauber.
+  const fwd = buildEnv();
+  fwd.newMatch();
+  fwd.setVariant('elimination4');
+  fwd.newMatch();
+  ok(fwd.snapshot().length === 5 && fwd.np() === 4,
+     'Classic -> Elimination: vier Spieler, kein Classic-Rest');
+  ok(fwd.winner() === null && fwd.goalState() === 'play',
+     'Classic -> Elimination: kein Torablauf und kein Gewinner aus dem Vormatch');
+
+  // Und ueber Tactical: die dritte Kante des Moduswechsels.
+  const tac = buildEnv();
+  tac.setVariant('tactical');
+  tac.newMatch();
+  tac.setVariant('elimination4');
+  tac.newMatch();
+  ok(tac.elim() === true && tac.tactical() === false && tac.teamCap() === 1,
+     'Tactical -> Elimination: eine Figur je Spieler, kein Tactical-Rest');
+  ok(tac.snapshot().length === 5, 'Tactical -> Elimination: vier Spieler und ein Ball');
+  tac.setVariant('tactical');
+  tac.newMatch();
+  ok(tac.teamCap() === 2 && tac.snapshot().length === 5 && tac.np() === 2,
+     'Elimination -> Tactical: zwei Spieler mit je zwei Figuren');
+  ok(tac.elim() === false, 'Elimination -> Tactical: Elimination ist wieder inert');
+}
 
 // =================================================================================
 // A - VARIANTE UND STRUKTUR
@@ -302,7 +378,7 @@ console.log('ARENA FOOTBALL - Dev-Prototyp ELIMINATION4 V3: ONE GOAL = OUT + ADA
   ok(T.variant() === 'tactical' && T.elim() === false, 'Tactical bleibt Tactical (kein Elim-Leak)');
 
   const E = buildEnv('elimination4');
-  ok(E.variant() === 'elimination4', '?dev=1&fb=elimination4 aktiviert die Dev-Variante');
+  ok(E.variant() === 'elimination4', '?dev=1&fb=elimination4 aktiviert die Variante direkt');
   ok(E.elim() === true && E.tactical() === false, 'Elimination4 und Tactical schliessen sich aus');
   E.setMode('bot');
   ok(E.elim() === false, 'ausserhalb mode==="football" ist Elimination4 inert');
@@ -1390,11 +1466,18 @@ console.log('ARENA FOOTBALL - Dev-Prototyp ELIMINATION4 V3: ONE GOAL = OUT + ADA
   ok(S.snapshot().length === 3, 'nach dem Wechsel steht wieder die Classic-Aufstellung');
 
   ok(/const FOOTBALL_VARIANT_ELIM4='elimination4';/.test(HTML), 'die Variante heisst elimination4');
-  ok(/DEV_FB_VARIANT===FOOTBALL_VARIANT_ELIM4/.test(ctaSrc), 'Elimination4 ist nur ueber den Dev-Direktlink erreichbar');
+  ok(/DEV_FB_VARIANT===FOOTBALL_VARIANT_ELIM4/.test(ctaSrc),
+     'der Dev-Direktlink ?dev=1&fb=elimination4 ueberspringt die Auswahl weiterhin');
   ok(/const DEV_FB_VARIANT=DEV_MENU\?/.test(HTML), 'der fb-Parameter wird ausschliesslich mit ?dev=1 gelesen');
-  ok(!/fbElim4Btn|elimination4Btn/.test(HTML), 'die sichtbare Modusauswahl hat keinen Elimination4-Eintrag');
+  // Produktintegration: Elimination ist der dritte SICHTBARE Modus. Die Struktur des Modals
+  // prueft die Produktsuite test_football_tactical.js; hier zaehlt nur, dass es ihn gibt und
+  // dass er auf demselben Startpfad landet.
   const modeOv = grab(/<div class="ov" id="fbModeOv">[\s\S]*?id="fbModeBack"[\s\S]*?<\/div>/, 'Modusauswahl');
-  ok(!/elimination/i.test(modeOv), 'die Modusauswahl nennt Elimination4 nicht');
+  ok(/id="fbElimBtn"/.test(modeOv), 'die sichtbare Modusauswahl hat einen Elimination-Eintrag');
+  ok(/<button class="vopt rec" id="fbClassicBtn">/.test(modeOv) && !/id="fbElimBtn"[^>]*rec/.test(modeOv),
+     'Classic bleibt die empfohlene Option, Elimination wird nicht empfohlen');
+  ok(HTML.includes("$('fbElimBtn').onclick=()=>{if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);startFootball(FOOTBALL_VARIANT_ELIM4);};"),
+     'der Menuebutton startet denselben startFootball()-Pfad wie der Dev-Direktlink');
 
   ok(!/fbElim[A-Za-z]*\s*[:=][^\n]*rRef|onlineSendCommit[^\n]*fbElim/.test(HTML),
      'Elimination4 hat keinerlei Online-Anbindung');
@@ -1413,5 +1496,5 @@ console.log('ARENA FOOTBALL - Dev-Prototyp ELIMINATION4 V3: ONE GOAL = OUT + ADA
      'es gibt keine phase-spezifischen Physikwerte');
 }
 
-console.log('\nFootball-Elimination4 (V3): ' + pass + ' passed, ' + fail + ' failed');
+console.log('\nFootball-Elimination: ' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

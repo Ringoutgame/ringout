@@ -15,7 +15,9 @@
 //      nur eigener Figuren, Hidden Information),
 //   2. dass der Start beider Figuren gleichzeitig und vor dem ersten Physikschritt passiert,
 //   3. dass Classic der Standard bleibt und strukturell unberuehrt ist,
-//   4. dass die Modi sauber getrennt sind (Default, Fallback, Wechsel, kein State-Leak).
+//   4. dass die Modi sauber getrennt sind (Default, Fallback, Wechsel, kein State-Leak),
+//   5. dass die sichtbare Modusauswahl genau drei Optionen zeigt (Classic als einzige
+//      Empfehlung, Tactical, Elimination) und jede davon denselben Startpfad benutzt.
 //
 // Wie alle Football-Harnesse extrahiert sie die ECHTEN Quellen aus index.html und beobachtet
 // sie von aussen — es wird nichts in den Physikkern injiziert. Kein DOM, kein Renderer, kein
@@ -275,7 +277,7 @@ console.log('ARENA FOOTBALL — Produktsuite: Classic 1v1 (Standard) + Tactical 
   ok(/online=false/.test(startFootballSrc), 'startFootball() startet immer lokal (online=false)');
   ok(/fmt='single'/.test(startFootballSrc), 'startFootball() setzt das Bestandsformat single');
   ok(/\$\('fbModeOv'\)\.classList\.add\('show'\)/.test(ctaSrc),
-     'die Moduskarte oeffnet die sichtbare Zwei-Modi-Auswahl');
+     'die Moduskarte oeffnet die sichtbare Drei-Modi-Auswahl');
   ok(/DEV_FB_VARIANT==='classic'\|\|DEV_FB_VARIANT===FOOTBALL_VARIANT_TACTICAL/.test(ctaSrc),
      'nur ein GUELTIGER Dev-Direktlink ueberspringt die Auswahl');
   ok(/const DEV_FB_VARIANT=DEV_MENU\?/.test(devFbVariantSrc),
@@ -291,6 +293,53 @@ console.log('ARENA FOOTBALL — Produktsuite: Classic 1v1 (Standard) + Tactical 
   const showMenuSrc = grab(/function showMenu\(\)\{[\s\S]*?updScrollHint\(\);\}/, 'showMenu');
   ok(/fbVariant='classic';/.test(showMenuSrc),
      'showMenu() setzt die Football-Variante auf den Standardmodus zurueck');
+
+  // ── SICHTBARE MODUSAUSWAHL: genau DREI Optionen, Classic als einzige Empfehlung ──
+  // Elimination ist seit der Produktintegration der dritte sichtbare Modus. Geprueft wird
+  // das Modal selbst (Struktur, Reihenfolge, Empfehlung) und die Verdrahtung der Buttons.
+  const fbModalSrc = grab(/<div class="ov" id="fbModeOv">[\s\S]*?<button class="wbtn" id="fbModeBack">/, 'fbModeOv');
+  const voptBtns = fbModalSrc.match(/<button class="vopt[^"]*" id="(\w+)">/g) || [];
+  ok(voptBtns.length === 3, 'die Modusauswahl zeigt genau drei Optionen (erhalten: ' + voptBtns.length + ')');
+  ok(/<button class="vopt rec" id="fbClassicBtn">/.test(fbModalSrc), 'Option 1 ist Classic');
+  ok(/<button class="vopt" id="fbTacticalBtn">/.test(fbModalSrc), 'Option 2 ist Tactical');
+  ok(/<button class="vopt" id="fbElimBtn">/.test(fbModalSrc), 'Option 3 ist Elimination');
+  ok(fbModalSrc.indexOf('fbClassicBtn') < fbModalSrc.indexOf('fbTacticalBtn') &&
+     fbModalSrc.indexOf('fbTacticalBtn') < fbModalSrc.indexOf('fbElimBtn'),
+     'Reihenfolge Classic -> Tactical -> Elimination');
+  ok((fbModalSrc.match(/class="vopt rec"/g) || []).length === 1,
+     'genau EINE Option ist empfohlen (.vopt.rec)');
+  ok(!/id="fbElimBtn"[\s\S]{0,40}rec/.test(fbModalSrc) && /<button class="vopt" id="fbElimBtn">/.test(fbModalSrc),
+     'Elimination wird NICHT empfohlen — Classic bleibt der Standard');
+  ok(/id="fbModeBack"/.test(HTML) && /\$\('fbModeBack'\)\.onclick=\(\)=>\$\('fbModeOv'\)\.classList\.remove\('show'\)/.test(HTML),
+     'der Zurueck-Button schliesst das Modal unveraendert');
+  // Jede Option ruft denselben einzigen Startpfad mit ihrer Variante auf — kein zweiter Pfad,
+  // keine Zwischenbestaetigung, dieselbe Haptik wie die Bestandsoptionen.
+  for (const [id, arg] of [['fbClassicBtn', "'classic'"],
+                           ['fbTacticalBtn', 'FOOTBALL_VARIANT_TACTICAL'],
+                           ['fbElimBtn', 'FOOTBALL_VARIANT_ELIM4']]) {
+    ok(HTML.includes("$('" + id + "').onclick=()=>{if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);startFootball(" + arg + ");};"),
+       id + ' startet ueber startFootball() mit der eigenen Variante und derselben Haptik');
+  }
+  // Eine Definition, drei Menue-Aufrufer, der Dev-Direktlink — und eine Kommentarerwaehnung.
+  ok((HTML.match(/startFootball\(/g) || []).length === 6,
+     'kein zweiter Startpfad neben startFootball() (erhalten: ' + (HTML.match(/startFootball\(/g) || []).length + ')');
+  // Keine Zwischenbestaetigung und kein zweites Elimination-Modal.
+  ok(!/fbElimOv|fbElimConfirm|elimConfirm/.test(HTML), 'Elimination hat keinen zweiten Bestaetigungsschritt');
+
+  // ── i18n: die neuen Strings existieren in allen drei Sprachen ──
+  for (const [lang, title, sub] of [['EN', 'ELIMINATION', '4 PLAYERS · CONCEDE ONCE = OUT'],
+                                    ['DE', 'ELIMINATION', '4 SPIELER · 1 GEGENTOR = RAUS'],
+                                    ['TR', 'ELİMİNASYON', '4 OYUNCU · 1 GOL YE = ELEN']]) {
+    ok(HTML.includes("fbElimT:'" + title + "',fbElimS:'" + sub + "'"),
+       lang + ': Elimination-Titel und Kurztext vorhanden');
+  }
+  ok((HTML.match(/fbElimT:'/g) || []).length === 3 && (HTML.match(/fbElimS:'/g) || []).length === 3,
+     'die Elimination-Strings existieren in genau drei Sprachtabellen');
+  ok(/\$\('fbElimT'\)\.textContent=T\('fbElimT'\);\$\('fbElimS'\)\.textContent=T\('fbElimS'\);/.test(HTML),
+     'applyLang() beschriftet die dritte Option mit');
+  // Keine Tech-Begriffe in der primaeren Auswahl.
+  for (const word of ['HIDDEN', 'COMMIT', 'HOTSEAT', 'DEV', 'ADAPTIVE'])
+    ok(!new RegExp(word).test(fbModalSrc), 'kein Tech-Begriff im Auswahlmodal: "' + word + '"');
 
   // ── ONLINE-PIN: Arena Football ist ein lokaler Modus. Es gibt keinen Pfad, der
   //    mode='football' mit online=true verbindet.

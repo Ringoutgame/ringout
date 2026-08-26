@@ -773,8 +773,9 @@ body:not(.r3d) .ohero{height:12px}
   </div>
 </div>
 
-<!-- Arena Football: Auswahl der beiden Produktmodi. Gleiche Modalstruktur wie das
-     Bot-Format-Modal — Classic ist der Standard und deshalb als erste Option empfohlen. -->
+<!-- Arena Football: Auswahl der drei Produktmodi. Gleiche Modalstruktur wie das
+     Bot-Format-Modal — Classic ist der Standard und deshalb als einzige Option empfohlen
+     (.vopt.rec). Elimination ist der dritte Modus und wird bewusst NICHT empfohlen. -->
 <div class="ov" id="fbModeOv">
   <div class="wb vswb">
     <div class="wt" id="fbModeTitle">ARENA FOOTBALL</div>
@@ -785,6 +786,10 @@ body:not(.r3d) .ohero{height:12px}
     <button class="vopt" id="fbTacticalBtn">
       <span class="vopt-t" id="fbTacticalT">TACTICAL 1V1</span>
       <span class="vopt-s" id="fbTacticalS">2 FIGURES · 1 MOVE PER ROUND</span>
+    </button>
+    <button class="vopt" id="fbElimBtn">
+      <span class="vopt-t" id="fbElimT">ELIMINATION</span>
+      <span class="vopt-s" id="fbElimS">4 PLAYERS · CONCEDE ONCE = OUT</span>
     </button>
     <button class="wbtn" id="fbModeBack">↩ Back</button>
   </div>
@@ -1483,6 +1488,7 @@ en:{tagline:'PULL BACK · RELEASE · KNOCK THEM OUT',chip:'FEATURED',
   botT:'BOT TRAINING',botS:'VS AI',
   fbT:'ARENA FOOTBALL',fbClassicT:'CLASSIC 1V1',fbClassicS:'1 FIGURE PER PLAYER',
   fbTacticalT:'TACTICAL 1V1',fbTacticalS:'2 FIGURES · 1 MOVE PER ROUND',
+  fbElimT:'ELIMINATION',fbElimS:'4 PLAYERS · CONCEDE ONCE = OUT',
   secPlay:'PLAY',secRooms:'ONLINE ROOMS',secHow:'HOW TO PLAY',viewAll:'VIEW ALL',
   joinCodeBtn:'JOIN CODE',howLead:'Learn the rules and master the ring.',
   createRoomSub:'Invite your friends',joinCodeSub:'Enter room code',
@@ -1527,6 +1533,7 @@ de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'FEATURED',
   botT:'BOT-TRAINING',botS:'GEGEN KI',
   fbT:'ARENA FOOTBALL',fbClassicT:'CLASSIC 1V1',fbClassicS:'1 FIGUR PRO SPIELER',
   fbTacticalT:'TACTICAL 1V1',fbTacticalS:'2 FIGUREN · 1 ZUG PRO RUNDE',
+  fbElimT:'ELIMINATION',fbElimS:'4 SPIELER · 1 GEGENTOR = RAUS',
   secPlay:'SPIELEN',secRooms:'ONLINE-RÄUME',secHow:'SO WIRD GESPIELT',viewAll:'ALLE ANZEIGEN',
   scrollHint:'SCROLLEN FÜR MEHR',soonT:'BALD MEHR',soonS:'Neue Modi und Features sind in Arbeit.',
   joinCodeBtn:'CODE BEITRETEN',howLead:'Lerne die Regeln und meistere den Ring.',
@@ -1571,6 +1578,7 @@ tr:{tagline:'GERİ ÇEK · BIRAK · DIŞARI İT',chip:'FEATURED',
   botT:'BOT ANTRENMANI',botS:'YAPAY ZEKÂYA KARŞI',
   fbT:'ARENA FOOTBALL',fbClassicT:'CLASSIC 1V1',fbClassicS:'OYUNCU BAŞINA 1 FİGÜR',
   fbTacticalT:'TACTICAL 1V1',fbTacticalS:'2 FİGÜR · TUR BAŞINA 1 HAMLE',
+  fbElimT:'ELİMİNASYON',fbElimS:'4 OYUNCU · 1 GOL YE = ELEN',
   secPlay:'OYNA',secRooms:'ONLINE ODALAR',secHow:'NASIL OYNANIR',viewAll:'TÜMÜNÜ GÖR',
   scrollHint:'KAYDIR VE KEŞFET',soonT:'ÇOK YAKINDA DAHA FAZLASI',soonS:'Yeni modlar ve özellikler yolda.',
   joinCodeBtn:'KODLA KATIL',howLead:'Kuralları öğren ve ringe hâkim ol.',
@@ -1640,6 +1648,7 @@ function applyLang(){
   $('fbModeTitle').textContent=T('fbT');$('fbModeBack').textContent=T('back');
   $('fbClassicT').textContent=T('fbClassicT');$('fbClassicS').textContent=T('fbClassicS');
   $('fbTacticalT').textContent=T('fbTacticalT');$('fbTacticalS').textContent=T('fbTacticalS');
+  $('fbElimT').textContent=T('fbElimT');$('fbElimS').textContent=T('fbElimS');
   $('onInput').placeholder=T('enterCode');
   $('nameLbl').textContent=T('nameLbl');$('nameInput').placeholder=T('namePh');$('rejoinBtn').textContent=T('rejoinBtn');
   {const bt=$('bootTxt');if(bt)bt.textContent=T('loading');}   // Boot-Overlay existiert nur bis zum First-Frame
@@ -1690,7 +1699,7 @@ $('modeNext').onclick=()=>stepMenuMode(1);
 $('ctaBtn').onclick=()=>{
   SFX.unlock();
   // ARENA FOOTBALL: Modusauswahl statt Sofortstart. Ein gueltiger Dev-Direktlink
-  // (?dev=1&fb=classic|tactical) ueberspringt die Auswahl bewusst.
+  // (?dev=1&fb=classic|tactical|elimination4) ueberspringt die Auswahl bewusst.
   if(menuSel==='football'){if(SFX.click())vibrateMs(VIBE_CLICK_MS);   // oeffnet nur die Auswahl — wie beim Bot-Dialog
     if(!r3dActive){toast('Arena Football benötigt die echte 3D-Szene (nicht verfügbar).');return;}
     if(DEV_FB_VARIANT==='classic'||DEV_FB_VARIANT===FOOTBALL_VARIANT_TACTICAL||DEV_FB_VARIANT===FOOTBALL_VARIANT_ELIM4){startFootball(DEV_FB_VARIANT);return;}
@@ -1711,13 +1720,13 @@ $('ctaBtn').onclick=()=>{
 $('bot1v1').onclick=()=>{$('botOv').classList.remove('show');mode=menuMode='bot';fmt='single';online=false;showGame();newGame();};
 $('bot2v2').onclick=()=>{$('botOv').classList.remove('show');mode=menuMode='bot';fmt='double';online=false;showGame();newGame();};
 $('botBack').onclick=()=>$('botOv').classList.remove('show');
-// Arena Football: EINZIGER Startpfad beider Produktmodi. Er setzt die Variante und laeuft
+// Arena Football: EINZIGER Startpfad aller drei Produktmodi. Er setzt die Variante und laeuft
 // danach durch exakt denselben Bestandsablauf wie zuvor (lokales Match, nie online).
 // Torsound wird aus dieser Nutzergeste vorgeladen.
 function startFootball(variant){
   // Genau drei zulaessige Werte, jeder andere faellt auf den Standardmodus zurueck.
-  // 'elimination4' ist der DEV-PROTOTYP und nur ueber den Dev-Direktlink erreichbar — die
-  // sichtbare Modusauswahl bietet weiterhin ausschliesslich Classic und Tactical an.
+  // Alle drei sind ueber die sichtbare Modusauswahl erreichbar; der Dev-Direktlink
+  // (?dev=1&fb=...) ueberspringt lediglich das Modal.
   fbVariant=(variant===FOOTBALL_VARIANT_TACTICAL||variant===FOOTBALL_VARIANT_ELIM4)?variant:'classic';
   $('fbModeOv').classList.remove('show');
   mode=menuMode='football';fmt='single';online=false;
@@ -1726,6 +1735,7 @@ function startFootball(variant){
 }
 $('fbClassicBtn').onclick=()=>{if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);startFootball('classic');};
 $('fbTacticalBtn').onclick=()=>{if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);startFootball(FOOTBALL_VARIANT_TACTICAL);};
+$('fbElimBtn').onclick=()=>{if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);startFootball(FOOTBALL_VARIANT_ELIM4);};
 $('fbModeBack').onclick=()=>$('fbModeOv').classList.remove('show');
 $('menuSnd').onclick=()=>{soundOn=!soundOn;const g=soundOn?'🔊':'🔇';$('menuSnd').textContent=g;$('sndBtn').textContent=g;if(!soundOn)SFX.charge.stop();};
 // ── Menue-Preview: die ECHTE 3D-Szene zeigt den gewaehlten Modus. Setzt nur den
