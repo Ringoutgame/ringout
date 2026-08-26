@@ -42,6 +42,7 @@ const REQUIRED_NODES = ['PlayFloor_Core',
 const BOOT_DEADLINE_MS = 8000;
 const FALLBACK_TOAST = '3D nicht verfügbar';
 
+const SHOT_DIR = process.env.R3D_SHOTS || null;
 const results = [];
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const ok = (name) => { results.push({ name, ok: true }); console.log('  ✓ ' + name); };
@@ -291,6 +292,164 @@ async function caseGeometry(browser, navUrl) {
   }
 }
 
+
+// ── Fall E — WebGL-Context-Recovery (Mobile Bug 2B) ─────────────────────────
+// Ein verlorener Kontext blieb frueher unbemerkt: r3dActive blieb true, der
+// Zeichenpuffer fiel auf 0x0, Gameplay und Overlay liefen weiter — der Spieler
+// zielte blind auf ein schwarzes Bild, und ohne preventDefault kam der Kontext
+// nie zurueck. Geprueft wird gegen Produktverhalten: waehrend des Verlusts darf
+// keine lokale Eingabe durchkommen und der Match-Zustand sich nicht aendern;
+// nach dem Restore muss ohne Reload weitergespielt werden koennen — inklusive
+// des Geometrievertrags aus Bug 2A.
+//
+// WEBGL_lose_context wird ausschliesslich hier im Test benutzt; der Produktcode
+// kennt die Erweiterung nicht.
+async function caseContextRecovery(browser, navUrl) {
+  console.log('\nFall E — WebGL-Context-Recovery: Verlust sperrt, Restore stellt her');
+  const c = await newClient(browser, navUrl + '?mobileDiag=1', null);
+  try {
+    await c.page.waitForFunction(() => !document.body.classList.contains('booting'), null, { timeout: 20000 });
+    const diag = () => c.page.evaluate(() => window.__mobileDiag());
+    const rec = () => c.page.evaluate(() => window.__r3dRecoveryState());
+    const pickAt = (x, y) => c.page.evaluate(([a, b]) => window.__mobileDiagPick(a, b), [x, y]);
+    // Der Test haelt den Extension-Handle selbst; nach dem Verlust gibt
+    // getExtension() keinen neuen mehr her.
+    await c.page.evaluate(() => {
+      const cv3d = document.getElementById('cv3d');
+      const gl = cv3d.getContext('webgl2') || cv3d.getContext('webgl');
+      window.__testLose = gl && gl.getExtension('WEBGL_lose_context');
+    });
+    const hasExt = await c.page.evaluate(() => !!window.__testLose);
+    check(hasExt, 'WEBGL_lose_context im Test verfuegbar');
+    if (!hasExt) return;
+
+    await startBotMatch(c.page);
+    await sleep(900);
+
+    // 1) Normalzustand
+    const before = await diag();
+    const recBefore = await rec();
+    check(before.r3dActive === true && before.contextLost === false, '1 normaler 3D-Start unveraendert',
+      'r3dActive=' + before.r3dActive + ' lost=' + before.contextLost);
+    check(recBefore.lost === false && recBefore.inputBlocked === false && recBefore.hint === false,
+      '1 kein Recovery-Zustand im Normalbetrieb', JSON.stringify(recBefore));
+    check(!!recBefore.env, '1 Environment im Normalbetrieb vorhanden');
+    const cfgBefore = { shadow: recBefore.shadow, toneMapping: recBefore.toneMapping,
+                        colorSpace: recBefore.colorSpace, pixelRatio: recBefore.pixelRatio,
+                        exposure: recBefore.exposure };
+    const stateBefore = await c.page.evaluate(() => window.__mobileDiag().ball);
+    if (SHOT_DIR) { fs.mkdirSync(SHOT_DIR, { recursive: true }); await c.page.screenshot({ path: path.join(SHOT_DIR, 'ctx_A_before_loss.png') }); }
+
+    // 2) Kontextverlust
+    const turnBefore = (await rec()).match;
+    await c.page.evaluate(() => window.__testLose.loseContext());
+    await sleep(1200);
+    const lost = await diag(), recLost = await rec();
+    check(lost.contextLost === true, '2 Context Loss wird erkannt', 'isContextLost=' + lost.contextLost);
+    check(recLost.lost === true, '3 Recovery-Zustand gesetzt (r3dContextLost)', JSON.stringify(recLost));
+    check(recLost.hint === true && /wiederhergestellt/i.test(recLost.hintText || ''),
+      '3 sichtbarer Recovery-Hinweis fuer den Spieler', recLost.hintText);
+    check(!!lost.buf && lost.buf.w === 0 && lost.buf.h === 0, '4 Zeichenpuffer ist 0x0', JSON.stringify(lost.buf));
+    check(recLost.inputBlocked === true, '4 Eingabe zentral gesperrt statt blindem Weiterspielen', JSON.stringify(recLost.inputBlocked));
+
+    // 5-7) Eingaben waehrend des Verlusts
+    const camBefore = recLost.cam;
+    await c.page.evaluate(() => document.getElementById('actBtn').click());   // Stand-Button
+    await sleep(400);
+    const afterStand = (await rec()).match;
+    check(JSON.stringify(afterStand.aimSet) === JSON.stringify(turnBefore.aimSet) && afterStand.phase === turnBefore.phase,
+      '5 Aim/Shot waehrend des Verlusts blockiert', JSON.stringify({ vor: turnBefore, nach: afterStand }));
+    const armed = (await rec()).canArm;
+    check(armed === false, '6 Barrier waehrend des Verlusts blockiert', 'barrierCanArm=' + armed);
+    await c.page.mouse.move(200, 400); await c.page.mouse.down();
+    for (let i = 1; i <= 6; i++) { await c.page.mouse.move(200 + i * 20, 400); await sleep(16); }
+    await c.page.mouse.up(); await sleep(300);
+    const camAfter = (await rec()).cam;
+    check(JSON.stringify(camAfter) === JSON.stringify(camBefore), '7 Kamera waehrend des Verlusts blockiert',
+      JSON.stringify({ vor: camBefore, nach: camAfter }));
+
+    // 8) Match-/Netzwerkzustand unveraendert
+    const turnAfterLoss = (await rec()).match;
+    check(turnAfterLoss.turn === turnBefore.turn && turnAfterLoss.gen === turnBefore.gen &&
+          JSON.stringify(turnAfterLoss.score) === JSON.stringify(turnBefore.score),
+      '8 Match-/Game-State durch den Verlust unveraendert', JSON.stringify({ vor: turnBefore, nach: turnAfterLoss }));
+
+    // 9-15) Restore
+    await c.page.evaluate(() => window.__testLose.restoreContext());
+    const okRestore = await c.page.waitForFunction(() => {
+      const r = window.__r3dRecoveryState(); return r && r.lost === false && r.failed === false;
+    }, null, { timeout: 20000 }).then(() => true).catch(() => false);
+    check(okRestore, '9 Context Restore wird erkannt und abgeschlossen');
+    await sleep(600);
+    const after = await diag(), recAfter = await rec();
+    check(after.contextLost === false, '11 Kontext wieder gueltig', 'isContextLost=' + after.contextLost);
+    check(!!after.buf && after.buf.w > 0 && after.buf.h > 0, '11 Zeichenpuffer wieder korrekt', JSON.stringify(after.buf));
+    check(after.projectionGeometryMismatch === false && after.mismatchPx < 1,
+      '10 Bug-2A-Geometrievertrag nach Restore weiterhin erfuellt (' + after.mismatchPx.toFixed(2) + ' px)',
+      JSON.stringify(after.mismatch));
+    check(recAfter.shadow.enabled === cfgBefore.shadow.enabled && recAfter.shadow.type === cfgBefore.shadow.type,
+      '12/14 Shadow-Konfiguration wiederhergestellt', JSON.stringify({ vor: cfgBefore.shadow, nach: recAfter.shadow }));
+    check(recAfter.toneMapping === cfgBefore.toneMapping && recAfter.colorSpace === cfgBefore.colorSpace &&
+          recAfter.pixelRatio === cfgBefore.pixelRatio,
+      '12 Renderer-Konfiguration wiederhergestellt (ToneMapping, ColorSpace, PixelRatio)',
+      JSON.stringify({ vor: cfgBefore, nach: recAfter }));
+    check(!!recAfter.env, '13 Environment/PMREM wieder vorhanden', 'env=' + recAfter.env);
+    check(recAfter.envProfile === recBefore.envProfile, '13 dasselbe Environment-Profil wie vorher',
+      JSON.stringify({ vor: recBefore.envProfile, nach: recAfter.envProfile }));
+    check(Math.abs(recAfter.exposure - cfgBefore.exposure) < 1e-6, '13 Belichtung des Profils wieder angewandt',
+      JSON.stringify({ vor: cfgBefore.exposure, nach: recAfter.exposure }));
+    check(recAfter.hint === false, '9 Recovery-Hinweis wieder entfernt');
+    check(!!after.ball && Math.hypot(after.ball.logical.x - stateBefore.logical.x,
+                                     after.ball.logical.y - stateBefore.logical.y) < 1,
+      '15 aktueller Ball-/Match-State wird korrekt dargestellt',
+      JSON.stringify({ vor: stateBefore.logical, nach: after.ball && after.ball.logical }));
+    if (SHOT_DIR) await c.page.screenshot({ path: path.join(SHOT_DIR, 'ctx_B_after_restore.png') });
+
+    // 16-17) Weiterspielen ohne Reload, ohne Match-Reset
+    const hit = await pickAt(after.ball.draw.x, after.ball.draw.y);
+    check(hit.idx >= 0, '16 Picking nach Restore trifft die gezeichnete Kugel wieder', JSON.stringify(hit));
+    const turnPre = (await rec()).match;
+    check(turnPre.turn === turnBefore.turn && turnPre.gen === turnBefore.gen &&
+          JSON.stringify(turnPre.score) === JSON.stringify(turnBefore.score),
+      '17 kein Match-/Turn-Reset durch den Restore', JSON.stringify({ vor: turnBefore, nach: turnPre }));
+    await c.page.mouse.move(after.ball.draw.x, after.ball.draw.y);
+    await c.page.mouse.down();
+    for (let i = 1; i <= 6; i++) { await c.page.mouse.move(after.ball.draw.x, after.ball.draw.y + i * 9); await sleep(16); }
+    await c.page.mouse.up();
+    await sleep(2600);
+    const shot = await diag();
+    check(!!shot.ball && Math.hypot(shot.ball.logical.x - after.ball.logical.x,
+                                    shot.ball.logical.y - after.ball.logical.y) > 1,
+      '16 Aim/Shot nach erfolgreichem Restore wieder moeglich',
+      JSON.stringify({ vor: after.ball.logical, nach: shot.ball && shot.ball.logical }));
+    await sleep(1500);
+
+    // 18) Zweiter vollstaendiger Zyklus
+    await c.page.evaluate(() => window.__testLose.loseContext());
+    await sleep(1000);
+    const lost2 = await rec();
+    check(lost2.lost === true && lost2.inputBlocked === true, '18 zweiter Verlust wird ebenfalls erkannt und sperrt', JSON.stringify(lost2));
+    await c.page.evaluate(() => window.__testLose.restoreContext());
+    const ok2 = await c.page.waitForFunction(() => {
+      const r = window.__r3dRecoveryState(); return r && r.lost === false && r.failed === false;
+    }, null, { timeout: 20000 }).then(() => true).catch(() => false);
+    check(ok2, '18 zweiter Restore erfolgreich');
+    await sleep(600);
+    const after2 = await diag(), rec2 = await rec();
+    check(after2.contextLost === false && after2.buf.w > 0 && !!rec2.env,
+      '18 nach dem zweiten Zyklus wieder voll funktionsfaehig',
+      JSON.stringify({ lost: after2.contextLost, buf: after2.buf, env: rec2.env }));
+    check(after2.projectionGeometryMismatch === false && after2.mismatchPx < 1,
+      '18 Geometrievertrag auch nach dem zweiten Zyklus (' + after2.mismatchPx.toFixed(2) + ' px)',
+      JSON.stringify(after2.mismatch));
+    const hardErrs = hardConsoleErrors(c.diag);
+    check(c.diag.pageErrors.length === 0, 'Recovery ohne harte Console-Exception', c.diag.pageErrors.join(' | '));
+    check(hardErrs.length === 0, 'Recovery ohne Console-Fehler', hardErrs.join(' | '));
+  } finally {
+    await c.context.close();
+  }
+}
+
 (async () => {
   let server = null, browser = null;
   try {
@@ -320,6 +479,8 @@ async function caseGeometry(browser, navUrl) {
     });
 
     await caseGeometry(browser, navUrl);
+
+    await caseContextRecovery(browser, navUrl);
   } catch (e) {
     fail('Testlauf abgebrochen', String((e && e.message) || e));
   } finally {

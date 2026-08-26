@@ -911,6 +911,36 @@ function perfTick(now){
     (R3D_WANTED?'\nGLB  '+(perfGlbMs<0?'…':perfGlbMs+' ms')+'\nHDRI '+(perfHdrMs<0?'…':perfHdrMs+' ms'):'');
 }
 
+// ── WebGL-Context-Recovery (Bug 2B) ──────────────────────────────────────────
+// Ein verlorener WebGL-Kontext (auf Mobilgeraeten der uebliche Ausgang bei
+// Speicherdruck) blieb frueher voellig unbemerkt: r3dActive blieb true, der
+// Zeichenpuffer fiel auf 0x0, und Gameplay, Netzwerk und Overlay liefen weiter —
+// der Spieler zielte blind auf ein schwarzes Bild. Ohne preventDefault stellt der
+// Browser den Kontext ausserdem nie wieder her.
+//
+// Seitdem gilt: Verlust wird erkannt, JEDE lokale Eingabe ist waehrenddessen
+// gesperrt, der Match- und Netzwerkzustand bleibt unangetastet, und nach dem
+// Restore wird der Renderer kontrolliert wieder aufgebaut. Erst ein bestaetigter
+// Frame gibt die Eingabe wieder frei.
+let r3dContextLost=false,r3dRecoveryFailed=false,r3dHintEl=null;
+// EIN Gate fuer den Recovery-Zustand. Es wird an den bereits vorhandenen
+// kanonischen Freigaben ausgewertet (canCommitInput, whoCanAim,
+// barrierCanArmSeat, Kamerageste) — keine verstreuten Sonderbedingungen.
+function r3dInputBlocked(){return r3dContextLost;}
+function r3dRecoveryHint(show,msg){
+  if(!show){if(r3dHintEl){r3dHintEl.remove();r3dHintEl=null;}return;}
+  if(!r3dHintEl){
+    r3dHintEl=document.createElement('div');
+    r3dHintEl.id='r3dRecovery';
+    r3dHintEl.style.cssText='position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);'+
+      'background:rgba(8,14,22,.92);color:#dfe7f3;font:700 14px/1.5 system-ui,sans-serif;'+
+      'border:1px solid rgba(150,170,210,.28);border-radius:12px;padding:14px 20px;'+
+      'text-align:center;white-space:pre-line;pointer-events:none;z-index:350;max-width:80vw';
+    document.body.appendChild(r3dHintEl);
+  }
+  r3dHintEl.textContent=msg||'Grafik wird wiederhergestellt …';
+}
+
 // ── Kanonische Spielflaeche (Bug 2A) ─────────────────────────────────────────
 // Renderer, Projektion und Picking mussten frueher aus DREI Quellen zusammen-
 // passen: renderer.setSize() nahm innerWidth/innerHeight, die sichtbare CSS-
@@ -2271,6 +2301,7 @@ function inputLocked(){return collapseActive()&&(collapseState==='expired'||turn
 // commitAutoStand() passiert die Sperre, und der setzt ausschliesslich "stehen bleiben".
 // Online bleibt unberuehrt — dort ist die DB der Write-once-Arbiter (s. commit()).
 function canCommitInput(who){
+  if(typeof r3dInputBlocked==='function'&&r3dInputBlocked())return false;   // Recovery: kein lokaler Commit, auch online nicht
   if(online)return true;
   if(phase!=='aim')return false;
   if(inputLocked())return false;
@@ -2993,7 +3024,7 @@ $('actBtn').onclick=()=>{if(r3dOrbit)return;if(phase!=='aim')return;const who=on
 function localPt(e){
   if(r3dActive)return r3d.s2w(e.clientX,e.clientY);   // 3D: Ray-Ebene-Schnitt -> LOGICAL (P2 steckt in der Kamera)
   const r=cv.getBoundingClientRect();const sc=LOGICAL/(r.width||dispS);let x=(e.clientX-r.left)*sc,y=(e.clientY-r.top)*sc;const va=viewAngle();if(va===Math.PI){x=2*cx-x;y=2*cy-y;}else if(va){const dx=x-cx,dy=y-cy,c=Math.cos(va),s=Math.sin(va);x=cx+dx*c+dy*s;y=cy-dx*s+dy*c;}return{x:x,y:y};}
-function whoCanAim(){if(r3dOrbit)return -1;if(phase!=='aim')return -1;
+function whoCanAim(){if(r3dOrbit||(typeof r3dInputBlocked==='function'&&r3dInputBlocked()))return -1;if(phase!=='aim')return -1;
   if(inputLocked())return -1;   // Timer abgelaufen: kein neuer Zug, bis der Collapse ausgewertet ist
   if(online)return (aimSet[myPlayer]||!aliveCount(myPlayer))?-1:myPlayer;if(mode==='bot')return aimSet[0]?-1:0;return aimSet[curAimer]?-1:curAimer;}
 function pickOwnBall(who,p){let best=-1,bd=1e9;balls.forEach((b,i)=>{if(b.alive&&b.owner===who){const d=Math.hypot(p.x-b.x,p.y-b.y);if(d<bd){bd=d;best=i;}}});const reach=teamCap()===2?BR*2.8:BR*5;return bd<=reach?best:-1;}
@@ -3810,7 +3841,7 @@ function barrierCanArmSeat(s){
   // nur solange kein Commit-Reveal-Ablauf laeuft (Wandwahl ist ab da gesperrt).
   if(online&&!(typeof barrierNetActive==='function'&&barrierNetActive()
     &&s===myPlayer&&!barrierNetOwnLocked()))return false;
-  return barrierRuntimeOn()&&!menuVisible
+  return barrierRuntimeOn()&&!menuVisible&&!(typeof r3dInputBlocked==='function'&&r3dInputBlocked())
     &&phase==='aim'&&!inputLocked()&&s>=0&&s<barrierStakesBySeat.length
     &&!aimSet[s]&&aliveCount(s)>0
     &&barrierStakesBySeat[s]>0;
@@ -7215,8 +7246,9 @@ async function initR3D(){
       cam:{ // Spieler-Kamera (nur ?r3d=1): Gesten setzen Ziele, sync() daempft -> Mapping bleibt exakt
         // Grab-Metapher: Wisch nach rechts -> Arena dreht sichtbar nach rechts, d. h. die
         // Kamera orbitet entgegengesetzt (-dx). Vertikal war bereits trackball-natuerlich.
-        rotate(dx,dy){camYawT-=dx*.005;camPolarT=Math.min(1.15,Math.max(.3,camPolarT-dy*.004));},
-        zoom(f){camDistFT=Math.min(1.5,Math.max(.75,camDistFT*f));},
+        // Recovery: die Geste wird ignoriert, camPid/Orbit-Logik bleibt unberuehrt.
+        rotate(dx,dy){if(r3dInputBlocked())return;camYawT-=dx*.005;camPolarT=Math.min(1.15,Math.max(.3,camPolarT-dy*.004));},
+        zoom(f){if(r3dInputBlocked())return;camDistFT=Math.min(1.5,Math.max(.75,camDistFT*f));},
         reset(){camYawT=0;camPolarT=POLAR0;camDistFT=1;}
       },
       render(){sync();renderer.render(scene,camera);}
@@ -7235,6 +7267,60 @@ async function initR3D(){
     document.body.classList.add('r3d');   // 3D-scoped UI-Styles (u. a. lesbarer Hinweistext)
     r3dActive=true;resize();
     // Diagnose (nur ?mobileDiag=1): reicht die Handles herein, veraendert nichts.
+    // ── Context-Loss und -Restore (Bug 2B) ────────────────────────────────
+    // preventDefault() ist die Voraussetzung dafuer, dass der Browser den Kontext
+    // ueberhaupt wiederherstellen darf. Match, Score, Simulation und Netzwerk
+    // werden dabei NICHT angefasst — nur lokale Eingabe und Rendering pausieren.
+    c3.addEventListener('webglcontextlost',(e)=>{
+      e.preventDefault();
+      r3dContextLost=true;r3dRecoveryFailed=false;
+      if(typeof cancelAimDrag==='function')cancelAimDrag();   // laufender Zug endet ohne Commit
+      r3dRecoveryHint(true);
+    });
+    c3.addEventListener('webglcontextrestored',()=>{r3dRestore();});
+    // Kontrollierter Wiederaufbau: Renderer-Konfiguration, Geometrie, Environment,
+    // Schatten — danach ein bestaetigter Frame, erst dann Eingabe wieder frei.
+    async function r3dRestore(){
+      try{
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,2));
+        renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+        renderer.toneMapping=THREE.ACESFilmicToneMapping;
+        renderer.outputColorSpace=THREE.SRGBColorSpace;
+        markGameSurfaceDirty();resize();          // Bug-2A-Vertrag: eine Messung, frame() zieht nach
+        // Das Environment ist die einzige Ressource, die den Kontextverlust nicht
+        // ueberlebt: die PMREM-Aufbereitung von scene.environment lebt in
+        // kontextgebundenen Render-Targets. envTexPath zuruecksetzen erzwingt im
+        // vorhandenen Helper einen frischen Aufbau — keine zweite Ladepfad-Kopie.
+        envTexPath=null;
+        await applyEnvProfile(envApplied||envProfile,false);
+        renderer.shadowMap.needsUpdate=true;      // Schattenkarten neu zeichnen
+        r3d.render();                             // ein bestaetigter Frame aus dem AKTUELLEN Spielzustand
+        const gl=renderer.getContext();
+        if(gl.isContextLost()||gl.drawingBufferWidth<=0)throw new Error('Kontext weiterhin ungueltig');
+        if(!scene.environment)throw new Error('Environment nicht wiederhergestellt');
+        r3dContextLost=false;r3dRecoveryFailed=false;r3dRecoveryHint(false);
+      }catch(err){
+        // Fehlgeschlagene Wiederherstellung: Eingabe bleibt gesperrt, klarer Zustand,
+        // kein stilles Weiterspielen, kein automatischer Reload, kein Match-Reset.
+        r3dRecoveryFailed=true;
+        r3dRecoveryHint(true,'Grafik konnte nicht wiederhergestellt werden.\nBitte die Seite neu laden.');
+        console.error('r3d: Context-Restore fehlgeschlagen',err&&err.message||err);
+      }
+    }
+    // Testhaken (nur ?mobileDiag=1): liest den Recovery-Zustand, steuert nichts.
+    if(MOBILE_DIAG)window.__r3dRecoveryState=()=>({lost:r3dContextLost,failed:r3dRecoveryFailed,
+      hint:!!r3dHintEl&&document.body.contains(r3dHintEl),hintText:r3dHintEl?r3dHintEl.textContent:null,
+      env:!!scene.environment,envProfile:envApplied,
+      shadow:{enabled:renderer.shadowMap.enabled,type:renderer.shadowMap.type},
+      toneMapping:renderer.toneMapping,exposure:renderer.toneMappingExposure,
+      colorSpace:renderer.outputColorSpace,pixelRatio:renderer.getPixelRatio(),
+      // Match- und Kamerazustand, damit die Regression belegen kann, dass ein
+      // Kontextverlust weder Zug, Score noch Kamera veraendert (rein lesend).
+      match:{turn:turnNo,gen:gen,phase:phase,score:score.slice(),aimSet:aimSet.slice()},
+      cam:{yaw:camYawT,polar:camPolarT,dist:camDistFT},
+      canArm:(typeof barrierCanArm==='function')?barrierCanArm():null,
+      inputBlocked:r3dInputBlocked()});
+
     // Invalidierung der Spielflaeche: window-resize deckt den klassischen Fall ab,
     // der ResizeObserver zusaetzlich jede Aenderung der tatsaechlich sichtbaren
     // Flaeche ohne resize-Event (Mobile: dynamische Browserleisten, Safe-Area).
@@ -7278,7 +7364,7 @@ document.addEventListener('visibilitychange',()=>{pauseCollapseTimer();if(docume
 // ════ MAIN LOOP ════
 function loop(now){
   if(PERF)perfTick(now);
-  if(replaying){ SFX.rollUpdate(null,false); repTick(); if(r3dActive)r3d.render(); requestAnimationFrame(loop); return; }
+  if(replaying){ SFX.rollUpdate(null,false); repTick(); if(r3dActive&&!r3dContextLost)r3d.render(); requestAnimationFrame(loop); return; }
   tickCollapse(now);   // lokale Modi: zaehlt nur in der Planungsphase, loest Auto-Stand + Collapse aus
   // Zugzeit deaktiviert: das von tickCollapse soeben geoeffnete Zugfenster
   // verfaellt sofort wieder — eine Zugdeadline entsteht nie (innerhalb EINES
@@ -7296,7 +7382,7 @@ function loop(now){
   SFX.rollUpdate(balls,phase==='sim');
   if(phase==='reveal'||phase==='sim'||phase==='result')recordFrame();
   updParticles();draw();
-  if(r3dActive)r3d.render();
+  if(r3dActive&&!r3dContextLost)r3d.render();   // verlorener Kontext: kein WebGL-Aufruf
   if(r3dActive&&!bootDone)finishBoot();   // erster gerenderter 3D-Frame -> Menue einblenden
   if(r3dActive)gameSurfaceSync();   // Bug 2A: gemeldete Geometrieaenderung genau einmal pro Frame nachziehen
   requestAnimationFrame(loop);
