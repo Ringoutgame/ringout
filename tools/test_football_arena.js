@@ -192,7 +192,7 @@ ok(/const FOOTBALL_BALL_RADIUS=25;/.test(SRC), 'FOOTBALL_BALL_RADIUS = 25 im Que
 ok(F.ballR() === 25, 'fbBallR() liefert 25 im Football-Modus');
 ok(F.rad(F.neutral()) === 25 && F.rad(0) === 32 && F.rad(1) === 32, 'ballRad: neutral 25, Spieler 32');
 // Rendering und Physik teilen die Quelle: der Renderer skaliert die BR-Kugel mit ballRad(b)/BR.
-ok(/const rad=ballRad\(b\),rs=rad\/BR;/.test(SRC) && /m\.scale\.setScalar\(rs\);d\.scale\.setScalar\(rs\);/.test(SRC),
+ok(/const rad=ballRad\(b\),rs=rad\/BR;/.test(SRC) && /m\.scale\.setScalar\(rs\*Math\.max\(\.001,bodyLv\)\);d\.scale\.setScalar\(rs\*Math\.max\(\.001,bodyLv\)\);/.test(SRC),
    'Renderer bezieht den sichtbaren Radius aus ballRad (eine Quelle fuer Physik und Optik)');
 ok(/function footballBoundSD\(b\)\{\n  const r=ballRad\(b\),av=fbArena\(\);/.test(SRC), 'Bandengrenze nutzt ballRad(b)');
 ok(/const p=footballPostProbe\(b\),r=ballRad\(b\);/.test(SRC), 'Pfostenaufloesung nutzt ballRad(b)');

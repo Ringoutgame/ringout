@@ -1179,7 +1179,9 @@ ok(!/scene\.add\(bandProto\)|bGroup\.add\(bandProto\)/.test(HTML), 'bandProto wi
 ok(/if\(nm\.includes\('Glass'\)\)fbMat\.glass=m;else if\(nm\.includes\('Gold'\)\)fbMat\.gold=m;else if\(nm\.includes\('Marble'\)\)fbMat\.marble=m;/.test(HTML),
   'Band-GLB liefert die geteilten Materialinstanzen fbMat.glass/gold/marble');
 // ── Prozedurale Rounded-Rectangle-Arena aus den Physikparametern ──
-ok(/const fbBuildShape=\(\)=>\{/.test(HTML), 'fbBuildShape baut die sichtbare Football-Arena prozedural auf');
+// Der Parameter traegt seit der Arena-Transition die optionale Zwischenform; ohne ihn
+// baut die Funktion unveraendert die Form der aktiven Phase.
+ok(/const fbBuildShape=\(mo\)=>\{/.test(HTML), 'fbBuildShape baut die sichtbare Football-Arena prozedural auf');
 ok(/const hx=av\.halfLen\*BR\*FB_U,hz=av\.halfWid\*BR\*FB_U,rc=av\.corner\*BR\*FB_U;/.test(HTML),
   'fbBuildShape nutzt DIESELBEN FOOTBALL_ARENA-Parameter wie footballShapeSD (eine Formquelle)');
 ok(/const gap=av\.postOuter\*BR\*FB_U;/.test(HTML), 'Bandenoeffnung endet an der Sockel-Aussenkante (postOuter) — kein offener Streifen neben dem Tor');
@@ -1188,7 +1190,9 @@ for (const helper of ['fbOutline', 'fbBandPath', 'fbSweep', 'fbStrip', 'fbFill']
 // Aufbau einmalig, sobald die Materialquelle geladen ist — und erneut ausschliesslich bei
 // einem echten Wechsel der Arenavariante (fbLayout). In Classic/Tactical bleibt es damit bei
 // genau einem Aufbau; ein zweiter entsteht nur beim Wechsel in die Dev-Variante Elimination4.
-ok(/if\(fbWant&&\(!fbShapeGroup\|\|fbLayout!==fbWant\)\)\{fbBuildShape\(\);/.test(HTML), 'Aufbau laeuft einmalig, sobald die Materialquelle geladen ist');
+// fbWant traegt ausserhalb der Transition weiterhin die Arenavariante; waehrend der
+// Transition den Fortschrittsschritt. In beiden Faellen baut nur ein WECHSEL neu auf.
+ok(/if\(fbWant&&\(!fbShapeGroup\|\|fbLayout!==fbWant\)\)\{fbBuildShape\(fbDesc\);/.test(HTML), 'Aufbau laeuft einmalig, sobald die Materialquelle geladen ist');
 // ── Sichtbarkeiten: prozedurale Arena + Tore im Football, runde Plattform + Ringe sonst ──
 ok(/if\(fbShapeGroup\)fbShapeGroup\.visible=footballView/.test(HTML), 'fbShapeGroup.visible haengt am football-scoped footballView-Gate');
 // Review-Fix der Finalisierung: die runde Plattform weicht nur, wenn die prozedurale
@@ -1973,7 +1977,7 @@ const fbCssSrc = grab(/#game\.fb \.status\{[\s\S]*?\n\.arena-wrap\{/, 'Football-
 
 // ── G4. Aufraeumen: newGame(), showMenu() und Matchende lassen nichts stehen ──
 {
-  ok(/footballClearGoalFx\(\);\}/.test(resetMatchStateSrc),
+  ok(/footballClearGoalFx\(\);fbMorphPlan=null;fbMorphSpawn=false;\}/.test(resetMatchStateSrc),
      'footballResetMatchState() setzt den Impuls zurueck (newGame + showMenu laufen hier durch)');
   ok(/footballResetMatchState\(\);/.test(newGameSrc), 'newGame() ruft footballResetMatchState()');
   ok(/footballResetMatchState\(\);/.test(showMenuSrc), 'showMenu() ruft footballResetMatchState()');

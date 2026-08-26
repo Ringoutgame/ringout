@@ -1,6 +1,6 @@
 # PROJECT.md — RingOut
 
-**Zuletzt aktualisiert:** 2026-08-26 (Arena Football: **drei** sichtbare Modi — Classic 1v1 als Standard, Tactical 1v1, Elimination; Elimination ist jetzt regulaer ueber die Modusauswahl startbar, weiterhin lokal/Hotseat)
+**Zuletzt aktualisiert:** 2026-08-26 (Arena Football: finale adaptive Elimination-Arenaformen — Rounded Square / Broad Rounded Triangle / Shouldered Wide, 4→3 als V3-Morph; **drei** sichtbare Modi — Classic 1v1 als Standard, Tactical 1v1, Elimination; Elimination ist jetzt regulaer ueber die Modusauswahl startbar, weiterhin lokal/Hotseat)
 
 - **Aktueller stabiler Projekt-HEAD:** `5a23dc424fb3126c33c29543b7c6571b87a65ec7`
 - **Implementierungs-Commit UX-Phase 3:** `babbbe78ee388489321d1f0cb3e032bbaabd0725`
@@ -196,16 +196,62 @@ lesen dieselben Werte.
 | Phase | Form | Ausdehnung | Eckradius | Tore | Spawnabstand |
 |---|---|---:|---:|---|---:|
 | 4 Spieler | Rounded Square | `halfLen/halfWid 17.50` | `3.50` | 4 × 90° | `11.50` |
-| 3 Spieler | abgerundetes Dreieck | Apothem `11.50` | `3.50` | 3 × 120° | `7.50` |
-| 2 Spieler | Rounded Rectangle | `14.00 × 10.50` | `4.00` | 2 gegenueber | `9.00` |
+| 3 Spieler | Broad Rounded Triangle | Apothem `12.50` | `3.50` | 3 × 120° | `8.15` |
+| 2 Spieler | Shouldered Wide | `15.60 × 11.60` | `2.60` | 2 gegenueber | `10.15` |
+
+**Gameplay-Identitaet der drei Formen.** Die Formen sind nicht nur kleinere Varianten
+voneinander, jede loest eine andere Spielsituation:
+
+- **4 Spieler — Rounded Square.** Vier Tore im 90-Grad-Raster: Richtungsvielfalt und
+  Multiplayer-Chaos. Alle vier Achsen sind gleichwertig, niemand hat eine Vorzugsrichtung.
+- **3 Spieler — Broad Rounded Triangle.** Ein gleichseitiges Dreieck mit gekappten Spitzen:
+  drei lange Torseiten fuer Bank-Shots, drei kurze Kappflaechen statt spitzer Ecken. Die
+  120-Grad-Symmetrie haelt alle drei Spieler exakt gleich weit vom Ball und voneinander
+  entfernt; die Kappung nimmt der Form die Ecken, in denen der Ball frueher aussen herumlief,
+  ohne dass dafuer der Eckradius erhoeht werden musste.
+- **2 Spieler — Shouldered Wide.** Ein breites Achteck: zwei lange Hauptbanden, zwei flache
+  Torwaende und vier diagonale Schulterflaechen davor. Die Schultern geben einem aussen
+  laufenden Ball eine dritte Wandnormale und damit einen neuen Anschlusswinkel — aus dem
+  Aussenlauf entsteht seltener eine geschenkte Abschlussposition, dafuer gibt es mehr
+  Single- und Double-Bank-Wege. Ein breites Skill-Duell mit komplexeren Rebounds.
+
+Die Kernpolygone kommen aus zwei Generatoren (`fbTruncTri`, `fbShoulderRect`) ueber einen
+gemeinsamen Halbebenenschnitt (`fbHalfPlanePoly`). Die Bandengrenze rechnet fuer sie ueber
+`footballPolySD` (Abstand zum konvexen Kernpolygon minus Eckradius); Rechteck und Dreieck
+behalten ihre bisherigen SDFs. Der Eckradius des Finales liegt bewusst bei `2.60` statt
+`3.50` — bei `3.50` waere die Schulterflaeche kuerzer als die Boegen daneben und damit
+wirkungslos.
+
+**Framing:** `fbElimViewR()` waehlt je Phase das Maximum aus Deck-Aussenkante und aeusserstem
+Grenzpunkt (746 / 539 / 600). Der erste Umbau macht das Bild deutlich enger; beim zweiten
+zieht die Kamera wieder leicht auf, weil beim breiten Finale die Deckkante hinter den Toren
+den Wert bestimmt — die Spielflaeche selbst bleibt dabei etwa gleich gross, pro Spieler ist
+das Finale die grosszuegigste Phase.
 
 Eine Torgeometrie bedient alle drei Phasen: `footballFold()` dreht einen Punkt in das
 kanonische +X-Bezugssystem des naechstliegenden Tores. Ausserhalb von Elimination ist die
 Faltung die Identitaet, der Classic-/Tactical-Pfad rechnet bitgenau wie zuvor.
 
 Die Eckrundung ist gegenueber der ersten Prototypfassung deutlich reduziert (`9.00` → `3.50` BR).
-Damit sinkt der gekruemmte Konturanteil von 45.4 % auf 16.4 % — der Ball laeuft messbar weniger
-dauerhaft aussen herum. Es gibt **keine** kuenstliche Zentrumskraft und keine Physik-Retunes.
+Der gekruemmte Konturanteil liegt damit bei 16.4 % / 22.4 % / 16.5 % statt 45.4 % — der Ball
+laeuft messbar weniger dauerhaft aussen herum. Es gibt **keine** kuenstliche Zentrumskraft,
+keinen Zusatzimpuls und keine Physik-Retunes; die Verbesserung kommt ausschliesslich aus der
+Geometrie (M1, Reibung, Restitution, Ballradius 25, Spielerradius 32, fester Zeitschritt,
+CCD und lichte Torbreite 227.84 sind unveraendert).
+
+**Arenawechsel 4 → 3 (Transition V3).** Der erste Umbau ist animiert: Start- und Endform
+werden ueber ihre **Stuetzfunktion** interpoliert (Minkowski-Summe der Kernpolygone,
+`fbEdgesFrom` / `fbMinkowski` / `fbMorphCore(s)` / `fbMorphRing`). Dadurch bewegt sich die
+Wand in **jeder** Richtung monoton von ihrem Start- auf ihren Endwert — keine Zwischenform
+knickt ein, keine wird groesser als der Start, kein Ueberschwingen. Dramaturgie in vier
+Abschnitten (Hold 12, Tore 24, Arena 54, Settle 10 Ticks ≈ 1.67 s): die Tore werden zuerst
+getrennt neu gesetzt, danach faehrt die Bande um; die Kamera steht dabei fest auf dem
+Phase-4-Framing, Eingaben sind gesperrt und alle Koerper stehen still. Die Tore sitzen ueber
+eine Sehnenkonstruktion (`fbRingChord`) auch waehrend des Umbaus vollstaendig auf dem Deck.
+
+Der Wechsel **3 → 2** ist bewusst noch **nicht** animiert und bleibt der bestehende harte
+Rebuild am Ende des Torablaufs — das Finale hat einen anderen Eckradius, die Transition
+dafuer wird als eigener Auftrag entworfen.
 
 **Faire Startaufstellung nach jeder Eliminierung.** Ueberlebende behalten ihre Positionen
 **nicht**. Ablauf: Tor faellt → Spieler scheidet aus → Arena wechselt auf die neue Geometrie →

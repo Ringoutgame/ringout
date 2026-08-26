@@ -3188,19 +3188,77 @@ const FOOTBALL_ARENA_ELIM4={
   halfLen:17.50,halfWid:17.50,corner:3.50,spawn:11.50,sides:4,tri:false,dirs:FOOTBALL_ELIM4_DIRS,
   postInner:3.560,postOuter:5.282,postFront:17.50,
   postBack:17.50+2*FB_GOAL_HALF_DEPTH,goalAnchor:17.50+FB_GOAL_HALF_DEPTH};
-// Beim Dreieck ist das Apothem (Zentrum -> Seitenmitte) die Rolle von halfLen; halfWid traegt
-// denselben Wert, damit jede Bestandsrechnung (fbHalfLen/fbHalfWid) sinnvolle Masse sieht.
-const FOOTBALL_ARENA_ELIM3={
-  halfLen:11.50,halfWid:11.50,corner:3.50,spawn:7.50,sides:3,tri:true,apothem:11.50,dirs:FOOTBALL_ELIM3_DIRS,
-  postInner:3.560,postOuter:5.282,postFront:11.50,
-  postBack:11.50+2*FB_GOAL_HALF_DEPTH,goalAnchor:11.50+FB_GOAL_HALF_DEPTH};
-const FOOTBALL_ARENA_ELIM2={
-  halfLen:14.00,halfWid:10.50,corner:4.00,spawn:9.00,sides:2,tri:false,dirs:FOOTBALL_ELIM2_DIRS,
-  postInner:3.560,postOuter:5.282,postFront:14.00,
-  postBack:14.00+2*FB_GOAL_HALF_DEPTH,goalAnchor:14.00+FB_GOAL_HALF_DEPTH};
-// EINZIGE Arenaquelle. Elimination4 waehlt nach der aktiven Phase; Classic und Tactical
-// teilen sich unveraendert FOOTBALL_ARENA.
-function fbElimArena(){return fbElimPhaseN===3?FOOTBALL_ARENA_ELIM3:(fbElimPhaseN===2?FOOTBALL_ARENA_ELIM2:FOOTBALL_ARENA_ELIM4);}
+// ── KERNPOLYGON-GENERATOREN DER ELIMINATION-ARENEN ─────────────────────────
+// Jede Phase behaelt Torbreite, Physik und Spawnregel; sie unterscheiden sich nur in der
+// Form der Spielflaeche. Der Spawnabstand folgt in jeder Phase dem Verhaeltnis ~0.65 zur
+// Bandeninnenflaeche, damit die Figur vor ihrem Tor steht und nie darin.
+// Konvexes Kernpolygon aus einem Satz Halbebenen {n:[nx,nz],d}. Die Ebenen werden nach
+// Normalenwinkel sortiert; je zwei benachbarte schneiden sich in einer Kernecke. Gemeinsame
+// Basis fuer alle gekappten Formen (Broad Rounded Triangle, Shouldered Rectangle).
+const fbHalfPlanePoly=(N)=>{
+  N.sort((x,y)=>Math.atan2(x.n[1],x.n[0])-Math.atan2(y.n[1],y.n[0]));
+  const p=[];
+  for(let i=0;i<N.length;i++){
+    const A=N[i],B=N[(i+1)%N.length],det=A.n[0]*B.n[1]-A.n[1]*B.n[0];
+    p.push([(A.d*B.n[1]-B.d*A.n[1])/det,(A.n[0]*B.d-B.n[0]*A.d)/det]);
+  }
+  return p;
+};
+// BROAD ROUNDED TRIANGLE: gleichseitiges Dreieck, dessen drei Spitzen von einer Ebene
+// gekappt sind. Ergebnis ist ein Sechseck mit drei LANGEN Torseiten und drei KURZEN
+// Kappflaechen — die Silhouette wird breiter und weicher, ohne den Eckradius zu erhoehen
+// (mehr Eckradius verschlechtert nachweislich das Aussen-Circling).
+//   vf = Abstand der Kappebene / Kernapothem. 2.0 = ungekappt, 1.0 = regelmaessiges Sechseck.
+const fbTruncTri=(ap,rc,vf)=>{
+  const a=ap-rc,d=vf*a,N=[];
+  for(let k=0;k<3;k++){
+    N.push({n:FOOTBALL_ELIM3_DIRS[k],d:a});
+    const v=FB_TRI_VERT[k],L=Math.hypot(v[0],v[1]);
+    N.push({n:[v[0]/L,v[1]/L],d:d});
+  }
+  return fbHalfPlanePoly(N);
+};
+// WIDE ROUNDED RECTANGLE WITH SHOULDERS: langes Rechteck, dessen vier Ecken von diagonalen
+// Ebenen gekappt sind. Ergebnis ist ein Achteck aus zwei langen Hauptbanden, zwei flachen
+// Torwaenden und vier Schulterflaechen davor. Ein aussen laufender Ball trifft dadurch eine
+// dritte Wandnormale und bekommt einen diagonalen Anschlusswinkel, statt der Kontur einfach
+// weiter aussen zu folgen — ohne jede kuenstliche Kraft, rein geometrisch.
+//   thDeg  = Normalenwinkel der Schulter gegen die Torachse. Der Wert entscheidet, WOHIN ein
+//            aussen laufender Ball geworfen wird: bei 40-50 Grad nach vorne-quer und damit
+//            zu oft direkt in die Tormuendung, bei 35 Grad nach hinten-quer ins offene Feld.
+//   endHalf= halbe Hoehe der FLACHEN Torwand in BR. Muss > postOuter bleiben, sonst reicht das
+//            Tor in die Schulter hinein.
+const fbShoulderRect=(halfLen,halfWid,rc,thDeg,endHalf)=>{
+  const a=halfLen-rc,b=halfWid-rc,t=thDeg*Math.PI/180;
+  const d=a*Math.cos(t)+endHalf*Math.sin(t),N=[];
+  N.push({n:[1,0],d:a},{n:[-1,0],d:a},{n:[0,1],d:b},{n:[0,-1],d:b});
+  for(const sx of [1,-1])for(const sz of [1,-1])
+    N.push({n:[sx*Math.cos(t),sz*Math.sin(t)],d:d});
+  return fbHalfPlanePoly(N);
+};
+const fbShape=(halfLen,halfWid,corner,spawn,sides,tri,dirs)=>({
+  halfLen,halfWid,corner,spawn,sides,tri,apothem:tri?halfLen:undefined,dirs,
+  postInner:3.560,postOuter:5.282,postFront:halfLen,
+  postBack:halfLen+2*FB_GOAL_HALF_DEPTH,goalAnchor:halfLen+FB_GOAL_HALF_DEPTH});
+// PHASE 3 - BROAD ROUNDED TRIANGLE. Das gleichseitige Dreieck mit gekappten Spitzen: drei
+// LANGE Torseiten, drei KURZE Kappflaechen, 120-Grad-Symmetrie. Gegenueber der klassischen
+// spitzen Dreiecksform laeuft der Ball weniger aussen herum und die drei Figuren stehen
+// weiter auseinander, ohne dass der Eckradius erhoeht werden muesste.
+const FOOTBALL_ARENA_ELIM3=Object.assign(
+  fbShape(12.50,12.50,3.50,8.15,3,false,FOOTBALL_ELIM3_DIRS),
+  {poly:fbTruncTri(12.50,3.50,1.45)});
+// PHASE 2 - SHOULDERED WIDE. Das Finale ist ein breites Achteck: zwei lange Hauptbanden,
+// zwei flache Torwaende und vier Schulterflaechen davor. Die Schultern brechen den
+// Aussenlauf auf, aus dem im reinen Rounded Rectangle zu oft eine geschenkte
+// Abschlussposition entstand. Der Eckradius liegt bei 2.60 statt 3.50 - bei 3.50 waere die
+// Schulter kuerzer als die Boegen daneben und damit wirkungslos.
+const FOOTBALL_ARENA_ELIM2=Object.assign(
+  fbShape(15.60,11.60,2.60,10.15,2,false,FOOTBALL_ELIM2_DIRS),
+  {poly:fbShoulderRect(15.60,11.60,2.60,35,6.10)});
+// EINZIGE Arenaquelle je Phase. Elimination4 waehlt nach der aktiven Phase; Classic und
+// Tactical teilen sich unveraendert FOOTBALL_ARENA. Phase 1 ist der Sieg - kein Umbau mehr.
+const FB_ELIM_ARENAS={4:FOOTBALL_ARENA_ELIM4,3:FOOTBALL_ARENA_ELIM3,2:FOOTBALL_ARENA_ELIM2};
+function fbElimArena(){return FB_ELIM_ARENAS[fbElimPhaseN]||FOOTBALL_ARENA_ELIM4;}
 function fbArena(){return fbElim4()?fbElimArena():FOOTBALL_ARENA;}
 // Torrichtungen der AKTIVEN Arena. Ausserhalb Elimination4 gibt es die beiden Stirnseiten.
 function fbElimDirs(){return fbArena().dirs||FOOTBALL_ELIM2_DIRS;}
@@ -3208,9 +3266,17 @@ function fbElimDirs(){return fbArena().dirs||FOOTBALL_ELIM2_DIRS;}
 // Deck-Aussenkante hinter den Toren und dem aeussersten Punkt der Grenze — beim Rechteck die
 // Ecke, beim Dreieck die Spitze. Einzige Quelle des Kamera-Framings je Phase.
 function fbElimViewR(){
-  const av=fbArena();
+  // V2: waehrend der Transition bleibt das Framing FEST auf dem Wert der Vier-Tore-Arena.
+  // Ein Fit-to-current-shape haette die Bewegung mitgezogen und den Eindruck verstaerkt, die
+  // Arena wuerde schrumpfen. Kein Zoom, kein Orbit, kein Shake — die Kamera steht still.
+  if(fbMorphActive())return fbArenaViewR(FOOTBALL_ARENA_ELIM4);
+  return fbArenaViewR(fbArena());
+}
+function fbArenaViewR(av){
   const deck=av.postBack*BR+FOOTBALL_BALL_RADIUS;
-  const outer=av.tri?(2*av.apothem-av.corner)*BR
+  let outer;
+  if(av.poly){let m=0;for(const v of av.poly)m=Math.max(m,Math.hypot(v[0],v[1]));outer=(m+av.corner)*BR;}
+  else outer=av.tri?(2*av.apothem-av.corner)*BR
     :(Math.hypot(av.halfLen-av.corner,av.halfWid-av.corner)+av.corner)*BR;
   return deck>outer?deck:outer;
 }
@@ -3272,8 +3338,32 @@ function footballTriSD(dx,dz,ap,rc){
 // Versatz eines Rounded Rectangle ist wieder ein Rounded Rectangle, der eines abgerundeten
 // Dreiecks wieder ein abgerundetes Dreieck (apothem-r, corner-r) — deshalb bleibt die Grenze
 // in beiden Formfamilien exakt und braucht keine zweite Beschreibung.
+// Bandengrenze eines BELIEBIGEN konvexen Kernpolygons, aufgeweitet um rc. Dieselbe Bauart
+// wie footballShapeSD/footballTriSD: Abstand zum Kern minus Aufweitung. Fuer einen Koerper
+// mit Radius r schrumpft nur die Aufweitung — das Kernpolygon bleibt.
+// verts sind Kernecken in BR-Einheiten, gegen den Uhrzeigersinn.
+function footballPolySD(dx,dz,verts,rc){
+  let best=Infinity,bx=0,bz=0,inside=true;
+  const n=verts.length;
+  for(let i=0;i<n;i++){
+    const a=verts[i],b=verts[(i+1)%n];
+    const ax=a[0]*BR,az=a[1]*BR,ex=b[0]*BR-ax,ez=b[1]*BR-az;
+    let t=((dx-ax)*ex+(dz-az)*ez)/(ex*ex+ez*ez);
+    t=t<0?0:(t>1?1:t);
+    const qx=ax+ex*t,qz=az+ez*t,d2=(dx-qx)*(dx-qx)+(dz-qz)*(dz-qz);
+    if(d2<best){best=d2;bx=qx;bz=qz;}
+    const L=Math.hypot(ex,ez)||1;
+    if((dx-ax)*(ez/L)+(dz-az)*(-ex/L)>0)inside=false;
+  }
+  const d=Math.sqrt(best);
+  fbSD.sd=(inside?-d:d)-rc;
+  if(d>1e-9){const s=inside?-1:1;fbSD.nx=s*(dx-bx)/d;fbSD.nz=s*(dz-bz)/d;}
+  else{fbSD.nx=1;fbSD.nz=0;}
+  return fbSD;
+}
 function footballBoundSD(b){
   const r=ballRad(b),av=fbArena();
+  if(av.poly)return footballPolySD(b.x-cx,b.y-cy,av.poly,fbCorner()-r);
   if(av.tri)return footballTriSD(b.x-cx,b.y-cy,av.apothem*BR-r,fbCorner()-r);
   return footballShapeSD(b.x-cx,b.y-cy,fbHalfLen()-r,fbHalfWid()-r,fbCorner()-r);
 }
@@ -3640,6 +3730,108 @@ let fbGoalState='play';               // 'play' -> 'fall' -> 'celebrate' -> 'spa
 let fbGoalTick=0;                     // deterministischer Tickzaehler (kein setTimeout, keine Wanduhr)
 let footballWinner=null;              // 0=Blau, 1=Rot, null=Match laeuft — KANONISCHE Quelle, nie aus DOM-Text/Farbe abgeleitet
 // Laeuft gerade ein Torablauf? Sperrt jede Benutzereingabe (s. inputLocked).
+// ── ELIMINATION: VISUELLE ARENA-TRANSITION 4 -> 3 (Prototyp V2) ─────────────────────
+// Zwischen Torablauf und neuer Phase liegt ein rein VISUELLER Zustand 'morph'. Er aendert
+// keinerlei Physik: es laeuft keine Simulation, kein Input ist moeglich (footballGoalBusy
+// deckt jeden Zustand ausser 'play' ab), kein Spawn passiert. Die echte Phase-3-Geometrie
+// wird erst am ENDE gesetzt (footballElimResetBall) — bis dahin ist die Physikgrenze
+// unveraendert die der Phase 4.
+//
+// V2-DRAMATURGIE: die Rekonfiguration laeuft in ZWEI klar getrennten Abschnitten.
+//   A) TORE  — die Arena steht noch exakt auf Phase 4. Das ausgeschiedene Tor zieht sich
+//              zurueck, die drei verbleibenden wandern auf ihre neuen Zielrichtungen.
+//   B) ARENA — erst danach baut sich Deck und Bande vom Vier- auf den Dreiecksgrundriss um.
+//              Die Tore stehen dabei schon auf ihren Zielrichtungen und bleiben dort.
+// Dadurch aendert sich nie alles gleichzeitig, und kein Tor passiert eine Ecke, waehrend
+// diese Ecke sich gerade verformt.
+// Timing tickgetrieben (60 Ticks/s, fester Zeitschritt) und zentral hier konfiguriert.
+const FB_MORPH_HOLD_TICKS=12;      // 0.20 s Ruhe: das getroffene Tor verliert seine Teamenergie
+const FB_MORPH_GOAL_TICKS=24;      // 0.40 s Torneuordnung (Arena bleibt Phase 4)
+const FB_MORPH_ARENA_TICKS=54;     // 0.90 s Arenaumbau
+const FB_MORPH_SETTLE_TICKS=10;    // 0.17 s Einrasten
+const FB_MORPH_TICKS=FB_MORPH_HOLD_TICKS+FB_MORPH_GOAL_TICKS+FB_MORPH_ARENA_TICKS+FB_MORPH_SETTLE_TICKS;
+// V2: KEIN Ueberschwingen. Das Einrastgefuehl soll spaeter aus FX/Audio kommen, nicht aus
+// einer Geometrie, die kurz ueber ihren Endzustand hinauslaeuft.
+const FB_MORPH_OVERSHOOT=0;
+const FB_MORPH_BODY_TICKS=14;      // 0.23 s: Figuren ziehen sich zurueck bzw. kommen zurueck
+// Plan der Transition. Wird EINMAL beim Eintritt in 'morph' eingefroren, damit die
+// Zuordnung Spieler -> Tor waehrend der ganzen Bewegung deterministisch bleibt.
+// slot = Torslot der Phase 4, target = Torslot der Phase 3 (-1 = ausgeschieden).
+let fbMorphPlan=null;
+let fbMorphSpawn=false;            // der folgende Spawn-Drop gehoert zu einer Transition
+function fbMorphActive(){return mode==='football'&&fbGoalState==='morph';}
+// Abschnitt A: Torneuordnung. Weiches Ein- und Ausschwingen, kein linearer Lauf.
+function fbMorphGoalE(){
+  if(!fbMorphActive())return 1;
+  const m=fbGoalTick-FB_MORPH_HOLD_TICKS;
+  if(m<=0)return 0;
+  if(m>=FB_MORPH_GOAL_TICKS)return 1;
+  const u=m/FB_MORPH_GOAL_TICKS;
+  return u*u*(3-2*u);
+}
+// Abschnitt B: Arenaumbau. Beginnt erst, wenn die Tore stehen.
+function fbMorphArenaE(){
+  if(!fbMorphActive())return 1;
+  const m=fbGoalTick-FB_MORPH_HOLD_TICKS-FB_MORPH_GOAL_TICKS;
+  if(m<=0)return 0;
+  if(m>=FB_MORPH_ARENA_TICKS)return 1;
+  const u=m/FB_MORPH_ARENA_TICKS;
+  return u*u*u*(u*(u*6-15)+10);
+}
+// Gesamtfortschritt der Transition (nur fuer Anzeige, Tests und Previews).
+function fbMorphE(){
+  if(!fbMorphActive())return 1;
+  return Math.min(1,fbGoalTick/FB_MORPH_TICKS);
+}
+// Sichtbarkeit der Spielfiguren: sie ziehen sich vor dem Umbau zurueck und kommen erst auf
+// den fairen Phase-3-Spawns zurueck. Kein Gleiten durch bewegte Waende, kein Teleport.
+function fbMorphBodyLevel(){
+  if(mode!=='football')return 1;
+  const sm=(u)=>{const c=u<0?0:(u>1?1:u);return c*c*(3-2*c);};
+  if(fbGoalState==='morph')return 1-sm(fbGoalTick/FB_MORPH_BODY_TICKS);
+  if(fbGoalState==='spawn'&&fbMorphSpawn)return sm(fbGoalTick/FB_MORPH_BODY_TICKS);
+  return 1;
+}
+// Friert die Torzuordnung fuer die Transition ein. fbElimSlots traegt hier noch die
+// Phase-4-Belegung, fbElimActive kennt den Ausgeschiedenen bereits — daraus ergibt sich
+// dieselbe Zuordnung, die fbElimApplyPhase am Ende tatsaechlich setzt.
+function fbMorphBegin(){
+  const act=fbElimActiveOwners(),goals=[];
+  for(let s=0;s<FOOTBALL_ELIM4_PLAYERS;s++){
+    const o=fbElimSlots[s];
+    if(o<0)continue;
+    const t=act.indexOf(o);
+    goals.push({owner:o,slot:s,target:t,dead:t<0});
+  }
+  fbMorphPlan={goals};
+  // Alle Koerper kontrolliert einfrieren. Die Figuren stehen bereits (footballFreezePlayers
+  // beim Tor); der neutrale Ball ist zu diesem Zeitpunkt laengst hinter der Bande
+  // ausgeblendet, trug aber noch seine Restgeschwindigkeit. Waehrend der Transition laeuft
+  // damit KEINE freie Ballphysik mehr — die Positionen setzt danach footballElimResetBall.
+  for(const b of balls){b.vx=0;b.vy=0;b.spin=0;}
+}
+// Startet die Transition genau dann, wenn die Vier-Tore-Arena auf drei Tore wechselt.
+// Prototyp deckt bewusst NUR 4 -> 3 ab; jeder andere Wechsel laeuft unveraendert direkt.
+function fbMorphWanted(){
+  return fbElim4()&&footballWinner===null&&fbElimPhaseN===FOOTBALL_ELIM4_PLAYERS
+         &&fbElimActiveOwners().length===3;
+}
+// Nur-lesende Dev-Sonde fuer reproduzierbare Previews der Arena-Transition. Sie schreibt
+// nichts, existiert ausschliesslich mit ?dev=1 und haengt keine UI in die Seite — das
+// Produktverhalten ist ohne Dev-Flag Byte fuer Byte dasselbe.
+if(typeof DEV_MENU!=='undefined'&&DEV_MENU)window.__fbDev={
+  state:()=>({goal:fbGoalState,tick:fbGoalTick,phase:fbElimPhaseN,body:fbMorphBodyLevel(),
+              e:fbMorphActive()?fbMorphE():null,
+              gp:fbMorphActive()?fbMorphGoalE():null,
+              ap:fbMorphActive()?fbMorphArenaE():null}),
+  // Rein lesende Zusatzsonde fuer den Browser-Finalcheck: aktive Arenaform, Koerperlagen und
+  // deren Abstand zur Bande. Aendert keinen Spielzustand und existiert nur mit ?dev=1.
+  arena:()=>{const a=fbArena();return {halfLen:a.halfLen,halfWid:a.halfWid,corner:a.corner,
+              spawn:a.spawn,sides:a.sides,poly:a.poly?a.poly.map(v=>v.slice()):null};},
+  bodies:()=>balls.filter(b=>b.alive).map(b=>({x:b.x-cx,y:b.y-cy,owner:b.owner,
+              sd:footballBoundSD(b).sd})),
+  winner:()=>footballWinner,
+};
 function footballGoalBusy(){return mode==='football'&&fbGoalState!=='play';}
 // Zentrale Goal-Detection. Rueckgabe: 0 = Punkt Blau (+X-Tor), 1 = Punkt Rot (-X-Tor),
 // -1 = kein Tor. Nur kanonische Physikdaten — keine Renderer-/GLB-/Pixelabfrage.
@@ -3777,14 +3969,24 @@ function footballTickGoal(){
     // davor ist die Arena bewusst leer. Beim entscheidenden Tor wird 'spawn' uebersprungen:
     // nach dem Sieg gibt es keinen Rundenreset und faellt kein neuer Ball in die Arena.
     if(footballWinner!==null){fbGoalState='result';fbGoalTick=0;footballMatchEnd();return;}
+    // Elimination 4 -> 3: erst die sichtbare Arena-Transition, dann der Umbau. Waehrend
+    // 'morph' bleibt alles eingefroren; Phase, Spawns und Ball wechseln erst an ihrem Ende.
+    if(fbMorphWanted()){fbGoalState='morph';fbGoalTick=0;fbMorphBegin();return;}
     // Elimination4: eigener Rundenreset. Er baut die Arena auf die neue Spielerzahl um,
     // stellt alle Ueberlebenden auf die faire Startaufstellung dieser Phase und schickt
     // nur den neutralen Ball zentral zurueck (V3.1).
     if(fbElim4())footballElimResetBall();else footballResetRound();
     fbGoalState='spawn';fbGoalTick=0;return;
   }
+  // Ende der Arena-Transition: JETZT erst wechselt die Phase, stehen die Ueberlebenden auf
+  // ihren fairen Spawns und faellt der Ball. Reihenfolge bindend: Arena rastet ein -> Spieler
+  // -> Ball -> Commit.
+  if(fbGoalState==='morph'&&fbGoalTick>=FB_MORPH_TICKS){
+    footballElimResetBall();fbMorphPlan=null;fbMorphSpawn=true;
+    fbGoalState='spawn';fbGoalTick=0;return;
+  }
   if(fbGoalState==='spawn'&&fbGoalTick>=FOOTBALL_GOAL_SPAWN_TICKS){
-    fbGoalState='play';fbGoalTick=0;
+    fbGoalState='play';fbGoalTick=0;fbMorphSpawn=false;
     // Elimination4 oeffnet die neue Runde NICHT ueber startRound(): das wuerde placeBalls()
     // ausfuehren und die Spielerfiguren zurueckstellen. Stattdessen uebernimmt das REGULAERE
     // Settlement im naechsten stepSim — alle Kugeln stehen bereits still, und dort werden
@@ -4040,7 +4242,7 @@ function footballElimResetBall(){
 }
 // ZENTRALE Initialisierung des Football-Matchzustands: neues Match, Moduswechsel, Menue.
 // Score/Kugeln/Aim-Zustaende setzt der bestehende Pfad newGame() -> startRound() -> placeBalls().
-function footballResetMatchState(){fbGoalState='play';fbGoalTick=0;footballWinner=null;fbClearSelection();fbElimReset();footballClearGoalFx();}
+function footballResetMatchState(){fbGoalState='play';fbGoalTick=0;footballWinner=null;fbClearSelection();fbElimReset();footballClearGoalFx();fbMorphPlan=null;fbMorphSpawn=false;}
 function stepSim(){
   // Restitution nach Kontaktart (4B-2). Ohne aktives Football-Preset liefern alle drei
   // Funktionen den bestehenden REST-Wert — Bestandsmodi rechnen unveraendert weiter.
@@ -5901,6 +6103,7 @@ async function initR3D(){
     // Sichtbar AUSSCHLIESSLICH bei mode==='football' (nie Menue-Preview/normale Modi).
     let goalGroup=null;   // gerades Tor an der Stirnseite (einzige produktive Torvariante)
     let fbBuildGoals=null;   // (Neu-)Aufbau der Torinstanzen fuer die aktive Arenavariante; null = kein Tor-GLB
+    let fbPoseGoals=null;    // setzt die Tore waehrend der Arena-Transition (nur visuell); null = kein Tor-GLB
     let fbLayout='',fbGoalLayout='';   // zuletzt gebaute Arenavariante fuer Form bzw. Tore ('' = noch nichts gebaut)
     // Tor-Feedback (UX-3): je Tor die drei bereits farbig gefassten Bauteile — Wappen,
     // vordere Keyline, Torlinie. Gehalten werden Material UND Ruhewerte, damit der Impuls
@@ -6031,6 +6234,7 @@ async function initR3D(){
       // Neuaufbau entsorgt — die geteilten Ressourcen des GLB-Prototyps bleiben unangetastet,
       // sonst wuerde der zweite Aufbau auf entsorgte Geometrie zugreifen.
       const goalOwned=[];
+      const goalNodes=[];   // {key,g,turn} je Tor — Traeger der Transition-Bewegung
       const mkGoal=(def)=>{
         const d=def.dir,AV=fbArena();
         const rectLineX=AV.halfLen*BR*FB_U-FB_PLAY_INSET;
@@ -6073,6 +6277,7 @@ async function initR3D(){
         // +X gebaut (identisch zum bisherigen Aufbau) und erst durch diese Gruppe auf die
         // tatsaechliche Torrichtung gedreht. Fuer das +X-Tor ist die Drehung exakt 0.
         const turn=new THREE.Group();turn.rotation.y=GOAL_TURN(d);goalGroup.add(turn);
+        goalNodes.push({key:def.key,g,turn});
         // Torlinie: breites, farbiges Band buendig im Randweg, exakt so breit wie die lichte
         // Oeffnung. Bewusst OPAK (kein transparent/depthWrite:false): so kann es weder durch
         // den Marmorsockel scheinen noch in der Transparenzsortierung flackern; der
@@ -6127,9 +6332,52 @@ async function initR3D(){
       // Tore (neu) aufbauen. Die Arenavariante steht beim Erzeugen der 3D-Szene noch NICHT
       // fest — die Szene entsteht bereits im Menue. Deshalb ist der Toraufbau eine Funktion,
       // die beim ersten Football-Frame und bei jedem Variantenwechsel erneut laeuft.
+      // Die Tore bewegen sich mit: die drei verbleibenden wandern auf ihre neuen Positionen,
+      // das ausgeschiedene zieht sich nach aussen zurueck und verschwindet in der Wandfuehrung.
+      // Bewusst OHNE Skalierung der Torstruktur selbst — die lichte Torbreite bleibt konstant.
+      // Die Tore reiten auf der Kontur, ECKENSICHER: Position und Ausrichtung kommen aus der
+      // Sehne ueber ihre eigene Torbreite (fbRingChord). Auf einer geraden Seite ist das exakt
+      // die bisherige Platzierung; an einer Ecke rueckt das Tor genau so weit nach innen, dass
+      // sein kompletter Grundriss auf dem Deck bleibt. Die Torstruktur wird NIE skaliert —
+      // die lichte Torbreite bleibt konstant.
+      fbPoseGoals=(rd)=>{
+        if(!goalNodes.length||!fbMorphPlan||!rd)return;
+        const gp=fbMorphGoalE();
+        const A4=FOOTBALL_ARENA_ELIM4;
+        const half=A4.postOuter*BR*FB_U,back=FB_GOAL_HALF_DEPTH*BR*FB_U,base=A4.halfLen*BR*FB_U;
+        for(const g of fbMorphPlan.goals){
+          const nd=goalNodes.find(q=>q.key===g.slot);
+          if(!nd)continue;
+          const hit=fbRingChord(rd.ring,fbRingU(rd.ring,fbMorphGoalAngle(g,gp)),half);
+          const d=[hit.nx,hit.nz];
+          if(g.dead){
+            // Das ausgeschiedene Tor zieht sich nach aussen zurueck und schrumpft, waehrend
+            // sich die Bande an seiner Stelle schliesst. Das passiert in Abschnitt A, also
+            // BEVOR sich die Arena verformt.
+            const k=Math.min(1,gp/FB_MORPH_RETRACT),out=back+k*3.4;
+            nd.g.position.set(hit.x+d[0]*out,GOAL_WALK_Y,hit.z+d[1]*out);
+            nd.g.rotation.set(0,GOAL_ROT(d),0);
+            nd.g.scale.setScalar(goalScale*(1-k));
+            nd.g.visible=nd.turn.visible=k<0.995;
+            nd.turn.scale.setScalar(Math.max(0.001,1-k));
+            nd.turn.rotation.y=GOAL_TURN(d);
+            nd.turn.position.set(hit.x-d[0]*base,0,hit.z-d[1]*base);
+            continue;
+          }
+          nd.g.visible=nd.turn.visible=true;
+          nd.g.scale.setScalar(goalScale);
+          nd.g.position.set(hit.x+d[0]*back,GOAL_WALK_Y,hit.z+d[1]*back);
+          nd.g.rotation.set(0,GOAL_ROT(d),0);
+          nd.turn.scale.setScalar(1);
+          nd.turn.rotation.y=GOAL_TURN(d);
+          // Die Bodenteile sind kanonisch entlang +X bei base gebaut; der Versatz legt
+          // diesen Punkt exakt auf die Wand.
+          nd.turn.position.set(hit.x-d[0]*base,0,hit.z-d[1]*base);
+        }
+      };
       fbBuildGoals=()=>{
         for(const r of goalOwned)if(r&&r.dispose)r.dispose();
-        goalOwned.length=0;goalFxParts.length=0;goalDeadParts.length=0;goalShutPanels.length=0;
+        goalOwned.length=0;goalFxParts.length=0;goalDeadParts.length=0;goalShutPanels.length=0;goalNodes.length=0;
         for(let i=goalGroup.children.length-1;i>=0;i--)goalGroup.remove(goalGroup.children[i]);
         for(const def of goalDefs())mkGoal(def);
       };
@@ -6312,9 +6560,282 @@ async function initR3D(){
       const m=new THREE.Mesh(g,mat);m.receiveShadow=true;return m;
     };
     const fbOct=(r)=>{const a=[];for(let i=0;i<8;i++){const t=Math.PI*2*i/8;a.push([Math.cos(t)*r,Math.sin(t)*r]);}return a;};
+    // ── ARENA-TRANSITION 4 -> 3: rein visuelle Zwischenformen (V3) ──────────────────
+    // Beide freigegebenen Arenaformen sind dasselbe Gebilde: ein konvexes KERNPOLYGON,
+    // aufgeweitet um den Eckradius rc — und beide benutzen denselben Eckradius 3.50 BR.
+    //
+    // Interpoliert wird nicht die Kontur Punkt fuer Punkt (das schiebt Material ueber den
+    // Umfang und laesst die Arena gedrueckt wirken), sondern die STUETZFUNKTION: die
+    // Zwischenform ist die Minkowski-Kombination
+    //     Kern(t) = (1-t) * Quadratkern  (+)  t * Dreieckskern
+    // Diese Kombination hat drei Eigenschaften, die genau das liefern, was fehlte:
+    //   - der Abstand der Wand in JEDER Richtung interpoliert monoton zwischen Start- und
+    //     Endwert, es gibt also kein Stauchen, kein Ausbeulen und kein Zurueckfedern,
+    //   - das Ergebnis ist per Konstruktion konvex und glatt (die Kanten beider Formen
+    //     erscheinen gemeinsam, sortiert nach ihrer Richtung),
+    //   - bei t=0 bzw. t=1 bleibt exakt die freigegebene Form uebrig: die jeweils andere
+    //     wird mit 0 skaliert und traegt nichts bei.
+    // Praktisch heisst das: die vier Seiten der Vier-Tore-Arena weichen kontinuierlich
+    // zurueck, waehrend die drei Seiten der Drei-Tore-Arena aus den Ecken herauswachsen.
+    // Die Wand gleitet, statt sich zusammenziehen zu muessen.
+    const fbRoundPoly=(V,rc,seg)=>{
+      const P=[];                                   // entartete Ecken zusammenfassen
+      for(const v of V){
+        const l=P[P.length-1];
+        if(l&&Math.hypot(l[0]-v[0],l[1]-v[1])<1e-6)continue;
+        P.push(v);
+      }
+      if(P.length>1){
+        const f=P[0],l=P[P.length-1];
+        if(Math.hypot(f[0]-l[0],f[1]-l[1])<1e-6)P.pop();
+      }
+      const n=P.length,N=[];
+      for(let i=0;i<n;i++){
+        const a=P[i],b=P[(i+1)%n],dx=b[0]-a[0],dz=b[1]-a[1],L=Math.hypot(dx,dz)||1;
+        N.push([dz/L,-dx/L]);                       // Aussennormale der Kante i
+      }
+      const p=[];
+      for(let i=0;i<n;i++){
+        const nin=N[(i+n-1)%n],nout=N[i];
+        const a0=Math.atan2(nin[1],nin[0]);
+        let d=Math.atan2(nout[1],nout[0])-a0;
+        while(d<-1e-9)d+=2*Math.PI;
+        while(d>=2*Math.PI)d-=2*Math.PI;
+        // Bogenaufloesung nach Oeffnungswinkel: flache Ecken bekommen weniger Stuetzpunkte,
+        // die Punktdichte bleibt dadurch ueber die ganze Bewegung gleichmaessig.
+        const q=Math.max(2,Math.round(seg*d/(Math.PI/2)));
+        for(let k=0;k<=q;k++){
+          const a=a0+d*k/q,nx=Math.cos(a),nz=Math.sin(a);
+          p.push({x:P[i][0]+nx*rc,z:P[i][1]+nz*rc,nx,nz});
+        }
+      }
+      p.push({x:p[0].x,z:p[0].z,nx:p[0].nx,nz:p[0].nz});
+      return p;
+    };
+    // Kanten eines konvexen Polygons, beginnend am untersten (dann linkesten) Punkt. Damit
+    // sind die Kantenrichtungen aufsteigend sortiert — Voraussetzung fuer die Summe unten.
+    const fbEdgesFrom=(V)=>{
+      const n=V.length;let s=0;
+      for(let i=1;i<n;i++)
+        if(V[i][1]<V[s][1]||(V[i][1]===V[s][1]&&V[i][0]<V[s][0]))s=i;
+      const E=[];
+      for(let k=0;k<n;k++){
+        const a=V[(s+k)%n],b=V[(s+k+1)%n];
+        E.push([b[0]-a[0],b[1]-a[1]]);
+      }
+      return {start:V[s],edges:E};
+    };
+    // Minkowski-Summe zweier konvexer Polygone: die Kanten beider werden nach Richtung
+    // zusammengefuehrt und aneinandergehaengt. Exakt, ohne Naeherung.
+    const fbMinkowski=(A,B)=>{
+      const a=fbEdgesFrom(A),b=fbEdgesFrom(B);
+      const ang=(e)=>{
+        if(Math.abs(e[0])<1e-12&&Math.abs(e[1])<1e-12)return -1;   // entartete Kante zuerst
+        const t=Math.atan2(e[1],e[0]);
+        return t<0?t+2*Math.PI:t;
+      };
+      const out=[];
+      let x=a.start[0]+b.start[0],z=a.start[1]+b.start[1],i=0,j=0;
+      while(i<a.edges.length||j<b.edges.length){
+        out.push([x,z]);
+        let e;
+        if(j>=b.edges.length)e=a.edges[i++];
+        else if(i>=a.edges.length)e=b.edges[j++];
+        else if(ang(a.edges[i])<=ang(b.edges[j]))e=a.edges[i++];
+        else e=b.edges[j++];
+        x+=e[0];z+=e[1];
+      }
+      return out;
+    };
+    // Kernpolygone beider Phasen in gleichem Umlaufsinn (gegen den Uhrzeigersinn).
+    // Kernpolygone der AKTIVEN Formfamilie. Rechteck, Dreieck und beliebiges Kernpolygon
+    // (z. B. das gekappte Dreieck der refined-Form) werden gleich behandelt — die
+    // Minkowski-Kombination braucht nur zwei konvexe Kerne mit demselben Eckradius.
+    // Fuer den Default liefert das exakt dieselben Zahlen wie zuvor.
+    const fbMorphCore=(a,rc)=>{
+      if(a.poly)return a.poly.map(v=>[v[0]*BR*FB_U,v[1]*BR*FB_U]);
+      if(a.tri){const R=2*(a.apothem-a.corner)*BR*FB_U;return FB_TRI_VERT.map(v=>[v[0]*R,v[1]*R]);}
+      const x=(a.halfLen-a.corner)*BR*FB_U,y=(a.halfWid-a.corner)*BR*FB_U;
+      return [[x,-y],[x,y],[-x,y],[-x,-y]];
+    };
+    // Start- und Endform des 4 -> 3 Umbaus, direkt aus den finalen Arenakonstanten.
+    const fbMorphCores=()=>{
+      const A4=FOOTBALL_ARENA_ELIM4,A3=FOOTBALL_ARENA_ELIM3,rc=A4.corner*BR*FB_U;
+      return {rc,sq:fbMorphCore(A4,rc),tri:fbMorphCore(A3,rc)};
+    };
+    // Flaechenschwerpunkt eines Polygons.
+    const fbPolyCentroid=(P)=>{
+      let a=0,cx=0,cz=0;
+      for(let i=0;i<P.length;i++){
+        const p=P[i],q=P[(i+1)%P.length],cr=p[0]*q[1]-q[0]*p[1];
+        a+=cr;cx+=(p[0]+q[0])*cr;cz+=(p[1]+q[1])*cr;
+      }
+      if(Math.abs(a)<1e-9)return [0,0];
+      return [cx/(3*a),cz/(3*a)];
+    };
+    // Zwischenkontur bei Fortschritt e.
+    //
+    // Bewusst OHNE Nachzentrierung: die reine Kombination hat die Eigenschaft, dass der
+    // Wandabstand in JEDER Richtung monoton von seinem Start- auf seinen Endwert laeuft —
+    // keine Wand geht erst hinaus und dann zurueck. Eine Nachzentrierung auf den
+    // Flaechenschwerpunkt wuerde diese Monotonie brechen (gemessen: 116 Richtungen mit bis
+    // zu 26 Einheiten Gegenbewegung) und die Kontur genau das tun lassen, was sie nicht soll:
+    // wackeln. Der Flaechenschwerpunkt wandert dadurch in der Mitte der Bewegung um maximal
+    // 21 Einheiten nach Sueden (1.5 % der Arenabreite) und kommt exakt ins Zentrum zurueck —
+    // das ist die ehrliche Folge davon, dass das Dreieck dort eine Spitze ausbildet.
+    const fbMorphRing=(e)=>{
+      const C=fbMorphCores();
+      const A=C.sq.map(v=>[v[0]*(1-e),v[1]*(1-e)]);
+      const B=C.tri.map(v=>[v[0]*e,v[1]*e]);
+      return {ring:fbRoundPoly(fbMinkowski(A,B),C.rc,20)};
+    };
+    // Normierte Bogenlaengenposition des Strahls unter Winkel th auf einem beliebigen Ring.
+    const fbRingU=(ring,th)=>{
+      const n=ring.length-1,dx=Math.cos(th),dz=Math.sin(th),L=[0];
+      for(let i=1;i<ring.length;i++)L.push(L[i-1]+Math.hypot(ring[i].x-ring[i-1].x,ring[i].z-ring[i-1].z));
+      const total=L[ring.length-1];
+      for(let i=0;i<n;i++){
+        const a=ring[i],b=ring[i+1],ex=b.x-a.x,ez=b.z-a.z,D=ex*dz-dx*ez;
+        if(Math.abs(D)<1e-12)continue;
+        const u=(dx*a.z-a.x*dz)/D;
+        if(u<-1e-9||u>1+1e-9)continue;
+        const t=(ex*a.z-a.x*ez)/D;
+        if(t<=0)continue;
+        return (L[i]+(L[i+1]-L[i])*u)/total;
+      }
+      return 0;
+    };
+    // Schnittpunkt des Strahls unter Winkel th mit der Kontur    // Schnittpunkt des Strahls unter Winkel th mit der Kontur    // Schnittpunkt des Strahls unter Winkel th mit der Kontur, samt lokaler Wandnormale.
+    // Der Ring ist konvex und enthaelt das Zentrum, es gibt also genau einen Treffer.
+    // Damit koennen die Tore waehrend der Transition auf der WAND reiten statt auf einem
+    // gerechneten Radius — sie loesen sich dadurch nie von der Bande, auch nicht, wenn ihr
+    // Weg ueber eine Ecke fuehrt.
+    const fbRingHit=(ring,th)=>{
+      const n=ring.length-1,dx=Math.cos(th),dz=Math.sin(th);
+      for(let i=0;i<n;i++){
+        const a=ring[i],b=ring[i+1],ex=b.x-a.x,ez=b.z-a.z;
+        const D=ex*dz-dx*ez;
+        if(Math.abs(D)<1e-12)continue;
+        const u=(dx*a.z-a.x*dz)/D;
+        if(u<-1e-9||u>1+1e-9)continue;
+        const t=(ex*a.z-a.x*ez)/D;
+        if(t<=0)continue;
+        const nx=a.nx+(b.nx-a.nx)*u,nz=a.nz+(b.nz-a.nz)*u,L=Math.hypot(nx,nz)||1;
+        return {x:dx*t,z:dz*t,r:t,nx:nx/L,nz:nz/L};
+      }
+      return null;
+    };
+    // Gefuellte Flaeche aus einem beliebigen Ring (Gegenstueck zu fbFill/fbTriFill).
+    // Shape-y traegt -z, exakt wie in fbTriFill.
+    const fbRingFill=(ring,inset,y,mat)=>{
+      const s=new THREE.Shape();
+      for(let i=0;i<ring.length-1;i++){
+        const q=ring[i],x=q.x-q.nx*inset,z=q.z-q.nz*inset;
+        if(i===0)s.moveTo(x,-z);else s.lineTo(x,-z);
+      }
+      s.closePath();
+      const g=new THREE.ShapeGeometry(s);
+      g.rotateX(-Math.PI/2);g.translate(0,y,0);
+      const m=new THREE.Mesh(g,mat);m.receiveShadow=true;return m;
+    };
+    // Bandensegmente eines beliebigen Rings mit beliebig vielen Oeffnungen. Ersetzt waehrend
+    // der Transition fbBandQuarter/fbTriBand — dieselbe Konvention (Punkte mit Aussennormale,
+    // gleicher Umlaufsinn), nur eben fuer die Zwischenform und mit wandernden Oeffnungen.
+    // Eine Oeffnung mit half<=0 existiert nicht mehr: genau so schliesst sich das Tor des
+    // ausgeschiedenen Spielers zur durchgehenden Bande.
+    // Bandensegmente eines beliebigen Rings mit beliebig vielen Oeffnungen. Ersetzt waehrend
+    // der Transition fbBandQuarter/fbTriBand — dieselbe Konvention (Punkte mit Aussennormale,
+    // gleicher Umlaufsinn), nur eben fuer die Zwischenform und mit wandernden Oeffnungen.
+    // Die Oeffnungen sitzen am normierten Bogenlaengenparameter u; genau denselben Parameter
+    // benutzen die Tore, Bande und Tor koennen deshalb nicht auseinanderlaufen.
+    // Eine Oeffnung mit half<=0 existiert nicht mehr: genau so schliesst sich das Tor des
+    // ausgeschiedenen Spielers zur durchgehenden Bande.
+    const fbRingBands=(rd,cuts)=>{
+      const ring=rd.ring,n=ring.length-1,L=[0];
+      for(let i=1;i<ring.length;i++)L.push(L[i-1]+Math.hypot(ring[i].x-ring[i-1].x,ring[i].z-ring[i-1].z));
+      const total=L[ring.length-1];
+      const norm=(v)=>((v%total)+total)%total;
+      const at=(sv)=>{
+        const sm=norm(sv);let i=1;
+        while(i<L.length-1&&L[i]<sm)i++;
+        const t=(sm-L[i-1])/Math.max(1e-9,L[i]-L[i-1]),p0=ring[i-1],p1=ring[i];
+        const nx=p0.nx+(p1.nx-p0.nx)*t,nz=p0.nz+(p1.nz-p0.nz)*t,ln=Math.hypot(nx,nz)||1;
+        return {x:p0.x+(p1.x-p0.x)*t,z:p0.z+(p1.z-p0.z)*t,nx:nx/ln,nz:nz/ln};
+      };
+      const slice=(s0,len)=>{
+        const a=norm(s0),out=[at(a)];
+        let k=0;while(k<n&&L[k]<=a)k++;
+        for(let c=0;c<n;c++){
+          const kk=(k+c)%n;let sk=L[kk];if(sk<a)sk+=total;
+          if(sk-a>=len-1e-6)break;
+          out.push({x:ring[kk].x,z:ring[kk].z,nx:ring[kk].nx,nz:ring[kk].nz});
+        }
+        out.push(at(a+len));
+        return out;
+      };
+      const open=cuts.filter(c=>c.half>1e-3).map(c=>({s:norm(c.u*total),half:c.half}));
+      if(!open.length)return [slice(0,total-1e-6)];
+      open.sort((x,y)=>x.s-y.s);
+      const segs=[];
+      for(let i=0;i<open.length;i++){
+        const cur=open[i],nx=open[(i+1)%open.length];
+        const from=cur.s+cur.half;
+        let len=open.length===1?total-cur.half*2:norm(nx.s-nx.half-from);
+        if(len>1e-3)segs.push(slice(from,len));
+      }
+      return segs;
+    };
+    // Tor auf der Kontur, ECKENSICHER. Statt das Tor tangential an einen Konturpunkt zu
+    // legen (dann ragt es an einer Ecke messbar ueber die Deckkante hinaus), sitzt seine
+    // Front auf der SEHNE zwischen den beiden Konturpunkten in +-Torhalbbreite Bogenlaenge.
+    // Auf einer geraden Seite ist die Sehne die Seite selbst — dort ist das Ergebnis exakt
+    // das bisherige. An einer Ecke rueckt das Tor genau so weit nach innen, dass sein
+    // kompletter Grundriss auf dem Deck bleibt.
+    const fbRingChord=(ring,u,half)=>{
+      const n=ring.length-1,L=[0];
+      for(let i=1;i<ring.length;i++)L.push(L[i-1]+Math.hypot(ring[i].x-ring[i-1].x,ring[i].z-ring[i-1].z));
+      const total=L[ring.length-1];
+      const at=(sv)=>{
+        const sm=((sv%total)+total)%total;let i=1;
+        while(i<L.length-1&&L[i]<sm)i++;
+        const t=(sm-L[i-1])/Math.max(1e-9,L[i]-L[i-1]),p0=ring[i-1],p1=ring[i];
+        return {x:p0.x+(p1.x-p0.x)*t,z:p0.z+(p1.z-p0.z)*t};
+      };
+      const s=(((u%1)+1)%1)*total,a=at(s-half),b=at(s+half);
+      const ex=b.x-a.x,ez=b.z-a.z,ln=Math.hypot(ex,ez)||1;
+      return {x:(a.x+b.x)/2,z:(a.z+b.z)/2,nx:ez/ln,nz:-ex/ln};
+    };
+    // Neuaufbaurate der Geometrie waehrend der Transition. Die Arena wird nicht pro Frame,
+    // sondern in diskreten Schritten neu gebaut — fein genug fuer eine fluessige Bewegung.
+    const FB_MORPH_GOAL_STEPS=16;    // Abschnitt A (Tore wandern, Bandenoeffnungen wandern mit)
+    const FB_MORPH_ARENA_STEPS=30;   // Abschnitt B (Deck und Bande bauen um)
+    const FB_MORPH_RETRACT=0.55;     // Anteil von Abschnitt A, in dem sich das tote Tor zurueckzieht
+    // Zwischenkontur und Bandenoeffnungen fuer den aktuellen Stand beider Abschnitte.
+    // Die Oeffnung des ausgeschiedenen Tores schrumpft auf 0 — dort schliesst sich die Bande.
+    // Torrichtung bei Fortschritt gp: kuerzester Winkelweg vom Phase-4- zum Phase-3-Tor.
+    const fbMorphGoalAngle=(g,gp)=>{
+      const d0=FOOTBALL_ELIM4_DIRS[g.slot],a0=Math.atan2(d0[1],d0[0]);
+      if(g.dead)return a0;
+      const d1=FOOTBALL_ELIM3_DIRS[g.target];
+      let d=Math.atan2(d1[1],d1[0])-a0;
+      while(d>Math.PI)d-=2*Math.PI;
+      while(d<-Math.PI)d+=2*Math.PI;
+      return a0+d*gp;
+    };
+    const fbMorphDesc=()=>{
+      const gp=fbMorphGoalE(),ap=fbMorphArenaE();
+      const rd=fbMorphRing(ap),gap=fbArena().postOuter*BR*FB_U,cuts=[];
+      for(const g of fbMorphPlan.goals){
+        const u=fbRingU(rd.ring,fbMorphGoalAngle(g,gp));
+        cuts.push({u,half:g.dead?gap*(1-Math.min(1,gp/FB_MORPH_RETRACT)):gap});
+      }
+      return {rd,cuts,gp,ap};
+    };
     const fbDispose=(root)=>{root.traverse(o=>{if(o.isMesh&&o.geometry)o.geometry.dispose();});};
     // Baut die komplette sichtbare Arena fuer die aktive Rechteckvariante neu auf.
-    const fbBuildShape=()=>{
+    // mo = optionale Zwischenform der Arena-Transition ({rd, cuts}); ohne sie baut die
+    // Funktion exakt wie bisher die Form der aktiven Phase.
+    const fbBuildShape=(mo)=>{
       const av=fbArena();
       if(fbShapeGroup){bGroup.remove(fbShapeGroup);fbDispose(fbShapeGroup);fbShapeGroup=null;}
       if(!fbMat.glass)return;                             // Materialquelle (Band-GLB) noch nicht geladen
@@ -6323,8 +6844,15 @@ async function initR3D(){
       // und Bandensegmente kommen dann aus fbTriOutline/fbTriFill/fbTriBand; alle uebrigen
       // Bauteile (Stufen, Randweg, Sockel, Bande, Pfosten) arbeiten pfadgenerisch weiter.
       const tri=!!av.tri,ap=tri?av.apothem*BR*FB_U:0;
-      const fill=(inset,y,mat)=>tri?fbTriFill(ap-inset,Math.max(.1,rc-inset),y,mat)
-                                   :fbFill(hx-inset,hz-inset,Math.max(.1,rc-inset),y,mat);
+      // Formstudie: eine Arenavariante kann ein beliebiges konvexes KERNPOLYGON tragen
+      // (z. B. das gekappte Dreieck der refined-Form). Der Ring entsteht dann aus denselben
+      // Helfern, die auch die Transition benutzt — Deck, Bande und Fuellung bleiben identisch.
+      const polyRing=(!mo&&av.poly)
+        ?fbRoundPoly(av.poly.map(v=>[v[0]*BR*FB_U,v[1]*BR*FB_U]),rc,20):null;
+      const fill=mo?((inset,y,mat)=>fbRingFill(mo.rd.ring,inset,y,mat))
+                  :(polyRing?((inset,y,mat)=>fbRingFill(polyRing,inset,y,mat))
+                  :((inset,y,mat)=>tri?fbTriFill(ap-inset,Math.max(.1,rc-inset),y,mat)
+                                      :fbFill(hx-inset,hz-inset,Math.max(.1,rc-inset),y,mat)));
       // Die Bande endet exakt an der AUSSENkante des Torsockels: das Tor fuellt die Oeffnung
       // vollstaendig aus, es bleibt kein offener Streifen Randweg zwischen Bandenende und Tor
       // (genau der Eindruck des "davor gestellten" Tors aus Iteration 1).
@@ -6332,7 +6860,7 @@ async function initR3D(){
       const G=new THREE.Group();fbShapeGroup=G;bGroup.add(G);
       const marble=fbPlatMat['M_Marble']||fbMat.marble,wall=fbPlatMat['M_MarbleWall']||fbMat.marble;
       const stone=fbPlatMat['M_Stone']||wall,gold=fbMat.gold||goldM;
-      const ring=tri?fbTriOutline(ap,rc,20):fbOutline(hx,hz,rc,20);
+      const ring=mo?mo.rd.ring:(polyRing||(tri?fbTriOutline(ap,rc,20):fbOutline(hx,hz,rc,20)));
       // Materialkopie fuer prozedurale Geometrie: Kachelung passend zu den UV in echter
       // Bogenlaenge, beidseitig gerendert (opake Bauteile, Umlaufrichtung unkritisch).
       const fbTex=(src,rep)=>{const m=src.clone();
@@ -6385,7 +6913,13 @@ async function initR3D(){
       // Die Bande entsteht IMMER aus derselben Geometriequelle wie die Physikgrenze — es kann
       // keine sichtbar offene Wand bei physikalisch geschlossener Wand geben.
       let fbSegs;
-      if(tri){
+      if(mo){
+        fbSegs=fbRingBands(mo.rd,mo.cuts);
+      }else if(polyRing){
+        // Oeffnungen genau auf den Torachsen: dieselbe Bogenlaengenlogik wie in der Transition.
+        fbSegs=fbRingBands({ring:polyRing},
+          av.dirs.map(d=>({u:fbRingU(polyRing,Math.atan2(d[1],d[0])),half:gap})));
+      }else if(tri){
         fbSegs=[];
         for(let k=0;k<3;k++)fbSegs.push(fbTriBand(ap,rc,gap,20,k));
       }else if(fbElim4()&&av.sides===4){
@@ -6528,9 +7062,21 @@ async function initR3D(){
       // Tore fuehren je einen eigenen Stand, weil die Form auf das Banden-GLB warten kann.
       // Der Schluessel traegt in Elimination4 die AKTIVE PHASE: beim Wechsel 4 -> 3 -> 2
       // werden Form UND Tore vollstaendig neu gebaut, es bleibt kein Altsegment stehen.
-      const fbWant=footballView?(fbElim4()?'elim'+fbElimPhaseN:'std'):'';
-      if(fbWant&&(!fbShapeGroup||fbLayout!==fbWant)){fbBuildShape();if(fbShapeGroup)fbLayout=fbWant;}
-      if(fbWant&&fbBuildGoals&&fbGoalLayout!==fbWant){fbBuildGoals();fbGoalLayout=fbWant;}
+      // Arena-Transition 4 -> 3: waehrend sie laeuft, entsteht die Form nicht aus der Phase,
+      // sondern aus dem Fortschritt. Die Geometrie wird dabei in FB_MORPH_STEPS Schritten neu
+      // gebaut (nicht pro Frame) — sichtbar fluessig, ohne die Arena 60x pro Sekunde zu bauen.
+      const fbMorphOn=footballView&&fbMorphActive()&&!!fbMorphPlan&&!!fbMat.glass;
+      const fbPhaseWant=footballView?(fbElim4()?'elim'+fbElimPhaseN:'std'):'';
+      const fbWant=fbMorphOn
+        ?'morph'+Math.round(fbMorphGoalE()*FB_MORPH_GOAL_STEPS)+'_'+
+                 Math.round(fbMorphArenaE()*FB_MORPH_ARENA_STEPS)
+        :fbPhaseWant;
+      const fbDesc=fbMorphOn?fbMorphDesc():null;
+      if(fbWant&&(!fbShapeGroup||fbLayout!==fbWant)){fbBuildShape(fbDesc);if(fbShapeGroup)fbLayout=fbWant;}
+      // Die Torinstanzen bleiben waehrend der Transition die der Phase 4 — sie werden nur
+      // bewegt. Erst nach dem Einrasten wechselt die Phase und damit der reguläre Neuaufbau.
+      if(fbPhaseWant&&fbBuildGoals&&fbGoalLayout!==fbPhaseWant){fbBuildGoals();fbGoalLayout=fbPhaseWant;}
+      if(fbMorphOn&&fbPoseGoals&&fbDesc)fbPoseGoals(fbDesc.rd);
       // Additiver Fallback (Review-Befund): die runde Plattform weicht NUR, wenn die
       // prozedurale Rechteckarena wirklich steht. Faellt das Band-GLB (Materialquelle)
       // aus, bleibt sonst gar kein Boden — Baelle und Tore schwebten vor dem Himmel.
@@ -6565,7 +7111,11 @@ async function initR3D(){
         // Sichtbarer Radius == Physikradius (ballRad): die geteilte BR-Kugelgeometrie wird
         // pro Kugel skaliert. Fuer Spieler und alle Nicht-Football-Modi ist rs exakt 1.
         const rad=ballRad(b),rs=rad/BR;
-        m.scale.setScalar(rs);d.scale.setScalar(rs);
+        // Arena-Transition: die Figuren gleiten nicht durch bewegte Waende. Sie ziehen sich
+        // vor dem Umbau zurueck und erscheinen erst auf den fairen Phase-3-Spawns wieder.
+        // Rein visuell — Position, Physik und Spawnwerte bleiben unberuehrt.
+        const bodyLv=(mode==='football'&&b.owner!==FOOTBALL_NEUTRAL_OWNER)?fbMorphBodyLevel():1;
+        m.scale.setScalar(rs*Math.max(.001,bodyLv));d.scale.setScalar(rs*Math.max(.001,bodyLv));
         // Kosmetischer Fall ueber die Kante (rein visuell, Zustand wird nie geschrieben):
         // Schwung der letzten Bewegung traegt die Kugel ueber die Kante hinaus (weich abklingend),
         // dann Gravity + rollende Rotation, bis sie in den Wolken verschwindet.
@@ -6583,6 +7133,9 @@ async function initR3D(){
           // soll aber genau jetzt leer sein. Reine Fortsetzung DESSELBEN Falls (fallT bleibt
           // gesetzt), der Ball ist zu diesem Zeitpunkt ohnehin schon ausgeblendet.
           ||(mode==='football'&&fbGoalState==='celebrate'&&b.owner===FOOTBALL_NEUTRAL_OWNER)
+          // Arena-Transition: die Arena baut sich um, der Ball ist noch nicht zurueck. Er
+          // faellt erst NACH dem Einrasten wieder ins Zentrum (Zustand 'spawn').
+          ||(mode==='football'&&fbGoalState==='morph'&&b.owner===FOOTBALL_NEUTRAL_OWNER)
           ||(mode==='football'&&fbGoalState==='result'&&b.owner===FOOTBALL_NEUTRAL_OWNER);
         if(out){
           sr.visible=false;                            // gefallene/ausgeschiedene Kugel traegt nie einen Auswahlring
@@ -6621,8 +7174,8 @@ async function initR3D(){
           // bereits auf der Startposition, Physik und Score sind unberuehrt.
           const spawnLift=(mode==='football'&&fbGoalState==='spawn'&&b.owner===FOOTBALL_NEUTRAL_OWNER)
             ?footballSpawnHeight()*Math.max(0,1-fbGoalTick/FOOTBALL_GOAL_SPAWN_TICKS):0;
-          m.visible=true;m.position.set(b.x,bob+lift+rad+spawnLift,b.y);
-          d.visible=true;d.material.opacity=spawnLift>0?.85*(1-spawnLift/footballSpawnHeight()):.85;d.position.set(b.x,bob+lift+.6,b.y);
+          m.visible=bodyLv>.01;m.position.set(b.x,bob+lift+rad*bodyLv+spawnLift,b.y);
+          d.visible=bodyLv>.01;d.material.opacity=(spawnLift>0?.85*(1-spawnLift/footballSpawnHeight()):.85)*bodyLv;d.position.set(b.x,bob+lift+.6,b.y);
           // Tactical: Ring an den eigenen Figuren des Spielers am Zug — schwach bei
           // "waehlbar", deutlich bei "gewaehlt". Der Zustand lebt in fbSel, nicht hier.
           const ringLv=typeof fbTacticalRingLevel==='function'?fbTacticalRingLevel(i):0;

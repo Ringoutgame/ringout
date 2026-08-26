@@ -32,7 +32,13 @@ const HTML = loadIndexHtml();
 const grab = (re, name) => grabIn(HTML, re, name);
 
 let pass = 0, fail = 0;
+let FB_R = null, FB_SANDBOX = null;   // Sandbox mit den echten Rendererquellen (Block N)
 function ok(cond, msg) { if (cond) { pass++; } else { fail++; console.error('FAIL: ' + msg); } }
+// Stille Variante fuer Schleifen ueber viele Ticks: sie meldet einen Fehlschlag nur einmal
+// und zaehlt im Erfolgsfall gar nicht - sonst wuerde eine einzige Invariante die
+// Assertionzahl um Hunderte aufblaehen.
+const ok0Seen = new Set();
+function ok0(cond, msg) { if (cond) return; if (ok0Seen.has(msg)) return; ok0Seen.add(msg); fail++; console.error('FAIL: ' + msg); }
 const near = (a, b, eps) => Math.abs(a - b) <= (eps == null ? 1e-9 : eps);
 const speed = (b) => Math.hypot(b.vx, b.vy);
 const COS30 = 0.8660254037844387;   // sqrt(3)/2 - identisch zu FB_TRI_COS30 in index.html
@@ -173,7 +179,8 @@ function buildEnv(devFbVariant) {
                 d:Math.hypot(balls[idx].x-cx,balls[idx].y-cy)};
       },
       postClear(i){ const p=footballPostProbe(balls[i]); return !p||p.d>=ballRad(balls[i])-1e-6; },
-      arenaCfg(){ const a=fbArena(); return {halfLen:a.halfLen,halfWid:a.halfWid,corner:a.corner,
+      arenaCfg(){ const a=fbArena(); return {poly:a.poly?a.poly.map(v=>v.slice()):null,
+                     halfLen:a.halfLen,halfWid:a.halfWid,corner:a.corner,
                      spawn:a.spawn,sides:a.sides,tri:!!a.tri,postInner:a.postInner,postOuter:a.postOuter,
                      postFront:a.postFront,postBack:a.postBack,goalAnchor:a.goalAnchor}; },
       arena(){ return {halfLen:fbHalfLen(), halfWid:fbHalfWid(), corner:fbCorner(),
@@ -226,6 +233,21 @@ function buildEnv(devFbVariant) {
       resetBall(){ footballElimResetBall(); },
       // -- Tor / Match --
       goalState(){ return fbGoalState; },
+      goalTick(){ return fbGoalTick; },
+      goalBusy(){ return footballGoalBusy(); },
+      // -- Arena-Transition 4 -> 3 (rein visuell) --
+      morphActive(){ return fbMorphActive(); },
+      morphE(){ return fbMorphE(); },
+      goalE(){ return fbMorphGoalE(); },
+      arenaE(){ return fbMorphArenaE(); },
+      viewR(){ return fbElimViewR(); },
+      morphPlan(){ return fbMorphPlan?fbMorphPlan.goals.map(g=>({owner:g.owner,slot:g.slot,target:g.target,dead:g.dead})):null; },
+      morphWanted(){ return fbMorphWanted(); },
+      bodyLevel(){ return fbMorphBodyLevel(); },
+      morphTicks(){ return {hold:FB_MORPH_HOLD_TICKS,goals:FB_MORPH_GOAL_TICKS,
+                            arena:FB_MORPH_ARENA_TICKS,settle:FB_MORPH_SETTLE_TICKS,
+                            total:FB_MORPH_TICKS,body:FB_MORPH_BODY_TICKS,
+                            overshoot:FB_MORPH_OVERSHOOT}; },
       winner(){ return footballWinner; },
       overCalls(){ return gameOverCalls.slice(); },
       goalSounds(){ return goalSounds; },
@@ -486,6 +508,26 @@ console.log('ARENA FOOTBALL - ELIMINATION: ONE GOAL = OUT + ADAPTIVE ARENA + FAI
   // V2-Test tangential um die Arena - je kleiner, desto staerker streuen die Ecken zurueck.
   const arcShareRect = (h, w, rc) => (2 * Math.PI * rc) / (4 * (h - rc) + 4 * (w - rc) + 2 * Math.PI * rc);
   const arcShareTri = (ap, rc) => (2 * Math.PI * rc) / (6 * (ap - rc) * Math.sqrt(3) + 2 * Math.PI * rc);
+  // Fuer die gekappten Formen: gerade Wandflaeche ist der Umfang des Kernpolygons, die
+  // Rundung sind die Boegen - zusammen exakt 2*pi*rc.
+  const arcSharePoly = (poly, rc) => {
+    let per = 0;
+    for (let i = 0; i < poly.length; i++) {
+      const p = poly[i], q = poly[(i + 1) % poly.length];
+      per += Math.hypot(q[0] - p[0], q[1] - p[1]);
+    }
+    return (2 * Math.PI * rc) / (per + 2 * Math.PI * rc);
+  };
+  // Laenge der geraden Wand in einer Torrichtung (die Kernkante, deren Normale die Torachse ist).
+  const goalWallLen = (poly, d) => {
+    let best = 0;
+    for (let i = 0; i < poly.length; i++) {
+      const p = poly[i], q = poly[(i + 1) % poly.length];
+      const ex = q[0] - p[0], ez = q[1] - p[1], L = Math.hypot(ex, ez) || 1;
+      if ((ez / L) * d[0] + (-ex / L) * d[1] > 0.94) best = Math.max(best, L);
+    }
+    return best;
+  };
 
   E.forcePhase(4);
   const a4 = E.arenaCfg();
@@ -500,12 +542,13 @@ console.log('ARENA FOOTBALL - ELIMINATION: ONE GOAL = OUT + ADAPTIVE ARENA + FAI
 
   E.forcePhase(3);
   const a3 = E.arenaCfg(), d3 = E.dirs();
-  const s3 = arcShareTri(a3.halfLen, a3.corner);
-  ok(a3.sides === 3 && a3.tri === true, 'Phase 3: abgerundetes Dreieck mit drei Seiten');
+  const s3 = arcSharePoly(a3.poly, a3.corner);
+  ok(a3.sides === 3 && Array.isArray(a3.poly) && a3.poly.length === 6,
+     'Phase 3: Broad Rounded Triangle - drei Torseiten, sechs Kernecken');
   ok(d3.length === 3, 'Phase 3: genau drei Tore');
-  ok(a3.halfLen === 11.50 && a3.corner === 3.50, 'Phase 3: Apothem 11.50 BR, Eckradius 3.50 BR');
+  ok(a3.halfLen === 12.50 && a3.corner === 3.50, 'Phase 3: Apothem 12.50 BR, Eckradius 3.50 BR');
   ok(s3 < 0.25, 'Phase 3: gekruemmter Konturanteil ' + (s3 * 100).toFixed(1) + ' Prozent');
-  ok((a3.halfLen - a3.corner) * Math.sqrt(3) > a3.postOuter,
+  ok(goalWallLen(a3.poly, d3[0]) / 2 > a3.postOuter,
      'Phase 3: der Torsockel passt in das gerade Seitensegment');
   for (const d of d3) ok(near(Math.hypot(d[0], d[1]), 1, 1e-12), 'Phase 3: Torrichtung [' + d + '] ist ein Einheitsvektor');
   for (let k = 0; k < 3; k++) {
@@ -539,22 +582,27 @@ console.log('ARENA FOOTBALL - ELIMINATION: ONE GOAL = OUT + ADAPTIVE ARENA + FAI
 
   E.forcePhase(2);
   const a2 = E.arenaCfg(), d2 = E.dirs();
-  ok(a2.sides === 2 && a2.tri === false, 'Phase 2: Rounded Rectangle mit zwei Toren');
+  ok(a2.sides === 2 && Array.isArray(a2.poly) && a2.poly.length === 8,
+     'Phase 2: Shouldered Wide - zwei Tore, acht Kernecken');
   ok(d2.length === 2, 'Phase 2: genau zwei Tore');
   ok(near(d2[0][0], -d2[1][0]) && near(d2[0][1], -d2[1][1]),
      'Phase 2: die beiden Tore liegen EXAKT gegenueber');
   ok(a2.postFront === a2.halfLen, 'Phase 2: beide Tore haben dieselbe Zentrumsdistanz');
   ok(a2.halfLen > a2.halfWid, 'Phase 2: klare Laengsachse (Classic-Layout)');
-  ok(a2.halfWid - a2.corner > a2.postOuter, 'Phase 2: der Torsockel passt in das gerade Seitensegment');
+  ok(goalWallLen(a2.poly, d2[0]) / 2 > a2.postOuter, 'Phase 2: der Torsockel passt in das gerade Seitensegment');
   ok(near(E.arena().clearHalf, C.arena().clearHalf), 'Phase 2: lichte Torbreite unveraendert 227.84');
-  const s2 = arcShareRect(a2.halfLen, a2.halfWid, a2.corner);
+  const s2 = arcSharePoly(a2.poly, a2.corner);
   ok(s2 < arcShareRect(18.00, 12.70, 6.85), 'Phase 2: weniger gekruemmte Aussenfuehrung als Classic');
 
   E.forcePhase(4); const v4 = E.viewR();
   E.forcePhase(3); const v3 = E.viewR();
   E.forcePhase(2); const v2 = E.viewR();
-  ok(v4 > v3 && v3 > v2, 'der Sichtradius schrumpft von Phase zu Phase (' +
-     [v4, v3, v2].map(v => Math.round(v)).join(' > ') + ')');
+  ok(v4 > v3, 'der Sichtradius wird beim ersten Umbau enger (' +
+     Math.round(v4) + ' > ' + Math.round(v3) + ')');
+  // Beim zweiten Umbau bestimmt die Deckkante hinter den Toren das Framing, nicht die
+  // Spielflaeche - das breite Finale zieht die Kamera bewusst wieder etwas auf.
+  ok(v2 > v3, 'der Sichtradius 3 -> 2 waechst mit dem breiten Finale (' +
+     Math.round(v3) + ' -> ' + Math.round(v2) + ')');
 
   ok(C.arenaCfg().halfLen === 18.00 && C.arenaCfg().corner === 6.85, 'Classic behaelt die Produktivarena');
   ok(buildEnv('tactical').arenaCfg().corner === 6.85, 'Tactical behaelt die Produktivarena');
@@ -808,11 +856,14 @@ console.log('ARENA FOOTBALL - ELIMINATION: ONE GOAL = OUT + ADAPTIVE ARENA + FAI
     const a = E.arenaCfg(), D = E.dirs();
     const A = a.halfLen * E.BR;             // Zentrum -> Bandeninnenflaeche in Torrichtung
     const RC = a.corner * E.BR;
-    // ECKMITTELPUNKTE der fertigen Form - beim Rechteck die vier Ecken des Kernrechtecks,
-    // beim Dreieck die drei Ecken des geschrumpften Dreiecks. Die Richtung dorthin ist die
-    // Richtung, in der der Eckbogen liegt; die Winkelhalbierende der TORACHSEN ist es bei
-    // zwei gegenueberliegenden Toren gerade NICHT.
-    const cornerPts = a.tri
+    // ECKMITTELPUNKTE der fertigen Form: bei den gekappten Formen sind das genau die Ecken
+    // des Kernpolygons, beim Rechteck die vier Ecken des Kernrechtecks, beim Dreieck die drei
+    // Ecken des geschrumpften Dreiecks. Die Richtung dorthin ist die Richtung, in der der
+    // Eckbogen liegt; die Winkelhalbierende der TORACHSEN ist es bei zwei gegenueberliegenden
+    // Toren gerade NICHT.
+    const cornerPts = a.poly
+      ? a.poly.map(v => [v[0] * E.BR, v[1] * E.BR])
+      : a.tri
       ? [[COS30, -0.5], [0, 1], [-COS30, -0.5]].map(v => [v[0] * 2 * (A - RC), v[1] * 2 * (A - RC)])
       : [[1, 1], [1, -1], [-1, -1], [-1, 1]].map(v =>
           [v[0] * (a.halfLen * E.BR - RC), v[1] * (a.halfWid * E.BR - RC)]);
@@ -1495,6 +1546,626 @@ console.log('ARENA FOOTBALL - ELIMINATION: ONE GOAL = OUT + ADAPTIVE ARENA + FAI
   ok(!/fbElimPhaseN[^\n]*(friction|rest|slowv|stopv)/i.test(HTML),
      'es gibt keine phase-spezifischen Physikwerte');
 }
+
+
+// =================================================================================
+// N - ARENA-TRANSITION 4 -> 3 (rein visuell, Prototyp V2)
+// =================================================================================
+// Geprueft wird der ZUSTAND, nicht das Bild: die zwei Abschnitte (erst Tore, dann Arena),
+// dass waehrend der ganzen Dauer nichts spielbar ist und sich nichts bewegt, dass die
+// Kamera stillsteht und dass Phase, Spawns und Ball erst am Ende wechseln.
+{
+  const E = buildEnv('elimination4');
+  E.newMatch();
+  const T = E.morphTicks();
+  ok(T.hold + T.goals + T.arena + T.settle === T.total, 'die vier Abschnitte ergeben die Gesamtdauer');
+  ok(T.total >= 87 && T.total <= 102,
+     'Gesamtdauer 1.45 - 1.70 s bei 60 Ticks/s (erhalten: ' + T.total + ' Ticks)');
+  ok(T.hold >= 9 && T.hold <= 15, 'Elimination-Hold 0.15 - 0.25 s');
+  ok(T.goals >= 21 && T.goals <= 30, 'Torneuordnung 0.35 - 0.50 s');
+  ok(T.arena >= 45 && T.arena <= 60, 'Arenaumbau 0.75 - 1.00 s');
+  ok(T.settle >= 9 && T.settle <= 12, 'Einrasten 0.15 - 0.20 s');
+  ok(T.overshoot === 0, 'V2 laeuft OHNE Ueberschwingen (Einrasten spaeter ueber FX/Audio)');
+
+  ok(E.morphActive() === false, 'im laufenden Spiel gibt es keine Transition');
+  ok(E.morphWanted() === false, 'bei vier aktiven Spielern wird keine Transition gewollt');
+  ok(E.morphPlan() === null, 'ohne Transition gibt es keinen Plan');
+  ok(E.bodyLevel() === 1, 'ausserhalb der Transition sind die Figuren voll sichtbar');
+}
+{
+  // Vollstaendiger Torablauf mit Transition: Tor -> fall -> celebrate -> morph -> spawn -> play.
+  const E = buildEnv('elimination4');
+  E.newMatch();
+  parkPlayers(E);
+  shootAt(E, 0);
+  ok(E.goalState() === 'fall', 'Vorbedingung: der Torablauf laeuft');
+  ok(E.active()[0] === false, 'Vorbedingung: P1 ist ausgeschieden');
+  ok(E.morphWanted() === true, 'nach der ersten Eliminierung wird die Transition gewollt');
+
+  let n = 0;
+  while (E.goalState() !== 'morph' && n < 400) { E.step(); n++; }
+  ok(E.goalState() === 'morph', 'die Transition startet nach dem Celebration Window');
+  ok(E.phaseN() === 4 && E.dirs().length === 4,
+     'zu Beginn der Transition steht noch EXAKT die Vier-Tore-Arena');
+  ok(E.goalE() === 0 && E.arenaE() === 0, 'beide Abschnitte starten bei exakt 0');
+
+  const plan = E.morphPlan();
+  ok(plan !== null && plan.length === 4, 'der Plan kennt alle vier Tore der alten Arena');
+  ok(plan.filter(g => g.dead).length === 1, 'genau ein Tor ist als ausgeschieden markiert');
+  ok(plan.find(g => g.dead).owner === 0, 'das tote Tor gehoert dem ausgeschiedenen Spieler');
+  ok(plan.filter(g => !g.dead).every(g => g.target >= 0 && g.target < 3),
+     'jedes verbleibende Tor hat genau einen Phase-3-Slot');
+  const tgt = plan.filter(g => !g.dead).map(g => g.target).sort();
+  ok(JSON.stringify(tgt) === JSON.stringify([0, 1, 2]),
+     'die drei Ziele decken die drei Phase-3-Slots genau einmal ab');
+  const byOwner = plan.filter(g => !g.dead).sort((a, b) => a.owner - b.owner).map(g => g.target);
+  ok(JSON.stringify(byOwner) === JSON.stringify([0, 1, 2]),
+     'die Zuordnung folgt der aufsteigenden Spieler-ID - identisch zu fbElimApplyPhase');
+
+  const view0 = E.viewR();
+  const before = E.snapshot();
+  const T2 = E.morphTicks();
+  let gUp = true, aUp = true, finite = true, hidden = false, moved = 0, seen = 0;
+  let gPrev = -1, aPrev = -1, camOk = true, orderOk = true, goalsDoneAt = -1, arenaStartAt = -1;
+  for (let k = 0; k < T2.total + 5; k++) {
+    if (E.goalState() !== 'morph') break;
+    seen++;
+    ok0(E.goalBusy() === true, 'Eingaben sind waehrend der ganzen Transition gesperrt');
+    ok0(E.canCommit(1) === false, 'kein Commit waehrend der Transition');
+    ok0(E.phaseN() === 4, 'die Phase wechselt waehrend der Transition NICHT');
+    const gp = E.goalE(), ap = E.arenaE();
+    if (!Number.isFinite(gp) || !Number.isFinite(ap)) finite = false;
+    if (gp < gPrev - 1e-9) gUp = false;
+    if (ap < aPrev - 1e-9) aUp = false;
+    if (ap > 1e-9 && gp < 1 - 1e-9) orderOk = false;      // Arena darf erst nach den Toren
+    if (gp >= 1 - 1e-9 && goalsDoneAt < 0) goalsDoneAt = seen;
+    if (ap > 1e-9 && arenaStartAt < 0) arenaStartAt = seen;
+    gPrev = gp; aPrev = ap;
+    if (Math.abs(E.viewR() - view0) > 1e-9) camOk = false;
+    if (E.bodyLevel() < 0.02) hidden = true;
+    const now = E.snapshot();
+    for (let i = 0; i < now.length; i++)
+      if (Math.abs(now[i].x - before[i].x) > 1e-9 || Math.abs(now[i].y - before[i].y) > 1e-9) moved++;
+    E.step();
+  }
+  ok(seen === T2.total, 'die Transition dauert exakt ' + T2.total + ' Ticks (erhalten: ' + seen + ')');
+  ok(gUp, 'der Fortschritt der Torneuordnung laeuft monoton von 0 nach 1');
+  ok(aUp, 'der Fortschritt des Arenaumbaus laeuft monoton von 0 nach 1');
+  ok(gPrev === 1 && aPrev === 1, 'beide Abschnitte enden exakt auf 1');
+  ok(orderOk, 'der Arenaumbau beginnt erst, wenn die Torneuordnung abgeschlossen ist');
+  ok(goalsDoneAt > 0 && arenaStartAt > goalsDoneAt,
+     'Abschnitt A endet vor Abschnitt B (Tore fertig bei Tick ' + goalsDoneAt +
+     ', Arena beginnt bei Tick ' + arenaStartAt + ')');
+  ok(camOk, 'das Kamera-Framing bleibt waehrend der ganzen Transition konstant');
+  ok(finite, 'beide Fortschritte sind zu jedem Zeitpunkt endlich (kein NaN/Infinity)');
+  ok(moved === 0, 'waehrend der Transition bewegt sich kein einziger Koerper (' + moved + ' Abweichungen)');
+  ok(E.snapshot().every(b2 => b2.vx === 0 && b2.vy === 0),
+     'alle Koerper sind waehrend der Transition kontrolliert eingefroren');
+  ok(hidden, 'die Figuren ziehen sich waehrend der Transition sichtbar zurueck');
+  ok(E.finite(), 'alle Koerperwerte bleiben endlich');
+
+  ok(E.goalState() === 'spawn', 'nach der Transition folgt der Ball-Drop (spawn)');
+  ok(E.phaseN() === 3 && E.dirs().length === 3, 'der Endzustand ist EXAKT die Drei-Tore-Arena');
+  const sn = E.snapshot();
+  for (let s2 = 0; s2 < 3; s2++) {
+    const o = E.slotOwner(s2), sp = E.spawnAt(s2);
+    ok(near(sn[o].x, sp.x) && near(sn[o].y, sp.y),
+       'P' + (o + 1) + ' steht nach der Transition auf dem fairen Phase-3-Spawn');
+  }
+  ok(near(sn[4].x, E.cx) && near(sn[4].y, E.cy), 'der Ball steht im Zentrum der neuen Arena');
+  ok(E.morphActive() === false, 'die Transition ist beendet');
+  ok(E.morphPlan() === null, 'der Plan ist aufgeraeumt');
+  ok(E.canCommit(1) === false, 'waehrend des Ball-Drops ist noch kein Commit moeglich');
+  ok(E.bodyLevel() < 1, 'die Figuren kommen erst waehrend des Ball-Drops zurueck');
+
+  let m = 0;
+  while (E.goalState() !== 'play' && m < 200) { E.step(); m++; }
+  ok(E.goalState() === 'play', 'nach dem Ball-Drop laeuft die Runde wieder');
+  ok(E.bodyLevel() === 1, 'die Figuren sind wieder voll sichtbar');
+  E.step();
+  ok(E.canCommit(1) === true, 'Commit ist erst nach dem Ball-Drop moeglich');
+}
+{
+  // Die Transition gilt ausschliesslich fuer 4 -> 3. Kein 3 -> 2, kein Sieg.
+  const E = buildEnv('elimination4');
+  E.newMatch();
+  E.eliminate(0);
+  E.applyPhase();
+  ok(E.phaseN() === 3, 'Vorbedingung: die Arena steht auf drei Toren');
+  E.eliminate(1);
+  ok(E.morphWanted() === false, '3 -> 2 laeuft in diesem Prototyp OHNE Transition');
+  const W = buildEnv('elimination4');
+  W.newMatch();
+  W.eliminate(0); W.eliminate(1);
+  W.applyPhase();
+  W.eliminate(2);
+  ok(W.winner() === 3, 'Vorbedingung: das Match ist entschieden');
+  ok(W.morphWanted() === false, 'beim Sieg gibt es keine Transition');
+}
+{
+  // Classic und Tactical kennen den Transition-Zustand nicht.
+  for (const v of [undefined, 'tactical']) {
+    const E = buildEnv(v);
+    E.newMatch();
+    ok(E.morphActive() === false, (v || 'classic') + ': keine Transition');
+    ok(E.morphWanted() === false, (v || 'classic') + ': keine Transition gewollt');
+    ok(E.bodyLevel() === 1, (v || 'classic') + ': Figuren immer voll sichtbar');
+  }
+}
+{
+  // Die Zwischenformen der Arena (V3, Minkowski-/Stuetzfunktions-Interpolation): beide
+  // Endzustaende exakt, dazwischen konvex, Schwerpunkt stabil und - der eigentliche Punkt -
+  // die Wanddistanz JEDER Richtung laeuft monoton von ihrem Start- auf ihren Endwert.
+  const G = (re, n) => grab(re, n);
+  const parts = [
+    /const FB_TRI_VERT=.*/,
+    /const FOOTBALL_ARENA_ELIM4=\{[\s\S]*?\};/,
+    /\/\/ Konvexes Kernpolygon[\s\S]*?function fbElimArena\(\)\{.*\}/,
+    /const fbOutline=\(hx,hz,rc,seg\)=>\{[\s\S]*?\n    \};/,
+    /const fbTriOutline=\(ap,rc,seg\)=>\{[\s\S]*?\n    \};/,
+    /const fbRoundPoly=\(V,rc,seg\)=>\{[\s\S]*?\n    \};/,
+    /const fbEdgesFrom=\(V\)=>\{[\s\S]*?\n    \};/,
+    /const fbMinkowski=\(A,B\)=>\{[\s\S]*?\n    \};/,
+    /const fbMorphCore=\(a,rc\)=>\{[\s\S]*?\n    \};/,
+    /const fbMorphCores=\(\)=>\{[\s\S]*?\n    \};/,
+    /const fbPolyCentroid=\(P\)=>\{[\s\S]*?\n    \};/,
+    /const fbMorphRing=\(e\)=>\{[\s\S]*?\n    \};/,
+    /const fbRingChord=\(ring,u,half\)=>\{[\s\S]*?\n    \};/,
+  ];
+  const src = parts.map((re, i) => G(re, 'Rendererquelle ' + i)).join('');
+  // Sandbox mit den echten Rendererquellen und den finalen Arenakonstanten.
+  FB_SANDBOX = () => new Function(
+    'const FB_GOAL_HALF_DEPTH=1.184,FB_TRI_COS30=0.8660254037844387,' +
+    'FB_TRI_TAN60=1.7320508075688772;const FOOTBALL_ELIM4_DIRS=[[0,-1],[1,0],[0,1],[-1,0]];' +
+    'const FOOTBALL_ELIM3_DIRS=[[0,-1],[FB_TRI_COS30,0.5],[-FB_TRI_COS30,0.5]];' +
+    'const FOOTBALL_ELIM2_DIRS=[[1,0],[-1,0]];' +
+    'const BR=32,FB_U=1;let fbElimPhaseN=4;' +
+    src +
+    'return {fbMorphRing,fbRingChord,fbRoundPoly,fbOutline,fbTriOutline,fbElimArena,' +
+    'A4:FOOTBALL_ARENA_ELIM4,A3:FOOTBALL_ARENA_ELIM3,A2:FOOTBALL_ARENA_ELIM2};')();
+  const R = FB_SANDBOX();
+  FB_R = R;
+
+  const supp = (P, th) => {
+    let m = -Infinity;
+    for (const p of P) { const d = p.x * Math.cos(th) + p.z * Math.sin(th); if (d > m) m = d; }
+    return m;
+  };
+  const devSup = (P, Q) => {
+    let w = 0;
+    for (let k = 0; k < 720; k++) { const th = k * Math.PI / 360; w = Math.max(w, Math.abs(supp(P, th) - supp(Q, th))); }
+    return w;
+  };
+  const ref4 = R.fbOutline(R.A4.halfLen * 32, R.A4.halfWid * 32, R.A4.corner * 32, 20);
+  const ref3 = R.fbRoundPoly(R.A3.poly.map(v => [v[0] * 32, v[1] * 32]), R.A3.corner * 32, 20);
+  ok(devSup(R.fbMorphRing(0).ring, ref4) < 1e-6,
+     'Fortschritt 0 ist die freigegebene Phase-4-Form (' + devSup(R.fbMorphRing(0).ring, ref4).toExponential(1) + ')');
+  ok(devSup(R.fbMorphRing(1).ring, ref3) < 0.5,
+     'Fortschritt 1 ist die freigegebene Phase-3-Form (' + devSup(R.fbMorphRing(1).ring, ref3).toFixed(3) + ' Einheiten)');
+
+  const metrics = (ring) => {
+    const P = ring.slice(0, ring.length - 1), n = P.length;
+    let mnH = Infinity, mxH = 0, ar = 0, cx = 0, cz = 0, concave = 0, bad = 0;
+    for (let d = 0; d < 720; d++) {
+      const h = supp(P, d * Math.PI / 360);
+      mnH = Math.min(mnH, h); mxH = Math.max(mxH, h);
+    }
+    for (let i = 0; i < n; i++) {
+      const a = P[i], b = P[(i + 1) % n], c = P[(i + 2) % n];
+      if ((b.x - a.x) * (c.z - b.z) - (b.z - a.z) * (c.x - b.x) < -1e-6) concave++;
+      if (!Number.isFinite(a.x) || !Number.isFinite(a.z) || !Number.isFinite(a.nx)) bad++;
+      const cr = a.x * b.z - b.x * a.z;
+      ar += cr; cx += (a.x + b.x) * cr; cz += (a.z + b.z) * cr;
+    }
+    const A = ar / 2;
+    return { apothem: mnH, outer: mxH, area: Math.abs(A), cog: Math.hypot(cx / (6 * A), cz / (6 * A)), concave, bad };
+  };
+  let pAp = Infinity, pOut = Infinity, pA = Infinity, monoAp = true, monoOut = true, monoA = true, cogMax = 0;
+  for (let k = 0; k <= 20; k++) {
+    const m = metrics(R.fbMorphRing(k / 20).ring);
+    ok0(m.concave === 0, 'jede Zwischenkontur ist konvex (keine Beulen, keine Selbstdurchdringung)');
+    ok0(m.bad === 0, 'keine Zwischenkontur enthaelt NaN/Infinity');
+    if (m.apothem > pAp + 1e-6) monoAp = false;
+    if (m.outer > pOut + 1e-6) monoOut = false;
+    if (m.area > pA + 1e-6) monoA = false;
+    pAp = m.apothem; pOut = m.outer; pA = m.area;
+    cogMax = Math.max(cogMax, m.cog);
+  }
+  ok(monoAp, 'das Apothem laeuft monoton in den Endzustand');
+  ok(monoOut, 'der Aussenradius laeuft monoton in den Endzustand');
+  ok(monoA, 'die Arenaflaeche schrumpft ueber die ganze Bewegung monoton');
+  ok(cogMax < 25,
+     'der Flaechenschwerpunkt wandert hoechstens minimal und kehrt ins Zentrum zurueck (max ' +
+     cogMax.toFixed(1) + ' Einheiten = ' + (cogMax / 14.0).toFixed(1) + ' % der Arenabreite)');
+
+  // Der eigentliche V3-Gewinn: die Wanddistanz JEDER Richtung interpoliert monoton zwischen
+  // Start- und Endwert. Damit gibt es kein Stauchen, kein Ausbeulen, kein Zurueckfedern.
+  const H = [];
+  for (let k = 0; k <= 20; k++) {
+    const P = R.fbMorphRing(k / 20).ring, row = [];
+    for (let d = 0; d < 180; d++) row.push(supp(P, d * Math.PI / 90));
+    H.push(row);
+  }
+  let dirMono = 0, worstOver = 0;
+  for (let d = 0; d < 180; d++) {
+    const a = H[0][d], b = H[20][d], up = b > a;
+    for (let k = 1; k <= 20; k++) {
+      if (up ? H[k][d] < H[k - 1][d] - 1e-6 : H[k][d] > H[k - 1][d] + 1e-6) dirMono++;
+      const lo = Math.min(a, b), hi = Math.max(a, b);
+      worstOver = Math.max(worstOver, H[k][d] - hi, lo - H[k][d]);
+    }
+  }
+  ok(dirMono === 0, 'die Wanddistanz laeuft in JEDER Richtung monoton (' + dirMono + ' Ausreisser)');
+  ok(worstOver <= 1e-6,
+     'keine Richtung laeuft ueber ihren Start- oder Endwert hinaus (' + worstOver.toExponential(1) + ')');
+
+  // Gleichmaessigkeit: kein Sprung zwischen zwei Fortschrittsschritten.
+  let jump = 0;
+  for (let k = 1; k <= 20; k++) for (let d = 0; d < 180; d++) jump = Math.max(jump, Math.abs(H[k][d] - H[k - 1][d]));
+  ok(jump < 40, 'die Kontur bewegt sich in gleichmaessigen Schritten (groesster Schritt ' + jump.toFixed(1) + ' Einheiten je 5 %)');
+}
+{
+  // Eckensicherheit: der komplette Grundriss eines Tores bleibt in JEDER Position auf dem
+  // Deck. Geprueft wird die echte Sehnenplatzierung gegen die echte Deckaussenkante.
+  const A4 = FB_R.A4, HALF = A4.postOuter * 32, DEPTH = 1.184 * 32, DECK = (1.184 * 2 * 32 + 25);
+  const deckOf = (ring) => ring.slice(0, ring.length - 1)
+    .map(p => ({ x: p.x + p.nx * DECK, z: p.z + p.nz * DECK }));
+  const outside = (deck, P) => {
+    let worst = -Infinity;
+    for (let i = 0; i < deck.length; i++) {
+      const a = deck[i], b = deck[(i + 1) % deck.length];
+      const ex = b.x - a.x, ez = b.z - a.z, L = Math.hypot(ex, ez) || 1;
+      worst = Math.max(worst, (P.x - a.x) * (ez / L) + (P.z - a.z) * (-ex / L));
+    }
+    return worst;
+  };
+  let worstAll = -Infinity;
+  for (const e of [0, 0.25, 0.5, 0.75, 1]) {
+    const rd = FB_R.fbMorphRing(e), deck = deckOf(rd.ring);
+    for (let k = 0; k < 60; k++) {
+      const h = FB_R.fbRingChord(rd.ring, k / 60, HALF);
+      const tx = -h.nz, tz = h.nx;
+      for (const sg of [-1, 1]) for (const dp of [0, 2 * DEPTH])
+        worstAll = Math.max(worstAll, outside(deck, {
+          x: h.x + h.nx * dp + tx * sg * HALF, z: h.z + h.nz * dp + tz * sg * HALF }));
+    }
+  }
+  ok(worstAll <= 0.5,
+     'kein Torgrundriss ragt an irgendeiner Stelle der Bewegung ueber die Deckkante (max ' +
+     worstAll.toFixed(1) + ' Einheiten)');
+}
+
+// =================================================================================
+// O - FINALER PRODUKTSTAND DER ARENAFORMEN
+// =================================================================================
+// Die drei Formen sind manuell freigegeben und ab hier der normale Gameplaypfad - es gibt
+// keinen Dev-Formparameter mehr. Geprueft wird die Geometrie selbst: exakte Masse,
+// Symmetrie, Wandstruktur, Torsitz, Aufstellung und Dichtheit der Bande.
+//   Phase 4  Rounded Square          17.50           rc 3.50   Spawn 11.50
+//   Phase 3  Broad Rounded Triangle  Apothem 12.50   rc 3.50   Spawn  8.15
+//   Phase 2  Shouldered Wide         15.60 x 11.60   rc 2.60   Spawn 10.15
+
+// Kernkanten einer Phase nach Wandtyp: Normale entlang einer Torachse = Torwand,
+// senkrecht dazu = Hauptbande, alles andere = Schulter bzw. Kappflaeche.
+const fbWalls = (poly, dirs) => {
+  const out = { goal: [], main: [], other: [] };
+  const n = poly.length;
+  for (let i = 0; i < n; i++) {
+    const p = poly[i], q = poly[(i + 1) % n];
+    const ex = q[0] - p[0], ez = q[1] - p[1], L = Math.hypot(ex, ez) || 1;
+    const nx = ez / L, nz = -ex / L;
+    let onGoal = false, onSide = false;
+    for (const d of dirs) {
+      if (nx * d[0] + nz * d[1] > 0.94) onGoal = true;
+      if (Math.abs(nx * d[0] + nz * d[1]) < 0.06) onSide = true;
+    }
+    (onGoal ? out.goal : onSide ? out.main : out.other).push(L);
+  }
+  return out;
+};
+// Flaeche der abgerundeten Form: Kernflaeche + Umfang * rc + Kreisflaeche.
+const fbArea = (poly, rc) => {
+  let a = 0, per = 0;
+  for (let i = 0; i < poly.length; i++) {
+    const p = poly[i], q = poly[(i + 1) % poly.length];
+    a += p[0] * q[1] - q[0] * p[1];
+    per += Math.hypot(q[0] - p[0], q[1] - p[1]);
+  }
+  return Math.abs(a) / 2 + per * rc + Math.PI * rc * rc;
+};
+const fbCore = (c) => c.poly ? c.poly.map(v => v.slice())
+  : [[c.halfLen - c.corner, -(c.halfWid - c.corner)], [c.halfLen - c.corner, c.halfWid - c.corner],
+     [-(c.halfLen - c.corner), c.halfWid - c.corner], [-(c.halfLen - c.corner), -(c.halfWid - c.corner)]];
+
+{
+  // Es gibt keinen Formparameter mehr - weder im Produktivcode noch als Restschalter.
+  for (const leftover of ['DEV_SHAPE', 'DEV_S3', 'DEV_S2', 'FB_SHAPE_SETS', 'FB_TUNE2', 'FB_TUNE3', 'fbShapeSet'])
+    ok0(!HTML.includes(leftover), 'kein Rest des Vergleichsschalters ' + leftover + ' in index.html');
+  ok(true, 'index.html enthaelt keinen Dev-Formparameter und keine Kandidatenmatrix mehr');
+}
+{
+  // PHASE 4 - unveraendert gegenueber dem freigegebenen Stand.
+  const E = buildEnv('elimination4');
+  E.forcePhase(4);
+  const a = E.arenaCfg();
+  ok(a.halfLen === 17.50 && a.halfWid === 17.50, 'Phase 4: Rounded Square 17.50 (unveraendert)');
+  ok(a.corner === 3.50 && a.spawn === 11.50, 'Phase 4: Eckradius 3.50, Spawn 11.50 (unveraendert)');
+  ok(a.sides === 4 && !a.poly, 'Phase 4: vier Seiten, kein Kernpolygon - reines Rounded Square');
+  ok(a.postFront === 17.50 && a.goalAnchor === 17.50 + 1.184,
+     'Phase 4: Torsitz unveraendert');
+}
+{
+  // PHASE 3 - BROAD ROUNDED TRIANGLE (refined BASE).
+  const E = buildEnv('elimination4');
+  E.forcePhase(3);
+  const a = E.arenaCfg(), P = a.poly;
+  ok(a.halfLen === 12.50 && a.corner === 3.50 && a.spawn === 8.15,
+     'Phase 3: Apothem 12.50, Eckradius 3.50, Spawn 8.15');
+  ok(a.sides === 3 && Array.isArray(P) && P.length === 6,
+     'Phase 3: drei Torseiten, Kernpolygon mit sechs Ecken (gekappte Spitzen)');
+  ok(!a.tri, 'Phase 3: kein spitzes Dreieck mehr - die Grenze laeuft ueber das Kernpolygon');
+  // 120-Grad-Drehsymmetrie
+  const c = Math.cos(2 * Math.PI / 3), s = Math.sin(2 * Math.PI / 3);
+  let sym = true;
+  for (const v of P) {
+    const rx = v[0] * c - v[1] * s, rz = v[0] * s + v[1] * c;
+    if (!P.some(w => Math.hypot(w[0] - rx, w[1] - rz) < 1e-9)) sym = false;
+  }
+  ok(sym, 'Phase 3: exakte 120-Grad-Drehsymmetrie');
+  // Drei LANGE Torseiten, drei KURZE Kappflaechen.
+  const W = fbWalls(P, E.dirs());
+  ok(W.goal.length === 3 && W.other.length === 3,
+     'Phase 3: drei Torseiten und drei Kappflaechen');
+  ok(Math.max(...W.other) < Math.min(...W.goal),
+     'Phase 3: jede Kappflaeche ist kuerzer als jede Torseite (' +
+     Math.max(...W.other).toFixed(2) + ' < ' + Math.min(...W.goal).toFixed(2) + ' BR)');
+  ok(Math.abs(Math.max(...W.goal) - Math.min(...W.goal)) < 1e-9 &&
+     Math.abs(Math.max(...W.other) - Math.min(...W.other)) < 1e-9,
+     'Phase 3: alle drei Torseiten und alle drei Kappflaechen sind exakt gleich lang');
+  // Das Tor sitzt vollstaendig im geraden Teil der Torseite.
+  ok(Math.min(...W.goal) / 2 > a.postOuter,
+     'Phase 3: das Tor liegt vollstaendig auf der geraden Torseite (' +
+     (Math.min(...W.goal) / 2).toFixed(2) + ' > ' + a.postOuter + ')');
+}
+{
+  // PHASE 2 - SHOULDERED WIDE.
+  const E = buildEnv('elimination4');
+  E.forcePhase(2);
+  const a = E.arenaCfg(), P = a.poly, D = E.dirs();
+  ok(a.halfLen === 15.60 && a.halfWid === 11.60, 'Phase 2: Shouldered Wide 15.60 x 11.60');
+  ok(a.corner === 2.60 && a.spawn === 10.15, 'Phase 2: Eckradius 2.60, Spawn 10.15');
+  ok(a.sides === 2 && Array.isArray(P) && P.length === 8,
+     'Phase 2: zwei Tore, Kernpolygon mit acht Ecken (Achteck mit Schultern)');
+  ok(D.length === 2 && D[0][0] === 1 && D[0][1] === 0 && D[1][0] === -1 && D[1][1] === 0,
+     'Phase 2: die beiden Tore liegen exakt gegenueber');
+  // 180-Grad-Punktsymmetrie
+  let sym = true;
+  for (const v of P) if (!P.some(w => Math.hypot(w[0] + v[0], w[1] + v[1]) < 1e-9)) sym = false;
+  ok(sym, 'Phase 2: exakte 180-Grad-Punktsymmetrie');
+  // Wandstruktur: 2 Hauptbanden, 2 Torwaende, 4 Schultern.
+  const W = fbWalls(P, D);
+  ok(W.main.length === 2 && W.goal.length === 2 && W.other.length === 4,
+     'Phase 2: zwei Hauptbanden, zwei Torwaende, vier Schulterflaechen');
+  ok(Math.min(...W.main) > 20,
+     'Phase 2: die Hauptbanden bleiben lange klare Flaechen (' + Math.min(...W.main).toFixed(2) + ' BR)');
+  ok(Math.min(...W.goal) / 2 > a.postOuter,
+     'Phase 2: das Tor liegt vollstaendig auf der flachen Torwand (' +
+     (Math.min(...W.goal) / 2).toFixed(2) + ' > ' + a.postOuter + ')');
+  // Eine Schulter, die kuerzer als der Eckbogen daneben waere, haette keine Wirkung.
+  ok(Math.min(...W.other) > a.corner * Math.PI / 4,
+     'Phase 2: jede Schulter ist laenger als der Eckbogen daneben (' +
+     Math.min(...W.other).toFixed(2) + ' BR)');
+  ok(a.halfLen > a.halfWid, 'Phase 2: die Arena bleibt breiter als tief');
+}
+{
+  // Aufstellung, Torbreite und Radien in ALLEN Phasen.
+  const E = buildEnv('elimination4');
+  E.newMatch();
+  ok(E.rad(4) === 25 && E.rad(0) === 32, 'Ballradius 25 und Spielerradius 32 unveraendert');
+  for (const ph of [4, 3, 2]) {
+    E.forcePhase(ph);
+    const a = E.arenaCfg(), D = E.dirs(), r = a.spawn / a.halfLen;
+    ok0(a.postInner === 3.560 && a.postOuter === 5.282, 'Phase ' + ph + ': Torbreite unveraendert');
+    ok0(a.postFront === a.halfLen && a.goalAnchor === a.halfLen + 1.184,
+        'Phase ' + ph + ': das Tor sitzt buendig auf der Bandeninnenflaeche');
+    ok0(r > 0.63 && r < 0.68, 'Phase ' + ph + ': Spawnverhaeltnis ~0.65 zur Bandeninnenflaeche');
+    for (let s = 0; s < D.length; s++) {
+      const p = E.spawnAt(s);
+      ok0(E.boundSDAt(p.x, p.y, false).sd < -E.BR * 0.5,
+          'Phase ' + ph + ': jeder Spawn liegt sicher innerhalb der Bande');
+      ok0(Number.isFinite(p.x) && Number.isFinite(p.y), 'Phase ' + ph + ': Spawn ist endlich');
+    }
+    for (let i = 0; i < D.length; i++)
+      for (let j = i + 1; j < D.length; j++) {
+        const x = E.spawnAt(i), y = E.spawnAt(j);
+        ok0(Math.hypot(x.x - y.x, x.y - y.y) > 2 * E.BR, 'Phase ' + ph + ': keine zwei Spawns ueberlappen');
+      }
+  }
+  ok(true, 'Aufstellung, Torbreite und Torsitz in allen drei Phasen geprueft');
+}
+{
+  // Dichte Bande: harte Schuesse aus dem Zentrum UND laengs an der Bande. Weder Ball noch
+  // die groessere Spielerkugel duerfen die Arena verlassen; keine NaN/Infinity.
+  for (const ph of [4, 3, 2]) {
+    const E = buildEnv('elimination4');
+    E.newMatch();
+    E.forcePhase(ph);
+    const a = E.arenaCfg();
+    let outside = 0, bad = 0, runs = 0;
+    for (let k = 0; k < 48; k++) {
+      const th = k * Math.PI / 24, cs = Math.cos(th), sn = Math.sin(th);
+      const starts = [[E.cx, E.cy, 40],
+                      [E.cx, E.cy + (a.halfWid - 1.4) * E.BR, 34],
+                      [E.cx, E.cy - (a.halfWid - 1.4) * E.BR, 34]];
+      for (const [x0, y0, sp] of starts) {
+        const r = E.slam(4, x0, y0, cs * sp, sn * sp, 500);
+        runs++;
+        if (!r.fin) bad++;
+        else if (!r.passed && E.boundSD(4) > 0) outside++;
+      }
+    }
+    ok(outside === 0 && bad === 0,
+       'Phase ' + ph + ': kein Ball endet ausserhalb, keine NaN in ' + runs + ' harten Schuessen');
+    let pEsc = 0;
+    for (let k = 0; k < 24; k++) {
+      const P = buildEnv('elimination4');
+      P.newMatch();
+      P.forcePhase(ph);
+      const th = k * Math.PI / 12;
+      const r = P.slam(0, P.cx, P.cy, Math.cos(th) * 34, Math.sin(th) * 34, 400);
+      if (!r.fin || P.boundSD(0) > 0) pEsc++;
+    }
+    ok(pEsc === 0, 'Phase ' + ph + ': auch die Spielerkugel bleibt in jeder Richtung innerhalb');
+  }
+}
+{
+  // Framing und Spielflaeche ueber die Eliminationskette.
+  const E = buildEnv('elimination4');
+  const A = {};
+  for (const ph of [4, 3, 2]) { E.forcePhase(ph); A[ph] = { v: E.viewR(), c: E.arenaCfg() }; }
+  const area = (ph) => fbArea(fbCore(A[ph].c), A[ph].c.corner);
+  ok(area(4) > area(3),
+     'die Spielflaeche schrumpft beim ersten Umbau deutlich (' + Math.round(area(4)) + ' -> ' +
+     Math.round(area(3)) + ' BR^2)');
+  // Das breite Finale ist in der ABSOLUTEN Flaeche praktisch so gross wie die Drei-Tore-Arena
+  // (+1 %); pro Spieler ist es mit Abstand die groesszuegigste Phase. Genau so freigegeben -
+  // der Wert wird hier festgehalten, damit eine spaetere Aenderung nicht unbemerkt bleibt.
+  ok(Math.abs(area(2) / area(3) - 1) < 0.05,
+     'die Spielflaeche 3 -> 2 bleibt praktisch gleich (' + Math.round(area(3)) + ' -> ' +
+     Math.round(area(2)) + ' BR^2, ' + (area(2) / area(3) * 100 - 100).toFixed(1) + ' %)');
+  ok(area(2) / 2 > area(3) / 3 * 1.4,
+     'pro Spieler ist das Finale die mit Abstand groesszuegigste Phase (' +
+     Math.round(area(2) / 2) + ' gegen ' + Math.round(area(3) / 3) + ' BR^2 je Spieler)');
+  ok(A[4].v > A[3].v,
+     'der Sichtradius wird beim ersten Umbau enger (' + Math.round(A[4].v) + ' > ' + Math.round(A[3].v) + ')');
+  // Beim zweiten Umbau bestimmt die Deckkante HINTER den Toren den Sichtradius, nicht die
+  // Spielflaeche. Das breite Finale zieht die Kamera deshalb wieder etwas auf, obwohl das
+  // Spielfeld weiter schrumpft. Bewusst so freigegeben - hier festgehalten, nicht stillschweigend.
+  ok(A[2].v > A[3].v,
+     'Sichtradius 3 -> 2 waechst mit dem breiten Finale (' + Math.round(A[3].v) + ' -> ' +
+     Math.round(A[2].v) + ', +' + Math.round((A[2].v / A[3].v - 1) * 100) + ' %) - bewusste Folge der Formwahl');
+}
+{
+  // FLOW auf dem normalen Gameplaypfad: 4 -> 3 -> 2 -> Sieg mit den finalen Geometrien.
+  const E = buildEnv('elimination4');
+  E.newMatch();
+  ok(E.phaseN() === 4 && E.arenaCfg().halfLen === 17.50, 'Flow: das Match startet in der Vier-Tore-Arena');
+  E.eliminate(2); E.applyPhase();
+  ok(E.phaseN() === 3 && E.arenaCfg().spawn === 8.15,
+     'Flow: nach dem ersten Tor steht die finale Drei-Tore-Arena');
+  for (const s of [0, 1, 2]) {
+    const p = E.spawnAt(s);
+    ok0(E.boundSDAt(p.x, p.y, false).sd < -E.BR * 0.5, 'Flow: fairer Reset in Phase 3');
+  }
+  E.eliminate(1); E.applyPhase();
+  ok(E.phaseN() === 2 && E.arenaCfg().halfLen === 15.60 && E.arenaCfg().spawn === 10.15,
+     'Flow: nach dem zweiten Tor steht das finale Shouldered-Wide-Finale');
+  const s0 = E.spawnAt(0), s1 = E.spawnAt(1);
+  ok(Math.abs(s0.x - E.cx - 10.15 * E.BR) < 1e-9 && Math.abs(s1.x - E.cx + 10.15 * E.BR) < 1e-9 &&
+     Math.abs(s0.y - E.cy) < 1e-9 && Math.abs(s1.y - E.cy) < 1e-9,
+     'Flow: beide Finalisten stehen exakt gegenueber auf ihrer Torachse');
+  E.eliminate(3);
+  ok(E.winner() !== null, 'Flow: das letzte Tor beendet das Match mit einem Sieger');
+}
+// =================================================================================
+// P - MORPH-QUALITAET DER FINALEN FORMEN (4 -> 3)
+// =================================================================================
+// Die V3-Transition liest Start- und Endform direkt aus den finalen Arenakonstanten.
+// Geprueft wird, dass sie mit ihnen exakt trifft: exakte Endformen, konvexe Zwischenformen,
+// monotone Wandbewegung ohne Gegenbewegung, kein Tor ueber der Deckkante.
+{
+  const R = FB_SANDBOX();
+  const S = { 4: R.A4, 3: R.A3 };
+  ok(R.fbElimArena() === R.A4, 'der Morph startet auf der freigegebenen Vier-Tore-Arena');
+  ok(Array.isArray(S[3].poly) && S[3].poly.length === 6,
+     'der Morph endet auf dem gekappten Dreieck der finalen Phase 3');
+
+  const supp = (P, th) => {
+    let m = -Infinity;
+    for (const p of P) { const d = p.x * Math.cos(th) + p.z * Math.sin(th); if (d > m) m = d; }
+    return m;
+  };
+  const devSup = (P, Q) => {
+    let w = 0;
+    for (let k = 0; k < 720; k++) { const th = k * Math.PI / 360; w = Math.max(w, Math.abs(supp(P, th) - supp(Q, th))); }
+    return w;
+  };
+  // Startform: exakt die Vier-Tore-Arena. Endform: exakt das gekappte Dreieck.
+  const ref4 = R.fbOutline(R.A4.halfLen * 32, R.A4.halfWid * 32, R.A4.corner * 32, 20);
+  const ref3 = R.fbRoundPoly(S[3].poly.map(v => [v[0] * 32, v[1] * 32]), S[3].corner * 32, 20);
+  const m0 = R.fbMorphRing(0).ring, m1 = R.fbMorphRing(1).ring;
+  ok(devSup(m0, ref4) < 1e-6,
+     '4 -> 3 Morph: Fortschritt 0 ist exakt die Vier-Tore-Arena (' + devSup(m0, ref4).toExponential(1) + ')');
+  ok(devSup(m1, ref3) < 1e-6,
+     '4 -> 3 Morph: Fortschritt 1 ist exakt das gekappte Dreieck (' + devSup(m1, ref3).toExponential(1) + ')');
+
+  // Zwischenformen: konvex, endlich, nicht groesser als der Start.
+  let concave = 0, bad = 0, grew = 0, s0 = 0;
+  for (let d = 0; d < 360; d++) s0 = Math.max(s0, supp(m0, d * Math.PI / 180));
+  for (let k = 0; k <= 20; k++) {
+    const ring = R.fbMorphRing(k / 20).ring, P = ring.slice(0, ring.length - 1), n = P.length;
+    for (let i = 0; i < n; i++) {
+      const a = P[i], b = P[(i + 1) % n], c = P[(i + 2) % n];
+      if ((b.x - a.x) * (c.z - b.z) - (b.z - a.z) * (c.x - b.x) < -1e-6) concave++;
+      if (!Number.isFinite(a.x) || !Number.isFinite(a.z) || !Number.isFinite(a.nx)) bad++;
+    }
+    for (let d = 0; d < 360; d++) if (supp(P, d * Math.PI / 180) > s0 + 1e-6) grew++;
+  }
+  ok(concave === 0, '4 -> 3 Morph: jede Zwischenform ist konvex (kein Einknicken, keine Taille)');
+  ok(bad === 0, '4 -> 3 Morph: keine Zwischenform enthaelt NaN/Infinity');
+  ok(grew === 0, '4 -> 3 Morph: keine Zwischenform ist groesser als die Ausgangsarena');
+
+  // Der Kern der V3-Idee: die Wanddistanz laeuft in JEDER Richtung monoton.
+  const H = [];
+  for (let k = 0; k <= 20; k++) {
+    const P = R.fbMorphRing(k / 20).ring, row = [];
+    for (let d = 0; d < 180; d++) row.push(supp(P, d * Math.PI / 90));
+    H.push(row);
+  }
+  let dirMono = 0, over = 0, jump = 0;
+  for (let d = 0; d < 180; d++) {
+    const a = H[0][d], b = H[20][d], up = b > a;
+    const lo = Math.min(a, b), hi = Math.max(a, b);
+    for (let k = 1; k <= 20; k++) {
+      if (up ? H[k][d] < H[k - 1][d] - 1e-6 : H[k][d] > H[k - 1][d] + 1e-6) dirMono++;
+      over = Math.max(over, H[k][d] - hi, lo - H[k][d]);
+      jump = Math.max(jump, Math.abs(H[k][d] - H[k - 1][d]));
+    }
+  }
+  ok(dirMono === 0,
+     '4 -> 3 Morph: die Wanddistanz laeuft in JEDER Richtung monoton (' + dirMono + ' Gegenbewegungen)');
+  ok(over <= 1e-6, '4 -> 3 Morph: keine Richtung laeuft ueber ihren Start- oder Endwert hinaus');
+  ok(jump < 40,
+     '4 -> 3 Morph: die Kontur bewegt sich in gleichmaessigen Schritten (groesster Schritt ' +
+     jump.toFixed(1) + ' Einheiten je 5 %)');
+
+  // Eckensicherheit: kein Torgrundriss ragt waehrend des Morphs ueber die Deckkante.
+  const HALF = R.A4.postOuter * 32, DEPTH = 1.184 * 32, DECK = (1.184 * 2 * 32 + 25);
+  const outside = (deck, P) => {
+    let worst = -Infinity;
+    for (let i = 0; i < deck.length; i++) {
+      const a = deck[i], b = deck[(i + 1) % deck.length];
+      const ex = b.x - a.x, ez = b.z - a.z, L = Math.hypot(ex, ez) || 1;
+      worst = Math.max(worst, (P.x - a.x) * (ez / L) + (P.z - a.z) * (-ex / L));
+    }
+    return worst;
+  };
+  let worstAll = -Infinity;
+  for (const e of [0, 0.25, 0.5, 0.75, 1]) {
+    const rd = R.fbMorphRing(e);
+    const deck = rd.ring.slice(0, rd.ring.length - 1).map(p => ({ x: p.x + p.nx * DECK, z: p.z + p.nz * DECK }));
+    for (let k = 0; k < 60; k++) {
+      const h = R.fbRingChord(rd.ring, k / 60, HALF);
+      const tx = -h.nz, tz = h.nx;
+      for (const sg of [-1, 1]) for (const dp of [0, 2 * DEPTH])
+        worstAll = Math.max(worstAll, outside(deck, {
+          x: h.x + h.nx * dp + tx * sg * HALF, z: h.z + h.nz * dp + tz * sg * HALF }));
+    }
+  }
+  ok(worstAll <= 0.5,
+     '4 -> 3 Morph: kein Torgrundriss ragt ueber die Deckkante (max ' + worstAll.toFixed(1) + ')');
+}
+
 
 console.log('\nFootball-Elimination: ' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

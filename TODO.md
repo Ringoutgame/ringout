@@ -1,6 +1,6 @@
 # TODO.md — RingOut
 
-**Zuletzt aktualisiert:** 2026-08-26 (Arena Football: drei sichtbare Modi — Elimination in die normale Modusauswahl integriert, Classic bleibt Standard; Online und Arena-Transition bleiben offen)
+**Zuletzt aktualisiert:** 2026-08-26 (Arena Football: finale Elimination-Arenaformen und 4→3-Morph V3 umgesetzt; offen bleiben die 3→2-Transition, Kamera-Framing-Politur, Transition-FX/Audio und Online)
 
 Offene Aufgaben nach Priorität. Abgeschlossene Aufgaben werden nach `CHANGELOG.md` verschoben.
 
@@ -50,7 +50,10 @@ Offene Aufgaben nach Priorität. Abgeschlossene Aufgaben werden nach `CHANGELOG.
 
 - [ ] **Arena Football Elimination online (offen, 2026-08-26):** Elimination ist ausschliesslich lokal/Hotseat spielbar. Der Lockstep-Pfad kennt weder vier Spieler mit Slot-Zuordnung noch den Arenawechsel 4→3→2 (Snapshot, Commit-Payload, Owner-/Slot-Annahmen, Reconnect, State-Hash). Eigener Auftrag mit Protokollarbeit; bis dahin darf die UI Elimination in keinem Online-Kontext anbieten.
 
-- [ ] **Arena Football Elimination: Uebergangsanimation des Arenawechsels (offen, 2026-08-26):** Der Wechsel 4→3→2 ist heute ein harter Rebuild am Ende des Torablaufs. Ein sichtbares Morphen der Bande (oder ein kurzer Kamera-/Blendenmoment) wuerde den Phasenwechsel lesbarer machen. Rein visuell — Geometrie, Physik und Spawnregel bleiben unveraendert.
+- [ ] **Arena Football Elimination: Uebergangsanimation 3→2 (offen, 2026-08-26):** Der Wechsel 4→3 ist als Morph umgesetzt (Transition V3, Stuetzfunktions-Interpolation). Der Wechsel **3→2 ist weiterhin ein harter Rebuild** am Ende des Torablaufs und wurde bewusst zurueckgestellt: das Finale hat mit `2.60` einen anderen Eckradius als die uebrigen Phasen (`3.50`), der Uebergang muss dafuer eigens entworfen werden statt nebenbei zu entstehen. Eigener Auftrag, rein visuell — Geometrie, Physik und Spawnregel bleiben unveraendert.
+- [ ] **Arena Football Elimination: Kamera-Framing der Phasenwechsel politur (offen, 2026-08-26):** `fbElimViewR()` liefert 746 / 539 / 600. Der erste Umbau macht das Bild deutlich enger, beim zweiten zieht die Kamera wieder um 11 % auf, weil beim breiten Finale die Deckkante hinter den Toren den Wert bestimmt — die Spielflaeche bleibt dabei praktisch gleich gross. Bewusst so freigegeben; ein gleichmaessigeres Framing waere trotzdem eine Politur wert (in den Tests festgehalten).
+- [ ] **Arena Football Elimination: FX und Audio fuer den Phasenwechsel (offen, 2026-08-26):** Der 4→3-Morph laeuft heute vollstaendig ohne Effekt und ohne Ton. Ein zurueckhaltender Impuls im Stil des Torfeedbacks (Marmor/Gold/Glas, kein Arcade-Jingle) waere die naechste sichtbare Aufwertung. Eigene Phase mit eigener Freigabe.
+- [ ] **Toter Dreiecks-Renderpfad entfernen (niedrig, 2026-08-26):** Seit die Drei-Tore-Arena ein Kernpolygon benutzt, setzt keine Arenakonstante mehr `tri: true`. `footballTriSD`, `fbTriOutline`, der Dreiecks-Zweig in `fbBuildShape` und die `av.tri`-Abfragen sind damit unerreichbar. Aufraeumen lohnt, wurde aber bewusst **nicht** in den Finalisierungs-Commit gezogen — es beruehrt den Renderer und gehoert in einen eigenen, separat getesteten Schritt.
 
 - [x] ~~**Arena Football Elimination: Produktintegration entscheiden**~~ → **entschieden und umgesetzt (2026-08-26)**: Elimination ist der dritte sichtbare Modus in der normalen Modusauswahl; Classic bleibt Standard und einzige Empfehlung. Siehe CHANGELOG.
 
