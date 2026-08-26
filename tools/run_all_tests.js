@@ -15,7 +15,7 @@ const path = require('path'), { spawnSync } = require('child_process');
 const SUITES = [
   { name: 'Syntax',           file: 'test_syntax.js',         expectPassed: null },
   { name: 'Golden-Physik',    file: 'test_physics_golden.js', expectPassed: 13 },
-  { name: 'r3d-Mapping',      file: 'test_r3d_mapping.js',    expectPassed: 52 },
+  { name: 'r3d-Mapping',      file: 'test_r3d_mapping.js',    expectPassed: 55 },
   { name: 'Sanitize',         file: 'test_sanitize.js',       expectPassed: 24 },
   { name: 'Seat-Ball-Map',    file: 'test_seat_ball_mapping.js', expectPassed: 112 },
   { name: 'Zugzeit-HUD',      file: 'test_turn_timer.js',     expectPassed: 77 },

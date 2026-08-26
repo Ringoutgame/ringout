@@ -164,5 +164,31 @@ for (const [vw, vh] of [[800, 600], [390, 780], [1400, 900]]) {   // Landscape, 
     !!cssM && cssM[0].includes('width:100%') && cssM[0].includes('height:100%'));
 }
 
+// 9) Mobile-Bug-2-Kontrakt: die Projektion rechnet mit den in frame() GECACHTEN
+//    Overlay-Werten (ox/oy/os), das Ball-Picking dagegen mit dem LIVE-Rect von #cv
+//    (pickOwnBall3D). Laufen beide auseinander, verschiebt sich der Trefferpunkt um
+//    exakt die Differenz — hier als reine Mathematik festgehalten, damit der
+//    Zusammenhang dauerhaft messbar dokumentiert bleibt. Reproduktion im echten
+//    Browser: artifacts/mobile_bug2_repro/ (?mobileDiag=1).
+{
+  const VW = 390, VH = 844, WX = 600, WY = 400;
+  const base = { ex: 500, ey: 35 + 900 * .6, ez: 500 + 900 * .8, tx: 500, ty: 35, tz: 500,
+                 fov: 45, vw: VW, vh: VH, ox: 0, oy: 0, os: VW, shx: 0, shy: 0, py: 0 };
+  const q0 = r3dCamMath(base).w2s(WX, WY, 0);
+  const dOx = 40;
+  const qOx = r3dCamMath(Object.assign({}, base, { ox: base.ox + dOx })).w2s(WX, WY, 0);
+  t('veralteter ox verschiebt den Trefferpunkt um exakt die Differenz',
+    Math.abs((q0.x - qOx.x) - dOx / base.os * 1000) < 1e-9);
+  const dOy = 30;
+  const qOy = r3dCamMath(Object.assign({}, base, { oy: base.oy + dOy })).w2s(WX, WY, 0);
+  t('veralteter oy verschiebt den Trefferpunkt um exakt die Differenz',
+    Math.abs((q0.y - qOy.y) - dOy / base.os * 1000) < 1e-9);
+  // Ein veraltetes os skaliert die gesamte Abbildung: der Versatz waechst mit dem
+  // Abstand vom Overlay-Ursprung und ist deshalb am Bildrand am groessten.
+  const qOs = r3dCamMath(Object.assign({}, base, { os: base.os * 1.1 })).w2s(WX, WY, 0);
+  t('veraltetes os skaliert die Abbildung (Versatz waechst mit dem Abstand)',
+    Math.abs(qOs.x - q0.x / 1.1) < 1e-9 && Math.abs(qOs.x - q0.x) > 1);
+}
+
 console.log(`\nr3d-Mapping: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

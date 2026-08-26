@@ -178,6 +178,119 @@ async function caseFallback(browser, navUrl, label, prep) {
   } finally { await c.context.close(); }
 }
 
+
+// ── Fall D — Geometrie-Vertrag (Mobile Bug 2A) ──────────────────────────────
+// Renderer, Projektion und Picking muessen dauerhaft aus DERSELBEN kanonischen
+// Spielflaeche stammen. Frueher mischten sich innerWidth/innerHeight,
+// die CSS-Flaeche von #cv3d und ein live gemessenes Rect: liefen sie
+// auseinander (Mobile: dynamische Browserleisten), streckte der Browser das
+// 3D-Bild und die sichtbare Kugel wanderte vom Trefferpunkt weg — gemessen bis
+// 69,7 px, ab ~52 px greift pickOwnBall3D() die sichtbare Kugel nicht mehr.
+//
+// Geprueft wird gegen PRODUKTINVARIANTEN, nicht gegen Interna: die Position, an
+// der die eigene Kugel gezeichnet wird, muss die Position sein, die das echte
+// Picking verwendet — und ein Tipp dort muss die Kugel wirklich treffen.
+// Der Lesehaken dafuer haengt an ?mobileDiag=1 und ist sonst inert.
+const GEOM_TOL_PX = 1;          // "nahe 0", ausdruecklich NICHT die 52-px-Trefferzone
+
+async function caseGeometry(browser, navUrl) {
+  console.log('\nFall D — Geometrie-Vertrag: Rendering und Picking teilen eine Flaeche');
+  const c = await newClient(browser, navUrl + '?mobileDiag=1', null);
+  try {
+    await c.page.waitForFunction(() => !document.body.classList.contains('booting'), null, { timeout: 20000 });
+    const diag = () => c.page.evaluate(() => window.__mobileDiag());
+    const pickAt = (x, y) => c.page.evaluate(([a, b]) => window.__mobileDiagPick(a, b), [x, y]);
+    const hasHook = await c.page.evaluate(() => typeof window.__mobileDiag === 'function');
+    check(hasHook, 'Geometrie-Lesehaken unter ?mobileDiag=1 verfuegbar');
+    if (!hasHook) return;
+
+    await startBotMatch(c.page);
+    await sleep(700);
+
+    // 1) Ausgangszustand: eine Flaeche, kein Versatz, Picking trifft.
+    const base = await diag();
+    check(base.r3dActive === true, '3D aktiv fuer die Geometriepruefung');
+    check(base.projectionGeometryMismatch === false,
+      'Ausgangszustand: Projektion, CSS-Flaeche und Zeichenpuffer stimmen ueberein',
+      JSON.stringify(base.mismatch));
+    check(base.mismatchPx < GEOM_TOL_PX,
+      `Ausgangszustand: gezeichnete Kugel == Picking-Position (${base.mismatchPx.toFixed(2)} px)`,
+      'Abweichung ' + base.mismatchPx);
+    const b0 = await pickAt(base.ball.draw.x, base.ball.draw.y);
+    check(b0.idx >= 0, 'Ausgangszustand: Tipp auf die gezeichnete Kugel trifft sie', JSON.stringify(b0));
+    check(Math.abs(base.buf.w / base.pixelRatio - base.cv3dRect.w) < GEOM_TOL_PX &&
+          Math.abs(base.buf.h / base.pixelRatio - base.cv3dRect.h) < GEOM_TOL_PX,
+      'Zeichenpuffer entspricht der sichtbaren CSS-Flaeche (keine Streckung)',
+      `buf ${base.buf.w}x${base.buf.h} @${base.pixelRatio} vs css ${base.cv3dRect.w}x${base.cv3dRect.h}`);
+
+    // 2) Echtes Zielen bleibt unveraendert: ein Zug an der gezeichneten Position
+    //    loest wirklich einen Schuss aus (die Kugel bewegt sich danach).
+    const beforeShot = base.ball.logical;
+    await c.page.mouse.move(base.ball.draw.x, base.ball.draw.y);
+    await c.page.mouse.down();
+    for (let i = 1; i <= 6; i++) {
+      await c.page.mouse.move(base.ball.draw.x, base.ball.draw.y + i * 9);
+      await sleep(16);
+    }
+    await c.page.mouse.up();
+    await sleep(2600);
+    const afterShot = await diag();
+    check(!!afterShot.ball && Math.hypot(afterShot.ball.logical.x - beforeShot.x,
+                                         afterShot.ball.logical.y - beforeShot.y) > 1,
+      'Aim/Drag unveraendert: Zug an der gezeichneten Kugel loest einen Schuss aus',
+      JSON.stringify({ vorher: beforeShot, nachher: afterShot.ball && afterShot.ball.logical }));
+    await sleep(1500);
+
+    // 3) Mobil-typische Hoehenaenderung der Spielflaeche OHNE window-resize.
+    //    Genau dieser Fall lieferte vorher 34,9 px bzw. 69,7 px Versatz.
+    await c.page.evaluate(() => { window.__geomResize = 0; addEventListener('resize', () => { window.__geomResize++; }); });
+    let worst = 0;
+    for (const dh of [60, 120, 200]) {
+      await c.page.evaluate((v) => { document.getElementById('cv3d').style.height = (innerHeight - v) + 'px'; }, dh);
+      await sleep(700);
+      const x = await diag();
+      worst = Math.max(worst, x.mismatchPx || 0);
+      const rs = await c.page.evaluate(() => window.__geomResize);
+      check(rs === 0, `Hoehe -${dh}px: kein window-resize noetig (Erkennung ueber die Flaeche selbst)`, 'resize-Events: ' + rs);
+      check(x.projectionGeometryMismatch === false,
+        `Hoehe -${dh}px: Geometrie bleibt eine einzige Quelle`, JSON.stringify(x.mismatch));
+      check(x.mismatchPx < GEOM_TOL_PX,
+        `Hoehe -${dh}px: kein Drift zwischen Darstellung und Picking (${x.mismatchPx.toFixed(2)} px)`,
+        'Abweichung ' + x.mismatchPx);
+      const hit = await pickAt(x.ball.draw.x, x.ball.draw.y);
+      check(hit.idx >= 0, `Hoehe -${dh}px: Tipp auf die gezeichnete Kugel trifft sie`, JSON.stringify(hit));
+    }
+    check(worst < GEOM_TOL_PX, `groesste Abweichung bleibt nahe 0 px (${worst.toFixed(2)} px, nicht blosses "< 52 px")`);
+
+    // 4) Breite und Versatz der Flaeche, ebenfalls ohne window-resize.
+    await c.page.evaluate(() => { const e = document.getElementById('cv3d'); e.style.height = ''; e.style.width = '78%'; e.style.marginLeft = '48px'; });
+    await sleep(700);
+    const off = await diag();
+    check(off.projectionGeometryMismatch === false, 'versetzte/schmalere Flaeche: Geometrie konsistent', JSON.stringify(off.mismatch));
+    check(off.mismatchPx < GEOM_TOL_PX,
+      `versetzte Flaeche: kein Drift (${off.mismatchPx.toFixed(2)} px)`, 'Abweichung ' + off.mismatchPx);
+    const hitOff = await pickAt(off.ball.draw.x, off.ball.draw.y);
+    check(hitOff.idx >= 0, 'versetzte Flaeche: Tipp auf die gezeichnete Kugel trifft sie', JSON.stringify(hitOff));
+
+    // 5) Zuruecksetzen und klassischer window-resize-Pfad.
+    await c.page.evaluate(() => { const e = document.getElementById('cv3d'); e.style.width = ''; e.style.marginLeft = ''; e.style.height = ''; });
+    await sleep(700);
+    const back = await diag();
+    check(back.projectionGeometryMismatch === false && back.mismatchPx < GEOM_TOL_PX,
+      'Ausgangsgeometrie wird wiederhergestellt', JSON.stringify(back.mismatch));
+    await c.page.setViewportSize({ width: 414, height: 896 });
+    await sleep(700);
+    const rs2 = await diag();
+    check(rs2.projectionGeometryMismatch === false && rs2.mismatchPx < GEOM_TOL_PX,
+      'klassischer window-resize bleibt konsistent', JSON.stringify(rs2.mismatch));
+    const hitR = await pickAt(rs2.ball.draw.x, rs2.ball.draw.y);
+    check(hitR.idx >= 0, 'nach window-resize trifft der Tipp die gezeichnete Kugel', JSON.stringify(hitR));
+    check(c.diag.pageErrors.length === 0, 'Geometriepfad ohne harte Console-Exception', c.diag.pageErrors.join(' | '));
+  } finally {
+    await c.context.close();
+  }
+}
+
 (async () => {
   let server = null, browser = null;
   try {
@@ -205,6 +318,8 @@ async function caseFallback(browser, navUrl, label, prep) {
     await caseFallback(browser, navUrl, 'Fall C — Stage-2-Arena nicht ladbar (Fallback muss greifen)', async (context) => {
       await context.route('**/arena_platform_stage2.glb', (r) => r.abort('failed'));
     });
+
+    await caseGeometry(browser, navUrl);
   } catch (e) {
     fail('Testlauf abgebrochen', String((e && e.message) || e));
   } finally {

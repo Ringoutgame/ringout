@@ -911,6 +911,101 @@ function perfTick(now){
     (R3D_WANTED?'\nGLB  '+(perfGlbMs<0?'…':perfGlbMs+' ms')+'\nHDRI '+(perfHdrMs<0?'…':perfHdrMs+' ms'):'');
 }
 
+// ── Kanonische Spielflaeche (Bug 2A) ─────────────────────────────────────────
+// Renderer, Projektion und Picking mussten frueher aus DREI Quellen zusammen-
+// passen: renderer.setSize() nahm innerWidth/innerHeight, die sichtbare CSS-
+// Flaeche von #cv3d kam unabhaengig aus position:fixed+100%, und pickOwnBall3D()
+// mass live per getBoundingClientRect(). Liefen sie auseinander — auf Mobil-
+// geraeten der Normalfall, sobald die Browserleiste ein- oder ausfaehrt —, streckte
+// der Browser das 3D-Bild (sichtbar unschaerfer) UND die dargestellte Kugel
+// wanderte vom Trefferpunkt weg (gemessen bis 69,7 px; ab ~52 px greift
+// pickOwnBall3D() die sichtbare Kugel nicht mehr).
+//
+// Seitdem gibt es GENAU EINE Messung: das Rect von #cv3d. Es ist die Flaeche, die
+// das 3D-Bild tatsaechlich einnimmt (position:fixed, inset:0, nie von uns per
+// Inline-Style fixiert). Aus ihr folgen Overlay-Canvas, Zeichenpuffer, camP/geo
+// und Picking. Der DPR bleibt unberuehrt im bestehenden setPixelRatio-Vertrag.
+let gsRect={l:0,t:0,w:0,h:0},gsDirty=true,gsPending=false;
+function markGameSurfaceDirty(){gsDirty=true;gsPending=true;}
+function gameSurface(){
+  if(gsDirty||!gsRect.w){
+    const e=document.getElementById('cv3d');
+    if(e){const r=e.getBoundingClientRect();
+      if(r.width>0&&r.height>0)gsRect={l:r.left,t:r.top,w:r.width,h:r.height};}
+    else gsRect={l:0,t:0,w:innerWidth,h:innerHeight};   // 2D-Fallback: kein 3D-Canvas vorhanden
+    gsDirty=false;
+  }
+  return gsRect;
+}
+// Hoechstens einmal pro Frame und nur nach einem Invalidierungsereignis: neu messen
+// und bei echter Aenderung den bestehenden resize()-Pfad genau einmal ausloesen.
+function gameSurfaceSync(){
+  if(!gsPending)return false;
+  gsPending=false;
+  const o=gsRect;gsDirty=true;
+  const g=gameSurface();
+  if(g.w!==o.w||g.h!==o.h||g.l!==o.l||g.t!==o.t){resize();return true;}
+  return false;
+}
+
+// ── Geometrie-Testhaken (Bug 2A): NUR mit ?mobileDiag=1, sonst vollstaendig inert.
+// Rein lesend — kein DOM, kein Tick, keine Steuerung. Er belegt die harte Invariante
+// des Fixes: die Position, an der die eigene Kugel GEZEICHNET wird, und die Position,
+// die das Picking verwendet, stammen aus derselben kanonischen Flaeche und duerfen
+// nicht auseinanderlaufen. Die dauerhafte Regression in tools/e2e/run-r3d-regression.js
+// stuetzt sich darauf.
+const MOBILE_DIAG=new URLSearchParams(location.search).get('mobileDiag')==='1';
+let mdSrc=null;
+function mobileDiagAttach(src){
+  if(!MOBILE_DIAG)return;
+  mdSrc=src;
+  window.__mobileDiag=mobileDiagSample;
+  // Reine Lese-Probe des ECHTEN Produkt-Pickings an einem Client-Punkt.
+  window.__mobileDiagPick=function(clientX,clientY){
+    const who=online?myPlayer:(mode==='bot'?0:curAimer);
+    return {who:who,idx:(who>=0&&r3dActive)?pickOwnBall3D(who,{clientX:clientX,clientY:clientY}):-2};};
+}
+function mobileDiagSample(){
+  if(!MOBILE_DIAG||!mdSrc)return null;
+  const gs=gameSurface(),c3r=mdSrc.c3.getBoundingClientRect(),p=mdSrc.getCamP();
+  const pxr=Math.min(window.devicePixelRatio||1,2);
+  let gl=null,buf=null,lost=null;
+  try{gl=mdSrc.renderer.getContext();buf={w:gl.drawingBufferWidth,h:gl.drawingBufferHeight};lost=gl.isContextLost();}catch(_){}
+  const out={r3dActive:r3dActive,dpr:window.devicePixelRatio||1,pixelRatio:pxr,
+    innerW:innerWidth,innerH:innerHeight,
+    vv:window.visualViewport?{w:visualViewport.width,h:visualViewport.height,scale:visualViewport.scale}:null,
+    surface:{l:gs.l,t:gs.t,w:gs.w,h:gs.h},
+    cv3dRect:{l:c3r.left,t:c3r.top,w:c3r.width,h:c3r.height},
+    camP:p?{vw:p.vw,vh:p.vh,ox:p.ox,oy:p.oy,os:p.os}:null,
+    buf:buf,contextLost:lost,ball:null,mismatch:null,projectionGeometryMismatch:false,mismatchPx:null};
+  if(!p)return out;
+  // Ein Vertrag, drei Verbraucher: Projektion (camP), sichtbare Flaeche (#cv3d) und
+  // Zeichenpuffer muessen aus derselben Messung stammen.
+  const m={vw:Math.abs(p.vw-gs.w),vh:Math.abs(p.vh-gs.h),ox:Math.abs(p.ox),
+           oy:Math.abs(p.oy),os:Math.abs(p.os-gs.w),
+           cssW:Math.abs(c3r.width-gs.w),cssH:Math.abs(c3r.height-gs.h),
+           bufW:buf?Math.abs(buf.w/pxr-c3r.width):0,bufH:buf?Math.abs(buf.h/pxr-c3r.height):0};
+  out.mismatch=m;
+  out.projectionGeometryMismatch=(m.vw>.5||m.vh>.5||m.ox>.5||m.oy>.5||m.os>.5||m.cssW>.5||m.cssH>.5||m.bufW>.5||m.bufH>.5);
+  const who=online?myPlayer:(mode==='bot'?0:curAimer);
+  const bi=(typeof seatDefaultBall==='function')?seatDefaultBall(who):-1;
+  if(bi>=0&&balls[bi]&&r3dActive){
+    const b=balls[bi],q=OP(b.x,b.y,BR);
+    // Picking-Sicht: pickOwnBall3D rechnet den Finger mit der kanonischen Flaeche
+    // nach 0..1000 und vergleicht ihn mit q.
+    const pick={x:gs.l+q.x/1000*(gs.w||dispS),y:gs.t+q.y/1000*(gs.w||dispS)};
+    // Render-Sicht: q stammt aus camP (ox/os); auf dem Schirm landet der Punkt dort,
+    // wohin der Browser den Zeichenpuffer auf die CSS-Flaeche von #cv3d abbildet.
+    const sx=q.x/1000*p.os+p.ox,sy=q.y/1000*p.os+p.oy;
+    const draw={x:c3r.left+sx/p.vw*c3r.width,y:c3r.top+sy/p.vh*c3r.height};
+    out.ball={idx:bi,logical:{x:q.x,y:q.y,s:q.s},pick:pick,draw:draw,
+      dist:Math.hypot(draw.x-pick.x,draw.y-pick.y),
+      reachPx:Math.max(BR*1.4*q.s,52*(1000/(gs.w||dispS)))/1000*(gs.w||dispS)};
+    out.mismatchPx=out.ball.dist;
+  }
+  return out;
+}
+
 // Pure Projektions-Mathematik fuer die feste geneigte Kamera (Node-testbar, three-frei).
 // Konventionen identisch zu three.js: lookAt (up=(0,1,0)), perspektivische Projektion, NDC-y nach oben.
 // Welt = LOGICAL-Ebene y=0 (worldX = logicalX, worldZ = logicalY).
@@ -2036,7 +2131,8 @@ function resize(){
   const s=Math.min(rect.width,rect.height)||320;
   DPR=Math.min(window.devicePixelRatio||1,2);
   if(r3dActive&&r3d){                                       // 3D: Overlay = ganzer Viewport (kein Rand-Clipping)
-    const vw=innerWidth||s,vh=innerHeight||s;
+    gsDirty=true;                                           // resize() ist ein expliziter Aktualisierungspfad
+    const gs=gameSurface(),vw=gs.w||s,vh=gs.h||s;           // EINE Quelle fuer Overlay, Puffer und Projektion
     dispS=vw;
     cv.width=Math.round(vw*DPR);cv.height=Math.round(vh*DPR);cv.style.width=vw+'px';cv.style.height=vh+'px';
     const k=(vw*DPR)/LOGICAL;ctx.setTransform(k,0,0,k,0,0);
@@ -2048,7 +2144,7 @@ function resize(){
   cv.width=Math.round(s*DPR);cv.height=Math.round(s*DPR);cv.style.width=s+'px';cv.style.height=s+'px';
   const k=(s*DPR)/LOGICAL;ctx.setTransform(k,0,0,k,0,0);   // logisch -> Geraete-Pixel (voll scharf)
 }
-window.addEventListener('resize',resize);   // R0 ist konstant -> R bleibt unveraendert
+window.addEventListener('resize',()=>{markGameSurfaceDirty();resize();});   // R0 ist konstant -> R bleibt unveraendert
 
 // ════ STATE ════
 // Kugel: {x,y,vx,vy,sx,sy,owner,alive}. Single = 2 Kugeln (owner 0/1). Double = 4 Kugeln (owner 0,0,1,1).
@@ -2905,8 +3001,10 @@ function pickOwnBall(who,p){let best=-1,bd=1e9;balls.forEach((b,i)=>{if(b.alive&
 // (mind. 52 CSS-px). Die Welt-Pruefung am Ray-Bodenpunkt verfehlt die sichtbare Kugel bei
 // flacher Kamera/Zoom, weil die Silhouette ueber ihrem Bodenpunkt liegt. Naechste Kugel gewinnt.
 function pickOwnBall3D(who,e){
-  const r=cv.getBoundingClientRect(),sc=LOGICAL/(r.width||dispS);
-  const px=(e.clientX-r.left)*sc,py=(e.clientY-r.top)*sc,minR=52*sc;
+  // Dieselbe kanonische Flaeche wie Projektion und Zeichenpuffer (Bug 2A):
+  // ein zweites, live gemessenes Rect wuerde den Versatz wieder aufreissen.
+  const g=gameSurface(),sc=LOGICAL/(g.w||dispS);
+  const px=(e.clientX-g.l)*sc,py=(e.clientY-g.t)*sc,minR=52*sc;
   let best=-1,bd=1e9;
   balls.forEach((b,i)=>{if(b.alive&&b.owner===who){
     const q=OP(b.x,b.y,BR);
@@ -6931,7 +7029,7 @@ async function initR3D(){
         camera.lookAt(camP.tx,camP.ty,camP.tz);}
     }
     function frame(){                                // voll: Viewport/Rect/Renderer (Resize, Seitenwechsel)
-      const vw=innerWidth,vh=innerHeight,aspect=vw/vh;
+      const gs=gameSurface(),vw=gs.w||innerWidth,vh=gs.h||innerHeight,aspect=vw/vh;
       const tanV=Math.tan(45*Math.PI/360), need=530;         // sichtbarer Plattform-Aussenradius + knapper Rand
       const baseDist=Math.max(need/(tanV*aspect),need/tanV)*1.10;
       curVA=viewAngle();
@@ -6941,14 +7039,19 @@ async function initR3D(){
         // Gameplay-Framing (else) und r3dCamMath bleiben unveraendert.
         geo={vw,vh,baseDist:baseDist*0.87,ox:0,oy:0,os:vw,shx:0,shy:-vh*0.13};
       }else{
-      const rect=cv.getBoundingClientRect(),wr=cv.parentElement.getBoundingClientRect();
-      geo={vw,vh,baseDist,ox:rect.left,oy:rect.top,os:rect.width||1,
+      const wr=cv.parentElement.getBoundingClientRect();
+      // ox/oy/os stammen aus DERSELBEN Messung wie vw/vh — kein zweites Rect mehr.
+      // vw/vh sind jetzt die Masse der Spielflaeche selbst, der Projektionsrahmen ist
+      // damit bereits flaechenrelativ: der Ursprung ist 0/0. Den Versatz der Flaeche
+      // auf dem Schirm rechnet ausschliesslich der Eingabepfad heraus (pickOwnBall3D).
+      geo={vw,vh,baseDist,ox:0,oy:0,os:vw||1,
            shx:wr.left+wr.width/2-vw/2,shy:wr.top+wr.height/2-vh/2};   // Principal Point -> Wrap-Zentrum (cv ist jetzt Viewport-gross)
       }
       camera.fov=45;camera.aspect=aspect;camera.near=10;camera.far=20000;
       camera.setViewOffset(vw,vh,-geo.shx,-geo.shy,vw,vh);   // identischer Shift wie in r3dCamMath
       camera.updateProjectionMatrix();
       renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,2));
+      // Zeichenpuffer folgt exakt der sichtbaren CSS-Flaeche: keine Streckung mehr.
       renderer.setSize(vw,vh,false);
       updateCam();
     }
@@ -7131,6 +7234,13 @@ async function initR3D(){
     }
     document.body.classList.add('r3d');   // 3D-scoped UI-Styles (u. a. lesbarer Hinweistext)
     r3dActive=true;resize();
+    // Diagnose (nur ?mobileDiag=1): reicht die Handles herein, veraendert nichts.
+    // Invalidierung der Spielflaeche: window-resize deckt den klassischen Fall ab,
+    // der ResizeObserver zusaetzlich jede Aenderung der tatsaechlich sichtbaren
+    // Flaeche ohne resize-Event (Mobile: dynamische Browserleisten, Safe-Area).
+    // Beide markieren nur 'dirty'; gemessen wird hoechstens einmal pro Frame.
+    try{if(typeof ResizeObserver==='function')new ResizeObserver(markGameSurfaceDirty).observe(c3);}catch(_){}
+    if(MOBILE_DIAG)mobileDiagAttach({renderer:renderer,c3:c3,getCamP:()=>camP,getGeo:()=>geo});
     // Einmaliger Paritaets-Selbstcheck: eigene Projektion vs. three.js (nur Warnung, kein Eingriff)
     {const v=new THREE.Vector3(cx+200,0,cy-150).project(camera);
      const sx=(v.x+1)/2*camP.vw,sy=(1-v.y)/2*camP.vh;
@@ -7188,6 +7298,7 @@ function loop(now){
   updParticles();draw();
   if(r3dActive)r3d.render();
   if(r3dActive&&!bootDone)finishBoot();   // erster gerenderter 3D-Frame -> Menue einblenden
+  if(r3dActive)gameSurfaceSync();   // Bug 2A: gemeldete Geometrieaenderung genau einmal pro Frame nachziehen
   requestAnimationFrame(loop);
 }
 
