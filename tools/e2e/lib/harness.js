@@ -422,6 +422,52 @@ window.__ringoutE2E = (function(){
           });
         })()
       };
+    },
+
+    // ── Temporary barrier: read-only state + real-input placement points ─────
+    // Same philosophy as snapshot(): READS production values only, decides
+    // nothing, writes nothing. Needed because the product path carries no debug
+    // probe (those live behind ?barrier=1, which the product must not require).
+    barrier: function(){
+      var b = document.getElementById('barrierBtn');
+      var st = b ? getComputedStyle(b) : null;
+      return {
+        rulesLive:    BARRIER_ONLINE_RULES_LIVE,
+        dev:          BARRIER_DEV,
+        netFlag:      BARRIER_NET_FLAG,
+        emuProven:    (typeof barrierNetEmulatorProven === 'function') ? barrierNetEmulatorProven() : null,
+        available:    barrierAvailableForMatch(),
+        netActive:    barrierNetActive(),
+        uiSeat:       barrierUiSeat(),
+        canArm:       barrierCanArm(),
+        stakes:       barrierStakesBySeat.slice(),
+        selected:     barrierSelectedSegmentBySeat.slice(),
+        committed:    barrierCommittedSegmentBySeat.slice(),
+        turnSegments: barrierTurnSegments.slice(),
+        activeSegs:   barrierActiveSegments(),
+        btn:          b ? { text: b.textContent, visible: st.display !== 'none' && st.visibility !== 'hidden' } : null
+      };
+    },
+    // Barrier twin of aimPoints(): translates a segment index into the two
+    // CLIENT-px points a human finger would touch (wall symbol -> segment on the
+    // ring). Uses ONLY production values: the real #barrierBtn and canvas rects,
+    // the LOGICAL=1000 framing of index.html's own pointer path, barrierSegMid()'s
+    // angle formula and the shipped per-seat viewAngle(). Commits nothing.
+    barrierPoints: function(seg){
+      var b = document.getElementById('barrierBtn'); if (!b) return null;
+      var cv = document.getElementById('cv'); if (!cv) return null;
+      var r = cv.getBoundingClientRect();
+      var os = r.width || 1;                       // index.html: geo.os = rect.width for BOTH axes
+      var br = b.getBoundingClientRect();
+      var mid = -Math.PI / 2 + seg * (Math.PI / 6); // index.html: barrierSegMid()
+      var ax = cx + Math.cos(mid) * R, ay = cy + Math.sin(mid) * R;
+      // index.html converts screen->arena by rotating with -viewAngle(); the
+      // inverse (arena->screen) therefore rotates with +viewAngle().
+      var va = viewAngle(), dx = ax - cx, dy = ay - cy;
+      var c = Math.cos(va), sn = Math.sin(va);
+      var sx = cx + dx * c - dy * sn, sy = cy + dx * sn + dy * c;
+      return { btn:    { x: (br.left + br.right) / 2, y: (br.top + br.bottom) / 2 },
+               target: { x: r.left + sx / 1000 * os,  y: r.top + sy / 1000 * os } };
     }
   };
 })();

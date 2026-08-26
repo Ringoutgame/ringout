@@ -57,12 +57,14 @@ const readPublicIndexKeys = (page) => page.evaluate(async () => {
 const r4 = (n) => (typeof n === 'number' && isFinite(n)) ? Math.round(n * 1e4) / 1e4 : 0;
 
 // ── Client factory: one isolated context = one player ────────────────────────
-async function newClient(ctx, id) {
+// urlOverride exists for ONE purpose: proving that a debug query flag cannot
+// widen a gate. Every ordinary caller omits it and gets the product URL.
+async function newClient(ctx, id, urlOverride) {
   const context = await ctx.browser.newContext({ serviceWorkers: 'block' });
   await H.armContext(context, 'c' + id, ctx.state); // both HTTP + WS routes active BEFORE any page/navigation
   const page = await context.newPage();
   H.wireDiagnostics(page, 'c' + id, ctx.diag);
-  await page.goto(ctx.navUrl, { waitUntil: 'domcontentloaded' });
+  await page.goto(urlOverride || ctx.navUrl, { waitUntil: 'domcontentloaded' });
   await page.waitForFunction(
     () => window.__FB_READY === true && window.__ringoutE2E && window.__ringoutE2E.ready,
     null, { timeout: 20000 });
@@ -628,4 +630,135 @@ async function scenarioPublicLobby(ctx) {
   return r;
 }
 
-module.exports = { scenarioMatch, scenarioLeave, scenarioStaleness, scenarioPublicLobby, PRODUCT_SPEC_COLORS };
+// ── Scenario 5: temporary-barrier product contract ───────────────────────────
+// The production RTDB rules carry the commit-reveal contract and
+// BARRIER_ONLINE_RULES_LIVE is true, so the wall is part of NORMAL play in every
+// SUPPORTED online match. Two halves of one contract are pinned here, because
+// each half silently rots without the other:
+//   supported   — an online 2-seat match gets the wall from the match context
+//                 alone: no ?barrier / ?barrierNet flag and no __E2E_EMULATOR
+//                 proof may be required for it. Both are provably out of the
+//                 picture here: this scenario runs the plain product URL, so
+//                 BARRIER_DEV is false and the entire development branch of
+//                 barrierAvailableForMatch() (dev AND netFlag AND emulator
+//                 proof) is false — the deploy coupling is the only reason left.
+//   unsupported — 3/4/5 seats stay OUT, and a debug query flag must not widen
+//                 that gate: no wall symbol, no preview, no bc/br write.
+// The wall is placed through the REAL product gesture (symbol -> segment) using
+// barrierPoints(); nothing is written to Firebase or to game state directly.
+const BARRIER_SEG = 0;                       // Segment 0 = oben am Ring
+const BARRIER_START_STAKES = 3;
+
+async function barrierOf(client) { return client.page.evaluate(() => window.__ringoutE2E.barrier()); }
+
+// Echte Zeigergeste: Wandsymbol greifen, auf das Segment ziehen, loslassen.
+async function dragWall(client, seg) {
+  const pts = await client.page.evaluate((k) => window.__ringoutE2E.barrierPoints(k), seg);
+  assert(pts, 'barrierPoints(' + seg + ') lieferte nichts — kein Wandsymbol sichtbar');
+  const m = client.page.mouse;
+  await m.move(pts.btn.x, pts.btn.y);
+  await m.down();
+  for (let i = 1; i <= 8; i++) {
+    await m.move(pts.btn.x + (pts.target.x - pts.btn.x) * i / 8,
+                 pts.btn.y + (pts.target.y - pts.btn.y) * i / 8);
+  }
+  await m.up();
+}
+
+async function scenarioBarrierContract(ctx) {
+  const r = { name: 'barrier-product-contract', supported: null, unsupported: [] };
+  const clients = [];
+  const closeAll = async (list) => { for (const c of list) await closeClient(c, ctx); list.length = 0; };
+  try {
+    // ── A) SUPPORTED: Online 2 Seats auf der reinen Produkt-URL ──────────────
+    assert(ctx.navUrl.indexOf('barrier') < 0, 'Produkt-URL traegt ein barrier-Flag: ' + ctx.navUrl);
+    for (let i = 0; i < 2; i++) clients.push(await newClient(ctx, i));
+    const { code } = await setupRoom(clients, 3);
+    const st0 = await snap(clients[0].page);
+    const gen = st0.gen, turn = st0.turnNo;
+
+    const bars = [await barrierOf(clients[0]), await barrierOf(clients[1])];
+    for (let i = 0; i < 2; i++) {
+      const b = bars[i];
+      assert(b.rulesLive === true, 'c' + i + ': BARRIER_ONLINE_RULES_LIVE nicht true');
+      assert(b.dev === false && b.netFlag === false,
+        'c' + i + ': Debug-Flags aktiv (dev=' + b.dev + ', netFlag=' + b.netFlag + ') — der Produktpfad waere nicht bewiesen');
+      assert(b.available === true, 'c' + i + ': barrierAvailableForMatch() !== true');
+      assert(b.netActive === true, 'c' + i + ': barrierNetActive() !== true');
+      assert(b.btn && b.btn.visible === true, 'c' + i + ': kein sichtbares Wandsymbol: ' + JSON.stringify(b.btn));
+      assert(b.stakes[0] === BARRIER_START_STAKES && b.stakes[1] === BARRIER_START_STAKES,
+        'c' + i + ': Startbestand nicht 3/3: ' + JSON.stringify(b.stakes));
+    }
+    r.supported = { code: code, btnText: bars[0].btn.text, dev: bars[0].dev, netFlag: bars[0].netFlag, emuProven: bars[0].emuProven };
+
+    // Seat 0 setzt eine Wand ueber die echte Geste; verbraucht wird erst beim Commit.
+    await dragWall(clients[0], BARRIER_SEG);
+    const armed = await barrierOf(clients[0]);
+    assert(armed.selected[0] === BARRIER_SEG, 'Segmentwahl im Produktpfad nicht moeglich: ' + JSON.stringify(armed.selected));
+    assert(armed.stakes[0] === BARRIER_START_STAKES, 'Bestand vor dem Commit veraendert: ' + JSON.stringify(armed.stakes));
+    // Vor dem Reveal darf der Gegner die Wahl nicht sehen koennen.
+    const foreign = await barrierOf(clients[1]);
+    assert(foreign.turnSegments.length === 0 && foreign.committed[0] === -1,
+      'Wahl vor dem Reveal sichtbar: ' + JSON.stringify({ ts: foreign.turnSegments, com: foreign.committed }));
+
+    for (const c of clients) await commitZeroSeat(c);
+    await waitAllAim(clients, turn + 1, 30000, 'Barrier-Turn loest auf');
+    await assertConverged(clients, 'nach Barrier-Turn');
+
+    const tn = await readSlots(clients[0].page, code, gen, turn);
+    assert(tn && tn.bc && tn.bc[0] && tn.bc[1], 'bc/0 und bc/1 fehlen: ' + JSON.stringify(Object.keys(tn || {})));
+    assert(tn.br && tn.br[0], 'br/0 fehlt: ' + JSON.stringify(Object.keys(tn || {})));
+    assert(tn.br[0].seat === 0 && tn.br[0].seg === BARRIER_SEG,
+      'br/0 traegt nicht das gewaehlte Segment: ' + JSON.stringify(tn.br[0]));
+    // Die Wand reist AUSSCHLIESSLICH ueber bc/br — der Move-Slot behaelt seine Form.
+    const slotKeys = Object.keys(tn[0] || {}).sort().join(',');
+    assert(slotKeys === 'dx,dy,idx,sp,ts', 'Move-Slot traegt Barrier-Felder: ' + slotKeys);
+    const spent = await barrierOf(clients[0]);
+    assert(spent.stakes[0] === BARRIER_START_STAKES - 1 && spent.stakes[1] === BARRIER_START_STAKES,
+      'Verbrauch falsch: ' + JSON.stringify(spent.stakes));
+    r.supported.slotKeys = slotKeys;
+    r.supported.stakesAfter = spent.stakes;
+    await closeAll(clients);
+
+    // ── B) UNSUPPORTED: 3, 4 und 5 Seats bleiben aussen vor — auch mit Flags ──
+    for (const n of [3, 4, 5]) {
+      // Im 3-Seat-Raum traegt EIN Client beide Debug-Flags: ein URL-Parameter
+      // darf das Seat-Gate nicht aufweiten.
+      const flagUrl = ctx.navUrl + '&barrier=1&barrierNet=1';
+      for (let i = 0; i < n; i++) clients.push(await newClient(ctx, i, (n === 3 && i === 1) ? flagUrl : undefined));
+      const room = await setupRoom(clients, 3);
+      const s0 = await snap(clients[0].page);
+      const bs = [];
+      for (const c of clients) bs.push(await barrierOf(c));
+      for (let i = 0; i < n; i++) {
+        assert(bs[i].available === false, n + ' Seats, c' + i + ': barrierAvailableForMatch() !== false');
+        assert(bs[i].netActive === false, n + ' Seats, c' + i + ': barrierNetActive() !== false');
+        assert(bs[i].btn === null, n + ' Seats, c' + i + ': Wandsymbol vorhanden');
+        assert(bs[i].activeSegs.length === 0, n + ' Seats, c' + i + ': Vorschau/aktive Segmente vorhanden: ' + JSON.stringify(bs[i].activeSegs));
+        assert(bs[i].uiSeat === -1, n + ' Seats, c' + i + ': Barrier-UI beansprucht Seat ' + bs[i].uiSeat);
+      }
+      if (n === 3) {
+        assert(bs[1].dev === true && bs[1].netFlag === true,
+          '3 Seats: der Flag-Client trug die Debug-Flags nicht — die Gegenprobe waere wertlos');
+        r.flagClientBlocked = true;
+      }
+      for (const c of clients) await commitZeroSeat(c);
+      await waitAllAim(clients, s0.turnNo + 1, 30000, n + '-Seat-Turn loest auf');
+      await assertConverged(clients, n + ' Seats nach Turn');
+      const tnU = await readSlots(clients[0].page, room.code, s0.gen, s0.turnNo);
+      assert(!(tnU && (tnU.bc || tnU.br)), n + ' Seats: bc/br geschrieben: ' + JSON.stringify(Object.keys(tnU || {})));
+      r.unsupported.push({ seats: n, code: room.code, keys: Object.keys(tnU || {}).sort() });
+      await closeAll(clients);
+    }
+
+    r.passed = true;
+  } catch (e) {
+    r.passed = false; r.error = e && e.message || String(e);
+    throw e;
+  } finally {
+    for (const c of clients) await closeClient(c, ctx);
+  }
+  return r;
+}
+
+module.exports = { scenarioMatch, scenarioLeave, scenarioStaleness, scenarioPublicLobby, scenarioBarrierContract, PRODUCT_SPEC_COLORS };

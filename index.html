@@ -3540,7 +3540,7 @@ const BARRIER_FORCE_OFF=new URLSearchParams(location.search).get('barrier')==='0
 // Anti-Desync-Vertrag blockiert (barrierNetRevealBlocked) und das Match haengen.
 // Dieser Schalter geht deshalb erst mit dem Rules-Publish auf true; er ist die
 // einzige verbleibende Bedingung des produktiven Online-Pfads.
-const BARRIER_ONLINE_RULES_LIVE=false;
+const BARRIER_ONLINE_RULES_LIVE=true;
 // Lokale Modi, die der bestehende Barrier-Code vollstaendig unterstuetzt.
 function barrierSupportedLocalMode(){return mode==='bot'||mode==='pvp';}
 // Online-Kontext, den der produktive bc/br-Rules-Vertrag abdeckt: exakt zwei
