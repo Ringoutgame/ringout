@@ -196,6 +196,171 @@ const DRIVER = async () => {
     allow('D: br/0 nach beiden Commits akzeptiert (Positivkontrolle)', await set(t.p + '/br/0', BR(0, t.n, 3)));
   }
 
+
+  // ══ E — Leave-Sentinel im Online-FFA (Bug 3A) ═════════════════════════════
+  // Der Move-Slot eines nicht mehr aktiven Seats darf von einem verbliebenen
+  // Client gefuellt werden — aber AUSSCHLIESSLICH mit der kanonischen
+  // Sentinel-Signatur aus index.html: Nullvektor auf einer FREMDEN, im Match
+  // existierenden Kugel. Im klassischen FFA hat jeder Seat genau eine Kugel und
+  // es gilt Kugelindex === Seatindex, "fremd" heisst dort also idx !== seat.
+  {
+    const FF = { idx: 1, dx: 0, dy: 0, sp: 0 };          // gueltiger Sentinel fuer Seat 2
+    const NORMAL = { idx: 2, dx: 120, dy: -40, sp: 0.3 };// normaler Zug des Seats 2
+    let fcode = null;
+    for (let i = 0; i < 12 && !fcode; i++) {
+      const cand = Array.from({ length: 4 }, () => CH[Math.floor(Math.random() * CH.length)]).join('');
+      if ((await read(cand)) == null) fcode = cand;
+    }
+    if (!fcode) return { fatal: 'kein freier FFA-Raumcode', checks };
+    await set(fcode, { v: 3, config: { winTarget: 3, fmt: 'ffa', visibility: 'private' }, gen: 0, state: 'lobby',
+      p: { 0: P('FHOSTTAB', false) }, players: { 0: { id: 'FHOST000', name: 'F0', tab: 'FHOSTTAB' } }, created: TS() });
+    await upd(fcode, { 'p/0/on': true, 'p/0/t': TS() });
+    for (const [seat, tab, id] of [[1, 'FTAB0001', 'FGUEST01'], [2, 'FTAB0002', 'FGUEST02']]) {
+      await upd(fcode, { ['p/' + seat]: P(tab, false), ['players/' + seat]: { id, name: 'F' + seat, tab } });
+      await upd(fcode, { ['p/' + seat + '/on']: true, ['p/' + seat + '/t']: TS() });
+    }
+    await set(fcode + '/state', 'playing');
+    await set(fcode + '/seats', 3);
+    const froom = await read(fcode);
+    const fOk = !!froom && froom.state === 'playing' && froom.seats === 3
+      && froom.p && [0, 1, 2].every((s) => froom.p[s] && froom.p[s].on === true);
+    state('E: Setup — FFA-Match mit 3 aktiven Seats laeuft', fOk,
+      'Setup fehlgeschlagen: ' + JSON.stringify(froom && { st: froom.state, seats: froom.seats }));
+    if (!fOk) return { fatal: 'FFA-Setup fehlgeschlagen', checks };
+
+    let fturn = 0;
+    const ft = () => { const n = fturn++; return { n, p: fcode + '/g/0/t/' + n }; };
+
+    // ── E1/E2: aktiver Seat — Positivkontrolle. Der Bestandszweig
+    //    (p/<seat>.on === true) bleibt unveraendert erlaubt; diese Aenderung
+    //    schraenkt den normalen Zugpfad also nicht ein. Wer den Slot eines
+    //    AKTIVEN Seats fuellen darf, regelt weiterhin ausschliesslich dieser
+    //    Bestandszweig — er ist nicht Gegenstand von Bug 3A.
+    {
+      const t = ft();
+      allow('E1: aktiver Seat — normaler Zug weiterhin schreibbar (Bestandszweig unveraendert)',
+        await set(t.p + '/2', NORMAL));
+      const t2 = ft();
+      allow('E2: aktiver Seat — Schreibpfad unveraendert, auch fuer einen Nullvektor-Zug',
+        await set(t2.p + '/2', FF));
+    }
+
+    // ── Seat 2 verlaesst bewusst: p UND players werden atomar entfernt ───────
+    await upd(fcode, { 'p/2': null, 'players/2': null });
+    const gone = await read(fcode + '/p/2');
+    state('E: Seat 2 hat bewusst verlassen (p und players entfernt)', gone === null, JSON.stringify(gone));
+
+    // ── E3: offline Seat, NORMALER Move bleibt verboten ─────────────────────
+    {
+      const t = ft();
+      deny('E3: verlassener Seat — normaler Fremd-Move weiterhin abgelehnt', await set(t.p + '/2', NORMAL));
+      state('E3: nichts persistiert', (await read(t.p + '/2')) === null);
+    }
+    // ── E4: unvollstaendiger Sentinel ───────────────────────────────────────
+    {
+      const t = ft();
+      deny('E4: verlassener Seat — Sentinel ohne sp abgelehnt', await set(t.p + '/2', { idx: 1, dx: 0, dy: 0 }));
+    }
+    // ── E5: Sentinel mit Zusatzfeld ─────────────────────────────────────────
+    {
+      const t = ft();
+      deny('E5: verlassener Seat — Sentinel mit Zusatzfeld abgelehnt',
+        await set(t.p + '/2', { idx: 1, dx: 0, dy: 0, sp: 0, extra: 1 }));
+    }
+    // ── E6: falsche Signatur (Bewegung bzw. eigene Kugel) ───────────────────
+    {
+      const t = ft();
+      deny('E6a: verlassener Seat — Nullvektor auf EIGENER Kugel abgelehnt',
+        await set(t.p + '/2', { idx: 2, dx: 0, dy: 0, sp: 0 }));
+      const t2 = ft();
+      deny('E6b: verlassener Seat — fremde Kugel MIT Bewegung abgelehnt',
+        await set(t2.p + '/2', { idx: 1, dx: 5, dy: 0, sp: 0 }));
+      const t3 = ft();
+      deny('E6c: verlassener Seat — fremde Kugel mit Drall abgelehnt',
+        await set(t3.p + '/2', { idx: 1, dx: 0, dy: 0, sp: 0.4 }));
+    }
+    // ── E12: idx ausserhalb der Seatzahl dieses Matches ─────────────────────
+    {
+      const t = ft();
+      deny('E12: verlassener Seat — Sentinel auf nicht existierender Kugel (idx 4 bei 3 Seats) abgelehnt',
+        await set(t.p + '/2', { idx: 4, dx: 0, dy: 0, sp: 0 }));
+    }
+    // ── E8: falsche Generation ──────────────────────────────────────────────
+    {
+      deny('E8: verlassener Seat — Sentinel in falscher Generation abgelehnt',
+        await set(fcode + '/g/1/t/0/2', FF));
+    }
+    // ── E9: gueltiger Sentinel nach bewusstem Leave -> ERLAUBT ──────────────
+    let e9turn = null;
+    {
+      const t = ft(); e9turn = t;
+      allow('E9: bewusstes Leave — gueltiger Sentinel akzeptiert', await set(t.p + '/2', FF));
+      const after = await read(t.p + '/2');
+      state('E9: Sentinel persistiert unveraendert', !!after && after.idx === 1 && after.dx === 0 && after.dy === 0 && after.sp === 0,
+        JSON.stringify(after));
+    }
+    // ── E7: write-once — belegter Slot bleibt unantastbar ───────────────────
+    {
+      deny('E7: belegter Slot — zweiter Sentinel abgelehnt', await set(e9turn.p + '/2', { idx: 0, dx: 0, dy: 0, sp: 0 }));
+      const after = await read(e9turn.p + '/2');
+      state('E7: erster Sentinel bleibt unveraendert', !!after && after.idx === 1, JSON.stringify(after));
+    }
+
+    // ── Disconnect-Fall: Seat 1 geht auf on:false (players bleibt) ──────────
+    await upd(fcode, { 'p/1/on': false, 'p/1/t': TS() });
+    const flapT = Date.now();
+    const flap = await read(fcode + '/p/1');
+    state('E: Seat 1 ist per Disconnect inaktiv (players bleibt bestehen)',
+      !!flap && flap.on === false && (await read(fcode + '/players/1')) !== null, JSON.stringify(flap));
+
+    // ── E10: innerhalb der 15-s-Karenz noch KEIN Sentinel ──────────────────
+    {
+      const t = ft();
+      deny('E10: Disconnect innerhalb der Karenz — Sentinel abgelehnt', await set(t.p + '/1', { idx: 0, dx: 0, dy: 0, sp: 0 }));
+      state('E10: nichts persistiert', (await read(t.p + '/1')) === null);
+    }
+    // ── E11: nach Ablauf der Karenz ist derselbe Sentinel gueltig ───────────
+    {
+      // Die Rules-Karenz liegt bewusst 1 s VOR SEAT_STALE_MS (15 s): der Client
+      // feuert damit garantiert erst, wenn das Serverfenster offen ist — sonst
+      // gaebe es bei jedem Disconnect eine abgelehnte erste Transaktion.
+      const waitMs = 14600 - (Date.now() - flapT);
+      if (waitMs > 0) await new Promise((r) => setTimeout(r, waitMs));
+      const t = ft();
+      allow('E11: Disconnect nach der Rules-Karenz (14 s) — Sentinel akzeptiert', await set(t.p + '/1', { idx: 0, dx: 0, dy: 0, sp: 0 }));
+      const after = await read(t.p + '/1');
+      state('E11: Sentinel persistiert', !!after && after.idx === 0, JSON.stringify(after));
+    }
+    // ── E14: gestempelter Turn — die Zugform gilt auch fuer den Sentinel ────
+    //    Existiert t/<turn>/s, verlangt .validate zwingend ein ts. Der Sentinel
+    //    ist davon nicht ausgenommen: ohne ts abgelehnt, mit ts akzeptiert.
+    {
+      await upd(fcode, { 'p/2': null, 'players/2': null });   // Seat 2 bleibt verlassen
+      const t = ft();
+      allow('E14: Phasenstempel fuer den Turn gesetzt', await set(t.p + '/s', TS()));
+      deny('E14a: gestempelter Turn — Sentinel OHNE ts abgelehnt', await set(t.p + '/2', FF));
+      state('E14a: nichts persistiert', (await read(t.p + '/2')) === null);
+      allow('E14b: gestempelter Turn — Sentinel MIT ts akzeptiert',
+        await set(t.p + '/2', Object.assign({}, FF, { ts: TS() })));
+      const after = await read(t.p + '/2');
+      state('E14b: Sentinel mit Stempel persistiert', !!after && after.idx === 1 && typeof after.ts === 'number',
+        JSON.stringify(after));
+    }
+    // ── E13: Rueckkehr setzt die Karenz zurueck — der Sentinel-Zweig greift
+    //    danach erst wieder nach erneuten 15 s. Geprueft wird die Bedingung, die
+    //    dieser Aenderung gehoert: frisches p/<seat>.t und on === true.
+    {
+      await upd(fcode, { 'p/1/on': true, 'p/1/t': TS() });
+      const back = await read(fcode + '/p/1');
+      state('E13: zurueckgekehrter Seat ist wieder aktiv, Karenz neu gestartet',
+        !!back && back.on === true && typeof back.t === 'number', JSON.stringify(back));
+      await upd(fcode, { 'p/1/on': false, 'p/1/t': TS() });
+      const t = ft();
+      deny('E13: nach der Rueckkehr laeuft die 15-s-Karenz neu — Sentinel wieder abgelehnt',
+        await set(t.p + '/1', { idx: 0, dx: 0, dy: 0, sp: 0 }));
+    }
+  }
+
   return { checks, code };
 };
 
@@ -210,6 +375,11 @@ function assertRulesContract(rulesText) {
   if (!seg || seg.indexOf('% 1 === 0') < 0) problems.push('br.seg ohne Ganzzahlpruefung');
   const pl = turn.$pl && turn.$pl['.validate'];
   if (!pl || pl.indexOf("newData.parent().child('s').exists()") < 0) problems.push('Move-.validate ohne resultierende Turn-Sicht');
+  // Bug 3A: der Leave-Sentinel-Zweig und seine Disconnect-Karenz muessen im
+  // Move-Slot-Vertrag stehen — sonst haengt Online-FFA beim Verlassen wieder.
+  const plw = turn.$pl && turn.$pl['.write'];
+  if (!plw || plw.indexOf("newData.child('idx').val() + '' !== $pl") < 0) problems.push('Leave-Sentinel-Zweig fehlt');
+  if (!plw || plw.indexOf('>= 14000') < 0) problems.push('Leave-Sentinel ohne Disconnect-Karenz');
   if (problems.length) throw new Error('Rules-Vertrag unvollstaendig: ' + problems.join(', '));
 }
 

@@ -513,7 +513,10 @@ async function dropSeat(db, code, seat) {
     t('S7 rematch restarts all with same seats', db.data.rooms.FFA3.gen === 1 && [h, g1, g2].every(c => c.st().runningGen === 1 && c.st().phase === 'aim' && c.st().ffaN === 3));
     // in-match leave (Fix 2): match continues, leaver eliminated via move sentinel
     g1.leave(); await tick();
-    t('F2 leave toast on remaining clients', h.ui.log.includes('toast:Spieler 2 hat das Match verlassen.') && g2.ui.log.includes('toast:Spieler 2 hat das Match verlassen.'));
+    // Der Leave-Toast ist seit Bug 3A lokalisiert und traegt den Spielernamen.
+    // Der i18n-Stub dieser Harness liefert den KEY (s. const T oben), der fertige
+    // Satz inkl. eingesetztem Namen wird im FFA-E2E (midmatch-leave, Fall H) geprueft.
+    t('F2 leave toast on remaining clients', h.ui.log.includes('toast:leftGame') && g2.ui.log.includes('toast:leftGame'));
     t('F2 match NOT ended by leave', h.st().gameStarted && g2.st().gameStarted && (h.els.wt || { textContent: '' }).textContent === '');
     t('F2 sentinel in db (idx!==seat, stand-still)', (() => { const c = db.data.rooms.FFA3.g[1].t[0][1]; return c && c.idx !== 1 && c.dx === 0 && c.dy === 0 && c.sp === 0; })());
     t('F2 leaver slot filled + gone flag on all', h.st().aimSet[1] === true && g2.st().aimSet[1] === true && h.gone(1) && g2.gone(1));
@@ -530,7 +533,7 @@ async function dropSeat(db, code, seat) {
     h.clickStart(); await tick();
     t('F2b started 2p', h.st().gameStarted && g.st().gameStarted && h.st().ffaN === 2);
     g.drop(); await tick();   // browser close: onDisconnect removes p/1
-    t('F2b toast + sentinel written by survivor', h.ui.log.includes('toast:Spieler 2 hat das Match verlassen.') && h.st().aimSet[1] === true);
+    t('F2b toast + sentinel written by survivor', h.ui.log.includes('toast:leftGame') && h.st().aimSet[1] === true);
     h.commitMove(); await tick();
     t('F2b survivor reveals alone (no deadlock)', h.st().phase === 'reveal');
     t('F2b leaver ejected -> normal ring-out ends round', h.ballDist(1) > 485 && h.gone(1));

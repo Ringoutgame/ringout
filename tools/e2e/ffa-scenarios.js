@@ -375,17 +375,13 @@ async function scenarioMatch(ctx) {
   return r;
 }
 
-// ── Scenario 2 (B1-revised): lobby leave + seat reuse ─────────────────────────
-// Mid-match leave/disconnect handling (Disconnect-Sentinel, Eliminierungs-Latch)
-// is explicitly OUT of B1 scope. The v3 rules foundation from B0 defers it
-// ("Fund 2", see tools/e2e/spike.js): a move-slot write for seat $pl requires
-// root.p($pl).on===true, so no OTHER client can ever write a leave-sentinel for
-// a seat that has gone offline under the current rules — that gap is tracked
-// for Paket B, not exercised here. This scenario instead proves the path that
-// IS in B1 scope: a deliberate LOBBY leave atomically frees p/<seat> AND
-// players/<seat> together (leaveOnline), and the freed seat — genuinely absent,
-// not merely stale — is claimable again by a fresh joiner (pickFreeSeat treats
-// only a non-existent p/<seat> as free; no recycling of a stale reservation).
+// ── Scenario 2: lobby leave + seat reuse ─────────────────────────────────────
+// This scenario covers the LOBBY path: a deliberate leave atomically frees
+// p/<seat> AND players/<seat> together (leaveOnline), and the freed seat —
+// genuinely absent, not merely stale — is claimable again by a fresh joiner
+// (pickFreeSeat treats only a non-existent p/<seat> as free; no recycling of a
+// stale reservation). Leaving a RUNNING match is a different contract and has
+// its own scenario (scenarioMidMatchLeave, Bug 3A).
 async function scenarioLeave(ctx) {
   const r = { name: 'lobby-leave-seat-reuse' };
   const clients = [];
@@ -454,7 +450,7 @@ async function scenarioLeave(ctx) {
     await assertConverged(clients, 'nach Lobby-Leave + Seat-Reuse');
 
     r.passed = true;
-    r.note = 'Mid-Match-Leave/Disconnect (Disconnect-Sentinel, Eliminierungs-Latch) ist in B1 bewusst nicht umgesetzt — das v3-Rules-Fundament aus B0 verlangt für einen fremden Move-Slot-Write p/$seat.on===true ("Fund 2", verschoben auf Paket B). Dieses Szenario deckt stattdessen den tatsächlich in B1 umgesetzten Pfad ab: atomarer p+players-Delete beim bewussten Lobby-Leave und Wiederverwendung des dadurch echt freien Sitzes.';
+    r.note = 'Lobby-Leave: atomarer p+players-Delete und Wiederverwendung des dadurch echt freien Sitzes. Das Verlassen eines LAUFENDEN Matches deckt scenarioMidMatchLeave ab (Bug 3A).';
   } finally {
     for (const c of clients) await closeClient(c, ctx);
   }
@@ -761,4 +757,203 @@ async function scenarioBarrierContract(ctx) {
   return r;
 }
 
-module.exports = { scenarioMatch, scenarioLeave, scenarioStaleness, scenarioPublicLobby, scenarioBarrierContract, PRODUCT_SPEC_COLORS };
+// ── Scenario 6: mid-match leave in Online-FFA (Bug 3A) ───────────────────────
+// A seat that leaves a RUNNING FFA match used to freeze it for everyone: the
+// remaining clients wait for a move slot that the rules would not let anyone
+// fill, so allAliveCommitted() never becomes true. The move-slot contract now
+// carries the canonical leave sentinel, so a remaining client closes the open
+// slot and the match continues — deterministically, from the DB, at a turn
+// boundary, for every client at the same moment.
+//
+// Deliberate leave (p AND players removed) needs no grace; a disconnect
+// (p/<seat>.on=false, players kept) keeps the existing SEAT_STALE_MS window so
+// a short network flap never eliminates anybody.
+const LEAVE_CONTINUE_MS = 12000;   // deliberate leave: match must resume well inside this
+const FLAP_REJOIN_MS = 6000;       // comfortably inside SEAT_STALE_MS (15 s)
+
+// A deliberate leave is only complete once leaveOnline()'s atomic
+// p/<seat>+players/<seat> removal has actually landed. Closing the context any
+// earlier aborts that write and silently turns the leave into a mere
+// disconnect — which then waits out the 15 s grace instead of resuming at once.
+async function deliberateLeave(client, ctx, code, seat, observer) {
+  const w = H.beginLeaveWindow(ctx.state, code);
+  try {
+    await client.page.evaluate(() => window.__ringoutE2E.leave());
+    await H.poll(async () => ((await H.dbRead(observer.page, `rooms/${code}/p/${seat}`)) === null ? true : null),
+      10000, `Seat ${seat}: p/<seat> nach dem Leave entfernt`);
+  } finally { H.endLeaveWindow(w); }
+  try { await client.context.close(); client.closed = true; }
+  catch (e) { ctx.closeErrors.push(`close c${client.id}: ${e && e.message || e}`); }
+}
+
+// A seat's presence flip, written by that seat itself — exactly what
+// onDisconnect does on a real disconnect (players/<seat> stays).
+async function setOwnPresence(client, code, seat, on) {
+  return client.page.evaluate(async ([c, s, v]) => {
+    const FB = window.FB;
+    await FB.update(FB.ref(FB.db, 'rooms/' + c + '/p/' + s), { on: v, t: FB.serverTimestamp() });
+    return true;
+  }, [code, seat, on]);
+}
+
+// Wait until every remaining client has moved past `turn` — that is the proof
+// that the open slot was closed and the lockstep resumed.
+async function waitTurnAdvanced(clients, turn, timeout, label) {
+  return H.poll(async () => {
+    for (const c of clients) {
+      const s = await snap(c.page);
+      if (!s || s.turnNo <= turn) return null;
+    }
+    return true;
+  }, timeout, label);
+}
+
+// One full leave run: n seats, the LAST seat leaves before committing, the rest
+// must play on. Returns the measured time from leave to resumed turn.
+async function leaveRun(ctx, n, r) {
+  const clients = [];
+  for (let i = 0; i < n; i++) clients.push(await newClient(ctx, i));
+  try {
+    const { code } = await setupRoom(clients, 3);
+    await waitAllAim(clients, 0, 25000, `${n} Seats erreichen Turn 0`);
+    const leaver = clients[n - 1], staying = clients.slice(0, n - 1);
+    // Everyone except the leaver commits, so the ONLY open slot is the leaver's.
+    for (const c of staying) await commitZeroSeat(c);
+    const t0 = Date.now();
+    await deliberateLeave(leaver, ctx, code, n - 1, staying[0]);
+    await waitTurnAdvanced(staying, 0, LEAVE_CONTINUE_MS, `${n} Seats: Turn laeuft nach dem Leave weiter`);
+    const ms = Date.now() - t0;
+    // The sentinel must be visible in the DB — that is what made it deterministic.
+    const slots = await readSlots(staying[0].page, code, 0, 0);
+    const sentinel = slots && slots[n - 1];
+    assert(!!sentinel, `${n} Seats: kein Move-Slot fuer den verlassenen Seat`);
+    assert(sentinel.idx !== (n - 1) && sentinel.dx === 0 && sentinel.dy === 0 && sentinel.sp === 0,
+      `${n} Seats: Slot des verlassenen Seats traegt keine Sentinel-Signatur: ` + JSON.stringify(sentinel));
+    // Every remaining client learned the leave from the SAME move data.
+    for (const c of staying) {
+      const s = await snap(c.page);
+      assert(s.seatGone[n - 1] === true, `${n} Seats: c${c.id} kennt den verlassenen Seat nicht: ` + JSON.stringify(s.seatGone));
+    }
+    await waitAllAim(staying, 1, 25000, `${n} Seats: alle Verbliebenen im Folgeturn`);
+    await assertConverged(staying, `${n} Seats nach dem Leave`);
+    // and they can genuinely keep playing
+    for (const c of staying) await commitZeroSeat(c);
+    await waitAllAim(staying, 2, 25000, `${n} Seats: zweiter Turn ohne den Verlassenen`);
+    await assertConverged(staying, `${n} Seats nach dem Folgeturn`);
+    r.runs.push({ seats: n, resumedMs: ms, sentinel, code });
+    assert(ms < LEAVE_CONTINUE_MS, `${n} Seats: Fortsetzung dauerte ${ms} ms`);
+    return ms;
+  } finally {
+    for (const c of clients) await closeClient(c, ctx);
+  }
+}
+
+async function scenarioMidMatchLeave(ctx) {
+  const r = { name: 'ffa-midmatch-leave', runs: [], cases: {} };
+  try {
+    // ── A/B/C/I — 3, 4 und 5 Seats, Leave VOR dem eigenen Commit ───────────
+    for (const n of [3, 4, 5]) await leaveRun(ctx, n, r);
+
+    // ── D — Leave NACH dem eigenen Commit ──────────────────────────────────
+    {
+      const clients = [];
+      for (let i = 0; i < 3; i++) clients.push(await newClient(ctx, i));
+      try {
+        const { code } = await setupRoom(clients, 3);
+        await waitAllAim(clients, 0, 25000, 'D: Turn 0');
+        const leaver = clients[2], staying = clients.slice(0, 2);
+        for (const c of clients) await commitZeroSeat(c);          // ALLE committen, inkl. Leaver
+        await waitAllAim(clients, 1, 25000, 'D: Turn 0 loest reglaer auf');
+        const t0 = Date.now();
+        await deliberateLeave(leaver, ctx, code, 2, staying[0]);
+        for (const c of staying) await commitZeroSeat(c);
+        await waitTurnAdvanced(staying, 1, LEAVE_CONTINUE_MS, 'D: Folgeturn laeuft ohne den Verlassenen');
+        await assertConverged(staying, 'D nach dem Leave');
+        const slots = await readSlots(staying[0].page, code, 0, 1);
+        r.cases.afterCommit = { resumedMs: Date.now() - t0, sentinel: slots && slots[2] };
+        assert(!!(slots && slots[2]), 'D: kein Sentinel im Folgeturn');
+      } finally { for (const c of clients) await closeClient(c, ctx); }
+    }
+
+    // ── E — Leave waehrend Reveal/Simulation ───────────────────────────────
+    {
+      const clients = [];
+      for (let i = 0; i < 3; i++) clients.push(await newClient(ctx, i));
+      try {
+        const { code } = await setupRoom(clients, 3);
+        await waitAllAim(clients, 0, 25000, 'E: Turn 0');
+        const leaver = clients[2], staying = clients.slice(0, 2);
+        for (const c of clients) await commitZeroSeat(c);
+        // mitten in die Aufloesung hinein verlassen
+        await H.poll(async () => { const s = await snap(staying[0].page); return s.phase !== 'aim' ? true : null; }, 15000, 'E: Aufloesung laeuft');
+        await deliberateLeave(leaver, ctx, code, 2, staying[0]);
+        await waitAllAim(staying, 1, 25000, 'E: laufender Turn wird deterministisch fertig');
+        await assertConverged(staying, 'E nach der Aufloesung');
+        for (const c of staying) await commitZeroSeat(c);
+        await waitTurnAdvanced(staying, 1, LEAVE_CONTINUE_MS, 'E: naechster Turn ohne den Verlassenen');
+        await assertConverged(staying, 'E nach dem Folgeturn');
+        const slots = await readSlots(staying[0].page, code, 0, 1);
+        r.cases.duringSim = { sentinel: slots && slots[2] };
+        assert(!!(slots && slots[2]), 'E: kein Sentinel im Folgeturn');
+      } finally { for (const c of clients) await closeClient(c, ctx); }
+    }
+
+    // ── F/G/H — Disconnect mit Rueckkehr, dauerhafter Disconnect, Name-Toast ─
+    {
+      const clients = [];
+      for (let i = 0; i < 3; i++) clients.push(await newClient(ctx, i));
+      try {
+        const { code } = await setupRoom(clients, 3);
+        await waitAllAim(clients, 0, 25000, 'F: Turn 0');
+        const flapper = clients[2], others = clients.slice(0, 2);
+        // F — kurzer Wackler: on:false, Rueckkehr innerhalb der Karenz
+        await setOwnPresence(flapper, code, 2, false);
+        await new Promise((res) => setTimeout(res, FLAP_REJOIN_MS));
+        const midFlap = await readSlots(others[0].page, code, 0, 0);
+        assert(!(midFlap && midFlap[2]), 'F: waehrend der Karenz wurde ein Sentinel geschrieben');
+        for (const c of others) { const s = await snap(c.page); assert(s.seatGone[2] !== true, 'F: Seat vorzeitig als verlassen gewertet'); }
+        await setOwnPresence(flapper, code, 2, true);
+        await new Promise((res) => setTimeout(res, 1500));
+        const afterFlap = await readSlots(others[0].page, code, 0, 0);
+        assert(!(afterFlap && afterFlap[2]), 'F: nach der Rueckkehr wurde doch ein Sentinel geschrieben');
+        r.cases.flapRejoin = { sentinelWritten: false, offlineMs: FLAP_REJOIN_MS };
+        // der zurueckgekehrte Seat spielt normal weiter
+        for (const c of clients) await commitZeroSeat(c);
+        await waitAllAim(clients, 1, 25000, 'F: Turn mit dem zurueckgekehrten Seat');
+        await assertConverged(clients, 'F nach der Rueckkehr');
+
+        // G — dauerhafter Disconnect: Karenz laeuft ab, danach Sentinel
+        const t0 = Date.now();
+        await setOwnPresence(flapper, code, 2, false);
+        for (const c of others) await commitZeroSeat(c);
+        await waitTurnAdvanced(others, 1, 40000, 'G: nach der Karenz laeuft der Turn weiter');
+        const graceMs = Date.now() - t0;
+        const slots = await readSlots(others[0].page, code, 0, 1);
+        assert(!!(slots && slots[2]), 'G: kein Sentinel nach dauerhaftem Disconnect');
+        assert(graceMs >= 15000, `G: Sentinel kam schon nach ${graceMs} ms — die 15-s-Karenz wurde nicht eingehalten`);
+        r.cases.permanentDisconnect = { graceMs, sentinel: slots[2] };
+        // H — Toast mit dem Spielernamen auf einem verbliebenen Client
+        const toastText = await others[0].page.evaluate(() => {
+          const t = document.getElementById('toast');
+          return t ? { text: t.textContent, shown: t.classList.contains('show') } : null;
+        });
+        // Der Name kommt aus dem Roster; geprueft wird der lokalisierte Satz und
+        // dass der Platzhalter wirklich ersetzt wurde (nicht welcher Name es ist).
+        assert(!!toastText && /left the game|hat das Spiel verlassen|oyundan ayr/i.test(toastText.text),
+          'H: kein lokalisierter Leave-Toast: ' + JSON.stringify(toastText));
+        assert(toastText.text.indexOf('{n}') < 0 && toastText.text.trim().length > 'left the game.'.length,
+          'H: Platzhalter nicht durch einen Namen ersetzt: ' + JSON.stringify(toastText));
+        r.cases.toast = toastText;
+        await assertConverged(others, 'G/H nach dem Disconnect');
+      } finally { for (const c of clients) await closeClient(c, ctx); }
+    }
+
+    r.passed = true;
+  } catch (e) {
+    r.passed = false; r.error = e && e.message || String(e);
+    throw e;
+  }
+  return r;
+}
+
+module.exports = { scenarioMatch, scenarioLeave, scenarioStaleness, scenarioPublicLobby, scenarioBarrierContract, scenarioMidMatchLeave, PRODUCT_SPEC_COLORS };

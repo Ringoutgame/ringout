@@ -1558,7 +1558,7 @@ en:{tagline:'PULL BACK · RELEASE · KNOCK THEM OUT',chip:'FEATURED',
   creating:'Creating room…',ffaShare:'FFA · Share the code with 1–4 friends.',shareCode:'Share the code with your friend.',
   code4:'Please enter the 4-letter code.',joining:'Joining…',noRoom:'Room not found.',roomFull:'Room is already full.',
   connWait:'Connected! Waiting for the host…',connStart:'Connected! Game starting…',
-  noFb:'⚠ No connection to Firebase. Check internet & config.',err:'Error: ',noOnlineReset:'Not available in online mode.',loading:'Loading arena...',
+  noFb:'⚠ No connection to Firebase. Check internet & config.',leftGame:'{n} left the game.',err:'Error: ',noOnlineReset:'Not available in online mode.',loading:'Loading arena...',
   turnTime:'TURN TIME',
   victory:'VICTORY',defeat:'DEFEAT',wins:'WINS',finalScore:'FINAL SCORE',ringout:'RINGOUT',round:'ROUND',
   col0:'BLUE',col1:'RED',col2:'GREEN',col3:'YELLOW',col4:'GRAY',
@@ -1599,7 +1599,7 @@ de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'FEATURED',
   creating:'Erstelle Raum…',ffaShare:'FFA · Schick den Code an 1–4 Freunde.',shareCode:'Schick den Code an deinen Kumpel.',
   code4:'Bitte 4-stelligen Code eingeben.',joining:'Trete bei…',noRoom:'Raum nicht gefunden.',roomFull:'Raum ist schon voll.',
   connWait:'Verbunden! Warte auf den Host…',connStart:'Verbunden! Spiel startet…',
-  noFb:'⚠ Keine Verbindung zu Firebase. Internet & Config prüfen.',err:'Fehler: ',noOnlineReset:'Im Online-Modus nicht verfügbar.',loading:'Arena wird geladen...',
+  noFb:'⚠ Keine Verbindung zu Firebase. Internet & Config prüfen.',leftGame:'{n} hat das Spiel verlassen.',err:'Fehler: ',noOnlineReset:'Im Online-Modus nicht verfügbar.',loading:'Arena wird geladen...',
   turnTime:'ZUGZEIT',
   victory:'SIEG',defeat:'NIEDERLAGE',wins:'GEWINNT',finalScore:'ENDSTAND',ringout:'RINGOUT',round:'RUNDE',
   col0:'BLAU',col1:'ROT',col2:'GRÜN',col3:'GELB',col4:'GRAU',
@@ -1640,7 +1640,7 @@ tr:{tagline:'GERİ ÇEK · BIRAK · DIŞARI İT',chip:'FEATURED',
   creating:'Oda kuruluyor…',ffaShare:'FFA · Kodu 1–4 arkadaşına gönder.',shareCode:'Kodu arkadaşına gönder.',
   code4:'Lütfen 4 haneli kodu gir.',joining:'Katılınıyor…',noRoom:'Oda bulunamadı.',roomFull:'Oda zaten dolu.',
   connWait:'Bağlandı! Host bekleniyor…',connStart:'Bağlandı! Oyun başlıyor…',
-  noFb:'⚠ Firebase bağlantısı yok. İnterneti ve yapılandırmayı kontrol et.',err:'Hata: ',noOnlineReset:'Online modda kullanılamaz.',loading:'Arena yükleniyor...',
+  noFb:'⚠ Firebase bağlantısı yok. İnterneti ve yapılandırmayı kontrol et.',leftGame:'{n} oyundan ayrıldı.',err:'Hata: ',noOnlineReset:'Online modda kullanılamaz.',loading:'Arena yükleniyor...',
   turnTime:'HAMLE SÜRESİ',
   victory:'ZAFER',defeat:'MAĞLUBİYET',wins:'KAZANDI',finalScore:'SON SKOR',ringout:'RINGOUT',round:'RAUNT',
   col0:'MAVİ',col1:'KIRMIZI',col2:'YEŞİL',col3:'SARI',col4:'GRİ',
@@ -2660,6 +2660,7 @@ function stampOnlinePhase(ctx){
     if(!isCurrentCtx(ctx))return;
     if(typeof v==='number')onTurnStamp[ctx.turnNo]=v;
     onStampProbe[ctx.turnNo]='done';
+    if(typeof flushLeaveSentinels==='function')flushLeaveSentinels();   // auf den Stempel wartende Sentinels nachholen
     if(typeof maybeReveal==='function')maybeReveal();   // evtl. wartenden Reveal freigeben
   };
   // Nachlese NUR nach abgelehntem Write — get() liest den Serverstand; da auf diesem
@@ -2680,6 +2681,8 @@ function stampOnlinePhase(ctx){
 // Reveal-Sperre: solange die eigene Stempel-Nachlese des laufenden Turns aussteht,
 // beginnt KEINE neue Phase auf halbfertigem Stempelzustand. Die Sperre loest sich
 // garantiert selbst (adopt() ruft maybeReveal) und haengt an keinem Mitspieler.
+// Zweiter Konsument: writeLeaveSentinel() — ohne bekannten Stempel ist die Zugform
+// (mit oder ohne ts) unentschieden und der Sentinel liefe gegen .validate.
 function onlineRevealBlocked(){
   if(!online||!gameStarted)return false;
   return onStampProbe[turnNo]==='pending'&&onTurnStamp[turnNo]==null;
@@ -5452,7 +5455,9 @@ function seatFinallyGone(s){
   if(mode==='ffa'){
     if(seatLeft[s])return;
     seatLeft[s]=true;
-    toast('Spieler '+(s+1)+' hat das Match verlassen.');
+    // Name aus dem kanonischen Roster (sanitisiert, lokalisierter Fallback).
+    // toast() rendert per textContent — Namen sind ungepruefte Eingabe.
+    toast(T('leftGame').replace('{n}',nameForSeat(s)));
     writeLeaveSentinel(s);
   }
   else onOppLeft();
@@ -5613,8 +5618,12 @@ function onlineArmTurn(){
   // typeof-Guard wie bei cancelAimDrag: die Online-Testharnessen extrahieren nur
   // benannte Funktionen aus dieser Datei — der Lockstep-Pfad bleibt dort unberuehrt.
   if(typeof stampOnlinePhase==='function')stampOnlinePhase(ctx);  // Phasenbeginn serverseitig stempeln (write-once)
-  if(mode==='ffa')for(let s=0;s<np();s++)if(seatLeft[s])writeLeaveSentinel(s);   // offene Slots Verlassener fuellen
+  if(typeof flushLeaveSentinels==='function')flushLeaveSentinels();   // offene Slots Verlassener fuellen (holt der Stempel nach, s. dort)
 }
+// Einziger Einstieg fuer 'offene Slots Verlassener schliessen'. Wird beim Aufsetzen
+// des Turns UND nach jedem Bekanntwerden des Phasenstempels aufgerufen; die Guards in
+// writeLeaveSentinel machen jeden weiteren Aufruf wirkungslos.
+function flushLeaveSentinels(){ if(!online||mode!=='ffa')return; for(let s=0;s<np();s++)if(seatLeft[s])writeLeaveSentinel(s); }
 function isCurrentCtx(ctx){ return ctx.sid===onlineSessionId && ctx.room===roomCode && ctx.gen===gen && ctx.turnNo===turnNo; }
 // true, sobald die AKTUELLE Online-Session per onlineConnectionLost() terminal
 // abgebrochen wurde. Wird von allen asynchronen Pfaden geprueft, damit nach dem
@@ -5663,6 +5672,11 @@ function isLeaveSentinel(s,c){return !!c&&!seatOwnsBall(s,c.idx);}
 // automatische Retries nach einem echten Transaction-Fehler (s. scheduleSentinelRetry).
 function writeLeaveSentinel(s,attempt){
   if(!online||mode!=='ffa'||!gameStarted||phase!=='aim'||aimSet[s]||pendingSlot[s]||!aliveCount(s))return;
+  // Der Phasenstempel entscheidet die ZUGFORM: existiert t/<turn>/s, verlangen die
+  // Rules zwingend ein ts im Move, sonst zwingend keins. Solange die eigene
+  // Stempel-Nachlese laeuft, ist diese Form unbekannt — genau die Bedingung, die
+  // auch den Reveal sperrt. Nachgeholt wird der Sentinel von flushLeaveSentinels().
+  if(typeof onlineRevealBlocked==='function'&&onlineRevealBlocked())return;
   const m=leaveSentinelMove(s);
   if(m.idx<0)return;                     // keine fremde Kugel vorhanden -> kein schemakonformer Sentinel
   writeTurnSlot(s,m,{sentinel:true,attempt:attempt||0});
@@ -5813,6 +5827,7 @@ function onlineTurnValue(val){
   // damit die Fortschaltung den aktuellen aimSet-Stand sieht. Ausserhalb des
   // Barrier-Net-Gates ist der Aufruf wirkungslos.
   if(typeof barrierNetTurnValue==='function')barrierNetTurnValue(val);
+  if(typeof flushLeaveSentinels==='function')flushLeaveSentinels();   // Stempel reist im Turn-Knoten mit
   maybeReveal();
 }
 function onlineSendCommit(idx,fx,fy,spin){
