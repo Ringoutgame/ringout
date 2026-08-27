@@ -858,6 +858,7 @@ body:not(.r3d) .ohero{height:12px}
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js";
   import { getDatabase, ref, set, get, update, remove, onValue, onDisconnect, serverTimestamp, runTransaction, query, orderByChild, limitToLast } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-database.js";
+  import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js";
   const firebaseConfig = {
     apiKey: "AIzaSyDVQNTYoJ3bAUbv4gmcJvjuSVE6vKylZM0",
     authDomain: "ringout-87fbb.firebaseapp.com",
@@ -867,13 +868,30 @@ body:not(.r3d) .ohero{height:12px}
     messagingSenderId: "1030534355732",
     appId: "1:1030534355732:web:71cbf283ec2a7b2edd0001"
   };
+  // v3.1 Seat-Ownership: Online braucht eine echte auth.uid — sie ist der einzige
+  // serverseitige Eigentumsbeweis fuer einen Seat. Der Ready-Vertrag bleibt EINER:
+  // 'fb-ready' feuert erst, wenn Datenbank UND Anmeldung entschieden sind. Schlaegt
+  // die Anmeldung fehl (oder antwortet sie nicht), steht __FB_ERR und fbReady() ist
+  // false — der Online-Einstieg meldet das ueber die vorhandene Status-UI. Kein
+  // automatischer Wiederholungslauf: ein Reload ist der bewusste zweite Versuch.
+  const AUTH_TIMEOUT_MS = 10000;
+  const finish = () => { window.__FB_READY = true; window.dispatchEvent(new Event('fb-ready')); };
   try{
     const app = initializeApp(firebaseConfig);
     const db = getDatabase(app);
-    window.FB = { db, ref, set, get, update, remove, onValue, onDisconnect, serverTimestamp, runTransaction, query, orderByChild, limitToLast };
-    window.__FB_READY = true;
-  }catch(e){ window.__FB_ERR = String(e && e.message || e); }
-  window.dispatchEvent(new Event('fb-ready'));
+    const auth = getAuth(app);
+    window.FB = { db, auth, ref, set, get, update, remove, onValue, onDisconnect, serverTimestamp, runTransaction, query, orderByChild, limitToLast };
+    const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error('auth timeout')), AUTH_TIMEOUT_MS));
+    // Standard-Persistenz (IndexedDB): dieselbe uid ueberlebt Reload und neuen Tab.
+    Promise.race([signInAnonymously(auth), timeout])
+      .then(cred => {
+        const uid = cred && cred.user && cred.user.uid;
+        if(uid) window.__FB_UID = uid;
+        else window.__FB_AUTH_ERR = 'no uid';
+      })
+      .catch(e => { window.__FB_AUTH_ERR = String(e && e.message || e); })
+      .then(finish);
+  }catch(e){ window.__FB_ERR = String(e && e.message || e); finish(); }
 </script>
 
 <script>
@@ -1242,7 +1260,9 @@ function loadOnlineIdentity(){
 function setOnlineName(raw){ onlineName=sanitizeName(raw); try{ localStorage.setItem('ringout_name',onlineName); }catch(e){} }
 // Durable roster record for a seat. Name is never empty (rules require length>=1):
 // it falls back to the localized seat color name.
-function playerRecord(seat){ return {id:onlinePid, name:(onlineName||T('col'+seat)), tab:onlineTab}; }
+// v3.1: uid ist der Eigentumsbeweis des Seats (Rules pruefen players/<seat>/uid
+// gegen auth.uid). id/tab bleiben Identitaets- und Session-Metadaten.
+function playerRecord(seat){ return {id:onlinePid, name:(onlineName||T('col'+seat)), tab:onlineTab, uid:(typeof fbUid==='function'?fbUid():'')}; }
 // Display name for a seat: sanitized roster name, else the localized color name.
 // Callers MUST render the result via textContent (never innerHTML) — names are
 // untrusted input.
@@ -1558,7 +1578,7 @@ en:{tagline:'PULL BACK · RELEASE · KNOCK THEM OUT',chip:'FEATURED',
   creating:'Creating room…',ffaShare:'FFA · Share the code with 1–4 friends.',shareCode:'Share the code with your friend.',
   code4:'Please enter the 4-letter code.',joining:'Joining…',noRoom:'Room not found.',roomFull:'Room is already full.',
   connWait:'Connected! Waiting for the host…',connStart:'Connected! Game starting…',
-  noFb:'⚠ No connection to Firebase. Check internet & config.',err:'Error: ',noOnlineReset:'Not available in online mode.',loading:'Loading arena...',
+  noFb:'⚠ No connection to Firebase. Check internet & config.',noAuth:'⚠ Sign-in failed. Please reload the page.',err:'Error: ',noOnlineReset:'Not available in online mode.',loading:'Loading arena...',
   turnTime:'TURN TIME',
   victory:'VICTORY',defeat:'DEFEAT',wins:'WINS',finalScore:'FINAL SCORE',ringout:'RINGOUT',round:'ROUND',
   col0:'BLUE',col1:'RED',col2:'GREEN',col3:'YELLOW',col4:'GRAY',
@@ -1599,7 +1619,7 @@ de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'FEATURED',
   creating:'Erstelle Raum…',ffaShare:'FFA · Schick den Code an 1–4 Freunde.',shareCode:'Schick den Code an deinen Kumpel.',
   code4:'Bitte 4-stelligen Code eingeben.',joining:'Trete bei…',noRoom:'Raum nicht gefunden.',roomFull:'Raum ist schon voll.',
   connWait:'Verbunden! Warte auf den Host…',connStart:'Verbunden! Spiel startet…',
-  noFb:'⚠ Keine Verbindung zu Firebase. Internet & Config prüfen.',err:'Fehler: ',noOnlineReset:'Im Online-Modus nicht verfügbar.',loading:'Arena wird geladen...',
+  noFb:'⚠ Keine Verbindung zu Firebase. Internet & Config prüfen.',noAuth:'⚠ Anmeldung fehlgeschlagen. Bitte Seite neu laden.',err:'Fehler: ',noOnlineReset:'Im Online-Modus nicht verfügbar.',loading:'Arena wird geladen...',
   turnTime:'ZUGZEIT',
   victory:'SIEG',defeat:'NIEDERLAGE',wins:'GEWINNT',finalScore:'ENDSTAND',ringout:'RINGOUT',round:'RUNDE',
   col0:'BLAU',col1:'ROT',col2:'GRÜN',col3:'GELB',col4:'GRAU',
@@ -1640,7 +1660,7 @@ tr:{tagline:'GERİ ÇEK · BIRAK · DIŞARI İT',chip:'FEATURED',
   creating:'Oda kuruluyor…',ffaShare:'FFA · Kodu 1–4 arkadaşına gönder.',shareCode:'Kodu arkadaşına gönder.',
   code4:'Lütfen 4 haneli kodu gir.',joining:'Katılınıyor…',noRoom:'Oda bulunamadı.',roomFull:'Oda zaten dolu.',
   connWait:'Bağlandı! Host bekleniyor…',connStart:'Bağlandı! Oyun başlıyor…',
-  noFb:'⚠ Firebase bağlantısı yok. İnterneti ve yapılandırmayı kontrol et.',err:'Hata: ',noOnlineReset:'Online modda kullanılamaz.',loading:'Arena yükleniyor...',
+  noFb:'⚠ Firebase bağlantısı yok. İnterneti ve yapılandırmayı kontrol et.',noAuth:'⚠ Giriş başarısız. Lütfen sayfayı yeniden yükle.',err:'Hata: ',noOnlineReset:'Online modda kullanılamaz.',loading:'Arena yükleniyor...',
   turnTime:'HAMLE SÜRESİ',
   victory:'ZAFER',defeat:'MAĞLUBİYET',wins:'KAZANDI',finalScore:'SON SKOR',ringout:'RINGOUT',round:'RAUNT',
   col0:'MAVİ',col1:'KIRMIZI',col2:'YEŞİL',col3:'SARI',col4:'GRİ',
@@ -4903,7 +4923,12 @@ function gameOver(winner){setPhase('over');setPhaseText();
 
 // ════ ONLINE (Firebase Realtime DB · Lockstep) ════
 function whenFB(cb){ if(window.__FB_READY) cb(); else window.addEventListener('fb-ready',cb,{once:true}); }
-function fbReady(){ return window.__FB_READY && !window.__FB_ERR && window.FB; }
+// v3.1: Online ist erst betretbar, wenn auch die anonyme Anmeldung steht — ohne
+// auth.uid kann der Server keinen Seat als Eigentum anerkennen.
+function fbReady(){ return window.__FB_READY && !window.__FB_ERR && !window.__FB_AUTH_ERR && !!window.__FB_UID && window.FB; }
+function fbUid(){ return window.__FB_UID||''; }
+// Welcher Text erklaert das Scheitern? Verbindung oder Anmeldung — nie beides raten.
+function fbFailKey(){ return (window.__FB_AUTH_ERR||(window.__FB_READY&&!window.__FB_ERR&&!window.__FB_UID))?'noAuth':'noFb'; }
 function rrand(n){let s='';const ch='ABCDEFGHJKMNPQRSTUVWXYZ23456789';for(let i=0;i<n;i++)s+=ch[Math.floor(Math.random()*ch.length)];return s;}
 function rRef(p){return window.FB.ref(window.FB.db,'rooms/'+roomCode+(p?'/'+p:''));}
 function setStatus(t){const e=$('onStatus');if(e)e.textContent=t;}
@@ -4972,13 +4997,13 @@ function openOnline(){
   if(sr){ $('onRejoinTxt').textContent=T('rejoinAsk').replace('{code}',sr.code); $('onRejoin').style.display=''; }
   else $('onRejoin').style.display='none';
   // Public-Room-Liste: Listener beim Oeffnen starten (best-effort; ohne FB nur Hinweis).
-  whenFB(()=>{ if(!fbReady()){setStatus(T('noFb'));return;} startPublicListing(); });
+  whenFB(()=>{ if(!fbReady()){setStatus(T(typeof fbFailKey==='function'?fbFailKey():'noFb'));return;} startPublicListing(); });
 }
 
 function createRoom(){
   if(TUNE){toast('Tuning aktiv — Online deaktiviert');return;}
   const ffa=mode==='ffa';   // Kontext vom ffaOnline-Button
-  whenFB(()=>{ if(!fbReady()){setStatus(T('noFb'));return;}
+  whenFB(()=>{ if(!fbReady()){setStatus(T(typeof fbFailKey==='function'?fbFailKey():'noFb'));return;}
     (async()=>{ const op=newJoinOp(); let dc=null, code='', created=false, listed=false;
     // Snapshot the visibility ONCE, validated, at the start of the operation. From here
     // on the create uses only this immutable local value — a UI toggle flip during an
@@ -5265,7 +5290,7 @@ function joinRoom(){
   if(TUNE){toast('Tuning aktiv — Online deaktiviert');return;}
   const code=($('onInput').value||'').toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,4);
   if(code.length<4){ setStatus(T('code4')); return; }
-  whenFB(()=>{ if(!fbReady()){setStatus(T('noFb'));return;}
+  whenFB(()=>{ if(!fbReady()){setStatus(T(typeof fbFailKey==='function'?fbFailKey():'noFb'));return;}
     (async()=>{ const op=newJoinOp();
     try{
       setStatus(T('joining'));
@@ -5354,7 +5379,7 @@ function roomRejoinableState(d,seat){
 // exactly that case (rejoinWait).
 async function attemptRejoin(code){
   if(TUNE){toast('Tuning aktiv — Online deaktiviert');return false;}
-  if(!fbReady()){ setStatus(T('noFb')); return false; }
+  if(!fbReady()){ setStatus(T(typeof fbFailKey==='function'?fbFailKey():'noFb')); return false; }
   const op=newJoinOp();
   try{
     setStatus(T('joining'));

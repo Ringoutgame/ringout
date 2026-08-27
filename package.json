@@ -12,6 +12,7 @@
     "test:e2e:turntimer": "node tools/e2e/run-turn-timer.js",
     "test:e2e:r3d": "node tools/e2e/run-r3d-regression.js",
     "test:e2e:rules": "node tools/e2e/rules_security_regression.js",
+    "test:e2e:own": "node tools/e2e/rules_ownership_regression.js",
     "serve": "node tools/serve_local.js"
   },
   "devDependencies": {

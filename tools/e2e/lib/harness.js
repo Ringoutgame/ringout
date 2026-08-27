@@ -33,7 +33,8 @@ const ROOT_LOG_NAMES = ['firebase-debug.log', 'database-debug.log', 'ui-debug.lo
 
 const EMU_HOST    = '127.0.0.1';
 const EMU_PORT    = 9000;
-const EMU_AUX_PORTS = [4400, 4500]; // emulator hub / logging ports — must also be free/released
+const EMU_AUTH_PORT = 9099;   // v3.1: echter Auth-Emulator — Ownership-Tests brauchen echte auth.uid
+const EMU_AUX_PORTS = [4400, 4500, EMU_AUTH_PORT]; // emulator hub / logging ports — must also be free/released
 const EMU_PROJECT = 'demo-ringout-e2e';
 const EMU_NS      = 'demo-ringout-e2e-default-rtdb';
 const JDK21_HOME  = 'C:\\Program Files\\Microsoft\\jdk-21.0.11.10-hotspot';
@@ -52,8 +53,13 @@ const PROD_HINT   = 'ringout-87fbb'; // production project id — must never be 
 // firebaseio.com, but connectDatabaseEmulator rewrites transport to 127.0.0.1 —
 // so a request/socket that actually resolves to such a host means the redirect
 // failed → a real violation. Local loopback is matched separately and allowed.
+// v3.1: Auth kommt hinzu. Ein Anmeldeversuch gegen die ECHTEN Google-Endpunkte
+// waere ein Produktionskontakt — connectAuthEmulator muss ihn nach 127.0.0.1
+// umlenken; tut es das nicht, ist das ein Verstoss und kein blosser Fremdhost.
+const PROD_AUTH_HOSTS = ['identitytoolkit.googleapis.com', 'securetoken.googleapis.com'];
 function isProdHost(host) {
-  return !!host && (host.includes(PROD_HINT) || host.endsWith('firebaseio.com') || host.endsWith('firebasedatabase.app'));
+  return !!host && (host.includes(PROD_HINT) || host.endsWith('firebaseio.com') || host.endsWith('firebasedatabase.app')
+    || PROD_AUTH_HOSTS.indexOf(host) >= 0);
 }
 function isLocalHost(host) {
   return host === '127.0.0.1' || host === 'localhost';
@@ -490,6 +496,13 @@ function transformHtml(src) {
     'import { getDatabase, connectDatabaseEmulator, ref, set, get, update, remove, onValue, onDisconnect, serverTimestamp, runTransaction, query, orderByChild, limitToLast } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-database.js";',
     'db-import', report);
 
+  // v3.1: echte anonyme Anmeldung gegen den Auth-EMULATOR. Kein gefaelschtes uid-
+  // Objekt — die Rules sehen request.auth genau so wie in Produktion.
+  out = replaceOnce(out,
+    'import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js";',
+    'import { getAuth, connectAuthEmulator, signInAnonymously } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js";',
+    'auth-import', report);
+
   out = replaceOnce(out,
     'databaseURL: "https://ringout-87fbb-default-rtdb.europe-west1.firebasedatabase.app",',
     `databaseURL: "https://${EMU_NS}.firebaseio.com",`,
@@ -525,6 +538,12 @@ function transformHtml(src) {
     'const db = getDatabase(app);',
     `const db = getDatabase(app);\n    connectDatabaseEmulator(db, "${EMU_HOST}", ${EMU_PORT});\n    window.__E2E_EMULATOR = true;`,
     'emulator-connect', report);
+
+  out = replaceOnce(out,
+    'const auth = getAuth(app);',
+    `const auth = getAuth(app);
+    connectAuthEmulator(auth, "http://${EMU_HOST}:${EMU_AUTH_PORT}", { disableWarnings: true });`,
+    'auth-emulator-connect', report);
 
   // Adapter is injected just before the game IIFE's closing token. Beyond the
   // count check, verify the structural context so a future edit that reshapes the
@@ -632,9 +651,13 @@ function createRunDir() {
 }
 
 // ── SHA-256-verified, exclusive temp rules copy (no symlink, no hardlink) ─────
-function prepareTempRules(runDir) {
+// rulesFile waehlt den Rules-Stand: ROOT_RULES (EXPAND, deploybar) ist der
+// Standard; die Ownership-Regression faehrt zusaetzlich gegen den abgeleiteten
+// CONTRACT-Stand. Die Quelle wird immer NUR gelesen und byte-identisch kopiert.
+function prepareTempRules(runDir, rulesFile) {
+  const src = rulesFile || ROOT_RULES;
   const dst = path.join(runDir, 'firebase.rules.json');
-  const srcBuf = fs.readFileSync(ROOT_RULES);
+  const srcBuf = fs.readFileSync(src);
   const srcHash = sha256(srcBuf);
   const fd = fs.openSync(dst, 'wx'); // exclusive create: never overwrite an existing target
   try { fs.writeFileSync(fd, srcBuf); } finally { fs.closeSync(fd); }
@@ -644,9 +667,19 @@ function prepareTempRules(runDir) {
   const st = fs.statSync(dst);
   if (!st.isFile()) throw new Error('Rules-Kopie ist keine reguläre Datei — Abbruch.');
   if (st.nlink !== 1) throw new Error(`Rules-Kopie hat ${st.nlink} Hardlinks (erwartet 1) — Abbruch.`);
-  if (fs.realpathSync(dst) === fs.realpathSync(ROOT_RULES)) throw new Error('Rules-Kopie zeigt auf denselben Real-Pfad wie die Root-Rules — Abbruch.');
+  if (fs.realpathSync(dst) === fs.realpathSync(src)) throw new Error('Rules-Kopie zeigt auf denselben Real-Pfad wie die Root-Rules — Abbruch.');
   if (sha256(fs.readFileSync(dst)) !== srcHash) throw new Error('SHA-256 der Rules-Kopie weicht ab — Abbruch.');
   return srcHash;
+}
+
+// v3.1: Der Client ist erst nutzbar, wenn NEBEN der Datenbank auch der Auth-
+// Emulator antwortet — sonst laeuft die anonyme Anmeldung in ihren Timeout und
+// jeder Online-Einstieg meldet 'Anmeldung fehlgeschlagen'. Beide Endpunkte
+// werden deshalb gemeinsam abgewartet.
+async function waitEmulators(timeoutMs) {
+  const t = timeoutMs || 90000;
+  await waitHttp(`http://${EMU_HOST}:${EMU_PORT}/.json?ns=${EMU_NS}`, t);
+  await waitHttp(`http://${EMU_HOST}:${EMU_AUTH_PORT}/emulator/v1/projects/${EMU_PROJECT}/config`, t);
 }
 
 // Pre-existing repo-root debug logs are NEVER touched — only reported.
@@ -672,14 +705,15 @@ function startEmulator(runDir) {
   const fbjson = path.join(runDir, 'firebase.json');
   fs.writeFileSync(fbjson, JSON.stringify({
     database: { rules: 'firebase.rules.json' },
-    emulators: { singleProjectMode: true, database: { host: EMU_HOST, port: EMU_PORT }, ui: { enabled: false } },
+    emulators: { singleProjectMode: true, database: { host: EMU_HOST, port: EMU_PORT },
+      auth: { host: EMU_HOST, port: EMU_AUTH_PORT }, ui: { enabled: false } },
   }, null, 2));
 
   const env = Object.assign({}, process.env, {
     JAVA_HOME: JDK21_HOME,
     PATH: path.join(JDK21_HOME, 'bin') + path.delimiter + process.env.PATH,
   });
-  const args = ['emulators:start', '--only', 'database', '--project', EMU_PROJECT];
+  const args = ['emulators:start', '--only', 'database,auth', '--project', EMU_PROJECT];
   const entry = resolveFirebaseEntry();
   let child;
   if (entry) {
@@ -953,11 +987,11 @@ async function cleanup({ browser, staticServer, emu, runDir, closeErrors, preexi
 module.exports = {
   // constants
   REPO_ROOT, INDEX_HTML, ROOT_RULES, TMP_BASE,
-  EMU_HOST, EMU_PORT, EMU_AUX_PORTS, EMU_PROJECT, EMU_NS, JDK21_HOME,
+  EMU_HOST, EMU_PORT, EMU_AUTH_PORT, EMU_AUX_PORTS, EMU_PROJECT, EMU_NS, JDK21_HOME,
   ALLOW_HOSTS, PROD_HINT, CHROMIUM_E2E_ARGS, ADAPTER_SRC, BENIGN_PERMISSION_DENIED_RE,
   // helpers
   log, warn, ok, sleep, isBenignDiag, selfTestBenignMatcher, isProdHost, isLocalHost,
-  transformHtml, portFree, waitHttp, poll, startStaticServer,
+  transformHtml, portFree, waitHttp, waitEmulators, poll, startStaticServer,
   createRunDir, prepareTempRules, preexistingRootLogs,
   startEmulator, resolveFirebaseEntry, killTree, pidRunning,
   armContext, wireDiagnostics, dbRead,

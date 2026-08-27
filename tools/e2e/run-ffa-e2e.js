@@ -64,7 +64,7 @@ const { scenarioMatch, scenarioLeave, scenarioStaleness, scenarioPublicLobby, sc
     H.ok(`Statischer Server auf :${staticServer.port}`);
 
     emu = H.startEmulator(runDir);
-    await H.waitHttp(`http://${H.EMU_HOST}:${H.EMU_PORT}/.json?ns=${H.EMU_NS}`, 60000);
+    await H.waitEmulators(60000);
     H.ok('RTDB-Emulator bereit (JDK 21, prozesslokal) auf 127.0.0.1:9000');
 
     browser = await chromium.launch({ args: H.CHROMIUM_E2E_ARGS });

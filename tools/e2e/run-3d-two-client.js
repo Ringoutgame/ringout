@@ -363,7 +363,7 @@ async function waitAllAim(clients, timeout, label) {
     staticServer = await H.startStaticServer();
     const navUrl = `http://${H.EMU_HOST}:${staticServer.port}/index.html`;   // BEWUSST ohne ?r2d=1
     emu = H.startEmulator(runDir);
-    await H.waitHttp(`http://${H.EMU_HOST}:${H.EMU_PORT}/.json?ns=${H.EMU_NS}`, 90000);
+    await H.waitEmulators(90000);
     console.log('  ✓ Emulator + Static-Server bereit — ' + navUrl);
 
     // HEADED: der headless-SwiftShader-Chromium verliert beim ersten Launch

@@ -150,7 +150,7 @@ async function playToGameOver(cs, onOver) {
     staticServer = await H.startStaticServer();
     const navUrl = `http://${H.EMU_HOST}:${staticServer.port}/index.html`;   // echter 3D-Pfad
     emu = H.startEmulator(runDir);
-    await H.waitHttp(`http://${H.EMU_HOST}:${H.EMU_PORT}/.json?ns=${H.EMU_NS}`, 90000);
+    await H.waitEmulators(90000);
     browser = await chromium.launch({ headless: false, args: [...H.CHROMIUM_E2E_ARGS, '--mute-audio', '--window-size=1010,880'] });
     const ctx = { browser, navUrl, state, diag };
     for (let i = 0; i < 2; i++) cs.push(await newClient(ctx, i));

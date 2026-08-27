@@ -59,6 +59,7 @@ const SRC = [
   // ── real online layer ──
   grab(/function whenFB\(cb\)\{[^\n]*/, 'whenFB'),
   grab(/function fbReady\(\)\{[^\n]*/, 'fbReady'),
+  grab(/function fbUid\(\)\{[^\n]*/, 'fbUid'),
   grab(/function rRef\(p\)\{[^\n]*/, 'rRef'),
   grab(/function setStatus\(t\)\{[^\n]*/, 'setStatus'),
   grab(/function validateRoom\(d\)\{[\s\S]*?\n\}/, 'validateRoom'),
@@ -262,7 +263,12 @@ function makeDB() {
         || typeof val.id !== 'string' || !/^[A-Za-z0-9_-]{8,24}$/.test(val.id)
         || typeof val.name !== 'string' || val.name.length < 1 || val.name.length > 48
         || typeof val.tab !== 'string' || !/^[A-Za-z0-9_-]{8,24}$/.test(val.tab)
-        || Object.keys(val).some(k => k !== 'id' && k !== 'name' && k !== 'tab'))
+        // v3.1 EXPAND: players/<seat>/uid ist erlaubt. Die Ownership-Semantik
+        // (uid === auth.uid, fremder Zugriff verboten) braucht eine echte
+        // auth.uid und wird deshalb in tools/e2e/rules_ownership_regression.js
+        // gegen den echten Emulator geprueft, nicht in diesem Mock.
+        || (val.uid !== undefined && typeof val.uid !== 'string')
+        || Object.keys(val).some(k => k !== 'id' && k !== 'name' && k !== 'tab' && k !== 'uid'))
         throw new Error('PERMISSION_DENIED: players record invalid');
       const pVal = merged.p(seat);
       if (!pVal || pVal.s !== val.tab) throw new Error('PERMISSION_DENIED: players needs matching p.s in same write');
@@ -345,7 +351,9 @@ function makeClient(db, code, forcePid) {
   const body = `
     const TUNE=false; let r3dOrbit=false, r3dActive=false;
     const T=k=>k;
-    const window={__FB_READY:true,__FB_ERR:null,FB};
+    // v3.1: Online setzt eine anonyme Anmeldung voraus — der Stub bildet einen
+    // angemeldeten Client ab (fbReady() verlangt jetzt auch __FB_UID).
+    const window={__FB_READY:true,__FB_ERR:null,__FB_AUTH_ERR:null,__FB_UID:'harnessuid0001',FB};
     const document={querySelector:()=>({textContent:'',style:{}})};
     const els={}; function $(id){return els[id]||(els[id]={style:{},classList:{add(){},remove(){},toggle(){}},textContent:'',innerHTML:'',value:'',disabled:false,querySelector:()=>({textContent:'',style:{}})});}
     let toastT; const toast=m=>{ui.log.push('toast:'+m);};

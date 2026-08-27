@@ -247,7 +247,7 @@ if (require.main !== module) return;
     state.transformedHtml = t.html;
     staticServer = await H.startStaticServer();
     emu = H.startEmulator(runDir);
-    await H.waitHttp(`http://${H.EMU_HOST}:${H.EMU_PORT}/.json?ns=${H.EMU_NS}`, 90000);
+    await H.waitEmulators(90000);
 
     browser = await chromium.launch({ args: [...H.CHROMIUM_E2E_ARGS, '--mute-audio'] });
     const ctx = await browser.newContext({ serviceWorkers: 'block' });
