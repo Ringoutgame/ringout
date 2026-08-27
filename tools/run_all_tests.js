@@ -15,11 +15,12 @@ const path = require('path'), { spawnSync } = require('child_process');
 const SUITES = [
   { name: 'Syntax',           file: 'test_syntax.js',         expectPassed: null },
   { name: 'Golden-Physik',    file: 'test_physics_golden.js', expectPassed: 13 },
-  { name: 'Football-Shell',   file: 'test_football_shell.js', expectPassed: 818 },   // Arena-Finalisierung + Review-Fixes: Rounded Rectangle B, gerades Tor, M1, Ballradius 25
-  { name: 'Football-Flow',    file: 'test_football_flow.js',  expectPassed: 148 },   // Arena-Finalisierung 2026-08-07: M1-Wirkungsmessung, Rechteckgrenze, Ballradius 25
-  { name: 'Football-Arena',   file: 'test_football_arena.js', expectPassed: 61 },    // finaler Produktivstand: Arena B, buendiges Tor, M1, Ballradius 25
+  { name: 'Football-Shell',   file: 'test_football_shell.js', expectPassed: 877 },   // Arena-Finalisierung + Review-Fixes: Rounded Rectangle B, gerades Tor, M1, Ballradius 25
+  { name: 'Football-Flow',    file: 'test_football_flow.js',  expectPassed: 149 },   // Arena-Finalisierung 2026-08-07: M1-Wirkungsmessung, Rechteckgrenze, Ballradius 25
+  { name: 'Football-Arena',   file: 'test_football_arena.js', expectPassed: 71 },    // Classic auf der kanonischen Shouldered-Wide-Arena, buendiges Tor, M1, Ballradius 25
   { name: 'Football-Tactical', file: 'test_football_tactical.js', expectPassed: 242 },   // Tactical 1v1 (2 Figuren, 1 Zug je Team/Runde) + sichtbare Modusauswahl der drei Produktmodi
-  { name: 'Football-Elim',    file: 'test_football_elimination4.js', expectPassed: 1153 },   // Dritter Produktmodus: EIN GEGENTOR = SOFORT AUSGESCHIEDEN + adaptive Arena 4 -> 3 -> 2 -> 1 + fairer Respawn
+  { name: 'Football-Elim',    file: 'test_football_elimination4.js', expectPassed: 1226 },  // Dritter Produktmodus: ZWEI LEBEN + adaptive Arena 4 -> 3 -> 2 -> 1 + fairer Respawn
+  { name: 'Fixed-Timestep',  file: 'test_fixed_timestep.js', expectPassed: 154 },  // Gameplay laeuft in festen 60-Hz-Schritten, unabhaengig von der Bildwiederholrate
   { name: 'r3d-Mapping',      file: 'test_r3d_mapping.js',    expectPassed: 52 },
   { name: 'Sanitize',         file: 'test_sanitize.js',       expectPassed: 24 },
   { name: 'Identity',         file: 'test_identity.js',       expectPassed: 45 },

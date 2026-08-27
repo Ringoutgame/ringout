@@ -214,6 +214,9 @@ function buildEnv(devFbVariant) {
       resetCoverCalls(){ coverCalls=[]; },
       canCommit(who){ return canCommitInput(who); },
       newMatch(){ footballResetMatchState(); startRound(); coverCalls=[]; },
+      lives(){ return fbElimLives.slice(); },
+      setLives(o,n){ fbElimLives[o]=n; },
+      matchPoint(){ for(let o=0;o<4;o++)if(fbElimActive[o])fbElimLives[o]=1; },
       startRound(){ startRound(); },
       commit(who,idx,fx,fy){ commit(who,idx,fx,fy,0); },
       launch(){ applyLaunch(); },
@@ -290,6 +293,13 @@ function buildEnv(devFbVariant) {
 // Torkorridor und keine im Weg eines Schusses entlang einer Torachse. Bei zwei exakt
 // gegenueberliegenden Toren gibt es keine Winkelhalbierende; dort wird quer zur Achse geparkt.
 function parkPlayers(E) {
+  // ZWEI LEBEN: ein Gegentor kostet nur ein Leben. Alle folgenden Bloecke pruefen die
+  // ELIMINIERUNGSmechanik (Umbau, Torslots, Sieg, FX, Audio) und brauchen dafuer den
+  // Zustand, in dem das naechste Gegentor ausscheidet. Deshalb stellt dieser Helfer
+  // nicht nur die Figuren neutral auf, sondern setzt jeden aktiven Spieler zugleich auf
+  // sein LETZTES Leben - fuer die Mechanik dahinter ist das exakt der alte Zustand
+  // 'ein Gegentor = raus'. Die Zwei-Leben-Regel selbst prueft Block W ohne diesen Helfer.
+  E.matchPoint();
   const act = E.active(), D = E.dirs(), n = D.length, r = E.BR * 7;
   let i = 0;
   for (let o = 0; o < 4; o++) {
@@ -323,7 +333,7 @@ function scoreOn(E, slot) {
   return E.phase() === 'aim';
 }
 
-console.log('ARENA FOOTBALL - ELIMINATION: ONE GOAL = OUT + ADAPTIVE ARENA + FAIRER RESPAWN\n');
+console.log('ARENA FOOTBALL - ELIMINATION: ZWEI LEBEN + ADAPTIVE ARENA + FAIRER RESPAWN\n');
 
 // =================================================================================
 // A0 - PRODUKTINTEGRATION: MENUESTART == DEV-DIREKTSTART, MODE-SWITCH-SAFETY
@@ -506,7 +516,7 @@ console.log('ARENA FOOTBALL - ELIMINATION: ONE GOAL = OUT + ADAPTIVE ARENA + FAI
     ok(f.side === o, 'P' + (o + 1) + ' steht vor dem eigenen Tor (Slot ' + f.side + ')');
   }
 
-  ok(ca.halfLen === 18.00 && ca.halfWid === 12.70, 'Classic behaelt die Produktivarena (18.00 x 12.70)');
+  ok(ca.halfLen === 15.60 && ca.halfWid === 11.60, 'Classic laeuft auf der 2P-Finalarena (15.60 x 11.60)');
   const TA = buildEnv('tactical').arenaCfg();
   ok(TA.halfLen === 18.00 && TA.halfWid === 12.70, 'Tactical behaelt die Produktivarena');
 }
@@ -618,7 +628,7 @@ console.log('ARENA FOOTBALL - ELIMINATION: ONE GOAL = OUT + ADAPTIVE ARENA + FAI
   ok(v2 > v3, 'der Sichtradius 3 -> 2 waechst mit dem breiten Finale (' +
      Math.round(v3) + ' -> ' + Math.round(v2) + ')');
 
-  ok(C.arenaCfg().halfLen === 18.00 && C.arenaCfg().corner === 6.85, 'Classic behaelt die Produktivarena');
+  ok(C.arenaCfg().halfLen === 15.60 && C.arenaCfg().corner === 2.60, 'Classic laeuft auf der 2P-Finalarena');
   ok(buildEnv('tactical').arenaCfg().corner === 6.85, 'Tactical behaelt die Produktivarena');
 
   console.log('Geometrie: gekruemmter Konturanteil  Phase4 ' + (s4 * 100).toFixed(1) +
@@ -820,8 +830,8 @@ console.log('ARENA FOOTBALL - ELIMINATION: ONE GOAL = OUT + ADAPTIVE ARENA + FAI
   ok(near(bb.x, B.cx) && near(bb.y, B.cy), 'der Ball liegt im Zentrum der NEUEN Arena');
   ok(bb.passed === false, 'der Durchtritts-Latch ist zurueckgesetzt');
   ok(B.boundSD(4) < 0, 'der Ball liegt innerhalb der neuen Grenze (keine Kollision mit der alten Arena)');
-  ok(/fbElimApplyPhase\(\);\n  for\(const b of balls\)\{/.test(elimBlockSrc),
-     'der Umbau laeuft VOR dem Zuruecksetzen des Balls');
+  ok(/if\(!fbElimApplyPhase\(\)\)fbElimSpawnBodies\(\);\n  for\(const b of balls\)\{/.test(elimBlockSrc),
+     'der Umbau - ohne Phasenwechsel der faire Respawn - laeuft VOR dem Zuruecksetzen des Balls');
   // Arenaform und Respawn stehen im SELBEN Anweisungsblock: der Renderer sieht nie einen
   // Zwischenzustand mit neuer Arena und alten Positionen (oder umgekehrt).
   ok(/fbElimPhaseN=n;\n  fbElimSpawnBodies\(\);/.test(elimBlockSrc),
@@ -1196,6 +1206,9 @@ console.log('ARENA FOOTBALL - ELIMINATION: ONE GOAL = OUT + ADAPTIVE ARENA + FAI
     E.setVel(o, 0, 0);
     marks.push({ x: E.cx + Math.cos(a) * r, y: E.cy + Math.sin(a) * r });
   }
+  // Dieser Block stellt die Figuren selbst auf und benutzt parkPlayers deshalb nicht - der
+  // Zustand 'letztes Leben' muss hier ausdruecklich hergestellt werden.
+  E.matchPoint();
   shootAt(E, 2);
   ok(E.goalState() === 'fall', 'Vorbedingung: der Torablauf laeuft');
   ok(E.active()[2] === false, 'Vorbedingung: P3 ist sofort ausgeschieden');
@@ -1434,10 +1447,12 @@ console.log('ARENA FOOTBALL - ELIMINATION: ONE GOAL = OUT + ADAPTIVE ARENA + FAI
   ok(/tickCollapse\(now\);/.test(loopSrc), 'der bestehende Ring-Collapse-Timer laeuft unveraendert weiter');
   ok(/const fbElimActive=\[true,true,true,true\];/.test(elimBlockSrc),
      'fbElimActive traegt weiterhin die Aktiv-Liste');
-  ok(/fbElimActive\[o\]=true;fbElimSlots\[o\]=o;\}\n  fbElimPhaseN=FOOTBALL_ELIM4_PLAYERS;/.test(elimBlockSrc),
-     'der Reset setzt Aktiv-Liste, Torslots und Arenaphase zurueck');
-  ok(/footballElimEliminate\(own\);\s*\/\/ EIN GEGENTOR = SOFORT AUSGESCHIEDEN/.test(elimBlockSrc),
-     'die Wertung eliminiert direkt - keine Zwischenstufe');
+  ok(/fbElimActive\[o\]=true;fbElimSlots\[o\]=o;fbElimLives\[o\]=FB_ELIM_LIVES;\}\n  fbElimPhaseN=FOOTBALL_ELIM4_PLAYERS;/.test(elimBlockSrc),
+     'der Reset setzt Aktiv-Liste, Torslots, Leben und Arenaphase zurueck');
+  ok(/footballElimConcede\(own\);/.test(elimBlockSrc),
+     'die Wertung geht ueber genau EINE Stelle: footballElimConcede');
+  ok(/if\(fbElimLives\[o\]>0\)fbElimLives\[o\]--;\s*\n\s*if\(fbElimLives\[o\]<=0\)footballElimEliminate\(o\);/.test(elimBlockSrc),
+     'ein Gegentor kostet ein Leben; erst bei 0 laeuft die bestehende Eliminierung');
   ok(!/fbElimConceded|Gegentor/.test(renderBarSrc), 'die Chipleiste zeigt keine Gegentore mehr');
   ok(/' out'/.test(renderBarSrc), 'Ausgeschiedene werden in der Leiste gedimmt markiert');
   ok(!/innerHTML/.test(renderBarSrc), 'die Chipleiste baut ausschliesslich ueber DOM-Knoten');
@@ -1553,9 +1568,9 @@ console.log('ARENA FOOTBALL - ELIMINATION: ONE GOAL = OUT + ADAPTIVE ARENA + FAI
   ok(!/immun|antiTeam|friendlyProtect|fairness/i.test(elimCode),
      'keine Immunitaet, kein Teaming-Schutz, keine Fairnesskorrektur');
 
-  // Keine phase-spezifischen Physikwerte: M1 gilt unveraendert in jeder Arenaphase.
-  ok(/const FOOTBALL_PHYS=\{friction:0\.9976,frictionBall:0\.9982,fend:0\.9905,fendBall:0\.9905,/.test(HTML),
-     'M1-Physik unveraendert');
+  // Keine phase-spezifischen Physikwerte: derselbe Satz gilt in jeder Arenaphase.
+  ok(/const FOOTBALL_PHYS=\{friction:0\.9958,frictionBall:0\.9964,fend:0\.9760,fendBall:0\.9790,/.test(HTML),
+     'die Football-Physik gilt phasenunabhaengig mit den freigegebenen Werten');
   ok(/const FOOTBALL_BALL_RADIUS=25;/.test(HTML), 'Ballradius unveraendert 25');
   ok(!/fbElimPhaseN[^\n]*(friction|rest|slowv|stopv)/i.test(HTML),
      'es gibt keine phase-spezifischen Physikwerte');
@@ -2912,6 +2927,214 @@ const fbCore = (c) => c.poly ? c.poly.map(v => v.slice())
      'der Torsound behaelt seine Quelle');
   ok(/footballGoalFxTrigger\(slot\);/.test(HTML) && /SFX\.footballGoal\(/.test(HTML),
      'der Torsound behaelt seine Triggerlogik');
+}
+
+
+// =================================================================================
+// W - ZWEI LEBEN: DAS ERSTE GEGENTOR IST EIN NORMALES TOR, DAS ZWEITE SCHEIDET AUS
+// =================================================================================
+// Dieser Block prueft die Regel selbst und benutzt parkPlayers deshalb NICHT ueber den
+// Umweg 'letztes Leben': er stellt die Figuren zwar genauso auf, setzt die Leben danach
+// aber ausdruecklich wieder auf den Produktstand zurueck.
+const parkFull = (E) => {
+  parkPlayers(E);
+  for (let o = 0; o < 4; o++) if (E.active()[o]) E.setLives(o, 2);
+};
+
+// W1 - Ausgangszustand und Quelle der Regel.
+{
+  const E = buildEnv('elimination4');
+  E.newMatch();
+  ok(JSON.stringify(E.lives()) === '[2,2,2,2]', 'jeder Spieler startet mit zwei Leben');
+  ok(JSON.stringify(E.active()) === '[true,true,true,true]', 'alle vier Spieler sind aktiv');
+  ok(/const FB_ELIM_LIVES=2;/.test(elimBlockSrc), 'die Lebenszahl ist eine benannte Konstante');
+  ok((elimBlockSrc.match(/fbElimLives\[o\]=FB_ELIM_LIVES/g) || []).length === 1,
+     'GENAU EINE Stelle fuellt Leben wieder auf - der vollstaendige Matchreset');
+  ok(/function fbElimReset\(\)\{[\s\S]{0,220}fbElimLives\[o\]=FB_ELIM_LIVES/.test(elimBlockSrc),
+     'diese Stelle liegt in fbElimReset');
+  ok(/fbElimLives\[o\]/.test(renderBarSrc),
+     'die Chipleiste liest die Leben (Anzeige, kein zweiter Zustand)');
+}
+
+// W2 - ERSTES Gegentor: normales Tor, kein Umbau, kein totes Tor, kein Transitionsklang.
+{
+  const E = buildEnv('elimination4');
+  E.newMatch();
+  parkFull(E);
+  E.taudioReset();
+  const g0 = E.goalSounds();
+  shootAt(E, 2);                                    // Slot 2 == P3 in Phase 4
+  ok(E.goalState() === 'fall', 'der regulaere Torablauf startet');
+  ok(E.active()[2] === true, 'P3 ist nach dem ERSTEN Gegentor NICHT ausgeschieden');
+  ok(E.lives()[2] === 1, 'P3 verliert genau ein Leben (2 -> 1)');
+  ok(JSON.stringify(E.lives()) === '[2,2,1,2]', 'kein anderer Spieler verliert ein Leben');
+  ok(E.goalOpen(2) === true, 'das getroffene Tor bleibt offen - kein toter Torzustand');
+  ok(E.morphWanted() === false, 'kein Arenaumbau nach dem ersten Gegentor');
+  ok(E.goalSounds() === g0 + 1, 'der normale Torsound laeuft genau einmal');
+  ok(E.matchPointSounds() === 0, 'kein Matchpunkt-Sound');
+  ok(E.snapshot()[2].alive === true, 'die Figur von P3 bleibt im Spiel');
+
+  const n = E.finishGoal();
+  ok(E.goalState() === 'play', 'der Torablauf endet deterministisch (' + n + ' Ticks)');
+  ok(E.phaseN() === 4, 'die Arena bleibt die Vier-Spieler-Arena');
+  ok(E.arenaCfg().halfLen === 17.50 && E.arenaCfg().sides === 4, 'die Arenaform ist unveraendert');
+  ok(JSON.stringify(E.taudio()) === JSON.stringify({ bed: 0, lock: 0, stop: 0 }),
+     'kein Transitions-Audio: weder Bett noch Einrastakzent');
+  ok([0, 1, 2, 3].every(k => E.fxDrain(k) === 0), 'kein Transitions-FX an irgendeinem Tor');
+  ok(E.morphPlan() === null && E.morphActive() === false, 'es gibt keinen Umbauplan');
+
+  // FAIRER RESET: alle vier Figuren auf den kanonischen Spawns, Ball zentral, alles still.
+  const after = E.snapshot();
+  for (let s2 = 0; s2 < 4; s2++) {
+    const o = E.slotOwner(s2), sp = E.spawnAt(s2);
+    ok(near(after[o].x, sp.x) && near(after[o].y, sp.y),
+       'P' + (o + 1) + ' steht nach dem ersten Gegentor auf dem fairen Spawn');
+  }
+  ok(after.every(b => b.vx === 0 && b.vy === 0), 'alle Geschwindigkeiten sind null');
+  ok(near(after[4].x, E.cx) && near(after[4].y, E.cy) && after[4].passed === false,
+     'der neutrale Ball steht wieder zentral, der Durchtritts-Latch ist leer');
+  E.step();
+  ok(E.phase() === 'aim', 'die naechste verdeckte Runde oeffnet regulaer');
+}
+
+// W3 - ZWEITES Gegentor desselben Spielers: jetzt greift die bestehende Eliminierung.
+{
+  const E = buildEnv('elimination4');
+  E.newMatch();
+  parkFull(E);
+  shootAt(E, 2); E.finishGoal(); E.step();
+  parkFull(E);                                       // Leben der Ueberlebenden wieder auf 2
+  E.setLives(2, 1);                                  // P3 steht weiter auf seinem letzten Leben
+  E.taudioReset();
+  shootAt(E, 2);
+  ok(E.lives()[2] === 0, 'das zweite Gegentor nimmt das letzte Leben');
+  ok(E.active()[2] === false, 'P3 ist ausgeschieden');
+  ok(E.snapshot()[2].alive === false, 'die Figur von P3 ist deaktiviert');
+  ok(E.goalOpen(2) === false, 'sein Tor ist ab sofort geschlossen');
+  ok(E.morphWanted() === true, 'jetzt wird der Arenaumbau gewollt');
+  E.finishGoal();
+  ok(E.phaseN() === 3, 'nach dem Umbau steht die Drei-Spieler-Arena');
+  ok(E.taudio().bed === 1 && E.taudio().lock === 1, 'genau ein Bett und ein Einrastakzent im Umbau');
+  ok(E.lives()[2] === 0, 'ein ausgeschiedener Spieler verliert kein weiteres Leben');
+}
+
+// W4 - KEIN doppelter Lebensabzug: ein Tor wertet genau einmal.
+{
+  const E = buildEnv('elimination4');
+  E.newMatch();
+  parkFull(E);
+  shootAt(E, 2);
+  const lv = JSON.stringify(E.lives());
+  // Waehrend des laufenden Torablaufs weiterrechnen: der Ball liegt noch hinter der Linie,
+  // aber footballTryGoal ist nur aus 'play' erreichbar.
+  for (let i = 0; i < 40; i++) E.step();
+  ok(JSON.stringify(E.lives()) === lv, 'waehrend des Torablaufs faellt kein zweites Leben');
+  E.finishGoal();
+  ok(JSON.stringify(E.lives()) === lv, 'auch nach dem Reset zaehlt dasselbe Tor nicht erneut');
+  // Der Ball steht zentral und traegt keinen Durchtritts-Latch mehr - dieselbe Lage kann
+  // also nicht noch einmal als Tor gewertet werden.
+  ok(E.crossed(4) === -1, 'der zurueckgesetzte Ball ueberquert keine Torlinie');
+}
+
+// W5 - Leben ueberleben die Phasenwechsel 4 -> 3 und 3 -> 2.
+{
+  const E = buildEnv('elimination4');
+  E.newMatch();
+  parkFull(E);
+  E.setLives(0, 1); E.setLives(1, 2); E.setLives(2, 1); E.setLives(3, 1);
+  shootAt(E, 2); E.finishGoal();                     // P3 hatte 1 Leben -> raus
+  ok(E.phaseN() === 3, 'Vorbedingung: die Drei-Spieler-Arena steht');
+  ok(E.lives()[0] === 1 && E.lives()[1] === 2 && E.lives()[3] === 1,
+     'die Ueberlebenden behalten ihren Lebensstand (Blau 1, Rot 2, Gelb 1)');
+  ok(E.lives()[2] === 0, 'der Ausgeschiedene bleibt bei null');
+  E.step();
+  parkPlayers(E);                                    // setzt alle Aktiven auf ihr letztes Leben
+  E.setLives(1, 2);                                  // P2 geht mit zwei Leben ins Halbfinale
+  const slot = E.slots().indexOf(0);                 // P1 sitzt auf diesem Slot
+  shootAt(E, slot); E.finishGoal();
+  ok(E.phaseN() === 2, 'Vorbedingung: das Zwei-Spieler-Finale steht');
+  ok(E.lives()[1] === 2 && E.lives()[3] === 1,
+     'auch nach dem zweiten Umbau bleiben die Lebensstaende erhalten (2 gegen 1)');
+  ok(E.winner() === null, 'noch kein Sieger - es sind zwei Spieler aktiv');
+}
+
+// W6 - Im Finale gewinnt erst, wer das letzte Leben des Gegners nimmt.
+{
+  const E = buildEnv('elimination4');
+  E.newMatch();
+  parkPlayers(E); shootAt(E, 2); E.finishGoal(); E.step();
+  parkPlayers(E); shootAt(E, 1); E.finishGoal(); E.step();
+  ok(E.phaseN() === 2 && E.activeOwners().length === 2, 'Vorbedingung: Finale mit zwei Spielern');
+  const opp = E.slotOwner(1);
+  parkFull(E);                                       // beide wieder auf zwei Leben
+  shootAt(E, 1); E.finishGoal();
+  ok(E.winner() === null, 'das erste Finaltor entscheidet noch nichts');
+  ok(E.lives()[opp] === 1, 'der Getroffene steht jetzt auf einem Leben');
+  ok(E.activeOwners().length === 2, 'es sind weiterhin zwei Spieler aktiv');
+  E.step();
+  parkFull(E); E.setLives(opp, 1);
+  shootAt(E, 1); E.finishGoal();
+  ok(E.lives()[opp] === 0 && E.active()[opp] === false, 'das zweite Finaltor scheidet ihn aus');
+  ok(E.winner() !== null && E.winner() !== opp, 'der verbliebene Spieler gewinnt');
+  ok(E.activeOwners().length === 1, 'genau ein Spieler ist noch aktiv');
+}
+
+// W7 - Nur der vollstaendige Matchreset fuellt die Leben wieder auf.
+{
+  const E = buildEnv('elimination4');
+  E.newMatch();
+  parkFull(E);
+  shootAt(E, 2); E.finishGoal(); E.step();
+  ok(E.lives()[2] === 1, 'Vorbedingung: P3 steht auf einem Leben');
+  E.resetBall();
+  ok(E.lives()[2] === 1, 'der Rundenreset fuellt keine Leben auf');
+  E.applyPhase();
+  ok(E.lives()[2] === 1, 'der Phasenwechsel fuellt keine Leben auf');
+  E.resetMatchState();
+  ok(JSON.stringify(E.lives()) === '[2,2,2,2]', 'der Matchreset stellt alle Leben wieder her');
+  ok(JSON.stringify(E.active()) === '[true,true,true,true]', 'und alle Spieler sind wieder aktiv');
+}
+
+// W8 - Kein Lebenszustand in Classic und Tactical.
+{
+  for (const v of ['classic', 'tactical']) {
+    const C = v === 'classic' ? buildEnv() : buildEnv('tactical');
+    C.newMatch();
+    const snap = C.snapshot();
+    const ball = snap.findIndex(b => b.owner === C.neutral);
+    // Die Figuren stehen in Classic auf der Torachse - fuer den Schuss aus der Mitte werden
+    // sie quer weggestellt, damit die Torlinie und nicht der Gegner getroffen wird.
+    let k = 0;
+    for (let i = 0; i < snap.length; i++) {
+      if (i === ball) continue;
+      C.setPos(i, C.cx - 250 + k * 160, C.cy + (k % 2 === 0 ? -260 : 260));
+      C.setVel(i, 0, 0);
+      k++;
+    }
+    C.setPos(ball, C.cx, C.cy);
+    C.setVel(ball, 22, 0);
+    C.setPhaseRaw('sim');
+    C.stepUntilGoal();
+    ok(C.score()[0] === 1, v + ': das Tor zaehlt regulaer als Punkt');
+    ok(JSON.stringify(C.lives()) === '[2,2,2,2]', v + ': kein Leben wird abgezogen');
+    ok(JSON.stringify(C.active()) === '[true,true,true,true]', v + ': niemand scheidet aus');
+  }
+  ok(/function footballElimConcede\(o\)\{\s*if\(!fbElim4\(\)/.test(elimBlockSrc),
+     'der Lebensabzug ist auf Elimination begrenzt (fbElim4-Guard)');
+}
+
+// W9 - HUD: zwei Lebenspunkte je Chip, ausgeschiedene Spieler bleiben abgesetzt.
+{
+  ok(/FB_ELIM_LIVES/.test(renderBarSrc), 'die Chipleiste zeichnet genau FB_ELIM_LIVES Punkte');
+  ok(/fbElimLives\[o\]/.test(renderBarSrc), 'gefuellt wird nach dem Lebensstand des Spielers');
+  ok(/class[\s\S]{0,40}fpip/.test(renderBarSrc), 'die Punkte tragen eine eigene, schmale Klasse');
+  ok(/\.fpip\{[^}]*var\(--fc\)/.test(HTML), 'ein vorhandenes Leben leuchtet in der Spielerfarbe');
+  ok(/\.fpip\.off\{/.test(HTML), 'ein verlorenes Leben ist matt statt farbig');
+  ok(/' out'/.test(renderBarSrc), 'Ausgeschiedene bleiben ueber .out gedimmt');
+  ok(!/innerHTML/.test(renderBarSrc), 'die Chipleiste baut weiterhin nur ueber DOM-Knoten');
+  // Ohne Kommentare geprueft: es darf keine zweite Kennzahl neben den Leben stehen.
+  ok(!/Tore|Punkte|Score|score\[/.test(renderBarSrc.replace(/\/\/[^\n]*/g, '')),
+     'die Leiste zeigt NUR Leben - keine Tore, Punkte oder Gegentore daneben');
 }
 
 console.log('\nFootball-Elimination: ' + pass + ' passed, ' + fail + ' failed');

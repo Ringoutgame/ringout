@@ -1,0 +1,442 @@
+// Arena Football - FIXED-TIMESTEP-SUITE
+//
+// Die Simulation lief frueher GENAU EINMAL pro Renderframe und haengte damit an der
+// Bildwiederholrate: auf 120 Hz doppelt so schnell wie auf 60 Hz. Diese Suite haelt fest,
+// dass Gameplay jetzt ausschliesslich in festen Schritten laeuft und dass dasselbe Spiel
+// bei 30, 60, 90, 120 und 144 Hz denselben Verlauf nimmt.
+//
+// Gefahren wird die ECHTE Schleifenlogik aus index.html (simStep + simAdvance) samt der
+// echten Physik - nichts wird nachgebaut, nichts injiziert.
+//
+//   node tools/test_fixed_timestep.js
+//
+const fs = require('fs');
+const path = require('path');
+const HTML = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+
+function grab(re, name) {
+  const m = HTML.match(re);
+  if (!m) { console.error('FAIL: cannot extract ' + name); process.exit(2); }
+  return m[0];
+}
+let pass = 0, fail = 0;
+function ok(cond, msg) { if (cond) { pass++; } else { fail++; console.error('FAIL: ' + msg); } }
+
+const footballBlock = grab(/const FOOTBALL_NEUTRAL_OWNER=[\s\S]*?(?=\nfunction stepSim\(\)\{)/, 'Football-Block');
+const stepSimSrc = grab(/function stepSim\(\)\{[\s\S]*?\n\}/, 'stepSim');
+const consts = grab(/const MAXPULL_FRAC=[^\n]*/, 'physics constants');
+const spin = grab(/const SPIN_K=[^\n]*/, 'spin constants');
+const timing = grab(/const REVEAL_MS=[^\n]*/, 'REVEAL_MS/RESULT_MS');
+const drift = grab(/const RESULT_SLOWMUL=[^\n]*/, 'RESULT_SLOWMUL');
+const pcols = grab(/const PCOLS=[^\n]*/, 'PCOLS');
+const mkBallSrc = grab(/function mkBall\([^\n]*/, 'mkBall');
+const placeBallsSrc = grab(/function placeBalls\(\)\{[\s\S]*?\n\}/, 'placeBalls');
+const teamCapSrc = grab(/function teamCap\([^\n]*/, 'teamCap');
+const ballsOutsideSrc = grab(/function ballsOutside\(\)\{[\s\S]*?\n\}/, 'ballsOutside');
+const resolveRingOutsSrc = grab(/function resolveRingOuts\(crossed\)\{[\s\S]*?\n\}/, 'resolveRingOuts');
+const npSrc = grab(/function np\([^\n]*/, 'np');
+const resetCommitsSrc = grab(/function resetCommits\(\)\{[\s\S]*?\n\}/, 'resetCommits');
+const startRoundSrc = grab(/function startRound\(\)\{[\s\S]*?\n\}/, 'startRound');
+const curFRSrc = grab(/function curFR\(\)[^\n]*/, 'curFR');
+const curFESrc = grab(/function curFE\(\)[^\n]*/, 'curFE');
+const curSTSrc = grab(/function curST\(\)[^\n]*/, 'curST');
+const recordFrameSrc = grab(/function recordFrame\(\)\{[\s\S]*?\n\}/, 'recordFrame');
+const updParticlesSrc = grab(/function updParticles\(\)\{[\s\S]*?bgPulse=0;\}/, 'updParticles');
+const resultDriftSrc = grab(/function resultDrift\(\)[^\n]*/, 'resultDrift');
+const applyLaunchSrc = grab(/function applyLaunch\(\)\{[\s\S]*?\n\}/, 'applyLaunch');
+// Abschusskurve: der Zug muss auf jeder Bildwiederholrate denselben Impuls erzeugen.
+const tempoSrc = grab(/const FB_LAUNCH_SCALE=[\s\S]*?\nfunction fbLaunchMul\(len\)\{[\s\S]*?\n\}/, 'Abschusskurve');
+const simConstSrc = grab(/const SIM_HZ=[\s\S]*?let simAcc=0,simPrev=0;/, 'Fixed-Timestep-Konstanten');
+const simResetSrc = grab(/function simResetClock\(\)[^\n]*/, 'simResetClock');
+const simStepSrc = grab(/function simStep\(now\)\{[\s\S]*?\n\}/, 'simStep');
+const simAdvanceSrc = grab(/function simAdvance\(now\)\{[\s\S]*?\n\}/, 'simAdvance');
+const loopSrc = grab(/function loop\(now\)\{[\s\S]*?\n\}/, 'Main Loop');
+
+function buildEnv() {
+  const env = `
+    const LOGICAL=1000; const cx=500, cy=500, R0=LOGICAL*0.485, BR=LOGICAL*0.032; let R=R0;
+    ${consts}
+    ${spin}
+    ${timing}
+    ${drift}
+    ${pcols}
+    const TUNE=null;
+    function maxPull(){return R0*MAXPULL_FRAC;}
+    let balls=[], phase='sim', phaseStart=0, outBall=-1, roundWinner=-1;
+    let aimSet=[false,false], commitIdx=[-1,-1], commitAim=[{dx:0,dy:0},{dx:0,dy:0}], commitSpin=[0,0];
+    let curAimer=0, bgPulse=0, bgPulseRGB='', ffaN=2, myPlayer=0, online=false;
+    let mode='football', fmt='single';
+    let score=[0,0], roundNo=1, r3dActive=false, particles=[], fx3=[], recFrames=[];
+    let replaying=false; function repTick(){}
+    let taBed=0, taLock=0, launchCalls=0;
+    const SFX={hit(){},drop(){},ringout(){},launch(){launchCalls++;},round(){},win(){},rollUpdate(){},unlock(){},
+               footballGoal(){},footballGoalPreload(){},footballGoalStop(){},
+               fbTransitionBed(){taBed++;},fbTransitionLock(){taLock++;},fbTransitionStop(){}};
+    function spawn(){} function popBall(){} function winnerRGB(){return '';}
+    function fx3Hit(){} function fx3Dust(){}
+    const NOWREF={t:0};
+    function setPhase(p){phase=p;phaseStart=NOWREF.t;} function updateHud(){} function setPhaseText(){}
+    function onlineArmTurn(){} function openCover(){} function cancelAimDrag(){}
+    function colorSlot(o){return o;}
+    function aliveCount(o){let n=0;for(const b of balls)if(b.alive&&b.owner===o)n++;return n;}
+    function gameOver(){phase='over';}
+    function afterResult(){phase='aim';}
+    function renderFfaBar(){}
+    function devSync(){}
+    let seatGone=[false,false,false,false];
+    ${mkBallSrc}
+    ${teamCapSrc}
+    ${placeBallsSrc}
+    ${ballsOutsideSrc}
+    ${resolveRingOutsSrc}
+    ${npSrc}
+    ${resetCommitsSrc}
+    ${startRoundSrc}
+    ${footballBlock}
+    ${curFRSrc}
+    ${curFESrc}
+    ${curSTSrc}
+    ${stepSimSrc}
+    ${recordFrameSrc}
+    ${updParticlesSrc}
+    ${resultDriftSrc}
+    ${tempoSrc}
+    ${applyLaunchSrc}
+    ${simConstSrc}
+    ${simResetSrc}
+    ${simStepSrc}
+    ${simAdvanceSrc}
+    // Der Wrapper zaehlt Schritte und summiert die Strecke des beobachteten Koerpers
+    // JE SIMULATIONSSCHRITT - damit ist die Messung von der Abtastrate des Renderers
+    // vollstaendig unabhaengig.
+    let simSteps=0, stepPath=0, pathIdx=-1, pathPrev=null, settleAt=-1;
+    let launchSnap=null, seenLaunch=0;
+    const __simStep=simStep;
+    simStep=function(now){
+      simSteps++;NOWREF.t=now;
+      const r=__simStep(now);
+      // Der Abschussschritt setzt nur die Geschwindigkeit; gedaempft wird erst im NAECHSTEN
+      // Schritt. Genau hier ist der Impuls also unverfaelscht ablesbar.
+      if(launchCalls!==seenLaunch){seenLaunch=launchCalls;
+        if(!launchSnap)launchSnap=balls.map(b=>({vx:b.vx,vy:b.vy}));}
+      if(pathIdx>=0&&balls[pathIdx]){
+        const b=balls[pathIdx];
+        if(pathPrev)stepPath+=Math.hypot(b.x-pathPrev.x,b.y-pathPrev.y);
+        pathPrev={x:b.x,y:b.y};
+      }
+      if(settleAt<0&&phase!=='sim')settleAt=simSteps;
+      return r;
+    };
+    return {
+      sim(){ return {hz:SIM_HZ, dt:SIM_DT_MS, maxSteps:SIM_MAX_STEPS, stall:SIM_STALL_MS}; },
+      steps(){ return simSteps; },
+      advance(now){ NOWREF.t=now; return simAdvance(now); },
+      legacyFrame(now){ NOWREF.t=now; simStep(now); },
+      setPhys(o){ Object.assign(FOOTBALL_PHYS, o); },
+      launchV(){ return maxPull()*LAUNCH; },
+      launchAt(frac){ const len=maxPull()*frac; return len*fbLaunchMul(len); },
+      neutral(){ return FOOTBALL_NEUTRAL_OWNER; },
+      setVariant(v){ fbVariant=v; }, elimReset(){ fbElimReset(); },
+      setLives(o,n){ fbElimLives[o]=n; },
+      lives(){ return fbElimLives.slice(); }, phaseN(){ return fbElimPhaseN; },
+      reset(){ balls=[]; phase='sim'; phaseStart=0; fbGoalState='play'; fbGoalTick=0;
+               footballWinner=null; score=[0,0]; particles=[]; fx3=[]; recFrames=[];
+               taBed=0; taLock=0; launchCalls=0; simSteps=0; stepPath=0;
+               launchSnap=null; seenLaunch=0; simResetClock(); },
+      setBalls(list){ balls=list.map(b=>({x:b.x,y:b.y,vx:b.vx||0,vy:b.vy||0,sx:b.x,sy:b.y,
+                       owner:b.owner,alive:true,spin:b.spin||0})); phase='sim'; },
+      // Strecke je SIMULATIONSSCHRITT - unabhaengig von der Abtastrate des Renderers.
+      track(i){ pathIdx=i; stepPath=0; settleAt=-1; pathPrev=balls[i]?{x:balls[i].x,y:balls[i].y}:null; },
+      launchSnap(i){ return launchSnap?launchSnap[i]:null; },
+      path(){ return stepPath; },
+      settleAt(){ return settleAt; },
+      phase(){ return phase; },
+      goalState(){ return fbGoalState; },
+      score(){ return score.slice(); },
+      taudio(){ return {bed:taBed, lock:taLock}; },
+      launchCalls(){ return launchCalls; },
+      setCommit(idx,dx,dy){ commitIdx=[idx,-1]; commitAim=[{dx,dy},{dx:0,dy:0}]; commitSpin=[0,0];
+                            phase='reveal'; phaseStart=NOWREF.t; },
+      vel(i){ return {vx:balls[i].vx, vy:balls[i].vy}; },
+      finite(){ return balls.every(b=>Number.isFinite(b.x)&&Number.isFinite(b.y)&&
+                                      Number.isFinite(b.vx)&&Number.isFinite(b.vy)); },
+      get(){ return balls.map(b=>({x:b.x,y:b.y,vx:b.vx,vy:b.vy,owner:b.owner,alive:b.alive})); },
+      hash(){ let h=2166136261>>>0;
+        const mix=s=>{for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619)>>>0;}};
+        for(const b of balls)mix(b.owner+':'+(b.alive?1:0)+':'+b.x+':'+b.y+':'+b.vx+':'+b.vy+';');
+        mix('|'+phase+'|'+fbGoalState+'|'+fbGoalTick+'|'+score.join(',')+'|'+fbElimPhaseN+
+            '|'+fbElimLives.join(',')+'|'+fbElimActive.map(v=>v?1:0).join('')+'|'+footballWinner);
+        return ('0000000'+h.toString(16)).slice(-8); }
+    };
+  `;
+  return new Function(env)();
+}
+
+const HZ = [30, 60, 90, 120, 144];
+// Die freigegebenen Produktivwerte. Sie stehen hier nur als Erwartung - gerechnet wird
+// mit dem echten FOOTBALL_PHYS aus index.html.
+const PROD = { friction: 0.9958, frictionBall: 0.9964, fend: 0.9760, fendBall: 0.9790,
+               slowv: 0.70, stopv: 0.075 };
+
+console.log('ARENA FOOTBALL - FIXED TIMESTEP: gleiche Simulation auf jeder Bildwiederholrate\n');
+
+// =================================================================================
+// A0 - ARCHITEKTUR
+// =================================================================================
+{
+  const E = buildEnv();
+  const S = E.sim();
+  ok(S.hz === 60, 'kanonischer Gameplay-Takt: 60 Schritte/s');
+  ok(Math.abs(S.dt - 1000 / 60) < 1e-12, 'ein Schritt dauert exakt 1/60 s');
+  ok(S.maxSteps >= 2 && S.maxSteps <= 8, 'Catch-up-Budget ist begrenzt (' + S.maxSteps + ' Schritte/Frame)');
+  ok(S.stall > 0 && S.stall <= 1000, 'es gibt eine Pausenschwelle (' + S.stall + ' ms)');
+
+  // L) KEINE VARIABLE-DT-PHYSIK. stepSim nimmt kein dt entgegen und liest keine Uhr;
+  //    die verstrichene Zeit steuert ausschliesslich, WIE OFT der feste Schritt laeuft.
+  ok(/^function stepSim\(\)\{/.test(stepSimSrc), 'stepSim nimmt keinen Zeitparameter');
+  const stepBody = stepSimSrc.replace(/\/\/[^\n]*/g, '');
+  ok(!/performance\.now|Date\.now|\bdt\b/.test(stepBody), 'stepSim liest keine Uhr und kennt kein dt');
+  ok(!/\bdt\b/.test(simStepSrc.replace(/\/\/[^\n]*/g, '')), 'simStep skaliert nichts mit einem dt');
+  // Die Physik wird NUR aus dem festen Schritt heraus getrieben.
+  ok((HTML.match(/stepSim\(\);/g) || []).length === 2, 'stepSim() hat genau zwei Aufrufer');
+  ok(/else if\(phase==='sim'\)stepSim\(\);/.test(simStepSrc),
+     'der ZEITGETRIEBENE Aufrufer ist der feste Schritt (simStep)');
+  ok(/while\(phase==='sim'&&g\+\+<20000\)stepSim\(\);/.test(HTML),
+     'der zweite Aufrufer ist die Online-Rehydrierung - sie rechnet einen Zug am Stueck ' +
+     'zu Ende und haengt schon deshalb an keiner Bildwiederholrate');
+  ok(!/stepSim\(\)/.test(loopSrc), 'die Renderschleife ruft die Physik nicht mehr direkt');
+  ok(/simAdvance\(now\);/.test(loopSrc), 'die Renderschleife treibt ausschliesslich den Akkumulator');
+  // Der Akkumulator benutzt die Wanduhr NUR zum Zaehlen der Schritte.
+  ok(/simAcc\+=dt;/.test(simAdvanceSrc) && /simAcc-=SIM_DT_MS;/.test(simAdvanceSrc),
+     'der Akkumulator rechnet in ganzen SIM_DT_MS-Schritten');
+}
+
+// Ein Lauf ueber `seconds` reale Sekunden bei `hz`. mode 'fixed' = Akkumulator,
+// 'legacy' = die alte Architektur (ein Gameplay-Schritt je Renderframe).
+function run(hz, seconds, setup, mode) {
+  const E = buildEnv();
+  if (setup.phys) E.setPhys(setup.phys);
+  if (setup.variant) { E.setVariant(setup.variant); E.elimReset(); }
+  E.reset();
+  E.setBalls(setup.balls);
+  if (setup.lives) for (let o = 0; o < 4; o++) E.setLives(o, setup.lives[o]);
+  const frameMs = 1000 / hz, frames = Math.round(seconds * hz);
+  E.track(0);
+  let t = 0;
+  for (let i = 1; i <= frames; i++) {
+    t += frameMs;
+    if (mode === 'legacy') E.legacyFrame(t); else E.advance(t);
+  }
+  return { hz, steps: E.steps(), settleStep: E.settleAt(), path: E.path(), hash: E.hash(),
+           score: E.score(), finite: E.finite(), audio: E.taudio(),
+           lives: E.lives(), phaseN: E.phaseN(), goalState: E.goalState() };
+}
+
+const V = buildEnv().launchV();
+
+// Den Abschussimpuls GENAU im Abschussschritt lesen. Danach laeuft die Daempfung weiter;
+// ein einzelner Schritt Unterschied an der Fenstergrenze wuerde die MESSUNG verfaelschen,
+// nicht die Simulation.
+function launchImpulse(hz, frac) {
+  const E = buildEnv();
+  E.reset();
+  E.setBalls([{ x: 500, y: 500, vx: 0, vy: 0, owner: 4 }, { x: 400, y: 500, vx: 0, vy: 0, owner: 0 }]);
+  E.setCommit(1, 194 * frac, 0);
+  const frameMs = 1000 / hz;
+  let t = 0;
+  for (let i = 0; i < Math.round(3 * hz) && E.launchCalls() === 0; i++) { t += frameMs; E.advance(t); }
+  return { v: E.launchSnap(1), calls: E.launchCalls() };
+}
+const SHOT = { balls: [{ x: 500, y: 500, vx: V * 0.6, vy: V * 0.8, owner: 4 }] };
+
+// =================================================================================
+// A/B/C - GLEICHER VERLAUF BEI 30 / 60 / 90 / 120 / 144 Hz
+// =================================================================================
+{
+  const R = {};
+  for (const hz of HZ) R[hz] = run(hz, 12, SHOT, 'fixed');
+  const ref = R[60];
+  for (const hz of HZ) {
+    // A) 60 vs 120, B) 60 vs 144, C) 30 vs 60 - alle gegen dieselbe Referenz.
+    ok(R[hz].hash === ref.hash,
+       hz + ' Hz liefert denselben Endzustand wie 60 Hz (' + R[hz].hash + ')');
+    ok(Math.abs(R[hz].steps - ref.steps) <= 1,
+       hz + ' Hz laeuft ueber dieselbe Zahl Gameplay-Schritte (' + R[hz].steps + ' vs ' + ref.steps + ')');
+    // F) Settlement nach derselben Anzahl Schritte -> dieselbe REALE Zeit.
+    ok(R[hz].settleStep === ref.settleStep,
+       hz + ' Hz: Settlement nach Schritt ' + R[hz].settleStep + ' (60 Hz: ' + ref.settleStep + ')');
+    // G) Streckenlaenge je Simulationsschritt gemessen - nicht je Renderframe.
+    ok(Math.abs(R[hz].path - ref.path) < 1e-6,
+       hz + ' Hz: identische Streckenlaenge (' + R[hz].path.toFixed(3) + ' px)');
+    // K) keine NaN/Infinity.
+    ok(R[hz].finite, hz + ' Hz: keine NaN- oder Infinity-Werte');
+  }
+  // GEGENPROBE: in der alten Architektur war genau das kaputt.
+  const L = {};
+  for (const hz of HZ) L[hz] = run(hz, 12, SHOT, 'legacy');
+  ok(L[120].steps === 2 * L[60].steps,
+     'Gegenprobe alte Architektur: 120 Hz rechnete doppelt so viele Schritte wie 60 Hz');
+  ok(L[144].settleStep === L[60].settleStep && L[144].steps > L[60].steps,
+     'Gegenprobe: gleicher Verlauf in Schritten, aber in deutlich kuerzerer REALER Zeit');
+}
+
+// =================================================================================
+// D - EINGABE: derselbe Zug erzeugt denselben Impuls, unabhaengig von der Framerate
+// =================================================================================
+{
+  // Es gibt genau EINEN Eingabepfad: Pointer Events. Maus und Touch laufen darueber
+  // durch dieselben Handler und erzeugen denselben Commit-Vektor.
+  ok(!/addEventListener\('touchstart'|addEventListener\('mousedown'/.test(HTML),
+     'kein separater Touch- oder Maus-Pfad - die Eingabe laeuft ueber Pointer Events');
+  // Der Commit wird beim Loslassen gespeichert; wirksam wird er erst im FESTEN Schritt.
+  ok(/if\(phase==='reveal'&&now-phaseStart>REVEAL_MS\)applyLaunch\(\);/.test(simStepSrc),
+     'der Abschuss wird im festen Schritt ausgeloest, nicht im Renderframe');
+  ok(!/applyLaunch\(\)/.test(loopSrc), 'die Renderschleife loest keinen Abschuss aus');
+
+  const V2 = buildEnv().launchV();
+  const res = {};
+  for (const hz of HZ) res[hz] = launchImpulse(hz, 1);   // voller Zug nach +x (maxPull)
+  for (const hz of HZ) {
+    ok(res[hz].calls === 1, hz + ' Hz: der Abschuss wird GENAU EINMAL verarbeitet');
+    ok(Math.abs(res[hz].v.vx - res[60].v.vx) < 1e-12 && Math.abs(res[hz].v.vy - res[60].v.vy) < 1e-12,
+       hz + ' Hz: identischer Impuls nach dem Abschuss');
+  }
+  ok(Math.abs(V2 - V) < 1e-12, 'die maximale Abschussgeschwindigkeit haengt nicht an der Framerate');
+}
+
+// =================================================================================
+// E - TORWERTUNG: genau einmal, auf jeder Bildwiederholrate
+// =================================================================================
+{
+  const G = {};
+  for (const hz of HZ) {
+    G[hz] = run(hz, 10, { balls: [{ x: 500, y: 500, vx: V * 0.9, vy: 0, owner: 4 }] }, 'fixed');
+  }
+  for (const hz of HZ) {
+    ok(JSON.stringify(G[hz].score) === '[1,0]',
+       hz + ' Hz: das Tor zaehlt genau einmal (' + G[hz].score.join(':') + ')');
+    ok(G[hz].hash === G[60].hash, hz + ' Hz: identischer Zustand nach dem Tor');
+  }
+}
+
+// =================================================================================
+// H/I - ARENAUMBAU: gleiche Dauer in REALER Zeit, Audio genau einmal
+// =================================================================================
+{
+  const M = {};
+  for (const hz of HZ) {
+    const E = buildEnv();
+    E.setVariant('elimination4'); E.elimReset(); E.reset();
+    for (let o = 0; o < 4; o++) E.setLives(o, 1);   // jeder auf seinem letzten Leben
+    E.setBalls([{ x: 500, y: 500, vx: 0, vy: V, owner: 4 }]);
+    const frameMs = 1000 / hz;
+    let t = 0, mStart = null, mEnd = null;
+    for (let i = 0; i < Math.round(20 * hz); i++) {
+      t += frameMs;
+      E.advance(t);
+      const gs = E.goalState();
+      if (gs === 'morph' && mStart === null) mStart = t;
+      if (mStart !== null && mEnd === null && gs !== 'morph') mEnd = t;
+      if (mEnd !== null) break;
+    }
+    M[hz] = { ms: mEnd - mStart, audio: E.taudio(), phaseN: E.phaseN() };
+  }
+  for (const hz of HZ) {
+    // H) Der Umbau dauert 100 Ticks = 1.667 s. Toleranz: ein Renderframe bei 30 Hz.
+    ok(M[hz].ms !== null && Math.abs(M[hz].ms - 100 * (1000 / 60)) <= 1000 / 30 + 1e-9,
+       hz + ' Hz: der Umbau dauert ' + Math.round(M[hz].ms) + ' ms (Ziel 1667 ms)');
+    // I) Bett und Einrastakzent genau einmal - keine Doppeltrigger durch schnelle Frames.
+    ok(M[hz].audio.bed === 1 && M[hz].audio.lock === 1,
+       hz + ' Hz: genau ein Bett und ein Einrastakzent');
+    ok(M[hz].phaseN === 3, hz + ' Hz: die Arena steht danach auf drei Spielern');
+  }
+}
+
+// =================================================================================
+// J - PAUSE UND UEBERLAST: kein Aufhol-Turbo
+// =================================================================================
+{
+  const S = buildEnv().sim();
+  const E = buildEnv();
+  E.reset();
+  E.setBalls([{ x: 500, y: 500, vx: V, vy: 0, owner: 4 }]);
+  let t = 0;
+  for (let i = 0; i < 30; i++) { t += 1000 / 60; E.advance(t); }
+  const before = E.steps();
+  t += 3000;                                        // 3 Sekunden Tab im Hintergrund
+  const burst = E.advance(t);
+  ok(burst === 1, 'nach 3 s Pause laeuft genau EIN Schritt (' + burst + ')');
+  ok(E.steps() === before + 1, 'die Pause erzeugt keine nachgeholten Sekunden');
+  let after = 0;
+  for (let i = 0; i < 60; i++) { t += 1000 / 60; after += E.advance(t); }
+  ok(after >= 59 && after <= 61,
+     'danach laeuft es sofort wieder im regulaeren Takt (' + after + ' Schritte in 60 Frames)');
+
+  // Dauerlast weit unterhalb der Simulationsrate: das Budget deckelt jeden Frame.
+  const O = buildEnv();
+  O.reset();
+  O.setBalls([{ x: 500, y: 500, vx: V, vy: 0, owner: 4 }]);
+  let t2 = 0, worst = 0;
+  for (let i = 0; i < 60; i++) { t2 += 200; worst = Math.max(worst, O.advance(t2)); }
+  ok(worst <= S.maxSteps, 'bei 5 fps laeuft nie mehr als das Budget (' + worst + ' <= ' + S.maxSteps + ')');
+  ok(O.finite(), 'auch unter Dauerlast entstehen keine NaN-Werte');
+}
+
+// =================================================================================
+// F/G - SETTLEMENT-MATRIX: alle drei Roll-Kandidaten, alle Bildwiederholraten
+// =================================================================================
+{
+  for (const name of ['PRODUKTIV']) {
+    for (const who of ['player', 'ball']) {
+      const setup = { phys: PROD,
+        balls: [{ x: 500, y: 500, vx: V * 0.6, vy: V * 0.8, owner: who === 'player' ? 0 : 4 }] };
+      const R = {};
+      for (const hz of HZ) R[hz] = run(hz, 20, setup, 'fixed');
+      for (const hz of HZ) {
+        ok(R[hz].settleStep === R[60].settleStep,
+           name + '/' + who + ' bei ' + hz + ' Hz: Settlement nach Schritt ' + R[hz].settleStep);
+        ok(Math.abs(R[hz].path - R[60].path) < 1e-6,
+           name + '/' + who + ' bei ' + hz + ' Hz: identische Streckenlaenge');
+        ok(R[hz].hash === R[60].hash, name + '/' + who + ' bei ' + hz + ' Hz: identischer Endzustand');
+      }
+    }
+  }
+}
+
+
+// =================================================================================
+// ABSCHUSS - die Kurve bleibt auf jeder Bildwiederholrate identisch
+// =================================================================================
+// Die Abschusskurve erhoeht die Anfangsgeschwindigkeit deutlich. Genau dann ist wichtig,
+// dass die Zeitbasis haelt: ein schnellerer Zug darf auf 144 Hz nicht anders ausgehen als
+// auf 60 Hz - und der Impuls selbst darf nicht von der Framerate abhaengen.
+{
+  // 55 % ist die Zone, die im Spieltest als zu langsam gemeldet wurde.
+  for (const frac of [0.55, 1.00]) {
+    const imp = {};
+    for (const hz of HZ) imp[hz] = launchImpulse(hz, frac);
+    for (const hz of HZ) {
+      ok(imp[hz].calls === 1,
+         Math.round(frac * 100) + ' % bei ' + hz + ' Hz: der Abschuss laeuft genau einmal');
+      ok(imp[hz].v && Math.abs(imp[hz].v.vx - imp[60].v.vx) < 1e-12 &&
+         Math.abs(imp[hz].v.vy - imp[60].v.vy) < 1e-12,
+         Math.round(frac * 100) + ' % bei ' + hz + ' Hz: identischer Abschussimpuls');
+    }
+  }
+  // Der gesamte Zug mit voller Abschussgeschwindigkeit: gleicher Verlauf auf jeder Rate.
+  const E0 = buildEnv();
+  const v = E0.launchAt(1);
+  const shot = { balls: [{ x: 500, y: 500, vx: v * 0.6, vy: v * 0.8, owner: 4 }] };
+  const R = {};
+  for (const hz of HZ) R[hz] = run(hz, 15, shot, 'fixed');
+  for (const hz of HZ) {
+    ok(R[hz].hash === R[60].hash, 'voller Zug bei ' + hz + ' Hz: identischer Endzustand');
+    ok(R[hz].settleStep === R[60].settleStep,
+       'voller Zug bei ' + hz + ' Hz: Settlement nach Schritt ' + R[hz].settleStep);
+    ok(Math.abs(R[hz].path - R[60].path) < 1e-6, 'voller Zug bei ' + hz + ' Hz: identische Streckenlaenge');
+    ok(R[hz].finite, 'voller Zug bei ' + hz + ' Hz: keine NaN- oder Infinity-Werte');
+  }
+}
+
+console.log('\nFixed-Timestep: ' + pass + ' passed, ' + fail + ' failed');
+process.exit(fail ? 1 : 0);

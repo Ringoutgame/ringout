@@ -1,6 +1,6 @@
 # PROJECT.md — RingOut
 
-**Zuletzt aktualisiert:** 2026-08-27 (Arena Football: finale adaptive Elimination-Arenaformen — Rounded Square / Broad Rounded Triangle / Shouldered Wide; **beide** Arenawechsel 4→3 und 3→2 sind animiert und tragen Gold-Kantenfeedback plus Transitionsklang; **drei** sichtbare Modi — Classic 1v1 als Standard, Tactical 1v1, Elimination; Elimination ist jetzt regulaer ueber die Modusauswahl startbar, weiterhin lokal/Hotseat)
+**Zuletzt aktualisiert:** 2026-08-27 (Arena Football: **zwei Leben** in der Elimination, Classic auf der kanonischen Shouldered-Wide-Arena, **fester 60-Hz-Gameplay-Takt** unabhaengig von der Bildwiederholrate, neu abgestimmte Daempfung und dynamischere Abschusskurve; finale adaptive Elimination-Arenaformen — Rounded Square / Broad Rounded Triangle / Shouldered Wide; **beide** Arenawechsel 4→3 und 3→2 sind animiert und tragen Gold-Kantenfeedback plus Transitionsklang; **drei** sichtbare Modi — Classic 1v1 als Standard, Tactical 1v1, Elimination; Elimination ist jetzt regulaer ueber die Modusauswahl startbar, weiterhin lokal/Hotseat)
 
 - **Aktueller stabiler Projekt-HEAD:** `5a23dc424fb3126c33c29543b7c6571b87a65ec7`
 - **Implementierungs-Commit UX-Phase 3:** `babbbe78ee388489321d1f0cb3e032bbaabd0725`
@@ -183,8 +183,20 @@ das Modal — er fuehrt in denselben Startzustand wie der Menuebutton.
 - 4 Spieler, je **eine** Figur, dazu **ein** neutraler Ball (5 Bodies).
 - Verdecktes Commit fuer alle noch aktiven Spieler, danach **ein** gemeinsamer Reveal —
   alle aktiven Figuren starten simultan (derselbe `applyLaunch()`-Pfad wie Classic/Tactical).
-- **One Goal = Out:** wer ein Gegentor kassiert, scheidet sofort aus. Kein Timer, keine
-  Gegentor-Punkte, kein Tiebreak.
+- **Zwei Leben.** Jeder Spieler startet mit **2 Leben**. Ein Gegentor kostet **ein** Leben;
+  entscheidend ist allein, **wessen Tor** ueberquert wurde (kein Schuetzen-, Vorlagen- oder
+  Eigentorbegriff). Kein Timer, keine Gegentor-Punkte, kein Tiebreak.
+  - **Erstes Gegentor (2 → 1):** ein normales Tor. Der Spieler bleibt aktiv, die Arena bleibt
+    stehen, es gibt kein totes Tor, keinen Umbau, kein Transitions-FX und keinen
+    Transitionsklang. Danach faire Neuaufstellung **aller** aktiven Figuren auf ihre
+    kanonischen Spawns, Ball zentral, Geschwindigkeiten und Drall auf 0, neue verdeckte Runde.
+  - **Zweites Gegentor (1 → 0):** der Spieler scheidet aus, ab hier greift die bestehende
+    Eliminierungslogik unveraendert (Umbau 4 → 3 bzw. 3 → 2, Sieg bei 2 → 1).
+  - **Leben gelten fuer das ganze Match.** Ein Phasenwechsel fuellt sie ausdruecklich **nicht**
+    auf: wer mit einem Leben ins Halbfinale kommt, spielt dort mit einem Leben. Nur der
+    vollstaendige Matchreset (`fbElimReset`) stellt alle wieder auf 2.
+  - **Anzeige:** zwei kleine Lebenspunkte im bestehenden Spieler-Chip der Elimination-Leiste —
+    vorhandene Leben in der Spielerfarbe, verlorene matt. Keine zweite Tabelle, keine Zahl.
 - Das Tor eines ausgeschiedenen Spielers wird physikalisch zur Bande und optisch als totes
   Tor dargestellt.
 - Der letzte verbliebene Spieler gewinnt; nach dem entscheidenden Tor faellt kein neuer Ball.
@@ -338,7 +350,19 @@ Regressionssuite: `tools/test_football_elimination4.js` (im Runner als `Football
 
 ---
 
-### Arena-Football-Arena (final: Rounded Rectangle B)
+### Arena-Football-Arena · Classic (final: Shouldered Wide)
+**Classic 1v1 und das Elimination-Finale sind geometrisch dasselbe Spiel** — zwei Figuren,
+zwei gegenueberliegende Tore auf der ±X-Achse, ein neutraler Ball. Sie teilen sich deshalb
+**dieselbe Objektinstanz**: `FOOTBALL_ARENA_CLASSIC = FOOTBALL_ARENA_ELIM2`
+(`15.60 × 11.60 BR`, Eckradius `2.60`, Spawn `10.15`, achteckiges Kernpolygon mit vier
+35°-Schultern). Es gibt keine zweite Beschreibung derselben Form; Bande, Torachse,
+Toroeffnung und Spawnabstand koennen damit nicht auseinanderlaufen. **Matchregel bleibt
+First to 3** (`FOOTBALL_WIN_SCORE = 3`, genau eine Pruefstelle).
+
+**Tactical 1v1 bleibt unveraendert** auf der aelteren Rounded-Rectangle-Arena
+`FOOTBALL_ARENA` (siehe unten) — Arena, Spawns und Regeln sind dort abgestimmt.
+
+### Arena-Football-Arena · Tactical (Rounded Rectangle B)
 Die Football-Spielflaeche ist seit 2026-08-07 ein **Rounded Rectangle** (die fruehere
 Kreisarena ist kein Produktpfad mehr). Einzige Quelle der Wahrheit fuer Physik,
 Rendering, Spawns und Kamera ist `FOOTBALL_ARENA` (Werte in BR = 32 logische Einheiten):
@@ -374,20 +398,68 @@ Rendering, Spawns und Kamera ist `FOOTBALL_ARENA` (Werte in BR = 32 logische Ein
   `artifacts/football-ball-size-prototype/`.
 - Tests: `tools/test_football_arena.js` (Regressionssuite des finalen Standes).
 
-### Arena-Football-Physik (final: M1)
+### Arena-Football-Zeitbasis (fester 60-Hz-Gameplay-Takt)
+Gameplay lief frueher **genau einmal pro Renderframe** und haengte damit an der
+Bildwiederholrate: auf einem 120-Hz-Display simulierte das Spiel doppelt so schnell wie auf
+60 Hz — Geschwindigkeit, Daempfung, Auslauf, Torablauf, Arenaumbau und Commit-Aufloesung.
+Die Hauptschleife trennt jetzt sauber:
+
+- **Rendern** weiterhin so oft, wie das Display hergibt (`requestAnimationFrame`).
+- **Rechnen** in festen Schritten: `simAdvance(now)` akkumuliert die verstrichene ECHTE Zeit
+  und fuehrt daraus 0..N feste Gameplay-Schritte aus. `SIM_HZ = 60`,
+  `SIM_DT_MS = 1000/60`. `stepSim()` behaelt seine **zwei** internen Micro-Steps →
+  unveraendert **120 Physik-Micro-Steps/s**.
+- `simStep(now)` enthaelt alles Zustandsfortschreibende (Physik, Torablauf, Rundenende,
+  Replayaufzeichnung, tickgezaehlte Partikel/FX). Reine Ausgabe bleibt im Renderframe.
+- **Catch-up-Budget** `SIM_MAX_STEPS = 5` je Renderframe; bleibt danach Rueckstand, wird er
+  verworfen statt angehaeuft (kein Aufschaukeln). Eine Luecke groesser `SIM_STALL_MS = 250`
+  gilt als **Pause**: genau ein Schritt, kein Zeitraffer. `visibilitychange` loescht
+  zusaetzlich den Zeitanker.
+- **Keine variable-dt-Physik:** `stepSim()` nimmt keinen Zeitparameter und liest keine Uhr;
+  die verstrichene Zeit steuert ausschliesslich, WIE OFT der feste Schritt laeuft.
+- Gemessen bei 30/60/90/120/144 Hz: identischer Zustandshash, identische Streckenlaenge,
+  identischer Settlement-Schritt, identischer Abschussimpuls. Test:
+  `tools/test_fixed_timestep.js`.
+- Die Online-Rehydrierung rechnet einen Zug weiterhin am Stueck zu Ende
+  (`while(phase==='sim')stepSim()`) und braucht dafuer weder Akkumulator noch Uhr.
+
+### Arena-Football-Abschusskurve
+Der Zug wurde frueher **streng linear** in Geschwindigkeit umgesetzt (`v = Zuglaenge·LAUNCH`):
+ein 55-%-Zug lieferte exakt 55 % Tempo und war spielerisch fast wertlos — der Ball erreichte
+die gegnerische Gefahrenzone gar nicht mehr. Die Kurve hat deshalb zwei Formparameter:
+
+```
+v = Zuglaenge · LAUNCH · FB_LAUNCH_SCALE · t^(FB_LAUNCH_CURVE − 1),  t = Zuglaenge / maxPull
+FB_LAUNCH_SCALE = 1.26      FB_LAUNCH_CURVE = 0.98      LAUNCH = 0.034 (unveraendert)
+```
+
+`FB_LAUNCH_SCALE` hebt die Kurve als Ganzes, `FB_LAUNCH_CURVE < 1` hebt zusaetzlich die
+**Mitte** staerker als die Spitze — genau die Zone, die sich zu zaeh anfuehlte. Gegenueber der
+linearen Kurve: 100 % +26.0 %, 75 % +26.7 %, 55 % +27.5 %, 50 % +27.7 %. Die Reihenfolge
+bleibt streng monoton, ein voller Zug bleibt mit Faktor 1.80 klar staerker als ein 55-%-Zug,
+kleine Zuege bleiben moeglich. Zugklemmung (`maxPull = R0·0.40`) und Totzone (`BR·0.4`) sind
+unveraendert. **Eine** Stelle rechnet Zug in Tempo um (`fbLaunchMul`) — Maus und Touch laufen
+beide dort durch; ausserhalb Football bleibt es bei der linearen Basis.
+
+### Arena-Football-Physik
 Football-spezifische Physik, **ausschließlich** in `mode === 'football'` wirksam.
 Einziger Zugriffspunkt ist `footballPhys()`; liefert die Funktion `null`, gilt das
 bisherige Verhalten. Es gibt bewusst **keine Preset-Auswahl, keinen Debug-Schalter und
 keinen URL-Parameter** — Produktionsphysik hängt nicht von der Adresszeile ab.
 
-- **Wertesatz** `FOOTBALL_PHYS` (final **M1**, Movement-Phase 2026-08-07; loeste den
-  GLIDE-Satz der Phase 4B-3 ab): Spieler `friction 0.9976`, neutraler Ball
-  `frictionBall 0.9982` (erstmals **getrennte** Spieler-/Ball-Daempfung), Auslauf
-  `slowv 0.50` / `fend = fendBall 0.9905`, Settlement `stopv 0.050`, Restitution
-  `restBall 0.44` · `restBand 0.60` · `restPost 0.50`. Die Stellschrauben laufen
-  bewusst gegenlaeufig: laengere schnelle Gleitphase, aber frueher und haerter
-  beendeter Kriechauslauf — mehr Momentum ohne laengere Zuege. Accessoren:
+- **Wertesatz** `FOOTBALL_PHYS`: Spieler `friction 0.9958`, neutraler Ball
+  `frictionBall 0.9964` (**getrennte** Spieler-/Ball-Daempfung), Auslauf `slowv 0.70` /
+  `fend 0.9760` · `fendBall 0.9790`, Settlement `stopv 0.075`, Restitution
+  `restBall 0.44` · `restBand 0.60` · `restPost 0.50`. Die Stellschrauben laufen bewusst
+  gegenlaeufig: lebendige schnelle Gleitphase, aber frueh und hart beendeter Kriechauslauf.
+  Gemessen (freies Ausrollen, Maximalschuss): Spielerfigur **5.7 s**, neutraler Ball
+  **4.9 s** bis zum Stillstand, davon nur rund **0.8 s** unterhalb `slowv`. Accessoren:
   `curFRBall()` / `curFEBall()` / `curSLOWV()` zusaetzlich zu den bestehenden.
+- **Settlement setzt exakt auf 0.** Sobald alle Kugeln unter `stopv` liegen, werden im
+  Football Geschwindigkeit **und** Drall auf exakt 0 gesetzt. Ohne diesen Schritt bliebe eine
+  Restgeschwindigkeit stehen — die Football-Kugeln ueberleben den Rundenwechsel als dieselben
+  Objekte, das Mikrokriechen liefe also in der naechsten Runde weiter, und die Ruhelage waere
+  nur asymptotisch. Ausserhalb Football ist der Pfad bitgenau der bisherige.
 - **Iterative Kontaktauflösung** `FOOTBALL_CONTACT_ITERATIONS = 3`: dieselben Formeln in
   derselben Reihenfolge, nur mehrfach. Integration, Dämpfung und Spin laufen weiterhin
   genau einmal pro Micro-Step; Treffer-Feedback nur im ersten Durchgang.
@@ -401,8 +473,8 @@ keinen URL-Parameter** — Produktionsphysik hängt nicht von der Adresszeile ab
 - **Kein Massenmodell**, keine Maximalgeschwindigkeit, `LAUNCH` unverändert.
 - Messnotiz mit allen Zahlen und der Herleitung:
   `artifacts/football-physics-audit/README.md`.
-- Tests: `tools/test_football_shell.js` (Struktur, Werte, Abgrenzung) und
-  `tools/test_football_flow.js` (Wirkungsmessung, 43 Szenarien gegen die
+- Tests: `tools/test_football_shell.js` (Struktur, Werte, Abgrenzung, Auslauffenster,
+  Abschusskurve) und `tools/test_football_flow.js` (Wirkungsmessung gegen die
   Vergleichsmodelle CURRENT und ICE, die **nicht produktiv** sind).
 
 ### Arena-Football-UX (Phasen 1 bis 3, im Browser freigegeben)

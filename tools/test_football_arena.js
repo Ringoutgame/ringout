@@ -1,5 +1,6 @@
 // Arena-Football — Regressionssuite fuer den FINALEN Produktivstand:
-//   Rounded-Rectangle-Arena B (1152 x 812.8, Eckradius 219.2)
+//   Classic-Arena SHOULDERED WIDE (998.4 x 742.4, Eckradius 83.2) - dieselbe
+//   Objektinstanz wie das Elimination-Finale (FOOTBALL_ARENA_CLASSIC)
 //   buendige Torintegration (postFront == halfLen, lichte Torbreite 227.84)
 //   Movement M1 (getrennte Spieler-/Ball-Daempfung)
 //   neutraler Ballradius 25 (Spieler bleiben BR = 32)
@@ -75,7 +76,9 @@ function buildEnv(mode0) {
     ${curSTSrc}
     ${stepSimSrc}
     return {
-      arena(){ return FOOTBALL_ARENA; },
+      arena(){ return fbArena(); },          // Classic == FOOTBALL_ARENA_CLASSIC
+      arenaShared(){ return fbArena()===FOOTBALL_ARENA_ELIM2; },
+      arenaTactical(){ return FOOTBALL_ARENA; },
       hx(){ return fbHalfLen(); }, hz(){ return fbHalfWid(); }, rc(){ return fbCorner(); },
       shapeSD(dx,dz,hx,hz,rc){ const s=footballShapeSD(dx,dz,hx,hz,rc); return {sd:s.sd,nx:s.nx,nz:s.nz}; },
       phys(){ return FOOTBALL_PHYS; },
@@ -110,12 +113,29 @@ const F = buildEnv('football');
 const BR = 32, A = F.arena();
 
 // ── ARENA: produktive Konfiguration ────────────────────────────────────────────
-ok(A.halfLen === 18.00 && F.hx() === 576, 'Innenlaenge 1152 (halfLen 18.00 BR = 576)');
-ok(A.halfWid === 12.70 && Math.abs(F.hz() - 406.4) < 1e-9, 'Innenbreite 812.8 (halfWid 12.70 BR = 406.4)');
-ok(A.corner === 6.85 && Math.abs(F.rc() - 219.2) < 1e-9, 'Eckradius 219.2 (6.85 BR)');
+ok(A.halfLen === 15.60 && F.hx() === 499.2, 'Innenlaenge 998.4 (halfLen 15.60 BR = 499.2)');
+ok(A.halfWid === 11.60 && Math.abs(F.hz() - 371.2) < 1e-9, 'Innenbreite 742.4 (halfWid 11.60 BR = 371.2)');
+ok(A.corner === 2.60 && Math.abs(F.rc() - 83.2) < 1e-9, 'Eckradius 83.2 (2.60 BR)');
+// KANONISCHE ZWEI-FIGUREN-ARENA: Classic und das Elimination-Finale benutzen DIESELBE
+// Objektinstanz - es gibt keine zweite Beschreibung derselben Form.
+ok(F.arenaShared(), 'Classic teilt sich die Arenainstanz mit dem Elimination-Finale');
+ok(Array.isArray(A.poly) && A.poly.length === 8, 'Shouldered Wide: achteckiges Kernpolygon (2 Banden, 2 Torwaende, 4 Schultern)');
+ok(F.arenaTactical().halfLen === 18.00 && F.arenaTactical().corner === 6.85,
+   'Tactical behaelt unveraendert die alte Rounded-Rectangle-Arena');
+// Classic und Tactical stehen auf VERSCHIEDENEN Arenaformen. Der 3D-Renderer baut Form und
+// Tore nur neu, wenn sich sein Layout-Schluessel aendert - der Schluessel muss die Variante
+// deshalb unterscheiden. Taete er das nicht, bliebe nach Tactical -> Menue -> Classic die
+// alte Arena stehen, waehrend die Physik bereits die neue Grenze benutzt.
+ok(/const fbPhaseWant=footballView\?\(fbElim4\(\)\?'elim'\+fbElimPhaseN:\(fbTactical\(\)\?'tac':'classic'\)\):'';/.test(SRC),
+   'der 3D-Layout-Schluessel unterscheidet Elimination-Phase, Tactical und Classic');
+// Dieselbe Frage stellt sich fuer die KAMERA: sie rahmt aus fbArena(), wird aber nur bei
+// Groessenaenderung oder Wechsel der Ansichtsrotation neu berechnet. Ohne eigene Kennung
+// bliebe sie nach einem Variantenwechsel auf dem Rahmen der vorherigen Arena stehen.
+ok(/function fbFrameKey\(\)\{/.test(SRC) && /va!==curVA\|\|fbk!==curFBK/.test(SRC),
+   'die Kamera rahmt neu, sobald sich die Arenaform aendert (fbFrameKey)');
 ok(A.corner < A.halfWid && A.corner < A.halfLen, 'Eckradius kleiner als beide Halbmasse');
 ok(A.halfWid - A.corner > A.postOuter, 'gerade Stirnseite reicht ueber die Sockelaussenkante hinaus');
-ok(A.spawn === 7.65, 'Spawnabstand 7.65 BR (244.8)');
+ok(A.spawn === 10.15, 'Spawnabstand 10.15 BR (324.8)');
 // Keine Kreisannahme mehr im produktiven Grenzpfad:
 ok(!/flim=R-BR/.test(stepSimSrc), 'stepSim enthaelt keine radiale Kreisgrenze (flim=R-BR) mehr');
 ok(/footballBoundSD\(fb\)/.test(stepSimSrc), 'stepSim nutzt die Rounded-Rectangle-Grenze (footballBoundSD)');
@@ -153,7 +173,7 @@ ok(!/FOOTBALL_MOVE_PRESETS|footballMoveKey/.test(SRC), 'keine Movement-Presets m
 // ── TOR: buendige Integration, Masse, Passage ──────────────────────────────────
 ok(A.postFront === A.halfLen, 'Tor buendig: Sockelvorderkante exakt auf der Bandeninnenflaeche');
 ok(Math.abs(F.clearHalf() * 2 - 227.84) < 1e-9, 'lichte Torbreite 227.84');
-ok(Math.abs(A.postBack * BR - 651.776) < 1e-9, 'Torlinie (Sockelhinterkante) bei 651.776');
+ok(Math.abs(A.postBack * BR - 574.976) < 1e-9, 'Torlinie (Sockelhinterkante) bei 574.976');
 // Keine Ballfang-Tasche: kein Punkt INNERHALB der Ballmitten-Grenze kommt dem
 // Sockelrechteck naeher als der Ballradius (geprueft fuer Ball 25 und Spieler 32).
 for (const r of [25, 32]) {
@@ -172,9 +192,9 @@ for (const r of [25, 32]) {
 }
 // Passage-Gate: nur der neutrale Ball, nur an der Stirnseite, nur in der nutzbaren Breite.
 ok(Math.abs(F.centerHalf() - 88.92) < 1e-9, 'nutzbare Zentrums-Halbbreite 88.92 (clearHalf - Ballradius 25)');
-ok(F.canPass({ owner: F.neutral(), x: 500 + 576, y: 500 + 88 }), 'neutraler Ball innerhalb der Oeffnung darf passieren');
-ok(!F.canPass({ owner: 0, x: 500 + 576, y: 500 }), 'Spielerkugel darf NIE passieren');
-ok(!F.canPass({ owner: F.neutral(), x: 500 + 576, y: 500 + 90 }), 'neutraler Ball knapp ausserhalb der nutzbaren Breite passiert nicht');
+ok(F.canPass({ owner: F.neutral(), x: 500 + 499.2, y: 500 + 88 }), 'neutraler Ball innerhalb der Oeffnung darf passieren');
+ok(!F.canPass({ owner: 0, x: 500 + 499.2, y: 500 }), 'Spielerkugel darf NIE passieren');
+ok(!F.canPass({ owner: F.neutral(), x: 500 + 499.2, y: 500 + 90 }), 'neutraler Ball knapp ausserhalb der nutzbaren Breite passiert nicht');
 ok(!F.canPass({ owner: F.neutral(), x: 500 + 10, y: 500 + 88 }), 'Oeffnung gilt nur an der Stirnseite (|x| > |y|)');
 // Verhaltenstest: mittiger Schuss = Tor fuer Blau; Spieler wird an der Oeffnung geblockt.
 {
@@ -202,16 +222,16 @@ ok(/const rb=ballRad\(b\);/.test(footballBlock), 'Anti-Wedge-Kontakte nutzen bal
 // ── MOVEMENT M1 ────────────────────────────────────────────────────────────────
 {
   const p = F.phys();
-  ok(p.friction === 0.9976, 'Spieler-Daempfung 0.9976');
-  ok(p.frictionBall === 0.9982, 'Ball-Daempfung 0.9982');
-  ok(p.fend === 0.9905 && p.fendBall === 0.9905, 'Auslaufdaempfung 0.9905 (Spieler und Ball)');
-  ok(p.slowv === 0.50, 'Auslaufschwelle slowv 0.50');
-  ok(p.stopv === 0.050, 'Settlement-Schwelle stopv 0.050');
+  ok(p.friction === 0.9958, 'Spieler-Daempfung 0.9958');
+  ok(p.frictionBall === 0.9964, 'Ball-Daempfung 0.9964');
+  ok(p.fend === 0.9760 && p.fendBall === 0.9790, 'Auslaufdaempfung 0.9760 / 0.9790 (Spieler / Ball)');
+  ok(p.slowv === 0.70, 'Auslaufschwelle slowv 0.70');
+  ok(p.stopv === 0.075, 'Settlement-Schwelle stopv 0.075');
   ok(p.restBall === 0.44 && p.restBand === 0.60 && p.restPost === 0.50, 'Restitution 0.44 / 0.60 / 0.50');
   ok(p.frictionBall !== p.friction, 'Spieler-/Ball-Daempfung sind getrennt');
   const e = F.eff();
-  ok(e.fr === 0.9976 && e.frB === 0.9982 && e.fe === 0.9905 && e.feB === 0.9905 && e.sv === 0.50 && e.st === 0.050,
-     'Accessoren liefern im Football-Modus exakt die M1-Werte');
+  ok(e.fr === 0.9958 && e.frB === 0.9964 && e.fe === 0.9760 && e.feB === 0.9790 && e.sv === 0.70 && e.st === 0.075,
+     'Accessoren liefern im Football-Modus exakt die freigegebenen Daempfungswerte');
   ok(e.rb === 0.44 && e.rband === 0.60 && e.rpost === 0.50, 'Restitutions-Accessoren liefern M1');
   // Ausserhalb Football: exakt die globalen Konstanten (RingOut unveraendert).
   const G = buildEnv('bot'), ge = G.eff(), gg = G.globals();
@@ -223,30 +243,40 @@ ok(/const rb=ballRad\(b\);/.test(footballBlock), 'Anti-Wedge-Kontakte nutzen bal
 
 // ── TOR: Totzonen-Schutz (Review-Befund der Finalisierung) ─────────────────────
 // Ein langsam durchgetretener Ball kann VOR der Torlinie liegenbleiben, jenseits der
-// maximalen Spielerreichweite (halfLen + Ballradius = 601). Ohne Wertung waere das Match
+// maximalen Spielerreichweite (halfLen + Ballradius = 524.2). Ohne Wertung waere das Match
 // dauerhaft blockiert. footballGoalSide wertet einen RUHENDEN, unerreichbaren Kanalball
-// als Tor; ein noch erreichbarer Kanalball (|dx| <= 601) bleibt dagegen im Spiel.
+// als Tor; ein noch erreichbarer Kanalball (|dx| <= 524.2) bleibt dagegen im Spiel.
 {
   const V = F.launchV();
-  // Startgeschwindigkeit so, dass der Ball hinter der Bandenlinie, aber vor der Torlinie
-  // liegenbliebe (reproduzierter Softlock: Endlage ~649 > Reichweite 601).
-  F.reset(); F.setBalls([{ x: 500 + 430, y: 500, vx: 0.8, vy: 0, owner: F.neutral() }]);
+  // Start und Geschwindigkeit so, dass der Ball hinter der Bandenlinie, aber VOR der
+  // Torlinie liegenbleibt: Endlage zwischen der maximalen Spielerreichweite (524.2) und
+  // der Torlinie (574.976) - genau die Lage, die ohne Wertung dauerhaft blockieren wuerde.
+  F.reset(); F.setBalls([{ x: 500 + 470, y: 500, vx: 0.95, vy: 0, owner: F.neutral() }]);
   let goal = false;
   for (let i = 0; i < 2400 && !goal; i++) { F.step(); goal = F.goalState() !== 'play'; }
   ok(goal && F.score()[0] === 1, 'Totzonen-Schutz: unerreichbar ruhender Kanalball wird als Tor gewertet');
   // Gegenprobe: Ball ruht knapp HINTER der Bandenlinie, aber innerhalb der Reichweite —
   // kein Tor, der Ball bleibt spielbar.
-  ok(F.goalSide({ owner: F.neutral(), fbPassed: true, x: 500 + 590, y: 500, vx: 0, vy: 0 }) === -1,
-     'erreichbarer Kanalball (|dx|=590) wird NICHT gewertet');
+  ok(F.goalSide({ owner: F.neutral(), fbPassed: true, x: 500 + 515, y: 500, vx: 0, vy: 0 }) === -1,
+     'erreichbarer Kanalball (|dx|=515) wird NICHT gewertet');
 }
 
 // ── SPAWNS ─────────────────────────────────────────────────────────────────────
 {
   const pl = F.place();
   ok(pl.length === 3 && pl[2].x === 500 && pl[2].y === 500, 'Ballspawn exakt im Mittelpunkt');
-  ok(pl[0].x === 500 - 244.8 && pl[1].x === 500 + 244.8 && pl[0].y === 500 && pl[1].y === 500, 'Spielerspawns symmetrisch bei +-244.8');
-  const s = F.shapeSD(pl[0].x - 500, pl[0].y - 500, F.hx() - 32, F.hz() - 32, F.rc() - 32);
-  ok(s.sd < 0, 'Spielerspawn liegt innerhalb der Arena');
+  ok(pl[0].x === 500 - 324.8 && pl[1].x === 500 + 324.8 && pl[0].y === 500 && pl[1].y === 500, 'Spielerspawns symmetrisch bei +-324.8');
+  // Gemessen an der ECHTEN Grenze (footballBoundSD, achteckiges Kernpolygon + Eckradius),
+  // nicht am umschliessenden Rechteck - die Schultern schneiden die Ecken ja gerade weg.
+  ok(F.sd(0) < 0 && F.sd(1) < 0, 'beide Spielerspawns liegen innerhalb der echten Grenze');
+  ok(Math.abs(F.sd(0) - F.sd(1)) < 1e-9, 'beide Spawns haben denselben Bandenabstand');
+  ok(F.sd(2) < 0, 'der Ballspawn liegt innerhalb der echten Grenze');
+  // Abstand Figur -> eigene Torlinie und Figur -> Ball: beide Seiten exakt gleich.
+  ok(Math.abs((pl[0].x - 500) + (pl[1].x - 500)) < 1e-9, 'die Spawns sind exakt gegenueber');
+  ok(Math.abs(Math.abs(pl[0].x - 500) - A.spawn * BR) < 1e-9,
+     'Startdistanz zur Mitte == spawn*BR (' + (A.spawn * BR) + ')');
+  ok(Math.abs(A.postFront * BR - Math.abs(pl[0].x - 500)) > 32 + 25,
+     'zwischen Figur und Torlinie passt Ball und Figur - kein Spawn im Torkorridor');
 }
 
 // ── SAFETY: Determinismus, kein NaN, kein Ausbruch, keine Energieerzeugung ────

@@ -74,6 +74,8 @@ const curSTSrc = grab(/function curST\(\)[^\n]*/, 'curST');
 const halfDepthSrc = grab(/const FB_GOAL_HALF_DEPTH=[^\n]*/, 'FB_GOAL_HALF_DEPTH');
 const arenaSrc = grab(/const FOOTBALL_ARENA=\{[\s\S]*?\};/, 'FOOTBALL_ARENA');
 const presetSrc = grab(/const FOOTBALL_PHYS=\{[\s\S]*?\nfunction curRestPost\(\)[^\n]*/, 'FOOTBALL_PHYS block');
+// Abschusskurve - unveraendert aus dem Produktivcode.
+const tempoSrc = grab(/const FB_LAUNCH_SCALE=[\s\S]*?\nfunction fbLaunchMul\(len\)\{[\s\S]*?\n\}/, 'Abschusskurve');
 const postProbeSrc = grab(/function footballPostProbe\(b\)\{[\s\S]*?\n\}/, 'footballPostProbe');
 const wedgeSrc = grab(/const FOOTBALL_WEDGE_MIN_CONTACTS=[\s\S]*?\nfunction footballEscape\(b,cs\)\{[\s\S]*?\n\}/, 'wedge block');
 const goalClearHalfSrc = grab(/function footballGoalClearHalf\([^\n]*/, 'footballGoalClearHalf');
@@ -155,6 +157,7 @@ const goalAudio={plays:0,matchPoints:0,preloads:0,stops:0};   // Tor-Audio: Aufr
     ${curSTSrc}
     ${inputLockedSrc}
     ${canCommitSrc}
+    ${tempoSrc}
     ${stepSimSrc}
     // ── Kontaktpass-Zaehler (Physikphase 4B-1) ──
     // Rein beobachtend: beide Wrapper reichen Argumente und Rueckgabewert unveraendert
@@ -185,6 +188,15 @@ const goalAudio={plays:0,matchPoints:0,preloads:0,stops:0};   // Tor-Audio: Aufr
       presetName(){ return __model; },
       prodPhys(){ return FOOTBALL_PHYS; },
       preset(){ return footballPhys(); },
+      // Kandidatenwechsel wie der Dev-Parameter ?roll=: dasselbe mutable Objekt.
+      setPhys(o){ Object.assign(FOOTBALL_PHYS, o); },
+      maxLaunchV(){ return maxPull()*LAUNCH; },
+      curve(){ return {scale:FB_LAUNCH_SCALE, curve:FB_LAUNCH_CURVE}; },
+      // Geschwindigkeit fuer einen Zug der Staerke frac (0..1 von maxPull) - genau die
+      // Rechnung, die applyLaunch im Spiel ausfuehrt.
+      launchV(frac){ const len=maxPull()*frac; return len*fbLaunchMul(len); },
+      // Die alte, streng lineare Kurve als Referenz fuer die Gewinnangaben.
+      linearV(frac){ return maxPull()*frac*LAUNCH; },
       // Effektive Physik, wie stepSim sie sieht — geht durch dieselben Accessoren.
       effective(){ return {fr:curFR(), fe:curFE(), stopv:curST(), slowv:curSLOWV(),
                            frBall:curFRBall(), feBall:curFEBall(),
@@ -309,8 +321,8 @@ ok(near(F.clearHalf() - F.centerHalf(), F.neutralR()), 'Reduktion ist exakt der 
 { const bx = F.box();
   ok(near(bx.y0, 3.560 * F.BR), 'Sockel-Innenkante = 3.560*BR = ' + bx.y0.toFixed(2) + ' (1.780 Blender)');
   ok(near(bx.y1, 5.282 * F.BR), 'Sockel-Aussenkante = 5.282*BR = ' + bx.y1.toFixed(2) + ' (2.641 Blender)');
-  ok(near(bx.x0, 18.00 * F.BR), 'Sockel-Vorderkante = halfLen = 18.00*BR = ' + bx.x0.toFixed(1));
-  ok(near(bx.x1, (18.00 + 2 * 1.184) * F.BR), 'Sockel-Hinterkante = halfLen + 2*1.184 = 20.368*BR = ' + bx.x1.toFixed(3));
+  ok(near(bx.x0, 15.60 * F.BR), 'Sockel-Vorderkante = halfLen = 15.60*BR = ' + bx.x0.toFixed(1));
+  ok(near(bx.x1, (15.60 + 2 * 1.184) * F.BR), 'Sockel-Hinterkante = halfLen + 2*1.184 = 17.968*BR = ' + bx.x1.toFixed(3));
   ok(bx.x0 < bx.x1 && bx.y0 < bx.y1, 'Sockel-Rechteck ist nicht degeneriert');
   // TORINTEGRATION: postFront == halfLen — die Sockelvorderkante liegt EXAKT auf der
   // Bandeninnenflaeche. Eine Ballmitte im Feld kommt hoechstens bis halfLen-r; der
@@ -503,7 +515,7 @@ for (const owner of [0, 1]) for (const dir of [+1, -1]) {
 // Der Sockel bleibt HINTER der Torlinie ein echtes Hindernis: ein durch die Oeffnung
 // ausgetretener Ball, der tangential in die Sockelunterkante driftet, wird mit
 // curRestPost() reflektiert (footballResolvePost gilt auch fuer ausgetretene Baelle).
-{ F.setBalls([{ x: F.cx + 610, y: F.cy, vx: 0, vy: 3, owner: 4 }]);
+{ F.setBalls([{ x: F.cx + (F.box().x0 + F.box().x1) / 2, y: F.cy, vx: 0, vy: 3, owner: 4 }]);
   let hit = null, preVy = 3, minG = Infinity;
   for (let i = 0; i < 40 && !hit; i++) {
     const pre = F.get().balls[0];
@@ -600,7 +612,7 @@ const G = buildEnv('football', 'single');      // eigene Instanz: Zustand bleibt
 const NR = G.neutralR();                       // Radius des neutralen Balls (fbBallR = 25)
 
 // ── A. GOAL DETECTION ──
-ok(near(GOAL_LINE, 20.368 * F.BR, 1e-9), 'Torlinie = Sockel-Hinterkante 20.368*BR = ' + GOAL_LINE.toFixed(3) + ' (keine neue Magic Number)');
+ok(near(GOAL_LINE, 17.968 * F.BR, 1e-9), 'Torlinie = Sockel-Hinterkante 17.968*BR = ' + GOAL_LINE.toFixed(3) + ' (keine neue Magic Number)');
 // Zentrum GENAU auf der Linie zaehlt noch nicht — erst der VOLLSTAENDIG passierte Ball
 // (Schwelle: |dx| - fbBallR > postBack*BR, also der Radius des NEUTRALEN Balls).
 ok(G.goalSide({ owner: 4, fbPassed: true, x: G.cx + GOAL_LINE, y: G.cy }) === -1, 'Ballzentrum auf der Torlinie zaehlt noch NICHT');
@@ -1405,10 +1417,10 @@ ok(/if\(it===0\)\{/.test(HTML), 'Treffer-Feedback ist auf den ersten Kontaktpass
 // 'BASELINE' schaltet die Football-Physik ab (globale Konstanten).
 // ══════════════════════════════════════════════════════════════════════════════
 
-// ── A. Genau ein Produktivstandard mit den freigegebenen M1-Werten ──
+// ── A. Genau ein Produktivstandard mit den freigegebenen Daempfungswerten ──
 {
-  const FINAL = { friction: 0.9976, frictionBall: 0.9982, fend: 0.9905, fendBall: 0.9905,
-                  slowv: 0.50, stopv: 0.050, restBall: 0.44, restBand: 0.60, restPost: 0.50 };
+  const FINAL = { friction: 0.9958, frictionBall: 0.9964, fend: 0.9760, fendBall: 0.9790,
+                  slowv: 0.70, stopv: 0.075, restBall: 0.44, restBand: 0.60, restPost: 0.50 };
   const P = buildEnv('football', 'single'), prod = P.prodPhys(), T = P.tune();
   for (const k of Object.keys(FINAL))
     ok(prod[k] === FINAL[k], 'FOOTBALL_PHYS.' + k + ' = ' + FINAL[k] + ' (erhalten: ' + prod[k] + ')');
@@ -1484,8 +1496,11 @@ ok(/if\(it===0\)\{/.test(HTML), 'Treffer-Feedback ist auf den ersten Kontaktpass
       const b = e.get().balls[0]; dist += Math.hypot(b.x - prev.x, b.y - prev.y); prev = b; }
     return { frames: f, dist }; };
   const rB = roll('BASELINE'), rP = roll('PROD');
-  ok(rP.frames > rB.frames * 1.5,
-     'Ausrollzeit steigt deutlich: Baseline ' + rB.frames + ' -> produktiv ' + rP.frames + ' Frames');
+  // Die Football-Daempfung traegt denselben Schuss deutlich WEITER, kostet dafuer aber nur
+  // wenig mehr Zeit: der Ball ist laenger schnell statt laenger langsam. Genau das war das
+  // Ziel des Tunings - Reichweite ohne Kriechauslauf.
+  ok(rP.frames > rB.frames && rP.frames < rB.frames * 1.5,
+     'Ausrollzeit steigt nur maessig: Baseline ' + rB.frames + ' -> produktiv ' + rP.frames + ' Frames');
   ok(rP.dist > rB.dist * 1.5,
      'Ausrollstrecke steigt deutlich: ' + rB.dist.toFixed(0) + ' -> ' + rP.dist.toFixed(0) + ' px');
   ok(rP.frames < 4000, 'der Produktivstand settled endlich (kein ewiges Mikrokriechen)');
@@ -2451,6 +2466,202 @@ const fbCssSrc = grab(/#game\.fb \.status\{[\s\S]*?\n\.arena-wrap\{/, 'Football-
      'Goal-FX-Dauer und beide Celebration Windows sind unveraendert (1500 ms / 51 / 66 Ticks)');
   ok(!/SFX\./.test(strip(grab(/function footballGoalSide\(b\)\{[\s\S]*?\n\}/, 'footballGoalSide'))),
      'die Goal Detection enthaelt keinerlei Audioaufruf');
+}
+
+
+// =================================================================================
+// R - ROLL- UND SETTLEMENTVERHALTEN
+// =================================================================================
+// Der Auslauf war der groesste Gameplaydefekt des Bestands: ein Maximalschuss brauchte
+// 11 s (Figur) bzw. 14 s (Ball) bis zum Stillstand, allein 2 s davon als Kriechauslauf.
+// Dieser Block sichert den freigegebenen Daempfungssatz gegen genau diesen Rueckfall ab -
+// und dass am Ende wirklich Ruhe herrscht statt Mikrokriechen.
+{
+  // KEIN kuenstlicher Tor-Timer: der lange Auslauf wurde ueber Physik geloest, nicht ueber
+  // eine Sonderregel. Die Torwertung kennt weiterhin weder Wanduhr noch Zeitschranke.
+  const goalSrc = HTML.match(/function footballGoalCrossed\(b\)\{[\s\S]*?\n\}/)[0];
+  ok(!/Date\.now|performance\.now|setTimeout|setInterval/.test(goalSrc.replace(/\/\/[^\n]*/g, '')),
+     'die Goal Detection enthaelt weder Wanduhr noch Timer - kein kuenstlicher Tor-Timer');
+
+  const E = buildEnv('football', 'single');
+  const ARENA_LEN = F.halfLen() * 2;
+  // Ein Maximalschuss quer durch die Arena, bis alles steht.
+  const runSettle = (owner) => {
+    const VM = E.maxLaunchV();
+    E.setBalls([{ x: E.cx, y: E.cy, vx: 0.6 * VM, vy: 0.8 * VM, owner }]);
+    const slowv = E.effective().slowv;
+    let frames = 0, tail = null, dist = 0, prev = E.get().balls[0], finite = true, maxSD = -Infinity;
+    for (let i = 1; i <= 3600; i++) {
+      E.step();
+      const g = E.get(), b = g.balls[0];
+      if (!Number.isFinite(b.x) || !Number.isFinite(b.y) || !Number.isFinite(b.vx) || !Number.isFinite(b.vy)) finite = false;
+      maxSD = Math.max(maxSD, E.boundSD(b).sd);
+      dist += Math.hypot(b.x - prev.x, b.y - prev.y);
+      prev = b;
+      if (tail === null && Math.hypot(b.vx, b.vy) <= slowv) tail = i;
+      if (g.phase !== 'sim') { frames = i; break; }
+    }
+    return { frames, tailFrames: tail === null || !frames ? null : frames - tail, dist, finite, maxSD, end: E.get() };
+  };
+
+  for (const [who, owner] of [['Spieler', 0], ['Ball', 4]]) {
+    const r = runSettle(owner);
+    const secs = r.frames / 60;
+    ok(r.finite, who + ': keine NaN- oder Infinity-Werte');
+    ok(r.frames > 0, who + ': das Settlement wird ueberhaupt erreicht');
+    // Regressionsfenster, keine Punktmessung: entscheidend ist, dass der Auslauf klar
+    // unter dem alten Kriechverhalten bleibt und trotzdem nicht abgehackt wirkt.
+    ok(secs >= 2.0 && secs <= 7.0,
+       who + ': Auslauf ' + secs.toFixed(2) + ' s liegt im freigegebenen Fenster [2.0, 7.0]');
+    ok(r.tailFrames !== null && r.tailFrames / 60 <= 1.5,
+       who + ': Low-Speed-Tail ' + (r.tailFrames / 60).toFixed(2) + ' s <= 1.5 s');
+    ok(r.dist >= ARENA_LEN * 0.9,
+       who + ': Maximalschuss legt ' + Math.round(r.dist) + ' px zurueck (>= 0.9 Arenalaengen)');
+    ok(r.maxSD <= 1e-6, who + ': kein Bandendurchbruch (max SD ' + r.maxSD.toFixed(6) + ')');
+    // STOPVERHALTEN: nach dem Settlement steht ALLES exakt still - kein Mikrokriechen.
+    ok(r.end.balls.every((b) => b.vx === 0 && b.vy === 0),
+       who + ': nach dem Settlement ist jede Geschwindigkeit exakt 0');
+    ok(r.end.phase === 'aim', who + ': die Planungsphase wird regulaer geoeffnet');
+  }
+
+  // KEINE REAKTIVIERUNG OHNE KRAFT: ruhende Kugeln bewegen sich nicht von selbst.
+  {
+    const before = JSON.stringify(E.get().balls.map((b) => [b.x, b.y, b.vx, b.vy]));
+    for (let i = 0; i < 120; i++) E.step();
+    ok(JSON.stringify(E.get().balls.map((b) => [b.x, b.y, b.vx, b.vy])) === before,
+       'ruhende Kugeln bewegen sich ohne Kraft nicht wieder');
+  }
+  // DETERMINISMUS: derselbe Zug zweimal, exakt dasselbe Ergebnis.
+  {
+    const snap = () => { const r = runSettle(4); return JSON.stringify(r.end.balls); };
+    ok(snap() === snap(), 'derselbe Zug liefert bitgleich denselben Endzustand');
+  }
+  // Der Settlement-Snap gilt AUSSCHLIESSLICH im Football - Bestandsmodi bleiben unberuehrt.
+  ok(/if\(mode==='football'\)for\(const b of balls\)\{b\.vx=0;b\.vy=0;b\.spin=0;\}/.test(HTML),
+     'der Settlement-Snap setzt Geschwindigkeit UND Drall exakt auf 0, nur im Football');
+}
+
+// =================================================================================
+// T - ABSCHUSSANTWORT
+// =================================================================================
+// Der Zug wurde frueher streng linear in Tempo umgesetzt: ein 55-%-Zug lieferte exakt
+// 55 % Geschwindigkeit und war spielerisch fast wertlos. Die Kurve hat deshalb zwei
+// Formparameter; die Daempfung bleibt davon unberuehrt.
+{
+  const P = buildEnv('football', 'single');
+  const C = P.curve();
+  ok(C.scale === 1.26 && C.curve === 0.98, 'freigegebene Kurve: scale 1.26, curve 0.98');
+  ok(/const FB_LAUNCH_SCALE=1\.26;/.test(HTML) && /const FB_LAUNCH_CURVE=0\.98;/.test(HTML),
+     'beide Formparameter stehen als benannte Konstanten im Produktivcode');
+  ok(/return LAUNCH\*FB_LAUNCH_SCALE\*Math\.pow\(t,FB_LAUNCH_CURVE-1\);/.test(HTML),
+     'die Kurve folgt der dokumentierten Formel');
+  ok(/const LAUNCH=0\.034/.test(HTML) || /LAUNCH=0\.034/.test(HTML), 'die Basis LAUNCH bleibt 0.034');
+  ok(/MAXPULL_FRAC=0\.40/.test(HTML), 'die Zugklemmung maxPull bleibt R0*0.40');
+  ok(/pl<BR\*0\.4/.test(HTML), 'die Totzone bleibt BR*0.4');
+  // EINE Kurve fuer alle Eingaben: Maus und Touch laufen durch dieselbe Funktion.
+  ok(!/addEventListener\('touchstart'|addEventListener\('mousedown'/.test(HTML),
+     'kein separater Touch- oder Maus-Pfad - die Eingabe laeuft ueber Pointer Events');
+  ok(/const mul=typeof fbLaunchMul==='function'\?fbLaunchMul\(Math\.hypot\(commitAim\[p\]\.dx,commitAim\[p\]\.dy\)\):LAUNCH;/.test(HTML),
+     'die Geschwindigkeit entsteht an genau einer Stelle aus der Zuglaenge');
+  // Ausserhalb Football bleibt die Kurve die lineare Basis.
+  ok(/if\(!\(len>0\)\|\|mode!=='football'\)return LAUNCH;/.test(HTML),
+     'ausserhalb Football rechnet der Abschuss unveraendert linear');
+  // Die abgeschlossene Vergleichsmatrix darf nicht zurueckbleiben.
+  ok(!/FB_TEMPO_SETS|FB_ROLL_SETS|DEV_TEMPO|DEV_ROLL/.test(HTML),
+     'keine Tempo-/Roll-Vergleichsmatrix mehr im Produktivcode');
+
+  const POWERS = [0.25, 0.50, 0.55, 0.75, 1.00];
+  const v = POWERS.map((f) => P.launchV(f));
+  ok(v.every((x) => Number.isFinite(x) && x > 0), 'alle Abschusswerte sind endlich und positiv');
+  for (let i2 = 1; i2 < v.length; i2++)
+    ok(v[i2] > v[i2 - 1], Math.round(POWERS[i2] * 100) + ' % ist schneller als ' +
+       Math.round(POWERS[i2 - 1] * 100) + ' % (' + v[i2].toFixed(3) + ' > ' + v[i2 - 1].toFixed(3) + ')');
+  ok(P.launchV(0.55) === P.launchV(0.55), 'derselbe Zug liefert exakt dieselbe Geschwindigkeit');
+  ok(v[4] < 12, 'der volle Zug bleibt unter 12 px je Micro-Step (' + v[4].toFixed(3) + ')');
+  // Sanity-Fenster der freigegebenen Messung: 55 % ~4.63, 100 % ~8.31.
+  ok(Math.abs(v[2] - 4.626) < 0.05, '55 %: ' + v[2].toFixed(3) + ' (Freigabe ~4.626)');
+  ok(Math.abs(v[4] - 8.311) < 0.05, '100 %: ' + v[4].toFixed(3) + ' (Freigabe ~8.311)');
+  // Gegen die alte lineare Kurve: die MITTE gewinnt mindestens so viel wie die Spitze.
+  const g = (f) => P.launchV(f) / P.linearV(f) - 1;
+  ok(g(1) > 0.20 && g(1) < 0.35, '100 % liegt ' + (g(1) * 100).toFixed(1) + ' % ueber der linearen Basis');
+  for (const f of [0.50, 0.55, 0.70])
+    ok(g(f) > 0.20 && g(f) < 0.35,
+       Math.round(f * 100) + ' % liegt ' + (g(f) * 100).toFixed(1) + ' % ueber der linearen Basis');
+  ok(g(0.55) >= g(1) - 1e-12, 'der mittlere Zug gewinnt mindestens so viel wie der volle');
+  ok(P.launchV(0.25) < P.launchV(1) * 0.45, 'kleine Zuege bleiben klar schwaecher');
+  ok(P.launchV(1) / P.launchV(0.55) > 1.6, 'ein voller Zug bleibt deutlich staerker als ein halber');
+
+  // ── Verhalten in der Arena: schneller Start, kein Durchbruch, sauberer Stillstand ──
+  const E = buildEnv('football', 'single');
+  const VM = E.launchV(1);
+  E.setBalls([{ x: E.cx, y: E.cy, vx: VM * 0.6, vy: VM * 0.8, owner: 4 }]);
+  let frames = 0, maxSD = -Infinity, postOk = true, finite = true;
+  for (let i2 = 1; i2 <= 3600; i2++) {
+    E.step();
+    const g2 = E.get(), b = g2.balls[0];
+    if (!Number.isFinite(b.x) || !Number.isFinite(b.y) || !Number.isFinite(b.vx) || !Number.isFinite(b.vy)) finite = false;
+    maxSD = Math.max(maxSD, E.boundSD(b).sd);
+    if (E.boxGap(b) < 25 - PEN_EPS) postOk = false;   // 25 = Radius des neutralen Balls
+    if (g2.phase !== 'sim') { frames = i2; break; }
+  }
+  ok(finite, 'keine NaN- oder Infinity-Werte bei voller Abschussgeschwindigkeit');
+  ok(maxSD <= 1e-6, 'kein Bandendurchbruch bei voller Geschwindigkeit (max SD ' + maxSD.toFixed(6) + ')');
+  ok(postOk, 'kein Pfostendurchbruch bei voller Geschwindigkeit');
+  ok(frames > 0 && frames / 60 <= 7.0, 'Auslauf ' + (frames / 60).toFixed(2) + ' s bleibt unter 7 s');
+  ok(E.get().balls.every((b) => b.vx === 0 && b.vy === 0), 'nach dem Settlement ist alles exakt 0');
+
+  // ── Spieler -> Ball und Spieler -> Spieler: der Uebertrag haengt NUR an der Restitution ──
+  for (const [label, otherOwner] of [['Ball', 4], ['Spieler', 1]]) {
+    const G = buildEnv('football', 'single');
+    G.setBalls([{ x: G.cx - 260, y: G.cy - 260, vx: G.launchV(1), vy: 0, owner: 0 },
+                { x: G.cx, y: G.cy - 260, vx: 0, vy: 0, owner: otherOwner }]);
+    let vIn = null, give = null, keep = null;
+    for (let i2 = 0; i2 < 600; i2++) {
+      const before = G.get().balls;
+      G.step();
+      const now = G.get().balls;
+      if (Math.hypot(now[1].vx, now[1].vy) > 1e-9) {
+        vIn = Math.hypot(before[0].vx, before[0].vy);
+        give = Math.hypot(now[1].vx, now[1].vy) / vIn;
+        keep = Math.hypot(now[0].vx, now[0].vy) / vIn;
+        break;
+      }
+    }
+    ok(vIn !== null, 'Spieler -> ' + label + ': der Kontakt kommt zustande');
+    ok(vIn && Math.abs(give - 0.714) < 0.01 && Math.abs(keep - 0.278) < 0.01,
+       'Spieler -> ' + label + ': Impulsaufteilung unveraendert (' + give.toFixed(3) + ' / ' + keep.toFixed(3) + ')');
+  }
+
+  // ── Bankshot bleibt spielbar ──
+  {
+    const B2 = buildEnv('football', 'single');
+    const VM2 = B2.launchV(1), ang = 40 * Math.PI / 180;
+    B2.setBalls([{ x: B2.cx - F.halfLen() * 0.45, y: B2.cy, vx: VM2 * Math.sin(ang), vy: VM2 * Math.cos(ang), owner: 4 }]);
+    let vIn = null, vOut = null, prev = B2.get().balls[0];
+    for (let i2 = 0; i2 < 900; i2++) {
+      B2.step();
+      const b = B2.get().balls[0];
+      if (vIn === null && prev.vy > 0 && b.vy < 0) { vIn = Math.hypot(prev.vx, prev.vy); vOut = Math.hypot(b.vx, b.vy); }
+      prev = b;
+      if (vIn !== null || B2.get().phase !== 'sim') break;
+    }
+    ok(vIn !== null, 'der Bankshot erreicht die Bande');
+    ok(vIn && vOut / vIn > 0.70,
+       'der Bandenabpraller behaelt ' + (vOut / vIn).toFixed(3) + ' der Geschwindigkeit');
+  }
+
+  // ── Torwertung genau einmal, auch beim schnellsten Schuss ──
+  {
+    const K = buildEnv('football', 'single');
+    K.newMatch();
+    K.setBalls([{ x: K.cx, y: K.cy, vx: K.launchV(1), vy: 0, owner: 4 }]);
+    let scored = false;
+    for (let i2 = 0; i2 < 900; i2++) { K.step(); if (K.goalState() !== 'play') { scored = true; break; } }
+    ok(scored && K.score()[0] === 1 && K.score()[1] === 0, 'der schnellste Schuss ergibt genau EIN Tor');
+    const before = JSON.stringify(K.score());
+    for (let i2 = 0; i2 < 300; i2++) K.step();
+    ok(JSON.stringify(K.score()) === before, 'das Tor wird nicht ein zweites Mal gewertet');
+  }
 }
 
 console.log('\nFootball-Shell: ' + pass + ' passed, ' + fail + ' failed');

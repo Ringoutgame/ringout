@@ -1,6 +1,6 @@
 # TODO.md — RingOut
 
-**Zuletzt aktualisiert:** 2026-08-27 (Arena Football: finale Elimination-Arenaformen und **beide** Arenawechsel animiert und mit Gold-Kantenfeedback versehen; offen bleiben Kamera-Framing-Politur, Online und die bekannten P2s)
+**Zuletzt aktualisiert:** 2026-08-27 (Arena Football: Gameplay-Block abgeschlossen — zwei Leben in der Elimination, Classic auf Shouldered Wide, fester 60-Hz-Gameplay-Takt, neue Daempfung und dynamischere Abschusskurve; offen bleiben 5 Spieler, Online, Kamera-Framing-Politur und die bekannten P2s)
 
 Offene Aufgaben nach Priorität. Abgeschlossene Aufgaben werden nach `CHANGELOG.md` verschoben.
 
@@ -47,6 +47,10 @@ Offene Aufgaben nach Priorität. Abgeschlossene Aufgaben werden nach `CHANGELOG.
 ---
 
 ## P2 — Mittel (Spieler-Erfahrung)
+
+- [x] ~~**Arena Football: Gameplay-Tuning und Zeitbasis**~~ → **abgeschlossen (2026-08-27)**: Elimination mit zwei Leben und Lebenspunkten im Chip, Classic auf der kanonischen Shouldered-Wide-Arena (First to 3 unveraendert), fester 60-Hz-Gameplay-Takt mit Akkumulator (120 Physik-Micro-Steps/s, unabhaengig von der Bildwiederholrate), neu abgestimmte Daempfung, Settlement setzt exakt auf 0, dynamischere Abschusskurve. Siehe CHANGELOG.
+
+- [ ] **Arena Football Elimination mit 5 Spielern (offen, 2026-08-27):** Der Modus ist auf `FOOTBALL_ELIM4_PLAYERS = 4` ausgelegt — Aktiv-Liste, Lebensarray, Torslots, Spawnregel, Arenatabelle `FB_ELIM_ARENAS` und die beiden Morphs kennen nur die Phasen 4/3/2. Fuer fuenf Spieler braucht es eine eigene 5P-Arenaform mit fuenf Toren, den Uebergang 5 → 4 in derselben Minkowski-Architektur wie 4 → 3 und 3 → 2, und eine Durchsicht der HUD-Chipleiste. Eigener Auftrag.
 
 - [ ] **Arena Football Elimination online (offen, 2026-08-26):** Elimination ist ausschliesslich lokal/Hotseat spielbar. Der Lockstep-Pfad kennt weder vier Spieler mit Slot-Zuordnung noch den Arenawechsel 4→3→2 (Snapshot, Commit-Payload, Owner-/Slot-Annahmen, Reconnect, State-Hash). Eigener Auftrag mit Protokollarbeit; bis dahin darf die UI Elimination in keinem Online-Kontext anbieten.
 

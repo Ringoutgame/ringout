@@ -261,6 +261,9 @@ header{width:100%;max-width:460px;display:flex;align-items:center;justify-conten
 .fchip i{width:10px;height:10px;border-radius:50%;background:var(--fc);box-shadow:0 0 6px var(--fc)}
 .fchip.act{border-color:var(--fc)}
 .fchip.out{opacity:.35}.fchip.out i{box-shadow:none}
+.fpips{display:inline-flex;align-items:center;gap:3px;margin-left:2px}
+.fpip{width:7px;height:7px;border-radius:50%;background:var(--fc);box-shadow:0 0 5px var(--fc)}
+.fpip.off{background:rgba(122,142,180,.28);box-shadow:none}
 /* Eigener Spieler (Online-FFA): dezenter heller Ring um den Farbpunkt, kein
    zusaetzlicher Text/Groessenwechsel -> stoert das Chip-Layout nicht. */
 .fchip.mine{border-color:rgba(255,255,255,.5)}
@@ -2600,6 +2603,18 @@ function renderElimBar(){
     const nm=document.createElement('b');
     nm.textContent='P'+(o+1);
     chip.appendChild(nm);
+    // Leben als zwei kleine Punkte in der Spielerfarbe: gefuellt = vorhanden, matt = weg.
+    // Bewusst KEINE Zahl und kein zweites Panel - die Chipleiste bleibt die einzige
+    // Statusanzeige der Elimination, und ausgeschiedene Spieler sind ueber .out ohnehin
+    // schon abgesetzt (dort sind dann beide Punkte matt).
+    const pips=document.createElement('span');
+    pips.className='fpips';
+    for(let k=0;k<FB_ELIM_LIVES;k++){
+      const d=document.createElement('span');
+      d.className='fpip'+(k<fbElimLives[o]?'':' off');
+      pips.appendChild(d);
+    }
+    chip.appendChild(pips);
     bar.appendChild(chip);
   }
 }
@@ -3082,10 +3097,40 @@ function devSync(tag,extra){
   if(!DEV_MENU||!online)return;
   console.log('[sync] '+tag+' gen='+gen+' turn='+turnNo+' phase='+phase+' hash='+simHash()+' score='+score.join(':')+(extra?' '+extra:''));
 }
+// ── ARENA FOOTBALL: ABSCHUSSKURVE ─────────────────────────────────────────────────
+// Der Zug wurde frueher STRENG LINEAR in Geschwindigkeit umgesetzt (v = Zuglaenge*LAUNCH):
+// ein 55-%-Zug lieferte exakt 55 % Tempo und war damit spielerisch fast wertlos - der Ball
+// erreichte die gegnerische Gefahrenzone gar nicht mehr. Die Kurve bekommt deshalb zwei
+// Formparameter; die DAEMPFUNG bleibt davon unberuehrt. Mehr Dynamik kommt aus hoeherer
+// ANFANGSENERGIE, nicht aus dauerhaft weniger Energieverlust.
+//
+//   v = Zuglaenge * LAUNCH * FB_LAUNCH_SCALE * t^(FB_LAUNCH_CURVE-1)
+//   mit t = Zuglaenge / maxPull
+//
+// FB_LAUNCH_SCALE hebt die Kurve als Ganzes; FB_LAUNCH_CURVE < 1 hebt zusaetzlich die MITTE
+// staerker als die Spitze - genau die Zone, die sich zu zaeh anfuehlte. Gemessen gegenueber
+// der alten linearen Kurve: 100 % +26.0 %, 75 % +26.7 %, 55 % +27.5 %, 50 % +27.7 %.
+// Die Reihenfolge bleibt streng monoton (25 % < 50 % < 55 % < 75 % < 100 %), ein voller Zug
+// bleibt mit Faktor 1.80 klar staerker als ein 55-%-Zug, und kleine Zuege bleiben moeglich.
+// Zugklemmung (maxPull) und Totzone sind unveraendert.
+const FB_LAUNCH_SCALE=1.26;
+const FB_LAUNCH_CURVE=0.98;
+// Faktor, mit dem der Zugvektor zur Geschwindigkeit wird. EINZIGE Stelle, die aus einem Zug
+// ein Tempo macht - Maus und Touch laufen beide hier durch, es gibt keine zweite Kurve.
+// Ausserhalb Football bleibt es exakt bei LAUNCH: die Bestandsmodi rechnen unveraendert.
+function fbLaunchMul(len){
+  if(!(len>0)||mode!=='football')return LAUNCH;
+  const mp=maxPull(),t=len>=mp?1:len/mp;
+  return LAUNCH*FB_LAUNCH_SCALE*Math.pow(t,FB_LAUNCH_CURVE-1);
+}
 function applyLaunch(){
   devSync('launch','idx='+commitIdx.join(',')+' aims='+commitAim.map(a=>a.dx.toFixed(2)+'/'+a.dy.toFixed(2)).join(';')+' gone='+seatGone.map(v=>v?1:0).join(''));
   let maxp=0;
-  for(let p=0;p<commitIdx.length;p++){const idx=commitIdx[p];if(idx>=0&&balls[idx]&&balls[idx].alive){balls[idx].vx=commitAim[p].dx*LAUNCH;balls[idx].vy=commitAim[p].dy*LAUNCH;balls[idx].spin=commitSpin[p]||0;}
+  for(let p=0;p<commitIdx.length;p++){const idx=commitIdx[p];if(idx>=0&&balls[idx]&&balls[idx].alive){
+    // typeof-Guard wie an den anderen Football-Einstiegen: Offline-Harnesses uebernehmen
+    // applyLaunch ohne den Kurvenblock und rechnen dann mit der linearen Basis.
+    const mul=typeof fbLaunchMul==='function'?fbLaunchMul(Math.hypot(commitAim[p].dx,commitAim[p].dy)):LAUNCH;
+    balls[idx].vx=commitAim[p].dx*mul;balls[idx].vy=commitAim[p].dy*mul;balls[idx].spin=commitSpin[p]||0;}
     maxp=Math.max(maxp,Math.hypot(commitAim[p].dx,commitAim[p].dy));}
   SFX.launch(maxp/maxPull());
   for(let p=0;p<commitIdx.length;p++){const idx=commitIdx[p];if(idx<0||!balls[idx])continue;const sp=Math.hypot(commitAim[p].dx,commitAim[p].dy);if(sp>BR&&!r3dActive)spawn(balls[idx].x,balls[idx].y,5,[PCOLS[colorSlot(balls[idx].owner)].ui],sp*0.02,0.6);}
@@ -3192,6 +3237,10 @@ const FOOTBALL_NEUTRAL_OWNER=4;                       // neutraler Ball (dunkler
 // neben dem Tor, die Grenze bleibt das reine Rounded Rectangle. Der Sockel bleibt als
 // Kollider erhalten und faengt einen bereits durchgetretenen Ball hinter der Linie ab.
 const FB_GOAL_HALF_DEPTH=1.184;                       // halbe Sockeltiefe des geraden Tors in BR (0.592 Blender-Einheiten)
+// GELTUNGSBEREICH: ab dem Shouldered-Wide-Schritt benutzt nur noch TACTICAL 1v1 diese
+// Form. Classic 1v1 laeuft auf der kanonischen Zwei-Figuren-Arena (FOOTBALL_ARENA_CLASSIC,
+// weiter unten) — derselben, die auch das Elimination-Finale traegt. Tactical bleibt
+// bewusst unveraendert: Arena, Spawns und Wertung sind dort abgestimmt.
 const FOOTBALL_ARENA={
   halfLen:18.00,halfWid:12.70,corner:6.85,spawn:7.65,
   postInner:3.560,postOuter:5.282,postFront:18.00,
@@ -3312,14 +3361,37 @@ const FOOTBALL_ARENA_ELIM3=Object.assign(
 const FOOTBALL_ARENA_ELIM2=Object.assign(
   fbShape(15.60,11.60,2.60,10.15,2,false,FOOTBALL_ELIM2_DIRS),
   {poly:fbShoulderRect(15.60,11.60,2.60,35,6.10)});
-// EINZIGE Arenaquelle je Phase. Elimination4 waehlt nach der aktiven Phase; Classic und
-// Tactical teilen sich unveraendert FOOTBALL_ARENA. Phase 1 ist der Sieg - kein Umbau mehr.
+// ── CLASSIC 1V1: DIESELBE ZWEI-FIGUREN-ARENA ─────────────────────────────────────
+// Classic und das Elimination-Finale sind geometrisch dasselbe Spiel: zwei Figuren, zwei
+// gegenueberliegende Tore auf der +-X-Achse, ein neutraler Ball. Sie teilen sich deshalb
+// DIESELBE Arenadefinition — dieselbe Objektinstanz, nicht eine zweite Beschreibung mit
+// denselben Zahlen. Damit koennen Bande, Torachse, Toroeffnung und Spawnabstand gar nicht
+// auseinanderlaufen, und eine spaetere Aenderung der Form wirkt zwangslaeufig in beiden.
+//   halfLen 15.60 · halfWid 11.60 · rc 2.60 · Schulter 35 Grad · flache Torwand +-6.10
+//   Spawn 10.15 auf der eigenen Torachse (Blau -X, Rot +X — Classic-Orientierung bleibt)
+// Die Zusatzfelder sides/dirs des Elimination-Objekts sind fuer Classic wirkungslos:
+// footballFold ist ausserhalb Elimination die Identitaet, goalDefs baut die beiden Tore
+// dort fest aus [1,0]/[-1,0], und av.sides===2 trifft dieselbe Mittellinie wie bisher.
+const FOOTBALL_ARENA_CLASSIC=FOOTBALL_ARENA_ELIM2;
+// EINZIGE Arenaquelle je Phase. Elimination4 waehlt nach der aktiven Phase; Tactical
+// behaelt FOOTBALL_ARENA, Classic teilt sich die 2P-Form mit dem Finale.
+// Phase 1 ist der Sieg - kein Umbau mehr.
 const FB_ELIM_ARENAS={4:FOOTBALL_ARENA_ELIM4,3:FOOTBALL_ARENA_ELIM3,2:FOOTBALL_ARENA_ELIM2};
 // Torrichtungen je Phase - dieselbe Tabellenform, damit die Arena-Transition Start- und
 // Zielrichtung eines Tores generisch nachschlagen kann statt sie fest zu verdrahten.
 const FB_ELIM_DIRS={4:FOOTBALL_ELIM4_DIRS,3:FOOTBALL_ELIM3_DIRS,2:FOOTBALL_ELIM2_DIRS};
 function fbElimArena(){return FB_ELIM_ARENAS[fbElimPhaseN]||FOOTBALL_ARENA_ELIM4;}
-function fbArena(){return fbElim4()?fbElimArena():FOOTBALL_ARENA;}
+function fbArena(){
+  if(fbElim4())return fbElimArena();
+  return fbTactical()?FOOTBALL_ARENA:FOOTBALL_ARENA_CLASSIC;
+}
+// Kennung der aktuell zu rahmenden Arenaform. Sie aendert sich mit der Football-Variante
+// (Classic und Tactical stehen auf verschiedenen Formen) und in Elimination mit der Phase.
+// Der 3D-Adapter rahmt die Kamera neu, sobald sich diese Kennung aendert.
+function fbFrameKey(){
+  if(mode!=='football'||menuVisible)return '';
+  return fbElim4()?'e'+fbElimPhaseN:(fbTactical()?'t':'c');
+}
 // Torrichtungen der AKTIVEN Arena. Ausserhalb Elimination4 gibt es die beiden Stirnseiten.
 function fbElimDirs(){return fbArena().dirs||FOOTBALL_ELIM2_DIRS;}
 // Sichtradius der aktiven Elimination-Arena (logische Einheiten): das Maximum aus der
@@ -3456,23 +3528,26 @@ const FOOTBALL_CONTACT_ITERATIONS=3;
 // Vergleichsdaten leben nur noch als lokale Prototype-Artefakte weiter.
 //
 // Bedeutung der Werte (120 Micro-Steps/s, Daempfung wirkt pro Micro-Step):
-//   friction       Spieler-Daempfung oberhalb slowv -> f^120 = 75.0 % Restgeschwindigkeit/s
-//   frictionBall   Ball-Daempfung oberhalb slowv    -> 80.6 %/s — der Ball laeuft laenger
-//                  als die Spieler (kontrollierter Glide vs. lebendiger Ball). Gilt NUR
-//                  fuer den neutralen Ball (owner === FOOTBALL_NEUTRAL_OWNER).
+//   friction       Spieler-Daempfung oberhalb slowv -> f^120 = 60.3 % Restgeschwindigkeit/s
+//   frictionBall   Ball-Daempfung oberhalb slowv — der Ball laeuft etwas laenger als die
+//                  Spieler (kontrollierter Glide vs. lebendiger Ball). Gilt NUR fuer den
+//                  neutralen Ball (owner === FOOTBALL_NEUTRAL_OWNER).
 //   slowv/fend     Auslauf: unterhalb slowv greift das haertere fend fuer BEIDE Kugelarten.
-//                  Gegenlaeufig zur Daempfung ausgelegt (slowv 0.50 statt global 0.35,
-//                  fend 0.9905 statt 0.9935): die schnelle Phase bleibt laenger lebendig,
-//                  der langweilige Kriechauslauf endet FRUEHER — ohne die Zugdauer
-//                  explodieren zu lassen (gemessene Ursache: der Auslauf, nie die
-//                  schnelle Phase).
-//   stopv          Settlement-Schwelle 0.050: darunter endet der Zug.
+//                  Gegenlaeufig zur Daempfung ausgelegt: die schnelle Phase bleibt
+//                  lebendig, der langweilige Kriechauslauf endet FRUEHER.
+//   stopv          Settlement-Schwelle: darunter endet der Zug.
+//
+// GEMESSEN (freies Ausrollen, Maximalschuss): Spielerfigur 5.7 s, neutraler Ball 4.9 s bis
+// zum Stillstand — davon nur rund 0.8 s Kriechauslauf unterhalb slowv. Der Vorgaengersatz
+// (0.9976/0.9982, slowv 0.50, fend 0.9905, stopv 0.050) brauchte 11.0 bzw. 14.0 s und legte
+// dabei 2.6 bis 3.4 Arenalaengen zurueck; der Zug war spielerisch laengst vorbei, waehrend
+// der Ball noch minutenlang wirkende Sekunden weiterkroch.
 //   restBall       Kontaktimpuls Kugel/Kugel (Spieler -> Ball) 0.44
 //   restBand > restPost: die Bande wirft am lebendigsten zurueck (0.60), der Pfosten ist
 //                  hart aber nicht federnd (0.50). Alle Restitutionen < 1, Daempfung < 1 —
 //                  nirgends wird Energie erzeugt.
-const FOOTBALL_PHYS={friction:0.9976,frictionBall:0.9982,fend:0.9905,fendBall:0.9905,
-  slowv:0.50,stopv:0.050,restBall:0.44,restBand:0.60,restPost:0.50};
+const FOOTBALL_PHYS={friction:0.9958,frictionBall:0.9964,fend:0.9760,fendBall:0.9790,
+  slowv:0.70,stopv:0.075,restBall:0.44,restBand:0.60,restPost:0.50};
 // ── ARENA FOOTBALL: BALLGROESSE (final, Ballgroessen-Phase B3) ────────────────────
 // ZENTRALE Radiusarchitektur: BR bleibt die Laengeneinheit der Torgeometrie (3.560*BR usw.)
 // und der Radius ALLER Spielerkugeln. Der NEUTRALE Ball hat seinen eigenen, festen
@@ -3892,6 +3967,7 @@ function fbMorphFromArena(){
 // Produktverhalten ist ohne Dev-Flag Byte fuer Byte dasselbe.
 if(typeof DEV_MENU!=='undefined'&&DEV_MENU)window.__fbDev={
   state:()=>({goal:fbGoalState,tick:fbGoalTick,phase:fbElimPhaseN,body:fbMorphBodyLevel(),
+              lives:fbElimLives.slice(),active:fbElimActive.slice(),
               e:fbMorphActive()?fbMorphE():null,
               gp:fbMorphActive()?fbMorphGoalE():null,
               ap:fbMorphActive()?fbMorphArenaE():null}),
@@ -4259,12 +4335,23 @@ function fbTacticalRingLevel(i){
 //   fbElimPhaseN         aktive Arenaphase (4/3/2) — EINZIGE Weiche fuer Grenze, Tore,
 //                        Rendering und Kamera
 //   fbElimSlots[slot]    Besitzer des Torslots der aktiven Phase (-1 = nicht belegt)
+//   fbElimLives[owner]   verbleibende Leben (2 -> 1 -> 0); 0 == ausgeschieden
+//
+// ZWEI LEBEN: ein Gegentor kostet EIN Leben. Erst das zweite Gegentor scheidet aus. Ein
+// erstes Gegentor ist damit ein normales Tor mit normalem Rundenreset — kein Umbau, kein
+// totes Tor, kein Transitionsklang; die bestehende Eliminierungslogik laeuft unveraendert
+// weiter, sie wird nur spaeter ausgeloest. Die Leben gelten fuer das ganze Match und
+// werden bei einem Phasenwechsel AUSDRUECKLICH NICHT aufgefuellt: wer mit einem Leben ins
+// Halbfinale kommt, spielt dort mit einem Leben. Zurueckgesetzt wird ausschliesslich beim
+// vollstaendigen Matchreset (fbElimReset).
+const FB_ELIM_LIVES=2;
 const fbElimActive=[true,true,true,true];
+const fbElimLives=[FB_ELIM_LIVES,FB_ELIM_LIVES,FB_ELIM_LIVES,FB_ELIM_LIVES];
 const fbElimSlots=[0,1,2,3];
 let fbElimPhaseN=FOOTBALL_ELIM4_PLAYERS;
 // Vollstaendiger Reset (neues Match, Moduswechsel, Menue) — Aufrufer ist footballResetMatchState.
 function fbElimReset(){
-  for(let o=0;o<FOOTBALL_ELIM4_PLAYERS;o++){fbElimActive[o]=true;fbElimSlots[o]=o;}
+  for(let o=0;o<FOOTBALL_ELIM4_PLAYERS;o++){fbElimActive[o]=true;fbElimSlots[o]=o;fbElimLives[o]=FB_ELIM_LIVES;}
   fbElimPhaseN=FOOTBALL_ELIM4_PLAYERS;
 }
 function fbElimActiveOwners(){const a=[];for(let o=0;o<FOOTBALL_ELIM4_PLAYERS;o++)if(fbElimActive[o])a.push(o);return a;}
@@ -4334,7 +4421,7 @@ function fbElimSpawnBodies(){
 // folge (applyCommit prueft aliveCount), Reveal-Bedingung und Renderer ueberspringen tote
 // Kugeln bereits — es bleibt keine Kollisionshuelle zurueck. Das zugehoerige Tor schliesst
 // footballGoalOpen() ueber fbElimActive; es wird ab hier physikalisch zur Bande.
-// EINZIGER Aufrufer ist footballElimTryGoal: in V2 eliminiert ausschliesslich ein Gegentor.
+// EINZIGER Aufrufer ist footballElimConcede: ausgeschieden wird, wenn das letzte Leben faellt.
 function footballElimEliminate(o){
   if(!fbElim4()||o<0||o>=FOOTBALL_ELIM4_PLAYERS||!fbElimActive[o])return;
   fbElimActive[o]=false;
@@ -4351,7 +4438,8 @@ function footballElimEliminate(o){
 }
 // Torwertung in Elimination4 (V2). Genau EINE Auswertung pro Torereignis (Aufrufer
 // footballTryGoal wertet nur aus 'play'), und ausschliesslich fuer den neutralen Ball —
-// footballGoalCrossed prueft owner und fbPassed. Wer das Tor kassiert, ist SOFORT raus.
+// footballGoalCrossed prueft owner und fbPassed. Entscheidend ist allein, WESSEN Tor
+// ueberquert wurde — Schuetze, Vorlage und Eigentor spielen keine Rolle.
 function footballElimTryGoal(b){
   const slot=footballGoalCrossed(b);        // SLOT der aktiven Phase, nicht der Ownerindex
   if(slot<0)return;
@@ -4361,9 +4449,20 @@ function footballElimTryGoal(b){
   cancelAimDrag();
   footballFreezePlayers();
   footballGoalFxTrigger(slot);              // rein visueller Torimpuls am getroffenen Tor
-  footballElimEliminate(own);               // EIN GEGENTOR = SOFORT AUSGESCHIEDEN
+  footballElimConcede(own);
   SFX.footballGoal(footballWinner!==null);
   updateHud();
+}
+// EIN Gegentor fuer diesen Spieler. Genau EIN Lebensabzug je Torereignis: der einzige
+// Aufrufer ist footballElimTryGoal, der nur aus 'play' erreichbar ist und als erste
+// Handlung den Torablauf startet — eine zweite Wertung desselben Tores kann es nicht
+// geben. Faellt das letzte Leben, uebernimmt die BESTEHENDE Eliminierung unveraendert.
+// Ein Spieler ohne Leben kommt hier nicht mehr an: sein Tor ist ab der Eliminierung
+// geschlossen (footballGoalOpen) und fbElimActive sperrt zusaetzlich in beiden Aufrufern.
+function footballElimConcede(o){
+  if(!fbElim4()||o<0||o>=FOOTBALL_ELIM4_PLAYERS||!fbElimActive[o])return;
+  if(fbElimLives[o]>0)fbElimLives[o]--;
+  if(fbElimLives[o]<=0)footballElimEliminate(o);
 }
 // Rundenreset nach dem Tor. Anders als in Classic (footballResetRound -> placeBalls) werden
 // KEINE neuen Kugelobjekte erzeugt; weil das Ballobjekt erhalten bleibt, muessen die kugel-
@@ -4372,12 +4471,16 @@ function footballElimTryGoal(b){
 // REIHENFOLGE (V3.1) - deterministisch und in genau dieser Abfolge:
 //   1. Arenaform auf die verbleibende Spielerzahl umstellen und die Torslots neu zuordnen
 //   2. ALLE ueberlebenden Figuren auf die faire Startaufstellung dieser Phase setzen
+//      (auch OHNE Phasenwechsel: nach einem ersten Gegentor bleibt die Arena stehen, die
+//      Figuren muessen trotzdem fair neu stehen - sonst traegt die Stellung des letzten
+//      Tores in die naechste Runde hinein. fbElimApplyPhase meldet, ob es selbst schon
+//      gespawnt hat; so gibt es weiterhin genau EINEN Spawnaufruf pro Tor.)
 //   3. neutralen Ball zentral zuruecksetzen, Latches und Geschwindigkeiten leeren
 //   4. Commit-/Aim-Zustand vollstaendig raeumen
 // Schritt 1 und 2 stecken zusammen in fbElimApplyPhase und laufen im selben Tick - der
 // Renderer sieht also nie eine halb umgestellte Arena, und der Ball faellt erst danach.
 function footballElimResetBall(){
-  fbElimApplyPhase();
+  if(!fbElimApplyPhase())fbElimSpawnBodies();
   for(const b of balls){
     b.vx=0;b.vy=0;b.spin=0;
     if(b.owner!==FOOTBALL_NEUTRAL_OWNER)continue;
@@ -4492,6 +4595,12 @@ function stepSim(){
   if(fbSeq||(mode==='football'&&fbGoalState!=='play')){footballTickGoal();return;}
   let moving=false;for(const b of balls){if(b.alive&&Math.sqrt(b.vx*b.vx+b.vy*b.vy)>curST()){moving=true;break;}}
   if(!moving){
+    // SETTLEMENT-SNAP (nur Football): jede Kugel liegt jetzt unter stopv. Ohne diesen Schritt
+    // bliebe eine Restgeschwindigkeit stehen — die Football-Kugeln ueberleben den Rundenwechsel
+    // als DIESELBEN Objekte, das Mikrokriechen liefe also in der naechsten Runde weiter, und die
+    // Ruhelage waere nur asymptotisch. Exakt 0 heisst: keine Oszillation, keine Float-Restbewegung,
+    // reproduzierbare Ausgangslage. Ausserhalb Football bleibt der Pfad bitgenau wie bisher.
+    if(mode==='football')for(const b of balls){b.vx=0;b.vy=0;b.spin=0;}
     // bewusst inline (kein np()): stepSim laeuft auch im Golden-Harness. Der typeof-Guard
     // haelt genau diese Eigenschaft aufrecht — ohne Football-Block bleibt es bei 2.
     const n=mode==='ffa'?ffaN:(typeof fbElim4==='function'&&fbElim4()?FOOTBALL_ELIM4_PLAYERS:2);
@@ -7206,6 +7315,7 @@ async function initR3D(){
     let camYaw=0,camPolar=POLAR0,camDistF=1;
     let camYawT=0,camPolarT=POLAR0,camDistFT=1;
     let camP=null,math=null,curVA=0,orbitCtl=null,geo=null;   // curVA: aktive Ansichts-Rotation (viewAngle)
+    let curFBK='';   // zuletzt gerahmte Football-Arenaform (s. fbFrameKey)
     function updateCam(){                            // leichtgewichtig: nur Auge/Mathe (kein Resize)
       const dist=geo.baseDist*camDistF;
       const yawW=curVA+camYaw;                       // Kamera-Azimut folgt der Ansichts-Rotation (1v1: 0/PI wie bisher)
@@ -7237,7 +7347,7 @@ async function initR3D(){
       const needX=fbFrame?(elimView||fbEdgeX)+(need-R0):need;
       const needZ=fbFrame?(elimView||fbHalfWid())+(need-R0):need;
       const baseDist=Math.max(needX/(tanV*aspect),needZ/tanV)*1.10;
-      curVA=viewAngle();
+      curVA=viewAngle();curFBK=fbFrameKey();
       if(menuVisible){
         // Menue-Framing: Plattform gross und zentriert, Zentrum bei ~37% Bildhoehe
         // (Titel darueber, Karten/CTA darunter). Reiner Parameter-Zweig — das
@@ -7258,7 +7368,12 @@ async function initR3D(){
     function sync(){                                  // NUR lesen: balls, R, phase, outBall, online, myPlayer
       const nowS=(performance.now()-t0)/1000;
       const va=viewAngle();
-      if(!r3dOrbit&&va!==curVA)frame();
+      // Neu rahmen, wenn sich die Ansichtsrotation ODER die Arenaform aendert. Die Form
+      // wechselt mit der Football-Variante und in Elimination mit der Phase - beides ohne
+      // Fenstergroessenaenderung. Ohne diese Bedingung bliebe die Kamera auf dem Rahmen der
+      // VORHERIGEN Arena stehen (sichtbar nach Tactical -> Menue -> Classic).
+      const fbk=fbFrameKey();
+      if(!r3dOrbit&&(va!==curVA||fbk!==curFBK))frame();
       // Kamera-Damping: weich zu den Zielwerten (ruhiges, fluessiges Gefuehl)
       if(Math.abs(camYaw-camYawT)+Math.abs(camPolar-camPolarT)+Math.abs(camDistF-camDistFT)>1e-4){
         camYaw+=(camYawT-camYaw)*.18;camPolar+=(camPolarT-camPolar)*.18;camDistF+=(camDistFT-camDistF)*.18;
@@ -7283,7 +7398,10 @@ async function initR3D(){
       // sondern aus dem Fortschritt. Die Geometrie wird dabei in FB_MORPH_STEPS Schritten neu
       // gebaut (nicht pro Frame) — sichtbar fluessig, ohne die Arena 60x pro Sekunde zu bauen.
       const fbMorphOn=footballView&&fbMorphActive()&&!!fbMorphPlan&&!!fbMat.glass;
-      const fbPhaseWant=footballView?(fbElim4()?'elim'+fbElimPhaseN:'std'):'';
+      // Der Schluessel unterscheidet ALLE drei Varianten: Elimination traegt zusaetzlich die
+      // Phase, Classic und Tactical stehen auf verschiedenen Arenaformen und duerfen sich
+      // deshalb keinen gemeinsamen Stand teilen.
+      const fbPhaseWant=footballView?(fbElim4()?'elim'+fbElimPhaseN:(fbTactical()?'tac':'classic')):'';
       const fbWant=fbMorphOn
         ?'morph'+Math.round(fbMorphGoalE()*FB_MORPH_GOAL_STEPS)+'_'+
                  Math.round(fbMorphArenaE()*FB_MORPH_ARENA_STEPS)
@@ -7476,21 +7594,77 @@ function finishBoot(){
 // Zeitanker wuerde beim Zurueckkehren die gesamte Pause auf einmal addieren und die
 // Countdown-Stufen 5..1 ueberspringen. Anker loeschen + grosse Zahl ausblenden; die
 // verlorene Zeit wird bewusst nicht nachberechnet.
-document.addEventListener('visibilitychange',()=>{pauseCollapseTimer();if(document.hidden)hideCollapseCount();});
+document.addEventListener('visibilitychange',()=>{pauseCollapseTimer();simResetClock();if(document.hidden)hideCollapseCount();});
+
+// ════ FIXED TIMESTEP ════
+// BEFUND: das Gameplay lief GENAU EINMAL pro Renderframe. Damit haengte die gesamte
+// Simulation an der Bildwiederholrate — auf einem 120-Hz-Display lief sie doppelt so
+// schnell wie auf 60 Hz: Geschwindigkeit, Daempfung, Rollzeit, Settlement, Torablauf,
+// Arenaumbau und Commit-Aufloesung. Desktop und Handy spielten schlicht nicht dasselbe
+// Spiel. Deshalb trennt die Schleife jetzt sauber:
+//   RENDERN  weiterhin so oft, wie das Display hergibt (requestAnimationFrame)
+//   RECHNEN  in festen Schritten, unabhaengig von der Bildwiederholrate
+//
+// KANONISCHE RATE: 60 Gameplay-Schritte je Sekunde. stepSim() fuehrt intern unveraendert
+// ZWEI Micro-Steps aus — die effektiven 120 Physik-Micro-Steps/s, auf die die gesamte
+// bestehende Physik getunt ist, bleiben damit exakt erhalten. Dieser Auftrag konserviert
+// das 60-Hz-Verhalten, er tuned nichts neu.
+const SIM_HZ=60;
+const SIM_DT_MS=1000/SIM_HZ;          // 16.666… ms je Gameplay-Schritt
+// Catch-up-Budget je Renderframe. Fuenf Schritte decken ~83 ms ab: genug fuer 30-Hz-Geraete
+// (2 Schritte je Frame) und kurze Ruckler, zu wenig fuer einen spuerbaren Zeitraffer.
+const SIM_MAX_STEPS=5;
+// Ab dieser Luecke gilt der Frame als PAUSE (Tab im Hintergrund, Geraet haengt), nicht als
+// Rueckstand: dann laeuft genau EIN Schritt und die verlorene Zeit wird bewusst verworfen.
+// Derselbe Wert und dieselbe Begruendung wie beim Ring-Collapse-Timer
+// (MAX_COLLAPSE_TICK_DELTA_MS) — es gibt nur eine Vorstellung davon, was eine Pause ist.
+const SIM_STALL_MS=250;
+let simAcc=0,simPrev=0;
+// Zeitanker loeschen: der naechste Frame startet dann wie der erste, ohne Rueckstand.
+function simResetClock(){simAcc=0;simPrev=0;}
+// EIN Gameplay-Schritt. Enthaelt alles, was frueher einmal pro Renderframe lief und einen
+// Zustand fortschreibt — Physik, Torablauf, Rundenende, Replayaufzeichnung und die
+// tickgezaehlten Partikel/FX-Abkling-Kurven. Reine Ausgabe (draw, r3d.render, HUD) bleibt
+// im Renderframe. Die Phasenwechsel 'reveal' und 'result' haengen weiterhin an der
+// Wanduhr und waren damit schon vorher unabhaengig von der Bildwiederholrate.
+function simStep(now){
+  if(replaying){repTick();return;}
+  if(phase==='reveal'&&now-phaseStart>REVEAL_MS)applyLaunch();
+  else if(phase==='sim')stepSim();
+  else if(phase==='result'){resultDrift();if(now-phaseStart>RESULT_MS)afterResult();}
+  if(phase==='reveal'||phase==='sim'||phase==='result')recordFrame();
+  updParticles();
+}
+// Akkumulator: die verstrichene ECHTE Zeit steuert nur, WIE VIELE feste Schritte laufen.
+// Es gibt keinen variablen dt in der Physik und keinen Schritt, der an die rAF-Frequenz
+// gekoppelt waere. Rueckgabe: Anzahl der gelaufenen Schritte (fuer Tests und Dev-Sonde).
+function simAdvance(now){
+  if(!simPrev){simPrev=now;simAcc=SIM_DT_MS;}          // erster Frame: genau ein Schritt
+  else{
+    const dt=now-simPrev;simPrev=now;
+    // Pause statt Rueckstand: kein Aufholen, kein Turbo, keine Kollisionskaskade.
+    // Ein nicht positives dt (doppelter Zeitstempel) traegt nichts bei.
+    if(dt>SIM_STALL_MS)simAcc=SIM_DT_MS;
+    else if(dt>0)simAcc+=dt;
+  }
+  let n=0;
+  while(simAcc>=SIM_DT_MS&&n<SIM_MAX_STEPS){simAcc-=SIM_DT_MS;n++;simStep(now);}
+  // Budget ausgeschoepft und immer noch Rueckstand: verwerfen statt anhaeufen — sonst
+  // schaukelt sich die Schleife bei dauerhafter Ueberlast auf (spiral of death).
+  if(n>=SIM_MAX_STEPS&&simAcc>=SIM_DT_MS)simAcc=0;
+  return n;
+}
 
 // ════ MAIN LOOP ════
 function loop(now){
   if(PERF)perfTick(now);
-  if(replaying){ SFX.rollUpdate(null,false); repTick(); if(r3dActive)r3d.render(); requestAnimationFrame(loop); return; }
+  simAdvance(now);
+  if(replaying){ SFX.rollUpdate(null,false); if(r3dActive)r3d.render(); requestAnimationFrame(loop); return; }
   tickCollapse(now);   // Ring-Collapse-Timer (nur Bot Training): zaehlt nur in der Planungsphase, loest Auto-Stand + Collapse aus
-  if(phase==='reveal'&&now-phaseStart>REVEAL_MS)applyLaunch();
-  else if(phase==='sim')stepSim();
-  else if(phase==='result'){resultDrift();if(now-phaseStart>RESULT_MS)afterResult();}
   // RINGOUT-Feedback + Dev-Sync-Log: reiner Phasen-Watcher (stepSim/Physik unangetastet)
   if(phase!==prevPhaseFx){if(phase==='result')showRingout();devSync('phase->'+phase);prevPhaseFx=phase;}
   SFX.rollUpdate(balls,phase==='sim');
-  if(phase==='reveal'||phase==='sim'||phase==='result')recordFrame();
-  updParticles();draw();
+  draw();
   if(r3dActive)r3d.render();
   if(r3dActive&&!bootDone)finishBoot();   // erster gerenderter 3D-Frame -> Menue einblenden
   requestAnimationFrame(loop);
