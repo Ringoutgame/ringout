@@ -1515,7 +1515,7 @@ en:{tagline:'PULL BACK · RELEASE · KNOCK THEM OUT',chip:'FEATURED',
   code4:'Please enter the 4-letter code.',joining:'Joining…',noRoom:'Room not found.',roomFull:'Room is already full.',
   connWait:'Connected! Waiting for the host…',connStart:'Connected! Game starting…',
   noFb:'⚠ No connection to Firebase. Check internet & config.',err:'Error: ',noOnlineReset:'Not available in online mode.',loading:'Loading arena...',
-  victory:'VICTORY',defeat:'DEFEAT',wins:'WINS',finalScore:'FINAL SCORE',ringout:'RINGOUT',round:'ROUND',
+  victory:'VICTORY',defeat:'DEFEAT',wins:'WINS',finalScore:'FINAL SCORE',elimDone:'ELIMINATION COMPLETE',ringout:'RINGOUT',round:'ROUND',
   col0:'BLUE',col1:'RED',col2:'GREEN',col3:'YELLOW',col4:'GRAY',col5:'VIOLET',
   nameYou:'YOU',nameOpp:'OPPONENT',namePlayer:'Player',youAre:'YOU ARE',
   nameLbl:'YOUR NAME',namePh:'Name',rejoinBtn:'Rejoin',rejoinAsk:'Rejoin room {code}?',
@@ -1560,7 +1560,7 @@ de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'FEATURED',
   code4:'Bitte 4-stelligen Code eingeben.',joining:'Trete bei…',noRoom:'Raum nicht gefunden.',roomFull:'Raum ist schon voll.',
   connWait:'Verbunden! Warte auf den Host…',connStart:'Verbunden! Spiel startet…',
   noFb:'⚠ Keine Verbindung zu Firebase. Internet & Config prüfen.',err:'Fehler: ',noOnlineReset:'Im Online-Modus nicht verfügbar.',loading:'Arena wird geladen...',
-  victory:'SIEG',defeat:'NIEDERLAGE',wins:'GEWINNT',finalScore:'ENDSTAND',ringout:'RINGOUT',round:'RUNDE',
+  victory:'SIEG',defeat:'NIEDERLAGE',wins:'GEWINNT',finalScore:'ENDSTAND',elimDone:'ELIMINATION BEENDET',ringout:'RINGOUT',round:'RUNDE',
   col0:'BLAU',col1:'ROT',col2:'GRÜN',col3:'GELB',col4:'GRAU',col5:'VIOLETT',
   nameYou:'DU',nameOpp:'GEGNER',namePlayer:'Spieler',youAre:'DU BIST',
   nameLbl:'DEIN NAME',namePh:'Name',rejoinBtn:'Wieder beitreten',rejoinAsk:'Raum {code} wieder beitreten?',
@@ -1605,7 +1605,7 @@ tr:{tagline:'GERİ ÇEK · BIRAK · DIŞARI İT',chip:'FEATURED',
   code4:'Lütfen 4 haneli kodu gir.',joining:'Katılınıyor…',noRoom:'Oda bulunamadı.',roomFull:'Oda zaten dolu.',
   connWait:'Bağlandı! Host bekleniyor…',connStart:'Bağlandı! Oyun başlıyor…',
   noFb:'⚠ Firebase bağlantısı yok. İnterneti ve yapılandırmayı kontrol et.',err:'Hata: ',noOnlineReset:'Online modda kullanılamaz.',loading:'Arena yükleniyor...',
-  victory:'ZAFER',defeat:'MAĞLUBİYET',wins:'KAZANDI',finalScore:'SON SKOR',ringout:'RINGOUT',round:'RAUNT',
+  victory:'ZAFER',defeat:'MAĞLUBİYET',wins:'KAZANDI',finalScore:'SON SKOR',elimDone:'ELEME TAMAMLANDI',ringout:'RINGOUT',round:'RAUNT',
   col0:'MAVİ',col1:'KIRMIZI',col2:'YEŞİL',col3:'SARI',col4:'GRİ',col5:'MOR',
   nameYou:'SEN',nameOpp:'RAKİP',namePlayer:'Oyuncu',youAre:'RENGİN',
   nameLbl:'ADIN',namePh:'Ad',rejoinBtn:'Tekrar katıl',rejoinAsk:'{code} odasına tekrar katıl?',
@@ -4814,7 +4814,12 @@ function gameOver(winner){setPhase('over');setPhaseText();
   $('wt').style.display=(iPlay&&!meWon)||team?'':'none';  // bei DEFEAT (und im TEAM DUEL immer): wer gewonnen hat
   $('wt').textContent=winTxt;
   $('wt').className='wt w'+colSlot4Name(winner);
-  $('ws').textContent=T('finalScore')+' · '+(team?score.slice(0,2):score).join(' : ');
+  // ELIMINATION wertet Leben aus, keine Punkte: score[] bleibt dort das ganze Match ueber
+  // auf 0 und eine Endstandzeile stuende immer auf lauter Nullen. Statt der Punktzeile
+  // erscheint deshalb nur die Abschlussmeldung. Alle anderen Modi unveraendert.
+  $('ws').textContent=(typeof fbElim4==='function'&&fbElim4())
+    ?T('elimDone')
+    :T('finalScore')+' · '+(team?score.slice(0,2):score).join(' : ');
   $('rematchBtn').style.display='';$('replayBtn').style.display=mode==='football'?'none':'';
   // Football: derselbe Primaerbutton startet ein NEUES MATCH bei 0:0 (newGame). Der Replay-
   // Pfad spult Runden ueber phase 'sim'/'result' zurueck — den kennt der Football-Torablauf

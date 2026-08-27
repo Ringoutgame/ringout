@@ -786,5 +786,85 @@ const untilMorph = (E) => { for (let i = 0; i < 600 && E.goalState() !== 'morph'
   ok(/halfLen:17\.50,halfWid:17\.50,corner:3\.50,spawn:11\.50,sides:4/.test(HTML), '4P-Form unveraendert');
 }
 
+// =================================================================================
+// K - ERGEBNISDIALOG: ELIMINATION ZEIGT KEINEN PUNKTESTAND
+// =================================================================================
+// Der Ergebnisdialog ist EINE gemeinsame Funktion fuer alle Modi. Elimination wertet aber
+// Leben aus, keine Punkte - score[] bleibt dort das ganze Match ueber auf 0. Diese Gruppe
+// laesst den ECHTEN gameOver()-Rumpf gegen ein Fake-DOM laufen und liest ab, was er in die
+// drei Textfelder schreibt. Geprueft wird beides: dass Elimination die Abschlussmeldung
+// statt der Nullzeile zeigt UND dass jeder andere Modus seine Punktzeile behaelt.
+{
+  const i18nSrc     = grab(/const I18N=\{[\s\S]*?\n\};/, 'I18N');
+  const tSrc        = grab(/function T\(k\)\{[^\n]*/, 'T');
+  const colNameSrc  = grab(/function colName\(p\)\{[^\n]*/, 'colName');
+  const colSlotSrc  = grab(/const FB_COL_SLOT=[^\n]*/, 'FB_COL_SLOT') + '\n' +
+                      grab(/function colSlot4Name\(p\)\{[^\n]*/, 'colSlot4Name');
+  const gameOverSrc = grab(/function gameOver\(winner\)\{[\s\S]*?\n  SFX\.win\(\);[^\n]*\}/, 'gameOver');
+
+  // Fake-DOM: jedes Element merkt sich nur, was hineingeschrieben wurde.
+  const dialog = (opts) => new Function(
+    'opts',
+    'const els={};' +
+    'const mk=id=>els[id]={id,textContent:"",className:"",style:{},classList:{toggle(){},add(){}}};' +
+    '["wVic","wt","ws","rematchBtn","replayBtn"].forEach(mk);' +
+    'const $=id=>els[id]||mk(id);' +
+    'const document={querySelector:()=>({textContent:""})};' +
+    'let LANG=opts.lang;' + i18nSrc + tSrc + colNameSrc + colSlotSrc +
+    'let mode=opts.mode,fmt=opts.fmt,online=false,score=opts.score,phase="",myPlayer=0;' +
+    'const fbVariant=opts.variant;' +
+    'function fbElim4(){return mode==="football"&&(fbVariant==="elimination"||fbVariant==="elimination4");}' +
+    'function teamOf(s){return s%2;}' +
+    'function setPhase(p){phase=p;}function setPhaseText(){}function rematchLabel(){return "R";}' +
+    'const SFX={win(){}};const setTimeout=()=>{};' +
+    gameOverSrc +
+    'gameOver(opts.winner);' +
+    'return {vic:els.wVic.textContent,wt:els.wt.textContent,cls:els.wt.className,ws:els.ws.textContent};'
+  )(opts);
+
+  const ELIM = (winner, lang) => dialog({ mode: 'football', fmt: 'single', variant: 'elimination',
+                                          score: [0, 0, 0, 0, 0], winner, lang });
+
+  // -- P1 gewinnt --------------------------------------------------------------
+  const p1 = ELIM(0, 'de');
+  ok(p1.ws === 'ELIMINATION BEENDET', 'DE: Elimination meldet den Abschluss statt eines Punktestands (' + p1.ws + ')');
+  ok(!/0\s*:\s*0/.test(p1.ws), 'DE: keine Nullzeile im Ergebnisdialog');
+  ok(!/ENDSTAND/.test(p1.ws), 'DE: kein Endstand-Label in der Elimination');
+  ok(p1.vic === 'BLAU GEWINNT', 'DE: P1 gewinnt als BLAU (' + p1.vic + ')');
+  ok(p1.cls === 'wt w0', 'P1 traegt den Farbslot 0');
+  ok(ELIM(0, 'en').ws === 'ELIMINATION COMPLETE', 'EN: Abschlussmeldung vorhanden');
+  ok(ELIM(0, 'tr').ws === 'ELEME TAMAMLANDI', 'TR: Abschlussmeldung vorhanden');
+  ok(ELIM(0, 'en').vic === 'BLUE WINS', 'EN: P1 gewinnt als BLUE');
+
+  // -- P5 gewinnt: violett, niemals grau ---------------------------------------
+  for (const [lang, txt] of [['de', 'VIOLETT GEWINNT'], ['en', 'VIOLET WINS'], ['tr', 'MOR KAZANDI']]) {
+    const p5 = ELIM(4, lang);
+    ok(p5.vic === txt, lang.toUpperCase() + ': P5 gewinnt als Violett (' + p5.vic + ')');
+    ok(!/GRAU|GRAY|GRİ/.test(p5.vic), lang.toUpperCase() + ': P5 wird nicht als Grau angekuendigt');
+    ok(p5.cls === 'wt w5', 'P5 traegt den violetten Farbslot 5 (' + p5.cls + ')');
+    ok(p5.ws.indexOf(':') === -1, lang.toUpperCase() + ': P5-Sieg zeigt keinen Punktestand');
+  }
+  // Der neutrale Ballslot bleibt grau - er ist nur nie ein Sieger.
+  ok(ELIM(5, 'de').cls === 'wt w4', 'der neutrale Slot zeigt weiterhin auf den dunklen Eintrag');
+
+  // -- Classic und Tactical behalten ihre Punktzeile ---------------------------
+  for (const v of ['classic', 'tactical']) {
+    const r = dialog({ mode: 'football', fmt: 'single', variant: v, score: [3, 1], winner: 0, lang: 'de' });
+    ok(r.ws === 'ENDSTAND · 3 : 1', v + ': der Endstand bleibt unveraendert (' + r.ws + ')');
+    ok(r.vic === 'BLAU GEWINNT', v + ': die Siegermeldung bleibt unveraendert');
+  }
+  // -- Ein Modus ausserhalb Football ebenfalls unveraendert --------------------
+  const ffa = dialog({ mode: 'ffa', fmt: 'ffa', variant: 'classic', score: [2, 0, 1], winner: 0, lang: 'de' });
+  ok(ffa.ws === 'ENDSTAND · 2 : 0 : 1', 'FFA: der Endstand bleibt unveraendert (' + ffa.ws + ')');
+  const duel = dialog({ mode: 'ffa', fmt: 'team_duel', variant: 'classic', score: [2, 1, 0, 0], winner: 0, lang: 'de' });
+  ok(duel.ws === 'ENDSTAND · 2 : 1', 'TEAM DUEL: der Endstand bleibt unveraendert (' + duel.ws + ')');
+
+  // -- Die Weiche haengt an genau einer Stelle ---------------------------------
+  ok(/\$\('ws'\)\.textContent=\(typeof fbElim4==='function'&&fbElim4\(\)\)/.test(HTML),
+     'die Ergebniszeile unterscheidet an genau einer Stelle');
+  ok((HTML.match(/T\('finalScore'\)/g) || []).length === 1,
+     'es gibt weiterhin genau eine Endstandzeile im Quelltext');
+}
+
 console.log('\nFootball-Elimination5: ' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);
