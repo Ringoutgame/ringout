@@ -1290,9 +1290,26 @@ function nameForSeat(s){
 // faelschbar. players.id ist oeffentlich lesbar und taugt nur noch als
 // Legacy-Rueckfall fuer Seats, die (noch) keine uid tragen. Ein FREMDER
 // geschuetzter Seat mit zufaellig gleicher id darf den eigenen nie verdecken.
-function findOwnSeat(players,pid,uid){
+//
+// A.2: Dieselbe dauerhafte uid kann MEHRERE Sitze desselben Raums halten (zwei
+// Tabs, Hotseat-artige Aufbauten). Dann ist "der niedrigste Treffer" eine
+// willkuerliche Wahl. Reihenfolge deshalb:
+//   1. der gespeicherte Rejoin-Seat, wenn er der eigenen uid gehoert,
+//   2. ein EINDEUTIGER uid-Treffer,
+//   3. Legacy-Rueckfall ueber players.id, ausschliesslich fuer uid-lose Sitze.
+// Mehrdeutige uid-Treffer ohne gespeicherten Hinweis liefern -1 (fail-closed) —
+// lieber kein Reclaim als der falsche Sitz.
+function findOwnSeat(players,pid,uid,hintSeat){
   if(!players||typeof players!=='object')return -1;
-  if(uid){ for(let s=0;s<FFA_MAX_SEATS;s++){ const r=players[s]; if(r&&r.uid===uid)return s; } }
+  if(uid){
+    if(Number.isInteger(hintSeat)&&hintSeat>=0&&hintSeat<FFA_MAX_SEATS){
+      const h=players[hintSeat]; if(h&&h.uid===uid)return hintSeat;
+    }
+    const hits=[];
+    for(let s=0;s<FFA_MAX_SEATS;s++){ const r=players[s]; if(r&&r.uid===uid)hits.push(s); }
+    if(hits.length===1)return hits[0];
+    if(hits.length>1)return -1;   // mehrdeutig ohne gueltigen Hinweis -> nicht raten
+  }
   if(!pid)return -1;
   for(let s=0;s<FFA_MAX_SEATS;s++){ const r=players[s]; if(r&&!r.uid&&r.id===pid)return s; }
   return -1;
@@ -1329,7 +1346,10 @@ function seatActive(p,s){ return !!(p&&p[s]&&p[s].on===true); }
 
 // Phase 1 — RESERVE: atomic multi-path write of p/<seat> (on:false) + the durable
 // players/<seat> roster record, same token (s===tab) as the rules require. Only
-// ever called against a seat whose p/<seat> is currently absent (fresh claim) —
+// A.2: seit dem Stale-Recycling nicht mehr nur gegen einen voellig fehlenden
+// p/<seat> — auch eine abgelaufene Lobby-Reservierung ist ein gueltiges Ziel
+// (die Rules entscheiden). Ein abgelehnter RESERVE ist weiterhin das benigne
+// "lost"-Ergebnis, kein Fehler —
 // a rules rejection here (seat taken / lobby closed in the meantime) is the
 // benign "lost" outcome, not an error.
 async function reserveSeat(code,seat){
@@ -1361,10 +1381,29 @@ async function activateSeat(code,seat,extra){
 // Rollback of OWN reservation/activation: atomically deletes p/<seat> AND
 // players/<seat> together (the rules require both gone in the same write — a
 // presence-only delete is not expressible under v3) and disarms the onDisconnect
-// if one was armed. Never touches a foreign record (only ever called on a seat
-// this same call just reserved). Errors are logged, never swallowed silently.
-async function releaseReservation(code,seat,dc){
-  try{ const upd={}; upd['p/'+seat]=null; upd['players/'+seat]=null; await window.FB.update(window.FB.ref(window.FB.db,'rooms/'+code),upd); }
+// if one was armed. Errors are logged, never swallowed silently.
+//
+// A.2: Eigentum allein genuegt hier NICHT. Dieselbe dauerhafte auth.uid kann den
+// Seat inzwischen in einer NEUEN Session (anderer Tab, anderes s/tab-Token) neu
+// beansprucht haben — ein spaet nachlaufender Rollback der alten Session wuerde
+// dann den gueltigen neuen Claim loeschen. Geloescht wird deshalb nur, wenn
+// p/<seat>.s UND players/<seat>.tab noch exakt das Token dieser Session tragen.
+// Passt es nicht mehr, gewinnt der neuere Claim und der Rollback laesst ihn stehen.
+async function releaseReservation(code,seat,dc,tok){
+  const mine=tok||onlineTab;
+  try{
+    const ref=window.FB.ref(window.FB.db,'rooms/'+code);
+    const snap=await window.FB.get(window.FB.ref(window.FB.db,'rooms/'+code));
+    const d=snap.exists()?snap.val():null;
+    const pr=d&&d.p&&d.p[seat], rec=d&&d.players&&d.players[seat];
+    if(!pr&&!rec){ /* schon weg — nichts zu tun */ }
+    else if(!(pr&&pr.s===mine)||!(rec&&rec.tab===mine)){
+      console.warn('[online] reservation rollback skipped (seat '+seat+'): claim belongs to a newer session');
+    }else{
+      const upd={}; upd['p/'+seat]=null; upd['players/'+seat]=null;
+      await window.FB.update(ref,upd);
+    }
+  }
   catch(e){ console.error('[online] reservation rollback failed (seat '+seat+'):',e); }
   if(dc){ try{ await dc.cancel(); }catch(e){ console.error('[online] onDisconnect cancel failed (seat '+seat+'):',e); } }
 }
@@ -1375,16 +1414,17 @@ async function releaseReservation(code,seat,dc){
 // Outcomes: {ok:true,dc} activated · {lost:true} reserve lost (no partial state,
 // caller tries the next seat) · {stale:true} op superseded (own writes rolled back).
 async function claimSeatSlot(code,seat,op,extra){
+  const tok=onlineTab;   // Token DIESER Reservierung — der Rollback prueft genau dieses
   const r=await reserveSeat(code,seat);
   if(!r.ok)return {ok:false,lost:true,dc:null};
-  if(op!=null&&!joinOpCurrent(op)){ await releaseReservation(code,seat,null); return {ok:false,stale:true,dc:null}; }
+  if(op!=null&&!joinOpCurrent(op)){ await releaseReservation(code,seat,null,tok); return {ok:false,stale:true,dc:null}; }
   let dc=null;
   try{ dc=await armPresence(code,seat); }
-  catch(e){ await releaseReservation(code,seat,null); throw e; }
-  if(op!=null&&!joinOpCurrent(op)){ await releaseReservation(code,seat,dc); return {ok:false,stale:true,dc:null}; }
+  catch(e){ await releaseReservation(code,seat,null,tok); throw e; }
+  if(op!=null&&!joinOpCurrent(op)){ await releaseReservation(code,seat,dc,tok); return {ok:false,stale:true,dc:null}; }
   try{ await activateSeat(code,seat,extra); }
-  catch(e){ await releaseReservation(code,seat,dc); throw e; }
-  if(op!=null&&!joinOpCurrent(op)){ await releaseReservation(code,seat,dc); return {ok:false,stale:true,dc:null}; }
+  catch(e){ await releaseReservation(code,seat,dc,tok); throw e; }
+  if(op!=null&&!joinOpCurrent(op)){ await releaseReservation(code,seat,dc,tok); return {ok:false,stale:true,dc:null}; }
   return {ok:true,dc:dc};
 }
 // ════ B2 same-seat reclaim: RECLAIM -> ARM -> ACTIVATE ════
@@ -1449,6 +1489,25 @@ async function reclaimSeatSlot(code,seat,op,keepName,legacy){
 // rules require before a listing delete is permitted).
 async function abortFreshRoom(code,dc,listed){
   if(dc){ try{ await dc.cancel(); }catch(e){ console.error('[online] onDisconnect cancel (create abort):',e); } }
+  // A.2: Sobald der Raum gelistet ist, kann ein Gast ihn bereits betreten haben.
+  // Ein blinder Abbruch wuerde dann Host- und Listing-Anker entfernen, waehrend
+  // der Gastanker den Raum-Delete verhindert — zurueck bliebe ein hostloser,
+  // halb bereinigter Raum. Autoritativ nachlesen: gehoert der Raum noch
+  // AUSSCHLIESSLICH uns? Wenn nicht, bleibt alles stehen und der normale
+  // Leave-Vertrag uebernimmt.
+  try{
+    const snap=await window.FB.get(window.FB.ref(window.FB.db,'rooms/'+code));
+    const d=snap.exists()?snap.val():null;
+    if(d){
+      const foreignSeat=d.p&&Object.keys(d.p).some(k=>k!=='0');
+      const foreignRec=d.players&&Object.keys(d.players).some(k=>k!=='0');
+      const hostMine=!d.p||!d.p[0]||d.p[0].s===onlineTab;
+      if(foreignSeat||foreignRec||!hostMine){
+        console.warn('[online] fresh room abort skipped: room '+code+' is already claimed by someone else');
+        return;
+      }
+    }
+  }catch(e){ console.error('[online] fresh room ownership probe failed:',e); return; }
   try{ const upd={}; upd['p/0']=null; upd['players/0']=null; await window.FB.update(window.FB.ref(window.FB.db,'rooms/'+code),upd); }catch(e){ console.error('[online] fresh room seat cleanup failed:',e); }
   // Listing removed BEFORE the whole-room delete: with p/0 + players/0 already gone the
   // room is objectively host-less, so the rules permit the listing delete here. Best-
@@ -5222,8 +5281,11 @@ function validateRoom(d){
   }
   // 1v1/2v2: Beitritt nur solange die Lobby offen ist (einheitlicher Room-State).
   // Der erfolgreiche Gastclaim schaltet danach atomar auf state:'playing'.
+  // A.2: Derselbe Kandidatenvertrag wie im FFA — ein Gastsitz, dessen Reservierung
+  // seit SEAT_STALE_MS abgelaufen ist, blockiert die Lobby nicht dauerhaft. Die
+  // atomare Rules-Transaction bleibt der Schiedsrichter.
   if(d.state!=='lobby')return{ok:false,reason:'Match läuft bereits.'};
-  if(p[1])return{ok:false,reason:'Raum ist schon voll.'};
+  if(p[1]&&!seatRecyclable(p[1],d.state))return{ok:false,reason:'Raum ist schon voll.'};
   return{ok:true,winTarget:cfg.winTarget,fmt:cfg.fmt,gen:d.gen};
 }
 // Niedrigster freier Gast-Seat (1..max-1); -1 = voll. Pure Funktion (Node-getestet).
@@ -5441,7 +5503,8 @@ async function attemptRejoin(code){
     const d=snap.val();
     const v=validateRejoinRoom(d);
     if(!v.ok){ forgetRoom(); setStatus(T(v.reason)); return false; }
-    const seat=findOwnSeat(d.players,onlinePid,fbUid());
+    const sr0=savedRoom();
+    const seat=findOwnSeat(d.players,onlinePid,fbUid(),sr0&&sr0.code===code?sr0.seat:-1);
     if(seat<0){ forgetRoom(); setStatus(T('noRoom')); return false; }   // identity no longer holds a seat here — NEVER take a foreign one
     const ffa=v.fmt==='ffa'||v.fmt==='triple_ffa'||v.fmt==='team_duel';
     if(v.state==='playing'&&ffa&&seat>=v.seats){ forgetRoom(); setStatus(T('rejoinNoLobby')); return false; }   // match started without this seat
@@ -5956,7 +6019,7 @@ async function offerRejoinOnBoot(){
     if(online||roomCode)return;   // user entered a room while the probe was in flight
     if(!s.exists()){ forgetRoom(); return; }
     const d=s.val();
-    if(!validateRejoinRoom(d).ok||findOwnSeat(d.players,onlinePid,fbUid())<0){ forgetRoom(); return; }
+    if(!validateRejoinRoom(d).ok||findOwnSeat(d.players,onlinePid,fbUid(),sr.seat)<0){ forgetRoom(); return; }
     if(!$('online').classList.contains('show'))openOnline();
   }catch(e){}
 }

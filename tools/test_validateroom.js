@@ -3,10 +3,15 @@ const { loadIndexHtml, grab } = require('./extract');
 const html = loadIndexHtml();
 const genSrc = grab(html, /const GEN_MAX=[^\n]*/, 'GEN_MAX');
 const verSrc = grab(html, /const ONLINE_PROTOCOL_VERSION=[^\n]*/, 'ONLINE_PROTOCOL_VERSION');
+// A.2: validateRoom kennt jetzt den Stale-Recycling-Kandidatenvertrag —
+// seatRecyclable und dessen Abhaengigkeiten muessen deshalb mit in den Scope.
+const staleSrc = grab(html, /const SEAT_STALE_MS=[^\n]*/, 'SEAT_STALE_MS');
+const snowSrc = grab(html, /function serverNow\(\)\{[^\n]*/, 'serverNow');
+const recySrc = grab(html, /function seatRecyclable\(rec,state\)\{[\s\S]*?\n\}/, 'seatRecyclable');
 const vrSrc = grab(html, /function validateRoom\(d\)\{[\s\S]*?\n\}/, 'validateRoom');
 // Join snippets with newlines, never ';': an extracted line may end in a
 // // comment, which only a real line break (absent on Linux/LF) terminates.
-const validateRoom = new Function([verSrc, genSrc, vrSrc, 'return validateRoom;'].join('\n'))();
+const validateRoom = new Function([verSrc, genSrc, staleSrc, 'let srvOffsetMs=0;', snowSrc, recySrc, vrSrc, 'return validateRoom;'].join('\n'))();
 const VER = new Function([verSrc, 'return ONLINE_PROTOCOL_VERSION;'].join('\n'))();   // fixtures follow the real protocol version
 
 let pass = 0, fail = 0;
