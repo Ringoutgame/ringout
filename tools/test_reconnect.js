@@ -63,7 +63,8 @@ const SRC = [
   grab(/function rRef\(p\)\{[^\n]*/, 'rRef'),
   grab(/function setStatus\(t\)\{[^\n]*/, 'setStatus'),
   grab(/function validateRoom\(d\)\{[\s\S]*?\n\}/, 'validateRoom'),
-  grab(/function pickFreeSeat\(p,max\)\{[^\n]*/, 'pickFreeSeat'),
+  grab(/function seatRecyclable\(rec,state\)\{[\s\S]*?\n\}/, 'seatRecyclable'),
+  grab(/function pickFreeSeat\(p,max,state\)\{[\s\S]*?\n\}/, 'pickFreeSeat'),
   grab(/function validateRejoinRoom\(d\)\{[\s\S]*?\n\}/, 'validateRejoinRoom'),
   grab(/function seatCount\(p\)\{[^\n]*/, 'seatCount'),
   grab(/function seatsContiguous\(p,n\)\{[^\n]*/, 'seatsContiguous'),
@@ -129,12 +130,12 @@ const SRC = [
   grab(/async function activateSeat\(code,seat,extra\)\{[\s\S]*?\n\}/, 'activateSeat'),
   grab(/async function releaseReservation\(code,seat,dc\)\{[\s\S]*?\n\}/, 'releaseReservation'),
   grab(/async function claimSeatSlot\(code,seat,op,extra\)\{[\s\S]*?\n\}/, 'claimSeatSlot'),
-  grab(/async function reclaimSeat\(code,seat,keepName\)\{[\s\S]*?\n\}/, 'reclaimSeat'),
+  grab(/async function reclaimSeat\(code,seat,keepName,legacy\)\{[\s\S]*?\n\}/, 'reclaimSeat'),
   grab(/async function releaseReclaim\(code,seat,dc\)\{[\s\S]*?\n\}/, 'releaseReclaim'),
-  grab(/async function reclaimSeatSlot\(code,seat,op,keepName\)\{[\s\S]*?\n\}/, 'reclaimSeatSlot'),
+  grab(/async function reclaimSeatSlot\(code,seat,op,keepName,legacy\)\{[\s\S]*?\n\}/, 'reclaimSeatSlot'),
   grab(/function playerRecord\(seat\)\{[^\n]*/, 'playerRecord'),
   grab(/function nameForSeat\(s\)\{[\s\S]*?\n\}/, 'nameForSeat'),
-  grab(/function findOwnSeat\(players,pid\)\{[\s\S]*?\n\}/, 'findOwnSeat'),
+  grab(/function findOwnSeat\(players,pid,uid\)\{[\s\S]*?\n\}/, 'findOwnSeat'),
   grab(/function rememberRoom\(code,seat\)\{[^\n]*/, 'rememberRoom'),
   grab(/function forgetRoom\(\)\{[^\n]*/, 'forgetRoom'),
   grab(/function savedRoom\(\)\{[\s\S]*?\n\}/, 'savedRoom'),
@@ -353,7 +354,10 @@ function makeClient(db, code, forcePid) {
     const T=k=>k;
     // v3.1: Online setzt eine anonyme Anmeldung voraus — der Stub bildet einen
     // angemeldeten Client ab (fbReady() verlangt jetzt auch __FB_UID).
-    const window={__FB_READY:true,__FB_ERR:null,__FB_AUTH_ERR:null,__FB_UID:'harnessuid0001',FB};
+    // Die uid folgt der dauerhaften Identitaet (pid): derselbe Spieler nach einem
+    // Reload traegt dieselbe uid, ein anderer Client eine andere — genau wie bei
+    // echter anonymer Anmeldung.
+    const window={__FB_READY:true,__FB_ERR:null,__FB_AUTH_ERR:null,__FB_UID:${JSON.stringify('UID'+pid)},FB};
     const document={querySelector:()=>({textContent:'',style:{}})};
     const els={}; function $(id){return els[id]||(els[id]={style:{},classList:{add(){},remove(){},toggle(){}},textContent:'',innerHTML:'',value:'',disabled:false,querySelector:()=>({textContent:'',style:{}})});}
     let toastT; const toast=m=>{ui.log.push('toast:'+m);};

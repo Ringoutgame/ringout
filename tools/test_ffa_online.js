@@ -14,7 +14,10 @@ const verSrc = grab(html, /const ONLINE_PROTOCOL_VERSION=[^\n]*/, 'ONLINE_PROTOC
 const seatsSrc = grab(html, /const FFA_MAX_SEATS=[^\n]*/, 'FFA_MAX_SEATS');
 const genSrc = grab(html, /const GEN_MAX=[^\n]*/, 'GEN_MAX');
 const vrSrc = grab(html, /function validateRoom\(d\)\{[\s\S]*?\n\}/, 'validateRoom');
-const pfsSrc = grab(html, /function pickFreeSeat\(p,max\)\{[^\n]*/, 'pickFreeSeat');
+const staleSrc = grab(html, /const SEAT_STALE_MS=[^\n]*/, 'SEAT_STALE_MS');
+const snowSrc = grab(html, /function serverNow\(\)\{[^\n]*/, 'serverNow');
+const recySrc = grab(html, /function seatRecyclable\(rec,state\)\{[\s\S]*?\n\}/, 'seatRecyclable');
+const pfsSrc = grab(html, /function pickFreeSeat\(p,max,state\)\{[\s\S]*?\n\}/, 'pickFreeSeat');
 const aacSrc = grab(html, /function allAliveCommitted\(\)\{[^\n]*/, 'allAliveCommitted');
 const saSrc = grab(html, /function seatActive\(p,s\)\{[^\n]*/, 'seatActive');
 const scSrc = grab(html, /function seatCount\(p\)\{[^\n]*/, 'seatCount');
@@ -29,6 +32,10 @@ const env = new Function(`
   ${seatsSrc}
   ${genSrc}
   ${vrSrc}
+  ${staleSrc}
+  let srvOffsetMs=0;
+  ${snowSrc}
+  ${recySrc}
   ${pfsSrc}
   let mode='ffa', ffaN=3, fmt='ffa', balls=[], aimSet=[];   // fmt: startFfaMatch-Gate (triple_ffa braucht exakt 3)
   function np(){return mode==='ffa'?ffaN:2;}

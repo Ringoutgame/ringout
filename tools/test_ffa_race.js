@@ -52,7 +52,8 @@ const SRC = [
   grab(/function rRef\(p\)\{[^\n]*/, 'rRef'),
   grab(/function setStatus\(t\)\{[^\n]*/, 'setStatus'),
   grab(/function validateRoom\(d\)\{[\s\S]*?\n\}/, 'validateRoom'),
-  grab(/function pickFreeSeat\(p,max\)\{[^\n]*/, 'pickFreeSeat'),
+  grab(/function seatRecyclable\(rec,state\)\{[\s\S]*?\n\}/, 'seatRecyclable'),
+  grab(/function pickFreeSeat\(p,max,state\)\{[\s\S]*?\n\}/, 'pickFreeSeat'),
   grab(/function seatCount\(p\)\{[^\n]*/, 'seatCount'),
   grab(/function seatsContiguous\(p,n\)\{[^\n]*/, 'seatsContiguous'),
   grab(/async function claimSeat\(code,op,maxSeats\)\{[\s\S]*?\n\}/, 'claimSeat'),
@@ -105,7 +106,7 @@ const SRC = [
   grab(/function roomRejoinableState\(d,seat\)\{[\s\S]*?\n\}/, 'roomRejoinableState'),
   grab(/function playerRecord\(seat\)\{[^\n]*/, 'playerRecord'),
   grab(/function nameForSeat\(s\)\{[\s\S]*?\n\}/, 'nameForSeat'),
-  grab(/function findOwnSeat\(players,pid\)\{[\s\S]*?\n\}/, 'findOwnSeat'),
+  grab(/function findOwnSeat\(players,pid,uid\)\{[\s\S]*?\n\}/, 'findOwnSeat'),
   grab(/function rememberRoom\(code,seat\)\{[^\n]*/, 'rememberRoom'),
   grab(/function forgetRoom\(\)\{[^\n]*/, 'forgetRoom'),
   grab(/function savedRoom\(\)\{[\s\S]*?\n\}/, 'savedRoom'),
@@ -368,7 +369,10 @@ function makeClient(db, code, forcePid) {
     const PCOLS=[{ui:'#e33'},{ui:'#3e3'},{ui:'#33e'},{ui:'#ee3'},{ui:'#e3e'}];
     // v3.1: Online setzt eine anonyme Anmeldung voraus — der Stub bildet einen
     // angemeldeten Client ab (fbReady() verlangt jetzt auch __FB_UID).
-    const window={__FB_READY:true,__FB_ERR:null,__FB_AUTH_ERR:null,__FB_UID:'harnessuid0001',FB};
+    // Die uid folgt der dauerhaften Identitaet (pid): derselbe Spieler nach einem
+    // Reload traegt dieselbe uid, ein anderer Client eine andere — genau wie bei
+    // echter anonymer Anmeldung.
+    const window={__FB_READY:true,__FB_ERR:null,__FB_AUTH_ERR:null,__FB_UID:${JSON.stringify('UID'+pid)},FB};
     const document={querySelector:()=>({textContent:''})};
     const els={}; function $(id){return els[id]||(els[id]={style:{},classList:{add(){},remove(){}},textContent:'',innerHTML:'',value:'',disabled:false,querySelector:()=>({textContent:''})});}
     let toastT; const toast=m=>{ui.log.push('toast:'+m);$('toast').textContent=m;};

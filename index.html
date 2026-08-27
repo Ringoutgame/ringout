@@ -855,6 +855,20 @@ body:not(.r3d) .ohero{height:12px}
                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/" } }
 </script>
 
+<script>
+  // Ready-Watchdog. Bewusst KEIN Modul: schlaegt der Import von firebase-app/-auth
+  // fehl oder haengt er, wuerde ein Timer INNERHALB des Moduls nie starten und
+  // fb-ready bliebe fuer immer aus. Der Vertrag bleibt derselbe eine Zusage:
+  // __FB_READY + fb-ready feuern genau einmal, spaetestens nach FB_BOOT_TIMEOUT_MS.
+  window.FB_BOOT_TIMEOUT_MS = 10000;
+  window.__fbFinish = function(err){
+    if(window.__FB_READY) return;                       // genau einmal
+    if(err && !window.__FB_ERR && !window.__FB_AUTH_ERR) window.__FB_AUTH_ERR = err;
+    window.__FB_READY = true;
+    window.dispatchEvent(new Event("fb-ready"));
+  };
+  setTimeout(function(){ window.__fbFinish("firebase boot timeout"); }, window.FB_BOOT_TIMEOUT_MS);
+</script>
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js";
   import { getDatabase, ref, set, get, update, remove, onValue, onDisconnect, serverTimestamp, runTransaction, query, orderByChild, limitToLast } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-database.js";
@@ -874,8 +888,8 @@ body:not(.r3d) .ohero{height:12px}
   // die Anmeldung fehl (oder antwortet sie nicht), steht __FB_ERR und fbReady() ist
   // false — der Online-Einstieg meldet das ueber die vorhandene Status-UI. Kein
   // automatischer Wiederholungslauf: ein Reload ist der bewusste zweite Versuch.
-  const AUTH_TIMEOUT_MS = 10000;
-  const finish = () => { window.__FB_READY = true; window.dispatchEvent(new Event('fb-ready')); };
+  const AUTH_TIMEOUT_MS = window.FB_BOOT_TIMEOUT_MS || 10000;
+  const finish = () => window.__fbFinish(null);   // derselbe Einmal-Abschluss wie der Watchdog
   try{
     const app = initializeApp(firebaseConfig);
     const db = getDatabase(app);
@@ -1272,9 +1286,15 @@ function nameForSeat(s){
   return n||T('col'+s);
 }
 // Lowest seat whose stored id equals pid; -1 if none. Basis for same-seat rejoin.
-function findOwnSeat(players,pid){
-  if(!players||typeof players!=='object'||!pid)return -1;
-  for(let s=0;s<FFA_MAX_SEATS;s++){ const r=players[s]; if(r&&r.id===pid)return s; }
+// v3.1: Der kanonische Eigentumsnachweis ist die auth.uid — sie ist nicht
+// faelschbar. players.id ist oeffentlich lesbar und taugt nur noch als
+// Legacy-Rueckfall fuer Seats, die (noch) keine uid tragen. Ein FREMDER
+// geschuetzter Seat mit zufaellig gleicher id darf den eigenen nie verdecken.
+function findOwnSeat(players,pid,uid){
+  if(!players||typeof players!=='object')return -1;
+  if(uid){ for(let s=0;s<FFA_MAX_SEATS;s++){ const r=players[s]; if(r&&r.uid===uid)return s; } }
+  if(!pid)return -1;
+  for(let s=0;s<FFA_MAX_SEATS;s++){ const r=players[s]; if(r&&!r.uid&&r.id===pid)return s; }
   return -1;
 }
 function rememberRoom(code,seat){ try{ localStorage.setItem('ringout_room',JSON.stringify({code:code,seat:seat,ts:Date.now()})); }catch(e){} }
@@ -1376,9 +1396,13 @@ async function claimSeatSlot(code,seat,op,extra){
 // seats are rules-rejected: this path can never change players/<seat>/id.
 // keepName restores the roster name the seat already carries when no locally
 // persisted name exists (rules require name length>=1).
-async function reclaimSeat(code,seat,keepName){
+async function reclaimSeat(code,seat,keepName,legacy){
   const rec=playerRecord(seat);
   if(!onlineName&&keepName)rec.name=keepName;
+  // P1-2: Ein bestehender uid-loser v3-Seat wird NICHT inplace auf Eigentum
+  // migriert — die Rules lehnen das ab, und ein halb migrierter Claim waere
+  // schlimmer als gar keiner. Er bleibt Legacy bis zur echten Neuvergabe.
+  if(legacy)delete rec.uid;
   const upd={}; upd['p/'+seat]={s:onlineTab,on:false,t:window.FB.serverTimestamp()}; upd['players/'+seat]=rec;
   try{ await window.FB.update(window.FB.ref(window.FB.db,'rooms/'+code),upd); return {ok:true}; }
   catch(e){
@@ -1399,8 +1423,8 @@ async function releaseReclaim(code,seat,dc){
 // claimSeatSlot. Outcomes: {ok:true,dc} re-activated · {lost:true} rules denied
 // (foreign tab active / stale window not open / seat re-assigned) · {stale:true}
 // op superseded (own presence dropped again, records kept).
-async function reclaimSeatSlot(code,seat,op,keepName){
-  const r=await reclaimSeat(code,seat,keepName);
+async function reclaimSeatSlot(code,seat,op,keepName,legacy){
+  const r=await reclaimSeat(code,seat,keepName,legacy);
   if(!r.ok)return {ok:false,lost:true,dc:null};
   if(op!=null&&!joinOpCurrent(op)){ await releaseReclaim(code,seat,null); return {ok:false,stale:true,dc:null}; }
   let dc=null;
@@ -5003,8 +5027,13 @@ function openOnline(){
 function createRoom(){
   if(TUNE){toast('Tuning aktiv — Online deaktiviert');return;}
   const ffa=mode==='ffa';   // Kontext vom ffaOnline-Button
-  whenFB(()=>{ if(!fbReady()){setStatus(T(typeof fbFailKey==='function'?fbFailKey():'noFb'));return;}
-    (async()=>{ const op=newJoinOp(); let dc=null, code='', created=false, listed=false;
+  // P1-3: Der Abbruch-Token gehoert zum KLICK, nicht zum Firebase-Callback.
+  // Verlaesst der Spieler den Online-Bereich, waehrend die Anmeldung noch
+  // laeuft, ist diese Operation beim spaeteren Callback bereits veraltet.
+  const op=newJoinOp();
+  whenFB(()=>{ if(!joinOpCurrent(op))return;   // waehrend der Anmeldung abgebrochen
+    if(!fbReady()){setStatus(T(typeof fbFailKey==='function'?fbFailKey():'noFb'));return;}
+    (async()=>{ let dc=null, code='', created=false, listed=false;
     // Snapshot the visibility ONCE, validated, at the start of the operation. From here
     // on the create uses only this immutable local value — a UI toggle flip during an
     // await can no longer change this operation's path, listing decision or cleanup.
@@ -5187,7 +5216,7 @@ function validateRoom(d){
     // FFA-Raum (live seit M8-T3c) / TRIPLE FFA (exakt 3 Sitze) / TEAM DUEL (exakt
     // 4 Sitze): Beitritt nur solange die Lobby offen ist und ein Gast-Seat frei ist.
     if(d.state!=='lobby')return{ok:false,reason:'Match läuft bereits.'};
-    const seat=pickFreeSeat(p,cfg.fmt==='triple_ffa'?3:cfg.fmt==='team_duel'?4:FFA_MAX_SEATS);
+    const seat=pickFreeSeat(p,cfg.fmt==='triple_ffa'?3:cfg.fmt==='team_duel'?4:FFA_MAX_SEATS,d.state);
     if(seat<0)return{ok:false,reason:'Raum ist schon voll.'};
     return{ok:true,winTarget:cfg.winTarget,fmt:cfg.fmt,gen:d.gen,freeSeat:seat};
   }
@@ -5198,7 +5227,25 @@ function validateRoom(d){
   return{ok:true,winTarget:cfg.winTarget,fmt:cfg.fmt,gen:d.gen};
 }
 // Niedrigster freier Gast-Seat (1..max-1); -1 = voll. Pure Funktion (Node-getestet).
-function pickFreeSeat(p,max){for(let s=1;s<max;s++)if(!p||!p[s])return s;return -1;}
+// Kandidatenauswahl fuer einen Claim — die atomare Rules-Transaction bleibt der
+// Schiedsrichter, der Client waehlt nur den Kandidaten.
+// Ein Seat OHNE Presence-Knoten ist frei und wird immer zuerst genommen. Erst wenn
+// kein solcher Sitz mehr existiert, greift der BEREITS bestehende Recycling-Vertrag:
+// in der Lobby darf ein Seat uebernommen werden, der seit SEAT_STALE_MS auf on:false
+// steht. Diese Reihenfolge ist bewusst: sie behebt den Fall 'Raum wirkt voll, obwohl
+// nur abgelaufene Reservierungen herumliegen', nimmt aber niemandem den Sitz weg,
+// solange noch ein echter freier daneben liegt.
+function seatRecyclable(rec,state){
+  if(!rec)return false;                                 // kein Record -> regulaer frei, nicht 'recycelt'
+  if(rec.on===true||state!=='lobby')return false;       // aktiv oder laufendes Match
+  return typeof rec.t==='number' && (serverNow()-rec.t)>=SEAT_STALE_MS;
+}
+function pickFreeSeat(p,max,state){
+  const st=state===undefined?'lobby':state;
+  for(let s=1;s<max;s++)if(!p||!p[s])return s;          // echter freier Sitz hat Vorrang
+  for(let s=1;s<max;s++)if(seatRecyclable(p&&p[s],st))return s;
+  return -1;
+}
 // B2: pure validator for a room snapshot the REJOINER is about to trust. Unlike
 // validateRoom (fresh joins) it accepts BOTH the lobby and a running match; a
 // running FFA-family room must already carry its canonical seats count. The
@@ -5273,7 +5320,7 @@ async function claimSeat(code,op,maxSeats){
     if(!s.exists())return {seat:-1,dc:null};
     const d=s.val()||{};
     if(d.state!=='lobby')return {seat:-1,dc:null};   // Lobby geschlossen -> Match laeuft bereits
-    const seat=pickFreeSeat(d.p,maxSeats);
+    const seat=pickFreeSeat(d.p,maxSeats,d.state);
     if(seat<0)return {seat:-1,dc:null};
     // KEIN Vorab-Loeschen fremder Records: ein verwaister Fremd-Record wird
     // ausschliesslich INNERHALB des atomaren Claims (Multi-Path p+players) recycelt.
@@ -5290,8 +5337,13 @@ function joinRoom(){
   if(TUNE){toast('Tuning aktiv — Online deaktiviert');return;}
   const code=($('onInput').value||'').toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,4);
   if(code.length<4){ setStatus(T('code4')); return; }
-  whenFB(()=>{ if(!fbReady()){setStatus(T(typeof fbFailKey==='function'?fbFailKey():'noFb'));return;}
-    (async()=>{ const op=newJoinOp();
+  // P1-3: Der Abbruch-Token gehoert zum KLICK, nicht zum Firebase-Callback.
+  // Verlaesst der Spieler den Online-Bereich, waehrend die Anmeldung noch
+  // laeuft, ist diese Operation beim spaeteren Callback bereits veraltet.
+  const op=newJoinOp();
+  whenFB(()=>{ if(!joinOpCurrent(op))return;   // waehrend der Anmeldung abgebrochen
+    if(!fbReady()){setStatus(T(typeof fbFailKey==='function'?fbFailKey():'noFb'));return;}
+    (async()=>{
     try{
       setStatus(T('joining'));
       const s=await window.FB.get(window.FB.ref(window.FB.db,'rooms/'+code));
@@ -5389,13 +5441,14 @@ async function attemptRejoin(code){
     const d=snap.val();
     const v=validateRejoinRoom(d);
     if(!v.ok){ forgetRoom(); setStatus(T(v.reason)); return false; }
-    const seat=findOwnSeat(d.players,onlinePid);
+    const seat=findOwnSeat(d.players,onlinePid,fbUid());
     if(seat<0){ forgetRoom(); setStatus(T('noRoom')); return false; }   // identity no longer holds a seat here — NEVER take a foreign one
     const ffa=v.fmt==='ffa'||v.fmt==='triple_ffa'||v.fmt==='team_duel';
     if(v.state==='playing'&&ffa&&seat>=v.seats){ forgetRoom(); setStatus(T('rejoinNoLobby')); return false; }   // match started without this seat
     if(d.p&&seatActive(d.p,seat)){ setStatus(T('rejoinTab')); return false; }
     const oldRec=d.players&&d.players[seat];
-    const claim=await reclaimSeatSlot(code,seat,op,oldRec&&typeof oldRec.name==='string'?sanitizeName(oldRec.name):'');
+    const claim=await reclaimSeatSlot(code,seat,op,oldRec&&typeof oldRec.name==='string'?sanitizeName(oldRec.name):'',
+      !(oldRec&&oldRec.uid));   // Seat ohne uid -> Legacy-Reclaim, keine Migration
     if(claim.stale)return false;   // op superseded -> own presence already dropped again
     if(claim.lost){
       // Reclaim denied by the rules: another tab re-took the seat, the lobby
@@ -5903,7 +5956,7 @@ async function offerRejoinOnBoot(){
     if(online||roomCode)return;   // user entered a room while the probe was in flight
     if(!s.exists()){ forgetRoom(); return; }
     const d=s.val();
-    if(!validateRejoinRoom(d).ok||findOwnSeat(d.players,onlinePid)<0){ forgetRoom(); return; }
+    if(!validateRejoinRoom(d).ok||findOwnSeat(d.players,onlinePid,fbUid())<0){ forgetRoom(); return; }
     if(!$('online').classList.contains('show'))openOnline();
   }catch(e){}
 }

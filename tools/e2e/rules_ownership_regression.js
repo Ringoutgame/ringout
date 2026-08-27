@@ -34,7 +34,13 @@ const { chromium } = require('@playwright/test');
 const H = require('./lib/harness');
 const { CONTRACT_FILE } = require('../derive_contract_rules');
 
-const RUN_TIMEOUT_MS = Number(process.env.OWN_SEC_TIMEOUT_MS) || 8 * 60 * 1000;
+const RUN_TIMEOUT_MS = Number(process.env.OWN_SEC_TIMEOUT_MS) || 12 * 60 * 1000;
+// Hart verriegelte Erwartung: ein stillschweigend uebersprungener Fall waere
+// als 'gruen' nicht zu erkennen. Weicht die Zahl ab — nach oben oder unten —,
+// bricht der Lauf ab, bis die Erwartung bewusst nachgezogen wurde.
+// EXPAND laeuft sechs Faelle mehr als CONTRACT: den Legacy-Block (D1-D5) und die
+// Altclient-Kompatibilitaet (X2/X3), die es unter CONTRACT nicht geben kann.
+const EXPECTED_CHECKS = { expand: 61, contract: 55 };
 const DENY_CODE = 'PERMISSION_DENIED';
 const CH = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 const HEX64 = 'a'.repeat(64);
@@ -92,7 +98,68 @@ async function newClient(browser, url, label, state) {
   };
 }
 
+// Ein Client, der ueber die PRODUKTPFADE arbeitet (createRoom/joinRoom/leaveOnline)
+// statt ueber direkte DB-Writes — nur so beweisen die Flow-Faelle etwas ueber das
+// Produkt. `holdAuth` haelt die Anmeldung an, bis release() gerufen wird: genau die
+// Luecke, in der ein Nutzer wieder abbrechen kann.
+async function newProductClient(browser, url, label, state, opts) {
+  opts = opts || {};
+  const context = await browser.newContext({ serviceWorkers: 'block' });
+  await H.armContext(context, label, state);
+  let release = () => {};
+  if (opts.holdAuth) {
+    const held = [];
+    release = () => { const q = held.splice(0); for (const r of q) r.continue(); };
+    await context.route(`**://${H.EMU_HOST}:${H.EMU_AUTH_PORT}/**`, (route) => { held.push(route); });
+  }
+  const page = await context.newPage();
+  await page.goto(url, { waitUntil: 'domcontentloaded' });
+  if (!opts.holdAuth) {
+    await page.waitForFunction(() => window.__FB_READY === true && window.__ringoutE2E && window.__ringoutE2E.ready, null, { timeout: 40000 });
+  } else {
+    await page.waitForFunction(() => !!(window.__ringoutE2E && window.__ringoutE2E.ready), null, { timeout: 40000 });
+  }
+  return {
+    label, page, context, release,
+    uid: () => page.evaluate(() => window.__FB_UID || null),
+    snap: () => page.evaluate(() => window.__ringoutE2E.snapshot()),
+    host: (n) => page.evaluate((k) => window.__ringoutE2E.hostFFA(k, 'ffa'), n),
+    join: (c) => page.evaluate((c2) => window.__ringoutE2E.joinFFA(c2), c),
+    leave: () => page.evaluate(() => window.__ringoutE2E.leave()),
+  };
+}
+
 const TS = { __sv: 'ts' };                        // wird in der Seite zu serverTimestamp()
+const CODE_CHARS = CH;
+const recFor = (uid, tab, name) => ({ id: 'PID' + uid.slice(0, 8).replace(/[^A-Za-z0-9_-]/g, 'x') + '0000', name, tab, uid });
+async function freshCodeFor(c) {
+  for (let i = 0; i < 20; i++) {
+    const code = Array.from({ length: 4 }, () => CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)]).join('');
+    if ((await c.read(code)) == null) return code;
+  }
+  throw new Error('kein freier Raumcode');
+}
+// Offene Lobby mit nur dem Host — Ziel fuer den abgebrochenen Join.
+async function mkRoomFor(c, fmt) {
+  const code = await freshCodeFor(c);
+  await c.set(code, { v: 3, config: { winTarget: 3, fmt, visibility: 'private' }, gen: 0, state: 'lobby',
+    p: { 0: { s: 'HOSTTAB0', on: false, t: TS } }, players: { 0: recFor(c.uid, 'HOSTTAB0', 'H') }, created: TS });
+  await c.upd(code, { 'p/0/on': true, 'p/0/t': TS });
+  return code;
+}
+// TRIPLE FFA (exakt 3 Sitze): Host aktiv, beide Gastsitze seit ueber
+// SEAT_STALE_MS auf on:false. Ohne Recycling-Rueckfall waere der Raum 'voll'.
+async function mkStaleTripleFor(cl) {
+  const [owner, foe, owner2] = cl;
+  const code = await mkRoomFor(owner, 'triple_ffa');
+  for (const [seat, c, tab] of [[1, foe, 'STALETB1'], [2, owner2, 'STALETB2']]) {
+    await c.upd(code, { ['p/' + seat]: { s: tab, on: false, t: TS }, ['players/' + seat]: recFor(c.uid, tab, 'S' + seat) });
+    await c.upd(code, { ['p/' + seat + '/on']: true, ['p/' + seat + '/t']: TS });
+    await c.upd(code, { ['p/' + seat + '/s']: tab, ['p/' + seat + '/on']: false, ['p/' + seat + '/t']: TS });
+  }
+  await new Promise((r) => setTimeout(r, 15600));   // Karenz serverseitig ablaufen lassen
+  return code;
+}
 const P = (tab, on) => ({ s: tab, on, t: TS });
 
 // ── Die Faelle ───────────────────────────────────────────────────────────────
@@ -126,6 +193,7 @@ async function runCases(stage, cl, checks) {
     });
     await host.upd(code, { 'p/0/on': true, 'p/0/t': TS });
     const ffaLike = fmt === 'ffa' || fmt === 'triple_ffa' || fmt === 'team_duel';
+    // seatOwners.length === 1 -> nur der Host; die Gastschleife laeuft dann nicht.
     for (let seat = 1; seat < seatOwners.length; seat++) {
       const c = seatOwners[seat], tab = 'TAB00' + seat + '000';
       await c.upd(code, { ['p/' + seat]: P(tab, false), ['players/' + seat]: rec(c.uid, tab, 'P' + seat) });
@@ -241,6 +309,97 @@ async function runCases(stage, cl, checks) {
     state('L2b: Seat gehoert jetzt dem neuen Eigentuemer', (await owner.read(code + '/players/2/uid')) === owner2.uid);
   }
 
+
+  // ══ P1-1 — eine vergebene uid laesst sich nicht mehr abstreifen ═══════════
+  {
+    const code = await mkRoom('ffa', [owner, owner2, foe]);
+    const mine = rec(owner.uid, 'HOSTTAB0', 'H');
+    expect('A: uid-Child des eigenen Seats loeschen', 'deny',
+      await owner.set(code + '/players/0/uid', null));
+    state('A2: uid unveraendert', (await owner.read(code + '/players/0/uid')) === owner.uid);
+    expect('B: Parent-Replace ohne uid', 'deny',
+      await owner.set(code + '/players/0', { id: mine.id, name: mine.name, tab: mine.tab }));
+    expect('C: Multi-Path-Downgrade (uid:null neben harmlosem Feld)', 'deny',
+      await owner.upd(code, { 'players/0/uid': null, 'players/0/name': 'X' }));
+    expect('C2: uid A -> uid B beim aktiven Claim', 'deny',
+      await owner.upd(code, { 'players/0': rec(owner2.uid, 'HOSTTAB0', 'H') }));
+    state('C3: Eigentuemer nach allen Versuchen unveraendert',
+      (await owner.read(code + '/players/0/uid')) === owner.uid);
+  }
+
+  // ══ P1-2 — an einen laufenden Legacy-Claim wird nichts angeheftet ═════════
+  // Nur unter EXPAND konstruierbar: unter CONTRACT entsteht ein uid-loser Seat
+  // gar nicht erst (siehe Migrationsblock).
+  if (stage === 'expand') {
+    const code = await freshCode();
+    await owner.set(code, {
+      v: 3, config: { winTarget: 3, fmt: 'ffa', visibility: 'private' }, gen: 0, state: 'lobby',
+      p: { 0: P('LEGCYTAB', false) }, players: { 0: { id: 'LEGACYID0000', name: 'L', tab: 'LEGCYTAB' } }, created: TS,
+    });
+    await owner.upd(code, { 'p/0/on': true, 'p/0/t': TS });
+    const legacyRec = { id: 'LEGACYID0000', name: 'L', tab: 'LEGCYTAB', uid: foe.uid };
+    expect('D: aktiver Legacy-Seat — fremde uid anheften', 'deny',
+      await foe.upd(code, { 'players/0': legacyRec }));
+    expect('D2: aktiver Legacy-Seat — isolierter uid-Write', 'deny',
+      await foe.set(code + '/players/0/uid', foe.uid));
+    expect('D3: eigener Legacy-Seat — Selbstmigration im Lauf', 'deny',
+      await owner.upd(code, { 'players/0': { id: 'LEGACYID0000', name: 'L', tab: 'LEGCYTAB', uid: owner.uid } }));
+    await owner.set(code + '/state', 'playing');
+    expect('D4: laufendes Match — uid anheften', 'deny',
+      await foe.set(code + '/players/0/uid', foe.uid));
+    state('D5: Seat ist weiterhin Legacy', (await owner.read(code + '/players/0/uid')) === null);
+  }
+
+  // ══ E/F/G/H — Entstehung von Eigentum: frisch und per Recycling ═══════════
+  {
+    const code = await mkRoom('ffa', [owner]);
+    expect('E: vollstaendiger frischer Claim in einer atomaren Operation', 'allow',
+      await foe.upd(code, { 'p/1': P('FRESHTB1', false), 'players/1': rec(foe.uid, 'FRESHTB1', 'F') }));
+    state('E2: der frische Seat gehoert dem Anspruchsteller',
+      (await owner.read(code + '/players/1/uid')) === foe.uid);
+    await foe.upd(code, { 'p/1/s': 'FRESHTB1', 'p/1/on': false, 'p/1/t': TS });
+    const t0 = Date.now();
+    expect('G: Recycling bei 14 999 ms', 'deny',
+      await owner2.upd(code, { 'p/1': P('LATETAB1', false), 'players/1': rec(owner2.uid, 'LATETAB1', 'R') }));
+    const waitMs = 15600 - (Date.now() - t0);
+    if (waitMs > 0) await new Promise((r) => setTimeout(r, waitMs));
+    expect('H: Recycling ab 15 000 ms', 'allow',
+      await owner2.upd(code, { 'p/1': P('LATETAB1', false), 'players/1': rec(owner2.uid, 'LATETAB1', 'R') }));
+    state('H2: Eigentum ist uebergegangen', (await owner.read(code + '/players/1/uid')) === owner2.uid);
+  }
+
+  // ══ I — zwei gleichzeitige Reclaims, genau ein Eigentuemer ════════════════
+  {
+    const code = await mkRoom('ffa', [owner, owner2, foe]);
+    await owner.set(code + '/state', 'playing');
+    await owner2.upd(code, { 'p/1/s': 'TAB001000', 'p/1/on': false, 'p/1/t': TS });
+    const both = await Promise.all([
+      owner2.upd(code, { 'p/1': P('RACETB01', false), 'players/1': rec(owner2.uid, 'RACETB01', 'P1') }),
+      foe.upd(code, { 'p/1': P('RACETB02', false), 'players/1': rec(foe.uid, 'RACETB02', 'P1') }),
+    ]);
+    const wins = both.filter((r) => r && r.ok === true).length;
+    const finalUid = await owner.read(code + '/players/1/uid');
+    state('I: zwei parallele Reclaims — nur der Eigentuemer gewinnt',
+      wins === 1 && finalUid === owner2.uid, JSON.stringify({ wins, finalUid }));
+  }
+
+  // ══ O — Parent-/Multi-Path-Angriffe auf Presence, Move und Barrier ════════
+  {
+    const code = await mkRoom('ffa', [owner, owner2, foe]);
+    await owner.set(code + '/state', 'playing');
+    await owner.set(code + '/seats', 3);
+    expect('O1: fremden Presence-Parent komplett ersetzen', 'deny',
+      await foe.set(code + '/p/0', P('HOSTTAB0', false)));
+    expect('O2: Multi-Path auf zwei fremde Seats', 'deny',
+      await foe.upd(code, { 'p/0/on': false, 'p/1/on': false, 'p/0/t': TS, 'p/1/t': TS }));
+    expect('O3: Multi-Path mit eigenem und fremdem Move', 'deny',
+      await foe.upd(code + '/g/0/t/0', { 2: { idx: 2, dx: 1, dy: 1, sp: 0 }, 0: { idx: 0, dx: 1, dy: 1, sp: 0 } }));
+    state('O3b: auch der eigene Teil des Angriffs blieb aus',
+      (await owner.read(code + '/g/0/t/0/2')) === null);
+    expect('O4: fremdes bc ueber den Turn-Parent', 'deny',
+      await foe.upd(code + '/g/0/t/1', { 'bc/0': { v: 1, seat: 0, turn: 1, hash: HEX64 } }));
+  }
+
   // ══ MIGRATION: Seat OHNE uid ══════════════════════════════════════════════
   // Genau hier unterscheiden sich die beiden Rules-Staende. EXPAND laesst einen
   // uid-losen Seat wie unter v3 zu (bereits ausgelieferte Clients spielen
@@ -263,6 +422,84 @@ async function runCases(stage, cl, checks) {
   }
 }
 
+
+// ── Produktpfad-Faelle: Abbruch waehrend der Anmeldung, Seat-Allocator ───────
+// Diese Faelle laufen bewusst NICHT ueber direkte DB-Writes: geprueft wird das
+// Verhalten des Produkts, nicht das der Rules.
+async function runFlowCases(stage, browser, url, state, checks, raw) {
+  const st = (name, ok, detail) => checks.push({ stage, name, ok: !!ok, detail: ok ? null : (detail || null) });
+  const settle = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  // Jeden Raum-Write der Seite mitschreiben — nur so laesst sich beweisen, dass
+  // ein abgebrochener Create wirklich NICHTS hinterlassen hat.
+  const recordWrites = (page) => page.evaluate(() => {
+    window.__WRITES = [];
+    const FB = window.FB, wrap = (fn) => function (ref) {
+      try { window.__WRITES.push(String(ref && ref.toString ? ref.toString() : '')); } catch (e) {}
+      return fn.apply(this, arguments);
+    };
+    FB.set = wrap(FB.set); FB.update = wrap(FB.update);
+  });
+  const roomWrites = (page) => page.evaluate(() => (window.__WRITES || []).filter((u) => /\/rooms\//.test(u)));
+
+  // ── J: Create waehrend der Anmeldung abgebrochen ──────────────────────────
+  {
+    const c = await newProductClient(browser, url, `${stage}:pending-create`, state, { holdAuth: true });
+    try {
+      await recordWrites(c.page);
+      await c.host(3);                       // Nutzer klickt "Raum erstellen"
+      await settle(400);
+      await c.leave();                       // Nutzer geht zurueck, Anmeldung haengt noch
+      c.release();                           // Anmeldung wird jetzt endlich fertig
+      await c.page.waitForFunction(() => window.__FB_READY === true, null, { timeout: 40000 });
+      await settle(2500);
+      const w = await roomWrites(c.page);
+      const snap = await c.snap();
+      st('J: Create waehrend der Anmeldung abgebrochen — kein Raum entsteht',
+        w.length === 0 && !snap.online && !snap.roomCode, JSON.stringify({ writes: w.slice(0, 3), online: snap.online, code: snap.roomCode }));
+    } finally { try { await c.context.close(); } catch (_) {} }
+  }
+
+  // ── K: Join waehrend der Anmeldung abgebrochen ────────────────────────────
+  {
+    const code = await raw.mkLobby('ffa');
+    const c = await newProductClient(browser, url, `${stage}:pending-join`, state, { holdAuth: true });
+    try {
+      await c.join(code);
+      await settle(400);
+      await c.leave();
+      c.release();
+      await c.page.waitForFunction(() => window.__FB_READY === true, null, { timeout: 40000 });
+      await settle(2500);
+      const seat1 = await raw.read(code + '/p/1');
+      const snap = await c.snap();
+      st('K: Join waehrend der Anmeldung abgebrochen — kein Seat wird belegt',
+        seat1 === null && !snap.online, JSON.stringify({ seat1, online: snap.online }));
+    } finally { try { await c.context.close(); } catch (_) {} }
+  }
+
+  // ── N: der Allocator nutzt einen wirklich recyclebaren Seat ───────────────
+  // TRIPLE FFA hat exakt drei Sitze: Host aktiv, beide Gastsitze abgelaufen.
+  // Ohne den Recycling-Rueckfall wuerde der Raum faelschlich als voll gelten.
+  {
+    const code = await raw.mkStaleTriple();
+    const c = await newProductClient(browser, url, `${stage}:recycle-join`, state);
+    try {
+      await c.join(code);
+      let seat = -1;
+      for (let i = 0; i < 60 && seat < 0; i++) {
+        const snap = await c.snap();
+        if (snap.online && typeof snap.myPlayer === 'number' && snap.myPlayer >= 0) seat = snap.myPlayer;
+        else await settle(250);
+      }
+      const uidNow = await raw.read(code + '/players/' + seat + '/uid');
+      const mine = await c.uid();
+      st('N: abgelaufener Lobby-Seat wird vom Produktclient recycelt',
+        (seat === 1 || seat === 2) && uidNow === mine, JSON.stringify({ seat, uidNow, mine }));
+    } finally { try { await c.context.close(); } catch (_) {} }
+  }
+}
+
 // ── Lauf ─────────────────────────────────────────────────────────────────────
 (async () => {
   const state = { transformedHtml: null, prodHits: [], wsProdHits: [], otherBlocked: [], wsOtherBlocked: [], leaveWindows: [] };
@@ -276,6 +513,12 @@ async function runCases(stage, cl, checks) {
   ];
 
   const runStage = async ({ stage, file }) => {
+    // Ein fremder Prozess auf unseren Ports wuerde einen 'gruenen' Lauf gegen
+    // eine ganz andere Datenbank erzeugen — das ist kein bestandener Test.
+    for (const port of [H.EMU_PORT, ...H.EMU_AUX_PORTS]) {
+      if (!(await H.portFree(port))) throw new Error(`Port ${port} belegt — Abbruch (Fremdprozess).`);
+    }
+    const before = checks.length;
     runDir = H.createRunDir();
     H.prepareTempRules(runDir, file);
     staticServer = await H.startStaticServer();
@@ -287,11 +530,23 @@ async function runCases(stage, cl, checks) {
     for (const label of ['owner', 'foe', 'owner2']) cl.push(await newClient(browser, url, `${stage}:${label}`, state));
     try {
       await runCases(stage, cl, checks);
+      await runFlowCases(stage, browser, url, state, checks, {
+        read: (p) => cl[0].read(p),
+        mkLobby: () => mkRoomFor(cl[0], 'ffa'),
+        mkStaleTriple: () => mkStaleTripleFor(cl),
+      });
     } finally {
       for (const c of cl) { try { await c.context.close(); } catch (_) {} }
     }
-    await H.cleanup({ browser, staticServer, emu, runDir, closeErrors: [], preexistingLogs: [] });
+    const cl2 = await H.cleanup({ browser, staticServer, emu, runDir, closeErrors: [], preexistingLogs: [] });
     browser = staticServer = emu = runDir = null;
+    if (!cl2 || cl2.cleanupOk !== true) {
+      failures.push(`[${stage}] Cleanup nicht sauber: ` + JSON.stringify({ notes: cl2 && cl2.notes, portsFree: cl2 && cl2.portsFree, runGone: cl2 && cl2.runGone }));
+    }
+    const ran = checks.length - before, want = EXPECTED_CHECKS[stage];
+    if (ran !== want) {
+      failures.push(`[${stage}] ${ran} Checks gelaufen, erwartet ${want} — Faelle fehlen oder sind neu.`);
+    }
   };
 
   try {

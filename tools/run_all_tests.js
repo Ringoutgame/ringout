@@ -31,6 +31,7 @@ const SUITES = [
   // v3.1: Der CONTRACT-Rules-Stand ist eine reine Ableitung der deploybaren
   // EXPAND-Datei. Driftet er ab, ist die Migrationsaussage wertlos.
   { name: 'Contract-Rules',   file: 'derive_contract_rules.js', args: ['--check'], expectPassed: null },
+  { name: 'Contract-Deriver', file: 'test_contract_deriver.js', expectPassed: 24 },
   { name: 'Public-Lobby',     file: 'test_public_lobby.js',   expectPassed: 30 },
   { name: 'Team-Duel',        file: 'test_team_duel.js',      expectPassed: 36 },
   { name: 'Ring-Collapse',    file: 'test_collapse.js',       expectPassed: 371 },

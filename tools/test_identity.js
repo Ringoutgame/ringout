@@ -12,7 +12,7 @@ const src = [
   grab(html, /function genToken\(n\)\{[\s\S]*?\n\}/, 'genToken'),
   grab(html, /function capGraphemes\(s,max\)\{[\s\S]*?\n\}/, 'capGraphemes'),
   grab(html, /function sanitizeName\(raw\)\{[\s\S]*?\n\}/, 'sanitizeName'),
-  grab(html, /function findOwnSeat\(players,pid\)\{[\s\S]*?\n\}/, 'findOwnSeat'),
+  grab(html, /function findOwnSeat\(players,pid,uid\)\{[\s\S]*?\n\}/, 'findOwnSeat'),
   grab(html, /function nameForSeat\(s\)\{[\s\S]*?\n\}/, 'nameForSeat'),
   grab(html, /function playerRecord\(seat\)\{[^\n]*/, 'playerRecord'),
   // Stubs for the globals the two roster helpers read.
