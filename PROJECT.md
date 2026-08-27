@@ -1,6 +1,6 @@
 # PROJECT.md — RingOut
 
-**Zuletzt aktualisiert:** 2026-08-27 (Arena Football: **zwei Leben** in der Elimination, Classic auf der kanonischen Shouldered-Wide-Arena, **fester 60-Hz-Gameplay-Takt** unabhaengig von der Bildwiederholrate, neu abgestimmte Daempfung und dynamischere Abschusskurve; finale adaptive Elimination-Arenaformen — Rounded Square / Broad Rounded Triangle / Shouldered Wide; **beide** Arenawechsel 4→3 und 3→2 sind animiert und tragen Gold-Kantenfeedback plus Transitionsklang; **drei** sichtbare Modi — Classic 1v1 als Standard, Tactical 1v1, Elimination; Elimination ist jetzt regulaer ueber die Modusauswahl startbar, weiterhin lokal/Hotseat)
+**Zuletzt aktualisiert:** 2026-08-27 (Arena Football: **Elimination startet mit fuenf Spielern** auf dem Broad Rounded Pentagon, Ablauf 5P → 4P → 3P → 2P → Sieger; **zwei Leben** in der Elimination, Classic auf der kanonischen Shouldered-Wide-Arena, **fester 60-Hz-Gameplay-Takt** unabhaengig von der Bildwiederholrate, neu abgestimmte Daempfung und dynamischere Abschusskurve; finale adaptive Elimination-Arenaformen — Rounded Square / Broad Rounded Triangle / Shouldered Wide; **beide** Arenawechsel 4→3 und 3→2 sind animiert und tragen Gold-Kantenfeedback plus Transitionsklang; **drei** sichtbare Modi — Classic 1v1 als Standard, Tactical 1v1, Elimination; Elimination ist jetzt regulaer ueber die Modusauswahl startbar, weiterhin lokal/Hotseat)
 
 - **Aktueller stabiler Projekt-HEAD:** `5a23dc424fb3126c33c29543b7c6571b87a65ec7`
 - **Implementierungs-Commit UX-Phase 3:** `babbbe78ee388489321d1f0cb3e032bbaabd0725`
@@ -42,8 +42,9 @@ Stand: Arena-Finalisierung (2026-08-08), frisch gemessen mit
 | Football-Shell | `test_football_shell.js` | 818/0 | grün |
 | Football-Flow | `test_football_flow.js` | 148/0 | grün |
 | Football-Arena | `test_football_arena.js` | 61/0 | grün |
-| Football-Tactical | `test_football_tactical.js` | 242/0 | grün |
-| Football-Elim | `test_football_elimination4.js` | 860/0 | grün |
+| Football-Tactical | `test_football_tactical.js` | 243/0 | grün |
+| Football-Elim | `test_football_elimination4.js` | 1229/0 | grün |
+| Football-Elim5 | `test_football_elimination5.js` | 285/0 | grün |
 | r3d-Mapping | `test_r3d_mapping.js` | 52/0 | grün |
 | Sanitize | `test_sanitize.js` | 24/0 | grün |
 | Identity | `test_identity.js` | 45/0 | grün |
@@ -120,7 +121,7 @@ Bei den E2E-Harnessen ist die Produktions-Firebase hart geblockt.
 ### Arena-Football-Modi (Classic 1v1 + Tactical 1v1 + Elimination)
 
 Arena Football hat **drei sichtbare Produktmodi**. Classic und Tactical sind 1v1-Modi und
-teilen die Tabelle unten; Elimination ist der Vier-Spieler-Modus und hat einen eigenen
+teilen die Tabelle unten; Elimination ist der Fuenf-Spieler-Modus und hat einen eigenen
 Abschnitt. Beide laufen durch dieselbe Commit/Reveal-Pipeline
 wie jeder lokale Hotseat-Modus: verdeckte Aim-Phase je Team (`openCover`), beide Seiten
 committen, danach Reveal — `applyLaunch()` setzt **alle** Startgeschwindigkeiten vor
@@ -133,15 +134,17 @@ committen, danach Reveal — `applyLaunch()` setzt **alle** Startgeschwindigkeit
 | Zuege je Team und Runde | 1 | 1 — das Team waehlt vorher, **welche** seiner beiden Figuren zieht |
 | Nicht gewaehlte Figur | — | erhaelt keinen Startimpuls, bleibt aber vollstaendig kollidierbar |
 
-**Umschaltung:** `fbVariant` (`'classic'`, `'tactical'` oder `'elimination4'`) ist die einzige
+**Umschaltung:** `fbVariant` (`'classic'`, `'tactical'` oder `'elimination'`) ist die einzige
 Weiche; `fbTactical()` und `fbElim4()` sind die einzigen Konsumenten. Jeder andere Wert faellt
 auf `'classic'` zurueck. `startFootball(variant)` ist der **einzige** Startpfad und clamped die
-Variante zusaetzlich — alle drei Menuebuttons und der Dev-Direktlink laufen durch ihn.
+Variante zusaetzlich — alle drei Menuebuttons und der Dev-Direktlink laufen durch ihn. Der
+vierte zulaessige Wert `'elimination4'` ist ein reiner Dev-Einstieg: `startFootball()` laesst
+ihn nur mit aktivem `DEV_MENU` durch, kein Menuebutton verweist darauf.
 
 **Sichtbare Modusauswahl** (`#fbModeOv`, dieselbe Modalstruktur wie das Bot-Format-Modal):
 drei `.vopt`-Optionen in fester Reihenfolge — `CLASSIC 1V1` (als einzige mit `.vopt.rec`
 hervorgehoben), `TACTICAL 1V1`, `ELIMINATION`. Jede Option startet direkt, ohne
-Zwischenbildschirm und ohne zweite Bestaetigung. Dev-Direktlinks `?dev=1&fb=classic|tactical|elimination4`
+Zwischenbildschirm und ohne zweite Bestaetigung. Dev-Direktlinks `?dev=1&fb=classic|tactical|elimination|elimination4`
 ueberspringen das Modal; ein ungueltiger Wert (z. B. `fb=tactical-dual`) zeigt die Auswahl und
 startet Classic.
 
@@ -171,16 +174,21 @@ liegen untracked unter `artifacts/football-tactical-dual-prototype/`.
 
 ---
 
-### Arena-Football · Elimination (sichtbarer Produktmodus, 4 Spieler)
+### Arena-Football · Elimination (sichtbarer Produktmodus, 5 Spieler)
 
-Dritte Football-Variante `fbVariant === 'elimination4'`, seit der Produktintegration als
-`ELIMINATION` regulaer ueber die Modusauswahl startbar (`#fbElimBtn`). Classic bleibt der
-Standard und die einzige empfohlene Option; Elimination wird bewusst **nicht** empfohlen.
-Der Dev-Direktlink `?dev=1&fb=elimination4` funktioniert unveraendert und ueberspringt nur
-das Modal — er fuehrt in denselben Startzustand wie der Menuebutton.
+Dritte Football-Variante `fbVariant === 'elimination'`, als `ELIMINATION` regulaer ueber die
+Modusauswahl startbar (`#fbElimBtn`). Classic bleibt der Standard und die einzige empfohlene
+Option; Elimination wird bewusst **nicht** empfohlen. Der Dev-Direktlink
+`?dev=1&fb=elimination` ueberspringt nur das Modal und fuehrt in denselben Startzustand.
+
+Die Startspielerzahl steht an **einer** Stelle (`FOOTBALL_ELIM_START_PLAYERS = 5`); 4, 3 und 2
+sind interne **Phasen** desselben Matches, keine eigenen Modi. Fuer Regressionstests der
+spaeteren Phasen gibt es einen **Dev-Einstieg** `?dev=1&fb=elimination4`, der dieselbe
+Elimination mit vier Startspielern beginnt. Er haengt am `DEV_MENU`-Guard und ist ueber die
+sichtbare Modusauswahl nicht erreichbar.
 
 **Regeln**
-- 4 Spieler, je **eine** Figur, dazu **ein** neutraler Ball (5 Bodies).
+- 5 Spieler, je **eine** Figur, dazu **ein** neutraler Ball (6 Bodies).
 - Verdecktes Commit fuer alle noch aktiven Spieler, danach **ein** gemeinsamer Reveal —
   alle aktiven Figuren starten simultan (derselbe `applyLaunch()`-Pfad wie Classic/Tactical).
 - **Zwei Leben.** Jeder Spieler startet mit **2 Leben**. Ein Gegentor kostet **ein** Leben;
@@ -191,7 +199,7 @@ das Modal — er fuehrt in denselben Startzustand wie der Menuebutton.
     Transitionsklang. Danach faire Neuaufstellung **aller** aktiven Figuren auf ihre
     kanonischen Spawns, Ball zentral, Geschwindigkeiten und Drall auf 0, neue verdeckte Runde.
   - **Zweites Gegentor (1 → 0):** der Spieler scheidet aus, ab hier greift die bestehende
-    Eliminierungslogik unveraendert (Umbau 4 → 3 bzw. 3 → 2, Sieg bei 2 → 1).
+    Eliminierungslogik unveraendert (Umbau 5 → 4, 4 → 3 bzw. 3 → 2, Sieg bei 2 → 1).
   - **Leben gelten fuer das ganze Match.** Ein Phasenwechsel fuellt sie ausdruecklich **nicht**
     auf: wer mit einem Leben ins Halbfinale kommt, spielt dort mit einem Leben. Nur der
     vollstaendige Matchreset (`fbElimReset`) stellt alle wieder auf 2.
@@ -201,15 +209,36 @@ das Modal — er fuehrt in denselben Startzustand wie der Menuebutton.
   Tor dargestellt.
 - Der letzte verbliebene Spieler gewinnt; nach dem entscheidenden Tor faellt kein neuer Ball.
 
-**Adaptive Arena 4 → 3 → 2 → 1.** Die Arenaform folgt der Spielerzahl. Einzige Quelle sind
-`FOOTBALL_ARENA_ELIM4/3/2`, ausgewaehlt ueber `fbArena()`; Physik, Renderer, Spawns und Kamera
-lesen dieselben Werte.
+**Adaptive Arena 5 → 4 → 3 → 2 → 1.** Die Arenaform folgt der Spielerzahl. Einzige Quelle sind
+`FOOTBALL_ARENA_ELIM5/4/3/2`, ausgewaehlt ueber `fbArena()` aus der Phasentabelle
+`FB_ELIM_ARENAS`; Physik, Renderer, Spawns und Kamera lesen dieselben Werte.
 
 | Phase | Form | Ausdehnung | Eckradius | Tore | Spawnabstand |
 |---|---|---:|---:|---|---:|
+| 5 Spieler | Broad Rounded Pentagon | Apothem `19.50` | `3.50` | 5 × 72° | `12.75` |
 | 4 Spieler | Rounded Square | `halfLen/halfWid 17.50` | `3.50` | 4 × 90° | `11.50` |
 | 3 Spieler | Broad Rounded Triangle | Apothem `12.50` | `3.50` | 3 × 120° | `8.15` |
 | 2 Spieler | Shouldered Wide | `15.60 × 11.60` | `2.60` | 2 gegenueber | `10.15` |
+
+**Broad Rounded Pentagon (Startform).** Fuenf gleichwertige Torseiten im 72-Grad-Raster,
+an den fuenf Spitzen gekappt — zehn Kernecken statt fuenf. Gebaut mit demselben
+Halbebenenschnitt wie alle anderen Formen (`fbTruncPoly`, Kappfaktor `1.14`), also dieselbe
+Konstruktion wie der Broad Rounded Triangle der Drei-Spieler-Phase. Die Kappung ist nicht
+kosmetisch: sie senkt im Trajektorientest den Anteil aussen an der Bande kreisender Baelle
+von 61.7 % (reines Fuenfeck) auf 52.9 %, bei gleicher Torquote und ohne Klemmstellen.
+Flaeche 1 373 922 px² ≈ 274 784 px² je Spieler; Grenze reproduziert sich unter 72-Grad-Drehung
+exakt (Abweichung ≤ 3.4e-13 px). Die lichte Torbreite bleibt in **allen** Phasen `227.84`.
+
+**Spielerfarben im Football.** Football hat fuenf Spieler **plus** einen neutralen Ball und
+braucht damit einen Farbslot mehr als die globale Tafel `PCOLS` (fuenf Eintraege, Slot 4 ist
+das Dunkelgrau des fuenften RingOut-FFA-Spielers). Statt die globale Tafel zu erweitern legt
+Football eine **eigene** Tafel darueber: `FB_PCOLS = [PCOLS0..3, Violett #c07bff, PCOLS4]`.
+Slot 4 ist damit im Football der fuenfte Spieler, der neutrale Ball liegt auf Slot 5 und
+behaelt exakt sein bisheriges dunkles Material. Einzige Abfrage ist `pcol(i)` (bzw. `ncol(i)`
+fuer die Namenslabels); ausserhalb `mode === 'football'` liefert sie unveraendert `PCOLS[i]`.
+Dieselbe Verschiebung tragen Farbname und Siegerueberschrift (`FB_COL_SLOT`, `colSlot4Name`,
+`col5`/`.wt.w5`) — ein siegreicher Spieler 5 heisst VIOLETT, nicht GRAU. **Kein anderer Modus
+aendert dadurch seine Farben.**
 
 **Gameplay-Identitaet der drei Formen.** Die Formen sind nicht nur kleinere Varianten
 voneinander, jede loest eine andere Spielsituation:
@@ -346,7 +375,9 @@ Modusauswahl ausschliesslich aus dem lokalen Football-Pfad geoeffnet wird (`star
 pinnt `online=false`, Online-Raeume tragen kein `mode`-Feld), kann Elimination nie in einem
 Online-Kontext ausgewaehlt werden.
 
-Regressionssuite: `tools/test_football_elimination4.js` (im Runner als `Football-Elim4`).
+Regressionssuiten: `tools/test_football_elimination5.js` (Produktmodus mit fuenf Startspielern,
+im Runner als `Football-Elim5`) und `tools/test_football_elimination4.js` (Dev-Einstieg mit vier
+Startspielern, deckt die Phasen 4 → 3 → 2 ab; im Runner als `Football-Elim`).
 
 ---
 

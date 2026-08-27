@@ -50,6 +50,13 @@ for (const [modeKey, cardId] of Object.entries(cardByMode)) {
 const consts = grab(/const MAXPULL_FRAC=[^\n]*/, 'physics constants');
 const spin = grab(/const SPIN_K=[^\n]*/, 'spin constants');
 const pcols = grab(/const PCOLS=[^\n]*/, 'PCOLS');
+const pcolsSandbox = pcols +
+  // Der neutrale Football-Ball traegt FOOTBALL_NEUTRAL_OWNER (5). Im Produkt existiert er
+  // ausserhalb des Football-Modus nicht - dieser Harness setzt ihn dort BEWUSST ein, um zu
+  // beweisen, dass die Toroeffnung nicht in normale Modi leckt. Damit dabei der 2D-Ring-Out-
+  // Pfad (im Football unerreichbar) nicht ueber einen fehlenden Farbslot stolpert, bekommt
+  // die Sandbox-Tafel diesen einen Eintrag zusaetzlich. Die echte Tafel bleibt unberuehrt.
+  'PCOLS.push(PCOLS[PCOLS.length-1]);';
 const mkBallSrc = grab(/function mkBall\([^\n]*/, 'mkBall');
 const placeBallsSrc = grab(/function placeBalls\(\)\{[\s\S]*?\n\}/, 'placeBalls');
 const teamCapSrc = grab(/function teamCap\([^\n]*/, 'teamCap');
@@ -106,7 +113,7 @@ function buildEnv(startMode, startFmt, startPreset) {
     const LOGICAL=1000; const cx=500, cy=500, R0=LOGICAL*0.485, BR=LOGICAL*0.032; let R=R0;
     ${consts}
     ${spin}
-    ${pcols}
+    ${pcolsSandbox}
     // Kein Browser-TUNE-Override im Harness — curFE/curST greifen darauf zurueck.
     const TUNE=null;
     function maxPull(){return R0*MAXPULL_FRAC;}
@@ -271,11 +278,13 @@ const goalAudio={plays:0,matchPoints:0,preloads:0,stops:0};   // Tor-Audio: Aufr
 }
 
 // ── Football-Setup: genau drei Kugeln, symmetrisch ──
+// Owner des NEUTRALEN Balls. Seit der Fuenf-Spieler-Phase ist Slot 4 eine Spielerfarbe.
+const NEU = 5;
 const F = buildEnv('football', 'single');
 const fb = F.place();
 ok(fb.length === 3, 'Football stellt genau drei Kugeln auf (erhalten: ' + fb.length + ')');
-ok(JSON.stringify(fb.map(b => b.owner)) === JSON.stringify([0, 1, 4]), 'Football-Owner sind [0,1,4] (Blau/Rot/neutral)');
-const blue = fb.find(b => b.owner === 0), red = fb.find(b => b.owner === 1), neutral = fb.find(b => b.owner === 4);
+ok(JSON.stringify(fb.map(b => b.owner)) === JSON.stringify([0, 1, NEU]), 'Football-Owner sind [0,1,neutral] (Blau/Rot/neutral)');
+const blue = fb.find(b => b.owner === 0), red = fb.find(b => b.owner === 1), neutral = fb.find(b => b.owner === NEU);
 ok(blue && blue.x < F.cx, 'Blau startet links (x<cx)');
 ok(red && red.x > F.cx, 'Rot startet rechts (x>cx)');
 ok(neutral && neutral.x === F.cx && neutral.y === F.cy, 'neutraler Ball startet mittig');
@@ -292,7 +301,7 @@ ok(pickOwnBlue >= 0 && fb[pickOwnBlue].owner === 0, 'Blau kann die eigene Kugel 
 // ── Football: geschlossene Rounded-Rectangle-Bande statt Ring-Out ──
 // Spielerkugel direkt an der Laengsbande mit Schwung nach aussen: sie bleibt innerhalb
 // der um BR nach innen versetzten Grenze (footballBoundSD <= 0) und lebt weiter.
-F.setBalls([{ x: F.cx, y: F.cy + F.halfWid() - F.BR, vx: 0, vy: 6, owner: 0 }, { x: F.cx, y: F.cy, owner: 4 }]);
+F.setBalls([{ x: F.cx, y: F.cy + F.halfWid() - F.BR, vx: 0, vy: 6, owner: 0 }, { x: F.cx, y: F.cy, owner: NEU }]);
 let fMaxSd = -Infinity;
 for (let i = 0; i < 40; i++) { F.step(); fMaxSd = Math.max(fMaxSd, F.boundSD(F.get().balls[0]).sd); }
 const fAfter = F.get();
@@ -338,7 +347,7 @@ ok(near(F.clearHalf() - F.centerHalf(), F.neutralR()), 'Reduktion ist exakt der 
     ok(near(F.boxGap({ x: F.cx + sx * 400, y: F.cy + sy * 130 }), g, 1e-9),
       'Sockelgeometrie identisch bei (' + (sx > 0 ? '+X' : '-X') + ',' + (sy > 0 ? '+y' : '-y') + ') — vollstaendig gespiegelt'); }
 // Beide Tore identisch: die Pruefung haengt nur an |y-cy| -> +X und -X sind zwangslaeufig gleich breit.
-ok(F.canPass({ owner: 4, x: F.cx + 400, y: F.cy + F.centerHalf() }) === F.canPass({ owner: 4, x: F.cx - 400, y: F.cy + F.centerHalf() }),
+ok(F.canPass({ owner: NEU, x: F.cx + 400, y: F.cy + F.centerHalf() }) === F.canPass({ owner: NEU, x: F.cx - 400, y: F.cy + F.centerHalf() }),
   'Beide Torhalbbreiten identisch (+X und -X spiegelsymmetrisch)');
 // Renderer-/GLB-Unabhaengigkeit: die Physikfunktionen referenzieren nichts aus der 3D-Schicht.
 const goalPhysSrc = halfDepthSrc + arenaSrc +
@@ -377,46 +386,46 @@ const OUT = F.halfLen() + F.neutralR();          // eindeutig ausserhalb der Sti
 const NEUTRAL_LIM = F.halfLen() - F.neutralR();  // Reflexionsgrenze der Ballmitte (neutral)
 const PLAYER_LIM = F.halfLen() - F.BR;           // Reflexionsgrenze der Ballmitte (Spieler)
 
-const nPlus = shoot(4, +1, 0, 5);
+const nPlus = shoot(NEU, +1, 0, 5);
 ok(nPlus.dist > OUT, 'Neutraler Ball passiert das +X-Tor zentral (dist ' + nPlus.dist.toFixed(1) + ' > ' + OUT.toFixed(1) + ')');
-const nMinus = shoot(4, -1, 0, 5);
+const nMinus = shoot(NEU, -1, 0, 5);
 ok(nMinus.dist > OUT, 'Neutraler Ball passiert das -X-Tor zentral (dist ' + nMinus.dist.toFixed(1) + ' > ' + OUT.toFixed(1) + ')');
 // Knapp INNERHALB der nutzbaren Seitenkante -> muss passieren (beide Tore, beide Seiten).
 for (const dir of [+1, -1]) for (const sgn of [+1, -1]) {
-  const r = shoot(4, dir, sgn * (F.centerHalf() - 1), 5);
+  const r = shoot(NEU, dir, sgn * (F.centerHalf() - 1), 5);
   ok(r.dist > OUT, 'Neutraler Ball passiert knapp innerhalb der Seitenkante (Tor ' + (dir > 0 ? '+X' : '-X') + ', y' + (sgn > 0 ? '+' : '-') + ')');
 }
 // Auf Hoehe des Sockelkoerpers (ab lichter Halbbreite) -> blockiert. Da postFront==halfLen,
 // haelt hier bereits die geschlossene Stirnbande: die Ballmitte kommt nie ueber halfLen-r.
 for (const dir of [+1, -1]) for (const sgn of [+1, -1]) {
-  const r = shoot(4, dir, sgn * F.clearHalf(), 5);
+  const r = shoot(NEU, dir, sgn * F.clearHalf(), 5);
   ok(r.dist <= NEUTRAL_LIM + 1e-6, 'Neutraler Ball wird neben der Oeffnung blockiert (Tor ' + (dir > 0 ? '+X' : '-X') + ', y' + (sgn > 0 ? '+' : '-') + ')');
 }
 // Ausserhalb der Tore (tangential weit weg, im Eckbogenbereich) bleibt die Bande geschlossen.
-const nBand = shoot(4, +1, 250, 5);
+const nBand = shoot(NEU, +1, 250, 5);
 ok(nBand.dist <= NEUTRAL_LIM + 1e-6, 'Neutraler Ball prallt ausserhalb der Toroeffnung an der Bande ab');
 // Neutraler Ball senkrecht zur Torachse (Richtung +Y) -> geschlossene Laengsbande.
-F.setBalls([{ x: F.cx, y: F.cy + 300, vx: 0, vy: 6, owner: 4 }]);
+F.setBalls([{ x: F.cx, y: F.cy + 300, vx: 0, vy: 6, owner: NEU }]);
 let nUpMax = 0;
 for (let i = 0; i < 300; i++) { F.step(); const b = F.get().balls[0];
   nUpMax = Math.max(nUpMax, Math.abs(b.y - F.cy)); }
 ok(nUpMax <= F.halfWid() - F.neutralR() + 1e-6, 'Neutraler Ball wird quer zur Torachse von der Laengsbande gehalten');
 // Diagonaler Eintritt, der INNERHALB des Torfensters ankommt -> Passage.
-F.setBalls([{ x: F.cx + F.halfLen() * 0.30, y: F.cy - F.halfWid() * 0.30, vx: 5, vy: 2.6, owner: 4 }]);
+F.setBalls([{ x: F.cx + F.halfLen() * 0.30, y: F.cy - F.halfWid() * 0.30, vx: 5, vy: 2.6, owner: NEU }]);
 let nDiagMax = 0;
 for (let i = 0; i < 300; i++) { F.step(); const b = F.get().balls[0];
   nDiagMax = Math.max(nDiagMax, Math.abs(b.x - F.cx)); }
 ok(nDiagMax > OUT, 'Neutraler Ball passiert diagonal innerhalb der Oeffnung');
 // Schneller Ball: Microsteps duerfen die seitliche Torbegrenzung nicht ueberspringen.
-const nFastIn = shoot(4, +1, 0, 12);
+const nFastIn = shoot(NEU, +1, 0, 12);
 ok(nFastIn.dist > OUT, 'Schneller neutraler Ball passiert das Tor zentral (kein verpasster Sub-Step)');
-const nFastOut = shoot(4, +1, F.clearHalf() + 4, 12);
+const nFastOut = shoot(NEU, +1, F.clearHalf() + 4, 12);
 ok(nFastOut.dist <= NEUTRAL_LIM + 1e-6, 'Schneller neutraler Ball tunnelt NICHT neben der Toroeffnung durch die Bande');
 // Nach der Passage keine kuenstliche Rueckreflexion: Geschwindigkeit bleibt nach aussen gerichtet.
 ok(nPlus.b.vx > 0, 'Neutraler Ball behaelt nach der +X-Passage seine Auswaertsrichtung (keine Rueckreflexion)');
 ok(nMinus.b.vx < 0, 'Neutraler Ball behaelt nach der -X-Passage seine Auswaertsrichtung (keine Rueckreflexion)');
 // Auch mit tangentialer Drift ausserhalb wird er nicht wieder eingefangen (Latch fbPassed).
-F.setBalls([{ x: F.cx + F.halfLen() * 0.55, y: F.cy, vx: 5, vy: 1.2, owner: 4 }]);
+F.setBalls([{ x: F.cx + F.halfLen() * 0.55, y: F.cy, vx: 5, vy: 1.2, owner: NEU }]);
 let nDriftMax = 0, nDrift = null;
 for (let i = 0; i < 400; i++) { F.step(); const b = F.get().balls[0];
   const dd = Math.abs(b.x - F.cx); if (dd > nDriftMax) { nDriftMax = dd; nDrift = b; } }
@@ -451,7 +460,7 @@ const shootGoal = (owner, dir, offY, speed, steps) =>
 
 // Zentraler Durchtritt bleibt frei — beide Tore, ohne jede Sockelberuehrung.
 for (const dir of [+1, -1]) {
-  const r = shootGoal(4, dir, 0, 5);
+  const r = shootGoal(NEU, dir, 0, 5);
   ok(r.dist > ESCAPED, 'Neutraler Ball passiert ' + (dir > 0 ? '+X' : '-X') + '-Tor mittig (Sockel stoeren nicht)');
   ok(r.minGap > radOf(4), 'Mittiger Durchtritt ohne Sockelberuehrung (Gap ' + r.minGap.toFixed(1) + ')');
 }
@@ -461,38 +470,38 @@ for (const dir of [+1, -1]) {
 const POST_MID = (F.box().y0 + F.box().y1) / 2;      // 4.421*BR, Mitte des Sockelkoerpers
 for (const dir of [+1, -1]) for (const sgn of [+1, -1]) {
   const side = (sgn > 0 ? 'linker' : 'rechter') + ' Sockel ' + (dir > 0 ? '+X' : '-X');
-  const r = shootGoal(4, dir, sgn * POST_MID, 5);
+  const r = shootGoal(NEU, dir, sgn * POST_MID, 5);
   ok(r.minGap >= radOf(4) - PEN_EPS, 'Treffer ' + side + ': keine Penetration (min Gap ' + r.minGap.toFixed(2) + ' >= r ' + radOf(4) + ')');
   ok(r.dist <= NEUTRAL_LIM + 1e-6, 'Treffer ' + side + ': Ball prallt ab und kommt nicht durch (dist ' + r.dist.toFixed(1) + ')');
 }
 // Gespiegeltes Verhalten: +X und -X liefern identische Distanzen (Betrag).
-{ const a = shootGoal(4, +1, POST_MID, 5), b = shootGoal(4, -1, -POST_MID, 5);
+{ const a = shootGoal(NEU, +1, POST_MID, 5), b = shootGoal(NEU, -1, -POST_MID, 5);
   ok(near(a.dist, b.dist, 1e-9), 'Sockeltreffer an +X und -X exakt gespiegelt identisch'); }
 // Diagonaler Beschuss Richtung Sockel-/Eckbereich.
-{ const r = fly(4, { x: F.cx + F.halfLen() * 0.30, y: F.cy - F.halfWid() * 0.10 }, { vx: 5, vy: 3.6 });
+{ const r = fly(NEU, { x: F.cx + F.halfLen() * 0.30, y: F.cy - F.halfWid() * 0.10 }, { vx: 5, vy: 3.6 });
   ok(r.minGap >= radOf(4) - PEN_EPS, 'Diagonaler Beschuss: keine Penetration (min Gap ' + r.minGap.toFixed(2) + ')'); }
 // Schneller Beschuss -> kein Tunneling (Spielmaximum liegt bei ~6.6/Sub-Step).
 for (const sp of [8, 12, 20, 40]) {
-  const r = shootGoal(4, +1, POST_MID, sp);
+  const r = shootGoal(NEU, +1, POST_MID, sp);
   ok(r.minGap >= radOf(4) - PEN_EPS, 'Schneller Sockelbeschuss v=' + sp + ' tunnelt nicht (min Gap ' + r.minGap.toFixed(2) + ')');
   ok(r.dist <= NEUTRAL_LIM + 1e-6, 'Schneller Sockelbeschuss v=' + sp + ' kommt nicht durch');
 }
 // Ball knapp INNERHALB der nutzbaren Weite passiert — bei jeder Geschwindigkeit.
 for (const sp of [5, 12, 20]) {
-  const r = shootGoal(4, +1, F.centerHalf() - 0.5, sp);
+  const r = shootGoal(NEU, +1, F.centerHalf() - 0.5, sp);
   ok(r.dist > ESCAPED, 'Ball knapp frei neben dem Sockel passiert (v=' + sp + ')');
   ok(r.minGap >= radOf(4) - PEN_EPS, 'Knappe Passage bleibt beruehrungsfrei (v=' + sp + ', Gap ' + r.minGap.toFixed(2) + ')');
 }
 // Ball auf Hoehe des Sockelkoerpers (ab lichter Halbbreite aufwaerts) kommt bei keiner
 // Geschwindigkeit durch und penetriert nie.
 for (const sp of [5, 12, 20]) for (const off of [F.clearHalf(), POST_MID, F.box().y1 - 2]) {
-  const r = shootGoal(4, +1, off, sp);
+  const r = shootGoal(NEU, +1, off, sp);
   ok(r.dist <= NEUTRAL_LIM + 1e-6, 'Ball auf den Sockelkoerper (off ' + off.toFixed(1) + ', v=' + sp + ') kommt nicht durch');
   ok(r.minGap >= radOf(4) - PEN_EPS, 'Ball auf den Sockelkoerper (off ' + off.toFixed(1) + ', v=' + sp + ') dringt nicht ein');
 }
 // KEINE Penetration ueber das gesamte Streifband — Oeffnung, Innenkante, Sockel, Bande.
 for (let off = 0; off <= 220; off += 4) for (const sp of [5, 12, 20]) {
-  const r = shootGoal(4, +1, off, sp, 300);
+  const r = shootGoal(NEU, +1, off, sp, 300);
   if (r.minGap < radOf(4) - PEN_EPS) ok(false, 'Penetration bei off=' + off + ' v=' + sp + ' (Gap ' + r.minGap.toFixed(3) + ')');
 }
 ok(true, 'Kein Startversatz 0..220 bei v=5/12/20 erzeugt eine Marmor-Penetration');
@@ -504,7 +513,7 @@ for (const owner of [0, 1]) for (const dir of [+1, -1]) {
 }
 // Reflexionslogik an der Stirnbande vor dem Sockel: Normalanteil (vx) kehrt sich um,
 // Tangentialanteil (vy) bleibt erhalten — dissipativ ueber curRestBand().
-{ F.setBalls([{ x: F.cx + NEUTRAL_LIM - 12, y: F.cy + POST_MID, vx: 5, vy: 3, owner: 4 }]);
+{ F.setBalls([{ x: F.cx + NEUTRAL_LIM - 12, y: F.cy + POST_MID, vx: 5, vy: 3, owner: NEU }]);
   let hit = null;
   for (let i = 0; i < 6 && !hit; i++) { F.step(); const b = F.get().balls[0]; if (b.vx < 0) hit = b; }
   ok(hit !== null, 'Frontaler Treffer auf die Stirnbande kehrt den Normalanteil (vx) um');
@@ -515,7 +524,7 @@ for (const owner of [0, 1]) for (const dir of [+1, -1]) {
 // Der Sockel bleibt HINTER der Torlinie ein echtes Hindernis: ein durch die Oeffnung
 // ausgetretener Ball, der tangential in die Sockelunterkante driftet, wird mit
 // curRestPost() reflektiert (footballResolvePost gilt auch fuer ausgetretene Baelle).
-{ F.setBalls([{ x: F.cx + (F.box().x0 + F.box().x1) / 2, y: F.cy, vx: 0, vy: 3, owner: 4 }]);
+{ F.setBalls([{ x: F.cx + (F.box().x0 + F.box().x1) / 2, y: F.cy, vx: 0, vy: 3, owner: NEU }]);
   let hit = null, preVy = 3, minG = Infinity;
   for (let i = 0; i < 40 && !hit; i++) {
     const pre = F.get().balls[0];
@@ -531,7 +540,7 @@ for (const owner of [0, 1]) for (const dir of [+1, -1]) {
     ok(minG >= radOf(4) - PEN_EPS, 'Auch hinter der Linie keine Sockelpenetration (min Gap ' + minG.toFixed(2) + ')');
   } }
 // fbPassed darf bei einem Schuss neben die Oeffnung NIE entstehen -> Ball bleibt drinnen.
-{ const r = shootGoal(4, +1, POST_MID, 6, 400);
+{ const r = shootGoal(NEU, +1, POST_MID, 6, 400);
   ok(r.dist <= NEUTRAL_LIM + 1e-6, 'Blockierter Schuss setzt kein fbPassed (Ball bleibt drinnen)'); }
 // Quelltext-Invarianten der Phase 1B.
 ok(/if\(footballResolvePost\(fb\)\)continue;/.test(HTML), 'Pfostenkollision laeuft VOR der Grenzentscheidung und beendet den Sub-Step');
@@ -576,11 +585,11 @@ ok(pUpMax <= F.halfWid() - F.BR + 1e-6, 'Laengsbande bleibt fuer Spieler ausserh
 // Spieler werden im Football-Modus nie eliminiert.
 ok(pUp.alive && pFast.b.alive, 'Spielerkugeln werden im Football-Modus nicht eliminiert');
 // Direkte Funktionspruefung der Rollenunterscheidung.
-ok(F.canPass({ owner: 4, x: F.cx + 450, y: F.cy }) === true, 'canPass: neutraler Ball im Torfenster -> true');
+ok(F.canPass({ owner: NEU, x: F.cx + 450, y: F.cy }) === true, 'canPass: neutraler Ball im Torfenster -> true');
 ok(F.canPass({ owner: 0, x: F.cx + 450, y: F.cy }) === false, 'canPass: blauer Spieler im Torfenster -> false');
 ok(F.canPass({ owner: 1, x: F.cx + 450, y: F.cy }) === false, 'canPass: roter Spieler im Torfenster -> false');
-ok(F.canPass({ owner: 4, x: F.cx + 450, y: F.cy + F.centerHalf() + 1 }) === false, 'canPass: neutraler Ball knapp ausserhalb -> false');
-ok(F.canPass({ owner: 4, x: F.cx + 450, y: F.cy + F.centerHalf() - 1e-6 }) === true, 'canPass: neutraler Ball an der nutzbaren Kante -> true');
+ok(F.canPass({ owner: NEU, x: F.cx + 450, y: F.cy + F.centerHalf() + 1 }) === false, 'canPass: neutraler Ball knapp ausserhalb -> false');
+ok(F.canPass({ owner: NEU, x: F.cx + 450, y: F.cy + F.centerHalf() - 1e-6 }) === true, 'canPass: neutraler Ball an der nutzbaren Kante -> true');
 
 // ── D. MODE-SCOPING: Passage-Ausnahme ausschliesslich im Football-Modus ──
 // Die Ausnahme haengt im echten Quelltext an mode==='football'.
@@ -593,7 +602,7 @@ ok((HTML.match(/footballCanPassGoal\(/g) || []).length === 3, 'Genau eine Defini
 ok(/!footballCanPassGoal\(b\)\)/.test(wedgeSrc), 'Wedge-Erkennung nutzt die zentrale Toroeffnungs-Pruefung');
 // Neutraler Ball (owner 4) existiert in normalen Modi gar nicht -> kein Mode-Leck moeglich.
 const Bn = buildEnv('bot', 'single');
-Bn.setBalls([{ x: Bn.cx + Bn.R0 * 0.55, y: Bn.cy, vx: 5, vy: 0, owner: 4 }, { x: Bn.cx, y: Bn.cy, vx: 0, vy: 0, owner: 0 }]);
+Bn.setBalls([{ x: Bn.cx + Bn.R0 * 0.55, y: Bn.cy, vx: 5, vy: 0, owner: NEU }, { x: Bn.cx, y: Bn.cy, vx: 0, vy: 0, owner: 0 }]);
 for (let i = 0; i < 60 && Bn.get().phase === 'sim'; i++) Bn.step();
 const bnAfter = Bn.get();
 ok(bnAfter.phase === 'result' || bnAfter.balls.some(b => !b.alive), 'Normaler Modus: Toroeffnung wirkt NICHT (Ring-Out greift weiterhin)');
@@ -615,16 +624,16 @@ const NR = G.neutralR();                       // Radius des neutralen Balls (fb
 ok(near(GOAL_LINE, 17.968 * F.BR, 1e-9), 'Torlinie = Sockel-Hinterkante 17.968*BR = ' + GOAL_LINE.toFixed(3) + ' (keine neue Magic Number)');
 // Zentrum GENAU auf der Linie zaehlt noch nicht — erst der VOLLSTAENDIG passierte Ball
 // (Schwelle: |dx| - fbBallR > postBack*BR, also der Radius des NEUTRALEN Balls).
-ok(G.goalSide({ owner: 4, fbPassed: true, x: G.cx + GOAL_LINE, y: G.cy }) === -1, 'Ballzentrum auf der Torlinie zaehlt noch NICHT');
-ok(G.goalSide({ owner: 4, fbPassed: true, x: G.cx + GOAL_LINE + NR - 0.1, y: G.cy }) === -1, 'Ball noch nicht vollstaendig hinter der Linie zaehlt nicht');
-ok(G.goalSide({ owner: 4, fbPassed: true, x: G.cx + GOAL_LINE + NR + 0.1, y: G.cy }) === 0, 'Vollstaendig hinter der +X-Linie zaehlt');
-ok(G.goalSide({ owner: 4, fbPassed: true, x: G.cx - GOAL_LINE - NR - 0.1, y: G.cy }) === 1, 'Vollstaendig hinter der -X-Linie zaehlt (gespiegelt)');
+ok(G.goalSide({ owner: NEU, fbPassed: true, x: G.cx + GOAL_LINE, y: G.cy }) === -1, 'Ballzentrum auf der Torlinie zaehlt noch NICHT');
+ok(G.goalSide({ owner: NEU, fbPassed: true, x: G.cx + GOAL_LINE + NR - 0.1, y: G.cy }) === -1, 'Ball noch nicht vollstaendig hinter der Linie zaehlt nicht');
+ok(G.goalSide({ owner: NEU, fbPassed: true, x: G.cx + GOAL_LINE + NR + 0.1, y: G.cy }) === 0, 'Vollstaendig hinter der +X-Linie zaehlt');
+ok(G.goalSide({ owner: NEU, fbPassed: true, x: G.cx - GOAL_LINE - NR - 0.1, y: G.cy }) === 1, 'Vollstaendig hinter der -X-Linie zaehlt (gespiegelt)');
 // Spiegelsymmetrie der Schwelle
 { const d = GOAL_LINE + NR + 0.1;
-  ok(G.goalSide({ owner: 4, fbPassed: true, x: G.cx + d, y: G.cy }) === 0 &&
-     G.goalSide({ owner: 4, fbPassed: true, x: G.cx - d, y: G.cy }) === 1, '+X und -X nutzen dieselbe Schwelle'); }
+  ok(G.goalSide({ owner: NEU, fbPassed: true, x: G.cx + d, y: G.cy }) === 0 &&
+     G.goalSide({ owner: NEU, fbPassed: true, x: G.cx - d, y: G.cy }) === 1, '+X und -X nutzen dieselbe Schwelle'); }
 // Ohne fbPassed kein Tor (Pfostentreffer / Weg ausserhalb der Oeffnung erreichen das nie).
-ok(G.goalSide({ owner: 4, fbPassed: false, x: G.cx + GOAL_LINE + NR + 50, y: G.cy }) === -1, 'Ohne fbPassed kein Tor (Pfostentreffer zaehlt nicht)');
+ok(G.goalSide({ owner: NEU, fbPassed: false, x: G.cx + GOAL_LINE + NR + 50, y: G.cy }) === -1, 'Ohne fbPassed kein Tor (Pfostentreffer zaehlt nicht)');
 // Spielerkugeln zaehlen nie.
 for (const owner of [0, 1])
   ok(G.goalSide({ owner, fbPassed: true, x: G.cx + GOAL_LINE + NR + 50, y: G.cy }) === -1,
@@ -651,7 +660,7 @@ function kickToGoal(env, dir, speed) {
   env.setBalls([
     { x: env.cx - off, y: env.cy + 250, vx: 0, vy: 0, owner: 0 },
     { x: env.cx + off, y: env.cy - 250, vx: 0, vy: 0, owner: 1 },
-    { x: env.cx + dir * 150, y: env.cy, vx: dir * (speed || 6), vy: 0, owner: 4 },
+    { x: env.cx + dir * 150, y: env.cy, vx: dir * (speed || 6), vy: 0, owner: NEU },
   ]);
   let n = 0;
   while (env.goalState() === 'play' && n < 600) { env.step(); n++; }
@@ -672,8 +681,8 @@ ok(JSON.stringify(G.score()) === '[1,1]', '-X-Tor (blaues Tor) gibt ROT den Punk
 for (let i = 0; i < G.fallTicks + G.celebrateTicks + G.spawnTicks + 20; i++) G.step();
 ok(JSON.stringify(G.score()) === '[1,1]', 'Score bleibt ueber den Rundenreset erhalten');
 // Eigentore sind erlaubt: entscheidend ist NUR das ueberquerte Tor, nicht der letzte Kontakt.
-ok(G.goalSide({ owner: 4, fbPassed: true, x: G.cx + GOAL_LINE + G.BR + 1, y: G.cy }) === 0 &&
-   G.goalSide({ owner: 4, fbPassed: true, x: G.cx - GOAL_LINE - G.BR - 1, y: G.cy }) === 1,
+ok(G.goalSide({ owner: NEU, fbPassed: true, x: G.cx + GOAL_LINE + G.BR + 1, y: G.cy }) === 0 &&
+   G.goalSide({ owner: NEU, fbPassed: true, x: G.cx - GOAL_LINE - G.BR - 1, y: G.cy }) === 1,
   'Punktzuordnung haengt ausschliesslich am ueberquerten Tor (Eigentore moeglich)');
 ok(!/lastTouch|lastToucher|assist/i.test(goalLogicSrc), 'Keine Last-Touch-/Assist-Logik');
 // Neues Football-Match startet bei 0:0.
@@ -692,7 +701,7 @@ H.setScore(0, 0);
   H.setBalls([
     { x: H.cx - off, y: H.cy + 250, vx: 2.5, vy: 1.5, owner: 0 },
     { x: H.cx + off, y: H.cy - 250, vx: -2.0, vy: 1.0, owner: 1 },
-    { x: H.cx + 150, y: H.cy, vx: 6, vy: 0, owner: 4 },
+    { x: H.cx + 150, y: H.cy, vx: 6, vy: 0, owner: NEU },
   ]);
   let n = 0; while (H.goalState() === 'play' && n < 600) { H.step(); n++; }
   ok(H.goalState() === 'fall', 'Zustand wechselt play -> goal_fall'); }
@@ -701,21 +710,21 @@ ok(H.locked() === true, 'Eingabe waehrend goal_fall gesperrt (inputLocked)');
 ok(H.canCommit(0) === false && H.canCommit(1) === false, 'Kein Commit waehrend goal_fall moeglich (beide Spieler)');
 ok(H.dragCalls() > 0, 'Laufende Eingabe wurde beim Tor abgebrochen (cancelAimDrag)');
 // Spieler stehen still und bleiben es.
-{ const pl = H.get().balls.filter(b => b.owner !== 4);
+{ const pl = H.get().balls.filter(b => b.owner !== NEU);
   ok(pl.length === 2 && pl.every(b => b.vx === 0 && b.vy === 0), 'Beide Spielerbaelle sind eingefroren (v=0)');
   ok(pl.every(b => b.alive), 'Spielerbaelle werden nicht eliminiert'); }
-{ const before = H.get().balls.filter(b => b.owner !== 4).map(b => ({ x: b.x, y: b.y }));
+{ const before = H.get().balls.filter(b => b.owner !== NEU).map(b => ({ x: b.x, y: b.y }));
   for (let i = 0; i < 20; i++) H.step();
-  const after = H.get().balls.filter(b => b.owner !== 4).map(b => ({ x: b.x, y: b.y }));
+  const after = H.get().balls.filter(b => b.owner !== NEU).map(b => ({ x: b.x, y: b.y }));
   ok(JSON.stringify(before) === JSON.stringify(after), 'Spieler rollen waehrend des Ballfalls nicht weiter'); }
 // Tick laeuft deterministisch hoch, Score bleibt bei genau 1.
 { const t0 = H.goalTick(); H.step(); ok(H.goalTick() === t0 + 1, 'Fall-Tick zaehlt deterministisch pro Sub-Step hoch'); }
 ok(JSON.stringify(H.score()) === '[1,0]', 'Waehrend goal_fall kein zweites Scoring');
 // Der neutrale Ball laeuft planar weiter nach aussen (keine Bandenreflexion nach dem Tor).
-{ const n0 = H.get().balls.find(b => b.owner === 4);
+{ const n0 = H.get().balls.find(b => b.owner === NEU);
   const r0 = Math.abs(n0.x - H.cx);
   for (let i = 0; i < 10; i++) H.step();
-  const n1 = H.get().balls.find(b => b.owner === 4);
+  const n1 = H.get().balls.find(b => b.owner === NEU);
   const r1 = Math.abs(n1.x - H.cx);
   ok(r1 > r0, 'Neutraler Ball laeuft nach dem Tor weiter nach aussen (keine Rueckreflexion)');
   ok(r1 > H.halfLen(), 'Neutraler Ball bleibt waehrend des Falls ausserhalb der Arena'); }
@@ -745,7 +754,7 @@ ok(!/setTimeout\([^)]*fbGoal/.test(HTML) && !/setInterval\([^)]*fbGoal/.test(HTM
   const ref = buildEnv('football', 'single').place();
   const after = I2.get().balls;                  // Zustand unmittelbar nach dem Reset
   ok(after.length === 3, 'Nach dem Reset stehen wieder genau drei Kugeln im Feld');
-  ok(JSON.stringify(after.map(b => b.owner)) === '[0,1,4]', 'Rollen/Owner nach dem Reset korrekt [0,1,4]');
+  ok(JSON.stringify(after.map(b => b.owner)) === '[0,1,' + NEU + ']', 'Rollen/Owner nach dem Reset korrekt');
   for (let i = 0; i < 3; i++)
     ok(near(after[i].x, ref[i].x, 1e-9) && near(after[i].y, ref[i].y, 1e-9),
       'Kugel ' + i + ' (owner ' + ref[i].owner + ') steht nach dem Reset auf der kanonischen Startposition');
@@ -842,7 +851,7 @@ ok(!/overtime|goldenGoal|extraTime|timeLimit|matchClock/i.test(HTML), 'Kein Over
   ok(M.get().phase === 'over', 'Matchende nutzt die bestehende Result-Phase (over) — keine zweite Matchengine');
   ok(JSON.stringify(M.score()) === '[3,0]', 'Kein Doppelpunkten beim entscheidenden Tor');
   // Kein Spawn/Reset nach dem Sieg: der Ball liegt weiterhin ausserhalb, die Latches stehen.
-  const nb = M.get().balls.find(b => b.owner === 4);
+  const nb = M.get().balls.find(b => b.owner === NEU);
   ok(Math.abs(nb.x - M.cx) > M.halfLen(), 'Kein neuer Ball nach dem Sieg: der Ball bleibt ausserhalb der Arena');
   ok(M.passedFlags().some(f => f === true), 'Kein Rundenreset nach dem Sieg (fbPassed steht noch — placeBalls wurde nicht gerufen)');
   ok(M.aimState().phase !== 'aim', 'Nach dem Sieg wird keine neue Planungsphase geoeffnet'); }
@@ -856,7 +865,7 @@ ok(!/setTimeout|setInterval/.test(tickGoalSrc + tryGoalSrc + matchEndSrc), 'Matc
   ok(M.goalState() === 'result', 'Setup: Resultzustand erreicht');
   ok(M.get().phase === 'over', 'Setup: bestehende Result-Phase aktiv');
   const scoreAtEnd = JSON.stringify(M.score());
-  const playersAtEnd = JSON.stringify(M.get().balls.filter(b => b.owner !== 4).map(b => ({ x: b.x, y: b.y })));
+  const playersAtEnd = JSON.stringify(M.get().balls.filter(b => b.owner !== NEU).map(b => ({ x: b.x, y: b.y })));
   ok(M.goalBusy() === true, 'Resultzustand meldet sich als busy');
   ok(M.locked() === true, 'Eingabe im Resultzustand gesperrt (inputLocked)');
   ok(M.canCommit(0) === false && M.canCommit(1) === false, 'Kein Drag/Release/Commit im Resultzustand (beide Spieler)');
@@ -866,7 +875,7 @@ ok(!/setTimeout|setInterval/.test(tickGoalSrc + tryGoalSrc + matchEndSrc), 'Matc
   ok(JSON.stringify(M.score()) === scoreAtEnd, 'Score im Resultzustand unveraenderlich (Goal Detection gesperrt)');
   ok(M.winner() === 0, 'Gewinner bleibt im Resultzustand autoritativ gespeichert');
   ok(M.overCalls().length === 1, 'Kein zweiter Matchende-Aufruf ueber viele Ticks');
-  ok(JSON.stringify(M.get().balls.filter(b => b.owner !== 4).map(b => ({ x: b.x, y: b.y }))) === playersAtEnd,
+  ok(JSON.stringify(M.get().balls.filter(b => b.owner !== NEU).map(b => ({ x: b.x, y: b.y }))) === playersAtEnd,
     'Spieler bleiben im Resultzustand gestoppt');
   ok(M.passedFlags().some(f => f === true), 'Keine automatisch gestartete neue Runde im Resultzustand'); }
 ok(/if\(fbGoalState==='result'\)return;/.test(tickGoalSrc), 'result ist ein Endzustand: die Zustandsmaschine tickt nicht weiter');
@@ -906,7 +915,7 @@ ok(!/confetti|particleWin|cameraShake/i.test(HTML), 'Keine Konfetti-/Partikel-/K
   ok(M.goalTick() === 0, 'Neues Match: fbGoalTick zurueckgesetzt');
   const ref = buildEnv('football', 'single').place();
   const after = M.get().balls;
-  ok(after.length === 3 && JSON.stringify(after.map(b => b.owner)) === '[0,1,4]', 'Neues Match: frische Kugeln [0,1,4]');
+  ok(after.length === 3 && JSON.stringify(after.map(b => b.owner)) === '[0,1,' + NEU + ']', 'Neues Match: frische Kugeln');
   for (let i = 0; i < 3; i++)
     ok(near(after[i].x, ref[i].x, 1e-9) && near(after[i].y, ref[i].y, 1e-9),
       'Neues Match: Kugel ' + i + ' (owner ' + ref[i].owner + ') auf der Startposition');
@@ -958,7 +967,7 @@ ok(/function showMenu\(\)\{[\s\S]*?footballResetMatchState\(\);/.test(HTML), 'sh
 
 // ── E. MODE-SCOPING ──
 { const Bn2 = buildEnv('bot', 'single');
-  ok(Bn2.goalSide({ owner: 4, fbPassed: true, x: Bn2.cx + GOAL_LINE + Bn2.BR + 50, y: Bn2.cy }) === -1, 'Ausserhalb Football kein Tor (goalSide -1)');
+  ok(Bn2.goalSide({ owner: NEU, fbPassed: true, x: Bn2.cx + GOAL_LINE + Bn2.BR + 50, y: Bn2.cy }) === -1, 'Ausserhalb Football kein Tor (goalSide -1)');
   ok(Bn2.goalBusy() === false, 'Ausserhalb Football nie ein Torablauf');
   Bn2.setBalls([{ x: Bn2.cx, y: Bn2.cy, vx: 0, vy: 0, owner: 0 }]);
   for (let i = 0; i < 30; i++) Bn2.step();
@@ -1490,7 +1499,7 @@ ok(/if\(it===0\)\{/.test(HTML), 'Treffer-Feedback ist auf den ersten Kontaktpass
   ok(E.stopv < T.STOPV, 'Settlement-Schwelle tiefer als bisher (' + E.stopv + ' < ' + T.STOPV + ')');
   // Verhaltensbasiert: gleicher Schuss, laengerer Weg und spaeteres Settlement.
   const roll = (p) => { const e = buildEnv('football', 'single', p);
-    e.setBalls([{ x: e.cx, y: e.cy - 260, vx: 0, vy: 3.0, owner: 4 }]);
+    e.setBalls([{ x: e.cx, y: e.cy - 260, vx: 0, vy: 3.0, owner: NEU }]);
     let f = 0, dist = 0, prev = e.get().balls[0];
     while (f++ < 4000 && e.get().phase === 'sim') { e.step();
       const b = e.get().balls[0]; dist += Math.hypot(b.x - prev.x, b.y - prev.y); prev = b; }
@@ -1510,7 +1519,7 @@ ok(/if\(it===0\)\{/.test(HTML), 'Treffer-Feedback ist auf den ersten Kontaktpass
 {
   // Bande: Normalanteil nach dem Abprall / Normalanteil davor (gerade Laengsbande +y).
   const bandRatio = (p) => { const e = buildEnv('football', 'single', p);
-    e.setBalls([{ x: e.cx, y: e.cy + e.halfWid() - e.neutralR() - 90, vx: 0, vy: 2.0, owner: 4 }]);
+    e.setBalls([{ x: e.cx, y: e.cy + e.halfWid() - e.neutralR() - 90, vx: 0, vy: 2.0, owner: NEU }]);
     let vIn = 2.0;
     for (let i = 0; i < 200; i++) { const before = e.get().balls[0]; e.step();
       const after = e.get().balls[0];
@@ -1566,14 +1575,14 @@ ok(/if\(it===0\)\{/.test(HTML), 'Treffer-Feedback ist auf den ersten Kontaktpass
   // erfuellt, niemals ein Escape, egal wie lange. (An der Bande waere das Paar
   // Bande+Druecker bereits ein echter geschlossener Keil — das ist Absicht des Systems.)
   const E = buildEnv('football', 'single');
-  E.setBalls([{ x: E.cx, y: E.cy, vx: 0, vy: 0, owner: 4 },
+  E.setBalls([{ x: E.cx, y: E.cy, vx: 0, vy: 0, owner: NEU },
               { x: E.cx, y: E.cy - (E.neutralR() + E.BR), vx: 0, vy: 0.05, owner: 0 }]);
   for (let i = 0; i < 400; i++) E.step();
   ok(E.escapes() === 0, 'kein Escape bei einem einzelnen frontalen Kontaktpaar (erhalten: ' + E.escapes() + ')');
 
   // Freier Flug ohne jeden Kontakt: Zaehler bleibt bei 0.
   const F2 = buildEnv('football', 'single');
-  F2.setBalls([{ x: F2.cx - 200, y: F2.cy, vx: 1.0, vy: 0, owner: 4 }]);
+  F2.setBalls([{ x: F2.cx - 200, y: F2.cy, vx: 1.0, vy: 0, owner: NEU }]);
   for (let i = 0; i < 60; i++) F2.step();
   ok(F2.escapes() === 0 && F2.wedgeCounters().every((c) => c === 0),
      'kontaktfreier Ball erzeugt weder Wedge-Zaehler noch Escape');
@@ -1582,7 +1591,7 @@ ok(/if\(it===0\)\{/.test(HTML), 'Treffer-Feedback ist auf den ersten Kontaktpass
   const C = buildEnv('football', 'single', 'BASELINE');
   const cbY = C.cy + C.halfWid() - C.neutralR();
   const crr = C.neutralR() + C.BR;                          // Kontaktabstand Spieler/neutraler Ball
-  C.setBalls([{ x: C.cx, y: cbY, vx: 0, vy: 0, owner: 4 },
+  C.setBalls([{ x: C.cx, y: cbY, vx: 0, vy: 0, owner: NEU },
               { x: C.cx - crr * 0.5, y: cbY - crr * 0.866, vx: 0.6, vy: 1.0, owner: 0 },
               { x: C.cx + crr * 0.5, y: cbY - crr * 0.866, vx: -0.6, vy: 1.0, owner: 1 }]);
   for (let i = 0; i < 600; i++) C.step();
@@ -1614,7 +1623,7 @@ for (const p of ['PROD', 'BASELINE']) {
   // Torpassage mittig -> Tor, Score, Ballfall. Startspeed 6.5 (< Launch-Maximum ~6.6):
   // die BASELINE-Daempfung (FRICTION 0.992) traegt maximal v0/(1-f) = 812 LOGICAL weit —
   // genug fuer die Torlinie bei 676.8; mit 5.0 (Reichweite 625) kaeme sie nicht mehr an.
-  M.setBalls([{ x: M.cx, y: M.cy, vx: 6.5, vy: 0, owner: 4 }]);
+  M.setBalls([{ x: M.cx, y: M.cy, vx: 6.5, vy: 0, owner: NEU }]);
   let f = 0; while (f++ < 1200 && M.goalState() === 'play') M.step();
   ok(M.goalState() === 'fall' && JSON.stringify(M.score()) === '[1,0]',
      p + ': Torpassage wertet unveraendert (Zustand ' + M.goalState() + ', Score ' + JSON.stringify(M.score()) + ')');
@@ -1643,7 +1652,7 @@ for (const p of ['PROD', 'BASELINE']) {
   const jRad = (owner) => owner === 4 ? M.neutralR() : M.BR;
   const bY = M.cy + M.halfWid() - M.neutralR();     // neutraler Ball an der +y-Laengsbande
   const jrr = M.neutralR() + M.BR;
-  M.setBalls([{ x: M.cx, y: bY, vx: 0, vy: 0, owner: 4 },
+  M.setBalls([{ x: M.cx, y: bY, vx: 0, vy: 0, owner: NEU },
               { x: M.cx - M.BR, y: bY - jrr * 0.866, vx: 0.9, vy: 1.4, owner: 0 },
               { x: M.cx + M.BR, y: bY - jrr * 0.866, vx: -0.9, vy: 1.4, owner: 1 }]);
   let maxSd = -Infinity, minPen = Infinity;
@@ -2195,7 +2204,7 @@ const fbCssSrc = grab(/#game\.fb \.status\{[\s\S]*?\n\.arena-wrap\{/, 'Football-
 
   // WAEHREND der Celebration: kein neuer Ball, kein Score, keine Eingabe.
   const neutralOutside = () => {
-    const nb = C.get().balls.find((b) => b.owner === 4);
+    const nb = C.get().balls.find((b) => b.owner === NEU);
     return Math.abs(nb.x - C.cx) > C.halfLen();
   };
   let stillOutside = true, scoreStable = true, lockedAll = true;
@@ -2213,7 +2222,7 @@ const fbCssSrc = grab(/#game\.fb \.status\{[\s\S]*?\n\.arena-wrap\{/, 'Football-
   ok(C.goalState() === 'spawn', 'erst danach beginnt der bestehende Spawn-Ablauf');
 
   // Der Rundenreset passiert wirklich erst JETZT — nicht schon am Fallende.
-  const nb = C.get().balls.find((b) => b.owner === 4);
+  const nb = C.get().balls.find((b) => b.owner === NEU);
   ok(Math.hypot(nb.x - C.cx, nb.y - C.cy) < 1e-9, 'der neue Ball entsteht erst am Ende der Celebration (Mitte)');
   ok(C.passedFlags().every((f) => f === false), 'footballResetRound() lief genau hier (fbPassed geloescht)');
   ok(C.locked() === true, 'waehrend des Spawn-Drops bleibt die Eingabe gesperrt');
@@ -2255,7 +2264,7 @@ const fbCssSrc = grab(/#game\.fb \.status\{[\s\S]*?\n\.arena-wrap\{/, 'Football-
      Math.round(overlayMs) + ' ms > Impuls ' + W.fxDur + ' ms)');
   ok(W.fxSide() === -1, 'footballMatchEnd() hat den Impuls danach sauber abgeraeumt');
   // Kein neuer Ball nach dem Sieg — der Rundenreset wird uebersprungen.
-  const nb = W.get().balls.find((b) => b.owner === 4);
+  const nb = W.get().balls.find((b) => b.owner === NEU);
   ok(Math.abs(nb.x - W.cx) > W.halfLen(), 'nach dem Sieg entsteht kein neuer Ball');
 }
 
@@ -2594,7 +2603,7 @@ const fbCssSrc = grab(/#game\.fb \.status\{[\s\S]*?\n\.arena-wrap\{/, 'Football-
   // ── Verhalten in der Arena: schneller Start, kein Durchbruch, sauberer Stillstand ──
   const E = buildEnv('football', 'single');
   const VM = E.launchV(1);
-  E.setBalls([{ x: E.cx, y: E.cy, vx: VM * 0.6, vy: VM * 0.8, owner: 4 }]);
+  E.setBalls([{ x: E.cx, y: E.cy, vx: VM * 0.6, vy: VM * 0.8, owner: NEU }]);
   let frames = 0, maxSD = -Infinity, postOk = true, finite = true;
   for (let i2 = 1; i2 <= 3600; i2++) {
     E.step();
@@ -2636,7 +2645,7 @@ const fbCssSrc = grab(/#game\.fb \.status\{[\s\S]*?\n\.arena-wrap\{/, 'Football-
   {
     const B2 = buildEnv('football', 'single');
     const VM2 = B2.launchV(1), ang = 40 * Math.PI / 180;
-    B2.setBalls([{ x: B2.cx - F.halfLen() * 0.45, y: B2.cy, vx: VM2 * Math.sin(ang), vy: VM2 * Math.cos(ang), owner: 4 }]);
+    B2.setBalls([{ x: B2.cx - F.halfLen() * 0.45, y: B2.cy, vx: VM2 * Math.sin(ang), vy: VM2 * Math.cos(ang), owner: NEU }]);
     let vIn = null, vOut = null, prev = B2.get().balls[0];
     for (let i2 = 0; i2 < 900; i2++) {
       B2.step();
@@ -2654,7 +2663,7 @@ const fbCssSrc = grab(/#game\.fb \.status\{[\s\S]*?\n\.arena-wrap\{/, 'Football-
   {
     const K = buildEnv('football', 'single');
     K.newMatch();
-    K.setBalls([{ x: K.cx, y: K.cy, vx: K.launchV(1), vy: 0, owner: 4 }]);
+    K.setBalls([{ x: K.cx, y: K.cy, vx: K.launchV(1), vy: 0, owner: NEU }]);
     let scored = false;
     for (let i2 = 0; i2 < 900; i2++) { K.step(); if (K.goalState() !== 'play') { scored = true; break; } }
     ok(scored && K.score()[0] === 1 && K.score()[1] === 0, 'der schnellste Schuss ergibt genau EIN Tor');

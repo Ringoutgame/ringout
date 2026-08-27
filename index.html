@@ -284,9 +284,9 @@ header{width:100%;max-width:460px;display:flex;align-items:center;justify-conten
    damit strukturell unveraendert. Material: dasselbe dunkle Glas, dieselbe Goldkante,
    dieselben Teamfarben wie im restlichen Spiel. */
 #game.fb .status{max-width:404px;gap:6px}
-/* Elimination4 (Dev-Prototyp): die Statusleiste ist ein 3-Spalten-Grid fuer zwei Spieler-
-   karten und die Scorebox. Hier traegt sie stattdessen EINE Chipleiste fuer vier Spieler —
-   also eine zentrierte Zeile ueber die volle Breite, sonst braeche der Phasenkopf um. */
+/* Elimination: die Statusleiste ist ein 3-Spalten-Grid fuer zwei Spieler-
+   karten und die Scorebox. Hier traegt sie stattdessen EINE Chipleiste fuer bis zu fuenf
+   Spieler — also eine zentrierte Zeile ueber die volle Breite, sonst braeche der Phasenkopf um. */
 #game.fb.fbelim .status{max-width:660px;display:flex;justify-content:center}
 #game.fb .scorebox{padding:6px 17px;border-color:rgba(255,201,64,.44);
   box-shadow:0 10px 26px rgba(5,9,18,.45),inset 0 1px 0 rgba(255,255,255,.055)}
@@ -433,7 +433,7 @@ body.booting #menu{opacity:0;visibility:hidden}
 .trophy{font-size:46px;margin-bottom:4px}
 .wt{font-size:12px;font-weight:900;letter-spacing:.12em;text-transform:uppercase;margin-bottom:6px}
 .wt.w0{color:var(--p1)}.wt.w1{color:var(--p2)}
-.wt.w2{color:#39e07a}.wt.w3{color:#ffc940}.wt.w4{color:#aab4c8}
+.wt.w2{color:#39e07a}.wt.w3{color:#ffc940}.wt.w4{color:#aab4c8}.wt.w5{color:#c07bff}
 .ws{color:#8b99b4;font-size:10px;font-weight:800;letter-spacing:.14em;text-transform:uppercase;margin-bottom:16px}
 .wbtn{width:100%;font-size:14px;padding:13px;border-radius:14px;background:linear-gradient(180deg,rgba(30,40,64,.9),rgba(15,21,36,.95));color:#dfe7f3;border:1px solid rgba(150,172,210,.28);font:inherit;font-weight:900;letter-spacing:.06em;cursor:pointer;margin-bottom:8px;transition:transform .08s}
 .wbtn:active{transform:scale(.97)}
@@ -792,7 +792,7 @@ body:not(.r3d) .ohero{height:12px}
     </button>
     <button class="vopt" id="fbElimBtn">
       <span class="vopt-t" id="fbElimT">ELIMINATION</span>
-      <span class="vopt-s" id="fbElimS">4 PLAYERS · CONCEDE ONCE = OUT</span>
+      <span class="vopt-s" id="fbElimS">5 PLAYERS · TWO LIVES EACH</span>
     </button>
     <button class="wbtn" id="fbModeBack">↩ Back</button>
   </div>
@@ -1491,7 +1491,7 @@ en:{tagline:'PULL BACK · RELEASE · KNOCK THEM OUT',chip:'FEATURED',
   botT:'BOT TRAINING',botS:'VS AI',
   fbT:'ARENA FOOTBALL',fbClassicT:'CLASSIC 1V1',fbClassicS:'1 FIGURE PER PLAYER',
   fbTacticalT:'TACTICAL 1V1',fbTacticalS:'2 FIGURES · 1 MOVE PER ROUND',
-  fbElimT:'ELIMINATION',fbElimS:'4 PLAYERS · CONCEDE ONCE = OUT',
+  fbElimT:'ELIMINATION',fbElimS:'5 PLAYERS · TWO LIVES EACH',
   secPlay:'PLAY',secRooms:'ONLINE ROOMS',secHow:'HOW TO PLAY',viewAll:'VIEW ALL',
   joinCodeBtn:'JOIN CODE',howLead:'Learn the rules and master the ring.',
   createRoomSub:'Invite your friends',joinCodeSub:'Enter room code',
@@ -1516,7 +1516,7 @@ en:{tagline:'PULL BACK · RELEASE · KNOCK THEM OUT',chip:'FEATURED',
   connWait:'Connected! Waiting for the host…',connStart:'Connected! Game starting…',
   noFb:'⚠ No connection to Firebase. Check internet & config.',err:'Error: ',noOnlineReset:'Not available in online mode.',loading:'Loading arena...',
   victory:'VICTORY',defeat:'DEFEAT',wins:'WINS',finalScore:'FINAL SCORE',ringout:'RINGOUT',round:'ROUND',
-  col0:'BLUE',col1:'RED',col2:'GREEN',col3:'YELLOW',col4:'GRAY',
+  col0:'BLUE',col1:'RED',col2:'GREEN',col3:'YELLOW',col4:'GRAY',col5:'VIOLET',
   nameYou:'YOU',nameOpp:'OPPONENT',namePlayer:'Player',youAre:'YOU ARE',
   nameLbl:'YOUR NAME',namePh:'Name',rejoinBtn:'Rejoin',rejoinAsk:'Rejoin room {code}?',
   rejoinNoLobby:'Room is no longer in the lobby.',rejoinTab:'Seat is active in another tab.',rejoinOk:'Rejoined.',
@@ -1536,7 +1536,7 @@ de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'FEATURED',
   botT:'BOT-TRAINING',botS:'GEGEN KI',
   fbT:'ARENA FOOTBALL',fbClassicT:'CLASSIC 1V1',fbClassicS:'1 FIGUR PRO SPIELER',
   fbTacticalT:'TACTICAL 1V1',fbTacticalS:'2 FIGUREN · 1 ZUG PRO RUNDE',
-  fbElimT:'ELIMINATION',fbElimS:'4 SPIELER · 1 GEGENTOR = RAUS',
+  fbElimT:'ELIMINATION',fbElimS:'5 SPIELER · JE 2 LEBEN',
   secPlay:'SPIELEN',secRooms:'ONLINE-RÄUME',secHow:'SO WIRD GESPIELT',viewAll:'ALLE ANZEIGEN',
   scrollHint:'SCROLLEN FÜR MEHR',soonT:'BALD MEHR',soonS:'Neue Modi und Features sind in Arbeit.',
   joinCodeBtn:'CODE BEITRETEN',howLead:'Lerne die Regeln und meistere den Ring.',
@@ -1561,7 +1561,7 @@ de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'FEATURED',
   connWait:'Verbunden! Warte auf den Host…',connStart:'Verbunden! Spiel startet…',
   noFb:'⚠ Keine Verbindung zu Firebase. Internet & Config prüfen.',err:'Fehler: ',noOnlineReset:'Im Online-Modus nicht verfügbar.',loading:'Arena wird geladen...',
   victory:'SIEG',defeat:'NIEDERLAGE',wins:'GEWINNT',finalScore:'ENDSTAND',ringout:'RINGOUT',round:'RUNDE',
-  col0:'BLAU',col1:'ROT',col2:'GRÜN',col3:'GELB',col4:'GRAU',
+  col0:'BLAU',col1:'ROT',col2:'GRÜN',col3:'GELB',col4:'GRAU',col5:'VIOLETT',
   nameYou:'DU',nameOpp:'GEGNER',namePlayer:'Spieler',youAre:'DU BIST',
   nameLbl:'DEIN NAME',namePh:'Name',rejoinBtn:'Wieder beitreten',rejoinAsk:'Raum {code} wieder beitreten?',
   rejoinNoLobby:'Raum ist nicht mehr in der Lobby.',rejoinTab:'Sitz ist in einem anderen Tab aktiv.',rejoinOk:'Wieder beigetreten.',
@@ -1581,7 +1581,7 @@ tr:{tagline:'GERİ ÇEK · BIRAK · DIŞARI İT',chip:'FEATURED',
   botT:'BOT ANTRENMANI',botS:'YAPAY ZEKÂYA KARŞI',
   fbT:'ARENA FOOTBALL',fbClassicT:'CLASSIC 1V1',fbClassicS:'OYUNCU BAŞINA 1 FİGÜR',
   fbTacticalT:'TACTICAL 1V1',fbTacticalS:'2 FİGÜR · TUR BAŞINA 1 HAMLE',
-  fbElimT:'ELİMİNASYON',fbElimS:'4 OYUNCU · 1 GOL YE = ELEN',
+  fbElimT:'ELİMİNASYON',fbElimS:'5 OYUNCU · HER BİRİNE 2 CAN',
   secPlay:'OYNA',secRooms:'ONLINE ODALAR',secHow:'NASIL OYNANIR',viewAll:'TÜMÜNÜ GÖR',
   scrollHint:'KAYDIR VE KEŞFET',soonT:'ÇOK YAKINDA DAHA FAZLASI',soonS:'Yeni modlar ve özellikler yolda.',
   joinCodeBtn:'KODLA KATIL',howLead:'Kuralları öğren ve ringe hâkim ol.',
@@ -1606,7 +1606,7 @@ tr:{tagline:'GERİ ÇEK · BIRAK · DIŞARI İT',chip:'FEATURED',
   connWait:'Bağlandı! Host bekleniyor…',connStart:'Bağlandı! Oyun başlıyor…',
   noFb:'⚠ Firebase bağlantısı yok. İnterneti ve yapılandırmayı kontrol et.',err:'Hata: ',noOnlineReset:'Online modda kullanılamaz.',loading:'Arena yükleniyor...',
   victory:'ZAFER',defeat:'MAĞLUBİYET',wins:'KAZANDI',finalScore:'SON SKOR',ringout:'RINGOUT',round:'RAUNT',
-  col0:'MAVİ',col1:'KIRMIZI',col2:'YEŞİL',col3:'SARI',col4:'GRİ',
+  col0:'MAVİ',col1:'KIRMIZI',col2:'YEŞİL',col3:'SARI',col4:'GRİ',col5:'MOR',
   nameYou:'SEN',nameOpp:'RAKİP',namePlayer:'Oyuncu',youAre:'RENGİN',
   nameLbl:'ADIN',namePh:'Ad',rejoinBtn:'Tekrar katıl',rejoinAsk:'{code} odasına tekrar katıl?',
   rejoinNoLobby:'Oda artık lobide değil.',rejoinTab:'Koltuk başka bir sekmede etkin.',rejoinOk:'Yeniden katıldın.',
@@ -1702,10 +1702,10 @@ $('modeNext').onclick=()=>stepMenuMode(1);
 $('ctaBtn').onclick=()=>{
   SFX.unlock();
   // ARENA FOOTBALL: Modusauswahl statt Sofortstart. Ein gueltiger Dev-Direktlink
-  // (?dev=1&fb=classic|tactical|elimination4) ueberspringt die Auswahl bewusst.
+  // (?dev=1&fb=classic|tactical|elimination|elimination4) ueberspringt die Auswahl bewusst.
   if(menuSel==='football'){if(SFX.click())vibrateMs(VIBE_CLICK_MS);   // oeffnet nur die Auswahl — wie beim Bot-Dialog
     if(!r3dActive){toast('Arena Football benötigt die echte 3D-Szene (nicht verfügbar).');return;}
-    if(DEV_FB_VARIANT==='classic'||DEV_FB_VARIANT===FOOTBALL_VARIANT_TACTICAL||DEV_FB_VARIANT===FOOTBALL_VARIANT_ELIM4){startFootball(DEV_FB_VARIANT);return;}
+    if(DEV_FB_VARIANT==='classic'||DEV_FB_VARIANT===FOOTBALL_VARIANT_TACTICAL||DEV_FB_VARIANT===FOOTBALL_VARIANT_ELIM||DEV_FB_VARIANT===FOOTBALL_VARIANT_ELIM4){startFootball(DEV_FB_VARIANT);return;}
     $('fbModeOv').classList.add('show');return;}
   if(menuSel==='bot'){if(SFX.click())vibrateMs(VIBE_CLICK_MS);$('botOv').classList.add('show');return;}       // Format-Auswahl: 1v1 / 2v2 Duo vs Bot
   if(TUNE){if(SFX.click())vibrateMs(VIBE_CLICK_MS);toast('Tuning aktiv — Online deaktiviert');return;}
@@ -1727,10 +1727,12 @@ $('botBack').onclick=()=>$('botOv').classList.remove('show');
 // danach durch exakt denselben Bestandsablauf wie zuvor (lokales Match, nie online).
 // Torsound wird aus dieser Nutzergeste vorgeladen.
 function startFootball(variant){
-  // Genau drei zulaessige Werte, jeder andere faellt auf den Standardmodus zurueck.
-  // Alle drei sind ueber die sichtbare Modusauswahl erreichbar; der Dev-Direktlink
-  // (?dev=1&fb=...) ueberspringt lediglich das Modal.
-  fbVariant=(variant===FOOTBALL_VARIANT_TACTICAL||variant===FOOTBALL_VARIANT_ELIM4)?variant:'classic';
+  // Drei Produktmodi (Classic, Tactical, Elimination) plus der Dev-Einstieg auf die
+  // Vier-Spieler-Elimination; jeder andere Wert faellt auf den Standardmodus zurueck.
+  // Die drei Produktmodi sind ueber die sichtbare Modusauswahl erreichbar, der Dev-Einstieg
+  // ausschliesslich ueber ?dev=1&fb=elimination4.
+  const dev4=variant===FOOTBALL_VARIANT_ELIM4&&typeof DEV_MENU!=='undefined'&&DEV_MENU;
+  fbVariant=(variant===FOOTBALL_VARIANT_TACTICAL||variant===FOOTBALL_VARIANT_ELIM||dev4)?variant:'classic';
   $('fbModeOv').classList.remove('show');
   mode=menuMode='football';fmt='single';online=false;
   SFX.footballGoalPreload();showGame();newGame();
@@ -1738,7 +1740,7 @@ function startFootball(variant){
 }
 $('fbClassicBtn').onclick=()=>{if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);startFootball('classic');};
 $('fbTacticalBtn').onclick=()=>{if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);startFootball(FOOTBALL_VARIANT_TACTICAL);};
-$('fbElimBtn').onclick=()=>{if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);startFootball(FOOTBALL_VARIANT_ELIM4);};
+$('fbElimBtn').onclick=()=>{if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);startFootball(FOOTBALL_VARIANT_ELIM);};
 $('fbModeBack').onclick=()=>$('fbModeOv').classList.remove('show');
 $('menuSnd').onclick=()=>{soundOn=!soundOn;const g=soundOn?'🔊':'🔇';$('menuSnd').textContent=g;$('sndBtn').textContent=g;if(!soundOn){SFX.charge.stop();SFX.fbTransitionStop();}};
 // ── Menue-Preview: die ECHTE 3D-Szene zeigt den gewaehlten Modus. Setzt nur den
@@ -2222,6 +2224,32 @@ let bgPulse=0,bgPulseRGB='255,201,64';
 const PCOLS=[{ui:'#00d4ff',rgb:'0,212,255',c:'#00c8ff',lt:'#80eeff',dk:'#00304a',gl:'0,190,255',m3:0x0a6db8},{ui:'#ff4d4d',rgb:'255,77,77',c:'#ff2200',lt:'#ff8855',dk:'#550008',gl:'255,40,0',m3:0xa81e0e},{ui:'#39e07a',rgb:'57,224,122',c:'#1fca5f',lt:'#8af5b4',dk:'#043d1c',gl:'40,220,110',m3:0x0e7c3a},{ui:'#ffc940',rgb:'255,201,64',c:'#ffb400',lt:'#ffe28a',dk:'#4d3300',gl:'255,190,40',m3:0xc9971c},{ui:'#aab4c8',rgb:'170,180,200',c:'#20242e',lt:'#9fb0c8',dk:'#05070c',gl:'150,165,190',m3:0x14161c}];
 // Gedaempfte Edelstein-Variante je Spielerfarbe, nur fuer die Namenslabels (drawBall) — bewusst dunkler/entsaettigt statt Neon.
 const NAME_COL=['#6cc9ff','#ff6a58','#57e695','#ffd166','#f2f5fa'];
+// ── FARBTAFEL ARENA FOOTBALL ──────────────────────────────────────────────────────
+// Football hat FUENF Spieler plus einen neutralen Ball und braucht damit einen Farbslot
+// mehr als die uebrigen Modi. Die globale Tafel PCOLS bleibt deshalb unangetastet — sie
+// hat weiterhin genau fuenf Eintraege und Slot 4 ist dort weiterhin das Dunkelgrau des
+// fuenften RingOut-FFA-Spielers. Football legt stattdessen eine EIGENE Tafel darueber:
+//   Slot 0-3  identisch zu PCOLS (dieselben Objekte, nicht nur dieselben Werte)
+//   Slot 4    Violett - der fuenfte Football-Spieler
+//   Slot 5    das bisherige Dunkelgrau - der neutrale Ball (FOOTBALL_NEUTRAL_OWNER)
+// Dadurch behaelt der neutrale Ball exakt sein bisheriges Aussehen, ohne dass ein
+// globaler Spielerfarbslot dafuer verbraucht wird.
+const FB_COL_P5={ui:'#c07bff',rgb:'192,123,255',c:'#9b45f0',lt:'#dcb0ff',dk:'#2a0a4d',gl:'175,110,255',m3:0x6a2bb0};
+const FB_PCOLS=[PCOLS[0],PCOLS[1],PCOLS[2],PCOLS[3],FB_COL_P5,PCOLS[4]];
+const FB_NAME_COL=[NAME_COL[0],NAME_COL[1],NAME_COL[2],NAME_COL[3],'#cf9dff',NAME_COL[4]];
+// Farbslot -> Index fuer Farbname (col0..col5) und Siegerfarbe (.wt.w0..w5). Dieselbe
+// Verschiebung wie FB_PCOLS: Football-Slot 4 ist Violett, der dunkle Slot liegt auf 5.
+const FB_COL_SLOT=[0,1,2,3,5,4];
+function colSlot4Name(p){return mode==='football'&&FB_COL_SLOT[p]!==undefined?FB_COL_SLOT[p]:p;}
+// EINZIGE Farbabfrage fuer alles, was im Football-Modus tatsaechlich gezeichnet wird:
+// Chipleiste, HUD, Privacy-Cover, Siegeranzeige, 3D-Tore, 3D-Kugelmaterialien und
+// Auswahlring. Ausserhalb Football liefert sie exakt PCOLS[i] - das Verhalten aller
+// anderen Modi bleibt damit unveraendert.
+// NICHT hierueber laeuft der Ring-Out-Pfad (resolveRingOuts/winnerRGB): Football kennt
+// keine Ring-Outs, und diese Funktionen liegen in den Regionen, gegen die die Golden-Suite
+// bitgenau prueft - sie bleiben unveraendert auf der globalen Tafel.
+function pcol(i){return mode==='football'?(FB_PCOLS[i]||PCOLS[i]):PCOLS[i];}
+function ncol(i){return mode==='football'?(FB_NAME_COL[i]||NAME_COL[i]):NAME_COL[i];}
 
 const MAXPULL_FRAC=0.40, LAUNCH=0.034, FRICTION=0.992, FEND=0.992, SLOWV=0.35, REST=0.25, STOPV=0.10;
 const SPIN_K=0.004, SPIN_DECAY=0.985, SPIN_SCALE=R0*0.18, SPIN_INPUT=R0*0.45;   // SPIN_INPUT: horizontale Wischweite des 2. Fingers fuer vollen Drall (+/-1)
@@ -2458,10 +2486,11 @@ function setPhase(p){phase=p;phaseStart=performance.now();}
 function mkBall(x,y,owner){return{x,y,vx:0,vy:0,sx:x,sy:y,owner,alive:true,spin:0};}
 function aliveBalls(owner){return balls.filter(b=>b.alive&&b.owner===owner);}
 function aliveCount(owner){let n=0;for(const b of balls)if(b.alive&&b.owner===owner)n++;return n;}
-// Spieleranzahl der Partie. Bestandsmodi: immer 2. Elimination4 (Dev-Prototyp) ist die
-// einzige Ausnahme im Football-Modus — der typeof-Guard haelt die Offline-Harnesse ohne
-// Football-Block unveraendert lauffaehig (dort greift der Bestandszweig).
-function np(){return mode==='ffa'?ffaN:(typeof fbElim4==='function'&&fbElim4()?FOOTBALL_ELIM4_PLAYERS:2);}
+// Spieleranzahl der Partie. Bestandsmodi: immer 2. Die Elimination ist die einzige Ausnahme
+// im Football-Modus; wie viele Spieler sie startet, sagt fbElimPlayers(). Der typeof-Guard
+// haelt die Offline-Harnesse ohne Football-Block unveraendert lauffaehig (dort greift der
+// Bestandszweig).
+function np(){return mode==='ffa'?ffaN:(typeof fbElim4==='function'&&fbElim4()?fbElimPlayers():2);}
 // Kugeln pro Spieler: 2 im 2v2-Doppel UND im TRIPLE FFA (fmt 'triple_ffa' —
 // FFA-Variante mit exakt 3 Spielern, laeuft komplett ueber die FFA-Systeme).
 function teamCap(){if(typeof fbTactical==='function'&&fbTactical())return 2;return (mode!=='ffa'&&fmt==='double')||fmt==='triple_ffa'?2:1;}
@@ -2495,25 +2524,25 @@ function placeBalls(){
     balls.push(mkBall(cx-ox,cy+oy,0),mkBall(cx+ox,cy+oy,0));
     balls.push(mkBall(cx-ox,cy-oy,1),mkBall(cx+ox,cy-oy,1));
   }else if(mode==='football'&&typeof fbElim4==='function'&&fbElim4()){
-    // ELIMINATION4 (Dev-Prototyp): vier Spielerfiguren (owner 0-3) je vor dem eigenen Tor,
-    // neutraler Ball (owner 4) exakt im Zentrum. Die Reihenfolge P1,P2,P3,P4,Ball haelt die
-    // Ballindizes ueber alle Runden stabil. Jede Position entsteht aus DERSELBEN Distanz
+    // ELIMINATION: eine Spielerfigur je Startspieler (owner 0..n-1) je vor dem eigenen Tor,
+    // neutraler Ball (FOOTBALL_NEUTRAL_OWNER) exakt im Zentrum. Die Reihenfolge P1..Pn,Ball
+    // haelt die Ballindizes ueber alle Runden stabil. Jede Position entsteht aus DERSELBEN Distanz
     // entlang der eigenen Torrichtung — die vier Spawns sind damit per Konstruktion durch
     // 90-Grad-Drehung ineinander ueberfuehrbar (s. FOOTBALL_ELIM4_DIRS).
     // Dieselbe geometrische Spawnregel, die auch nach jeder Eliminierung greift
     // (fbElimSpawnBodies) — es gibt nur EINE Beschreibung der fairen Startaufstellung.
-    for(let o=0;o<FOOTBALL_ELIM4_PLAYERS;o++)balls.push(mkBall(fbElimSpawnX(o),fbElimSpawnY(o),o));
+    for(let o=0;o<fbElimPlayers();o++)balls.push(mkBall(fbElimSpawnX(o),fbElimSpawnY(o),o));
     balls.push(mkBall(cx,cy,FOOTBALL_NEUTRAL_OWNER));
   }else if(mode==='football'&&typeof fbTactical==='function'&&fbTactical()){
-    // TACTICAL: 2 Figuren je Team + neutraler Ball (owner 4). Blau bei -x, Rot exakt daran
+    // TACTICAL: 2 Figuren je Team + neutraler Ball (FOOTBALL_NEUTRAL_OWNER). Blau bei -x, Rot exakt daran
     // gespiegelt bei +x. Reihenfolge B1,B2,R1,R2,Ball haelt die Ballindizes ueber alle
     // Runden stabil — die Auswahl (fbSel) darf sich darauf verlassen.
     const S=FOOTBALL_TACTICAL_SPAWN;
     balls.push(mkBall(cx-S.frontX*BR,cy-S.frontY*BR,0),mkBall(cx-S.backX*BR,cy+S.backY*BR,0),
                mkBall(cx+S.frontX*BR,cy-S.frontY*BR,1),mkBall(cx+S.backX*BR,cy+S.backY*BR,1),
-               mkBall(cx,cy,4));
-  }else if(mode==='football'){const off=fbArena().spawn*BR;   // Football-Shell: Blau links (owner 0), Rot rechts (owner 1), neutraler Ball mittig (owner 4 = dunkler PCOLS-Slot, nie waehlbar); Abstand aus der Arenavariante (Kreis: 6.365625*BR == altes R*0.42)
-    balls.push(mkBall(cx-off,cy,0),mkBall(cx+off,cy,1),mkBall(cx,cy,4));
+               mkBall(cx,cy,FOOTBALL_NEUTRAL_OWNER));
+  }else if(mode==='football'){const off=fbArena().spawn*BR;   // Football-Shell: Blau links (owner 0), Rot rechts (owner 1), neutraler Ball mittig (FOOTBALL_NEUTRAL_OWNER = dunkler Football-Farbslot, nie waehlbar); Abstand aus der Arenavariante (Kreis: 6.365625*BR == altes R*0.42)
+    balls.push(mkBall(cx-off,cy,0),mkBall(cx+off,cy,1),mkBall(cx,cy,FOOTBALL_NEUTRAL_OWNER));
   }else{const off=R*0.57;
     balls.push(mkBall(cx,cy+off,0),mkBall(cx,cy-off,1));}
 }
@@ -2586,19 +2615,19 @@ function renderTeamBar(){
     bar.appendChild(chip);
   }
 }
-// ELIMINATION4 (Dev-Prototyp): dieselbe Chip-Leiste wie FFA/Team Duel, nur mit der
+// ELIMINATION: dieselbe Chip-Leiste wie FFA/Team Duel, nur mit der
 // Elimination-Wahrheit. V2 kennt weder Punkte noch Zeit — angezeigt wird deshalb NUR, wer
 // noch im Match ist, wer gerade verdeckt zielt und wie viele Spieler uebrig sind.
 function renderElimBar(){
   const bar=$('ffaBar');bar.textContent='';
   const hd=document.createElement('span');hd.className='frnd';hd.textContent=fbElimHeadText();
   bar.appendChild(hd);
-  for(let o=0;o<FOOTBALL_ELIM4_PLAYERS;o++){
+  for(let o=0;o<fbElimPlayers();o++){
     const out=!fbElimActive[o];
     const act=phase==='aim'&&curAimer===o&&!aimSet[o]&&!out;
     const chip=document.createElement('span');
     chip.className='fchip'+(out?' out':'')+(act?' act':'');
-    chip.style.setProperty('--fc',PCOLS[o].ui);
+    chip.style.setProperty('--fc',pcol(o).ui);
     chip.appendChild(document.createElement('i'));
     const nm=document.createElement('b');
     nm.textContent='P'+(o+1);
@@ -2706,11 +2735,11 @@ function setPhaseText(){const p=$('phase');
     // Einzige Ausnahme bleibt die echte Fehlermeldung, wenn die 3D-Szene fehlt: sie ist
     // kein Shell-Label, sondern der Hinweis auf einen nicht spielbaren Zustand.
     if(!r3dActive){p.textContent='3D-Szene nicht verfügbar — Arena Football benötigt sie.';return;}
-    // Elimination4 (Dev-Prototyp) hat keine Spielerkarten — vier Spieler laufen ueber die
+    // Elimination hat keine Spielerkarten — alle Spieler laufen ueber die
     // Chipleiste. Deshalb traegt hier die Statuszeile, wer gerade verdeckt zielt; Classic und
     // Tactical bleiben unveraendert leer.
     if(typeof fbElim4==='function'&&fbElim4()){
-      if(phase==='aim')p.innerHTML='<span style="color:'+PCOLS[curAimer].ui+'">Spieler '+(curAimer+1)+'</span> zielt – verdeckt';
+      if(phase==='aim')p.innerHTML='<span style="color:'+pcol(curAimer).ui+'">Spieler '+(curAimer+1)+'</span> zielt – verdeckt';
       else if(phase==='reveal')p.textContent='Alle aufgedeckt…';
       else if(phase==='sim')p.textContent='💥';
       else p.textContent='';
@@ -2724,8 +2753,8 @@ function setPhaseText(){const p=$('phase');
       if(mode==='ffa'){   // Online-FFA: Eliminierte schauen zu, Seat-Farbe statt me0/me1-Klassen
         if(!aliveCount(myPlayer))p.textContent='💀 Du bist raus — Zuschauen';
         else if(aimSet[myPlayer])p.textContent='⏳ Warte auf die anderen…';
-        else if(fmt==='triple_ffa'&&aliveCount(myPlayer)>1)p.innerHTML='Wähle <span style="color:'+PCOLS[myPlayer].ui+'">eine deiner Kugeln</span> & zieh zurück';
-        else p.innerHTML='Zieh <span style="color:'+PCOLS[colorSlot(myPlayer)].ui+'">deine Kugel zurück</span> & lass los';
+        else if(fmt==='triple_ffa'&&aliveCount(myPlayer)>1)p.innerHTML='Wähle <span style="color:'+pcol(myPlayer).ui+'">eine deiner Kugeln</span> & zieh zurück';
+        else p.innerHTML='Zieh <span style="color:'+pcol(colorSlot(myPlayer)).ui+'">deine Kugel zurück</span> & lass los';
       }
       else p.innerHTML = aimSet[myPlayer] ? '⏳ Warte auf Gegner…' : (fmt==='double'?'Wähle <span class="me'+myPlayer+'">eine Kugel</span> & zieh zurück':'Zieh <span class="me'+myPlayer+'">deine Kugel zurück</span> & lass los');
     }
@@ -2735,7 +2764,7 @@ function setPhaseText(){const p=$('phase');
     return;
   }
   if(mode==='ffa'){
-    if(phase==='aim')p.innerHTML='<span style="color:'+PCOLS[curAimer].ui+'">Spieler '+(curAimer+1)+'</span> zielt – verdeckt';
+    if(phase==='aim')p.innerHTML='<span style="color:'+pcol(curAimer).ui+'">Spieler '+(curAimer+1)+'</span> zielt – verdeckt';
     else if(phase==='reveal')p.textContent='Alle aufgedeckt…';
     else if(phase==='sim')p.textContent='💥';
     else p.textContent='';
@@ -2756,7 +2785,7 @@ function setPhaseText(){const p=$('phase');
 
 let toastT;function toast(m){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove('show'),2200);}
 
-function openCover(pi){const c=$('cover');$('coverWho').textContent='Spieler '+(pi+1);$('coverWho').className='who';$('coverWho').style.color=PCOLS[pi].ui;c.classList.add('show');}
+function openCover(pi){const c=$('cover');$('coverWho').textContent='Spieler '+(pi+1);$('coverWho').className='who';$('coverWho').style.color=pcol(pi).ui;c.classList.add('show');}
 $('coverBtn').onclick=()=>{$('cover').classList.remove('show');setPhaseText();updateHud();};
 
 $('actBtn').onclick=()=>{if(r3dOrbit)return;if(phase!=='aim')return;const who=online?myPlayer:(mode==='bot'?0:curAimer);if(aimSet[who]||!aliveCount(who))return;
@@ -3141,7 +3170,7 @@ function applyLaunch(){
 function winnerRGB(loserOwner){
   if(fmt==='team_duel')return roundWinner>=0?PCOLS[roundWinner].rgb:'255,201,64';
   const w=roundWinner>=0?roundWinner:1-loserOwner;return PCOLS[w].rgb;}
-function popBall(b){if(r3dActive)fx3Dust(b.x,b.y,b.vx,b.vy);else spawn(b.x,b.y,26,[PCOLS[colorSlot(b.owner)].ui,'#ffffff'],Math.max(5,Math.hypot(b.vx,b.vy))*0.9,1.1);}
+function popBall(b){if(r3dActive)fx3Dust(b.x,b.y,b.vx,b.vy);else spawn(b.x,b.y,26,[pcol(colorSlot(b.owner)).ui,'#ffffff'],Math.max(5,Math.hypot(b.vx,b.vy))*0.9,1.1);}
 
 // ── RING-OUT: positionsreine Ermittlung + gemeinsame Verarbeitung ──
 // Beide Aufrufer teilen sich exakt diese Logik: der normale Sub-Step in stepSim und die
@@ -3213,7 +3242,7 @@ function resolveRingOuts(crossed){
 // alte Oeffnung von 4*BR zu weit und der Ball konnte optisch in den Marmor eindringen.
 // Die obere Rahmenkante ist in der planaren Sim NICHT erreichbar (Balloberkante 1.0
 // Blender-Einheiten gegen eine lichte Rahmenhoehe bis 1.905) -> kein Querlatten-Kollider.
-const FOOTBALL_NEUTRAL_OWNER=4;                       // neutraler Ball (dunkler PCOLS-Slot, nie waehlbar)
+const FOOTBALL_NEUTRAL_OWNER=5;                       // neutraler Ball (Football-Farbslot 5, nie waehlbar)
 // ── ARENA FOOTBALL: PRODUKTIVE ARENA (Rounded Rectangle, final) ───────────────────
 // EINZIGE Quelle der Wahrheit fuer Physik, Rendering, Spawns und Kamera. Alle Laengen
 // in BR (1 BR = 32 logische Einheiten); "*BR" ergibt logische Weltmasse. Werte werden
@@ -3245,8 +3274,8 @@ const FOOTBALL_ARENA={
   halfLen:18.00,halfWid:12.70,corner:6.85,spawn:7.65,
   postInner:3.560,postOuter:5.282,postFront:18.00,
   postBack:18.00+2*FB_GOAL_HALF_DEPTH,goalAnchor:18.00+FB_GOAL_HALF_DEPTH};
-// ── ARENA FOOTBALL: ELIMINATION4-ARENEN (Dev-Prototyp, V3 adaptiv) ────────────────
-// Die Elimination-Arena hat drei Phasen — eine je aktiver Spielerzahl. Sie ist die EINZIGE
+// ── ARENA FOOTBALL: ELIMINATION-ARENEN (adaptiv je Phase) ─────────────────────────
+// Die Elimination-Arena hat vier Phasen — eine je aktiver Spielerzahl. Sie ist die EINZIGE
 // Quelle fuer Grenze, Torrichtungen, Rendering und Kamera; es gibt keine verstreuten
 // Sonderfaelle. Umgeschaltet wird ausschliesslich ueber fbElimPhaseN (s. fbElimApplyPhase).
 //
@@ -3273,6 +3302,12 @@ const FOOTBALL_ARENA={
 //                 Schussdistanz 14.00 BR auf einer klaren Laengsachse (Classic-Layout)
 // In jeder Phase gilt: gerades Seitensegment > postOuter (5.282 BR), das Tor sitzt also
 // vollstaendig im flachen Teil der Seite und nie im Eckbogen.
+// Groesste unterstuetzte Spielerzahl der Elimination. Die Zustandsarrays haben genau diese
+// Laenge; wie viele davon in einem Match wirklich mitspielen, sagt fbElimPlayers().
+const FOOTBALL_ELIM_MAX_PLAYERS=5;
+// Startspielerzahl des Produktmodus Elimination. Der Ablauf ist danach vollstaendig durch
+// die Phasentabellen bestimmt: 5 -> 4 -> 3 -> 2 -> Sieger.
+const FOOTBALL_ELIM_START_PLAYERS=5;
 const FOOTBALL_ELIM4_PLAYERS=4;
 // Torrichtungen der Vier-Spieler-Phase. Index == Slot, Wert == Einheitsvektor der Torrichtung
 // vom Zentrum aus in SIMULATIONSKOORDINATEN (x,y). Jeder Eintrag ist der Vorgaenger, gedreht
@@ -3290,6 +3325,19 @@ const FOOTBALL_ELIM3_DIRS=[[0,-1],[FB_TRI_COS30,0.5],[-FB_TRI_COS30,0.5]];
 const FB_TRI_VERT=[[FB_TRI_COS30,-0.5],[0,1],[-FB_TRI_COS30,-0.5]];
 // Zwei-Spieler-Finale: exakt gegenueberliegende Tore auf der +-X-Achse (wie Classic).
 const FOOTBALL_ELIM2_DIRS=[[1,0],[-1,0]];
+// Fuenf-Spieler-Phase: 72-Grad-Raster, Slot 0 im Norden wie in allen anderen Phasen.
+// Die Werte stehen als LITERALE da und werden nicht aus Math.cos/Math.sin berechnet:
+// die Arenageometrie muss auf jeder Engine bitgleich sein, und trigonometrische
+// Funktionen sind in JS nicht korrekt gerundet vorgeschrieben.
+const FB_P5_C1=0.9510565162951535, FB_P5_S1=0.30901699437494745;
+const FB_P5_C2=0.5877852522924731, FB_P5_S2=0.8090169943749475;
+//   Slot 0 Nord (0,-1) - 1 (-18 Grad) - 2 (54 Grad) - 3 (126 Grad) - 4 (198 Grad)
+const FOOTBALL_ELIM5_DIRS=[[0,-1],[FB_P5_C1,-FB_P5_S1],[FB_P5_C2,FB_P5_S2],
+                           [-FB_P5_C2,FB_P5_S2],[-FB_P5_C1,-FB_P5_S1]];
+// Winkelhalbierende zwischen zwei benachbarten Torachsen (-54 + 72*k Grad). Sie tragen die
+// Kappebenen der breiten Variante - dieselbe Konstruktion wie FB_TRI_VERT beim Dreieck.
+const FB_P5_VERT=[[FB_P5_C2,-FB_P5_S2],[FB_P5_C1,FB_P5_S1],[0,1],
+                  [-FB_P5_C1,FB_P5_S1],[-FB_P5_C2,-FB_P5_S2]];
 const FOOTBALL_ARENA_ELIM4={
   halfLen:17.50,halfWid:17.50,corner:3.50,spawn:11.50,sides:4,tri:false,dirs:FOOTBALL_ELIM4_DIRS,
   postInner:3.560,postOuter:5.282,postFront:17.50,
@@ -3334,6 +3382,18 @@ const fbTruncTri=(ap,rc,vf)=>{
 //            zu oft direkt in die Tormuendung, bei 35 Grad nach hinten-quer ins offene Feld.
 //   endHalf= halbe Hoehe der FLACHEN Torwand in BR. Muss > postOuter bleiben, sonst reicht das
 //            Tor in die Schulter hinein.
+// GEKAPPTES N-ECK: zusaetzlich je Winkelhalbierender eine Kappebene. Ergebnis ist ein
+// 2n-Eck aus n LANGEN Torseiten und n KURZEN Kappflaechen - dieselbe Idee wie beim Broad
+// Rounded Triangle, nur fuer beliebige Seitenzahl.
+//   vf = Abstand der Kappebene / Kernapothem. Ungekappt entspricht 1/cos(180/n).
+const fbTruncPoly=(dirs,verts,ap,rc,vf)=>{
+  const a=ap-rc,N=[];
+  for(let k=0;k<dirs.length;k++){
+    N.push({n:dirs[k],d:a});
+    N.push({n:verts[k],d:vf*a});
+  }
+  return fbHalfPlanePoly(N);
+};
 const fbShoulderRect=(halfLen,halfWid,rc,thDeg,endHalf)=>{
   const a=halfLen-rc,b=halfWid-rc,t=thDeg*Math.PI/180;
   const d=a*Math.cos(t)+endHalf*Math.sin(t),N=[];
@@ -3373,13 +3433,23 @@ const FOOTBALL_ARENA_ELIM2=Object.assign(
 // footballFold ist ausserhalb Elimination die Identitaet, goalDefs baut die beiden Tore
 // dort fest aus [1,0]/[-1,0], und av.sides===2 trifft dieselbe Mittellinie wie bisher.
 const FOOTBALL_ARENA_CLASSIC=FOOTBALL_ARENA_ELIM2;
+// PHASE 5 - BROAD ROUNDED PENTAGON. Startform jedes Elimination-Matches: fuenf gleichwertige
+// Torseiten im 72-Grad-Raster, an den fuenf Spitzen gekappt (zehn Kernecken). Die Kappung ist
+// nicht kosmetisch - sie hat im Trajektorientest den Anteil aussen an der Bande kreisender
+// Baelle von 61.7 auf 52.9 Prozent gesenkt, bei gleicher Torquote und ohne Klemmstellen.
+// Apothem 19.50 BR haelt die Flaeche je Spieler (274784 px^2) in derselben Groessenordnung
+// wie 4P; der Spawnabstand folgt dem in allen Phasen gleichen Verhaeltnis ~0.65 zur
+// Bandeninnenflaeche. Dieselbe Bauweise wie der Broad Rounded Triangle der Drei-Spieler-Phase.
+const FOOTBALL_ARENA_ELIM5=Object.assign(
+  fbShape(19.50,19.50,3.50,12.75,5,false,FOOTBALL_ELIM5_DIRS),
+  {poly:fbTruncPoly(FOOTBALL_ELIM5_DIRS,FB_P5_VERT,19.50,3.50,1.14)});
 // EINZIGE Arenaquelle je Phase. Elimination4 waehlt nach der aktiven Phase; Tactical
 // behaelt FOOTBALL_ARENA, Classic teilt sich die 2P-Form mit dem Finale.
 // Phase 1 ist der Sieg - kein Umbau mehr.
-const FB_ELIM_ARENAS={4:FOOTBALL_ARENA_ELIM4,3:FOOTBALL_ARENA_ELIM3,2:FOOTBALL_ARENA_ELIM2};
+const FB_ELIM_ARENAS={5:FOOTBALL_ARENA_ELIM5,4:FOOTBALL_ARENA_ELIM4,3:FOOTBALL_ARENA_ELIM3,2:FOOTBALL_ARENA_ELIM2};
 // Torrichtungen je Phase - dieselbe Tabellenform, damit die Arena-Transition Start- und
 // Zielrichtung eines Tores generisch nachschlagen kann statt sie fest zu verdrahten.
-const FB_ELIM_DIRS={4:FOOTBALL_ELIM4_DIRS,3:FOOTBALL_ELIM3_DIRS,2:FOOTBALL_ELIM2_DIRS};
+const FB_ELIM_DIRS={5:FOOTBALL_ELIM5_DIRS,4:FOOTBALL_ELIM4_DIRS,3:FOOTBALL_ELIM3_DIRS,2:FOOTBALL_ELIM2_DIRS};
 function fbElimArena(){return FB_ELIM_ARENAS[fbElimPhaseN]||FOOTBALL_ARENA_ELIM4;}
 function fbArena(){
   if(fbElim4())return fbElimArena();
@@ -3934,7 +4004,7 @@ function fbMorphBodyLevel(){
 // dieselbe Zuordnung, die fbElimApplyPhase am Ende tatsaechlich setzt.
 function fbMorphBegin(){
   const act=fbElimActiveOwners(),goals=[];
-  for(let s=0;s<FOOTBALL_ELIM4_PLAYERS;s++){
+  for(let s=0;s<FOOTBALL_ELIM_MAX_PLAYERS;s++){
     const o=fbElimSlots[s];
     if(o<0)continue;
     const t=act.indexOf(o);
@@ -3949,12 +4019,14 @@ function fbMorphBegin(){
   // damit KEINE freie Ballphysik mehr — die Positionen setzt danach footballElimResetBall.
   for(const b of balls){b.vx=0;b.vy=0;b.spin=0;}
 }
-// Startet die Transition bei jedem Arenawechsel der Elimination: 4 -> 3 und 3 -> 2.
-// Der letzte Wechsel 2 -> 1 ist der Sieg und baut nicht mehr um.
+// Startet die Transition bei JEDEM Arenawechsel der Elimination: 5 -> 4, 4 -> 3, 3 -> 2.
+// Der letzte Wechsel 2 -> 1 ist der Sieg und baut nicht mehr um. Bewusst generisch: es
+// zaehlt nur, dass genau ein Spieler weniger aktiv ist als die aktuelle Phase gross ist -
+// es gibt keine Tabelle erlaubter Phasenpaare.
 function fbMorphWanted(){
   if(!fbElim4()||footballWinner!==null)return false;
   const n=fbElimActiveOwners().length;
-  return (fbElimPhaseN===4&&n===3)||(fbElimPhaseN===3&&n===2);
+  return fbElimPhaseN>2&&n===fbElimPhaseN-1&&!!FB_ELIM_ARENAS[n];
 }
 // Arena der AUSGANGSphase einer laufenden Transition. Framing und Torversatz beziehen sich
 // darauf: die Kamera steht auf dem Bild, aus dem der Umbau kommt, und die Torinstanzen
@@ -3967,20 +4039,30 @@ function fbMorphFromArena(){
 // Produktverhalten ist ohne Dev-Flag Byte fuer Byte dasselbe.
 if(typeof DEV_MENU!=='undefined'&&DEV_MENU)window.__fbDev={
   state:()=>({goal:fbGoalState,tick:fbGoalTick,phase:fbElimPhaseN,body:fbMorphBodyLevel(),
-              lives:fbElimLives.slice(),active:fbElimActive.slice(),
+              lives:fbElimLives.slice(0,fbElimPlayers()),active:fbElimActive.slice(0,fbElimPlayers()),
               e:fbMorphActive()?fbMorphE():null,
               gp:fbMorphActive()?fbMorphGoalE():null,
               ap:fbMorphActive()?fbMorphArenaE():null}),
   // Rein lesende Zusatzsonde fuer den Browser-Finalcheck: aktive Arenaform, Koerperlagen und
   // deren Abstand zur Bande. Aendert keinen Spielzustand und existiert nur mit ?dev=1.
   arena:()=>{const a=fbArena();return {halfLen:a.halfLen,halfWid:a.halfWid,corner:a.corner,
-              spawn:a.spawn,sides:a.sides,poly:a.poly?a.poly.map(v=>v.slice()):null};},
+              spawn:a.spawn,sides:a.sides,poly:a.poly?a.poly.map(v=>v.slice()):null,
+              dirs:fbElim4()?fbElimDirs().map(d=>d.slice()):null};},
   bodies:()=>balls.filter(b=>b.alive).map(b=>({x:b.x-cx,y:b.y-cy,owner:b.owner,
               sd:footballBoundSD(b).sd})),
   // Transition-FX: die drei Kantenpegel und der Drain je Torslot. Nur lesen.
   fx:()=>({edge:[fbFxEdge(0),fbFxEdge(1),fbFxEdge(2)],
-           drain:[0,1,2,3].map(k=>fbFxDrain(k))}),
+           drain:Array.from({length:FOOTBALL_ELIM_MAX_PLAYERS},(_,k)=>fbFxDrain(k))}),
   winner:()=>footballWinner,
+  // Wer darf gerade zielen (-1 = niemand) und wo liegt seine Figur auf dem Bildschirm.
+  // Beides rein lesend; die Browser-Abnahme setzt damit ECHTE Zeigergesten an der richtigen
+  // Stelle ab, statt interne Zugfunktionen aufzurufen.
+  aimer:()=>whoCanAim(),
+  screen:(o)=>{const b=balls.find(x=>x.alive&&x.owner===o);if(!b)return null;
+    return window.__fbDev.screenAt(b.x-cx,b.y-cy);},
+  screenAt:(x,y)=>{const q=OP(cx+x,cy+y,BR),r=cv.getBoundingClientRect(),sc=(r.width||dispS)/LOGICAL;
+    return {x:r.left+q.x*sc,y:r.top+q.y*sc};},
+  maxPull:()=>maxPull(),
 };
 function footballGoalBusy(){return mode==='football'&&fbGoalState!=='play';}
 // Zentrale Goal-Detection. Rueckgabe: 0 = Punkt Blau (+X-Tor), 1 = Punkt Rot (-X-Tor),
@@ -4251,13 +4333,25 @@ function footballMatchEnd(){
 // Football-Block bleibt frei von Umgebungszugriffen). In den Test-Harnessen existiert die
 // Konstante nicht; der typeof-Guard laesst die Variante dann auf 'classic'.
 const FOOTBALL_VARIANT_TACTICAL='tactical';
-// DEV-PROTOTYP, kein Produktmodus: 4-Spieler-Elimination. Erreichbar ausschliesslich ueber
-// den Dev-Direktlink (?dev=1&fb=elimination4) — die Modusauswahl im Spiel kennt ihn nicht.
+// PRODUKTMODUS Elimination. Es gibt genau EINE Elimination-Variante; sie startet mit
+// FOOTBALL_ELIM_START_PLAYERS Spielern und laeuft ueber die internen Phasen 4 / 3 / 2 zum
+// Sieger. 4P, 3P und 2P sind KEINE eigenen Modi, sondern Zustaende desselben Matches.
+const FOOTBALL_VARIANT_ELIM='elimination';
+// DEV-EINSTIEG, kein Produktmodus: dieselbe Elimination, aber mit vier Startspielern.
+// Existiert ausschliesslich, damit die spaeteren Phasen (4 -> 3 -> 2) direkt und ohne
+// vorgelagertes Fuenferfeld regressionsgetestet werden koennen. Erreichbar nur ueber den
+// Dev-Direktlink (?dev=1&fb=elimination4); die Modusauswahl im Spiel kennt ihn nicht.
 const FOOTBALL_VARIANT_ELIM4='elimination4';
 // Jeder andere Wert (auch ein manipulierter URL-Parameter) faellt auf 'classic' zurueck.
-let fbVariant=(typeof DEV_FB_VARIANT!=='undefined'&&(DEV_FB_VARIANT===FOOTBALL_VARIANT_TACTICAL||DEV_FB_VARIANT===FOOTBALL_VARIANT_ELIM4))?DEV_FB_VARIANT:'classic';
+let fbVariant=(typeof DEV_FB_VARIANT!=='undefined'&&(DEV_FB_VARIANT===FOOTBALL_VARIANT_TACTICAL||DEV_FB_VARIANT===FOOTBALL_VARIANT_ELIM||DEV_FB_VARIANT===FOOTBALL_VARIANT_ELIM4))?DEV_FB_VARIANT:'classic';
 function fbTactical(){return mode==='football'&&fbVariant===FOOTBALL_VARIANT_TACTICAL;}
-function fbElim4(){return mode==='football'&&fbVariant===FOOTBALL_VARIANT_ELIM4;}
+// EINZIGE Weiche "laeuft gerade Elimination?" - unabhaengig von der Startspielerzahl.
+// Der Name stammt aus der Zeit, als es nur die Vier-Spieler-Variante gab; jede Stelle im
+// Code fragt hier, ob die Elimination-REGELN gelten, nicht wie viele Spieler starten.
+function fbElim4(){return mode==='football'&&(fbVariant===FOOTBALL_VARIANT_ELIM||fbVariant===FOOTBALL_VARIANT_ELIM4);}
+// Startspielerzahl des laufenden Matches. Sie bestimmt die Laenge aller Schleifen ueber
+// Spieler, die erste Arenaphase und die Zahl der verdeckten Zuege je Runde.
+function fbElimPlayers(){return fbVariant===FOOTBALL_VARIANT_ELIM4?FOOTBALL_ELIM4_PLAYERS:FOOTBALL_ELIM_START_PLAYERS;}
 // Startaufstellung in BR (gleiche Konvention wie FOOTBALL_ARENA). Blau steht bei -x, Rot
 // exakt an der Mittelachse gespiegelt bei +x -> identische Distanzverhaeltnisse zu Ball,
 // eigenem Tor und Gegnertor. 'front' ist die offensivere Figur nahe der Mittellinie, 'back'
@@ -4308,8 +4402,8 @@ function fbTacticalRingLevel(i){
   if(aimSet[curAimer]||b.owner!==curAimer)return 0;
   return fbSel[curAimer]===i?FB_RING_SELECTED:FB_RING_SELECTABLE;
 }
-// ══ ARENA FOOTBALL ELIMINATION4 — 4 Spieler · 4 Tore · 1 neutraler Ball (DEV-PROTOTYP) ══
-// Vier Menschen an einem Geraet. Jeder besitzt genau EINE Figur und genau EIN Tor. Alle
+// ══ ARENA FOOTBALL ELIMINATION — 5 Spieler · 5 Tore · 1 neutraler Ball ══════════════
+// Fuenf Menschen an einem Geraet. Jeder besitzt genau EINE Figur und genau EIN Tor. Alle
 // planen verdeckt, alle starten gleichzeitig.
 //
 // V2-KERNREGEL: EIN GEGENTOR = SOFORT AUSGESCHIEDEN.
@@ -4345,22 +4439,25 @@ function fbTacticalRingLevel(i){
 // Halbfinale kommt, spielt dort mit einem Leben. Zurueckgesetzt wird ausschliesslich beim
 // vollstaendigen Matchreset (fbElimReset).
 const FB_ELIM_LIVES=2;
-const fbElimActive=[true,true,true,true];
-const fbElimLives=[FB_ELIM_LIVES,FB_ELIM_LIVES,FB_ELIM_LIVES,FB_ELIM_LIVES];
-const fbElimSlots=[0,1,2,3];
-let fbElimPhaseN=FOOTBALL_ELIM4_PLAYERS;
+// Die Arrays haben immer die MAXIMALE Laenge; wie viele Eintraege ein Match benutzt,
+// sagt fbElimPlayers(). Nicht benutzte Eintraege bleiben auf ihrem Reset-Wert und werden
+// von keiner Schleife erreicht.
+const fbElimActive=[true,true,true,true,true];
+const fbElimLives=[FB_ELIM_LIVES,FB_ELIM_LIVES,FB_ELIM_LIVES,FB_ELIM_LIVES,FB_ELIM_LIVES];
+const fbElimSlots=[0,1,2,3,4];
+let fbElimPhaseN=fbElimPlayers();
 // Vollstaendiger Reset (neues Match, Moduswechsel, Menue) — Aufrufer ist footballResetMatchState.
 function fbElimReset(){
-  for(let o=0;o<FOOTBALL_ELIM4_PLAYERS;o++){fbElimActive[o]=true;fbElimSlots[o]=o;fbElimLives[o]=FB_ELIM_LIVES;}
-  fbElimPhaseN=FOOTBALL_ELIM4_PLAYERS;
+  for(let o=0;o<FOOTBALL_ELIM_MAX_PLAYERS;o++){fbElimActive[o]=o<fbElimPlayers();fbElimSlots[o]=o<fbElimPlayers()?o:-1;fbElimLives[o]=FB_ELIM_LIVES;}
+  fbElimPhaseN=fbElimPlayers();
 }
-function fbElimActiveOwners(){const a=[];for(let o=0;o<FOOTBALL_ELIM4_PLAYERS;o++)if(fbElimActive[o])a.push(o);return a;}
+function fbElimActiveOwners(){const a=[];for(let o=0;o<fbElimPlayers();o++)if(fbElimActive[o])a.push(o);return a;}
 // Erster Spieler der verdeckten Commit-Runde. Bestandsmodi beginnen immer bei Spieler 0;
 // in Elimination4 wird in FESTER Reihenfolge P1 -> P4 der erste noch aktive gesucht.
 // Aufgerufen aus startRound und dem Settlement in stepSim (jeweils typeof-geguardet).
 function fbElimFirstAimer(){
   if(!fbElim4())return 0;
-  for(let o=0;o<FOOTBALL_ELIM4_PLAYERS;o++)if(aliveCount(o)>0)return o;
+  for(let o=0;o<fbElimPlayers();o++)if(aliveCount(o)>0)return o;
   return 0;
 }
 // Kopfzeile der HUD-Chipleiste (s. renderElimBar). Reine Formatierung des Spielzustands:
@@ -4382,8 +4479,8 @@ function fbElimHeadText(){
 // und Slot 2 dem P4 — deterministisch, keine Permutation, keine Zufallszuteilung.
 function fbElimApplyPhase(){
   const act=fbElimActiveOwners(),n=act.length;
-  if(n<2||n>FOOTBALL_ELIM4_PLAYERS)return false;   // 1 Spieler = Sieg, kein Umbau mehr
-  for(let k=0;k<FOOTBALL_ELIM4_PLAYERS;k++)fbElimSlots[k]=k<n?act[k]:-1;
+  if(n<2||n>fbElimPlayers())return false;   // 1 Spieler = Sieg, kein Umbau mehr
+  for(let k=0;k<FOOTBALL_ELIM_MAX_PLAYERS;k++)fbElimSlots[k]=k<n?act[k]:-1;
   if(n===fbElimPhaseN)return false;
   fbElimPhaseN=n;
   fbElimSpawnBodies();
@@ -4423,7 +4520,7 @@ function fbElimSpawnBodies(){
 // footballGoalOpen() ueber fbElimActive; es wird ab hier physikalisch zur Bande.
 // EINZIGER Aufrufer ist footballElimConcede: ausgeschieden wird, wenn das letzte Leben faellt.
 function footballElimEliminate(o){
-  if(!fbElim4()||o<0||o>=FOOTBALL_ELIM4_PLAYERS||!fbElimActive[o])return;
+  if(!fbElim4()||o<0||o>=fbElimPlayers()||!fbElimActive[o])return;
   fbElimActive[o]=false;
   for(const b of balls)if(b.owner===o){b.alive=false;b.vx=0;b.vy=0;b.spin=0;}
   const act=fbElimActiveOwners();
@@ -4460,7 +4557,7 @@ function footballElimTryGoal(b){
 // Ein Spieler ohne Leben kommt hier nicht mehr an: sein Tor ist ab der Eliminierung
 // geschlossen (footballGoalOpen) und fbElimActive sperrt zusaetzlich in beiden Aufrufern.
 function footballElimConcede(o){
-  if(!fbElim4()||o<0||o>=FOOTBALL_ELIM4_PLAYERS||!fbElimActive[o])return;
+  if(!fbElim4()||o<0||o>=fbElimPlayers()||!fbElimActive[o])return;
   if(fbElimLives[o]>0)fbElimLives[o]--;
   if(fbElimLives[o]<=0)footballElimEliminate(o);
 }
@@ -4603,7 +4700,7 @@ function stepSim(){
     if(mode==='football')for(const b of balls){b.vx=0;b.vy=0;b.spin=0;}
     // bewusst inline (kein np()): stepSim laeuft auch im Golden-Harness. Der typeof-Guard
     // haelt genau diese Eigenschaft aufrecht — ohne Football-Block bleibt es bei 2.
-    const n=mode==='ffa'?ffaN:(typeof fbElim4==='function'&&fbElim4()?FOOTBALL_ELIM4_PLAYERS:2);
+    const n=mode==='ffa'?ffaN:(typeof fbElim4==='function'&&fbElim4()?fbElimPlayers():2);
     aimSet=[];commitIdx=[];commitAim=[];commitSpin=[];
     for(let p=0;p<n;p++){aimSet.push(false);commitIdx.push(-1);commitAim.push({dx:0,dy:0});commitSpin.push(0);}
     // Tactical: die naechste verdeckte Commit-Runde startet ohne Vorauswahl. typeof-Guard,
@@ -4645,7 +4742,7 @@ function afterResult(){
 }
 // Spielerfarbe als ikonischer Kurzname (BLAU/ROT/... via i18n) — sofort erkennbar,
 // modusunabhaengig (1v1: blau/rot, 2v2: Teamfarben, FFA: Seatfarben).
-function colName(p){return T('col'+p);}
+function colName(p){return T('col'+colSlot4Name(p));}
 // ── Round-End (rein DOM/CSS, kein Einfluss auf Rundenablauf/Lockstep — startRound
 //    laeuft ungebremst weiter). Modus-abhaengig:
 //    FFA -> grosses Center-Overlay (mehrere Spieler muessen den Punkt klar sehen),
@@ -4653,7 +4750,7 @@ function colName(p){return T('col'+p);}
 let rovT=null;
 function showRoundEnd(winner){
   if(mode!=='ffa'){showScoreFly(winner);return;}
-  const col=PCOLS[winner].ui,n=$('rovN');
+  const col=pcol(winner).ui,n=$('rovN');
   // TEAM DUEL: winner ist der TEAM-Index (0/1) -> Teamname statt Einzelfarbe
   n.textContent=(fmt==='team_duel'?T(winner===0?'teamBlue':'teamRed'):colName(winner))+' '+score[winner];
   n.style.color=col;n.style.setProperty('--rc',col);
@@ -4678,7 +4775,7 @@ let flyT1=null,flyT2=null;
 const REDUCED_MOTION=matchMedia('(prefers-reduced-motion: reduce)').matches;
 function scorePulse(){const s=document.querySelector('.scorebox');if(s){s.classList.remove('pulse');void s.offsetWidth;s.classList.add('pulse');}}
 function showScoreFly(winner){
-  const el=$('scoreFly'),col=PCOLS[winner].ui;
+  const el=$('scoreFly'),col=pcol(winner).ui;
   el.textContent=score.join(' : ');   // nur der Score — die Gewinnerfarbe spricht ueber Textfarbe/Glow
   el.style.color=col;el.style.setProperty('--fc',col);
   clearTimeout(flyT1);clearTimeout(flyT2);
@@ -4716,7 +4813,7 @@ function gameOver(winner){setPhase('over');setPhaseText();
   document.querySelector('#ov .trophy').textContent=(iPlay&&!meWon)?'':'🏆';
   $('wt').style.display=(iPlay&&!meWon)||team?'':'none';  // bei DEFEAT (und im TEAM DUEL immer): wer gewonnen hat
   $('wt').textContent=winTxt;
-  $('wt').className='wt w'+winner;
+  $('wt').className='wt w'+colSlot4Name(winner);
   $('ws').textContent=T('finalScore')+' · '+(team?score.slice(0,2):score).join(' : ');
   $('rematchBtn').style.display='';$('replayBtn').style.display=mode==='football'?'none':'';
   // Football: derselbe Primaerbutton startet ein NEUES MATCH bei 0:0 (newGame). Der Replay-
@@ -5910,7 +6007,7 @@ function draw(){
 
   // selection highlight (Doppel/TRIPLE FFA: zeig die waehlbaren eigenen Kugeln)
   if(((fmt==='double'&&mode!=='ffa')||fmt==='triple_ffa')&&!dragging){const aimer=whoCanAim();
-    if(aimer>=0){const col='rgba('+PCOLS[aimer].rgb+',';const a=0.35+0.35*puls;
+    if(aimer>=0){const col='rgba('+pcol(aimer).rgb+',';const a=0.35+0.35*puls;
       for(const b of balls){if(b.alive&&b.owner===aimer){const q=OP(b.x,b.y,0);ctx.beginPath();ctx.arc(q.x,q.y,BR*1.5*q.s,0,7);ctx.lineWidth=Math.max(1.5,BR*0.16*q.s);ctx.setLineDash([BR*0.5*q.s,BR*0.4*q.s]);ctx.strokeStyle=col+a.toFixed(2)+')';ctx.stroke();ctx.setLineDash([]);}}}}
 
   // reveal arrows (forward launch dir je committeter Kugel) — nur 2D:
@@ -5928,7 +6025,7 @@ function draw(){
   ctx.restore();
 }
 function drawBall(b){
-  const pc=PCOLS[colorSlot(b.owner)];   // TEAM DUEL: beide Teamkugeln in Teamfarbe
+  const pc=pcol(colorSlot(b.owner));   // TEAM DUEL: beide Teamkugeln in Teamfarbe
   const col=pc.c, colLt=pc.lt, colDk=pc.dk, glowRGB=pc.gl;
   const lbl=(mode==='bot'&&b.owner===1)?'B':String(b.owner+1);
 
@@ -6033,7 +6130,7 @@ function drawBall(b){
     ctx.lineJoin='round';ctx.lineWidth=fs*.28;ctx.strokeStyle='rgba(8,10,14,.80)';
     ctx.strokeText(txt,q.x,ly);
     ctx.shadowColor='rgba(0,0,0,.55)';ctx.shadowBlur=fs*.22;ctx.shadowOffsetY=fs*.06;
-    ctx.fillStyle=NAME_COL[colorSlot(b.owner)];ctx.fillText(txt,q.x,ly);
+    ctx.fillStyle=ncol(colorSlot(b.owner));ctx.fillText(txt,q.x,ly);
     ctx.shadowBlur=0;
     ctx.restore();
   }
@@ -6054,7 +6151,7 @@ function drawSpinPreview(b,fx,fy,spin){
   ctx.lineCap='round';ctx.stroke();ctx.setLineDash([]);
 }
 function drawSling(b,cdx,cdy){
-  const col=PCOLS[colorSlot(b.owner)].ui;const len=Math.hypot(cdx,cdy),mp=maxPull(),pwr=Math.min(1,len/mp);
+  const col=pcol(colorSlot(b.owner)).ui;const len=Math.hypot(cdx,cdy),mp=maxPull(),pwr=Math.min(1,len/mp);
   const p0=OP(b.x,b.y,0),p1=OP(b.x+cdx,b.y+cdy,0),p2=OP(b.x-cdx*1.6,b.y-cdy*1.6,0);
   if(r3dActive){
     // Luxury-minimal: nur ein duenner Anthrazit-Strahl mit feiner Spitze und eine
@@ -6103,7 +6200,7 @@ function drawSling(b,cdx,cdy){
   else ctx.fillText(Math.round(pwr*100)+'%',qt.x,qt.y);
 }
 function drawArrow(b,a){const len=Math.hypot(a.dx,a.dy);if(len<BR*0.3)return;
-  const col=PCOLS[colorSlot(b.owner)].ui;
+  const col=pcol(colorSlot(b.owner)).ui;
   const p0=OP(b.x,b.y,0),p1=OP(b.x+a.dx*1.6,b.y+a.dy*1.6,0);
   ctx.beginPath();ctx.moveTo(p0.x,p0.y);ctx.lineTo(p1.x,p1.y);ctx.lineWidth=BR*0.42*p0.s;ctx.lineCap='round';ctx.strokeStyle=col;ctx.globalAlpha=.9;ctx.stroke();ctx.globalAlpha=1;
   const ang=Math.atan2(p1.y-p0.y,p1.x-p0.x),h=BR*0.8*p0.s;ctx.beginPath();ctx.moveTo(p1.x,p1.y);
@@ -6558,7 +6655,7 @@ async function initR3D(){
         //   AF_Goal_GoldInner/-Outer  -> vordere Gold-Doppel-Keyline, nur ein Farbschimmer
         // Die Keyline traegt die Zuordnung in die SENKRECHTE: aus flacher Spielkamera ist ein
         // Bodenband stark verkuerzt, der aufrechte Rahmen dagegen nicht.
-        const col=PCOLS[def.col].m3;
+        const col=pcol(def.col).m3;
         const tinted=new Map();
         g.traverse(o=>{
           if(!o.isMesh)return;
@@ -7298,8 +7395,16 @@ async function initR3D(){
        g.fillStyle=rg;g.beginPath();g.arc(x,y,r,0,7);g.fill();}}
     const ballTex=new THREE.CanvasTexture(bCan);
     // 5 Materialien aus der zentralen Farbtabelle (Slots 0/1 = bisherige Werte)
-    const ballMat=PCOLS.map(pc=>new THREE.MeshPhysicalMaterial({color:pc.m3,map:ballTex,roughness:.07,metalness:.05,
-      clearcoat:1.0,clearcoatRoughness:.07,envMapIntensity:1.15,specularIntensity:1.0}));
+    const mkBallMat=pc=>new THREE.MeshPhysicalMaterial({color:pc.m3,map:ballTex,roughness:.07,metalness:.05,
+      clearcoat:1.0,clearcoatRoughness:.07,envMapIntensity:1.15,specularIntensity:1.0});
+    const ballMat=PCOLS.map(mkBallMat);
+    // Football-Materialsatz: dieselben fuenf Materialien in derselben Reihenfolge wie die
+    // Football-Farbtafel (s. FB_PCOLS), plus EIN zusaetzliches fuer den fuenften Spieler.
+    // Der neutrale Ball liegt auf Slot 5 und bekommt damit weiterhin exakt das bisherige
+    // dunkle Material - es wird kein Material doppelt angelegt.
+    const p5Mat=mkBallMat(FB_COL_P5);
+    const ballMatFB=[ballMat[0],ballMat[1],ballMat[2],ballMat[3],p5Mat,ballMat[4]];
+    const ballMatFor=slot=>(mode==='football'?ballMatFB:ballMat)[slot]||ballMat[0];
     const ballMeshes=[],fallT=[],decals=[],fallV=[],prevP=[],selRings=[];
     const rollAx=new THREE.Vector3(),rollQ=new THREE.Quaternion();   // Roll-Temps (keine Allokation pro Frame)
     // Kontaktschatten-Decal (Prototyp): erdet die Kugeln zusaetzlich zum echten Schatten
@@ -7443,7 +7548,7 @@ async function initR3D(){
             new THREE.MeshBasicMaterial({transparent:true,depthWrite:false,opacity:0}));
           sr.rotation.x=-Math.PI/2;sr.renderOrder=2;sr.visible=false;selRings[i]=sr;scene.add(sr);}
         const b=balls[i];
-        m.material=ballMat[colorSlot(b.owner)];   // TEAM DUEL: Teamfarbe (0/2 Blau, 1/3 Rot)
+        m.material=ballMatFor(colorSlot(b.owner));   // TEAM DUEL: Teamfarbe (0/2 Blau, 1/3 Rot)
         // Sichtbarer Radius == Physikradius (ballRad): die geteilte BR-Kugelgeometrie wird
         // pro Kugel skaliert. Fuer Spieler und alle Nicht-Football-Modi ist rs exakt 1.
         const rad=ballRad(b),rs=rad/BR;
@@ -7516,7 +7621,7 @@ async function initR3D(){
           // "waehlbar", deutlich bei "gewaehlt". Der Zustand lebt in fbSel, nicht hier.
           const ringLv=typeof fbTacticalRingLevel==='function'?fbTacticalRingLevel(i):0;
           sr.visible=ringLv>0;
-          if(ringLv>0){sr.material.color.set(PCOLS[colorSlot(b.owner)].ui);sr.material.opacity=ringLv;
+          if(ringLv>0){sr.material.color.set(pcol(colorSlot(b.owner)).ui);sr.material.opacity=ringLv;
             // Die gewaehlte Figur bekommt zusaetzlich zur Deckkraft einen minimal groesseren
             // Ring — der Unterschied bleibt auf einen Blick lesbar, auch bei flacher Kamera.
             sr.scale.setScalar(rs*(ringLv===FB_RING_SELECTED?FB_RING_SCALE_SELECTED:1));

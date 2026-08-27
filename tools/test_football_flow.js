@@ -55,6 +55,13 @@ function ok(cond, msg) { if (cond) { pass++; } else { fail++; console.error('FAI
 const consts             = grab(/const MAXPULL_FRAC=[^\n]*/, 'physics constants');
 const spin               = grab(/const SPIN_K=[^\n]*/, 'spin constants');
 const pcols              = grab(/const PCOLS=[^\n]*/, 'PCOLS');
+const pcolsSandbox = pcols +
+  // Der neutrale Football-Ball traegt FOOTBALL_NEUTRAL_OWNER (5). Im Produkt existiert er
+  // ausserhalb des Football-Modus nicht - dieser Harness setzt ihn dort BEWUSST ein, um zu
+  // beweisen, dass die Toroeffnung nicht in normale Modi leckt. Damit dabei der 2D-Ring-Out-
+  // Pfad (im Football unerreichbar) nicht ueber einen fehlenden Farbslot stolpert, bekommt
+  // die Sandbox-Tafel diesen einen Eintrag zusaetzlich. Die echte Tafel bleibt unberuehrt.
+  'PCOLS.push(PCOLS[PCOLS.length-1]);';
 const mkBallSrc          = grab(/function mkBall\([^\n]*/, 'mkBall');
 const placeBallsSrc      = grab(/function placeBalls\(\)\{[\s\S]*?\n\}/, 'placeBalls');
 const teamCapSrc         = grab(/function teamCap\([^\n]*/, 'teamCap');
@@ -112,7 +119,7 @@ function buildEnv(ci, preset) {
     const LOGICAL=1000; const cx=500, cy=500, R0=LOGICAL*0.485, BR=LOGICAL*0.032; let R=R0;
     ${consts}
     ${spin}
-    ${pcols}
+    ${pcolsSandbox}
     const TUNE=null;                       // kein Browser-Override im Harness
     function maxPull(){return R0*MAXPULL_FRAC;}
     let balls=[], phase='sim', outBall=-1, roundWinner=-1;
@@ -574,13 +581,13 @@ function runAll(ci, preset) {
 
   // ── C. NEUTRALBALL ZWISCHEN ZWEI SPIELERN ──
   run('C1 Ball zwischen Rot/Blau, exakt symmetrisch', 'C',
-    [B(cx, cy, 0, 0, 4), B(cx - 2 * BR, cy, 3.0, 0, 0), B(cx + 2 * BR, cy, -3.0, 0, 1)]);
+    [B(cx, cy, 0, 0, G.neutral), B(cx - 2 * BR, cy, 3.0, 0, 0), B(cx + 2 * BR, cy, -3.0, 0, 1)]);
   run('C2 Ball zwischen Rot/Blau, 5 % asymmetrisch', 'C',
-    [B(cx, cy, 0, 0, 4), B(cx - 2 * BR, cy, 3.0, 0, 0), B(cx + 2 * BR, cy, -3.15, 0, 1)]);
+    [B(cx, cy, 0, 0, G.neutral), B(cx - 2 * BR, cy, 3.0, 0, 0), B(cx + 2 * BR, cy, -3.15, 0, 1)]);
   run('C3 Ball zwischen Rot/Blau, diagonaler Druck 90 grad', 'C',
-    [B(cx, cy, 0, 0, 4), B(cx - 2 * BR, cy, 3.0, 0, 0), B(cx, cy + 2 * BR, 0, -3.0, 1)]);
+    [B(cx, cy, 0, 0, G.neutral), B(cx - 2 * BR, cy, 3.0, 0, 0), B(cx, cy + 2 * BR, 0, -3.0, 1)]);
   run('C4 Ball zwischen Rot/Blau, langsamer Dauerdruck', 'C',
-    [B(cx, cy, 0, 0, 4), B(cx - 2 * BR, cy, 1.0, 0, 0), B(cx + 2 * BR, cy, -1.0, 0, 1)]);
+    [B(cx, cy, 0, 0, G.neutral), B(cx - 2 * BR, cy, 1.0, 0, 0), B(cx + 2 * BR, cy, -1.0, 0, 1)]);
 
   // ── D. DREIFACHKONTAKT AN DER BANDE ──
   // Neutralball (r=25) auf der geraden Laengsbande, zwei Spieler (r=32) druecken im
@@ -588,7 +595,7 @@ function runAll(ci, preset) {
   {
     const a = 30 * D, px = RR * Math.sin(a), py = RR * Math.cos(a);
     const pair = (v0, v1) => [
-      B(cx, bandY(NBR), 0, 0, 4),
+      B(cx, bandY(NBR), 0, 0, G.neutral),
       B(cx - px, bandY(NBR) - py, v0 * Math.sin(a), v0 * Math.cos(a), 0),
       B(cx + px, bandY(NBR) - py, -v1 * Math.sin(a), v1 * Math.cos(a), 1)];
     run('D1 Neutralball Bande + zwei Spieler, symmetrisch', 'D', pair(3.0, 3.0));
@@ -603,7 +610,7 @@ function runAll(ci, preset) {
   LV.forEach((v0, k) => {
     const label = [25, 50, 75, 100][k] + ' %';
     run('E' + (k + 1) + ' Zentraler Stoss, Launch ' + label, 'E',
-      [B(cx, cy - RR - 0.5, 0, v0, 0), B(cx, cy, 0, 0, 4)], {
+      [B(cx, cy - RR - 0.5, 0, v0, 0), B(cx, cy, 0, 0, G.neutral)], {
         maxFrames: 900,
         analyze(rec) {
           const h = firstHit(rec, 'ball', 0);
@@ -654,7 +661,7 @@ function runAll(ci, preset) {
   [15, 30, 45, 60].forEach((deg, k) => {
     const th = deg * D, off = RR * Math.sin(th), v0 = 4.0;
     run('F' + (k + 1) + ' Schraeger Treffer ' + deg + ' grad', 'F',
-      [B(cx - off, cy - 140, 0, v0, 0), B(cx, cy, 0, 0, 4)], {
+      [B(cx - off, cy - 140, 0, v0, 0), B(cx, cy, 0, 0, G.neutral)], {
         maxFrames: 900,
         analyze(rec) {
           const h = firstHit(rec, 'ball', 0);
@@ -679,7 +686,7 @@ function runAll(ci, preset) {
   // maxFrames 1600 statt 900: M1/ICE daempfen deutlich schwaecher als der alte
   // GLIDE-Satz (frictionBall 0.9982 bzw. 0.9985) — der Auslauf inkl. eines legitimen
   // Bandenkontakts dauert bis ~900+ Frames und braucht Reserve bis zum Settlement.
-  [['G1 Ausrollen Neutralball', 4], ['G2 Ausrollen Spielerball', 0]].forEach(([nm, owner]) => {
+  [['G1 Ausrollen Neutralball', G.neutral], ['G2 Ausrollen Spielerball', 0]].forEach(([nm, owner]) => {
     const v0 = 3.0;
     run(nm, 'G', [B(cx, cy - 260, 0, v0, owner)], {
       maxFrames: 1600,
@@ -724,14 +731,14 @@ function runAll(ci, preset) {
   // bleibt messbar unveraendert. maxFrames 1600: siehe Klasse G (M1/ICE-Auslauf).
   [1.0, 2.0, 4.0, VMAX].forEach((v0, k) => {
     run('H' + (k + 1) + ' Bandenabprall zentral v=' + f2f(v0), 'H',
-      [B(cx, bandY(NBR) - 90, 0, v0, 4)], { maxFrames: 1600, analyze: (r) => bandMetric(r, 'zentral', v0) });
+      [B(cx, bandY(NBR) - 90, 0, v0, G.neutral)], { maxFrames: 1600, analyze: (r) => bandMetric(r, 'zentral', v0) });
   });
   // Schraeg: auf der GERADEN Bande entsteht der Einfallswinkel aus der Geschwindigkeit
   // selbst (40 grad gegen die Normale) — auf dem Kreis kam er frueher aus dem
   // Aufpunkt-Versatz. Der Kontakt bleibt auf dem geraden Segment (x ~= cx-66).
   [2.0, 4.0].forEach((v0, k) => {
     run('H' + (5 + k) + ' Bandenabprall schraeg v=' + f2f(v0), 'H',
-      [B(cx - 200, bandY(NBR) - 160, v0 * Math.sin(40 * D), v0 * Math.cos(40 * D), 4)],
+      [B(cx - 200, bandY(NBR) - 160, v0 * Math.sin(40 * D), v0 * Math.cos(40 * D), G.neutral)],
       { maxFrames: 1600, analyze: (r) => bandMetric(r, 'schraeg', v0) });
   });
 
@@ -766,20 +773,20 @@ function runAll(ci, preset) {
     const sI = 0.13, uI = 1 / Math.hypot(1, sI), sxI = cx + G.hx - 36, syI = cy + 80;
     [1.0, 2.0, 4.0, VMAX].forEach((v0, k) => {
       run('I' + (k + 1) + ' Sockel-Innenflaeche im Torkanal v=' + f2f(v0), 'I',
-        [B(sxI, syI, v0 * uI, v0 * uI * sI, 4)],
+        [B(sxI, syI, v0 * uI, v0 * uI * sI, G.neutral)],
         { maxFrames: 1600, analyze: (r) => postMetric(r, 'innenflaeche', v0) });
     });
     // Steilere Driften treffen die SOCKEL-VORDERECKE (499.2,113.92): die Kontaktnormale
     // kommt vom Eckpunkt und ist schraeg — die Kreis/AABB-Aufloesung der Quelle.
     run('I5 Sockel-Vorderecke flach v=4.0', 'I',
-      [B(sxI, cy + 80, 4.0 / Math.hypot(1, 0.30), 4.0 * 0.30 / Math.hypot(1, 0.30), 4)],
+      [B(sxI, cy + 80, 4.0 / Math.hypot(1, 0.30), 4.0 * 0.30 / Math.hypot(1, 0.30), G.neutral)],
       { maxFrames: 1600, analyze: (r) => postMetric(r, 'vorderecke', 4.0) });
     run('I6 Sockel-Vorderecke steil v=4.0', 'I',
-      [B(sxI, cy + 70, 4.0 / Math.hypot(1, 0.80), 4.0 * 0.80 / Math.hypot(1, 0.80), 4)],
+      [B(sxI, cy + 70, 4.0 / Math.hypot(1, 0.80), 4.0 * 0.80 / Math.hypot(1, 0.80), G.neutral)],
       { maxFrames: 1600, analyze: (r) => postMetric(r, 'vorderecke-steil', 4.0) });
     // Gespiegelte Innenflaeche (-y): beide Sockelseiten rechnen exakt symmetrisch.
     run('I7 Sockel-Innenflaeche gespiegelt v=4.0', 'I',
-      [B(sxI, cy - 80, 4.0 * uI, -4.0 * uI * sI, 4)],
+      [B(sxI, cy - 80, 4.0 * uI, -4.0 * uI * sI, G.neutral)],
       { maxFrames: 1600, analyze: (r) => postMetric(r, 'innenflaeche-sued', 4.0) });
   }
 
@@ -842,7 +849,7 @@ function gameplayProbe(ci, preset) {
 
   // 1) Neutralball trifft die freie Toroeffnung mittig -> Tor, Score, 'fall'
   env.reset();
-  env.setBalls([{ x: cx, y: cy, vx: PROBE_V, vy: 0, owner: 4 }]);
+  env.setBalls([{ x: cx, y: cy, vx: PROBE_V, vy: 0, owner: G.neutral }]);
   let f = 0;
   while (f++ < 900 && env.goalState() === 'play' && env.phase() === 'sim') env.step();
   out.goalScored = env.score().slice();
@@ -862,7 +869,7 @@ function gameplayProbe(ci, preset) {
   //    die Bande neben dem Tor reflektiert, kein fbPassed, KEIN Tor. (Der alte
   //    "Pfosteninnenkanten"-Treffer aus dem Feld existiert nicht mehr, s. Klasse I.)
   env.reset();
-  env.setBalls([{ x: cx, y: cy + G.goalHalf + 1, vx: PROBE_V, vy: 0, owner: 4 }]);
+  env.setBalls([{ x: cx, y: cy + G.goalHalf + 1, vx: PROBE_V, vy: 0, owner: G.neutral }]);
   f = 0;
   while (f++ < 900 && env.goalState() === 'play' && env.phase() === 'sim') env.step();
   out.postNoGoal = env.score().slice();
@@ -870,7 +877,7 @@ function gameplayProbe(ci, preset) {
 
   // 4) Voller Torablauf: 'fall' -> Reset -> 'spawn' -> 'play', frische Kugeln
   env.reset();
-  env.setBalls([{ x: cx, y: cy, vx: PROBE_V, vy: 0, owner: 4 }]);
+  env.setBalls([{ x: cx, y: cy, vx: PROBE_V, vy: 0, owner: G.neutral }]);
   f = 0;
   while (f++ < 900 && env.goalState() === 'play') env.step();
   const seq = [env.goalState()];
@@ -880,7 +887,7 @@ function gameplayProbe(ci, preset) {
 
   // 5) First-to-3: Score kuenstlich auf 2, ein weiteres Tor beendet das Match
   env.reset();
-  env.setBalls([{ x: cx, y: cy, vx: PROBE_V, vy: 0, owner: 4 }]);
+  env.setBalls([{ x: cx, y: cy, vx: PROBE_V, vy: 0, owner: G.neutral }]);
   f = 0;
   while (f++ < 900 && env.goalState() === 'play') env.step();
   out.firstGoalWinner = env.winner();
@@ -1634,7 +1641,7 @@ for (const p of PRESETS)
   const env = buildEnv(3, 'CURRENT');
   // PROBE_V statt frueher 5.0: die Torlinie liegt auf der neuen Arena bei 676.776 —
   // siehe gameplayProbe.
-  const shootNeutral = () => env.setBalls([{ x: cx, y: cy, vx: PROBE_V, vy: 0, owner: 4 }]);
+  const shootNeutral = () => env.setBalls([{ x: cx, y: cy, vx: PROBE_V, vy: 0, owner: G.neutral }]);
   const runToGoal = () => { let f = 0; while (f++ < 900 && env.goalState() === 'play') env.step(); };
   const runToPlay = () => {
     let f = 0;
@@ -1663,7 +1670,7 @@ for (const p of PRESETS)
   // (frueher "Pfosteninnenkante"; auf dem Rechteck reflektiert die Bande neben dem
   // Tor — kein fbPassed, keine Wertung, kein Sound. Gleicher Aufbau wie Probe 3.)
   env.reset();
-  env.setBalls([{ x: cx, y: cy + G.goalHalf + 1, vx: PROBE_V, vy: 0, owner: 4 }]);
+  env.setBalls([{ x: cx, y: cy + G.goalHalf + 1, vx: PROBE_V, vy: 0, owner: G.neutral }]);
   for (let k = 0; k < 900 && env.goalState() === 'play'; k++) env.step();
   ok(env.score()[0] + env.score()[1] === 0 && env.goalAudio().goalSounds === 0,
      'Torprobe ohne Wertung (Bande neben der Oeffnung) loest keinen Torsound aus');
@@ -1677,7 +1684,7 @@ for (const p of PRESETS)
   // ── Ausserhalb des Football-Modus gibt es keinen Torsound ──
   env.reset();
   env.setMode('bot');
-  env.setBalls([{ x: cx, y: cy, vx: PROBE_V, vy: 0, owner: 4 }]);
+  env.setBalls([{ x: cx, y: cy, vx: PROBE_V, vy: 0, owner: G.neutral }]);
   for (let k = 0; k < 900 && env.phase() === 'sim'; k++) env.step();
   ok(env.goalAudio().goalSounds === 0, 'in anderen Modi wird der Torsound nie angestossen');
   env.setMode('football');

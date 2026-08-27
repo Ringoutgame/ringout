@@ -270,11 +270,13 @@ console.log('ARENA FOOTBALL — Produktsuite: Classic 1v1 (Standard) + Tactical 
      'fbVariant kennt nur noch classic und tactical');
 
   // ── Der EINZIGE Startpfad clamped jeden fremden Wert auf den Standardmodus ──
-  // Zulaessig sind genau die beiden Produktmodi plus der Dev-Prototyp Elimination4; jeder
-  // andere Wert faellt auf den Standardmodus zurueck. Die sichtbare Modusauswahl bietet
-  // weiterhin ausschliesslich Classic und Tactical an (s. CTA-Assertion unten).
-  ok(/fbVariant=\(variant===FOOTBALL_VARIANT_TACTICAL\|\|variant===FOOTBALL_VARIANT_ELIM4\)\?variant:'classic'/.test(startFootballSrc),
+  // Zulaessig sind genau die drei Produktmodi plus der Dev-Einstieg auf die Vier-Spieler-
+  // Elimination; jeder andere Wert faellt auf den Standardmodus zurueck. Der Dev-Einstieg
+  // haengt zusaetzlich an ?dev=1 und ist ueber die Modusauswahl nicht erreichbar.
+  ok(/fbVariant=\(variant===FOOTBALL_VARIANT_TACTICAL\|\|variant===FOOTBALL_VARIANT_ELIM\|\|dev4\)\?variant:'classic'/.test(startFootballSrc),
      'startFootball() clamped jede unbekannte Variante auf Classic');
+  ok(/const dev4=variant===FOOTBALL_VARIANT_ELIM4&&typeof DEV_MENU!=='undefined'&&DEV_MENU;/.test(startFootballSrc),
+     'der Vier-Spieler-Einstieg ist an ?dev=1 gebunden und damit kein Produktmodus');
   ok(/online=false/.test(startFootballSrc), 'startFootball() startet immer lokal (online=false)');
   ok(/fmt='single'/.test(startFootballSrc), 'startFootball() setzt das Bestandsformat single');
   ok(/\$\('fbModeOv'\)\.classList\.add\('show'\)/.test(ctaSrc),
@@ -317,7 +319,7 @@ console.log('ARENA FOOTBALL — Produktsuite: Classic 1v1 (Standard) + Tactical 
   // keine Zwischenbestaetigung, dieselbe Haptik wie die Bestandsoptionen.
   for (const [id, arg] of [['fbClassicBtn', "'classic'"],
                            ['fbTacticalBtn', 'FOOTBALL_VARIANT_TACTICAL'],
-                           ['fbElimBtn', 'FOOTBALL_VARIANT_ELIM4']]) {
+                           ['fbElimBtn', 'FOOTBALL_VARIANT_ELIM']]) {
     ok(HTML.includes("$('" + id + "').onclick=()=>{if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);startFootball(" + arg + ");};"),
        id + ' startet ueber startFootball() mit der eigenen Variante und derselben Haptik');
   }
@@ -328,9 +330,9 @@ console.log('ARENA FOOTBALL — Produktsuite: Classic 1v1 (Standard) + Tactical 
   ok(!/fbElimOv|fbElimConfirm|elimConfirm/.test(HTML), 'Elimination hat keinen zweiten Bestaetigungsschritt');
 
   // ── i18n: die neuen Strings existieren in allen drei Sprachen ──
-  for (const [lang, title, sub] of [['EN', 'ELIMINATION', '4 PLAYERS · CONCEDE ONCE = OUT'],
-                                    ['DE', 'ELIMINATION', '4 SPIELER · 1 GEGENTOR = RAUS'],
-                                    ['TR', 'ELİMİNASYON', '4 OYUNCU · 1 GOL YE = ELEN']]) {
+  for (const [lang, title, sub] of [['EN', 'ELIMINATION', '5 PLAYERS · TWO LIVES EACH'],
+                                    ['DE', 'ELIMINATION', '5 SPIELER · JE 2 LEBEN'],
+                                    ['TR', 'ELİMİNASYON', '5 OYUNCU · HER BİRİNE 2 CAN']]) {
     ok(HTML.includes("fbElimT:'" + title + "',fbElimS:'" + sub + "'"),
        lang + ': Elimination-Titel und Kurztext vorhanden');
   }
@@ -364,8 +366,8 @@ console.log('ARENA FOOTBALL — Produktsuite: Classic 1v1 (Standard) + Tactical 
 
   const classic = E.place();
   ok(classic.length === 3, 'Classic stellt weiterhin genau 3 Kugeln auf (erhalten: ' + classic.length + ')');
-  ok(JSON.stringify(classic.map(b => b.owner)) === JSON.stringify([0, 1, 4]),
-     'Classic-Owner unveraendert [0,1,4]');
+  ok(JSON.stringify(classic.map(b => b.owner)) === JSON.stringify([0, 1, E.neutral]),
+     'Classic-Owner unveraendert [0,1,neutral]');
   ok(E.teamCap() === 1, 'Classic-teamCap unveraendert 1');
 
   E.setVariant('tactical');

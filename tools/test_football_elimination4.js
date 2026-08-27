@@ -73,7 +73,7 @@ const curFESrc           = grab(/function curFE\(\)[^\n]*/, 'curFE');
 const curSTSrc           = grab(/function curST\(\)[^\n]*/, 'curST');
 const stepSimSrc         = grab(/function stepSim\(\)\{[\s\S]*?\n\}/, 'stepSim');
 // Der Elimination4-Abschnitt als Ganzes - Grundlage der Struktur-Assertions weiter unten.
-const elimBlockSrc       = grab(/ARENA FOOTBALL ELIMINATION4[\s\S]*?\nfunction footballElimResetBall\(\)\{[\s\S]*?\n\}/, 'Elimination4-Block');
+const elimBlockSrc       = grab(/ARENA FOOTBALL ELIMINATION [\s\S]*?\nfunction footballElimResetBall\(\)\{[\s\S]*?\n\}/, 'Elimination-Block');
 const renderBarSrc       = grab(/function renderElimBar\(\)\{[\s\S]*?\n\}/, 'renderElimBar');
 const startFootballSrc   = grab(/function startFootball\(variant\)\{[\s\S]*?\n\}/, 'startFootball');
 const ctaSrc             = grab(/\$\('ctaBtn'\)\.onclick=\(\)=>\{[\s\S]*?\n\};/, 'CTA-Handler');
@@ -145,12 +145,12 @@ function buildEnv(devFbVariant) {
     ${applyLaunchSrc}
     ${stepSimSrc}
     return {
-      cx, cy, BR, neutral: FOOTBALL_NEUTRAL_OWNER, players: FOOTBALL_ELIM4_PLAYERS,
+      cx, cy, BR, neutral: FOOTBALL_NEUTRAL_OWNER,
       dirs(){ return fbElimDirs().map(d=>d.slice()); },
       dirs4(){ return FOOTBALL_ELIM4_DIRS.map(d=>d.slice()); },
       // -- V3: adaptive Arena --
       phaseN(){ return fbElimPhaseN; },
-      slots(){ return fbElimSlots.slice(); },
+      slots(){ return fbElimSlots.slice(0,fbElimPlayers()); },
       slotOwner(s){ return fbElimSlotOwner(s); },
       applyPhase(){ return fbElimApplyPhase(); },
       spawnAt(slot){ return {x:fbElimSpawnX(slot),y:fbElimSpawnY(slot)}; },
@@ -214,9 +214,10 @@ function buildEnv(devFbVariant) {
       resetCoverCalls(){ coverCalls=[]; },
       canCommit(who){ return canCommitInput(who); },
       newMatch(){ footballResetMatchState(); startRound(); coverCalls=[]; },
-      lives(){ return fbElimLives.slice(); },
+      lives(){ return fbElimLives.slice(0,fbElimPlayers()); },
       setLives(o,n){ fbElimLives[o]=n; },
-      matchPoint(){ for(let o=0;o<4;o++)if(fbElimActive[o])fbElimLives[o]=1; },
+      playerCount(){ return fbElimPlayers(); },
+      matchPoint(){ for(let o=0;o<fbElimPlayers();o++)if(fbElimActive[o])fbElimLives[o]=1; },
       startRound(){ startRound(); },
       commit(who,idx,fx,fy){ commit(who,idx,fx,fy,0); },
       launch(){ applyLaunch(); },
@@ -231,11 +232,12 @@ function buildEnv(devFbVariant) {
         while(fbGoalState!=='play'&&fbGoalState!=='result'&&n<lim){ stepSim(); n++; }
         return n; },
       // -- Elimination-Zustand --
-      active(){ return fbElimActive.slice(); },
+      active(){ return fbElimActive.slice(0,fbElimPlayers()); },
       activeOwners(){ return fbElimActiveOwners(); },
       headText(){ return fbElimHeadText(); },
       firstAimer(){ return fbElimFirstAimer(); },
       eliminate(o){ footballElimEliminate(o); },
+      concede(o){ footballElimConcede(o); },
       resetBall(){ footballElimResetBall(); },
       // -- Tor / Match --
       goalState(){ return fbGoalState; },
@@ -302,7 +304,9 @@ function parkPlayers(E) {
   E.matchPoint();
   const act = E.active(), D = E.dirs(), n = D.length, r = E.BR * 7;
   let i = 0;
-  for (let o = 0; o < 4; o++) {
+  // Ueber ALLE Spieler des Matches, nicht ueber eine feste Vier: sonst bliebe ein
+  // fuenfter Spieler auf seinem Spawn stehen - mitten im Schusskanal seines Tores.
+  for (let o = 0; o < E.playerCount(); o++) {
     if (!act[o]) continue;
     const a = D[i % n], b = D[(i + 1) % n];
     let vx = a[0] + b[0], vy = a[1] + b[1];
@@ -317,8 +321,11 @@ function parkPlayers(E) {
 // Torentscheidung simulieren. Rueckgabe: Anzahl der Frames.
 function shootAt(E, slot, sp) {
   const d = E.dirs()[slot], v = sp == null ? 22 : sp;
-  E.setPos(4, E.cx, E.cy);
-  E.setVel(4, d[0] * v, d[1] * v);
+  // Der neutrale Ball wird ueber seinen OWNER gesucht, nicht ueber einen festen Index:
+  // mit fuenf Spielern liegt er an Position 5 statt 4.
+  const n = E.snapshot().findIndex((b) => b.owner === E.neutral);
+  E.setPos(n, E.cx, E.cy);
+  E.setVel(n, d[0] * v, d[1] * v);
   E.setPhaseRaw('sim');
   return E.stepUntilGoal();
 }
@@ -378,10 +385,10 @@ console.log('ARENA FOOTBALL - ELIMINATION: ZWEI LEBEN + ADAPTIVE ARENA + FAIRER 
   ok(back.elim() === false && back.np() === 2 && back.teamCap() === 1,
      'Elimination -> Classic: zwei Spieler, eine Figur je Spieler');
   ok(back.snapshot().length === 3, 'Elimination -> Classic: wieder genau drei Koerper');
-  ok(JSON.stringify(back.active()) === JSON.stringify([true, true, true, true]),
+  ok(JSON.stringify(back.active()) === JSON.stringify([true, true, true, true, true]),
      'Elimination -> Classic: der Eliminierungszustand ist zurueckgesetzt');
-  ok(back.phaseN() === 4, 'Elimination -> Classic: die Arenaphase ist zurueckgesetzt');
-  ok(JSON.stringify(back.slots()) === JSON.stringify([0, 1, 2, 3]),
+  ok(back.phaseN() === 5, 'Elimination -> Classic: die Arenaphase steht wieder auf dem Produktstart');
+  ok(JSON.stringify(back.slots()) === JSON.stringify([0, 1, 2, 3, 4]),
      'Elimination -> Classic: die Torzuordnung ist zurueckgesetzt');
   ok(back.winner() === null, 'Elimination -> Classic: kein Gewinner aus dem Vormatch');
 
@@ -430,7 +437,7 @@ console.log('ARENA FOOTBALL - ELIMINATION: ZWEI LEBEN + ADAPTIVE ARENA + FAIRER 
   ok(E.elim() === false, 'ausserhalb mode==="football" ist Elimination4 inert');
   E.setMode('football');
 
-  ok(E.players === 4, 'FOOTBALL_ELIM4_PLAYERS ist 4');
+  ok(E.playerCount() === 4, 'der Dev-Einstieg elimination4 startet mit vier Spielern');
   ok(E.np() === 4, 'np() liefert in Elimination4 vier Spieler');
   ok(D.np() === 2, 'np() bleibt in Classic bei zwei Spielern');
   ok(T.np() === 2, 'np() bleibt in Tactical bei zwei Spielern');
@@ -1441,14 +1448,14 @@ console.log('ARENA FOOTBALL - ELIMINATION: ZWEI LEBEN + ADAPTIVE ARENA + FAIRER 
                       // V3.1: die Positionspersistenz und ihr Reparaturdurchgang sind ersetzt.
                       'fbElimLegalizeBodies', 'FB_ELIM_REPAIR_MARGIN', 'FB_ELIM_REPAIR_ITERATIONS'])
     ok(!HTML.includes(dead), 'kein Rest im Produktivcode: "' + dead + '"');
-  ok(!/SUDDEN DEATH|at risk|at-risk/i.test(elimBlockSrc), 'der Elimination4-Block nennt keinen Tiebreak mehr');
+  ok(!/SUDDEN DEATH|at risk|at-risk/i.test(elimBlockSrc), 'der Elimination-Block nennt keinen Tiebreak mehr');
   ok(!/fchip\.risk/.test(HTML), 'die Sudden-Death-HUD-Klasse ist entfernt');
   ok(!/Elim/.test(loopSrc), 'die Hauptschleife tickt keine Elimination4-Uhr mehr');
   ok(/tickCollapse\(now\);/.test(loopSrc), 'der bestehende Ring-Collapse-Timer laeuft unveraendert weiter');
-  ok(/const fbElimActive=\[true,true,true,true\];/.test(elimBlockSrc),
-     'fbElimActive traegt weiterhin die Aktiv-Liste');
-  ok(/fbElimActive\[o\]=true;fbElimSlots\[o\]=o;fbElimLives\[o\]=FB_ELIM_LIVES;\}\n  fbElimPhaseN=FOOTBALL_ELIM4_PLAYERS;/.test(elimBlockSrc),
-     'der Reset setzt Aktiv-Liste, Torslots, Leben und Arenaphase zurueck');
+  ok(/const fbElimActive=\[true,true,true,true,true\];/.test(elimBlockSrc),
+     'fbElimActive traegt die Aktiv-Liste in Maximallaenge');
+  ok(/fbElimActive\[o\]=o<fbElimPlayers\(\);fbElimSlots\[o\]=o<fbElimPlayers\(\)\?o:-1;fbElimLives\[o\]=FB_ELIM_LIVES;\}\n  fbElimPhaseN=fbElimPlayers\(\);/.test(elimBlockSrc),
+     'der Reset setzt Aktiv-Liste, Torslots, Leben und Arenaphase auf die Startspielerzahl');
   ok(/footballElimConcede\(own\);/.test(elimBlockSrc),
      'die Wertung geht ueber genau EINE Stelle: footballElimConcede');
   ok(/if\(fbElimLives\[o\]>0\)fbElimLives\[o\]--;\s*\n\s*if\(fbElimLives\[o\]<=0\)footballElimEliminate\(o\);/.test(elimBlockSrc),
@@ -1540,12 +1547,14 @@ console.log('ARENA FOOTBALL - ELIMINATION: ZWEI LEBEN + ADAPTIVE ARENA + FAIRER 
   S.setVariant('classic');
   S.resetMatchState();
   ok(S.active().every(v => v), 'der Moduswechsel setzt die Aktiv-Liste vollstaendig zurueck');
-  ok(S.phaseN() === 4 && JSON.stringify(S.slots()) === JSON.stringify([0, 1, 2, 3]),
+  ok(S.phaseN() === 5 && JSON.stringify(S.slots()) === JSON.stringify([0, 1, 2, 3, 4]),
      'der Moduswechsel setzt Arenaphase und Torslots zurueck');
   S.startRound();
   ok(S.snapshot().length === 3, 'nach dem Wechsel steht wieder die Classic-Aufstellung');
 
-  ok(/const FOOTBALL_VARIANT_ELIM4='elimination4';/.test(HTML), 'die Variante heisst elimination4');
+  ok(/const FOOTBALL_VARIANT_ELIM='elimination';/.test(HTML), 'der Produktmodus heisst elimination');
+  ok(/const FOOTBALL_VARIANT_ELIM4='elimination4';/.test(HTML),
+     'der Dev-Einstieg auf vier Startspieler heisst weiterhin elimination4');
   ok(/DEV_FB_VARIANT===FOOTBALL_VARIANT_ELIM4/.test(ctaSrc),
      'der Dev-Direktlink ?dev=1&fb=elimination4 ueberspringt die Auswahl weiterhin');
   ok(/const DEV_FB_VARIANT=DEV_MENU\?/.test(HTML), 'der fb-Parameter wird ausschliesslich mit ?dev=1 gelesen');
@@ -1556,8 +1565,13 @@ console.log('ARENA FOOTBALL - ELIMINATION: ZWEI LEBEN + ADAPTIVE ARENA + FAIRER 
   ok(/id="fbElimBtn"/.test(modeOv), 'die sichtbare Modusauswahl hat einen Elimination-Eintrag');
   ok(/<button class="vopt rec" id="fbClassicBtn">/.test(modeOv) && !/id="fbElimBtn"[^>]*rec/.test(modeOv),
      'Classic bleibt die empfohlene Option, Elimination wird nicht empfohlen');
-  ok(HTML.includes("$('fbElimBtn').onclick=()=>{if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);startFootball(FOOTBALL_VARIANT_ELIM4);};"),
-     'der Menuebutton startet denselben startFootball()-Pfad wie der Dev-Direktlink');
+  ok(HTML.includes("$('fbElimBtn').onclick=()=>{if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);startFootball(FOOTBALL_VARIANT_ELIM);};"),
+     'der Menuebutton startet den PRODUKTMODUS ueber denselben startFootball()-Pfad');
+  // Der Vier-Spieler-Einstieg ist bewusst NICHT sichtbar: er haengt am Dev-Guard.
+  ok(/const dev4=variant===FOOTBALL_VARIANT_ELIM4&&typeof DEV_MENU!=='undefined'&&DEV_MENU;/.test(HTML),
+     'der Vier-Spieler-Einstieg ist an ?dev=1 gebunden');
+  ok(!HTML.includes('startFootball(FOOTBALL_VARIANT_ELIM4)'),
+     'kein sichtbarer Menueeintrag startet die Vier-Spieler-Variante');
 
   ok(!/fbElim[A-Za-z]*\s*[:=][^\n]*rRef|onlineSendCommit[^\n]*fbElim/.test(HTML),
      'Elimination4 hat keinerlei Online-Anbindung');
@@ -1748,11 +1762,17 @@ console.log('ARENA FOOTBALL - ELIMINATION: ZWEI LEBEN + ADAPTIVE ARENA + FAIRER 
     'FB_TRI_TAN60=1.7320508075688772;const FOOTBALL_ELIM4_DIRS=[[0,-1],[1,0],[0,1],[-1,0]];' +
     'const FOOTBALL_ELIM3_DIRS=[[0,-1],[FB_TRI_COS30,0.5],[-FB_TRI_COS30,0.5]];' +
     'const FOOTBALL_ELIM2_DIRS=[[1,0],[-1,0]];' +
+    'const FB_P5_C1=0.9510565162951535,FB_P5_S1=0.30901699437494745,' +
+    'FB_P5_C2=0.5877852522924731,FB_P5_S2=0.8090169943749475;' +
+    'const FOOTBALL_ELIM5_DIRS=[[0,-1],[FB_P5_C1,-FB_P5_S1],[FB_P5_C2,FB_P5_S2],' +
+    '[-FB_P5_C2,FB_P5_S2],[-FB_P5_C1,-FB_P5_S1]];' +
+    'const FB_P5_VERT=[[FB_P5_C2,-FB_P5_S2],[FB_P5_C1,FB_P5_S1],[0,1],' +
+    '[-FB_P5_C1,FB_P5_S1],[-FB_P5_C2,-FB_P5_S2]];' +
     'const BR=32,FB_U=1;let fbElimPhaseN=4;let fbMorphPlan={from:4,to:3};' +
     src +
     'return {fbMorphRing,fbMorphCores,fbMinkowski,fbRingChord,fbRoundPoly,fbOutline,' +
     'fbTriOutline,fbElimArena,A4:FOOTBALL_ARENA_ELIM4,A3:FOOTBALL_ARENA_ELIM3,' +
-    'A2:FOOTBALL_ARENA_ELIM2};')();
+    'A2:FOOTBALL_ARENA_ELIM2,A5:FOOTBALL_ARENA_ELIM5};')();
   const R = FB_SANDBOX();
   FB_R = R;
 
@@ -3116,8 +3136,8 @@ const parkFull = (E) => {
     C.setPhaseRaw('sim');
     C.stepUntilGoal();
     ok(C.score()[0] === 1, v + ': das Tor zaehlt regulaer als Punkt');
-    ok(JSON.stringify(C.lives()) === '[2,2,2,2]', v + ': kein Leben wird abgezogen');
-    ok(JSON.stringify(C.active()) === '[true,true,true,true]', v + ': niemand scheidet aus');
+    ok(JSON.stringify(C.lives()) === '[2,2,2,2,2]', v + ': kein Leben wird abgezogen');
+    ok(JSON.stringify(C.active()) === '[true,true,true,true,true]', v + ': niemand scheidet aus');
   }
   ok(/function footballElimConcede\(o\)\{\s*if\(!fbElim4\(\)/.test(elimBlockSrc),
      'der Lebensabzug ist auf Elimination begrenzt (fbElim4-Guard)');

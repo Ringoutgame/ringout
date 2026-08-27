@@ -137,6 +137,7 @@ function buildEnv() {
       launchAt(frac){ const len=maxPull()*frac; return len*fbLaunchMul(len); },
       neutral(){ return FOOTBALL_NEUTRAL_OWNER; },
       setVariant(v){ fbVariant=v; }, elimReset(){ fbElimReset(); },
+      players(){ return fbElimPlayers(); },
       setLives(o,n){ fbElimLives[o]=n; },
       lives(){ return fbElimLives.slice(); }, phaseN(){ return fbElimPhaseN; },
       reset(){ balls=[]; phase='sim'; phaseStart=0; fbGoalState='play'; fbGoalTick=0;
@@ -172,6 +173,8 @@ function buildEnv() {
   return new Function(env)();
 }
 
+// Owner des NEUTRALEN Balls (Slot 4 ist seit der Fuenf-Spieler-Phase eine Spielerfarbe).
+const NEU = 5;
 const HZ = [30, 60, 90, 120, 144];
 // Die freigegebenen Produktivwerte. Sie stehen hier nur als Erwartung - gerechnet wird
 // mit dem echten FOOTBALL_PHYS aus index.html.
@@ -240,14 +243,14 @@ const V = buildEnv().launchV();
 function launchImpulse(hz, frac) {
   const E = buildEnv();
   E.reset();
-  E.setBalls([{ x: 500, y: 500, vx: 0, vy: 0, owner: 4 }, { x: 400, y: 500, vx: 0, vy: 0, owner: 0 }]);
+  E.setBalls([{ x: 500, y: 500, vx: 0, vy: 0, owner: NEU }, { x: 400, y: 500, vx: 0, vy: 0, owner: 0 }]);
   E.setCommit(1, 194 * frac, 0);
   const frameMs = 1000 / hz;
   let t = 0;
   for (let i = 0; i < Math.round(3 * hz) && E.launchCalls() === 0; i++) { t += frameMs; E.advance(t); }
   return { v: E.launchSnap(1), calls: E.launchCalls() };
 }
-const SHOT = { balls: [{ x: 500, y: 500, vx: V * 0.6, vy: V * 0.8, owner: 4 }] };
+const SHOT = { balls: [{ x: 500, y: 500, vx: V * 0.6, vy: V * 0.8, owner: NEU }] };
 
 // =================================================================================
 // A/B/C - GLEICHER VERLAUF BEI 30 / 60 / 90 / 120 / 144 Hz
@@ -310,7 +313,7 @@ const SHOT = { balls: [{ x: 500, y: 500, vx: V * 0.6, vy: V * 0.8, owner: 4 }] }
 {
   const G = {};
   for (const hz of HZ) {
-    G[hz] = run(hz, 10, { balls: [{ x: 500, y: 500, vx: V * 0.9, vy: 0, owner: 4 }] }, 'fixed');
+    G[hz] = run(hz, 10, { balls: [{ x: 500, y: 500, vx: V * 0.9, vy: 0, owner: NEU }] }, 'fixed');
   }
   for (const hz of HZ) {
     ok(JSON.stringify(G[hz].score) === '[1,0]',
@@ -328,7 +331,7 @@ const SHOT = { balls: [{ x: 500, y: 500, vx: V * 0.6, vy: V * 0.8, owner: 4 }] }
     const E = buildEnv();
     E.setVariant('elimination4'); E.elimReset(); E.reset();
     for (let o = 0; o < 4; o++) E.setLives(o, 1);   // jeder auf seinem letzten Leben
-    E.setBalls([{ x: 500, y: 500, vx: 0, vy: V, owner: 4 }]);
+    E.setBalls([{ x: 500, y: 500, vx: 0, vy: V, owner: NEU }]);
     const frameMs = 1000 / hz;
     let t = 0, mStart = null, mEnd = null;
     for (let i = 0; i < Math.round(20 * hz); i++) {
@@ -359,7 +362,7 @@ const SHOT = { balls: [{ x: 500, y: 500, vx: V * 0.6, vy: V * 0.8, owner: 4 }] }
   const S = buildEnv().sim();
   const E = buildEnv();
   E.reset();
-  E.setBalls([{ x: 500, y: 500, vx: V, vy: 0, owner: 4 }]);
+  E.setBalls([{ x: 500, y: 500, vx: V, vy: 0, owner: NEU }]);
   let t = 0;
   for (let i = 0; i < 30; i++) { t += 1000 / 60; E.advance(t); }
   const before = E.steps();
@@ -375,7 +378,7 @@ const SHOT = { balls: [{ x: 500, y: 500, vx: V * 0.6, vy: V * 0.8, owner: 4 }] }
   // Dauerlast weit unterhalb der Simulationsrate: das Budget deckelt jeden Frame.
   const O = buildEnv();
   O.reset();
-  O.setBalls([{ x: 500, y: 500, vx: V, vy: 0, owner: 4 }]);
+  O.setBalls([{ x: 500, y: 500, vx: V, vy: 0, owner: NEU }]);
   let t2 = 0, worst = 0;
   for (let i = 0; i < 60; i++) { t2 += 200; worst = Math.max(worst, O.advance(t2)); }
   ok(worst <= S.maxSteps, 'bei 5 fps laeuft nie mehr als das Budget (' + worst + ' <= ' + S.maxSteps + ')');
@@ -426,7 +429,7 @@ const SHOT = { balls: [{ x: 500, y: 500, vx: V * 0.6, vy: V * 0.8, owner: 4 }] }
   // Der gesamte Zug mit voller Abschussgeschwindigkeit: gleicher Verlauf auf jeder Rate.
   const E0 = buildEnv();
   const v = E0.launchAt(1);
-  const shot = { balls: [{ x: 500, y: 500, vx: v * 0.6, vy: v * 0.8, owner: 4 }] };
+  const shot = { balls: [{ x: 500, y: 500, vx: v * 0.6, vy: v * 0.8, owner: NEU }] };
   const R = {};
   for (const hz of HZ) R[hz] = run(hz, 15, shot, 'fixed');
   for (const hz of HZ) {
@@ -435,6 +438,50 @@ const SHOT = { balls: [{ x: 500, y: 500, vx: V * 0.6, vy: V * 0.8, owner: 4 }] }
        'voller Zug bei ' + hz + ' Hz: Settlement nach Schritt ' + R[hz].settleStep);
     ok(Math.abs(R[hz].path - R[60].path) < 1e-6, 'voller Zug bei ' + hz + ' Hz: identische Streckenlaenge');
     ok(R[hz].finite, 'voller Zug bei ' + hz + ' Hz: keine NaN- oder Infinity-Werte');
+  }
+}
+
+
+// =================================================================================
+// FUENF SPIELER - auch der Produktmodus haengt an derselben Zeitbasis
+// =================================================================================
+// Die Fuenf-Spieler-Elimination bringt eine weitere Arenaphase und eine weitere Figur
+// mit. Beides darf die Zeitbasis nicht beruehren: derselbe Zug muss auf jeder
+// Bildwiederholrate denselben Verlauf nehmen.
+{
+  const mk = () => { const E = buildEnv(); E.setVariant('elimination'); E.elimReset(); return E; };
+  const P = mk();
+  ok(P.players() === 5, 'der Produktmodus Elimination startet mit fuenf Spielern');
+  const v = P.launchAt(1);
+  // Ein Schuss quer durch die Fuenfeck-Arena, mit allen fuenf Figuren auf dem Feld.
+  const setup = () => {
+    const E = mk();
+    E.reset();
+    const B = [];
+    for (let o = 0; o < 5; o++) {
+      const a = -Math.PI / 2 + o * 2 * Math.PI / 5, r = 12.75 * 32;
+      B.push({ x: 500 + Math.cos(a) * r, y: 500 + Math.sin(a) * r, vx: 0, vy: 0, owner: o });
+    }
+    B.push({ x: 500, y: 500, vx: v * 0.6, vy: v * 0.8, owner: 5 });
+    E.setBalls(B);
+    E.track(B.length - 1);
+    return E;
+  };
+  const R = {};
+  for (const hz of HZ) {
+    const E = setup();
+    const frameMs = 1000 / hz;
+    let t = 0;
+    for (let i = 1; i <= Math.round(15 * hz); i++) { t += frameMs; E.advance(t); }
+    R[hz] = { hash: E.hash(), steps: E.steps(), settle: E.settleAt(), path: E.path(), finite: E.finite() };
+  }
+  for (const hz of HZ) {
+    ok(R[hz].hash === R[60].hash, '5P bei ' + hz + ' Hz: identischer Endzustand (' + R[hz].hash + ')');
+    ok(R[hz].settleAt === R[60].settleAt || R[hz].settle === R[60].settle,
+       '5P bei ' + hz + ' Hz: Settlement nach Schritt ' + R[hz].settle);
+    ok(Math.abs(R[hz].path - R[60].path) < 1e-6, '5P bei ' + hz + ' Hz: identische Streckenlaenge');
+    ok(Math.abs(R[hz].steps - R[60].steps) <= 1, '5P bei ' + hz + ' Hz: dieselbe Zahl Gameplay-Schritte');
+    ok(R[hz].finite, '5P bei ' + hz + ' Hz: keine NaN- oder Infinity-Werte');
   }
 }
 
