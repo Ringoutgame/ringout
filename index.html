@@ -1737,7 +1737,7 @@ $('fbClassicBtn').onclick=()=>{if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);startFo
 $('fbTacticalBtn').onclick=()=>{if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);startFootball(FOOTBALL_VARIANT_TACTICAL);};
 $('fbElimBtn').onclick=()=>{if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);startFootball(FOOTBALL_VARIANT_ELIM4);};
 $('fbModeBack').onclick=()=>$('fbModeOv').classList.remove('show');
-$('menuSnd').onclick=()=>{soundOn=!soundOn;const g=soundOn?'🔊':'🔇';$('menuSnd').textContent=g;$('sndBtn').textContent=g;if(!soundOn)SFX.charge.stop();};
+$('menuSnd').onclick=()=>{soundOn=!soundOn;const g=soundOn?'🔊':'🔇';$('menuSnd').textContent=g;$('sndBtn').textContent=g;if(!soundOn){SFX.charge.stop();SFX.fbTransitionStop();}};
 // ── Menue-Preview: die ECHTE 3D-Szene zeigt den gewaehlten Modus. Setzt nur den
 //    Pre-Game-Zustand (wie frueher die Menue-Pills) und laesst den echten Spawner
 //    (placeBalls) die Kugeln stellen — der 3D-Renderer spiegelt balls[] ohnehin
@@ -1771,7 +1771,7 @@ $('menuBtn').onclick=()=>{if(online&&gameStarted){$('leaveOv').classList.add('sh
 $('leaveCancel').onclick=()=>$('leaveOv').classList.remove('show');
 $('leaveGo').onclick=()=>{$('leaveOv').classList.remove('show');$('ov').classList.remove('show');leaveOnline();showMenu();};
 $('ovMenuBtn').onclick=()=>{$('ov').classList.remove('show');leaveOnline();showMenu();};
-$('sndBtn').onclick=()=>{soundOn=!soundOn;const g=soundOn?'🔊':'🔇';$('sndBtn').textContent=g;$('menuSnd').textContent=g;if(!soundOn)SFX.charge.stop();};
+$('sndBtn').onclick=()=>{soundOn=!soundOn;const g=soundOn?'🔊':'🔇';$('sndBtn').textContent=g;$('menuSnd').textContent=g;if(!soundOn){SFX.charge.stop();SFX.fbTransitionStop();}};
 $('resetBtn').onclick=()=>{if(online){toast(T('noOnlineReset'));return;}newGame();};
 $('rematchBtn').onclick=()=>{if(online){$('ov').classList.remove('show');onlineRematch();return;}$('ov').classList.remove('show');newGame();};
 $('onCreate').onclick=()=>createRoom();
@@ -1798,6 +1798,7 @@ function showMenu(){menuVisible=true;$('menu').style.display='flex';$('game').st
   footballResetMatchState();   // zurueck im Menue: kein Football-Latch, keine Eingabesperre und kein Gewinner bleiben stehen (in anderen Modi wirkungslos)
   fbVariant='classic';         // Menue zeigt immer den Standardmodus — startFootball() setzt die Variante beim Start ohnehin neu
   SFX.footballGoalStop();      // ein noch laufender Torsound blendet weich aus, statt ins Menue hineinzuklingen
+  SFX.fbTransitionStop();      // dasselbe fuer einen laufenden Transitionsklang
   if(r3dActive&&r3d&&r3d.flushEnvProfile)r3d.flushEnvProfile();   // waehrend des Matches aufgeschobenen Env-Wechsel jetzt (sicherer Idle) anwenden
   whenFB(()=>{if(fbReady()&&menuVisible)startPublicListing();});updScrollHint();}   // Home-Rooms-Vorschau reaktivieren
 function showGame(){menuVisible=false;$('menu').style.display='none';$('game').style.display='flex';stopPublicListing();updScrollHint();}   // Gameplay-Framing kommt via newGame()->resize()
@@ -1927,6 +1928,49 @@ const SFX=(()=>{
       fbGoalLoad=3;                     // kein Asset -> bewusst still, kein weiterer Versuch
     })();                               // bewusst kein await/Fehlerpfad nach aussen: Laden darf Gameplay nie blockieren
   }
+  // ── TRANSITION-AUDIO ──
+  // Exakt dieselbe Mechanik wie beim Torsound: fetch -> decodeAudioData -> Buffer, genau ein
+  // Ladeversuch je Datei, frische BufferSource an eigenem Gain pro Wiedergabe, lebende
+  // Quellen in einem Set fuer sauberes Stoppen. Kein zweiter AudioContext, keine zweite
+  // Audio-Engine, kein prozeduraler Ersatzton. Fehlt eine Datei oder scheitert der Decode,
+  // bleibt der Umbau still - genau wie das Tor ohne sein Asset.
+  const FB_TA_STOP_FADE=0.10;           // s: weiches Ausblenden bei Reset/Menue/Mute
+  const fbTaBufs=new Map();             // Pfad -> {state:0|1|2|3, buf}
+  const fbTaVoices=new Set();
+  function loadTaAsset(cc,src){
+    let e=fbTaBufs.get(src);
+    if(!e){e={state:0,buf:null};fbTaBufs.set(src,e);}
+    if(e.state!==0)return e;
+    e.state=1;
+    (async()=>{
+      try{
+        const r=await fetch(src);
+        if(!r.ok){e.state=3;return;}
+        e.buf=await cc.decodeAudioData(await r.arrayBuffer());
+        e.state=2;
+      }catch(_){e.state=3;}
+    })();
+    return e;
+  }
+  function releaseTaVoice(v){
+    if(!fbTaVoices.delete(v))return;
+    try{v.src.disconnect();}catch(e){}
+    try{v.g.disconnect();}catch(e){}
+  }
+  function playTa(src,gain){
+    go(cc=>{
+      const e=loadTaAsset(cc,src);
+      if(e.state!==2)return;            // laedt noch oder fehlt -> bleibt still
+      const g=cc.createGain();
+      g.gain.value=gain;
+      g.connect(cc.destination);
+      const bs=cc.createBufferSource();
+      bs.buffer=e.buf;bs.connect(g);
+      const v={src:bs,g};fbTaVoices.add(v);
+      bs.onended=()=>releaseTaVoice(v);
+      bs.start(cc.currentTime);
+    });
+  }
   function releaseGoalVoice(v){
     if(!fbGoalVoices.delete(v))return;
     try{v.src.disconnect();}catch(e){}
@@ -1964,6 +2008,19 @@ const SFX=(()=>{
       for(const v of Array.from(fbGoalVoices)){
         try{v.g.gain.setTargetAtTime(.0001,c.currentTime,FB_GOAL_STOP_FADE/3);}catch(e){}
         try{v.src.stop(c.currentTime+FB_GOAL_STOP_FADE);}catch(e){}   // onended -> releaseGoalVoice
+      }
+    },
+    // Transition-Audio: Bett und Einrastakzent. Beide werden aus dem Tickpfad der
+    // Transition genau EINMAL je Umbau angestossen (fbTAudioTick).
+    fbTransitionBed(){playTa(FB_TAUDIO_BED,FB_TAUDIO_BED_GAIN);},
+    fbTransitionLock(){playTa(FB_TAUDIO_LOCK,FB_TAUDIO_LOCK_GAIN);},
+    // Matchreset, neues Match, Menue, Moduswechsel, Stummschalten: laufende Klaenge weich
+    // ausblenden. Die dekodierten Buffer bleiben im Cache.
+    fbTransitionStop(){
+      if(!c||!fbTaVoices.size)return;
+      for(const v of Array.from(fbTaVoices)){
+        try{v.g.gain.setTargetAtTime(.0001,c.currentTime,FB_TA_STOP_FADE/3);}catch(e){}
+        try{v.src.stop(c.currentTime+FB_TA_STOP_FADE);}catch(e){}
       }
     },
     // Pro Frame aus loop(): Gain/Rate aus der schnellsten lebenden Kugel
@@ -3933,6 +3990,34 @@ function footballGoalFxLevel(key,nowMs){
   const q=1-(p-FB_GOAL_FX_ATTACK)/(1-FB_GOAL_FX_ATTACK);
   return q*q;
 }
+// ── ARENA-TRANSITION-AUDIO ──
+// Zwei kurze Klaenge fuer die Arenaumbauten: ein Bett fuer die Umbaubewegung und ein
+// Einrastakzent. Beide sind aus DERSELBEN bereits lizenzierten Quelle geschnitten wie der
+// Torsound (siehe assets/audio/README.md) - die Arena bleibt dadurch akustisch ein System.
+// Der Torsound selbst bleibt unveraendert und bleibt der lauteste Moment; die Pegel hier
+// liegen bei rund 56 % (Bett) und 66 % (Akzent) seiner wahrgenommenen Lautheit.
+//
+// FORMAT: WAV. Im Projekt ist kein Ogg-/MP3-Encoder vorhanden, und fuer zwei kurze Klaenge
+// eine Encoder-Toolchain aufzubauen waere unverhaeltnismaessig. decodeAudioData liest WAV
+// in allen Zielbrowsern; die spaetere Kompression steht als P2 in TODO.md.
+const FB_TAUDIO_BED='assets/audio/arena_football_transition_reconfigure.wav';
+const FB_TAUDIO_LOCK='assets/audio/arena_football_transition_lock.wav';
+const FB_TAUDIO_BED_GAIN=0.77;      // ~56 % der wahrgenommenen Torlautheit
+const FB_TAUDIO_LOCK_GAIN=0.69;     // ~66 % der wahrgenommenen Torlautheit
+// Die beiden Ticks, an denen das Transition-Audio ausgeloest wird. Sie liegen auf denselben
+// Marken wie die Bewegung und der visuelle Lock-Impuls: das Bett startet am Ende des Holds
+// (also mit der Torneuordnung), der Akzent exakt dann, wenn der Arenaumbau fertig ist -
+// derselbe Tick, an dem fbFxEdge seinen Einrastimpuls beginnt. Bewusst aus DENSELBEN
+// Konstanten abgeleitet, damit Bild und Ton nicht auseinanderlaufen koennen.
+const FB_TAUDIO_BED_TICK=FB_MORPH_HOLD_TICKS;
+const FB_TAUDIO_LOCK_TICK=FB_MORPH_HOLD_TICKS+FB_MORPH_GOAL_TICKS+FB_MORPH_ARENA_TICKS;
+// Ein Tick der laufenden Transition. Rein Praesentation: liest nur den Fortschritt und ruft
+// die Audioschicht; kein Spielzustand wird beruehrt. Die Gleichheitspruefung auf den Tick
+// garantiert genau EINEN Aufruf je Umbau.
+function fbTAudioTick(){
+  if(fbGoalTick===FB_TAUDIO_BED_TICK)SFX.fbTransitionBed();
+  else if(fbGoalTick===FB_TAUDIO_LOCK_TICK)SFX.fbTransitionLock();
+}
 // ── ARENA-TRANSITION-FX (REIN VISUELL) ──
 // Waehrend eines Arenaumbaus bekommt die vorhandene GOLDSTRUKTUR der Arena kurz mehr
 // Eigenleuchten, und beim Einrasten folgt ein kurzer Impuls. Dafuer gibt es KEINEN eigenen
@@ -4019,6 +4104,9 @@ function footballTickGoal(){
   // Der Ballfall laeuft fuer JEDES Tor exakt gleich lang (FOOTBALL_GOAL_FALL_TICKS) und wird
   // nie abgeschnitten — auch nicht beim entscheidenden. Danach folgt IMMER das Celebration
   // Window; erst dessen Ende verzweigt in Matchende oder Rundenreset.
+  // Transition-Audio (rein praesentational): laeuft auf denselben Ticks wie die Bewegung
+  // und der visuelle Lock-Impuls.
+  if(fbGoalState==='morph')fbTAudioTick();
   if(fbGoalState==='fall'&&fbGoalTick>=FOOTBALL_GOAL_FALL_TICKS){
     fbGoalState='celebrate';fbGoalTick=0;return;
   }
@@ -4301,7 +4389,7 @@ function footballElimResetBall(){
 }
 // ZENTRALE Initialisierung des Football-Matchzustands: neues Match, Moduswechsel, Menue.
 // Score/Kugeln/Aim-Zustaende setzt der bestehende Pfad newGame() -> startRound() -> placeBalls().
-function footballResetMatchState(){fbGoalState='play';fbGoalTick=0;footballWinner=null;fbClearSelection();fbElimReset();footballClearGoalFx();fbMorphPlan=null;fbMorphSpawn=false;}
+function footballResetMatchState(){fbGoalState='play';fbGoalTick=0;footballWinner=null;fbClearSelection();fbElimReset();footballClearGoalFx();fbMorphPlan=null;fbMorphSpawn=false;SFX.fbTransitionStop();}
 function stepSim(){
   // Restitution nach Kontaktart (4B-2). Ohne aktives Football-Preset liefern alle drei
   // Funktionen den bestehenden REST-Wert — Bestandsmodi rechnen unveraendert weiter.

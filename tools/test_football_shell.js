@@ -114,7 +114,8 @@ function buildEnv(startMode, startFmt, startPreset) {
     let mode=${JSON.stringify(startMode)}, fmt=${JSON.stringify(startFmt)};
     const SFX={hit(){},drop(){},ringout(){},launch(){},round(){},win(){},rollUpdate(){},unlock(){},
            footballGoal(mp){goalAudio.plays++;if(mp)goalAudio.matchPoints++;},
-           footballGoalPreload(){goalAudio.preloads++;},footballGoalStop(){goalAudio.stops++;}};
+           footballGoalPreload(){goalAudio.preloads++;},footballGoalStop(){goalAudio.stops++;},
+           fbTransitionBed(){},fbTransitionLock(){},fbTransitionStop(){}};
 const goalAudio={plays:0,matchPoints:0,preloads:0,stops:0};   // Tor-Audio: Aufrufzaehler statt echter Ausgabe
     function spawn(){} function popBall(){} function winnerRGB(){return '';}
     let r3dActive=false; function fx3Hit(){} function fx3Dust(){}
@@ -1977,8 +1978,10 @@ const fbCssSrc = grab(/#game\.fb \.status\{[\s\S]*?\n\.arena-wrap\{/, 'Football-
 
 // ── G4. Aufraeumen: newGame(), showMenu() und Matchende lassen nichts stehen ──
 {
-  ok(/footballClearGoalFx\(\);fbMorphPlan=null;fbMorphSpawn=false;\}/.test(resetMatchStateSrc),
-     'footballResetMatchState() setzt den Impuls zurueck (newGame + showMenu laufen hier durch)');
+  // Der Reset raeumt den Torimpuls, den Transitionsplan UND einen noch laufenden
+  // Transitionsklang - newGame() und showMenu() laufen beide hier durch.
+  ok(/footballClearGoalFx\(\);fbMorphPlan=null;fbMorphSpawn=false;SFX\.fbTransitionStop\(\);\}/.test(resetMatchStateSrc),
+     'footballResetMatchState() setzt Impuls, Plan und Transitionsklang zurueck');
   ok(/footballResetMatchState\(\);/.test(newGameSrc), 'newGame() ruft footballResetMatchState()');
   ok(/footballResetMatchState\(\);/.test(showMenuSrc), 'showMenu() ruft footballResetMatchState()');
   ok(/footballClearGoalFx\(\);/.test(matchEndSrc), 'footballMatchEnd() setzt den Impuls zurueck');

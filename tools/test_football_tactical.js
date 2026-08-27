@@ -87,7 +87,8 @@ function buildEnv(devFbVariant) {
     let score=[0,0], roundNo=1, seatGone=[false,false];
     let coverCalls=[], goalSounds=0;
     const SFX={hit(){},drop(){},ringout(){},launch(){},round(){},win(){},rollUpdate(){},unlock(){},
-               footballGoal(){goalSounds++;},footballGoalPreload(){},footballGoalStop(){}};
+               footballGoal(){goalSounds++;},footballGoalPreload(){},footballGoalStop(){},
+               fbTransitionBed(){},fbTransitionLock(){},fbTransitionStop(){}};
     function spawn(){} function popBall(){} function winnerRGB(){return '';}
     let r3dActive=false; function fx3Hit(){} function fx3Dust(){}
     function setPhase(p){phase=p;} function updateHud(){} function setPhaseText(){}

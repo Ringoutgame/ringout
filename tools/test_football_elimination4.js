@@ -99,8 +99,11 @@ function buildEnv(devFbVariant) {
     let mode='football', fmt='single';
     let score=[0,0], roundNo=1, seatGone=[false,false];
     let coverCalls=[], goalSounds=0, matchPointSounds=0;
+    let soundOn=true;
+    let taBed=0,taLock=0,taStop=0;
     const SFX={hit(){},drop(){},ringout(){},launch(){},round(){},win(){},rollUpdate(){},unlock(){},
-               footballGoal(mp){goalSounds++;if(mp)matchPointSounds++;},footballGoalPreload(){},footballGoalStop(){}};
+               footballGoal(mp){goalSounds++;if(mp)matchPointSounds++;},footballGoalPreload(){},footballGoalStop(){},
+               fbTransitionBed(){taBed++;},fbTransitionLock(){taLock++;},fbTransitionStop(){taStop++;}};
     function spawn(){} function popBall(){} function winnerRGB(){return '';}
     let r3dActive=false; function fx3Hit(){} function fx3Dust(){}
     function setPhase(p){phase=p;} function updateHud(){} function setPhaseText(){}
@@ -244,6 +247,11 @@ function buildEnv(devFbVariant) {
       morphPlan(){ return fbMorphPlan?fbMorphPlan.goals.map(g=>({owner:g.owner,slot:g.slot,target:g.target,dead:g.dead})):null; },
       morphPhases(){ return fbMorphPlan?{from:fbMorphPlan.from,to:fbMorphPlan.to}:null; },
       morphSpawn(){ return fbMorphSpawn; },
+      // Transition-Audio: Ausloeserzaehler der Sandbox (die Wiedergabe selbst ist gestubbt).
+      taudio(){ return {bed:taBed,lock:taLock,stop:taStop}; },
+      taudioReset(){ taBed=0;taLock=0;taStop=0; },
+      // Stummschalten wie im Spiel: der Ausloeser laeuft weiter, nur die Wiedergabe faellt weg.
+      muteAudio(){ soundOn=false; },
       // Transition-FX: rein visuelle Pegel, nirgends im Spielzustand.
       fxOn(){ return !!FB_FX_PRESET; },
       fxEdge(t){ return fbFxEdge(t); },
@@ -2683,6 +2691,227 @@ const fbCore = (c) => c.poly ? c.poly.map(v => v.slice())
   const build = grab(/const fbBuildShape=\(mo\)=>\{[\s\S]*?\n      const ring=mo\?mo\.rd\.ring/, 'fbBuildShape-Kopf');
   ok(!/gold=fbMat\.gold\|\|goldM/.test(build),
      'der Arenaaufbau greift nicht mehr direkt auf das geteilte Goldmaterial zu');
+}
+// =================================================================================
+// V - TRANSITION-AUDIO (rein praesentational, Produktstand)
+// =================================================================================
+// Das Transition-Audio haengt an denselben Ticks wie die Bewegung und der visuelle
+// Lock-Impuls. Es hat keinen eigenen Zustand: die Ausloeser sind reine Gleichheitspruefungen
+// auf den Transitionsfortschritt. Ausserhalb einer Transition wird nichts gerufen.
+{
+  // Produktstand: kein Parameter noetig, keine Preset-Matrix, keine Prototyp-Pfade.
+  ok(!HTML.includes('DEV_TAUDIO') && !HTML.includes('FB_TAUDIO_SETS') && !HTML.includes('fbTAudioSet'),
+     'es gibt keinen Dev-Parameter und keine Klangrichtungs-Matrix mehr');
+  ok(!/energy/i.test(HTML), 'kein ENERGY-Rest im Produktpfad');
+  ok(!HTML.includes('football-elimination-transition-audio-prototype'),
+     'der Produktcode zeigt auf keine Prototyp-Pfade');
+  ok(/const FB_TAUDIO_BED='assets\/audio\/arena_football_transition_reconfigure\.wav';/.test(HTML) &&
+     /const FB_TAUDIO_LOCK='assets\/audio\/arena_football_transition_lock\.wav';/.test(HTML),
+     'die beiden finalen Produktassets stehen fest im Code');
+  ok(/const FB_TAUDIO_BED_GAIN=0\.77;/.test(HTML) && /const FB_TAUDIO_LOCK_GAIN=0\.69;/.test(HTML),
+     'die freigegebenen Pegel stehen als Produktkonstanten im Code (0.77 / 0.69)');
+  // Die Assets liegen tatsaechlich im Repository und sind gueltige WAV-Dateien.
+  for (const [f, minKb] of [['assets/audio/arena_football_transition_reconfigure.wav', 200],
+                            ['assets/audio/arena_football_transition_lock.wav', 20]]) {
+    const p = require('path').join(__dirname, '..', f);
+    ok0(require('fs').existsSync(p), f + ' liegt im Repository');
+    const buf = require('fs').readFileSync(p);
+    ok0(buf.slice(0, 4).toString() === 'RIFF' && buf.slice(8, 12).toString() === 'WAVE',
+        f + ' ist eine gueltige WAV-Datei');
+    ok0(buf.length > minKb * 1024, f + ' ist vollstaendig (' + Math.round(buf.length / 1024) + ' kB)');
+  }
+  ok(true, 'beide finalen Audioassets sind vorhanden und gueltig');
+  ok(!require('fs').existsSync(require('path').join(__dirname, '..', 'assets/audio/energy_reconfigure.wav')) &&
+     !require('fs').existsSync(require('path').join(__dirname, '..', 'assets/audio/energy_lock.wav')),
+     'es liegt kein ENERGY-Asset unter assets/audio');
+}
+{
+  // Beide Umbauten: je genau EIN Bett und EIN Einrastakzent - ohne jede Zutat.
+  const E = buildEnv('elimination4');
+  E.newMatch();
+  for (const step of [{ from: 4, shoot: 0 }, { from: 3, shoot: 1 }]) {
+    E.taudioReset();
+    parkPlayers(E);
+    shootAt(E, step.shoot);
+    const tag = step.from + ' -> ' + (step.from - 1);
+    let n = 0;
+    while (E.goalState() !== 'morph' && n < 400) { E.step(); n++; }
+    ok(E.goalState() === 'morph', tag + ': die Transition laeuft');
+    ok(E.taudio().bed === 0 && E.taudio().lock === 0,
+       tag + ': zu Beginn der Transition ist noch nichts ausgeloest');
+
+    const T = E.morphTicks();
+    let bedAt = -1, lockAt = -1;
+    for (let k = 0; k < T.total; k++) {
+      const before = E.taudio();
+      E.step();
+      const after = E.taudio();
+      if (after.bed > before.bed) bedAt = E.goalTick();
+      if (after.lock > before.lock) lockAt = E.goalTick();
+    }
+    const t = E.taudio();
+    ok(t.bed === 1, tag + ': das Bett startet genau einmal (' + t.bed + ')');
+    ok(t.lock === 1, tag + ': der Einrastakzent kommt genau einmal (' + t.lock + ')');
+    ok(bedAt === T.hold, tag + ': das Bett startet am Ende des Holds, Tick ' + bedAt);
+    ok(lockAt === T.hold + T.goals + T.arena,
+       tag + ': der Akzent liegt exakt auf dem Lock-Tick ' + lockAt);
+
+    const end = E.taudio();
+    let more = 0;
+    for (let k = 0; k < 240; k++) {
+      E.step();
+      const now = E.taudio();
+      if (now.bed !== end.bed || now.lock !== end.lock) more++;
+    }
+    ok(more === 0, tag + ': nach der Transition loest nichts mehr aus');
+  }
+}
+{
+  // Der Akzent und der visuelle Lock-Impuls liegen auf demselben Tick.
+  const E = buildEnv('elimination4');
+  E.newMatch();
+  parkPlayers(E);
+  shootAt(E, 0);
+  let n = 0;
+  while (E.goalState() !== 'morph' && n < 400) { E.step(); n++; }
+  const T = E.morphTicks();
+  let audioTick = -1, fxTick = -1, fxPrev = 0;
+  for (let k = 0; k < T.total; k++) {
+    const before = E.taudio();
+    E.step();
+    if (E.taudio().lock > before.lock) audioTick = E.goalTick();
+    const lv = E.fxEdge(0);
+    if (fxTick < 0 && E.goalTick() >= T.hold + T.goals + T.arena && lv > fxPrev * 3 && lv > 0.5)
+      fxTick = E.goalTick();
+    fxPrev = lv;
+  }
+  ok(audioTick > 0 && audioTick === fxTick,
+     'Audio-Lock und visueller Lock-Impuls liegen auf demselben Tick (' + audioTick + ')');
+  ok(/const FB_TAUDIO_LOCK_TICK=FB_MORPH_HOLD_TICKS\+FB_MORPH_GOAL_TICKS\+FB_MORPH_ARENA_TICKS;/.test(HTML),
+     'beide leiten sich aus denselben Konstanten ab - keine zweite Magic Number');
+}
+{
+  // Der Sieg (2 -> 1) baut nicht mehr um und loest deshalb auch kein Audio aus.
+  const E = buildEnv('elimination4');
+  E.newMatch();
+  E.eliminate(0); E.applyPhase();
+  E.eliminate(1); E.applyPhase();
+  ok(E.phaseN() === 2, 'Vorbedingung: das Finale steht');
+  E.taudioReset();
+  parkPlayers(E);
+  shootAt(E, 0);                                  // im Finale gibt es nur die Slots 0 und 1
+  let n = 0;
+  while (E.goalState() !== 'result' && n < 500) { E.step(); n++; }
+  ok(E.winner() !== null, 'Vorbedingung: das Match ist entschieden');
+  const t = E.taudio();
+  ok(t.bed === 0 && t.lock === 0, 'das entscheidende Tor loest kein Transition-Audio aus');
+}
+{
+  // Matchreset stoppt einen laufenden Klang, und das neue Match startet sauber.
+  const E = buildEnv('elimination4');
+  E.newMatch();
+  parkPlayers(E);
+  shootAt(E, 0);
+  let n = 0;
+  while (E.goalState() !== 'morph' && n < 400) { E.step(); n++; }
+  for (let k = 0; k < 20; k++) E.step();
+  ok(E.taudio().bed === 1, 'Vorbedingung: das Bett laeuft');
+  const before = E.taudio().stop;
+  E.newMatch();
+  ok(E.taudio().stop > before, 'der Matchreset stoppt den laufenden Transitionsklang');
+  E.taudioReset();
+  parkPlayers(E);
+  shootAt(E, 0);
+  let m = 0;
+  while (E.goalState() !== 'morph' && m < 400) { E.step(); m++; }
+  for (let k = 0; k < E.morphTicks().total; k++) E.step();
+  const t = E.taudio();
+  ok(t.bed === 1 && t.lock === 1, 'das neue Match loest wieder genau einmal aus');
+}
+{
+  // Classic und Tactical kennen weder Transition noch Transition-Audio.
+  for (const v of [undefined, 'tactical']) {
+    const C = buildEnv(v);
+    C.newMatch();
+    for (let k = 0; k < 200; k++) C.step();
+    const t = C.taudio();
+    ok0(t.bed === 0 && t.lock === 0, (v || 'classic') + ': kein Transition-Audio');
+  }
+  ok(true, 'Classic und Tactical bleiben ohne Transitionsklang');
+}
+{
+  // KEIN Einfluss auf den Spielzustand: das Abspielen darf Koerper, Phase, Wertung und
+  // Ablauf nicht beruehren. Verglichen wird gegen einen Lauf, dessen Audioschicht nie
+  // gerufen wird (fbGoalState nie 'morph' - hier ueber Classic als Gegenprobe).
+  const run = (variant) => {
+    const E = buildEnv(variant);
+    E.newMatch();
+    const log = [];
+    for (let k = 0; k < 200; k++) {
+      E.step();
+      log.push(E.goalState() + '|' + E.goalTick() + '|' +
+               E.snapshot().map(b => b.x.toFixed(9) + ',' + b.y.toFixed(9)).join(';'));
+    }
+    return log.join('\n');
+  };
+  ok(run(undefined) === run(undefined), 'der Ablauf ist in sich deterministisch');
+
+  // Und der eigentliche Beweis: ein kompletter Torablauf mit Transition liefert exakt
+  // denselben Zustandsverlauf wie derselbe Ablauf mit stummgeschalteter Audioschicht.
+  const play = (mute) => {
+    const E = buildEnv('elimination4');
+    if (mute) E.muteAudio();
+    E.newMatch();
+    parkPlayers(E);
+    shootAt(E, 0);
+    const log = [];
+    for (let k = 0; k < 320; k++) {
+      E.step();
+      log.push(E.goalState() + '|' + E.goalTick() + '|' + E.phaseN() + '|' + E.winner() + '|' +
+               E.active().join('') + '|' +
+               E.snapshot().map(b => b.x.toFixed(9) + ',' + b.y.toFixed(9) + ',' +
+                                     b.vx.toFixed(9) + ',' + b.vy.toFixed(9) + ',' + b.alive).join(';'));
+    }
+    return { log: log.join('\n'), ta: E.taudio() };
+  };
+  const a = play(false), b = play(true);
+  ok(a.ta.bed === 1 && a.ta.lock === 1, 'Vorbedingung: der Lauf hat wirklich getriggert');
+  // Der Ausloeser feuert auch stummgeschaltet - unterdrueckt wird erst die Wiedergabe, und
+  // zwar im bestehenden soundOn-Gate (Quellpruefung weiter unten). Entscheidend hier: der
+  // Zustandsverlauf ist in beiden Faellen identisch, der Ausloeser hat also keine Wirkung
+  // auf das Spiel.
+  ok(b.ta.bed === 1 && b.ta.lock === 1, 'der Ausloeser laeuft auch bei stummem Ton');
+  ok(a.log === b.log, 'der Zustandsverlauf ueber 320 Ticks ist in beiden Faellen identisch');
+}
+{
+  // Quellpruefung: der Ausloeser liest nur, Stoppen und Stummschalten sind verdrahtet,
+  // und die Wiedergabe haengt am bestehenden soundOn-Gate.
+  const src = grab(/\/\/ ── ARENA-TRANSITION-AUDIO ──[\s\S]*?\nfunction fbTAudioTick\(\)\{[\s\S]*?\n\}/,
+                   'Transition-Audio-Block');
+  for (const forbidden of ['balls[', 'Math.random', 'Date.now', 'performance.now', 'setTimeout'])
+    ok0(!src.includes(forbidden), 'der Ausloeser enthaelt kein ' + forbidden);
+  for (const name of ['fbGoalState', 'fbGoalTick', 'fbElimPhaseN', 'footballWinner', 'fbMorphPlan'])
+    ok0(!new RegExp(name + '\\s*=[^=]').test(src), 'der Ausloeser schreibt nicht in ' + name);
+  ok(true, 'der Audio-Ausloeser liest nur den Fortschritt - kein Spielzustand, kein Zufall');
+  ok(/if\(!soundOn\)\{SFX\.charge\.stop\(\);SFX\.fbTransitionStop\(\);\}/.test(HTML),
+     'Stummschalten stoppt einen laufenden Transitionsklang');
+  ok((HTML.match(/SFX\.fbTransitionStop\(\)/g) || []).length >= 4,
+     'gestoppt wird bei Matchreset, Menuerueckkehr und an beiden Stummschaltern');
+  ok(/function playTa\(src,gain\)\{\s*go\(cc=>\{/.test(HTML),
+     'die Wiedergabe laeuft durch dasselbe soundOn-Gate wie jeder andere Klang (go)');
+  // Speicher- und Voice-Sicherheit: einmal laden, Buffer wiederverwenden, Voices aufraeumen.
+  ok(/if\(e\.state!==0\)return e;/.test(HTML), 'je Datei genau EIN Ladeversuch - kein wiederholter Fetch');
+  ok(/bs\.onended=\(\)=>releaseTaVoice\(v\);/.test(HTML), 'jede Quelle wird nach dem Ende freigegeben');
+  ok(/function releaseTaVoice\(v\)\{\s*if\(!fbTaVoices\.delete\(v\)\)return;/.test(HTML),
+     'die Freigabe ist gegen doppelte Aufrufe abgesichert');
+  ok(!/new\s*\(window\.AudioContext[\s\S]{0,400}new\s*\(window\.AudioContext/.test(HTML),
+     'es gibt weiterhin genau EINEN AudioContext');
+  // Der Torsound bleibt vollstaendig unberuehrt.
+  ok(/const FOOTBALL_GOAL_ASSET_GAIN=0\.80;/.test(HTML), 'der Torsound behaelt seinen Pegel 0.80');
+  ok(/FB_GOAL_SRCS=\['assets\/audio\/arena_football_goal\.ogg','assets\/audio\/arena_football_goal\.mp3'\]/.test(HTML),
+     'der Torsound behaelt seine Quelle');
+  ok(/footballGoalFxTrigger\(slot\);/.test(HTML) && /SFX\.footballGoal\(/.test(HTML),
+     'der Torsound behaelt seine Triggerlogik');
 }
 
 console.log('\nFootball-Elimination: ' + pass + ' passed, ' + fail + ' failed');

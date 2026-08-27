@@ -124,7 +124,8 @@ function buildEnv(ci, preset) {
     let sfxHits=0, spawnCalls=0, goalSounds=0, goalSoundMatchPoints=0, goalSoundStops=0;
     const SFX={hit(){sfxHits++;},drop(){},ringout(){},launch(){},round(){},win(){},rollUpdate(){},unlock(){},
                footballGoal(mp){goalSounds++;if(mp)goalSoundMatchPoints++;},
-               footballGoalPreload(){},footballGoalStop(){goalSoundStops++;}};
+               footballGoalPreload(){},footballGoalStop(){goalSoundStops++;},
+               fbTransitionBed(){},fbTransitionLock(){},fbTransitionStop(){}};
     function spawn(){spawnCalls++;} function popBall(){} function winnerRGB(){return '';}
     let r3dActive=false; function fx3Hit(){} function fx3Dust(){}
     function setPhase(p){phase=p;} function updateHud(){} function setPhaseText(){}

@@ -53,7 +53,8 @@ function buildEnv(mode0) {
     let mode=${JSON.stringify(mode0)}, fmt='single';
     let score=[0,0], roundNo=1, r3dActive=false;
     const SFX={hit(){},drop(){},ringout(){},launch(){},round(){},win(){},rollUpdate(){},unlock(){},
-               footballGoal(){},footballGoalPreload(){},footballGoalStop(){}};
+               footballGoal(){},footballGoalPreload(){},footballGoalStop(){},
+               fbTransitionBed(){},fbTransitionLock(){},fbTransitionStop(){}};
     function spawn(){} function popBall(){} function winnerRGB(){return '';}
     function fx3Hit(){} function fx3Dust(){}
     function setPhase(p){phase=p;} function updateHud(){} function setPhaseText(){}

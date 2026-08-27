@@ -1,6 +1,6 @@
 # PROJECT.md — RingOut
 
-**Zuletzt aktualisiert:** 2026-08-27 (Arena Football: finale adaptive Elimination-Arenaformen — Rounded Square / Broad Rounded Triangle / Shouldered Wide; **beide** Arenawechsel 4→3 und 3→2 sind animiert und tragen ein Gold-Kantenfeedback; **drei** sichtbare Modi — Classic 1v1 als Standard, Tactical 1v1, Elimination; Elimination ist jetzt regulaer ueber die Modusauswahl startbar, weiterhin lokal/Hotseat)
+**Zuletzt aktualisiert:** 2026-08-27 (Arena Football: finale adaptive Elimination-Arenaformen — Rounded Square / Broad Rounded Triangle / Shouldered Wide; **beide** Arenawechsel 4→3 und 3→2 sind animiert und tragen Gold-Kantenfeedback plus Transitionsklang; **drei** sichtbare Modi — Classic 1v1 als Standard, Tactical 1v1, Elimination; Elimination ist jetzt regulaer ueber die Modusauswahl startbar, weiterhin lokal/Hotseat)
 
 - **Aktueller stabiler Projekt-HEAD:** `5a23dc424fb3126c33c29543b7c6571b87a65ec7`
 - **Implementierungs-Commit UX-Phase 3:** `babbbe78ee388489321d1f0cb3e032bbaabd0725`
@@ -288,7 +288,22 @@ Das Ganze ist **rein visuell**: die Intensitaet wird in jedem Frame aus dem best
 Morph-Fortschritt abgeleitet, es gibt keinen eigenen Zustand und keinen Timer. Ausserhalb
 einer Transition ist sie exakt 0, der Renderer schreibt dann die Ruhewerte zurueck und fasst
 danach kein Material mehr an. Kein Einfluss auf Physik, Wertung, Eingabe, Ablauf oder Kamera;
-Classic und Tactical kennen das Feedback nicht. Kein Partikelsystem, kein Audio.
+Classic und Tactical kennen das Feedback nicht. Kein Partikelsystem.
+
+**Ton der Umbauten.** Beide Transitionen tragen dieselbe Klangidentität, zusammengesetzt aus
+genau zwei kurzen Assets: ein **Bett** für die Umbaubewegung (startet am Ende des Holds) und
+ein **Einrastakzent** exakt auf dem Tick, an dem auch der visuelle Gold-Lock-Impuls beginnt —
+beide Ticks werden aus denselben Morph-Konstanten abgeleitet, damit Bild und Ton nicht
+auseinanderlaufen können. Der **Torsound bleibt der eigenständige Hauptakzent**: er ist
+längst verklungen, bevor das Bett einsetzt (0,63 s Abstand), und liegt deutlich lauter.
+Der letzte Wechsel 2 → 1 ist der Sieg und klingt nicht.
+
+Technisch hängt das am bestehenden Audiosystem: derselbe AudioContext, dasselbe
+`soundOn`-Gate, dieselbe Lade- und Voice-Mechanik wie beim Torsound (einmal laden, Buffer
+wiederverwenden, Quellen nach dem Ende freigeben, Stop mit kurzem Fade bei Matchreset,
+Menürückkehr, Moduswechsel und Stummschalten). Der Auslöser liest nur den Transitions-
+fortschritt — kein eigener Zustand, kein Timer, kein Einfluss auf Physik, Wertung, Eingabe
+oder Ablauf.
 
 Beide Transitionen teilen sich **eine** Zeittabelle (Hold 12 / Tore 24 / Arena 54 / Settle 10
 Ticks), **einen** Satz Bausteine und **einen** Plan (`fbMorphPlan` haelt Ausgangs- und
