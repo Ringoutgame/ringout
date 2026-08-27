@@ -2008,7 +2008,9 @@ const fbCssSrc = grab(/#game\.fb \.status\{[\s\S]*?\n\.arena-wrap\{/, 'Football-
      'die Intensitaet ist ein Faktor auf den Ruhewert -> lv=0 stellt exakt den Ruhezustand her');
   // Geschrieben wird nur bei einer echten Zustandsaenderung — Torimpuls ODER (nur
   // Elimination4) der Wechsel in ein ausgeschiedenes, totes Tor.
-  ok(/if\(lv===p\.lv&&dead===p\.dead\)continue;/.test(fxRenderSrc),
+  // dm ist der Totzustand als PEGEL: ohne FX-Preset exakt der bisherige 0/1-Wert, mit
+  // Preset zusaetzlich der weiche Drain des ausgeschiedenen Tores waehrend der Transition.
+  ok(/if\(lv===p\.lv&&dm===p\.dead\)continue;/.test(fxRenderSrc),
      'im Ruhezustand wird kein Material angefasst (keine Schreiblast pro Frame)');
   const mix = Number(HTML.match(/const GOAL_FX_MIX=([\d.]+);/)[1]);
   ok(mix > 0.5 && mix < 1, 'Gold dominiert den Impuls, die Teamfarbe bleibt aber lesbar (MIX=' + mix + ')');

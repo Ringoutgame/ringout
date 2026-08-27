@@ -244,6 +244,10 @@ function buildEnv(devFbVariant) {
       morphPlan(){ return fbMorphPlan?fbMorphPlan.goals.map(g=>({owner:g.owner,slot:g.slot,target:g.target,dead:g.dead})):null; },
       morphPhases(){ return fbMorphPlan?{from:fbMorphPlan.from,to:fbMorphPlan.to}:null; },
       morphSpawn(){ return fbMorphSpawn; },
+      // Transition-FX: rein visuelle Pegel, nirgends im Spielzustand.
+      fxOn(){ return !!FB_FX_PRESET; },
+      fxEdge(t){ return fbFxEdge(t); },
+      fxDrain(slot){ return fbFxDrain(slot); },
       morphWanted(){ return fbMorphWanted(); },
       bodyLevel(){ return fbMorphBodyLevel(); },
       morphTicks(){ return {hold:FB_MORPH_HOLD_TICKS,goals:FB_MORPH_GOAL_TICKS,
@@ -2500,6 +2504,185 @@ const fbCore = (c) => c.poly ? c.poly.map(v => v.slice())
   E.eliminate(1);
   ok(E.morphPhases() === null, 'vor dem Start der Transition gibt es noch keinen Plan');
   ok(E.morphWanted() === true, 'im neuen Match wird auch 3 -> 2 wieder gewollt');
+}
+// =================================================================================
+// U - TRANSITION-FX (rein visuell, Produktstand)
+// =================================================================================
+// Der FX-Pegel wird in jedem Frame aus dem bestehenden Morph-Fortschritt abgeleitet. Es gibt
+// dafuer keinen eigenen Zustand: kein Timer, kein Parameter, kein Schreibzugriff auf Koerper,
+// Wertung oder Ablauf. Ausserhalb einer Transition ist der Pegel exakt 0.
+{
+  // Ohne jede Zutat: die Transitions-FX gehoeren zum normalen Elimination-Spiel.
+  const E = buildEnv('elimination4');
+  E.newMatch();
+  ok(E.fxEdge(0) === 0 && E.fxEdge(1) === 0 && E.fxEdge(2) === 0,
+     'im laufenden Spiel sind alle Kantenpegel 0');
+  ok(E.fxDrain(0) === 0 && E.fxDrain(1) === 0, 'im laufenden Spiel ist der Drain 0');
+  ok(!HTML.includes('DEV_FX') && !HTML.includes('FB_FX_PRESET'),
+     'es gibt keinen Dev-Parameter und keine Preset-Matrix mehr');
+  ok(/const FB_FX_EDGE=0\.62;/.test(HTML) && /const FB_FX_LOCK=1\.00;/.test(HTML) &&
+     /const FB_FX_EMIT=1\.10;/.test(HTML),
+     'die freigegebenen Werte stehen als Produktkonstanten im Code (0.62 / 1.00 / 1.10)');
+}
+{
+  // Verlauf ueber BEIDE Arenawechsel: gueltiger Bereich, Ruhe an beiden Enden, sichtbare
+  // Wanderung nach aussen und ein klarer Einrastakzent.
+  const E = buildEnv('elimination4');
+  E.newMatch();
+  for (const step of [{ from: 4, shoot: 0 }, { from: 3, shoot: 1 }]) {
+    parkPlayers(E);
+    shootAt(E, step.shoot);
+    let n = 0;
+    while (E.goalState() !== 'morph' && n < 400) { E.step(); n++; }
+    const tag = step.from + ' -> ' + (step.from - 1);
+    ok(E.goalState() === 'morph', tag + ': die Transition laeuft');
+    ok(E.phaseN() === step.from, tag + ': Vorbedingung - die Ausgangsphase steht noch');
+
+    const T = E.morphTicks();
+    const trace = [[], [], []];
+    let bad = 0, hold = 0;
+    for (let k = 0; k < T.total; k++) {
+      for (let t = 0; t < 3; t++) {
+        const lv = E.fxEdge(t);
+        if (!Number.isFinite(lv) || lv < 0 || lv > 1) bad++;
+        trace[t].push(lv);
+      }
+      if (E.goalTick() < T.hold && E.fxEdge(0) !== 0) hold++;
+      E.step();
+    }
+    ok(bad === 0, tag + ': jeder Kantenpegel bleibt endlich und im Bereich [0, 1]');
+    ok(hold === 0, tag + ': waehrend des Holds bleibt die Kante ruhig');
+    ok(Math.max.apply(null, trace[0]) > 0.5, tag + ': die Kante wird waehrend des Umbaus deutlich aktiv');
+
+    // Wanderung: die Welle erreicht ihr Maximum je Stufe spaeter, je weiter aussen sie liegt.
+    const peakAt = trace.map(a => a.indexOf(Math.max.apply(null, a)));
+    ok(peakAt[0] < peakAt[1] && peakAt[1] < peakAt[2],
+       tag + ': der Impuls laeuft nach aussen (Spitzen bei Tick ' + peakAt.join(' < ') + ')');
+    // Einrastimpuls: nach dem Ende des Arenaumbaus wird die innere Kante noch einmal hell.
+    const lockAt = T.hold + T.goals + T.arena;
+    const lockPeak = Math.max.apply(null, trace[0].slice(lockAt));
+    const beforeLock = trace[0][lockAt - 1];
+    ok(lockPeak > beforeLock * 3 && lockPeak > 0.5,
+       tag + ': das Einrasten ist ein eigener Akzent (' + beforeLock.toFixed(2) + ' -> ' +
+       lockPeak.toFixed(2) + ')');
+
+    // Nach der Transition exakt Ruhezustand - kein haengengebliebener Glow.
+    ok(E.goalState() !== 'morph', tag + ': die Transition ist beendet');
+    ok(E.fxEdge(0) === 0 && E.fxEdge(1) === 0 && E.fxEdge(2) === 0,
+       tag + ': nach der Transition sind alle Kantenpegel exakt 0');
+    let after = 0;
+    for (let k = 0; k < 240; k++) { E.step(); for (let t = 0; t < 3; t++) if (E.fxEdge(t) !== 0) after++; }
+    ok(after === 0, tag + ': auch im weiteren Spielverlauf bleibt die Kante bei exakt 0');
+    ok(E.phaseN() === step.from - 1, tag + ': die Phase ist regulaer weitergelaufen');
+  }
+}
+{
+  // Das ausgeschiedene Tor verliert seine Energie WAEHREND der Torneuordnung; die
+  // verbleibenden Tore bleiben unberuehrt.
+  const E = buildEnv('elimination4');
+  E.newMatch();
+  parkPlayers(E);
+  shootAt(E, 0);
+  let n = 0;
+  while (E.goalState() !== 'morph' && n < 400) { E.step(); n++; }
+  const plan = E.morphPlan();
+  const deadSlot = plan.find(g => g.dead).slot;
+  const liveSlots = plan.filter(g => !g.dead).map(g => g.slot);
+  const T = E.morphTicks();
+  let rise = true, prev = -1, liveBad = 0, badRange = 0;
+  for (let k = 0; k < T.hold + T.goals; k++) {
+    const d = E.fxDrain(deadSlot);
+    if (!Number.isFinite(d) || d < 0 || d > 1) badRange++;
+    if (d < prev - 1e-9) rise = false;
+    prev = d;
+    for (const s of liveSlots) if (E.fxDrain(s) !== 0) liveBad++;
+    E.step();
+  }
+  ok(badRange === 0, 'der Drain bleibt endlich und im Bereich [0, 1]');
+  ok(rise, 'das ausgeschiedene Tor verliert seine Energie monoton');
+  ok(prev === 1, 'am Ende der Torneuordnung ist es vollstaendig entladen');
+  ok(liveBad === 0, 'die verbleibenden Tore behalten ihre Teamfarbe (Drain exakt 0)');
+  while (E.goalState() === 'morph') E.step();
+  ok(E.fxDrain(deadSlot) === 0, 'nach der Transition schreibt der Drain nichts mehr');
+}
+{
+  // KEIN Einfluss auf den Spielzustand. Der FX-Pegel wird waehrend eines kompletten
+  // Torablaufs in JEDEM Tick abgefragt; Koerper, Phase, Wertung und Ablauf muessen danach
+  // bitgleich zu einem Lauf ohne jede Abfrage sein.
+  const run = (readFx) => {
+    const E = buildEnv('elimination4');
+    E.newMatch();
+    parkPlayers(E);
+    shootAt(E, 0);
+    const log = [];
+    for (let k = 0; k < 320; k++) {
+      if (readFx) { E.fxEdge(0); E.fxEdge(1); E.fxEdge(2); E.fxDrain(0); E.fxDrain(1); }
+      E.step();
+      log.push(E.goalState() + '|' + E.goalTick() + '|' + E.phaseN() + '|' + E.winner() + '|' +
+               E.active().join('') + '|' +
+               E.snapshot().map(b => b.x.toFixed(9) + ',' + b.y.toFixed(9) + ',' +
+                                     b.vx.toFixed(9) + ',' + b.vy.toFixed(9) + ',' + b.alive).join(';'));
+    }
+    return log.join('\n');
+  };
+  ok(run(true) === run(false),
+     'das Auslesen der FX-Pegel veraendert den Spielzustand in 320 Ticks nicht');
+}
+{
+  // Kein FX-Zustand nach einem Matchreset - und kein FX in Classic oder Tactical.
+  const E = buildEnv('elimination4');
+  E.newMatch();
+  parkPlayers(E);
+  shootAt(E, 0);
+  let n = 0;
+  while (E.goalState() !== 'morph' && n < 400) { E.step(); n++; }
+  for (let k = 0; k < 40; k++) E.step();
+  ok(E.fxEdge(0) + E.fxEdge(1) + E.fxEdge(2) > 0, 'Vorbedingung: die Kante ist gerade aktiv');
+  E.newMatch();
+  ok(E.fxEdge(0) === 0 && E.fxEdge(1) === 0 && E.fxEdge(2) === 0,
+     'ein Matchreset mitten in der Transition setzt die Kantenpegel sofort auf 0');
+  ok(E.fxDrain(0) === 0 && E.fxDrain(1) === 0, 'und auch den Drain');
+  // Und das zweite Match laeuft danach wieder vollstaendig durch seine Transition.
+  parkPlayers(E);
+  shootAt(E, 0);
+  let m = 0;
+  while (E.goalState() !== 'morph' && m < 400) { E.step(); m++; }
+  ok(E.goalState() === 'morph', 'das zweite Match startet seine Transition regulaer');
+  for (let k = 0; k < 60; k++) E.step();
+  ok(E.fxEdge(0) + E.fxEdge(1) + E.fxEdge(2) > 0, 'und die Kante wird darin wieder aktiv');
+
+  for (const v of [undefined, 'tactical']) {
+    const C = buildEnv(v);
+    C.newMatch();
+    ok0(C.fxEdge(0) === 0 && C.fxEdge(1) === 0 && C.fxEdge(2) === 0,
+        (v || 'classic') + ': keine Transition, also kein FX');
+    ok0(C.fxDrain(0) === 0, (v || 'classic') + ': kein Torfade');
+    for (let k = 0; k < 60; k++) {
+      C.step();
+      ok0(C.fxEdge(0) === 0 && C.fxEdge(1) === 0, (v || 'classic') + ': auch im Spielverlauf kein FX');
+    }
+  }
+  ok(true, 'Classic und Tactical bleiben vollstaendig ohne Transition-FX');
+}
+{
+  // Quellpruefung: der FX-Pegel darf nirgends in den Spielzustand schreiben, und der
+  // Renderer darf pro Umbauschritt keine neuen Materialien erzeugen.
+  const fxSrc = grab(/\/\/ ── ARENA-TRANSITION-FX \(REIN VISUELL\) ──[\s\S]*?\nfunction fbFxDrain\(slot\)\{[\s\S]*?\n\}/,
+                     'Transition-FX-Block');
+  for (const forbidden of ['fbGoalState=', 'fbElimPhaseN=', 'fbMorphPlan=', 'footballWinner=',
+                           'balls[', 'Math.random', 'Date.now', 'setTimeout'])
+    ok0(!fxSrc.includes(forbidden), 'der FX-Block enthaelt kein ' + forbidden);
+  ok(true, 'der FX-Block liest nur - er schreibt keinen Spielzustand und ist frei von Zufall');
+  ok(/const applyArenaFx=\(\)=>\{/.test(HTML), 'die Arena-FX werden in EINER Renderfunktion angewendet');
+  ok(/if\(lv<=0\)\{t\.mat\.emissive\.copy\(t\.emis\);t\.mat\.emissiveIntensity=t\.int;\}/.test(HTML),
+     'bei Pegel 0 wird exakt der Ruhezustand des Materials zurueckgeschrieben');
+  // Die drei Goldstufen werden EINMAL angelegt und danach nur noch nachgeschlagen - sonst
+  // entstuenden bei jedem der dutzenden Umbauschritte neue Materialobjekte.
+  ok(/const fbArenaGold=\(tier\)=>\{\s*if\(!fbGoldTiers\.length\)\{/.test(HTML),
+     'die Goldstufen entstehen genau einmal, nicht pro Arenaaufbau');
+  const build = grab(/const fbBuildShape=\(mo\)=>\{[\s\S]*?\n      const ring=mo\?mo\.rd\.ring/, 'fbBuildShape-Kopf');
+  ok(!/gold=fbMat\.gold\|\|goldM/.test(build),
+     'der Arenaaufbau greift nicht mehr direkt auf das geteilte Goldmaterial zu');
 }
 
 console.log('\nFootball-Elimination: ' + pass + ' passed, ' + fail + ' failed');

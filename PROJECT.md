@@ -1,6 +1,6 @@
 # PROJECT.md — RingOut
 
-**Zuletzt aktualisiert:** 2026-08-27 (Arena Football: finale adaptive Elimination-Arenaformen — Rounded Square / Broad Rounded Triangle / Shouldered Wide; **beide** Arenawechsel 4→3 und 3→2 sind animiert; **drei** sichtbare Modi — Classic 1v1 als Standard, Tactical 1v1, Elimination; Elimination ist jetzt regulaer ueber die Modusauswahl startbar, weiterhin lokal/Hotseat)
+**Zuletzt aktualisiert:** 2026-08-27 (Arena Football: finale adaptive Elimination-Arenaformen — Rounded Square / Broad Rounded Triangle / Shouldered Wide; **beide** Arenawechsel 4→3 und 3→2 sind animiert und tragen ein Gold-Kantenfeedback; **drei** sichtbare Modi — Classic 1v1 als Standard, Tactical 1v1, Elimination; Elimination ist jetzt regulaer ueber die Modusauswahl startbar, weiterhin lokal/Hotseat)
 
 - **Aktueller stabiler Projekt-HEAD:** `5a23dc424fb3126c33c29543b7c6571b87a65ec7`
 - **Implementierungs-Commit UX-Phase 3:** `babbbe78ee388489321d1f0cb3e032bbaabd0725`
@@ -270,6 +270,25 @@ zurueck und die Bande schliesst sich dort), danach der Arenaumbau. Kamera fest, 
 gesperrt, Koerper eingefroren; die Reihenfolge **Arena rastet ein → Figuren auf den
 2P-Spawns → Ball faellt zentral → Commit** ist bindend. Der letzte Wechsel **2 → 1** ist der
 Sieg und baut nicht mehr um.
+
+**Praesentation der Umbauten.** Beide Transitionen tragen ein rein visuelles Feedback:
+
+- Die vorhandene **Goldstruktur** der Arena ist der einzige Traeger. Sie ist in drei Stufen
+  geteilt — Kante der Spielflaeche, Bandenlinie samt Bande, Aussenkante und Gesims — und
+  jede Stufe ist EIN dauerhaft gehaltener Materialklon. Waehrend eines Umbaus wandert eine
+  weiche Aktivierung von innen nach aussen durch diese drei Stufen; das transparente
+  Bandenglas leuchtet nie selbst, Deck und Bande haengen dadurch an einem System.
+- Am **exakten Arena-Lock** folgt ein kurzer Impuls (~0.15 s, quadratischer Abfall), der
+  dieselben drei Stufen leicht versetzt durchlaeuft. Kein Bounce, kein Scale, kein Flash.
+- Das **ausgeschiedene Tor** verliert seine Teamenergie schon waehrend der Torneuordnung —
+  dieselbe Kurve, mit der es sich geometrisch zurueckzieht — statt am Ende hart in den
+  neutralen Zustand umzuschalten. Die verbleibenden Tore bleiben unberuehrt.
+
+Das Ganze ist **rein visuell**: die Intensitaet wird in jedem Frame aus dem bestehenden
+Morph-Fortschritt abgeleitet, es gibt keinen eigenen Zustand und keinen Timer. Ausserhalb
+einer Transition ist sie exakt 0, der Renderer schreibt dann die Ruhewerte zurueck und fasst
+danach kein Material mehr an. Kein Einfluss auf Physik, Wertung, Eingabe, Ablauf oder Kamera;
+Classic und Tactical kennen das Feedback nicht. Kein Partikelsystem, kein Audio.
 
 Beide Transitionen teilen sich **eine** Zeittabelle (Hold 12 / Tore 24 / Arena 54 / Settle 10
 Ticks), **einen** Satz Bausteine und **einen** Plan (`fbMorphPlan` haelt Ausgangs- und

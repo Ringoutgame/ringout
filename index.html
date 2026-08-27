@@ -3758,6 +3758,7 @@ const FB_MORPH_TICKS=FB_MORPH_HOLD_TICKS+FB_MORPH_GOAL_TICKS+FB_MORPH_ARENA_TICK
 // einer Geometrie, die kurz ueber ihren Endzustand hinauslaeuft.
 const FB_MORPH_OVERSHOOT=0;
 const FB_MORPH_BODY_TICKS=14;      // 0.23 s: Figuren ziehen sich zurueck bzw. kommen zurueck
+const FB_MORPH_RETRACT=0.55;       // Anteil von Abschnitt A, in dem sich das tote Tor zurueckzieht
 // Plan der Transition. Wird EINMAL beim Eintritt in 'morph' eingefroren, damit die
 // Zuordnung Spieler -> Tor waehrend der ganzen Bewegung deterministisch bleibt.
 // slot = Torslot der Phase 4, target = Torslot der Phase 3 (-1 = ausgeschieden).
@@ -3843,6 +3844,9 @@ if(typeof DEV_MENU!=='undefined'&&DEV_MENU)window.__fbDev={
               spawn:a.spawn,sides:a.sides,poly:a.poly?a.poly.map(v=>v.slice()):null};},
   bodies:()=>balls.filter(b=>b.alive).map(b=>({x:b.x-cx,y:b.y-cy,owner:b.owner,
               sd:footballBoundSD(b).sd})),
+  // Transition-FX: die drei Kantenpegel und der Drain je Torslot. Nur lesen.
+  fx:()=>({edge:[fbFxEdge(0),fbFxEdge(1),fbFxEdge(2)],
+           drain:[0,1,2,3].map(k=>fbFxDrain(k))}),
   winner:()=>footballWinner,
 };
 function footballGoalBusy(){return mode==='football'&&fbGoalState!=='play';}
@@ -3928,6 +3932,47 @@ function footballGoalFxLevel(key,nowMs){
   if(p<FB_GOAL_FX_ATTACK){const u=p/FB_GOAL_FX_ATTACK;return u*u*(3-2*u);}
   const q=1-(p-FB_GOAL_FX_ATTACK)/(1-FB_GOAL_FX_ATTACK);
   return q*q;
+}
+// ── ARENA-TRANSITION-FX (REIN VISUELL) ──
+// Waehrend eines Arenaumbaus bekommt die vorhandene GOLDSTRUKTUR der Arena kurz mehr
+// Eigenleuchten, und beim Einrasten folgt ein kurzer Impuls. Dafuer gibt es KEINEN eigenen
+// Zustand und keinen Timer: die Intensitaet wird in jedem Frame aus dem bestehenden
+// Morph-Fortschritt abgeleitet und ist ausserhalb einer Transition exakt 0 - der Renderer
+// schreibt dann die Ruhewerte zurueck und fasst danach kein Material mehr an. Es gibt
+// keinen Einfluss auf Physik, Wertung, Eingabe oder Ablauf.
+const FB_FX_EDGE=0.62;              // Spitzenpegel der wandernden Kantenaktivierung
+const FB_FX_LOCK=1.00;              // Spitzenpegel des Einrastimpulses
+const FB_FX_EMIT=1.10;              // zusaetzliche Emissivitaet bei Pegel 1
+const FB_FX_STAG=0.08;              // Versatz der drei Goldstufen im Fortschritt
+const FB_FX_LSTAG=3;                // Versatz derselben Stufen beim Einrasten, in Ticks
+const FB_FX_LOCK_TICKS=9;           // ~0.15 s Einrastimpuls
+const FB_FX_TIERS=3;                // Spielflaechenkante -> Bandenlinie -> Aussenkante/Gesims
+// Pegel einer Goldstufe. tier 0 liegt innen, tier 2 aussen; der Versatz laesst die
+// Aktivierung sichtbar nach aussen wandern, statt ueberall gleichzeitig anzugehen.
+function fbFxEdge(tier){
+  if(!fbMorphActive())return 0;
+  // Wanderung: EINE weiche Welle ueber den bewegten Teil des Umbaus (Torneuordnung +
+  // Arenaumbau). Sie beginnt und endet bei 0 - der Einrastimpuls bleibt dadurch ein
+  // eigener Akzent und verschmilzt nicht mit der Bewegung.
+  const move=FB_MORPH_GOAL_TICKS+FB_MORPH_ARENA_TICKS;
+  const u=(fbGoalTick-FB_MORPH_HOLD_TICKS)/move-tier*FB_FX_STAG;
+  const travel=(u<=0||u>=1)?0:Math.sin(Math.PI*u);
+  // Einrasten: kurzer Impuls, sobald der Arenaumbau exakt fertig ist.
+  const t=fbGoalTick-(FB_MORPH_HOLD_TICKS+move)-tier*FB_FX_LSTAG;
+  const q=(t<0||t>=FB_FX_LOCK_TICKS)?0:1-t/FB_FX_LOCK_TICKS;
+  const lv=FB_FX_EDGE*travel+FB_FX_LOCK*q*q;
+  return lv>1?1:lv;
+}
+// Der ausgeschiedene Torbereich verliert seine Energie bereits WAEHREND der Torneuordnung -
+// dieselbe Kurve, mit der er sich geometrisch zurueckzieht. Ausserhalb einer Transition und
+// fuer jedes noch lebende Tor ist der Wert exakt 0.
+function fbFxDrain(slot){
+  if(!fbMorphActive()||!fbMorphPlan)return 0;
+  let hit=false;
+  for(const g of fbMorphPlan.goals)if(g.dead&&g.slot===slot)hit=true;
+  if(!hit)return 0;
+  const u=fbMorphGoalE()/FB_MORPH_RETRACT;
+  return u<=0?0:(u>=1?1:u*u*(3-2*u));
 }
 // Genau EINE Wertung pro Torereignis: nur aus 'play' heraus erreichbar.
 function footballTryGoal(b){
@@ -6149,12 +6194,16 @@ async function initR3D(){
       for(const p of goalFxParts){
         const lv=footballGoalFxLevel(p.key,nowMs);
         const dead=(lv===0&&goalDead(p.key))?1:0;
-        if(lv===p.lv&&dead===p.dead)continue;
-        p.lv=lv;p.dead=dead;
-        if(dead){
-          p.mat.color.copy(p.base).lerp(GOAL_DEAD_COLOR,GOAL_DEAD_MIX);
-          p.mat.emissive.copy(GOAL_DEAD_EMISSIVE);
-          p.mat.emissiveIntensity=p.int*GOAL_DEAD_EMIT;
+        // Das ausgeschiedene Tor verliert seine Energie schon WAEHREND der Torneuordnung,
+        // statt am Ende hart umzuschalten. Ausserhalb einer Transition ist fbFxDrain 0 und
+        // der Wert bleibt der reine 0/1-Totzustand.
+        const dm=Math.max(dead,fbFxDrain(p.key));
+        if(lv===p.lv&&dm===p.dead)continue;
+        p.lv=lv;p.dead=dm;
+        if(dm>0){
+          p.mat.color.copy(p.base).lerp(GOAL_DEAD_COLOR,GOAL_DEAD_MIX*dm);
+          p.mat.emissive.copy(p.col).lerp(GOAL_DEAD_EMISSIVE,dm);
+          p.mat.emissiveIntensity=p.int*(1+(GOAL_DEAD_EMIT-1)*dm);
         }else{
           p.mat.color.copy(p.base);
           p.mat.emissive.copy(p.col).lerp(GOAL_FX_GOLD,GOAL_FX_MIX*lv);
@@ -6164,12 +6213,13 @@ async function initR3D(){
       // Bauteile ohne Torimpuls (Sockeltoenung): sie kennen nur Ruhe und Tod.
       for(const p of goalDeadParts){
         const dead=(footballGoalFxLevel(p.key,nowMs)===0&&goalDead(p.key))?1:0;
-        if(dead===p.dead)continue;
-        p.dead=dead;
-        if(dead){
-          p.mat.color.copy(p.base).lerp(GOAL_DEAD_COLOR,GOAL_DEAD_MIX);
-          p.mat.emissive.copy(GOAL_DEAD_EMISSIVE);
-          p.mat.emissiveIntensity=p.int*GOAL_DEAD_EMIT;
+        const dm=Math.max(dead,fbFxDrain(p.key));
+        if(dm===p.dead)continue;
+        p.dead=dm;
+        if(dm>0){
+          p.mat.color.copy(p.base).lerp(GOAL_DEAD_COLOR,GOAL_DEAD_MIX*dm);
+          p.mat.emissive.copy(p.col).lerp(GOAL_DEAD_EMISSIVE,dm);
+          p.mat.emissiveIntensity=p.int*(1+(GOAL_DEAD_EMIT-1)*dm);
         }else{
           p.mat.color.copy(p.base);
           p.mat.emissive.copy(p.col);
@@ -6179,6 +6229,53 @@ async function initR3D(){
       for(const s of goalShutPanels){
         const on=goalDead(s.key)&&footballGoalFxLevel(s.key,nowMs)===0;
         if(s.mesh.visible!==on)s.mesh.visible=on;
+      }
+    };
+    // ── ARENA-KANTEN-FX (rein visuell, nur mit ?dev=1&fx=) ─────────────────────────────
+    // Traeger ist ausschliesslich die vorhandene GOLDSTRUKTUR der Arena - Deck und Bande
+    // haengen dadurch an EINEM System, und das transparente Bandenglas leuchtet nie selbst.
+    // Damit der Impuls sichtbar durch den Aufbau laeuft statt ueberall gleichzeitig
+    // anzugehen, bekommt die Goldstruktur drei Stufen:
+    //   0 Kante der Spielflaeche · 1 Bandenlinie und Bande · 2 Aussenkante und Gesims
+    // Jede Stufe ist EIN dauerhaft gehaltener Materialklon. Der Arenaaufbau benutzt sie,
+    // statt pro Umbauschritt neue Materialien zu erzeugen - waehrend einer Transition wird
+    // die Arena dutzendfach neu gebaut, die Materialien bleiben dieselben.
+    const fbGoldTiers=[];
+    const FB_FX_GOLD=new THREE.Color(0xffe6b0);     // helle Kantenenergie, waermer als Weiss
+    const fbArenaGold=(tier)=>{
+      if(!fbGoldTiers.length){
+        const src=fbMat.gold||goldM;
+        for(let i=0;i<FB_FX_TIERS;i++){
+          const m=src.clone();
+          fbGoldTiers.push({mat:m,emis:m.emissive.clone(),int:m.emissiveIntensity,lv:-1});
+        }
+      }
+      return fbGoldTiers[tier].mat;
+    };
+    // Bodenmarkierungen: dieselbe Goldbasis, aber beidseitig und mit Polygon-Offset. Auch sie
+    // entsteht genau EINMAL - vorher wurde sie bei jedem Arenaaufbau neu geklont und waehrend
+    // einer Transition damit dutzendfach. Sie traegt bewusst KEIN Transitions-FX: eine
+    // leuchtende Mittellinie waere ein zweiter Akzent neben der Kante.
+    let fbMarkMat=null;
+    const fbArenaMark=()=>{
+      if(!fbMarkMat){
+        fbMarkMat=(fbMat.gold||goldM).clone();
+        fbMarkMat.side=THREE.DoubleSide;
+        fbMarkMat.polygonOffset=true;fbMarkMat.polygonOffsetFactor=-2;fbMarkMat.polygonOffsetUnits=-2;
+      }
+      return fbMarkMat;
+    };
+    // Ein Frame Arena-FX: je Stufe genau EINE Schreiboperation und nur bei geaendertem
+    // Pegel. Bei Pegel 0 wird exakt der Ruhezustand zurueckgeschrieben - es kann kein Glow
+    // haengen bleiben, auch nicht nach einem Matchreset mitten in der Transition.
+    const applyArenaFx=()=>{
+      if(!fbGoldTiers.length)return;
+      for(let i=0;i<fbGoldTiers.length;i++){
+        const t=fbGoldTiers[i],lv=fbFxEdge(i);
+        if(lv===t.lv)continue;
+        t.lv=lv;
+        if(lv<=0){t.mat.emissive.copy(t.emis);t.mat.emissiveIntensity=t.int;}
+        else{t.mat.emissive.copy(t.emis).lerp(FB_FX_GOLD,lv);t.mat.emissiveIntensity=t.int+FB_FX_EMIT*lv;}
       }
     };
     try{
@@ -6837,7 +6934,6 @@ async function initR3D(){
     // sondern in diskreten Schritten neu gebaut — fein genug fuer eine fluessige Bewegung.
     const FB_MORPH_GOAL_STEPS=16;    // Abschnitt A (Tore wandern, Bandenoeffnungen wandern mit)
     const FB_MORPH_ARENA_STEPS=30;   // Abschnitt B (Deck und Bande bauen um)
-    const FB_MORPH_RETRACT=0.55;     // Anteil von Abschnitt A, in dem sich das tote Tor zurueckzieht
     // Zwischenkontur und Bandenoeffnungen fuer den aktuellen Stand beider Abschnitte.
     // Die Oeffnung des ausgeschiedenen Tores schrumpft auf 0 — dort schliesst sich die Bande.
     // Torrichtung bei Fortschritt gp: kuerzester Winkelweg von der Torachse der Ausgangs-
@@ -6890,7 +6986,10 @@ async function initR3D(){
       const gap=av.postOuter*BR*FB_U;
       const G=new THREE.Group();fbShapeGroup=G;bGroup.add(G);
       const marble=fbPlatMat['M_Marble']||fbMat.marble,wall=fbPlatMat['M_MarbleWall']||fbMat.marble;
-      const stone=fbPlatMat['M_Stone']||wall,gold=fbMat.gold||goldM;
+      const stone=fbPlatMat['M_Stone']||wall;
+      // Goldstufen: innen (Spielflaechenkante), Bandenlinie/Bande, aussen (Deckkante/Gesims).
+      // Ausserhalb einer Transition tragen alle drei exakt dieselben Ruhewerte.
+      const goldIn=fbArenaGold(0),goldMid=fbArenaGold(1),goldOut=fbArenaGold(2),gold=goldMid;
       const ring=mo?mo.rd.ring:(polyRing||(tri?fbTriOutline(ap,rc,20):fbOutline(hx,hz,rc,20)));
       // Materialkopie fuer prozedurale Geometrie: Kachelung passend zu den UV in echter
       // Bogenlaenge, beidseitig gerendert (opake Bauteile, Umlaufrichtung unkritisch).
@@ -6903,12 +7002,12 @@ async function initR3D(){
       G.add(fill(FB_PLAY_INSET,0,fbTex(marble,.040)));
       const stepMat=fbTex(wall,.11);
       G.add(fbStrip(ring,-FB_PLAY_INSET,-FB_PLAY_INSET,0,FB_WALK_Y,stepMat));          // Stufenriss
-      G.add(fbSweep(ring,fbOct(.045),FB_WALK_Y-.014,gold));                            // Gold-Stufenkante
+      G.add(fbSweep(ring,fbOct(.045),FB_WALK_Y-.014,goldIn));                          // Gold-Stufenkante
       // 2) Randweg bis zur sichtbaren Aussenkante
       const DECK_OUT=fbDeckOut();
       G.add(fbStrip(ring,-FB_PLAY_INSET,DECK_OUT,FB_WALK_Y,FB_WALK_Y,fbTex(marble,.11)));
-      G.add(fbSweep(ring,fbOct(.022),FB_WALK_Y+.006,gold));                            // feiner Goldring an der Bandenlinie
-      G.add(fbSweep(ring,fbOct(.022).map(p=>[p[0]+DECK_OUT-.20,p[1]]),FB_WALK_Y+.006,gold));   // zweiter Goldring an der Aussenkante — gliedert den breiteren Aussensockel
+      G.add(fbSweep(ring,fbOct(.022),FB_WALK_Y+.006,goldMid));                         // feiner Goldring an der Bandenlinie
+      G.add(fbSweep(ring,fbOct(.022).map(p=>[p[0]+DECK_OUT-.20,p[1]]),FB_WALK_Y+.006,goldOut)); // zweiter Goldring an der Aussenkante — gliedert den breiteren Aussensockel
       // 3) Unterbau: Schuerze, Gesimsstufen und gestufte Verjuengung nach unten. Die runde
       //    Plattform kann das nicht liefern (feste Radien), also folgt der Sockel derselben
       //    Grundform. Rein visuell — nie Kollision, nie Spielfeld.
@@ -6921,11 +7020,10 @@ async function initR3D(){
         if(i>0)G.add(fbStrip(ring,tiers[i-1][0],o,y0,y0,mt,false));   // waagerechte Stufe zum naechsten Versatz
         G.add(fbStrip(ring,o,o,y0,y1,mt,i===0));                      // senkrechte Wand
       }
-      G.add(fbSweep(ring,fbOct(.030),-1.16,gold));                    // Goldkante am obersten Gesims
+      G.add(fbSweep(ring,fbOct(.030),-1.16,goldOut));                 // Goldkante am obersten Gesims
       G.add(fill(4.15,-7.10,stoneM));
       // 4) Bodenmarkierungen — bewusst ruhig: Mittellinie, reduzierter Mittelkreis, Mittelpunkt
-      const markMat=gold.clone();markMat.side=THREE.DoubleSide;
-      markMat.polygonOffset=true;markMat.polygonOffsetFactor=-2;markMat.polygonOffsetUnits=-2;
+      const markMat=fbArenaMark();
       const mkFlat=(geo)=>{geo.rotateX(-Math.PI/2);geo.translate(0,.006,0);const m=new THREE.Mesh(geo,markMat);m.renderOrder=2;return m;};
       // Mittellinie nur bei ZWEI gegenueberliegenden Toren — also in Classic/Tactical und im
       // Elimination-Finale. Bei vier oder drei Toren gibt es keine Haelften; eine Linie wuerde
@@ -6963,7 +7061,7 @@ async function initR3D(){
         G.add(fbSweep(seg,glass,.30,fbMat.glass));
         G.add(fbSweep(seg,rail,1.26,bandMarble));
         G.add(fbSweep(seg,rail,.25,bandMarble));
-        G.add(fbSweep(seg,fbOct(.021),1.312,gold));
+        G.add(fbSweep(seg,fbOct(.021),1.312,goldMid));
         // Pfosten in gleichmaessigem Bogenlaengenraster; die Segmentenden bekommen den
         // kraeftigeren Endpfosten neben der Toroeffnung (wie im Blender-Bandenbau).
         let acc=0;const marks=[0];
@@ -7120,6 +7218,7 @@ async function initR3D(){
       // weg (Menue, neues Match), liefert footballGoalFxLevel 0 und genau dieser Aufruf setzt
       // die Materialien im naechsten Frame auf ihre Ruhewerte zurueck.
       if(goalFxParts.length)applyGoalFx(t0+nowS*1000);
+      applyArenaFx();
       ringG.rotation.y=nowS*.07;ringG.position.y=-646+bob;
       cloudG.rotation.y=nowS*.006;                    // Wolken driften
       island.position.y=-404+Math.sin(nowS*.3+2.3)*35;
