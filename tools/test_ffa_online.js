@@ -13,6 +13,9 @@ const html = loadIndexHtml();
 const verSrc = grab(html, /const ONLINE_PROTOCOL_VERSION=[^\n]*/, 'ONLINE_PROTOCOL_VERSION');
 const seatsSrc = grab(html, /const FFA_MAX_SEATS=[^\n]*/, 'FFA_MAX_SEATS');
 const genSrc = grab(html, /const GEN_MAX=[^\n]*/, 'GEN_MAX');
+// Protokoll v4: Raumtyp, Football-Kontrakt und die kanonischen Zugereignisse. Der
+// Block kommt WOERTLICH aus index.html; die Validatoren unten fragen ihn ab.
+const protoSrc = grab(html, /const ROOM_GAME_RINGOUT=[\s\S]*?\nfunction validateTurnRecord\(rec,game,seat\)\{[\s\S]*?\n\}/, 'Protokoll v4');
 const vrSrc = grab(html, /function validateRoom\(d\)\{[\s\S]*?\n\}/, 'validateRoom');
 const pfsSrc = grab(html, /function pickFreeSeat\(p,max\)\{[^\n]*/, 'pickFreeSeat');
 const aacSrc = grab(html, /function allAliveCommitted\(\)\{[^\n]*/, 'allAliveCommitted');
@@ -28,6 +31,7 @@ const env = new Function(`
   ${verSrc}
   ${seatsSrc}
   ${genSrc}
+  ${protoSrc}
   ${vrSrc}
   ${pfsSrc}
   let mode='ffa', ffaN=3, fmt='ffa', balls=[], aimSet=[];   // fmt: startFfaMatch-Gate (triple_ffa braucht exakt 3)
@@ -64,17 +68,17 @@ const t = (name, cond) => { cond ? pass++ : (fail++, console.error('FAIL: ' + na
 // seatActive()/validateRoom() actually read (on); s/t are irrelevant here (the
 // rules — not the client — enforce their shape, see test_rules.js).
 const room = (over = {}) => Object.assign(
-  { v: VER, config: { winTarget: 3, fmt: 'single', visibility: 'private' }, gen: 0, state: 'lobby', p: { 0: { on: true } }, created: 1 }, over);
+  { v: VER, config: { game: 'ringout', winTarget: 3, fmt: 'single', visibility: 'private' }, gen: 0, state: 'lobby', p: { 0: { on: true } }, created: 1 }, over);
 const ffaRoom = (over = {}) => Object.assign(
-  { v: VER, config: { winTarget: 3, fmt: 'ffa', visibility: 'private' }, gen: 0, state: 'lobby', p: { 0: { on: true } }, created: 1 }, over);
+  { v: VER, config: { game: 'ringout', winTarget: 3, fmt: 'ffa', visibility: 'private' }, gen: 0, state: 'lobby', p: { 0: { on: true } }, created: 1 }, over);
 
 // ── (1) single/double: unified room-state, join only while state==='lobby' ──
 t('single valid', env.validateRoom(room()).ok === true);
-t('double valid', env.validateRoom(room({ config: { winTarget: 5, fmt: 'double', visibility: 'private' } })).ok === true);
+t('double valid', env.validateRoom(room({ config: { game: 'ringout', winTarget: 5, fmt: 'double', visibility: 'private' } })).ok === true);
 t('single full rejected', env.validateRoom(room({ p: { 0: { on: true }, 1: true } })).reason === 'Raum ist schon voll.');
 t('orphan rejected', env.validateRoom(room({ p: {} })).reason === 'Raum ist verwaist.');
 t('host reserved but not active rejected', env.validateRoom(room({ p: { 0: { on: false } } })).reason === 'Raum ist verwaist.');
-t('fmt triple rejected', env.validateRoom(room({ config: { winTarget: 3, fmt: 'triple' } })).ok === false);
+t('fmt triple rejected', env.validateRoom(room({ config: { game: 'ringout', winTarget: 3, fmt: 'triple' } })).ok === false);
 t('single state=playing rejected (match läuft)', env.validateRoom(room({ state: 'playing' })).reason === 'Match läuft bereits.');
 t('single state missing rejected', (() => { const r = room(); delete r.state; return env.validateRoom(r).reason === 'Match läuft bereits.'; })());
 t('single has no freeSeat', env.validateRoom(room()).freeSeat === undefined);
@@ -135,7 +139,7 @@ t('sg reserved-not-active is a gap', env.seatsContiguous({ 0: A, 1: { on: false 
 
   // ── (7) triple_ffa: validateRoom-Schema + Start-Gate exakt 3 Spieler ──
   const tripleRoom = (over = {}) => Object.assign(
-    { v: VER, config: { winTarget: 3, fmt: 'triple_ffa', visibility: 'private' }, gen: 0, state: 'lobby', p: { 0: { on: true } }, created: 1 }, over);
+    { v: VER, config: { game: 'ringout', winTarget: 3, fmt: 'triple_ffa', visibility: 'private' }, gen: 0, state: 'lobby', p: { 0: { on: true } }, created: 1 }, over);
   t('triple lobby valid -> seat 1', (() => { const v = env.validateRoom(tripleRoom()); return v.ok === true && v.freeSeat === 1 && v.fmt === 'triple_ffa'; })());
   t('triple full (3 seats) rejected', env.validateRoom(tripleRoom({ p: { 0: { on: true }, 1: true, 2: true } })).reason === 'Raum ist schon voll.');
   t('triple state playing rejected', env.validateRoom(tripleRoom({ state: 'playing' })).reason === 'Match läuft bereits.');

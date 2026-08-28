@@ -54,6 +54,8 @@ const SRC = [
   fn('fbFailKey'),
   grab(/function rRef\(p\)\{[^\n]*/, 'rRef'),
   grab(/function setStatus\(t\)\{[^\n]*/, 'setStatus'),
+  // Protokoll v4: Raumtyp + Football-Kontrakt + kanonische Zugereignisse, woertlich.
+  grab(/const ROOM_GAME_RINGOUT=[\s\S]*?\nfunction validateTurnRecord\(rec,game,seat\)\{[\s\S]*?\n\}/, 'Protokoll v4'),
   grab(/function validateRoom\(d\)\{[\s\S]*?\n\}/, 'validateRoom'),
   grab(/function pickFreeSeat\(p,max\)\{[^\n]*/, 'pickFreeSeat'),
   grab(/function seatCount\(p\)\{[^\n]*/, 'seatCount'),
@@ -499,7 +501,7 @@ async function dropSeat(db, code, seat) {
     const db = makeDB();
     const [h, g1, g2] = [makeClient(db, 'FFA3'), makeClient(db, 'X'), makeClient(db, 'X')];
     h.setMenu('ffa', 3); h.create(); await tick();
-    t('S1 room created ffa lobby v3', db.data.rooms.FFA3.state === 'lobby' && db.data.rooms.FFA3.config.fmt === 'ffa' && db.data.rooms.FFA3.v === 3);
+    t('S1 room created ffa lobby v4 (ringout)', db.data.rooms.FFA3.state === 'lobby' && db.data.rooms.FFA3.config.fmt === 'ffa' && db.data.rooms.FFA3.config.game === 'ringout' && db.data.rooms.FFA3.v === 4);
     t('S1 host roster record written', !!db.data.rooms.FFA3.players && db.data.rooms.FFA3.players[0] && db.data.rooms.FFA3.players[0].id === h.pid());
     g1.setMenu('online'); g1.join('FFA3'); await tick();
     g2.setMenu('online'); g2.join('FFA3'); await tick();

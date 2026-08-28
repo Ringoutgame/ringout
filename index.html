@@ -5008,7 +5008,7 @@ function createRoom(){
       // Rejoin-/Claim-/Recycling-Erlaubnis. FFA bleibt bis zum Host-Start in 'lobby';
       // 1v1/2v2 schaltet der atomare Gastclaim auf 'playing' (siehe joinRoom).
       // RESERVE: Raum inkl. Host-Reservierung (p/0.on=false) + players/0 anlegen.
-      const room={v:ONLINE_PROTOCOL_VERSION, config:{winTarget:winTarget,fmt:fmtNew,visibility:visibility}, gen:0, state:'lobby',
+      const room={v:ONLINE_PROTOCOL_VERSION, config:{game:ROOM_GAME_RINGOUT,winTarget:winTarget,fmt:fmtNew,visibility:visibility}, gen:0, state:'lobby',
         p:{0:{s:onlineTab,on:false,t:window.FB.serverTimestamp()}}, players:{0:rec}, created:window.FB.serverTimestamp()};
       await window.FB.set(window.FB.ref(window.FB.db,'rooms/'+code), room);
       created=true;   // room exists from here on -> abortFreshRoom(code,...) below is now safe to call
@@ -5147,8 +5147,75 @@ function joinPublicRoom(code){
 // disconnect semantics change (lobby host grace; players/<seat> survives a reload),
 // so a mixed v2/v3 room is unsafe — this bump goes live together with the matching
 // firebase.rules.json publish (hard cutover, after Paket B).
-const ONLINE_PROTOCOL_VERSION=3;
+// v4 fuehrt Faehigkeiten ein, die eine aeltere Fassung nicht sicher lesen kann: einen
+// expliziten Raumtyp, fuenf Football-Sitze, den neutralen Ballkoerper und typisierte
+// Zugereignisse. Ein v3-Raum wird deshalb sauber abgelehnt statt teilweise gelesen.
+const ONLINE_PROTOCOL_VERSION=4;
 const FFA_MAX_SEATS=5;   // Online-FFA: Seats 0-4 (Host=0), Farben aus PCOLS
+// ── RAUMTYP (v4) ──────────────────────────────────────────────────────────────────
+// config.game trennt die beiden Produktfamilien serverseitig. Bewusst NICHT 'mode':
+// dieser Name ist im Client bereits doppelt belegt (die globale Laufart 'bot'/'pvp'/
+// 'online'/'ffa'/'football' und das Anzeigefeld der Public-Lobby, das cfg.fmt spiegelt).
+// Ein dritter Sinn haette die Begriffe endgueltig vermischt.
+//   'ringout'  alle bestehenden Formate, unveraendert
+//   'football' Arena Football; config.fmt traegt die Football-Variante
+const ROOM_GAME_RINGOUT='ringout', ROOM_GAME_FOOTBALL='football';
+const RINGOUT_FMTS=['single','double','ffa','triple_ffa','team_duel'];
+const FOOTBALL_FMTS=['elimination'];
+// Fuenf Football-Teilnehmer (Sitze 0-4). Der neutrale Ball ist KEIN Teilnehmer: er hat
+// keinen Sitz, keine Praesenz und keine Identitaet - nur einen Koerperindex.
+const FB_ONLINE_SEATS=5, FB_ONLINE_BALL_IDX=5;
+// Zugereignisse. Sie sind AUSDRUECKLICH typisiert, damit nie wieder eine Ersatzbedeutung
+// in einen Nullvektor oder einen fremden Koerperindex hineingelesen werden muss:
+//   move    ein echter Abschuss des Sitzeigentuemers
+//   skip    der Teilnehmer bleibt im Match, gibt in dieser Runde aber keinen Abschuss ab
+//   remove  der Teilnehmer ist endgueltig entfernt (setzt g/<gen>/e/<seat> voraus)
+// skip ist KEINE Eliminierung, veraendert KEINE Leben und setzt KEINE Eviction.
+const TURN_MOVE='move', TURN_SKIP='skip', TURN_REMOVE='remove';
+// Kompatibilitaet (bewusst kleine Flaeche): 'k' ist NUR in Football-Raeumen Pflicht.
+// Bestehende RingOut-Zuege behalten ihre Form {idx,dx,dy,sp} unveraendert - so bleibt der
+// gesamte RingOut-Lockstep bit-identisch und die bestehenden Suiten behalten ihre Aussage.
+function roomGame(cfg){ return (cfg&&cfg.game===ROOM_GAME_FOOTBALL)?ROOM_GAME_FOOTBALL:ROOM_GAME_RINGOUT; }
+function roomIsFootball(cfg){ return !!(cfg&&cfg.game===ROOM_GAME_FOOTBALL); }
+// Zulaessige Paarung aus Raumtyp und Format. Jede andere Kombination ist ungueltig -
+// insbesondere ein Football-Raum mit einem RingOut-Format und umgekehrt.
+function validGamePair(game,fmt){
+  if(game===ROOM_GAME_RINGOUT)return RINGOUT_FMTS.indexOf(fmt)>=0;
+  if(game===ROOM_GAME_FOOTBALL)return FOOTBALL_FMTS.indexOf(fmt)>=0;
+  return false;
+}
+// Teilnehmerzahl eines Raumtyps. Football hat exakt fuenf Sitze; der Ball zaehlt nicht mit.
+function roomSeatCap(cfg){
+  if(roomIsFootball(cfg))return FB_ONLINE_SEATS;
+  return cfg&&cfg.fmt==='triple_ffa'?3:cfg&&cfg.fmt==='team_duel'?4:cfg&&cfg.fmt==='ffa'?FFA_MAX_SEATS:2;
+}
+// ── KANONISCHE ZUGDATENSAETZE (v4, Football) ─────────────────────────────────────
+// Genau eine Bauform je Ereignis. skip und remove tragen zwingend den Nullvektor: ein
+// typisiertes Ereignis mit Abschussvektor waere eine gemischte Bedeutung.
+function fbTurnMove(seat,dx,dy,sp){ return {k:TURN_MOVE,idx:seat,dx:dx,dy:dy,sp:sp||0}; }
+function fbTurnSkip(seat){ return {k:TURN_SKIP,idx:seat,dx:0,dy:0,sp:0}; }
+function fbTurnRemove(seat){ return {k:TURN_REMOVE,idx:seat,dx:0,dy:0,sp:0}; }
+// Reiner Validator eines Zugdatensatzes. game entscheidet ueber die Bauform, seat ist der
+// Sitz, dessen Slot beschrieben wird. Keine Globals, keine stillen Voreinstellungen.
+function validateTurnRecord(rec,game,seat){
+  if(!rec||typeof rec!=='object')return false;
+  if(!Number.isInteger(rec.idx)||!Number.isFinite(rec.dx)||!Number.isFinite(rec.dy)||!Number.isFinite(rec.sp))return false;
+  if(rec.dx<-195||rec.dx>195||rec.dy<-195||rec.dy>195||rec.sp<-1||rec.sp>1)return false;
+  const keys=Object.keys(rec);
+  if(game!==ROOM_GAME_FOOTBALL){
+    // RingOut: unveraenderte Form, KEIN k.
+    return keys.length===4&&keys.every(k=>k==='idx'||k==='dx'||k==='dy'||k==='sp');
+  }
+  if(keys.length!==5||!keys.every(k=>k==='k'||k==='idx'||k==='dx'||k==='dy'||k==='sp'))return false;
+  if(!Number.isInteger(seat)||seat<0||seat>=FB_ONLINE_SEATS)return false;
+  if(rec.k===TURN_MOVE){
+    // Ein Abschuss gehoert IMMER der eigenen Figur. Damit ist der neutrale Ball
+    // (Koerperindex 5) fuer keinen Spieler beanspruchbar.
+    return rec.idx===seat;
+  }
+  if(rec.k===TURN_SKIP||rec.k===TURN_REMOVE)return rec.idx===seat&&rec.dx===0&&rec.dy===0&&rec.sp===0;
+  return false;
+}
 // Pure validator for a room snapshot the joiner is about to trust. No globals,
 // no state, no silent defaults: invalid or missing fields reject the join.
 // v3: p/<seat> is {s,on,t} — the host only counts as present when p/0.on===true.
@@ -5159,8 +5226,10 @@ function validateRoom(d){
   if(!d||typeof d!=='object')return{ok:false,reason:'Raumdaten ungültig.'};
   if(d.v!==ONLINE_PROTOCOL_VERSION)return{ok:false,reason:'Versionen stimmen nicht überein — bitte beide Seite neu laden.'};
   const cfg=d.config;
-  if(!cfg||typeof cfg!=='object'||(cfg.winTarget!==3&&cfg.winTarget!==5)||(cfg.fmt!=='single'&&cfg.fmt!=='double'&&cfg.fmt!=='ffa'&&cfg.fmt!=='triple_ffa'&&cfg.fmt!=='team_duel'))
+  if(!cfg||typeof cfg!=='object'||(cfg.winTarget!==3&&cfg.winTarget!==5))
     return{ok:false,reason:'Raum-Konfiguration ungültig.'};
+  // v4: Raumtyp ist Pflicht und muss zum Format passen. Kein stiller Default.
+  if(!validGamePair(cfg.game,cfg.fmt))return{ok:false,reason:'Raum-Konfiguration ungültig.'};
   // Public-Lobby (feature/public-lobby-mvp): visibility ist Pflicht und exakt
   // 'private' | 'public'. Fehlend/ungueltig -> Ablehnung (kein stiller Default).
   // Der Wert ist nach Erstellung unveraenderlich (config wird nie neu geschrieben).
@@ -5170,13 +5239,14 @@ function validateRoom(d){
     return{ok:false,reason:'Raum-Konfiguration ungültig.'};
   const p=d.p;
   if(!p||typeof p!=='object'||!(p[0]&&p[0].on===true))return{ok:false,reason:'Raum ist verwaist.'};
-  if(cfg.fmt==='ffa'||cfg.fmt==='triple_ffa'||cfg.fmt==='team_duel'){
-    // FFA-Raum (live seit M8-T3c) / TRIPLE FFA (exakt 3 Sitze) / TEAM DUEL (exakt
-    // 4 Sitze): Beitritt nur solange die Lobby offen ist und ein Gast-Seat frei ist.
+  // Mehrsitzige Raeume (FFA / TRIPLE FFA / TEAM DUEL / Football-Elimination): Beitritt
+  // nur solange die Lobby offen ist und ein Gastsitz frei ist. Die Sitzzahl kommt aus
+  // roomSeatCap() - ein Football-Raum hat fuenf Sitze und ist KEIN Zweispielerraum.
+  if(roomSeatCap(cfg)>2){
     if(d.state!=='lobby')return{ok:false,reason:'Match läuft bereits.'};
-    const seat=pickFreeSeat(p,cfg.fmt==='triple_ffa'?3:cfg.fmt==='team_duel'?4:FFA_MAX_SEATS);
+    const seat=pickFreeSeat(p,roomSeatCap(cfg));
     if(seat<0)return{ok:false,reason:'Raum ist schon voll.'};
-    return{ok:true,winTarget:cfg.winTarget,fmt:cfg.fmt,gen:d.gen,freeSeat:seat};
+    return{ok:true,winTarget:cfg.winTarget,fmt:cfg.fmt,game:roomGame(cfg),gen:d.gen,freeSeat:seat};
   }
   // 1v1/2v2: Beitritt nur solange die Lobby offen ist (einheitlicher Room-State).
   // Der erfolgreiche Gastclaim schaltet danach atomar auf state:'playing'.
@@ -5196,7 +5266,7 @@ function validateRejoinRoom(d){
   if(d.v!==ONLINE_PROTOCOL_VERSION)return{ok:false,reason:'noRoom'};
   const cfg=d.config;
   if(!cfg||typeof cfg!=='object'||(cfg.winTarget!==3&&cfg.winTarget!==5))return{ok:false,reason:'noRoom'};
-  if(cfg.fmt!=='single'&&cfg.fmt!=='double'&&cfg.fmt!=='ffa'&&cfg.fmt!=='triple_ffa'&&cfg.fmt!=='team_duel')return{ok:false,reason:'noRoom'};
+  if(!validGamePair(cfg.game,cfg.fmt))return{ok:false,reason:'noRoom'};
   if(cfg.visibility!=='private'&&cfg.visibility!=='public')return{ok:false,reason:'noRoom'};
   if(!Number.isSafeInteger(d.gen)||d.gen<0||d.gen>GEN_MAX)return{ok:false,reason:'noRoom'};
   if(d.state!=='lobby'&&d.state!=='playing')return{ok:false,reason:'rejoinNoLobby'};
@@ -5224,7 +5294,10 @@ function publicListingView(d,now){
   if(d.v!==ONLINE_PROTOCOL_VERSION)return{show:false,remove:true};
   const cfg=d.config;
   if(!cfg||typeof cfg!=='object'||cfg.visibility!=='public')return{show:false,remove:true};
-  if(cfg.fmt!=='single'&&cfg.fmt!=='double'&&cfg.fmt!=='ffa'&&cfg.fmt!=='triple_ffa'&&cfg.fmt!=='team_duel')return{show:false,remove:true};
+  if(!validGamePair(cfg.game,cfg.fmt))return{show:false,remove:true};
+  // Football-Raeume erscheinen (noch) nicht in der oeffentlichen Lobby: es gibt keinen
+  // Produktweg, der sie erzeugt. Die Zeile ist die Absicherung, nicht die Absicht.
+  if(roomIsFootball(cfg))return{show:false,remove:false};
   if(!Number.isFinite(d.created)||(now-d.created)>=ROOM_MAX_AGE_MS)return{show:false,remove:true};
   if(d.state!=='lobby')return{show:false,remove:true};   // match started/finished -> stale
   // From here the listing itself is valid; it is only HIDDEN (not removed) for transient

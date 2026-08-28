@@ -3,16 +3,19 @@ const { loadIndexHtml, grab } = require('./extract');
 const html = loadIndexHtml();
 const genSrc = grab(html, /const GEN_MAX=[^\n]*/, 'GEN_MAX');
 const verSrc = grab(html, /const ONLINE_PROTOCOL_VERSION=[^\n]*/, 'ONLINE_PROTOCOL_VERSION');
+// Protokoll v4: Raumtyp, Football-Kontrakt und die kanonischen Zugereignisse. Der
+// Block kommt WOERTLICH aus index.html; die Validatoren unten fragen ihn ab.
+const protoSrc = grab(html, /const ROOM_GAME_RINGOUT=[\s\S]*?\nfunction validateTurnRecord\(rec,game,seat\)\{[\s\S]*?\n\}/, 'Protokoll v4');
 const vrSrc = grab(html, /function validateRoom\(d\)\{[\s\S]*?\n\}/, 'validateRoom');
 // Join snippets with newlines, never ';': an extracted line may end in a
 // // comment, which only a real line break (absent on Linux/LF) terminates.
-const validateRoom = new Function([verSrc, genSrc, vrSrc, 'return validateRoom;'].join('\n'))();
+const validateRoom = new Function([verSrc, genSrc, protoSrc, vrSrc, 'return validateRoom;'].join('\n'))();
 const VER = new Function([verSrc, 'return ONLINE_PROTOCOL_VERSION;'].join('\n'))();   // fixtures follow the real protocol version
 
 let pass = 0, fail = 0;
 const t = (name, cond) => { cond ? pass++ : (fail++, console.error('FAIL: ' + name)); };
 const room = (over = {}) => Object.assign(
-  { v: VER, config: { winTarget: 3, fmt: 'single', visibility: 'private' }, gen: 0, state: 'lobby', p: { 0: { s: 'hosttoken1', on: true, t: 1751800000000 } }, created: 1751800000000 }, over);
+  { v: VER, config: { game: 'ringout', winTarget: 3, fmt: 'single', visibility: 'private' }, gen: 0, state: 'lobby', p: { 0: { s: 'hosttoken1', on: true, t: 1751800000000 } }, created: 1751800000000 }, over);
 
 // ── protocol version (M1-T3) ──
 const VMSG = 'Versionen stimmen nicht überein — bitte beide Seite neu laden.';
@@ -26,13 +29,13 @@ t('v null -> reject', validateRoom(room({ v: null })).reason === VMSG);
 
 // ── valid rooms ──
 t('valid 3/single', validateRoom(room()).ok === true);
-t('valid 5/double', validateRoom(room({ config: { winTarget: 5, fmt: 'double', visibility: 'private' } })).ok === true);
+t('valid 5/double', validateRoom(room({ config: { game: 'ringout', winTarget: 5, fmt: 'double', visibility: 'private' } })).ok === true);
 t('valid gen 7 (rematches)', validateRoom(room({ gen: 7 })).ok === true);
 t('valid gen at GEN_MAX', validateRoom(room({ gen: 10000 })).ok === true);
 t('valid p as Firebase array [{...}]', validateRoom(room({ p: [{ s: 'hosttoken1', on: true, t: 1 }] })).ok === true);
 t('valid: unknown extra fields ignored', validateRoom(room({ zzz: 'junk' })).ok === true);
 t('valid: guest slot cleared (p[1] falsy)', validateRoom(room({ p: { 0: { s: 'hosttoken1', on: true, t: 1 }, 1: false } })).ok === true);
-{ const v = validateRoom(room({ config: { winTarget: 5, fmt: 'double', visibility: 'public' }, gen: 3 }));
+{ const v = validateRoom(room({ config: { game: 'ringout', winTarget: 5, fmt: 'double', visibility: 'public' }, gen: 3 }));
   t('returns exact validated values', v.winTarget === 5 && v.fmt === 'double' && v.gen === 3); }
 
 // ── invalid: root / config — NO silent defaults ──
@@ -40,12 +43,12 @@ t('null room', validateRoom(null).ok === false);
 t('string room', validateRoom('x').ok === false);
 t('config missing', validateRoom(room({ config: undefined })).ok === false);
 t('config wrong type', validateRoom(room({ config: 'single' })).ok === false);
-t('winTarget 9999', validateRoom(room({ config: { winTarget: 9999, fmt: 'single' } })).ok === false);
-t('winTarget "3" (string)', validateRoom(room({ config: { winTarget: '3', fmt: 'single' } })).ok === false);
-t('winTarget 4', validateRoom(room({ config: { winTarget: 4, fmt: 'single' } })).ok === false);
+t('winTarget 9999', validateRoom(room({ config: { game: 'ringout', winTarget: 9999, fmt: 'single' } })).ok === false);
+t('winTarget "3" (string)', validateRoom(room({ config: { game: 'ringout', winTarget: '3', fmt: 'single' } })).ok === false);
+t('winTarget 4', validateRoom(room({ config: { game: 'ringout', winTarget: 4, fmt: 'single' } })).ok === false);
 t('winTarget missing', validateRoom(room({ config: { fmt: 'single' } })).ok === false);
-t('fmt "triple"', validateRoom(room({ config: { winTarget: 3, fmt: 'triple' } })).ok === false);
-t('fmt null', validateRoom(room({ config: { winTarget: 3, fmt: null } })).ok === false);
+t('fmt "triple"', validateRoom(room({ config: { game: 'ringout', winTarget: 3, fmt: 'triple' } })).ok === false);
+t('fmt null', validateRoom(room({ config: { game: 'ringout', winTarget: 3, fmt: null } })).ok === false);
 
 // ── invalid: gen ──
 t('gen -1', validateRoom(room({ gen: -1 })).ok === false);
@@ -69,7 +72,7 @@ t('full room as array [{...},true]', validateRoom(room({ p: [{ s: 'hosttoken1', 
 // ── unified room-state (Paket A): 1v1/2v2 join only while the lobby is open ──
 t('single without state -> match läuft', validateRoom(room({ state: undefined })).reason === 'Match läuft bereits.');
 t('single state=playing -> match läuft', validateRoom(room({ state: 'playing' })).reason === 'Match läuft bereits.');
-t('double state=playing -> match läuft', validateRoom(room({ config: { winTarget: 3, fmt: 'double', visibility: 'private' }, state: 'playing' })).reason === 'Match läuft bereits.');
+t('double state=playing -> match läuft', validateRoom(room({ config: { game: 'ringout', winTarget: 3, fmt: 'double', visibility: 'private' }, state: 'playing' })).reason === 'Match läuft bereits.');
 t('single state=lobby -> ok', validateRoom(room({ state: 'lobby' })).ok === true);
 
 // ── purity ──

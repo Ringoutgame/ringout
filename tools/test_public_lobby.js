@@ -10,10 +10,13 @@ const verSrc = grab(html, /const ONLINE_PROTOCOL_VERSION=[^\n]*/, 'ONLINE_PROTOC
 const genSrc = grab(html, /const GEN_MAX=[^\n]*/, 'GEN_MAX');
 const ffaSrc = grab(html, /const FFA_MAX_SEATS=[^\n]*/, 'FFA_MAX_SEATS');
 const ageSrc = grab(html, /const ROOM_MAX_AGE_MS=[^\n]*/, 'ROOM_MAX_AGE_MS');
+// Protokoll v4: Raumtyp, Football-Kontrakt und die kanonischen Zugereignisse. Der
+// Block kommt WOERTLICH aus index.html; die Validatoren unten fragen ihn ab.
+const protoSrc = grab(html, /const ROOM_GAME_RINGOUT=[\s\S]*?\nfunction validateTurnRecord\(rec,game,seat\)\{[\s\S]*?\n\}/, 'Protokoll v4');
 const vrSrc = grab(html, /function validateRoom\(d\)\{[\s\S]*?\n\}/, 'validateRoom');
 const plvSrc = grab(html, /function publicListingView\(d,now\)\{[\s\S]*?\n\}/, 'publicListingView');
 // Join snippets with newlines (never ';') — an extracted line may end in a // comment.
-const mod = new Function([verSrc, genSrc, ffaSrc, ageSrc, vrSrc, plvSrc,
+const mod = new Function([verSrc, genSrc, ffaSrc, ageSrc, protoSrc, vrSrc, plvSrc,
   'return { validateRoom, publicListingView, ONLINE_PROTOCOL_VERSION, ROOM_MAX_AGE_MS };'].join('\n'))();
 const { validateRoom, publicListingView, ONLINE_PROTOCOL_VERSION: VER, ROOM_MAX_AGE_MS } = mod;
 
@@ -22,20 +25,20 @@ const t = (name, cond) => { cond ? pass++ : (fail++, console.error('FAIL: ' + na
 
 // ── validateRoom: visibility is mandatory and exactly 'private' | 'public' ──
 const vroom = (over = {}) => Object.assign(
-  { v: VER, config: { winTarget: 3, fmt: 'single', visibility: 'private' }, gen: 0, state: 'lobby',
+  { v: VER, config: { game: 'ringout', winTarget: 3, fmt: 'single', visibility: 'private' }, gen: 0, state: 'lobby',
     p: { 0: { s: 'hosttoken1', on: true, t: 1 } }, created: 1 }, over);
 t('validate: visibility private -> ok', validateRoom(vroom()).ok === true);
-t('validate: visibility public -> ok', validateRoom(vroom({ config: { winTarget: 3, fmt: 'single', visibility: 'public' } })).ok === true);
-t('validate: visibility missing -> reject', validateRoom(vroom({ config: { winTarget: 3, fmt: 'single' } })).ok === false);
-t('validate: visibility null -> reject', validateRoom(vroom({ config: { winTarget: 3, fmt: 'single', visibility: null } })).ok === false);
-t('validate: visibility "secret" -> reject', validateRoom(vroom({ config: { winTarget: 3, fmt: 'single', visibility: 'secret' } })).ok === false);
-t('validate: visibility "Public" (case) -> reject', validateRoom(vroom({ config: { winTarget: 3, fmt: 'single', visibility: 'Public' } })).ok === false);
+t('validate: visibility public -> ok', validateRoom(vroom({ config: { game: 'ringout', winTarget: 3, fmt: 'single', visibility: 'public' } })).ok === true);
+t('validate: visibility missing -> reject', validateRoom(vroom({ config: { game: 'ringout', winTarget: 3, fmt: 'single' } })).ok === false);
+t('validate: visibility null -> reject', validateRoom(vroom({ config: { game: 'ringout', winTarget: 3, fmt: 'single', visibility: null } })).ok === false);
+t('validate: visibility "secret" -> reject', validateRoom(vroom({ config: { game: 'ringout', winTarget: 3, fmt: 'single', visibility: 'secret' } })).ok === false);
+t('validate: visibility "Public" (case) -> reject', validateRoom(vroom({ config: { game: 'ringout', winTarget: 3, fmt: 'single', visibility: 'Public' } })).ok === false);
 t('validate: wrong version still rejected first', validateRoom(vroom({ v: VER - 1 })).ok === false);
 
 // ── publicListingView: which public rooms may be shown / cleaned up ──
 const NOW = 1751900000000;
 const listRoom = (over = {}) => Object.assign(
-  { v: VER, config: { winTarget: 3, fmt: 'ffa', visibility: 'public' }, gen: 0, state: 'lobby',
+  { v: VER, config: { game: 'ringout', winTarget: 3, fmt: 'ffa', visibility: 'public' }, gen: 0, state: 'lobby',
     p: { 0: { s: 'h', on: true, t: 1 } }, players: { 0: { id: 'H', name: 'HostA', tab: 'h' } }, created: NOW - 1000 }, over);
 const view = (over) => publicListingView(listRoom(over), NOW);
 
@@ -46,7 +49,7 @@ const view = (over) => publicListingView(listRoom(over), NOW);
   t('show: mode + capacity (ffa=5)', v.mode === 'ffa' && v.capacity === 5);
   t('show: active counts the online host only', v.active === 1); }
 // single/double capacity is 2 real players
-{ const v = publicListingView(listRoom({ config: { winTarget: 3, fmt: 'single', visibility: 'public' } }), NOW);
+{ const v = publicListingView(listRoom({ config: { game: 'ringout', winTarget: 3, fmt: 'single', visibility: 'public' } }), NOW);
   t('show: single capacity is 2', v.show === true && v.capacity === 2 && v.active === 1); }
 // active counts only on===true (a reserved on:false seat does not count)
 { const v = view({ p: { 0: { s: 'h', on: true, t: 1 }, 1: { s: 'g', on: false, t: 1 } } });
@@ -58,9 +61,9 @@ const view = (over) => publicListingView(listRoom(over), NOW);
 t('remove: null room', publicListingView(null, NOW).remove === true);
 t('remove: non-object room', publicListingView('x', NOW).remove === true);
 t('remove: wrong protocol version', view({ v: VER - 1 }).remove === true && view({ v: VER - 1 }).show === false);
-t('remove: private room never listed', view({ config: { winTarget: 3, fmt: 'ffa', visibility: 'private' } }).remove === true);
+t('remove: private room never listed', view({ config: { game: 'ringout', winTarget: 3, fmt: 'ffa', visibility: 'private' } }).remove === true);
 t('remove: missing config', view({ config: undefined }).remove === true);
-t('remove: invalid fmt', view({ config: { winTarget: 3, fmt: 'triple', visibility: 'public' } }).remove === true);
+t('remove: invalid fmt', view({ config: { game: 'ringout', winTarget: 3, fmt: 'triple', visibility: 'public' } }).remove === true);
 t('remove: state playing (match running)', view({ state: 'playing' }).remove === true && view({ state: 'playing' }).show === false);
 t('remove: created older than 2h', view({ created: NOW - ROOM_MAX_AGE_MS }).remove === true);
 t('remove: created just under 2h -> not stale', view({ created: NOW - (ROOM_MAX_AGE_MS - 1000) }).show === true);
@@ -73,7 +76,7 @@ t('remove: created NaN', view({ created: NaN }).remove === true);
 { const full = { 0: { s: 'a', on: true, t: 1 }, 1: { s: 'b', on: true, t: 1 }, 2: { s: 'c', on: true, t: 1 }, 3: { s: 'd', on: true, t: 1 }, 4: { s: 'e', on: true, t: 1 } };
   const v = view({ p: full });
   t('hide: full ffa (5 active) -> not shown, not removed', v.show === false && v.remove === false); }
-{ const v = publicListingView(listRoom({ config: { winTarget: 3, fmt: 'single', visibility: 'public' }, p: { 0: { s: 'a', on: true, t: 1 }, 1: { s: 'b', on: true, t: 1 } } }), NOW);
+{ const v = publicListingView(listRoom({ config: { game: 'ringout', winTarget: 3, fmt: 'single', visibility: 'public' }, p: { 0: { s: 'a', on: true, t: 1 }, 1: { s: 'b', on: true, t: 1 } } }), NOW);
   t('hide: full single (2 active) -> not shown, not removed', v.show === false && v.remove === false); }
 
 // missing host name falls back to empty string (renderer substitutes a label)

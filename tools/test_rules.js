@@ -93,19 +93,23 @@ function tryWrite(db, path, value, uid) {
 }
 
 // ── fixtures (Presence & Reconnect v3: p/<seat> = {s, on, t}) ──
-const V = 3;
+const V = 4;   // Protokoll v4
 const GRACE = 15000;
 const H_TAB = 'HOSTTAB0', G_TAB = 'GTAB0001', G2_TAB = 'GTAB0002';
 // Durable roster records; players/<seat>.tab MUST equal p/<seat>.s (coupling).
-const HOST = { id: 'HOST0000', name: 'Host', tab: H_TAB };
-const REC = (id, tab) => ({ id: id || 'GUEST001', name: 'G', tab: tab || G_TAB });
+// v4: jeder Rostereintrag traegt seinen Eigentuemer. Die Basisfixtures benutzen die
+// Standardidentitaet des Harness (UID_GUEST), damit die bestehenden Einzelwrites
+// weiterhin vom Standardschreiber ausgehen; die Eigentumsgruppen unten setzen ihre
+// uids ausdruecklich.
+const HOST = { id: 'HOST0000', name: 'Host', tab: H_TAB, uid: UID_GUEST };
+const REC = (id, tab) => ({ id: id || 'GUEST001', name: 'G', tab: tab || G_TAB, uid: UID_GUEST });
 // Presence object. t must equal `now` on any real write; fixtures may pre-seed
 // an older t to model a seat that has been offline for a while.
 const P = (s, on, t) => ({ s, on: !!on, t: (t === undefined ? NOW : t) });
 // Unified room-state: EVERY mode is created with state:'lobby' and an OFFLINE
 // host presence (p/0.on === false) — the host ACTIVATEs right after create.
 const mkRoom = (fmt, over = {}) => Object.assign(
-  { v: V, config: { winTarget: 3, fmt, visibility: 'private' }, gen: 0, state: 'lobby', p: { 0: P(H_TAB, false) }, players: { 0: HOST }, created: NOW },
+  { v: V, config: { game: 'ringout', winTarget: 3, fmt, visibility: 'private' }, gen: 0, state: 'lobby', p: { 0: P(H_TAB, false) }, players: { 0: HOST }, created: NOW },
   over);
 const db1 = (roomOver = {}, fmt = 'single') => ({ rooms: { KX7P: mkRoom(fmt, Object.assign({ created: NOW - 5000 }, roomOver)) } });
 const MOVE = { idx: 0, dx: 100, dy: -50, sp: 0.5 };
@@ -117,10 +121,10 @@ const deny = (name, db, path, v, uid) => t('[DENY]  ' + name, tryWrite(db, path,
 
 // ── (1) room creation — v3 object presence, offline host, atomic identity ──
 allow('create single', { rooms: {} }, 'rooms/KX7P', mkRoom('single'));
-allow('create double', { rooms: {} }, 'rooms/KX7P', mkRoom('double', { config: { winTarget: 5, fmt: 'double', visibility: 'private' } }));
+allow('create double', { rooms: {} }, 'rooms/KX7P', mkRoom('double', { config: { game: 'ringout', winTarget: 5, fmt: 'double', visibility: 'private' } }));
 allow('create ffa', { rooms: {} }, 'rooms/KX7P', mkRoom('ffa'));
 deny('create v1 (old protocol)', { rooms: {} }, 'rooms/KX7P', mkRoom('single', { v: 1 }));
-deny('create fmt triple', { rooms: {} }, 'rooms/KX7P', mkRoom('single', { config: { winTarget: 3, fmt: 'triple' } }));
+deny('create fmt triple', { rooms: {} }, 'rooms/KX7P', mkRoom('single', { config: { game: 'ringout', winTarget: 3, fmt: 'triple' } }));
 deny('create p/0 boolean (old presence schema)', { rooms: {} }, 'rooms/KX7P', mkRoom('single', { p: { 0: true } }));
 deny('create p/0 on:true (Empty->on:true forbidden at create)', { rooms: {} }, 'rooms/KX7P', mkRoom('single', { p: { 0: P(H_TAB, true) } }));
 deny('create p/0 missing t', { rooms: {} }, 'rooms/KX7P', mkRoom('single', { p: { 0: { s: H_TAB, on: false } } }));
@@ -187,7 +191,7 @@ allow('players/1 create by presence holder (lobby)', db1({ p: { 0: P(H_TAB, fals
 deny('players/1 create WITHOUT presence (isolated players leg)', db1(), 'rooms/KX7P/players/1', REC('GUEST001', G_TAB));
 deny('players/1 create coupling mismatch (tab != p/1.s)', db1({ p: { 0: P(H_TAB, false), 1: P(G_TAB, false) } }), 'rooms/KX7P/players/1', REC('GUEST001', G2_TAB));
 deny('players/1 create while PLAYING (id steal mid-match)', db1({ state: 'playing', p: { 0: P(H_TAB, true), 1: P(G_TAB, true) } }), 'rooms/KX7P/players/1', REC('GUEST001', G_TAB));
-allow('players/1 same-id update (name change)', db1({ p: { 0: P(H_TAB, false), 1: P(G_TAB, false) }, players: { 0: HOST, 1: { id: 'GUEST001', name: 'old', tab: G_TAB } } }), 'rooms/KX7P/players/1', { id: 'GUEST001', name: 'Neu', tab: G_TAB });
+allow('players/1 same-id update (name change)', db1({ p: { 0: P(H_TAB, false), 1: P(G_TAB, false) }, players: { 0: HOST, 1: { id: 'GUEST001', name: 'old', tab: G_TAB, uid: UID_GUEST } } }), 'rooms/KX7P/players/1', { id: 'GUEST001', name: 'Neu', tab: G_TAB, uid: UID_GUEST });
 deny('players/1 id switch before grace (immutable)', db1({ p: { 0: P(H_TAB, false), 1: P(G_TAB, false) }, players: { 0: HOST, 1: { id: 'GUEST001', name: 'x', tab: G_TAB } } }), 'rooms/KX7P/players/1', REC('EVIL0001', G_TAB));
 deny('players/1 delete while presence held', db1({ p: { 0: P(H_TAB, false), 1: P(G_TAB, false) }, players: { 0: HOST, 1: REC('GUEST001', G_TAB) } }), 'rooms/KX7P/players/1', null);
 allow('players/1 delete after presence gone', db1({ p: { 0: P(H_TAB, false) }, players: { 0: HOST, 1: REC('GUEST001', G_TAB) } }), 'rooms/KX7P/players/1', null);
@@ -228,7 +232,14 @@ deny('reconnect p/1 s-rotation while ONLINE (must be on:false)', db1({ state: 'p
 deny('reconnect p/1 s-rotation in lobby (playing only)', db1({ p: { 0: P(H_TAB, true), 1: P(G_TAB, false, NOW - 3000) }, players: { 0: HOST, 1: REC('GUEST001', G_TAB) } }), 'rooms/KX7P/p/1', { s: 'GTAB0009', on: false, t: NOW });
 
 // ── (9) gen + seats regression ──
-allow('gen increment 0->1', db1(), 'rooms/KX7P/gen', 1);
+// v4: der Generationswechsel ist ein Rematch und gehoert einem aktiven Teilnehmer des
+// Raums. Sonst koennte ein Fremder per gen+1 jede gesetzte Eviction entwerten.
+const genDb = db1({ p: { 0: P(H_TAB, true) } });
+allow('gen increment 0->1 by an active participant', genDb, 'rooms/KX7P/gen', 1, UID_GUEST);
+deny('gen increment by an outsider', genDb, 'rooms/KX7P/gen', 1, UID_ATTACK);
+deny('gen increment unauthenticated', genDb, 'rooms/KX7P/gen', 1, null);
+deny('gen increment by a participant who is offline',
+  db1({ p: { 0: P(H_TAB, false) } }), 'rooms/KX7P/gen', 1, UID_GUEST);
 deny('gen jump 0->5', db1(), 'rooms/KX7P/gen', 5);
 allow('ffa seats=3 after start', db1({ state: 'playing', p: { 0: P(H_TAB, true), 1: P(G_TAB, true), 2: P(G2_TAB, true) } }, 'ffa'), 'rooms/KX7P/seats', 3);
 allow('ffa seats=2 (min)', db1({ state: 'playing', p: { 0: P(H_TAB, true), 1: P(G_TAB, true) } }, 'ffa'), 'rooms/KX7P/seats', 2);
@@ -285,13 +296,13 @@ deny('room delete non-existent', { rooms: {} }, 'rooms/KX7P', null);
 
 // ── (13) config.visibility — mandatory, exactly 'private' | 'public' ──
 deny('create room WITHOUT visibility', { rooms: {} }, 'rooms/KX7P', (() => { const r = mkRoom('single'); r.config = { winTarget: 3, fmt: 'single' }; return r; })());
-deny('create room bad visibility value', { rooms: {} }, 'rooms/KX7P', mkRoom('single', { config: { winTarget: 3, fmt: 'single', visibility: 'secret' } }));
-allow('create room visibility public', { rooms: {} }, 'rooms/KX7P', mkRoom('single', { config: { winTarget: 3, fmt: 'single', visibility: 'public' } }));
+deny('create room bad visibility value', { rooms: {} }, 'rooms/KX7P', mkRoom('single', { config: { game: 'ringout', winTarget: 3, fmt: 'single', visibility: 'secret' } }));
+allow('create room visibility public', { rooms: {} }, 'rooms/KX7P', mkRoom('single', { config: { game: 'ringout', winTarget: 3, fmt: 'single', visibility: 'public' } }));
 
 // ── (14) publicRooms discovery index — write-once create, stale-only delete ──
 // A listable public room: v3, config.visibility 'public', state 'lobby', host online,
 // younger than 2h. The listing itself is exactly { created: now } — nothing else.
-const PUB_ROOM = (over = {}) => mkRoom('ffa', Object.assign({ created: NOW - 5000, config: { winTarget: 3, fmt: 'ffa', visibility: 'public' }, p: { 0: P(H_TAB, true) } }, over));
+const PUB_ROOM = (over = {}) => mkRoom('ffa', Object.assign({ created: NOW - 5000, config: { game: 'ringout', winTarget: 3, fmt: 'ffa', visibility: 'public' }, p: { 0: P(H_TAB, true) } }, over));
 const pubDb = (roomOver = {}, listing = undefined) => { const db = { rooms: { KX7P: PUB_ROOM(roomOver) }, publicRooms: {} }; if (listing !== undefined) db.publicRooms.KX7P = listing; return db; };
 const LISTING = { created: NOW };
 
@@ -408,9 +419,11 @@ deny('team move pl 4 (seat gate, presence pre-seeded)', playing({ p: { 0: P(H_TA
   deny('uid field must equal the writer auth.uid',
     owned({ players: { 0: HOST_OWNED } }), 'rooms/KX7P/players/1',
     OWNED(UID_ATTACK, 'GUEST001', G2_TAB), UID_GUEST);
-  deny('no in-place migration: adding a uid to a uid-less seat',
-    db1({ players: { 0: HOST, 1: REC() }, p: { 0: P(H_TAB, true), 1: P(G_TAB, false) } }),
-    'rooms/KX7P/players/1', OWNED(UID_GUEST), UID_GUEST);
+  // v4 kennt keinen uid-losen Rostereintrag mehr: er ist schon strukturell unzulaessig.
+  // Damit entfaellt die gesamte Klasse "Sitz ohne Eigentuemer, den jeder bedienen darf".
+  deny('a v4 roster record WITHOUT an owner is structurally invalid',
+    db1({ p: { 0: P(H_TAB, false), 1: P(G_TAB, false) } }),
+    'rooms/KX7P/players/1', { id: 'GUEST001', name: 'G', tab: G_TAB }, UID_GUEST);
 
   // -- p/<seat>: Praesenz gehoert dem Sitzeigentuemer ----------------------------
   deny('attacker ACTIVATES the victim presence',
@@ -435,13 +448,14 @@ deny('team move pl 4 (seat gate, presence pre-seeded)', playing({ p: { 0: P(H_TA
   deny('turn slot write while NOT signed in', live, 'rooms/KX7P/g/0/t/0/1', MOVE, null);
   allow('host writes its OWN turn slot', live, 'rooms/KX7P/g/0/t/0/0', MOVE, UID_HOST);
 
-  // -- Legacy: uid-lose Bestandssitze bleiben bedienbar --------------------------
-  const legacy = db1({ state: 'playing', players: { 0: HOST, 1: REC() },
+  // -- In v4 traegt JEDER Sitz seinen Eigentuemer -------------------------------
+  // Der Zugslot eines uid-losen Sitzes waere fuer jeden Angemeldeten offen. In v4 kann ein
+  // solcher Sitz nicht mehr entstehen; die Regel bleibt als Rueckfall nur fuer den Fall
+  // stehen, dass ein Bestandsraum niedrigerer Version noch gelesen wird.
+  const owned2 = db1({ state: 'playing', players: { 0: HOST, 1: OWNED(UID_GUEST) },
                        p: { 0: P(H_TAB, true), 1: P(G_TAB, true) } });
-  allow('legacy uid-less seat: turn write still allowed', legacy, 'rooms/KX7P/g/0/t/0/1',
-    MOVE, UID_GUEST);
-  allow('legacy uid-less seat: any signed-in client may serve it (pre-uid room)',
-    legacy, 'rooms/KX7P/g/0/t/0/1', MOVE, UID_ATTACK);
+  allow('the seat owner writes its own turn', owned2, 'rooms/KX7P/g/0/t/0/1', MOVE, UID_GUEST);
+  deny('a foreign uid cannot write that turn', owned2, 'rooms/KX7P/g/0/t/0/1', MOVE, UID_ATTACK);
 
   // -- Grenze des Same-uid-Modells: ein AKTIVER Sitz ist auch fuer den Eigentuemer
   //    nicht uebernehmbar. Zwei Tabs derselben Person teilen sich zwar die uid, aber
@@ -508,6 +522,216 @@ deny('team move pl 4 (seat gate, presence pre-seeded)', playing({ p: { 0: P(H_TA
     owned({ p: { 0: P(H_TAB, true) } }), 'rooms/KX7P/players/1', null, UID_GUEST);
   deny('attacker deletes the victim roster record',
     owned({ p: { 0: P(H_TAB, true) } }), 'rooms/KX7P/players/1', null, UID_ATTACK);
+}
+
+// ── (14) PROTOKOLL v4 · FOOTBALL-RAUM, TYPISIERTE ZUEGE, EVICTION ────────────────
+// Football ist serverseitig ein EIGENER Raumtyp. Die Gruppe prueft, dass er genau die
+// Rechte bekommt, die er braucht - und dass kein bestehender RingOut-Raum dadurch
+// breiter wird. Angreifermodell wie oben: der Fremde kennt alles Oeffentliche und hat
+// nur eine andere auth.uid.
+{
+  const UID = { 0: 'UID_S0_AAAAAAAAAAAAAAAAAAA', 1: 'UID_S1_BBBBBBBBBBBBBBBBBBB',
+                2: 'UID_S2_CCCCCCCCCCCCCCCCCCC', 3: 'UID_S3_DDDDDDDDDDDDDDDDDDD',
+                4: 'UID_S4_EEEEEEEEEEEEEEEEEEE' };
+  const TAB = { 0: 'FTAB0000', 1: 'FTAB0001', 2: 'FTAB0002', 3: 'FTAB0003', 4: 'FTAB0004' };
+  const REC5 = (i) => ({ id: 'FPID000' + i, name: 'P' + i, tab: TAB[i], uid: UID[i] });
+  // Football-Raum: fuenf Sitze, alle online, laufendes Match.
+  const fbRoom = (over = {}) => ({
+    rooms: { KX7P: Object.assign({
+      v: V, config: { game: 'football', winTarget: 3, fmt: 'elimination', visibility: 'private' },
+      gen: 0, state: 'playing', seats: 5,
+      p: { 0: P(TAB[0], true), 1: P(TAB[1], true), 2: P(TAB[2], true), 3: P(TAB[3], true), 4: P(TAB[4], true) },
+      players: { 0: REC5(0), 1: REC5(1), 2: REC5(2), 3: REC5(3), 4: REC5(4) },
+      created: NOW - 5000,
+    }, over) } });
+  const OFFLINE = (seat, age) => { const p = {}; for (let i = 0; i < 5; i++) p[i] = P(TAB[i], i !== seat);
+    p[seat] = { s: TAB[seat], on: false, t: NOW - (age === undefined ? GRACE + 1 : age) }; return { p }; };
+  const MV = (seat) => ({ k: 'move', idx: seat, dx: 100, dy: -50, sp: 0.5 });
+  const SK = (seat) => ({ k: 'skip', idx: seat, dx: 0, dy: 0, sp: 0 });
+  const RM = (seat) => ({ k: 'remove', idx: seat, dx: 0, dy: 0, sp: 0 });
+
+  // -- Raumanlage --------------------------------------------------------------
+  const fbNew = { v: V, config: { game: 'football', winTarget: 3, fmt: 'elimination', visibility: 'private' },
+    gen: 0, state: 'lobby', p: { 0: P(TAB[0], false) }, players: { 0: REC5(0) }, created: NOW };
+  allow('v4 Football room create', { rooms: {} }, 'rooms/KX7P', fbNew, UID[0]);
+  deny('Football room with a RingOut fmt', { rooms: {} }, 'rooms/KX7P',
+    Object.assign({}, fbNew, { config: { game: 'football', winTarget: 3, fmt: 'ffa', visibility: 'private' } }), UID[0]);
+  deny('RingOut room with the Football fmt', { rooms: {} }, 'rooms/KX7P',
+    Object.assign({}, fbNew, { config: { game: 'ringout', winTarget: 3, fmt: 'elimination', visibility: 'private' } }), UID[0]);
+  deny('room without a game type', { rooms: {} }, 'rooms/KX7P',
+    Object.assign({}, fbNew, { config: { winTarget: 3, fmt: 'elimination', visibility: 'private' } }), UID[0]);
+  deny('room with an unknown game type', { rooms: {} }, 'rooms/KX7P',
+    Object.assign({}, fbNew, { config: { game: 'arcade', winTarget: 3, fmt: 'single', visibility: 'private' } }), UID[0]);
+
+  // -- Fuenf Sitze, aber KEIN sechster -----------------------------------------
+  // Der Beitritt ist ein ATOMARER p+players-Write; die Praesenz traegt hier bereits das
+  // Token dieses Sitzes, so wie es derselbe Write mitbringt (s. Kopf der Datei).
+  for (let i = 1; i < 5; i++)
+    allow('Football seat ' + i + ' may be reserved', { rooms: { KX7P: Object.assign({}, fbNew, {
+        p: { 0: P(TAB[0], true), [i]: P(TAB[i], false) }, players: { 0: REC5(0) } }) } },
+      'rooms/KX7P/players/' + i, REC5(i), UID[i]);
+  // Entscheidend ist die PRAESENZ: p/$i traegt die eigentliche Sitzbereichspruefung.
+  // Ohne sie waere der Fuenf-Sitz-Vertrag bei einem echten Beitritt gar nicht erreichbar.
+  for (let i = 1; i < 5; i++)
+    allow('Football presence for seat ' + i + ' is reachable', { rooms: { KX7P: Object.assign({}, fbNew, {
+        players: { 0: REC5(0), [i]: REC5(i) }, p: { 0: P(TAB[0], true) } }) } },
+      'rooms/KX7P/p/' + i, P(TAB[i], false), UID[i]);
+  deny('RingOut single keeps its presence seat range', db1(), 'rooms/KX7P/p/2',
+    P(G2_TAB, false), UID_GUEST);
+  deny('Football seat 5 is not a participant', fbRoom(), 'rooms/KX7P/players/5',
+    { id: 'FPID0005', name: 'X', tab: 'FTAB0005', uid: 'UID_X' }, 'UID_X');
+  deny('Football seat 5 has no presence', fbRoom(), 'rooms/KX7P/p/5', P('FTAB0005', false), 'UID_X');
+  deny('Football seat 5 has no turn slot', fbRoom(), 'rooms/KX7P/g/0/t/0/5', MV(5), 'UID_X');
+  deny('RingOut single stays a two-seat room', db1(), 'rooms/KX7P/players/2',
+    { id: 'GUEST002', name: 'g', tab: G2_TAB, uid: 'UID_G2' }, 'UID_G2');
+
+  // -- MOVE ---------------------------------------------------------------------
+  allow('Football MOVE by the seat owner', fbRoom(), 'rooms/KX7P/g/0/t/0/2', MV(2), UID[2]);
+  deny('Football MOVE by a foreign uid', fbRoom(), 'rooms/KX7P/g/0/t/0/2', MV(2), UID[3]);
+  deny('Football MOVE by an outsider', fbRoom(), 'rooms/KX7P/g/0/t/0/2', MV(2), 'UID_OUT');
+  deny('Football MOVE unauthenticated', fbRoom(), 'rooms/KX7P/g/0/t/0/2', MV(2), null);
+  deny('Football MOVE claiming a FOREIGN figure', fbRoom(), 'rooms/KX7P/g/0/t/0/2',
+    { k: 'move', idx: 3, dx: 10, dy: 10, sp: 0 }, UID[2]);
+  deny('Football MOVE claiming the NEUTRAL BALL', fbRoom(), 'rooms/KX7P/g/0/t/0/2',
+    { k: 'move', idx: 5, dx: 10, dy: 10, sp: 0 }, UID[2]);
+  deny('Football MOVE with idx 6', fbRoom(), 'rooms/KX7P/g/0/t/0/2',
+    { k: 'move', idx: 6, dx: 10, dy: 10, sp: 0 }, UID[2]);
+  deny('Football MOVE without a kind', fbRoom(), 'rooms/KX7P/g/0/t/0/2',
+    { idx: 2, dx: 10, dy: 10, sp: 0 }, UID[2]);
+  deny('Football MOVE with an unknown kind', fbRoom(), 'rooms/KX7P/g/0/t/0/2',
+    { k: 'evict', idx: 2, dx: 0, dy: 0, sp: 0 }, UID[2]);
+  deny('Football MOVE with an extra field', fbRoom(), 'rooms/KX7P/g/0/t/0/2',
+    { k: 'move', idx: 2, dx: 10, dy: 10, sp: 0, hack: 1 }, UID[2]);
+  deny('Football MOVE out of bounds', fbRoom(), 'rooms/KX7P/g/0/t/0/2',
+    { k: 'move', idx: 2, dx: 196, dy: 0, sp: 0 }, UID[2]);
+  deny('Football turn slot is write-once',
+    fbRoom({ g: { 0: { t: { 0: { 2: MV(2) } } } } }), 'rooms/KX7P/g/0/t/0/2', MV(2), UID[2]);
+  // RingOut bleibt bei seiner Form OHNE k.
+  const roLive = playing({ p: { 0: P(H_TAB, true), 1: P(G_TAB, true) } });
+  allow('RingOut MOVE keeps its shape (no kind)', roLive, 'rooms/KX7P/g/0/t/0/0', MOVE);
+  deny('RingOut MOVE with a kind field', roLive, 'rooms/KX7P/g/0/t/0/0',
+    { k: 'move', idx: 0, dx: 100, dy: -50, sp: 0.5 });
+
+  // -- SKIP ---------------------------------------------------------------------
+  const off3 = fbRoom(OFFLINE(3, 1000));   // erst 1 s offline: SKIP braucht KEIN Warten
+  allow('SKIP for an offline participant, written by a peer', off3, 'rooms/KX7P/g/0/t/0/3', SK(3), UID[1]);
+  deny('SKIP for an ONLINE participant', fbRoom(), 'rooms/KX7P/g/0/t/0/3', SK(3), UID[1]);
+  deny('SKIP written by an outsider', off3, 'rooms/KX7P/g/0/t/0/3', SK(3), 'UID_OUT');
+  deny('SKIP written unauthenticated', off3, 'rooms/KX7P/g/0/t/0/3', SK(3), null);
+  deny('SKIP carrying a launch vector', off3, 'rooms/KX7P/g/0/t/0/3',
+    { k: 'skip', idx: 3, dx: 10, dy: 0, sp: 0 }, UID[1]);
+  deny('SKIP carrying spin', off3, 'rooms/KX7P/g/0/t/0/3',
+    { k: 'skip', idx: 3, dx: 0, dy: 0, sp: 0.5 }, UID[1]);
+  deny('SKIP pointing at a foreign seat', off3, 'rooms/KX7P/g/0/t/0/3',
+    { k: 'skip', idx: 1, dx: 0, dy: 0, sp: 0 }, UID[1]);
+  deny('SKIP is write-once',
+    fbRoom(Object.assign(OFFLINE(3, 1000), { g: { 0: { t: { 0: { 3: SK(3) } } } } })),
+    'rooms/KX7P/g/0/t/0/3', SK(3), UID[1]);
+  deny('SKIP for an already evicted seat',
+    fbRoom(Object.assign(OFFLINE(3), { g: { 0: { e: { 3: true } } } })),
+    'rooms/KX7P/g/0/t/0/3', SK(3), UID[1]);
+  deny('SKIP in a RingOut room (no typed turns there)', roLive, 'rooms/KX7P/g/0/t/0/1',
+    { k: 'skip', idx: 1, dx: 0, dy: 0, sp: 0 });
+
+  // -- Der Eigentuemerzweig taugt NUR fuer move --------------------------------
+  // Sonst koennte ein online stehender Spieler sich selbst ueberspringen oder sich ohne
+  // Eviction als entfernt eintragen - beides waere eine Ersatzbedeutung im eigenen Slot,
+  // und die verbliebenen Clients wuerden ueber die aktive Teilnehmermenge auseinanderlaufen.
+  deny('an online owner cannot SKIP itself', fbRoom(), 'rooms/KX7P/g/0/t/0/2', SK(2), UID[2]);
+  deny('an online owner cannot REMOVE itself without an eviction',
+    fbRoom(), 'rooms/KX7P/g/0/t/0/2', RM(2), UID[2]);
+  deny('an OFFLINE owner cannot SKIP itself either',
+    fbRoom(OFFLINE(2, 1000)), 'rooms/KX7P/g/0/t/0/2', SK(2), UID[2]);
+  // idx muss serverseitig eine ganze Zahl sein - sonst entstuende ein Zug, den der
+  // Server annimmt und jeder protokollkonforme Client verwirft.
+  deny('Football MOVE with a STRING idx', fbRoom(), 'rooms/KX7P/g/0/t/0/2',
+    { k: 'move', idx: '2', dx: 10, dy: 10, sp: 0 }, UID[2]);
+  deny('Football MOVE with a fractional idx', fbRoom(), 'rooms/KX7P/g/0/t/0/2',
+    { k: 'move', idx: 2.5, dx: 10, dy: 10, sp: 0 }, UID[2]);
+
+  // -- Ein evicteter Schreiber verliert JEDE Peer-Befugnis ----------------------
+  // Selbstaustritt setzt nur e/<self>; die Praesenz bleibt zunaechst online. Ohne diese
+  // Pruefung koennte ein bereits Ausgeschiedener weiter fremde Sitze ueberspringen,
+  // entfernen und nach 15 s weitere Teilnehmer evicten.
+  {
+    const gone1 = fbRoom(Object.assign(OFFLINE(3, 1000), { g: { 0: { e: { 1: true } } } }));
+    deny('an evicted participant cannot SKIP anyone', gone1, 'rooms/KX7P/g/0/t/0/3', SK(3), UID[1]);
+    const gone1b = fbRoom(Object.assign(OFFLINE(3), { g: { 0: { e: { 1: true, 3: true } } } }));
+    deny('an evicted participant cannot write REMOVE', gone1b, 'rooms/KX7P/g/0/t/0/3', RM(3), UID[1]);
+    // ... und ein NICHT evicteter Peer darf beides weiterhin.
+    const ok1 = fbRoom(Object.assign(OFFLINE(3, 1000), { g: { 0: { e: { 0: true } } } }));
+    allow('a non-evicted peer may still SKIP', ok1, 'rooms/KX7P/g/0/t/0/3', SK(3), UID[1]);
+  }
+
+  // -- EVICTION -----------------------------------------------------------------
+  allow('a participant may evict ITSELF (voluntary leave)', fbRoom(), 'rooms/KX7P/g/0/e/2', true, UID[2]);
+  deny('a peer cannot evict an ONLINE participant', fbRoom(), 'rooms/KX7P/g/0/e/3', true, UID[1]);
+  deny('a peer cannot evict a FRESHLY offline participant',
+    fbRoom(OFFLINE(3, 1000)), 'rooms/KX7P/g/0/e/3', true, UID[1]);
+  allow('a peer may evict a STALE offline participant',
+    fbRoom(OFFLINE(3)), 'rooms/KX7P/g/0/e/3', true, UID[1]);
+  deny('an outsider cannot evict', fbRoom(OFFLINE(3)), 'rooms/KX7P/g/0/e/3', true, 'UID_OUT');
+  deny('an unauthenticated client cannot evict', fbRoom(OFFLINE(3)), 'rooms/KX7P/g/0/e/3', true, null);
+  deny('eviction cannot be cleared',
+    fbRoom(Object.assign(OFFLINE(3), { g: { 0: { e: { 3: true } } } })), 'rooms/KX7P/g/0/e/3', false, UID[1]);
+  deny('eviction cannot be re-written',
+    fbRoom(Object.assign(OFFLINE(3), { g: { 0: { e: { 3: true } } } })), 'rooms/KX7P/g/0/e/3', true, UID[1]);
+  // Ein Sitz, den es im Raum gar nicht gibt, ist nicht evictierbar - sonst koennte man
+  // einen spaeter beitretenden Spieler im Voraus sperren.
+  // Ein Sitz OHNE Rosterdatensatz ist kein Teilnehmer - auch wenn eine (verwaiste)
+  // Praesenz alt und offline aussieht. Sonst liesse sich ein spaeter beitretender
+  // Spieler im Voraus sperren.
+  deny('eviction of a seat that never belonged to the room',
+    { rooms: { KX7P: Object.assign({}, fbNew, {
+        state: 'playing', seats: 5,
+        p: { 0: P(TAB[0], true), 1: P(TAB[1], true),
+             4: { s: TAB[4], on: false, t: NOW - GRACE - 1 } },
+        players: { 0: REC5(0), 1: REC5(1) } }) } },
+    'rooms/KX7P/g/0/e/4', true, UID[1]);
+  deny('a peer cannot evict a seat that is online in ANOTHER room state',
+    fbRoom(OFFLINE(3)), 'rooms/KX7P/g/0/e/4', true, UID[1]);
+  deny('eviction in a FOREIGN generation', fbRoom(OFFLINE(3)), 'rooms/KX7P/g/1/e/3', true, UID[1]);
+  // Der Eviction-Pfad ist NEU in v4. Ein noch laufender Raum niedrigerer Version kennt
+  // weder das typisierte remove noch die Sperre - dort wuerde eine Eviction das Match
+  // dauerhaft blockieren. Deshalb gilt der Pfad ausschliesslich fuer v4.
+  deny('eviction in a pre-v4 room', fbRoom(Object.assign(OFFLINE(3), { v: 3 })),
+    'rooms/KX7P/g/0/e/3', true, UID[1]);
+  deny('eviction in a pre-v4 RingOut room',
+    db1({ v: 3, state: 'playing', p: { 0: P(H_TAB, true), 1: P(G_TAB, false, NOW - GRACE - 1) },
+          players: { 0: HOST, 1: REC() } }),
+    'rooms/KX7P/g/0/e/1', true, UID_GUEST);
+
+  // -- REMOVE --------------------------------------------------------------------
+  const evicted = fbRoom(Object.assign(OFFLINE(3), { g: { 0: { e: { 3: true } } } }));
+  allow('REMOVE after a real eviction, written by a peer', evicted, 'rooms/KX7P/g/0/t/0/3', RM(3), UID[1]);
+  deny('REMOVE before the eviction exists', fbRoom(OFFLINE(3)), 'rooms/KX7P/g/0/t/0/3', RM(3), UID[1]);
+  deny('REMOVE written by an outsider', evicted, 'rooms/KX7P/g/0/t/0/3', RM(3), 'UID_OUT');
+  deny('REMOVE written unauthenticated', evicted, 'rooms/KX7P/g/0/t/0/3', RM(3), null);
+  deny('REMOVE carrying a launch vector', evicted, 'rooms/KX7P/g/0/t/0/3',
+    { k: 'remove', idx: 3, dx: 10, dy: 0, sp: 0 }, UID[1]);
+  deny('REMOVE pointing at a foreign seat', evicted, 'rooms/KX7P/g/0/t/0/3',
+    { k: 'remove', idx: 1, dx: 0, dy: 0, sp: 0 }, UID[1]);
+  deny('REMOVE is write-once',
+    fbRoom(Object.assign(OFFLINE(3), { g: { 0: { e: { 3: true }, t: { 0: { 3: RM(3) } } } } })),
+    'rooms/KX7P/g/0/t/0/3', RM(3), UID[1]);
+
+  // -- Rueckkehr nach Eviction ----------------------------------------------------
+  deny('an evicted seat cannot reactivate its presence',
+    fbRoom(Object.assign(OFFLINE(3), { g: { 0: { e: { 3: true } } } })),
+    'rooms/KX7P/p/3', P(TAB[3], true), UID[3]);
+  deny('an evicted seat cannot write a MOVE',
+    fbRoom(Object.assign({ p: { 0: P(TAB[0], true), 1: P(TAB[1], true), 2: P(TAB[2], true),
+                               3: P(TAB[3], true), 4: P(TAB[4], true) } },
+                         { g: { 0: { e: { 3: true } } } })),
+    'rooms/KX7P/g/0/t/0/3', MV(3), UID[3]);
+
+  // -- Generationstrennung ---------------------------------------------------------
+  allow('a new generation starts without an inherited eviction',
+    fbRoom(Object.assign(OFFLINE(3), { gen: 1, g: { 0: { e: { 3: true } } } })),
+    'rooms/KX7P/g/1/t/0/3', SK(3), UID[1]);
+  deny('the old generation keeps its eviction',
+    fbRoom(Object.assign(OFFLINE(3), { g: { 0: { e: { 3: true } } } })),
+    'rooms/KX7P/g/0/t/0/3', SK(3), UID[1]);
 }
 
 console.log('\nRules-Suite (lokal, echte firebase.rules.json): ' + pass + ' passed, ' + fail + ' failed');

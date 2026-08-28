@@ -1,6 +1,6 @@
 # PROJECT.md — RingOut
 
-**Zuletzt aktualisiert:** 2026-08-28 (Online-Sitze gehoeren der Firebase-`auth.uid`; Arena Football: **Elimination startet mit fuenf Spielern** auf dem Broad Rounded Pentagon, Ablauf 5P → 4P → 3P → 2P → Sieger; **zwei Leben** in der Elimination, Classic auf der kanonischen Shouldered-Wide-Arena, **fester 60-Hz-Gameplay-Takt** unabhaengig von der Bildwiederholrate, neu abgestimmte Daempfung und dynamischere Abschusskurve; finale adaptive Elimination-Arenaformen — Rounded Square / Broad Rounded Triangle / Shouldered Wide; **beide** Arenawechsel 4→3 und 3→2 sind animiert und tragen Gold-Kantenfeedback plus Transitionsklang; **drei** sichtbare Modi — Classic 1v1 als Standard, Tactical 1v1, Elimination; Elimination ist jetzt regulaer ueber die Modusauswahl startbar, weiterhin lokal/Hotseat)
+**Zuletzt aktualisiert:** 2026-08-28 (Online-Protokoll v4 mit Football-Raumtyp; Online-Sitze gehoeren der Firebase-`auth.uid`; Arena Football: **Elimination startet mit fuenf Spielern** auf dem Broad Rounded Pentagon, Ablauf 5P → 4P → 3P → 2P → Sieger; **zwei Leben** in der Elimination, Classic auf der kanonischen Shouldered-Wide-Arena, **fester 60-Hz-Gameplay-Takt** unabhaengig von der Bildwiederholrate, neu abgestimmte Daempfung und dynamischere Abschusskurve; finale adaptive Elimination-Arenaformen — Rounded Square / Broad Rounded Triangle / Shouldered Wide; **beide** Arenawechsel 4→3 und 3→2 sind animiert und tragen Gold-Kantenfeedback plus Transitionsklang; **drei** sichtbare Modi — Classic 1v1 als Standard, Tactical 1v1, Elimination; Elimination ist jetzt regulaer ueber die Modusauswahl startbar, weiterhin lokal/Hotseat)
 
 - **Aktueller stabiler Projekt-HEAD:** `5a23dc424fb3126c33c29543b7c6571b87a65ec7`
 - **Implementierungs-Commit UX-Phase 3:** `babbbe78ee388489321d1f0cb3e032bbaabd0725`
@@ -117,6 +117,55 @@ Bei den E2E-Harnessen ist die Produktions-Firebase hart geblockt.
   Accessoren `curFR()` / `curFE()` / `curST()` bzw. `curRestBall()` / `curRestBand()` /
   `curRestPost()`. Außerhalb von `mode === 'football'` liefern sie exakt die globalen
   Konstanten — alle Bestandsmodi rechnen unverändert weiter (Golden-Physik 13/13).
+
+### Online-Protokoll v4
+
+`ONLINE_PROTOCOL_VERSION = 4`. Ein v3-Raum wird sauber abgelehnt (Versionsmeldung beim
+Beitritt, `noRoom` beim Rejoin) — keine stille Teilinterpretation, keine Live-Migration.
+
+**Raumtyp.** `config.game` trennt die beiden Produktfamilien serverseitig:
+`'ringout'` (alle bestehenden Formate) und `'football'` (`config.fmt === 'elimination'`).
+Bewusst **nicht** `config.mode`: der Name ist im Client bereits doppelt belegt (globale
+Laufart und das Anzeigefeld der Public-Lobby). Ungueltige Paare — Football mit einem
+RingOut-Format oder umgekehrt — werden abgelehnt.
+
+**Football-Kontrakt.** Fuenf Teilnehmersitze `0..4`. Der neutrale Ball ist **kein**
+Teilnehmer: er hat keinen Sitz, keine Praesenz und keine Identitaet, nur den Koerperindex
+`5`. Ein Abschuss darf ausschliesslich die eigene Figur betreffen (`idx === seat`) —
+damit ist der Ball fuer niemanden beanspruchbar.
+
+**Typisierte Zugereignisse** (nur in Football-Raeumen; RingOut behaelt seine Form
+`{idx,dx,dy,sp}` unveraendert — bewusst kleine Kompatibilitaetsflaeche):
+
+| Ereignis | Bauform | Bedeutung | Wer darf schreiben |
+|---|---|---|---|
+| `move` | `{k,idx,dx,dy,sp}`, `idx === seat` | echter Abschuss | nur der Sitzeigentuemer (`auth.uid`), Sitz online, nicht evictet |
+| `skip` | `{k,idx,dx,dy,sp}`, Nullvektor | Teilnehmer bleibt im Match, gibt in dieser Runde keinen Abschuss ab | ein anderer **aktiver** Teilnehmer, nur wenn das Ziel **offline** ist |
+| `remove` | `{k,idx,dx,dy,sp}`, Nullvektor | Teilnehmer ist endgueltig entfernt | ein anderer aktiver Teilnehmer, **nur nach** gesetzter Eviction |
+
+`skip` ist **keine** Eliminierung: es aendert keine Leben, setzt keine Eviction und braucht
+**keine** Wartezeit. Die 15 Sekunden reservieren das Rueckkehrrecht — sie halten das Match
+nicht an. Ein gemischter Datensatz (`skip` mit Abschussvektor) wird abgelehnt.
+
+**Eviction** `g/<gen>/e/<seat> = true` — der einzige autoritative Marker fuer die
+endgueltige Entfernung. Write-once, nie zuruecknehmbar, an die **aktuelle Generation**
+gebunden (ein Rematch `gen+1` startet ohne geerbte Eviction). Zwei Wege:
+*Selbstaustritt* — der Sitzeigentuemer evictet sich selbst; *Peer nach Timeout* — ein
+anderer angemeldeter, aktiver Teilnehmer, wenn das Ziel offline ist und seit mindestens
+15 000 ms nach **Serverzeit** (`now`) nicht zurueck war. Rules kennen keine JS-Konstanten:
+die Zahl ist dort ein Literal und entspricht `SEAT_STALE_MS`. Eine gesetzte Eviction
+sperrt Praesenz-Reaktivierung, Reclaim und jeden weiteren `move` desselben Sitzes.
+
+**Kein Spielzustand im Netz.** Leben, Aktiv-Liste, Arenaphase, Morph-Fortschritt, Torstand
+und Torablauf werden **nicht** serialisiert. Der Server haelt Identitaet, Praesenz,
+Konfiguration, Zughistorie und den Eviction-Marker — alles andere entsteht deterministisch
+aus der Historie. Es gibt keine zweite Wahrheit.
+
+> Phase A definiert ausschliesslich das Protokoll. **Arena Football ist weiterhin rein
+> lokal**: kein Produktweg erzeugt einen Football-Raum, es gibt keinen Online-Eintrag in
+> der Football-Modusauswahl, und `startFootball()` pinnt unveraendert `online=false`.
+
+---
 
 ### Online-Identitaet und Seat-Eigentum
 
