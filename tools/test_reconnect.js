@@ -101,7 +101,11 @@ const SRC = [
   grab(/function afterResult\(\)\{[\s\S]*?\n\}/, 'afterResult'),
   // ── real online layer ──
   grab(/function whenFB\(cb\)\{[^\n]*/, 'whenFB'),
-  grab(/function fbReady\(\)\{[^\n]*/, 'fbReady'),
+  fn('fbReady'),
+  // Seat-Eigentum haengt an auth.uid: fbUid() liefert sie, fbFailKey() unterscheidet
+  // Verbindungs- von Anmeldefehlern. Beide kommen woertlich aus index.html.
+  fn('fbUid'),
+  fn('fbFailKey'),
   grab(/function rRef\(p\)\{[^\n]*/, 'rRef'),
   grab(/function setStatus\(t\)\{[^\n]*/, 'setStatus'),
   grab(/function validateRoom\(d\)\{[\s\S]*?\n\}/, 'validateRoom'),
@@ -147,14 +151,14 @@ const SRC = [
   grab(/async function reserveSeat\(code,seat\)\{[\s\S]*?\n\}/, 'reserveSeat'),
   grab(/async function armPresence\(code,seat\)\{[\s\S]*?\n\}/, 'armPresence'),
   grab(/async function activateSeat\(code,seat,extra\)\{[\s\S]*?\n\}/, 'activateSeat'),
-  grab(/async function releaseReservation\(code,seat,dc\)\{[\s\S]*?\n\}/, 'releaseReservation'),
+  fn('releaseReservation'),
   grab(/async function claimSeatSlot\(code,seat,op,extra\)\{[\s\S]*?\n\}/, 'claimSeatSlot'),
-  grab(/async function reclaimSeat\(code,seat,keepName\)\{[\s\S]*?\n\}/, 'reclaimSeat'),
+  fn('reclaimSeat'),
   grab(/async function releaseReclaim\(code,seat,dc\)\{[\s\S]*?\n\}/, 'releaseReclaim'),
-  grab(/async function reclaimSeatSlot\(code,seat,op,keepName\)\{[\s\S]*?\n\}/, 'reclaimSeatSlot'),
+  fn('reclaimSeatSlot'),
   grab(/function playerRecord\(seat\)\{[^\n]*/, 'playerRecord'),
   grab(/function nameForSeat\(s\)\{[\s\S]*?\n\}/, 'nameForSeat'),
-  grab(/function findOwnSeat\(players,pid\)\{[\s\S]*?\n\}/, 'findOwnSeat'),
+  fn('findOwnSeat'),
   grab(/function rememberRoom\(code,seat\)\{[^\n]*/, 'rememberRoom'),
   grab(/function forgetRoom\(\)\{[^\n]*/, 'forgetRoom'),
   grab(/function savedRoom\(\)\{[\s\S]*?\n\}/, 'savedRoom'),
@@ -198,7 +202,7 @@ function makeDB() {
       state: () => wstate !== undefined ? wstate : (room && room.state)
     };
   }
-  function checkWrite(parts, val, merged) {
+  function checkWrite(parts, val, merged, authUid) {
     if (parts[0] !== 'rooms') throw new Error('PERMISSION_DENIED');
     const room = data.rooms[parts[1]];
     if (parts.length === 2) {
@@ -213,6 +217,15 @@ function makeDB() {
     if (key === 'p') {
       const seat = +parts[3];
       if (seat >= seatCap(fmt)) throw new Error('PERMISSION_DENIED: seat range');
+      // Seat-Ownership: Praesenz eines Sitzes mit fremdem Eigentuemer ist gesperrt.
+      // Der frische Claim traegt seine uid im SELBEN Write (merged.players).
+      {
+        const own = (room.players && room.players[seat]) || null;
+        const inWrite = merged.players(seat);
+        if (own && own.uid !== undefined && own.uid !== authUid &&
+            !(inWrite && inWrite.uid === authUid))
+          throw new Error('PERMISSION_DENIED: p owned by another uid');
+      }
       const cur = room.p && room.p[seat];
       if (val == null) {
         if (merged.players(seat) != null) throw new Error('PERMISSION_DENIED: p delete requires players delete in same write');
@@ -283,8 +296,21 @@ function makeDB() {
         || typeof val.id !== 'string' || !/^[A-Za-z0-9_-]{8,24}$/.test(val.id)
         || typeof val.name !== 'string' || val.name.length < 1 || val.name.length > 48
         || typeof val.tab !== 'string' || !/^[A-Za-z0-9_-]{8,24}$/.test(val.tab)
-        || Object.keys(val).some(k => k !== 'id' && k !== 'name' && k !== 'tab'))
+        || Object.keys(val).some(k => k !== 'id' && k !== 'name' && k !== 'tab' && k !== 'uid'))
         throw new Error('PERMISSION_DENIED: players record invalid');
+      // ── Seat-Ownership (auth.uid) ──────────────────────────────────────────────
+      // uid darf nur die EIGENE sein (Rules: players/<seat>/uid === auth.uid).
+      if (val.uid !== undefined && (typeof val.uid !== 'string' || val.uid.length < 1 || val.uid.length > 128 || val.uid !== authUid))
+        throw new Error('PERMISSION_DENIED: players uid must be the writer auth.uid');
+      // Ein bestehender Eigentuemer ist unveraenderlich, und ein uid-loser Bestandssitz
+      // wird nicht inplace migriert. Beides nur ueber die regulaere Neuvergabe.
+      if (rec && rec.uid !== undefined && val.uid !== rec.uid)
+        throw new Error('PERMISSION_DENIED: players uid immutable');
+      if (rec && rec.uid === undefined && val.uid !== undefined)
+        throw new Error('PERMISSION_DENIED: no in-place uid migration');
+      // Ein fremder Eigentuemer sperrt den Sitz vollstaendig.
+      if (rec && rec.uid !== undefined && rec.uid !== authUid)
+        throw new Error('PERMISSION_DENIED: players owned by another uid');
       const pVal = merged.p(seat);
       if (!pVal || pVal.s !== val.tab) throw new Error('PERMISSION_DENIED: players needs matching p.s in same write');
       if (rec && rec.id === val.id) return;   // same-id update: id immutable, always ok
@@ -294,22 +320,22 @@ function makeDB() {
     }
     throw new Error('PERMISSION_DENIED: ' + key);
   }
-  function setParts(parts, val) {
+  function setParts(parts, val, authUid) {
     const pathStr = parts.join('/');
     for (const f of failures) {
       if (f.times > 0 && pathStr.startsWith(f.prefix)) { f.times--; throw new Error('INJECTED_WRITE_FAILURE: ' + pathStr); }
     }
-    checkWrite(parts, val);
+    checkWrite(parts, val, undefined, authUid);
     let o = data;
     for (let i = 0; i < parts.length - 1; i++) { if (o[parts[i]] == null) o[parts[i]] = {}; o = o[parts[i]]; }
     if (val == null) delete o[parts[parts.length - 1]]; else o[parts[parts.length - 1]] = JSON.parse(JSON.stringify(val));
     notify();
   }
-  const FBfor = ui => ({
+  const FBfor = (ui, authUid) => ({
     db: null,
     ref: (db, path) => path.split('/'),
     get: async ref => ({ exists: () => at(ref) != null, val: () => clone(at(ref)) }),
-    set: async (ref, val) => setParts(ref, val),
+    set: async (ref, val) => setParts(ref, val, authUid),
     update: async (ref, obj) => {
       const keys = Object.keys(obj);
       const paths = keys.map(k => ref.concat(String(k).split('/')));
@@ -321,7 +347,7 @@ function makeDB() {
       }
       const room = data.rooms[ref[1]];
       const merged = buildMerged(room, keys.map((k, i) => ({ parts: paths[i], val: obj[k] })));
-      keys.forEach((k, i) => checkWrite(paths[i], obj[k], merged));
+      keys.forEach((k, i) => checkWrite(paths[i], obj[k], merged, authUid));
       keys.forEach((k, i) => {
         let o = data;
         for (let j = 0; j < paths[i].length - 1; j++) { if (o[paths[i][j]] == null) o[paths[i][j]] = {}; o = o[paths[i][j]]; }
@@ -330,12 +356,12 @@ function makeDB() {
       });
       notify();
     },
-    remove: async ref => setParts(ref, null),
+    remove: async ref => setParts(ref, null, authUid),
     runTransaction: async (ref, updateFn, options) => {
       const current = clone(at(ref));
       const next = updateFn(current);
       if (next === undefined) return { committed: false, snapshot: { val: () => clone(at(ref)), exists: () => at(ref) != null } };
-      setParts(ref, next);
+      setParts(ref, next, authUid);
       return { committed: true, snapshot: { val: () => clone(at(ref)), exists: () => at(ref) != null } };
     },
     onValue: (ref, cb) => {
@@ -356,17 +382,24 @@ function makeDB() {
   return { data, FBfor, failWrite, advance: (ms) => { nowMs += ms; }, now: () => nowMs };
 }
 
+// findOwnSeat wird zusaetzlich DIREKT geprueft (Gruppe RC-UID2). Der echte Rumpf laeuft
+// dafuer in einer Mini-Sandbox - die Sitzaufloesung ist die Stelle, an der Eigentum,
+// Legacy-Rueckfall und Mehrdeutigkeit zusammenkommen.
+const FOS = new Function('FFA_MAX_SEATS', grabFunction(html, 'findOwnSeat') + '\nreturn findOwnSeat;')(5);
 // ── one sandboxed client = the REAL online functions + REAL physics ──
-function makeClient(db, code, forcePid) {
+function makeClient(db, code, forcePid, forceUid) {
   const ui = { code, log: [], onDrop: [] };
-  const FB = db.FBfor(ui);
   const seq = (makeClient._seq = (makeClient._seq || 0) + 1);
   const pid = forcePid || ('PID' + String(seq).padStart(6, '0'));
   const tab = 'TAB' + String(seq).padStart(6, '0');
+  // auth.uid: an den dauerhaften pid gebunden, damit ein Reload/neuer Tab dieselbe
+  // Identitaet mitbringt - so verhaelt sich die anonyme Anmeldung mit Persistenz.
+  const uid = forceUid || ('UID_' + pid);
+  const FB = db.FBfor(ui, uid);
   const body = `
     const TUNE=false; let r3dOrbit=false, r3dActive=false;
     const T=k=>k;
-    const window={__FB_READY:true,__FB_ERR:null,FB};
+    const window={__FB_READY:true,__FB_ERR:null,__FB_AUTH_ERR:null,__FB_UID:${JSON.stringify(uid)},FB};
     const document={querySelector:()=>({textContent:'',style:{},classList:{add(){},remove(){},toggle(){}}})};
     const els={}; function $(id){return els[id]||(els[id]={style:{},classList:{add(){},remove(){},toggle(){}},textContent:'',innerHTML:'',value:'',disabled:false,querySelector:()=>({textContent:'',style:{},classList:{add(){},remove(){},toggle(){}}})});}
     let toastT; const toast=m=>{ui.log.push('toast:'+m);};
@@ -494,6 +527,7 @@ function makeClient(db, code, forcePid) {
       aliveOf(o){return aliveCount(o);},
       gone(o){return !!seatGone[o];},
       pid(){return onlinePid;},
+      uid(){return typeof fbUid==='function'?fbUid():'';},
       status(){return $('onStatus').textContent;},
       pendingCount(){return Object.keys(pendingSlot).length;},
       commitMove(dx,dy,idx){
@@ -832,6 +866,81 @@ async function playTurn(clients, moves) {
       /function curRestBall\(\)\{const c=footballPhys\(\);return c\?c\.restBall:REST;\}/.test(html));
     t('RC-ENV footballPhys ist ausserhalb Football null',
       /function footballPhys\(\)\{return mode==='football'\?FOOTBALL_PHYS:null;\}/.test(html));
+  }
+
+  // ══ RC-UID: Seat-Eigentum haengt an auth.uid, nicht an der oeffentlichen Spieler-ID ══
+  // players.id ist fuer jeden lesbar, der den Raum kennt. Vor dieser Phase genuegte sie,
+  // um einen Sitz zurueckzuholen. Jetzt entscheidet die anonyme auth.uid - dieselbe
+  // Kenntnis von id, Name, Sitznummer und Raumcode darf einem Fremden nichts nuetzen.
+  {
+    const db = makeDB();
+    const h = makeClient(db, 'UID1'); h.setMenu('ffa', 3); h.create(); await tick();
+    const g = makeClient(db, 'X'); g.setMenu('online'); g.join('UID1'); await tick();
+    const g2 = makeClient(db, 'X'); g2.setMenu('online'); g2.join('UID1'); await tick();
+    h.clickStart(); await tick();
+    const gpid = g.pid(), guid = g.uid();
+    t('RC-UID der Sitz traegt die auth.uid seines Eigentuemers',
+      db.data.rooms.UID1.players[1].uid === guid && guid.length > 0);
+    t('RC-UID die uid unterscheidet sich von der oeffentlichen Spieler-ID',
+      db.data.rooms.UID1.players[1].uid !== db.data.rooms.UID1.players[1].id);
+
+    g.drop(); await tick();
+
+    // 1. Fremde uid, aber die vollstaendige oeffentliche Identitaet des Opfers.
+    const thief = makeClient(db, 'X', gpid, 'UID_THIEF_0001');
+    thief.setMenu('online');
+    const stolen = await thief.rejoin('UID1'); await tick();
+    t('RC-UID gleicher pid, ANDERE uid erhaelt den Sitz nicht',
+      stolen === false && thief.st().online === false);
+    t('RC-UID der Sitz gehoert unveraendert dem Eigentuemer',
+      db.data.rooms.UID1.players[1].uid === guid && db.data.rooms.UID1.players[1].id === gpid);
+
+    // 2. Derselbe Mensch kehrt zurueck: gleiche uid, frischer Tab.
+    const back = makeClient(db, 'X', gpid, guid); back.setMenu('online');
+    const ok = await back.rejoin('UID1'); await tick();
+    t('RC-UID gleiche uid bekommt denselben Sitz zurueck',
+      ok === true && back.st().online === true && back.st().myPlayer === 1);
+    t('RC-UID Sitz, Farbe und Zugehoerigkeit bleiben erhalten',
+      db.data.rooms.UID1.players[1].uid === guid && db.data.rooms.UID1.p[1].on === true);
+
+    // 3. Ein zweiter Tab derselben uid uebernimmt einen AKTIVEN Sitz nicht.
+    const tab2 = makeClient(db, 'X', gpid, guid); tab2.setMenu('online');
+    const dup = await tab2.rejoin('UID1'); await tick();
+    t('RC-UID zweiter Tab derselben uid uebernimmt den aktiven Sitz nicht',
+      dup === false && tab2.st().online === false && db.data.rooms.UID1.p[1].on === true);
+
+    // 4. Der Zugslot gehoert dem Sitzeigentuemer.
+    t('RC-UID nur der Eigentuemer schreibt seinen Zugslot',
+      back.commitMove(20, -30) === true);
+    await tick();
+    t('RC-UID der Zug des Eigentuemers liegt in der Datenbank',
+      !!(db.data.rooms.UID1.g && db.data.rooms.UID1.g[0] && db.data.rooms.UID1.g[0].t &&
+         db.data.rooms.UID1.g[0].t[0] && db.data.rooms.UID1.g[0].t[0][1]));
+  }
+
+  // ══ RC-UID2: mehrdeutige und uid-lose Zustaende ══
+  {
+    // findOwnSeat entscheidet die Zuordnung. Zwei Datensaetze mit DERSELBEN uid sind ein
+    // korrupter Zustand - dann wird nicht geraten, sondern abgelehnt (fail-closed), es
+    // sei denn der gespeicherte Rejoin-Hinweis loest die Mehrdeutigkeit eindeutig auf.
+    const A = 'UID_AAAA0001', B = 'UID_BBBB0002';
+    const rec = (id, tab, uid) => (uid ? { id, name: 'n', tab, uid } : { id, name: 'n', tab });
+    const players = { 0: rec('PIDHOST1', 'TABHOST1', A), 1: rec('PIDGUES1', 'TABGUES1', A) };
+    t('RC-UID2 zwei Sitze mit derselben uid -> kein Treffer (fail-closed)',
+      FOS(players, 'PIDGUES1', A, -1) === -1);
+    t('RC-UID2 der gespeicherte Rejoin-Hinweis loest die Mehrdeutigkeit auf',
+      FOS(players, 'PIDGUES1', A, 1) === 1);
+    t('RC-UID2 ein Hinweis auf einen FREMDEN Sitz zaehlt nicht',
+      FOS({ 0: rec('PIDHOST1', 'TABHOST1', A), 1: rec('PIDGUES1', 'TABGUES1', B) }, 'PIDGUES1', A, 1) === 0);
+    t('RC-UID2 eindeutiger uid-Treffer gewinnt',
+      FOS({ 0: rec('PIDHOST1', 'TABHOST1', A), 1: rec('PIDGUES1', 'TABGUES1', B) }, 'PIDGUES1', B, -1) === 1);
+    t('RC-UID2 gleiche oeffentliche id, fremde uid -> abgelehnt',
+      FOS({ 1: rec('PIDGUES1', 'TABGUES1', B) }, 'PIDGUES1', A, -1) === -1);
+    t('RC-UID2 uid-loser Bestandssitz bleibt ueber die id erreichbar (Legacy)',
+      FOS({ 1: rec('PIDGUES1', 'TABGUES1', null) }, 'PIDGUES1', A, -1) === 1);
+    t('RC-UID2 ein uid-geschuetzter Sitz ist NIE ueber die id erreichbar',
+      FOS({ 1: rec('PIDGUES1', 'TABGUES1', B) }, 'PIDGUES1', '', -1) === -1);
+    t('RC-UID2 ohne uid und ohne id kein Treffer', FOS({ 1: rec('P', 'T', B) }, '', '', -1) === -1);
   }
 
   console.log(`\nReconnect-B2: ${pass} passed, ${fail} failed`);

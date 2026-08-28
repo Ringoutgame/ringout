@@ -49,7 +49,11 @@ const SRC = [
   grab(/const MATCH_COLLAPSE_SECONDS=[\s\S]*?\nfunction inputLocked\(\)[^\n]*/, 'Collapse-Eingabesperre'),
   fn('whoCanAim'),
   grab(/function whenFB\(cb\)\{[^\n]*/, 'whenFB'),
-  grab(/function fbReady\(\)\{[^\n]*/, 'fbReady'),
+  fn('fbReady'),
+  // Seat-Eigentum haengt an auth.uid: fbUid() liefert sie, fbFailKey() unterscheidet
+  // Verbindungs- von Anmeldefehlern. Beide kommen woertlich aus index.html.
+  fn('fbUid'),
+  fn('fbFailKey'),
   grab(/function rRef\(p\)\{[^\n]*/, 'rRef'),
   grab(/function setStatus\(t\)\{[^\n]*/, 'setStatus'),
   grab(/function validateRoom\(d\)\{[\s\S]*?\n\}/, 'validateRoom'),
@@ -96,13 +100,13 @@ const SRC = [
   grab(/async function reserveSeat\(code,seat\)\{[\s\S]*?\n\}/, 'reserveSeat'),
   grab(/async function armPresence\(code,seat\)\{[\s\S]*?\n\}/, 'armPresence'),
   grab(/async function activateSeat\(code,seat,extra\)\{[\s\S]*?\n\}/, 'activateSeat'),
-  grab(/async function releaseReservation\(code,seat,dc\)\{[\s\S]*?\n\}/, 'releaseReservation'),
+  fn('releaseReservation'),
   grab(/async function claimSeatSlot\(code,seat,op,extra\)\{[\s\S]*?\n\}/, 'claimSeatSlot'),
   grab(/async function abortFreshRoom\(code,dc,listed\)\{[\s\S]*?\n\}/, 'abortFreshRoom'),
   grab(/function roomRejoinableState\(d,seat\)\{[\s\S]*?\n\}/, 'roomRejoinableState'),
   grab(/function playerRecord\(seat\)\{[^\n]*/, 'playerRecord'),
   grab(/function nameForSeat\(s\)\{[\s\S]*?\n\}/, 'nameForSeat'),
-  grab(/function findOwnSeat\(players,pid\)\{[\s\S]*?\n\}/, 'findOwnSeat'),
+  fn('findOwnSeat'),
   grab(/function rememberRoom\(code,seat\)\{[^\n]*/, 'rememberRoom'),
   grab(/function forgetRoom\(\)\{[^\n]*/, 'forgetRoom'),
   grab(/function savedRoom\(\)\{[\s\S]*?\n\}/, 'savedRoom'),
@@ -151,7 +155,7 @@ function makeDB() {
       state: () => wstate !== undefined ? wstate : (room && room.state)
     };
   }
-  function checkWrite(parts, val, merged) {
+  function checkWrite(parts, val, merged, authUid) {
     if (parts[0] !== 'rooms') throw new Error('PERMISSION_DENIED');
     const room = data.rooms[parts[1]];
     if (parts.length === 2) {
@@ -224,8 +228,21 @@ function makeDB() {
         || typeof val.id !== 'string' || !/^[A-Za-z0-9_-]{8,24}$/.test(val.id)
         || typeof val.name !== 'string' || val.name.length < 1 || val.name.length > 48
         || typeof val.tab !== 'string' || !/^[A-Za-z0-9_-]{8,24}$/.test(val.tab)
-        || Object.keys(val).some(k => k !== 'id' && k !== 'name' && k !== 'tab'))
+        || Object.keys(val).some(k => k !== 'id' && k !== 'name' && k !== 'tab' && k !== 'uid'))
         throw new Error('PERMISSION_DENIED: players record invalid');
+      // ── Seat-Ownership (auth.uid) ──────────────────────────────────────────────
+      // uid darf nur die EIGENE sein (Rules: players/<seat>/uid === auth.uid).
+      if (val.uid !== undefined && (typeof val.uid !== 'string' || val.uid.length < 1 || val.uid.length > 128 || val.uid !== authUid))
+        throw new Error('PERMISSION_DENIED: players uid must be the writer auth.uid');
+      // Ein bestehender Eigentuemer ist unveraenderlich, und ein uid-loser Bestandssitz
+      // wird nicht inplace migriert. Beides nur ueber die regulaere Neuvergabe.
+      if (rec && rec.uid !== undefined && val.uid !== rec.uid)
+        throw new Error('PERMISSION_DENIED: players uid immutable');
+      if (rec && rec.uid === undefined && val.uid !== undefined)
+        throw new Error('PERMISSION_DENIED: no in-place uid migration');
+      // Ein fremder Eigentuemer sperrt den Sitz vollstaendig.
+      if (rec && rec.uid !== undefined && rec.uid !== authUid)
+        throw new Error('PERMISSION_DENIED: players owned by another uid');
       const pVal = merged.p(seat);
       if (!pVal || pVal.s !== val.tab) throw new Error('PERMISSION_DENIED: players needs matching p.s in same write');
       if (rec && rec.id === val.id) return;
@@ -235,8 +252,8 @@ function makeDB() {
     }
     throw new Error('PERMISSION_DENIED: ' + key);
   }
-  function setParts(parts, val) {
-    checkWrite(parts, val);
+  function setParts(parts, val, authUid) {
+    checkWrite(parts, val, undefined, authUid);
     let o = data;
     for (let i = 0; i < parts.length - 1; i++) { if (o[parts[i]] == null) o[parts[i]] = {}; o = o[parts[i]]; }
     if (val == null) delete o[parts[parts.length - 1]]; else o[parts[parts.length - 1]] = JSON.parse(JSON.stringify(val));
@@ -270,11 +287,11 @@ function makeDB() {
   // Simuliert einen echten Netzwerk-/Transport-Fehler: die Transaction wird NIE
   // gegen die Daten ausgewertet, einfach direkt abgelehnt (kein Rules-Fehler).
   function rejectNext(err) { const w = txQueue.shift(); if (!w) return false; w.reject(err || new Error('NETWORK_ERROR')); return true; }
-  const FBfor = ui => ({
+  const FBfor = (ui, authUid) => ({
     db: null,
     ref: (db, path) => path.split('/'),
     get: async ref => ({ exists: () => at(ref) != null, val: () => clone(at(ref)) }),
-    set: async (ref, val) => setParts(ref, val),          // weiterhin genutzt fuer Raum/Presence/gen/state/seats (kein Turn-Slot-Pfad mehr)
+    set: async (ref, val) => setParts(ref, val, authUid),          // weiterhin genutzt fuer Raum/Presence/gen/state/seats (kein Turn-Slot-Pfad mehr)
     // Atomic multi-path update: validate EVERY path against the pre-write tree
     // (rules see root = pre-write) with knowledge of sibling presence writes in THIS
     // same update (merged p/<seat>), then apply all-or-nothing. Mirrors the real
@@ -285,7 +302,7 @@ function makeDB() {
       const paths = keys.map(k => ref.concat(String(k).split('/')));
       const room = data.rooms[ref[1]];
       const merged = buildMerged(room, keys.map((k, i) => ({ parts: paths[i], val: obj[k] })));
-      keys.forEach((k, i) => checkWrite(paths[i], obj[k], merged));   // any throw aborts BEFORE any apply
+      keys.forEach((k, i) => checkWrite(paths[i], obj[k], merged, authUid));   // any throw aborts BEFORE any apply
       keys.forEach((k, i) => {
         let o = data;
         for (let j = 0; j < paths[i].length - 1; j++) { if (o[paths[i][j]] == null) o[paths[i][j]] = {}; o = o[paths[i][j]]; }
@@ -294,7 +311,7 @@ function makeDB() {
       });
       notify();
     },
-    remove: async ref => setParts(ref, null),
+    remove: async ref => setParts(ref, null, authUid),
     // Codex-Nachbesserung Punkt 4: die Fake-DB akzeptiert runTransaction() nur mit
     // dem dritten Argument {applyLocally:false} — genau wie die echte Firebase-API
     // es fuer den Turn-Slot-Pfad braucht (kein lokal-optimistisches Zwischenevent).
@@ -349,16 +366,19 @@ function makeDB() {
 // ── one sandboxed client = the real functions + inert UI/game stubs ──
 function makeClient(db, code, forcePid) {
   const ui = { code, log: [], onDrop: [] };
-  const FB = db.FBfor(ui);
   // Unique browser identity per sandboxed client (pid/tab match the rules charset).
   const seq = (makeClient._seq = (makeClient._seq || 0) + 1);
   const pid = forcePid || ('PID' + String(seq).padStart(6, '0'));
   const tab = 'TAB' + String(seq).padStart(6, '0');
+  // auth.uid: an den dauerhaften pid gebunden, damit ein Reload/neuer Tab dieselbe
+  // Identitaet mitbringt - so verhaelt sich die anonyme Anmeldung mit Persistenz.
+  const uid = 'UID_' + pid;
+  const FB = db.FBfor(ui, uid);
   const body = `
     const TUNE=false; let r3dOrbit=false;
     const T=k=>k;
     const PCOLS=[{ui:'#e33'},{ui:'#3e3'},{ui:'#33e'},{ui:'#ee3'},{ui:'#e3e'}];
-    const window={__FB_READY:true,__FB_ERR:null,FB};
+    const window={__FB_READY:true,__FB_ERR:null,__FB_AUTH_ERR:null,__FB_UID:${JSON.stringify(uid)},FB};
     const document={querySelector:()=>({textContent:''})};
     const els={}; function $(id){return els[id]||(els[id]={style:{},classList:{add(){},remove(){}},textContent:'',innerHTML:'',value:'',disabled:false,querySelector:()=>({textContent:''})});}
     let toastT; const toast=m=>{ui.log.push('toast:'+m);$('toast').textContent=m;};

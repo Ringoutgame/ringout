@@ -942,9 +942,24 @@ body:not(.r3d) .ohero{height:12px}
                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/" } }
 </script>
 
+<script>
+  // Ready-Watchdog. Bewusst KEIN Modul: schlaegt der Import von firebase-app/-auth
+  // fehl oder haengt er, wuerde ein Timer INNERHALB des Moduls nie starten und
+  // fb-ready bliebe fuer immer aus. Der Vertrag bleibt dieselbe eine Zusage:
+  // __FB_READY + fb-ready feuern genau einmal, spaetestens nach FB_BOOT_TIMEOUT_MS.
+  window.FB_BOOT_TIMEOUT_MS = 10000;
+  window.__fbFinish = function(err){
+    if(window.__FB_READY) return;                       // genau einmal
+    if(err && !window.__FB_ERR && !window.__FB_AUTH_ERR) window.__FB_AUTH_ERR = err;
+    window.__FB_READY = true;
+    window.dispatchEvent(new Event("fb-ready"));
+  };
+  setTimeout(function(){ window.__fbFinish("firebase boot timeout"); }, window.FB_BOOT_TIMEOUT_MS);
+</script>
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js";
   import { getDatabase, ref, set, get, update, remove, onValue, onDisconnect, serverTimestamp, runTransaction, query, orderByChild, limitToLast } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-database.js";
+  import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js";
   const firebaseConfig = {
     apiKey: "AIzaSyDVQNTYoJ3bAUbv4gmcJvjuSVE6vKylZM0",
     authDomain: "ringout-87fbb.firebaseapp.com",
@@ -954,13 +969,30 @@ body:not(.r3d) .ohero{height:12px}
     messagingSenderId: "1030534355732",
     appId: "1:1030534355732:web:71cbf283ec2a7b2edd0001"
   };
+  // Seat-Ownership: Online braucht eine echte auth.uid — sie ist der einzige
+  // serverseitige Eigentumsbeweis fuer einen Seat. Der Ready-Vertrag bleibt EINER:
+  // 'fb-ready' feuert erst, wenn Datenbank UND Anmeldung entschieden sind. Schlaegt
+  // die Anmeldung fehl (oder antwortet sie nicht), steht __FB_AUTH_ERR und fbReady()
+  // ist false — der Online-Einstieg meldet das ueber die vorhandene Status-UI. Kein
+  // automatischer Wiederholungslauf: ein Reload ist der bewusste zweite Versuch.
+  const AUTH_TIMEOUT_MS = window.FB_BOOT_TIMEOUT_MS || 10000;
+  const finish = () => window.__fbFinish(null);   // derselbe Einmal-Abschluss wie der Watchdog
   try{
     const app = initializeApp(firebaseConfig);
     const db = getDatabase(app);
-    window.FB = { db, ref, set, get, update, remove, onValue, onDisconnect, serverTimestamp, runTransaction, query, orderByChild, limitToLast };
-    window.__FB_READY = true;
-  }catch(e){ window.__FB_ERR = String(e && e.message || e); }
-  window.dispatchEvent(new Event('fb-ready'));
+    const auth = getAuth(app);
+    window.FB = { db, auth, ref, set, get, update, remove, onValue, onDisconnect, serverTimestamp, runTransaction, query, orderByChild, limitToLast };
+    const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error('auth timeout')), AUTH_TIMEOUT_MS));
+    // Standard-Persistenz (IndexedDB): dieselbe uid ueberlebt Reload und neuen Tab.
+    Promise.race([signInAnonymously(auth), timeout])
+      .then(cred => {
+        const uid = cred && cred.user && cred.user.uid;
+        if(uid) window.__FB_UID = uid;
+        else window.__FB_AUTH_ERR = 'no uid';
+      })
+      .catch(e => { window.__FB_AUTH_ERR = String(e && e.message || e); })
+      .then(finish);
+  }catch(e){ window.__FB_ERR = String(e && e.message || e); finish(); }
 </script>
 
 <script>
@@ -1188,7 +1220,9 @@ function loadOnlineIdentity(){
 function setOnlineName(raw){ onlineName=sanitizeName(raw); try{ localStorage.setItem('ringout_name',onlineName); }catch(e){} }
 // Durable roster record for a seat. Name is never empty (rules require length>=1):
 // it falls back to the localized seat color name.
-function playerRecord(seat){ return {id:onlinePid, name:(onlineName||T('col'+seat)), tab:onlineTab}; }
+// uid ist der Eigentumsbeweis des Seats (die Rules pruefen players/<seat>/uid gegen
+// auth.uid). id und tab bleiben Identitaets- bzw. Session-Metadaten.
+function playerRecord(seat){ return {id:onlinePid, name:(onlineName||T('col'+seat)), tab:onlineTab, uid:(typeof fbUid==='function'?fbUid():'')}; }
 // Display name for a seat: sanitized roster name, else the localized color name.
 // Callers MUST render the result via textContent (never innerHTML) — names are
 // untrusted input.
@@ -1197,10 +1231,33 @@ function nameForSeat(s){
   const n=r&&typeof r.name==='string'?sanitizeName(r.name):'';
   return n||T('col'+s);
 }
-// Lowest seat whose stored id equals pid; -1 if none. Basis for same-seat rejoin.
-function findOwnSeat(players,pid){
-  if(!players||typeof players!=='object'||!pid)return -1;
-  for(let s=0;s<FFA_MAX_SEATS;s++){ const r=players[s]; if(r&&r.id===pid)return s; }
+// Eigener Sitz in diesem Raum; -1 wenn keiner. Basis fuer den Same-Seat-Rejoin.
+// Der kanonische Eigentumsnachweis ist die auth.uid — sie ist nicht faelschbar.
+// players.id ist oeffentlich lesbar und taugt nur noch als Legacy-Rueckfall fuer
+// Sitze, die (noch) keine uid tragen. Ein FREMDER geschuetzter Seat mit zufaellig
+// gleicher id darf den eigenen nie verdecken.
+//
+// Dieselbe dauerhafte uid kann MEHRERE Sitze desselben Raums halten (zwei Tabs,
+// hotseat-artige Aufbauten). Dann ist "der niedrigste Treffer" eine willkuerliche
+// Wahl. Reihenfolge deshalb:
+//   1. der gespeicherte Rejoin-Seat, wenn er der eigenen uid gehoert,
+//   2. ein EINDEUTIGER uid-Treffer,
+//   3. Legacy-Rueckfall ueber players.id, ausschliesslich fuer uid-lose Sitze.
+// Mehrdeutige uid-Treffer ohne gueltigen Hinweis liefern -1 (fail-closed) — lieber
+// kein Rejoin als der falsche Sitz.
+function findOwnSeat(players,pid,uid,hintSeat){
+  if(!players||typeof players!=='object')return -1;
+  if(uid){
+    if(Number.isInteger(hintSeat)&&hintSeat>=0&&hintSeat<FFA_MAX_SEATS){
+      const h=players[hintSeat]; if(h&&h.uid===uid)return hintSeat;
+    }
+    const hits=[];
+    for(let s=0;s<FFA_MAX_SEATS;s++){ const r=players[s]; if(r&&r.uid===uid)hits.push(s); }
+    if(hits.length===1)return hits[0];
+    if(hits.length>1)return -1;   // mehrdeutig ohne gueltigen Hinweis -> nicht raten
+  }
+  if(!pid)return -1;
+  for(let s=0;s<FFA_MAX_SEATS;s++){ const r=players[s]; if(r&&!r.uid&&r.id===pid)return s; }
   return -1;
 }
 function rememberRoom(code,seat){ try{ localStorage.setItem('ringout_room',JSON.stringify({code:code,seat:seat,ts:Date.now()})); }catch(e){} }
@@ -1269,8 +1326,27 @@ async function activateSeat(code,seat,extra){
 // presence-only delete is not expressible under v3) and disarms the onDisconnect
 // if one was armed. Never touches a foreign record (only ever called on a seat
 // this same call just reserved). Errors are logged, never swallowed silently.
-async function releaseReservation(code,seat,dc){
-  try{ const upd={}; upd['p/'+seat]=null; upd['players/'+seat]=null; await window.FB.update(window.FB.ref(window.FB.db,'rooms/'+code),upd); }
+// Eigentum allein genuegt hier NICHT. Dieselbe dauerhafte auth.uid kann den Seat
+// inzwischen in einer NEUEN Session (anderer Tab, anderes s/tab-Token) neu
+// beansprucht haben — ein spaet nachlaufender Rollback der alten Session wuerde dann
+// den gueltigen neuen Claim loeschen. Geloescht wird deshalb nur, wenn p/<seat>.s UND
+// players/<seat>.tab noch exakt das Token dieser Session tragen. Passt es nicht mehr,
+// gewinnt der neuere Claim und der Rollback laesst ihn stehen.
+async function releaseReservation(code,seat,dc,tok){
+  const mine=tok||onlineTab;
+  try{
+    const ref=window.FB.ref(window.FB.db,'rooms/'+code);
+    const snap=await window.FB.get(ref);
+    const d=snap.exists()?snap.val():null;
+    const pr=d&&d.p&&d.p[seat], rec=d&&d.players&&d.players[seat];
+    if(!pr&&!rec){ /* schon weg — nichts zu tun */ }
+    else if(!(pr&&pr.s===mine)||!(rec&&rec.tab===mine)){
+      console.warn('[online] reservation rollback skipped (seat '+seat+'): claim belongs to a newer session');
+    }else{
+      const upd={}; upd['p/'+seat]=null; upd['players/'+seat]=null;
+      await window.FB.update(ref,upd);
+    }
+  }
   catch(e){ console.error('[online] reservation rollback failed (seat '+seat+'):',e); }
   if(dc){ try{ await dc.cancel(); }catch(e){ console.error('[online] onDisconnect cancel failed (seat '+seat+'):',e); } }
 }
@@ -1281,16 +1357,17 @@ async function releaseReservation(code,seat,dc){
 // Outcomes: {ok:true,dc} activated · {lost:true} reserve lost (no partial state,
 // caller tries the next seat) · {stale:true} op superseded (own writes rolled back).
 async function claimSeatSlot(code,seat,op,extra){
+  const tok=onlineTab;   // Token DIESER Reservierung — der Rollback prueft genau dieses
   const r=await reserveSeat(code,seat);
   if(!r.ok)return {ok:false,lost:true,dc:null};
-  if(op!=null&&!joinOpCurrent(op)){ await releaseReservation(code,seat,null); return {ok:false,stale:true,dc:null}; }
+  if(op!=null&&!joinOpCurrent(op)){ await releaseReservation(code,seat,null,tok); return {ok:false,stale:true,dc:null}; }
   let dc=null;
   try{ dc=await armPresence(code,seat); }
-  catch(e){ await releaseReservation(code,seat,null); throw e; }
-  if(op!=null&&!joinOpCurrent(op)){ await releaseReservation(code,seat,dc); return {ok:false,stale:true,dc:null}; }
+  catch(e){ await releaseReservation(code,seat,null,tok); throw e; }
+  if(op!=null&&!joinOpCurrent(op)){ await releaseReservation(code,seat,dc,tok); return {ok:false,stale:true,dc:null}; }
   try{ await activateSeat(code,seat,extra); }
-  catch(e){ await releaseReservation(code,seat,dc); throw e; }
-  if(op!=null&&!joinOpCurrent(op)){ await releaseReservation(code,seat,dc); return {ok:false,stale:true,dc:null}; }
+  catch(e){ await releaseReservation(code,seat,dc,tok); throw e; }
+  if(op!=null&&!joinOpCurrent(op)){ await releaseReservation(code,seat,dc,tok); return {ok:false,stale:true,dc:null}; }
   return {ok:true,dc:dc};
 }
 // ════ B2 same-seat reclaim: RECLAIM -> ARM -> ACTIVATE ════
@@ -1302,9 +1379,13 @@ async function claimSeatSlot(code,seat,op,extra){
 // seats are rules-rejected: this path can never change players/<seat>/id.
 // keepName restores the roster name the seat already carries when no locally
 // persisted name exists (rules require name length>=1).
-async function reclaimSeat(code,seat,keepName){
+async function reclaimSeat(code,seat,keepName,legacy){
   const rec=playerRecord(seat);
   if(!onlineName&&keepName)rec.name=keepName;
+  // Ein bestehender uid-loser Seat wird NICHT inplace auf Eigentum migriert — die
+  // Rules lehnen das ab, und ein halb migrierter Claim waere schlimmer als gar keiner.
+  // Er bleibt Legacy bis zur echten Neuvergabe.
+  if(legacy)delete rec.uid;
   const upd={}; upd['p/'+seat]={s:onlineTab,on:false,t:window.FB.serverTimestamp()}; upd['players/'+seat]=rec;
   try{ await window.FB.update(window.FB.ref(window.FB.db,'rooms/'+code),upd); return {ok:true}; }
   catch(e){
@@ -1325,8 +1406,8 @@ async function releaseReclaim(code,seat,dc){
 // claimSeatSlot. Outcomes: {ok:true,dc} re-activated · {lost:true} rules denied
 // (foreign tab active / stale window not open / seat re-assigned) · {stale:true}
 // op superseded (own presence dropped again, records kept).
-async function reclaimSeatSlot(code,seat,op,keepName){
-  const r=await reclaimSeat(code,seat,keepName);
+async function reclaimSeatSlot(code,seat,op,keepName,legacy){
+  const r=await reclaimSeat(code,seat,keepName,legacy);
   if(!r.ok)return {ok:false,lost:true,dc:null};
   if(op!=null&&!joinOpCurrent(op)){ await releaseReclaim(code,seat,null); return {ok:false,stale:true,dc:null}; }
   let dc=null;
@@ -1514,7 +1595,7 @@ en:{tagline:'PULL BACK · RELEASE · KNOCK THEM OUT',chip:'FEATURED',
   creating:'Creating room…',ffaShare:'FFA · Share the code with 1–4 friends.',shareCode:'Share the code with your friend.',
   code4:'Please enter the 4-letter code.',joining:'Joining…',noRoom:'Room not found.',roomFull:'Room is already full.',
   connWait:'Connected! Waiting for the host…',connStart:'Connected! Game starting…',
-  noFb:'⚠ No connection to Firebase. Check internet & config.',err:'Error: ',noOnlineReset:'Not available in online mode.',loading:'Loading arena...',
+  noFb:'⚠ No connection to Firebase. Check internet & config.',noAuth:'⚠ Sign-in failed. Please reload the page.',err:'Error: ',noOnlineReset:'Not available in online mode.',loading:'Loading arena...',
   victory:'VICTORY',defeat:'DEFEAT',wins:'WINS',finalScore:'FINAL SCORE',elimDone:'ELIMINATION COMPLETE',ringout:'RINGOUT',round:'ROUND',
   col0:'BLUE',col1:'RED',col2:'GREEN',col3:'YELLOW',col4:'GRAY',col5:'VIOLET',
   nameYou:'YOU',nameOpp:'OPPONENT',namePlayer:'Player',youAre:'YOU ARE',
@@ -1559,7 +1640,7 @@ de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'FEATURED',
   creating:'Erstelle Raum…',ffaShare:'FFA · Schick den Code an 1–4 Freunde.',shareCode:'Schick den Code an deinen Kumpel.',
   code4:'Bitte 4-stelligen Code eingeben.',joining:'Trete bei…',noRoom:'Raum nicht gefunden.',roomFull:'Raum ist schon voll.',
   connWait:'Verbunden! Warte auf den Host…',connStart:'Verbunden! Spiel startet…',
-  noFb:'⚠ Keine Verbindung zu Firebase. Internet & Config prüfen.',err:'Fehler: ',noOnlineReset:'Im Online-Modus nicht verfügbar.',loading:'Arena wird geladen...',
+  noFb:'⚠ Keine Verbindung zu Firebase. Internet & Config prüfen.',noAuth:'⚠ Anmeldung fehlgeschlagen. Bitte Seite neu laden.',err:'Fehler: ',noOnlineReset:'Im Online-Modus nicht verfügbar.',loading:'Arena wird geladen...',
   victory:'SIEG',defeat:'NIEDERLAGE',wins:'GEWINNT',finalScore:'ENDSTAND',elimDone:'ELIMINATION BEENDET',ringout:'RINGOUT',round:'RUNDE',
   col0:'BLAU',col1:'ROT',col2:'GRÜN',col3:'GELB',col4:'GRAU',col5:'VIOLETT',
   nameYou:'DU',nameOpp:'GEGNER',namePlayer:'Spieler',youAre:'DU BIST',
@@ -1604,7 +1685,7 @@ tr:{tagline:'GERİ ÇEK · BIRAK · DIŞARI İT',chip:'FEATURED',
   creating:'Oda kuruluyor…',ffaShare:'FFA · Kodu 1–4 arkadaşına gönder.',shareCode:'Kodu arkadaşına gönder.',
   code4:'Lütfen 4 haneli kodu gir.',joining:'Katılınıyor…',noRoom:'Oda bulunamadı.',roomFull:'Oda zaten dolu.',
   connWait:'Bağlandı! Host bekleniyor…',connStart:'Bağlandı! Oyun başlıyor…',
-  noFb:'⚠ Firebase bağlantısı yok. İnterneti ve yapılandırmayı kontrol et.',err:'Hata: ',noOnlineReset:'Online modda kullanılamaz.',loading:'Arena yükleniyor...',
+  noFb:'⚠ Firebase bağlantısı yok. İnterneti ve yapılandırmayı kontrol et.',noAuth:'⚠ Giriş başarısız. Lütfen sayfayı yeniden yükle.',err:'Hata: ',noOnlineReset:'Online modda kullanılamaz.',loading:'Arena yükleniyor...',
   victory:'ZAFER',defeat:'MAĞLUBİYET',wins:'KAZANDI',finalScore:'SON SKOR',elimDone:'ELEME TAMAMLANDI',ringout:'RINGOUT',round:'RAUNT',
   col0:'MAVİ',col1:'KIRMIZI',col2:'YEŞİL',col3:'SARI',col4:'GRİ',col5:'MOR',
   nameYou:'SEN',nameOpp:'RAKİP',namePlayer:'Oyuncu',youAre:'RENGİN',
@@ -4829,7 +4910,12 @@ function gameOver(winner){setPhase('over');setPhaseText();
 
 // ════ ONLINE (Firebase Realtime DB · Lockstep) ════
 function whenFB(cb){ if(window.__FB_READY) cb(); else window.addEventListener('fb-ready',cb,{once:true}); }
-function fbReady(){ return window.__FB_READY && !window.__FB_ERR && window.FB; }
+// Online ist erst betretbar, wenn auch die anonyme Anmeldung steht — ohne
+// auth.uid kann der Server keinen Seat als Eigentum anerkennen.
+function fbReady(){ return window.__FB_READY && !window.__FB_ERR && !window.__FB_AUTH_ERR && !!window.__FB_UID && window.FB; }
+function fbUid(){ return window.__FB_UID||''; }
+// Welcher Text erklaert das Scheitern? Verbindung oder Anmeldung — nie beides raten.
+function fbFailKey(){ return (window.__FB_AUTH_ERR||(window.__FB_READY&&!window.__FB_ERR&&!window.__FB_UID))?'noAuth':'noFb'; }
 function rrand(n){let s='';const ch='ABCDEFGHJKMNPQRSTUVWXYZ23456789';for(let i=0;i<n;i++)s+=ch[Math.floor(Math.random()*ch.length)];return s;}
 function rRef(p){return window.FB.ref(window.FB.db,'rooms/'+roomCode+(p?'/'+p:''));}
 function setStatus(t){const e=$('onStatus');if(e)e.textContent=t;}
@@ -4898,13 +4984,13 @@ function openOnline(){
   if(sr){ $('onRejoinTxt').textContent=T('rejoinAsk').replace('{code}',sr.code); $('onRejoin').style.display=''; }
   else $('onRejoin').style.display='none';
   // Public-Room-Liste: Listener beim Oeffnen starten (best-effort; ohne FB nur Hinweis).
-  whenFB(()=>{ if(!fbReady()){setStatus(T('noFb'));return;} startPublicListing(); });
+  whenFB(()=>{ if(!fbReady()){setStatus(T(fbFailKey()));return;} startPublicListing(); });
 }
 
 function createRoom(){
   if(TUNE){toast('Tuning aktiv — Online deaktiviert');return;}
   const ffa=mode==='ffa';   // Kontext vom ffaOnline-Button
-  whenFB(()=>{ if(!fbReady()){setStatus(T('noFb'));return;}
+  whenFB(()=>{ if(!fbReady()){setStatus(T(fbFailKey()));return;}
     (async()=>{ const op=newJoinOp(); let dc=null, code='', created=false, listed=false;
     // Snapshot the visibility ONCE, validated, at the start of the operation. From here
     // on the create uses only this immutable local value — a UI toggle flip during an
@@ -5191,7 +5277,7 @@ function joinRoom(){
   if(TUNE){toast('Tuning aktiv — Online deaktiviert');return;}
   const code=($('onInput').value||'').toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,4);
   if(code.length<4){ setStatus(T('code4')); return; }
-  whenFB(()=>{ if(!fbReady()){setStatus(T('noFb'));return;}
+  whenFB(()=>{ if(!fbReady()){setStatus(T(fbFailKey()));return;}
     (async()=>{ const op=newJoinOp();
     try{
       setStatus(T('joining'));
@@ -5280,7 +5366,7 @@ function roomRejoinableState(d,seat){
 // exactly that case (rejoinWait).
 async function attemptRejoin(code){
   if(TUNE){toast('Tuning aktiv — Online deaktiviert');return false;}
-  if(!fbReady()){ setStatus(T('noFb')); return false; }
+  if(!fbReady()){ setStatus(T(fbFailKey())); return false; }
   const op=newJoinOp();
   try{
     setStatus(T('joining'));
@@ -5290,13 +5376,15 @@ async function attemptRejoin(code){
     const d=snap.val();
     const v=validateRejoinRoom(d);
     if(!v.ok){ forgetRoom(); setStatus(T(v.reason)); return false; }
-    const seat=findOwnSeat(d.players,onlinePid);
+    const sr0=savedRoom();
+    const seat=findOwnSeat(d.players,onlinePid,fbUid(),sr0&&sr0.code===code?sr0.seat:-1);
     if(seat<0){ forgetRoom(); setStatus(T('noRoom')); return false; }   // identity no longer holds a seat here — NEVER take a foreign one
     const ffa=v.fmt==='ffa'||v.fmt==='triple_ffa'||v.fmt==='team_duel';
     if(v.state==='playing'&&ffa&&seat>=v.seats){ forgetRoom(); setStatus(T('rejoinNoLobby')); return false; }   // match started without this seat
     if(d.p&&seatActive(d.p,seat)){ setStatus(T('rejoinTab')); return false; }
     const oldRec=d.players&&d.players[seat];
-    const claim=await reclaimSeatSlot(code,seat,op,oldRec&&typeof oldRec.name==='string'?sanitizeName(oldRec.name):'');
+    const claim=await reclaimSeatSlot(code,seat,op,oldRec&&typeof oldRec.name==='string'?sanitizeName(oldRec.name):'',
+      !(oldRec&&oldRec.uid));   // Seat ohne uid -> Legacy-Reclaim, keine Migration
     if(claim.stale)return false;   // op superseded -> own presence already dropped again
     if(claim.lost){
       // Reclaim denied by the rules: another tab re-took the seat, the lobby
@@ -5733,7 +5821,7 @@ async function offerRejoinOnBoot(){
     if(online||roomCode)return;   // user entered a room while the probe was in flight
     if(!s.exists()){ forgetRoom(); return; }
     const d=s.val();
-    if(!validateRejoinRoom(d).ok||findOwnSeat(d.players,onlinePid)<0){ forgetRoom(); return; }
+    if(!validateRejoinRoom(d).ok||findOwnSeat(d.players,onlinePid,fbUid(),sr.seat)<0){ forgetRoom(); return; }
     if(!$('online').classList.contains('show'))openOnline();
   }catch(e){}
 }

@@ -52,12 +52,21 @@ function ruleChild(rn, key) {
 }
 
 const NOW = 1751900000000;
+// Angemeldeter Schreiber. Seat-Eigentum haengt an auth.uid, deshalb ist jeder
+// Schreibversuch ab jetzt an eine konkrete Identitaet gebunden. `null` modelliert den
+// NICHT angemeldeten Client - die Rules lesen dann auth.uid auf einem null-Objekt,
+// was in der echten Rules-Sprache schlicht null ergibt und nie einer uid gleicht.
+const AUTH = (uid) => (uid ? { uid, provider: 'anonymous' } : { uid: null, provider: null });
+const UID_HOST = 'UID_HOST_AAAAAAAAAAAAAAAAAAAA';
+const UID_GUEST = 'UID_GUEST_BBBBBBBBBBBBBBBBBB';
+const UID_ATTACK = 'UID_ATTACKER_CCCCCCCCCCCCCCC';
 // attempts a single-path write against the loaded rules; returns true if allowed
-function tryWrite(db, path, value) {
+function tryWrite(db, path, value, uid) {
   const segs = path.split('/');
   const post = JSON.parse(JSON.stringify(db));
   setPath(post, segs, value);
-  const ctxAt = (i, vars) => ({ data: new NSnap(db, segs.slice(0, i)), newData: new NSnap(post, segs.slice(0, i)), root: new NSnap(db, []), now: NOW, ...vars });
+  const auth = AUTH(uid === undefined ? UID_GUEST : uid);
+  const ctxAt = (i, vars) => ({ data: new NSnap(db, segs.slice(0, i)), newData: new NSnap(post, segs.slice(0, i)), root: new NSnap(db, []), now: NOW, auth, ...vars });
   // .write cascade along the path (root .. target)
   let rn = rules, granted = false, vars = {};
   for (let i = 0; i <= segs.length && rn; i++) {
@@ -70,7 +79,7 @@ function tryWrite(db, path, value) {
   const validateAt = (node, s, vv) => {
     const val = getPath(post, s);
     if (val === null) return true;
-    if (node['.validate'] !== undefined && !evalRule(node['.validate'], { data: new NSnap(db, s), newData: new NSnap(post, s), root: new NSnap(db, []), now: NOW, ...vv })) return false;
+    if (node['.validate'] !== undefined && !evalRule(node['.validate'], { data: new NSnap(db, s), newData: new NSnap(post, s), root: new NSnap(db, []), now: NOW, auth, ...vv })) return false;
     if (val && typeof val === 'object') {
       for (const k of Object.keys(val)) {
         const r = ruleChild(node, k);
@@ -103,8 +112,8 @@ const MOVE = { idx: 0, dx: 100, dy: -50, sp: 0.5 };
 
 let pass = 0, fail = 0;
 const t = (name, cond) => { cond ? pass++ : (fail++, console.error('FAIL: ' + name)); };
-const allow = (name, db, path, v) => t('[ALLOW] ' + name, tryWrite(db, path, v) === true);
-const deny = (name, db, path, v) => t('[DENY]  ' + name, tryWrite(db, path, v) === false);
+const allow = (name, db, path, v, uid) => t('[ALLOW] ' + name, tryWrite(db, path, v, uid) === true);
+const deny = (name, db, path, v, uid) => t('[DENY]  ' + name, tryWrite(db, path, v, uid) === false);
 
 // ── (1) room creation — v3 object presence, offline host, atomic identity ──
 allow('create single', { rooms: {} }, 'rooms/KX7P', mkRoom('single'));
@@ -366,6 +375,140 @@ allow('team leave-sentinel pl 3 idx 0 (foreign idx)', teamMatch, 'rooms/KX7P/g/0
 deny('team move idx 4', teamMatch, 'rooms/KX7P/g/0/t/0/0', { idx: 4, dx: 0, dy: 0, sp: 0 });
 deny('team move idx 5', teamMatch, 'rooms/KX7P/g/0/t/0/0', { idx: 5, dx: 0, dy: 0, sp: 0 });
 deny('team move pl 4 (seat gate, presence pre-seeded)', playing({ p: { 0: P(H_TAB, true), 1: P(G_TAB, true), 2: P(G2_TAB, true), 3: P(G3_TAB, true), 4: P(G4_TAB, true) }, seats: 4 }, 'team_duel'), 'rooms/KX7P/g/0/t/0/4', MOVE);
+
+// ── (12) SEAT-OWNERSHIP: auth.uid ist der einzige Eigentumsbeweis ─────────────────
+// Der Angreifer kennt ALLES, was oeffentlich lesbar ist: Raumcode, Sitznummer, die
+// dauerhafte players.id des Opfers, dessen Namen und dessen Tab-Token. Er hat nur
+// eine andere auth.uid. Genau das muss reichen, um ihn auszusperren.
+{
+  const OWNED = (uid, id, tab) => ({ id: id || 'GUEST001', name: 'G', tab: tab || G_TAB, uid });
+  const HOST_OWNED = { id: 'HOST0000', name: 'Host', tab: H_TAB, uid: UID_HOST };
+  // Raum, dessen beide Sitze echten Eigentuemern gehoeren.
+  const owned = (over, fmt) => db1(Object.assign({
+    players: { 0: HOST_OWNED, 1: OWNED(UID_GUEST) },
+    p: { 0: P(H_TAB, true), 1: P(G_TAB, false, NOW - GRACE - 1) },
+  }, over), fmt);
+  const ownedPlaying = (over, fmt) => owned(Object.assign({ state: 'playing' }, over), fmt);
+
+  // -- Raumanlage bindet den Hostsitz an die eigene uid --------------------------
+  allow('create binds host seat to own uid', { rooms: {} }, 'rooms/KX7P',
+    mkRoom('single', { players: { 0: HOST_OWNED } }), UID_HOST);
+  deny('create with FOREIGN uid on the host seat', { rooms: {} }, 'rooms/KX7P',
+    mkRoom('single', { players: { 0: HOST_OWNED } }), UID_ATTACK);
+  deny('create with uid while NOT signed in', { rooms: {} }, 'rooms/KX7P',
+    mkRoom('single', { players: { 0: HOST_OWNED } }), null);
+
+  // -- players/<seat>: Eigentum ist unveraenderlich ------------------------------
+  deny('attacker rewrites victim roster record (knows id, name, tab)',
+    owned(), 'rooms/KX7P/players/1', OWNED(UID_ATTACK), UID_ATTACK);
+  deny('attacker rewrites victim roster record KEEPING the victim uid',
+    owned(), 'rooms/KX7P/players/1', OWNED(UID_GUEST), UID_ATTACK);
+  deny('owner cannot swap the uid of an owned seat',
+    owned(), 'rooms/KX7P/players/1', OWNED(UID_ATTACK), UID_GUEST);
+  deny('uid field must equal the writer auth.uid',
+    owned({ players: { 0: HOST_OWNED } }), 'rooms/KX7P/players/1',
+    OWNED(UID_ATTACK, 'GUEST001', G2_TAB), UID_GUEST);
+  deny('no in-place migration: adding a uid to a uid-less seat',
+    db1({ players: { 0: HOST, 1: REC() }, p: { 0: P(H_TAB, true), 1: P(G_TAB, false) } }),
+    'rooms/KX7P/players/1', OWNED(UID_GUEST), UID_GUEST);
+
+  // -- p/<seat>: Praesenz gehoert dem Sitzeigentuemer ----------------------------
+  deny('attacker ACTIVATES the victim presence',
+    owned({ p: { 0: P(H_TAB, true), 1: P(G_TAB, false) } }), 'rooms/KX7P/p/1',
+    P(G_TAB, true), UID_ATTACK);
+  allow('owner ACTIVATES its own presence',
+    owned({ p: { 0: P(H_TAB, true), 1: P(G_TAB, false) } }, 'ffa'), 'rooms/KX7P/p/1',
+    P(G_TAB, true), UID_GUEST);
+  deny('attacker RECLAIMS the victim seat mid-match (new tab token)',
+    ownedPlaying(), 'rooms/KX7P/p/1', P(G2_TAB, false), UID_ATTACK);
+  deny('attacker RECLAIMS the victim seat in the lobby after the stale window',
+    owned(), 'rooms/KX7P/p/1', P(G2_TAB, false), UID_ATTACK);
+  deny('presence write while NOT signed in',
+    owned({ p: { 0: P(H_TAB, true), 1: P(G_TAB, false) } }, 'ffa'), 'rooms/KX7P/p/1',
+    P(G_TAB, true), null);
+
+  // -- Zugdaten: nur der Sitzeigentuemer schreibt seinen Slot --------------------
+  const live = ownedPlaying({ p: { 0: P(H_TAB, true), 1: P(G_TAB, true) } });
+  allow('owner writes its own turn slot', live, 'rooms/KX7P/g/0/t/0/1', MOVE, UID_GUEST);
+  deny('attacker writes the victim turn slot', live, 'rooms/KX7P/g/0/t/0/1', MOVE, UID_ATTACK);
+  deny('host cannot write the guest turn slot', live, 'rooms/KX7P/g/0/t/0/1', MOVE, UID_HOST);
+  deny('turn slot write while NOT signed in', live, 'rooms/KX7P/g/0/t/0/1', MOVE, null);
+  allow('host writes its OWN turn slot', live, 'rooms/KX7P/g/0/t/0/0', MOVE, UID_HOST);
+
+  // -- Legacy: uid-lose Bestandssitze bleiben bedienbar --------------------------
+  const legacy = db1({ state: 'playing', players: { 0: HOST, 1: REC() },
+                       p: { 0: P(H_TAB, true), 1: P(G_TAB, true) } });
+  allow('legacy uid-less seat: turn write still allowed', legacy, 'rooms/KX7P/g/0/t/0/1',
+    MOVE, UID_GUEST);
+  allow('legacy uid-less seat: any signed-in client may serve it (pre-uid room)',
+    legacy, 'rooms/KX7P/g/0/t/0/1', MOVE, UID_ATTACK);
+
+  // -- Grenze des Same-uid-Modells: ein AKTIVER Sitz ist auch fuer den Eigentuemer
+  //    nicht uebernehmbar. Zwei Tabs derselben Person teilen sich zwar die uid, aber
+  //    der Reclaim verlangt data.on === false - ein laufender Tab wird nie verdraengt.
+  deny('same uid cannot take over its OWN seat while it is active (on:true)',
+    ownedPlaying({ p: { 0: P(H_TAB, true), 1: P(G_TAB, true) } }), 'rooms/KX7P/p/1',
+    P(G2_TAB, false), UID_GUEST);
+  deny('same uid cannot take over an active seat in the lobby either',
+    owned({ p: { 0: P(H_TAB, true), 1: P(G_TAB, true, NOW - GRACE - 1) } }), 'rooms/KX7P/p/1',
+    P(G2_TAB, false), UID_GUEST);
+  // Offline ist der Reclaim erlaubt - genau das ist der Reconnect-Pfad. Er ist ein
+  // ATOMARER p+players-Write; hier steht der Roster-Teil bereits auf dem neuen Token,
+  // so wie ihn derselbe Write mitbringt.
+  allow('same uid reclaims its OWN offline seat mid-match',
+    ownedPlaying({ players: { 0: HOST_OWNED, 1: OWNED(UID_GUEST, 'GUEST001', G2_TAB) } }),
+    'rooms/KX7P/p/1', P(G2_TAB, false), UID_GUEST);
+  deny('a FOREIGN uid cannot do the same reclaim even with a matching roster leg',
+    ownedPlaying({ players: { 0: HOST_OWNED, 1: OWNED(UID_GUEST, 'GUEST001', G2_TAB) } }),
+    'rooms/KX7P/p/1', P(G2_TAB, false), UID_ATTACK);
+
+  // -- Der 15-s-Lobby-Recycle darf Eigentum UEBERTRAGEN, nie ENTFERNEN ------------
+  // Ein abgelaufener Lobbysitz darf neu vergeben werden - das ist die Ausnahme, die eine
+  // verwaiste Lobby nicht dauerhaft blockiert. Sie ist aber nur fuer einen ANGEMELDETEN
+  // Uebernehmer gedacht, der sein eigenes Eigentum eintraegt. Wird die uid dabei einfach
+  // weggelassen, waere sie fuer einen unangemeldeten Client wahr (auth.uid und eine
+  // fehlende uid sind beide null) - der Sitz verloere sein Eigentum und stuende danach
+  // ueber den Legacy-Pfad jedem offen.
+  // Der Harness bildet Mehrpfad-Writes durch sequenzielle Einzelwrites ab (s. Kopf der
+  // Datei). Fuer die Uebernahme heisst das: p/1 traegt bereits das NEUE Token, aber noch
+  // den ALTEN Zeitstempel - genau die Sicht, die die Regel im atomaren Write hat. ALLE
+  // Faelle hier benutzen dieselbe Paarung, damit ueber sie ausschliesslich das EIGENTUM
+  // entscheidet und nicht schon die p.s/players.tab-Kopplung.
+  const stalePaired = owned({ p: { 0: P(H_TAB, true), 1: { s: G2_TAB, on: false, t: NOW - GRACE - 1 } } });
+  const claimNoUid = { id: 'NEWPID01', name: 'n', tab: G2_TAB };
+  const claimOwn = { id: 'NEWPID01', name: 'n', tab: G2_TAB, uid: UID_ATTACK };
+  deny('UNAUTH strips ownership off a stale lobby seat (uid dropped)',
+    stalePaired, 'rooms/KX7P/players/1', claimNoUid, null);
+  deny('signed-in stranger strips ownership off a stale lobby seat (uid dropped)',
+    stalePaired, 'rooms/KX7P/players/1', claimNoUid, UID_ATTACK);
+  allow('signed-in stranger MAY take a stale lobby seat with its OWN uid',
+    stalePaired, 'rooms/KX7P/players/1', claimOwn, UID_ATTACK);
+  deny('...but not while the seat is still active',
+    owned({ p: { 0: P(H_TAB, true), 1: { s: G2_TAB, on: true, t: NOW - GRACE - 1 } } }),
+    'rooms/KX7P/players/1', claimOwn, UID_ATTACK);
+  deny('...and not before the stale window has passed',
+    owned({ p: { 0: P(H_TAB, true), 1: { s: G2_TAB, on: false, t: NOW - 1000 } } }),
+    'rooms/KX7P/players/1', claimOwn, UID_ATTACK);
+  // Das PRAESENZBEIN derselben Uebernahme laesst sich hier nicht ehrlich pruefen: es
+  // haengt daran, dass players/<seat> im SELBEN Mehrpfad-Write bereits uid-los ist,
+  // waehrend root noch das Eigentum des Opfers zeigt. Der Harness bildet Mehrpfad-Writes
+  // als Einzelwrites ab (s. Kopf der Datei) und kann diese Sicht nicht herstellen. Die
+  // Regel traegt die Bedingung (p/$i verlangt eine GESETZTE eigene uid im Roster-Bein);
+  // der atomare Fall gehoert in tools/e2e/spike.js gegen den echten Emulator.
+
+  // -- Verlassen: der Eigentuemer darf seinen Sitz raeumen ------------------------
+  // Ein isolierter Praesenz-Delete bleibt auch fuer den Eigentuemer verboten: p und
+  // players muessen im SELBEN Write verschwinden (bestehende atomare Kopplung, im
+  // Emulator-Spike bewiesen). Eigentum lockert diese Regel nicht.
+  deny('owner cannot delete presence alone (atomic p+players coupling holds)',
+    owned(), 'rooms/KX7P/p/1', null, UID_GUEST);
+  allow('owner deletes its own presence once the roster leg is gone',
+    owned({ players: { 0: HOST_OWNED } }), 'rooms/KX7P/p/1', null, UID_GUEST);
+  allow('owner deletes its own roster record',
+    owned({ p: { 0: P(H_TAB, true) } }), 'rooms/KX7P/players/1', null, UID_GUEST);
+  deny('attacker deletes the victim roster record',
+    owned({ p: { 0: P(H_TAB, true) } }), 'rooms/KX7P/players/1', null, UID_ATTACK);
+}
 
 console.log('\nRules-Suite (lokal, echte firebase.rules.json): ' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

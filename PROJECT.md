@@ -1,6 +1,6 @@
 # PROJECT.md — RingOut
 
-**Zuletzt aktualisiert:** 2026-08-27 (Arena Football: **Elimination startet mit fuenf Spielern** auf dem Broad Rounded Pentagon, Ablauf 5P → 4P → 3P → 2P → Sieger; **zwei Leben** in der Elimination, Classic auf der kanonischen Shouldered-Wide-Arena, **fester 60-Hz-Gameplay-Takt** unabhaengig von der Bildwiederholrate, neu abgestimmte Daempfung und dynamischere Abschusskurve; finale adaptive Elimination-Arenaformen — Rounded Square / Broad Rounded Triangle / Shouldered Wide; **beide** Arenawechsel 4→3 und 3→2 sind animiert und tragen Gold-Kantenfeedback plus Transitionsklang; **drei** sichtbare Modi — Classic 1v1 als Standard, Tactical 1v1, Elimination; Elimination ist jetzt regulaer ueber die Modusauswahl startbar, weiterhin lokal/Hotseat)
+**Zuletzt aktualisiert:** 2026-08-28 (Online-Sitze gehoeren der Firebase-`auth.uid`; Arena Football: **Elimination startet mit fuenf Spielern** auf dem Broad Rounded Pentagon, Ablauf 5P → 4P → 3P → 2P → Sieger; **zwei Leben** in der Elimination, Classic auf der kanonischen Shouldered-Wide-Arena, **fester 60-Hz-Gameplay-Takt** unabhaengig von der Bildwiederholrate, neu abgestimmte Daempfung und dynamischere Abschusskurve; finale adaptive Elimination-Arenaformen — Rounded Square / Broad Rounded Triangle / Shouldered Wide; **beide** Arenawechsel 4→3 und 3→2 sind animiert und tragen Gold-Kantenfeedback plus Transitionsklang; **drei** sichtbare Modi — Classic 1v1 als Standard, Tactical 1v1, Elimination; Elimination ist jetzt regulaer ueber die Modusauswahl startbar, weiterhin lokal/Hotseat)
 
 - **Aktueller stabiler Projekt-HEAD:** `5a23dc424fb3126c33c29543b7c6571b87a65ec7`
 - **Implementierungs-Commit UX-Phase 3:** `babbbe78ee388489321d1f0cb3e032bbaabd0725`
@@ -117,6 +117,55 @@ Bei den E2E-Harnessen ist die Produktions-Firebase hart geblockt.
   Accessoren `curFR()` / `curFE()` / `curST()` bzw. `curRestBall()` / `curRestBand()` /
   `curRestPost()`. Außerhalb von `mode === 'football'` liefern sie exakt die globalen
   Konstanten — alle Bestandsmodi rechnen unverändert weiter (Golden-Physik 13/13).
+
+### Online-Identitaet und Seat-Eigentum
+
+Ein Online-Sitz gehoert seit Phase 0b der **Firebase-`auth.uid`**. Der Client meldet sich
+beim Start anonym an (`signInAnonymously`); ohne gueltige uid ist Online gar nicht
+betretbar (`fbReady()`). Drei Identitaeten mit klar getrennten Rollen:
+
+| Wert | Herkunft | Rolle |
+|---|---|---|
+| `auth.uid` | anonyme Firebase-Anmeldung, IndexedDB-persistent | **Eigentumsnachweis** des Sitzes. Die Rules pruefen `players/<seat>/uid === auth.uid`. Nicht faelschbar. |
+| `onlinePid` | localStorage-Token | dauerhafte Client-Identitaet; oeffentlich lesbar und deshalb **kein** Eigentumsnachweis mehr. Nur noch Legacy-Rueckfall fuer Sitze ohne uid. |
+| `onlineTab` | pro Tab-Load neu | aktive Session. Schuetzt weiter davor, dass ein zweiter Tab einen aktiven Sitz uebernimmt (`p/<seat>.s`). |
+
+**Sitzaufloesung** (`findOwnSeat`): erst der gespeicherte Rejoin-Seat, wenn er der eigenen
+uid gehoert; sonst ein **eindeutiger** uid-Treffer; sonst der Legacy-Rueckfall ueber
+`players.id`, ausschliesslich fuer uid-lose Sitze. Mehrere Treffer derselben uid ohne
+gueltigen Hinweis liefern `-1` — fail-closed statt raten.
+
+**Bestandsraeume ohne uid** bleiben bedienbar, werden aber **nicht inplace migriert**: ein
+uid-loser Sitz wird beim Reclaim ohne uid zurueckgeschrieben und erhaelt sein Eigentum erst
+bei einer echten Neuvergabe.
+
+**Ready-Vertrag:** ein Watchdog ausserhalb des Moduls garantiert, dass `fb-ready` genau
+einmal feuert — spaetestens nach `FB_BOOT_TIMEOUT_MS` (10 s). Scheitert die Anmeldung,
+steht `__FB_AUTH_ERR`, `fbReady()` ist false und der Online-Einstieg meldet `noAuth`. Es
+gibt keinen automatischen zweiten Anlauf; ein Reload ist der bewusste Wiederholungsversuch.
+
+**Abgelaufene Lobbysitze** duerfen nach 15 s offline neu vergeben werden, damit eine
+verwaiste Lobby nicht blockiert. Die Uebernahme **uebertraegt** das Eigentum: der neue
+Inhaber muss angemeldet sein und seine eigene uid eintragen. Ein Sitz kann auf diesem Weg
+nie in einen uid-losen Zustand zurueckfallen — sonst koennte ein unangemeldeter Client das
+Eigentum abstreifen und danach ueber den Legacy-Pfad frei handeln.
+
+**Grenze des Modells (bewusst so):** Alle Tabs derselben Person teilen sich eine `auth.uid`
+und haben damit **dieselbe Autoritaet** ueber ihren Sitz. Ein alter Tab, der nach einem
+Reconnect zurueckkehrt, kann die Praesenz seines eigenen Sitzes wieder abmelden, den offenen
+Zugslot zuerst schreiben oder den Sitz per Leave raeumen. Das ist keine Rechteausweitung —
+es ist dieselbe Person — und der Kreis moeglicher Stoerer ist durch diese Phase *kleiner*
+geworden: vorher genuegte die oeffentlich lesbare `players.id`, jetzt braucht es die eigene
+uid. Ein **aktiver** Sitz (`p/<seat>.on === true`) ist auch fuer die eigene uid nicht
+uebernehmbar; der Reclaim verlangt `on === false`. Eine pro Tab widerrufbare Sitzung waere
+die naechste Ausbaustufe und braucht ein eigenes Auth-Konzept.
+
+> **Betrieb:** Die anonyme Anmeldung muss im Firebase-Projekt aktiviert sein
+> (Authentication → Sign-in method → Anonymous). Ohne sie erhaelt kein Client eine uid und
+> **alle** Online-Modi bleiben gesperrt. Arena Football ist davon nicht betroffen — es
+> laeuft ausschliesslich lokal.
+
+---
 
 ### Arena-Football-Modi (Classic 1v1 + Tactical 1v1 + Elimination)
 
