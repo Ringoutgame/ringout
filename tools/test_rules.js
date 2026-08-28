@@ -4,9 +4,12 @@
 // Semantics modeled: .write cascade (any true .write on the path grants),
 // .validate on the written node and all written children, deletes skip
 // .validate, newData = post-write merged tree (supports parent()).
-// NOT modeled: multi-location updates (approximated by sequential writes) — the
-// ATOMIC p+players coupling, the sentinel-move+e coupling and the two-parallel-
-// claim arbiter are proven against the real emulator in tools/e2e/spike.js.
+// Mehrpfad-Updates WERDEN modelliert: tryWrite nimmt die Geschwisterpfade desselben
+// update() entgegen, legt sie in den post-Baum (den jede Regel ueber newData sieht,
+// nicht aber ueber root/data), und allowMulti/denyMulti verlangen, dass JEDES Bein fuer
+// sich erlaubt ist - genau die Semantik von RTDB, wo ein abgelehntes Bein das ganze
+// Update verwirft. Der parallele Zwei-Claim-Arbiter bleibt dem echten Emulator in
+// tools/e2e/spike.js vorbehalten; er ist eine Nebenlaeufigkeits-, keine Regelfrage.
 //   node test_rules.js
 const fs = require('fs');
 const RULES_PATH = process.env.RULES_PATH || require('path').join(__dirname, '..', 'firebase.rules.json');
@@ -61,10 +64,13 @@ const UID_HOST = 'UID_HOST_AAAAAAAAAAAAAAAAAAAA';
 const UID_GUEST = 'UID_GUEST_BBBBBBBBBBBBBBBBBB';
 const UID_ATTACK = 'UID_ATTACKER_CCCCCCCCCCCCCCC';
 // attempts a single-path write against the loaded rules; returns true if allowed
-function tryWrite(db, path, value, uid) {
+function tryWrite(db, path, value, uid, alsoWrites) {
   const segs = path.split('/');
   const post = JSON.parse(JSON.stringify(db));
   setPath(post, segs, value);
+  // Geschwisterpfade DESSELBEN atomaren update(): sie stehen im post-Baum, den jede
+  // Regel ueber newData sieht, aber nicht im Vorzustand (root/data).
+  if (alsoWrites) for (const k of Object.keys(alsoWrites)) setPath(post, k.split('/'), alsoWrites[k]);
   const auth = AUTH(uid === undefined ? UID_GUEST : uid);
   const ctxAt = (i, vars) => ({ data: new NSnap(db, segs.slice(0, i)), newData: new NSnap(post, segs.slice(0, i)), root: new NSnap(db, []), now: NOW, auth, ...vars });
   // .write cascade along the path (root .. target)
@@ -103,6 +109,24 @@ const H_TAB = 'HOSTTAB0', G_TAB = 'GTAB0001', G2_TAB = 'GTAB0002';
 // uids ausdruecklich.
 const HOST = { id: 'HOST0000', name: 'Host', tab: H_TAB, uid: UID_GUEST };
 const REC = (id, tab) => ({ id: id || 'GUEST001', name: 'G', tab: tab || G_TAB, uid: UID_GUEST });
+// Zwei Rostersaetze mit AUSDRUECKLICH verschiedenen Eigentuemern - noetig ueberall dort,
+// wo Eigentum die eigentliche Aussage ist (Host gegen Gast gegen Fremden).
+const RO_H = { id: 'HOST0000', name: 'Host', tab: H_TAB, uid: UID_HOST };
+const RO_G = { id: 'GUEST001', name: 'G', tab: G_TAB, uid: UID_GUEST };
+// Ein LAUFENDER Fuenf-Spieler-Football-Raum: Sitz 3 steht lange genug offline, dass ein
+// Peer ihn evictieren duerfte. Wird fuer die atomaren Mehrpfadangriffe gebraucht, die
+// oberhalb des Football-Blocks stehen.
+const FB_UID = [0, 1, 2, 3, 4].map(i => 'UID_FB' + i + '_XXXXXXXXXXXXXXXXX');
+const FB_UID0 = FB_UID[0];
+const FB_ATTACK = (() => {
+  const p = {}, players = {};
+  for (let i = 0; i < 5; i++) {
+    p[i] = { s: 'FBTAB00' + i, on: i !== 3, t: i === 3 ? NOW - GRACE - 1 : NOW };
+    players[i] = { id: 'FBPID00' + i, name: 'P' + i, tab: 'FBTAB00' + i, uid: FB_UID[i] };
+  }
+  return { v: V, config: { game: 'football', winTarget: 3, fmt: 'elimination', visibility: 'private' },
+           gen: 0, state: 'playing', seats: 5, p, players, created: NOW - 5000 };
+})();
 // Presence object. t must equal `now` on any real write; fixtures may pre-seed
 // an older t to model a seat that has been offline for a while.
 const P = (s, on, t) => ({ s, on: !!on, t: (t === undefined ? NOW : t) });
@@ -116,8 +140,17 @@ const MOVE = { idx: 0, dx: 100, dy: -50, sp: 0.5 };
 
 let pass = 0, fail = 0;
 const t = (name, cond) => { cond ? pass++ : (fail++, console.error('FAIL: ' + name)); };
-const allow = (name, db, path, v, uid) => t('[ALLOW] ' + name, tryWrite(db, path, v, uid) === true);
-const deny = (name, db, path, v, uid) => t('[DENY]  ' + name, tryWrite(db, path, v, uid) === false);
+const allow = (name, db, path, v, uid, also) => t('[ALLOW] ' + name, tryWrite(db, path, v, uid, also) === true);
+const deny = (name, db, path, v, uid, also) => t('[DENY]  ' + name, tryWrite(db, path, v, uid, also) === false);
+// Ein atomares update() ist erst dann erlaubt, wenn JEDER seiner Pfade fuer sich erlaubt
+// ist - jeweils gegen den zusammengefuehrten Ergebnisbaum. deny bedeutet hier: mindestens
+// ein Bein wird abgelehnt, das Update scheitert also vollstaendig.
+const multi = (db, writes, uid) => Object.keys(writes).every(k => {
+  const others = {}; for (const o of Object.keys(writes)) if (o !== k) others[o] = writes[o];
+  return tryWrite(db, k, writes[k], uid, others);
+});
+const allowMulti = (name, db, writes, uid) => t('[ALLOW] ' + name, multi(db, writes, uid) === true);
+const denyMulti = (name, db, writes, uid) => t('[DENY]  ' + name, multi(db, writes, uid) === false);
 
 // ── (1) room creation — v3 object presence, offline host, atomic identity ──
 allow('create single', { rooms: {} }, 'rooms/KX7P', mkRoom('single'));
@@ -231,6 +264,40 @@ deny('reconnect rotate p/1.s alone without players.tab (coupling)', db1({ state:
 deny('reconnect p/1 s-rotation while ONLINE (must be on:false)', db1({ state: 'playing', p: { 0: P(H_TAB, true), 1: P(G_TAB, true) }, players: { 0: HOST, 1: REC('GUEST001', G_TAB) } }), 'rooms/KX7P/p/1', { s: 'GTAB0009', on: true, t: NOW });
 deny('reconnect p/1 s-rotation in lobby (playing only)', db1({ p: { 0: P(H_TAB, true), 1: P(G_TAB, false, NOW - 3000) }, players: { 0: HOST, 1: REC('GUEST001', G_TAB) } }), 'rooms/KX7P/p/1', { s: 'GTAB0009', on: false, t: NOW });
 
+// ── (8b) state/seats gehoeren dem Host bzw. dem beitretenden Gast ──
+// Beide Knoten sind Startsignale: state oeffnet das Match, seats ist write-once und
+// legt die Teilnehmerzahl fest. Ohne Eigentumspruefung koennte ein Fremder ein Match
+// vorzeitig und mit falscher Besetzung starten - oder weitere Beitritte aussperren.
+{
+  const ST = (over) => db1(Object.assign({ players: { 0: RO_H, 1: RO_G },
+    p: { 0: P(H_TAB, true), 1: P(G_TAB, true) } }, over || {}), 'ffa');
+  allow('the host may start the match', ST(), 'rooms/KX7P/state', 'playing', UID_HOST);
+  deny('an outsider cannot start the match', ST(), 'rooms/KX7P/state', 'playing', UID_ATTACK);
+  deny('an unauthenticated client cannot start the match', ST(), 'rooms/KX7P/state', 'playing', null);
+  // Die Sitz-1-Freigabe existiert fuer den atomaren 1v1/2v2-Beitritt. In einer
+  // mehrsitzigen Lobby waere sie ein Startknopf fuer den Gast: er schliesst die Lobby,
+  // und danach kommt niemand mehr herein.
+  deny('an FFA guest on seat 1 cannot start the match alone', ST(), 'rooms/KX7P/state', 'playing', UID_GUEST);
+  deny('a football guest cannot start the match alone',
+    { rooms: { KX7P: Object.assign({}, FB_ATTACK, { state: 'lobby', seats: null }) } },
+    'rooms/KX7P/state', 'playing', FB_UID[1]);
+  allow('a 1v1 guest still starts the match with its own claim',
+    db1({ players: { 0: RO_H, 1: RO_G }, p: { 0: P(H_TAB, true), 1: P(G_TAB, true) } }),
+    'rooms/KX7P/state', 'playing', UID_GUEST);
+  const SE = (over) => db1(Object.assign({ state: 'playing', players: { 0: RO_H, 1: RO_G },
+    p: { 0: P(H_TAB, true), 1: P(G_TAB, true) } }, over || {}), 'ffa');
+  allow('the host may write seats', SE(), 'rooms/KX7P/seats', 2, UID_HOST);
+  deny('an outsider cannot write seats', SE(), 'rooms/KX7P/seats', 2, UID_ATTACK);
+  deny('an unauthenticated client cannot write seats', SE(), 'rooms/KX7P/seats', 2, null);
+  deny('a guest cannot write seats', SE(), 'rooms/KX7P/seats', 2, UID_GUEST);
+  // Bewusst KEINE Lebendigkeitspruefung: der Startpfad schreibt state und seats
+  // nacheinander. Flackerte die Praesenz des Hosts dazwischen, bliebe der Raum in
+  // 'playing' ohne Startsignal stehen - state ist einwegig und nicht wiederholbar.
+  // Eigentum genuegt; wer schreibt, ist ohnehin verbunden.
+  allow('a host whose presence flickers may still write seats',
+    SE({ p: { 0: P(H_TAB, false), 1: P(G_TAB, true) } }), 'rooms/KX7P/seats', 2, UID_HOST);
+}
+
 // ── (9) gen + seats regression ──
 // v4: der Generationswechsel ist ein Rematch und gehoert einem aktiven Teilnehmer des
 // Raums. Sonst koennte ein Fremder per gen+1 jede gesetzte Eviction entwerten.
@@ -240,10 +307,77 @@ deny('gen increment by an outsider', genDb, 'rooms/KX7P/gen', 1, UID_ATTACK);
 deny('gen increment unauthenticated', genDb, 'rooms/KX7P/gen', 1, null);
 deny('gen increment by a participant who is offline',
   db1({ p: { 0: P(H_TAB, false) } }), 'rooms/KX7P/gen', 1, UID_GUEST);
+// Defensiv: die Generationsregel haengt ausdruecklich an v===4. Ein Raum niedrigerer
+// Version kann zwar gar nicht entstehen (die Erstellungsregel verlangt v===4, und v ist
+// danach unveraenderlich) - aber der Vertrag soll auch dann nicht offenstehen, wenn je
+// ein Altbestand auftaucht. Vorher stand hier eine wirkungslose Ausnahme, die sich wie
+// ein offener Pfad las.
+deny('gen in a pre-v4 room, unauthenticated',
+  db1({ v: 3, p: { 0: P(H_TAB, true) } }), 'rooms/KX7P/gen', 1, null);
+deny('gen in a pre-v4 room, by an active participant',
+  db1({ v: 3, p: { 0: P(H_TAB, true) } }), 'rooms/KX7P/gen', 1, UID_GUEST);
+// Ohne diese Sperre waere die gesamte Eviction wirkungslos: der Marker haengt an der
+// GENERATION - wer sie erhoehen darf, entkommt seiner eigenen Sperre und darf in der
+// frischen Generation sofort wieder evictieren.
+deny('an evicted participant cannot bump the generation',
+  db1({ p: { 0: P(H_TAB, true) }, g: { 0: { e: { 0: true } } } }), 'rooms/KX7P/gen', 1, UID_GUEST);
+// ATOMARER Angriff: die Eviction und der Generationswechsel im SELBEN update(). Prueft die
+// gen-Regel nur den Vorzustand, ist die Sperre noch nicht gesetzt und der Wechsel gelingt -
+// in der frischen Generation gaebe es dann gar keine Eviction mehr.
+denyMulti('self-eviction and generation bump in ONE atomic update',
+  { rooms: { KX7P: Object.assign({}, FB_ATTACK) } },
+  { 'rooms/KX7P/g/0/e/0': true, 'rooms/KX7P/gen': 1 }, FB_UID0);
+// Gegenprobe zur Fixture selbst: das Eviction-Bein waere fuer sich GENOMMEN erlaubt.
+// Ohne diese Zeile koennte der Test oben auch dann gruen sein, wenn er an etwas ganz
+// anderem scheitert als an der Kopplung, die er behauptet zu pruefen.
+allow('...but that self-eviction alone is perfectly legal',
+  { rooms: { KX7P: Object.assign({}, FB_ATTACK) } }, 'rooms/KX7P/g/0/e/0', true, FB_UID0);
+// Dieselbe Masche eine Ebene tiefer: die eigene Eviction im SELBEN Update wie die
+// Peer-Handlung. Liest die Peer-Sperre nur den Vorzustand, ist sie dort noch nicht
+// gesetzt - und ein Ausscheidender koennte im Abgang noch reihum aufraeumen.
+denyMulti('self-eviction and evicting a PEER in one atomic update',
+  { rooms: { KX7P: Object.assign({}, FB_ATTACK) } },
+  { 'rooms/KX7P/g/0/e/0': true, 'rooms/KX7P/g/0/e/3': true }, FB_UID0);
+// Auch der EIGENE Sitz darf sich nicht im selben Write ausscheiden lassen und trotzdem
+// noch handeln: der write-once-Slot waere sonst mit einem echten Zug belegt, obwohl der
+// Sitz raus ist - REMOVE kaeme nicht mehr hinein und die Runde stuende.
+denyMulti('self-eviction and OWN MOVE in one atomic update',
+  { rooms: { KX7P: Object.assign({}, FB_ATTACK) } },
+  { 'rooms/KX7P/g/0/e/0': true,
+    'rooms/KX7P/g/0/t/0/0': { k: 'move', idx: 0, dx: 10, dy: -10, sp: 0 } }, FB_UID0);
+// ... und ebensowenig im selben Write die eigene Praesenz erneuern.
+denyMulti('self-eviction and OWN presence reactivation in one atomic update',
+  { rooms: { KX7P: (() => { const r = JSON.parse(JSON.stringify(FB_ATTACK));
+      r.p[0] = { s: 'FBTAB000', on: false, t: NOW - 1000 }; return r; })() } },
+  { 'rooms/KX7P/g/0/e/0': true,
+    'rooms/KX7P/p/0': { s: 'FBTAB000', on: true, t: NOW } }, FB_UID0);
+// SKIP ueberbrueckt eine Runde, REMOVE entfernt endgueltig - beide belegen DENSELBEN
+// write-once-Slot. Wer den Sitz im selben Write evictiert und ihn zugleich ueberspringt,
+// belegt den Slot mit der falschen Bedeutung: das vorgeschriebene REMOVE kommt nicht mehr
+// hinein, Marker und Zughistorie widersprechen sich, und die Runde stuende.
+denyMulti('evicting a seat and SKIPPING it in the same atomic update',
+  { rooms: { KX7P: Object.assign({}, FB_ATTACK) } },
+  { 'rooms/KX7P/g/0/e/3': true,
+    'rooms/KX7P/g/0/t/0/3': { k: 'skip', idx: 3, dx: 0, dy: 0, sp: 0 } }, FB_UID0);
+denyMulti('self-eviction and SKIPPING a peer in one atomic update',
+  { rooms: { KX7P: Object.assign({}, FB_ATTACK) } },
+  { 'rooms/KX7P/g/0/e/0': true,
+    'rooms/KX7P/g/0/t/0/3': { k: 'skip', idx: 3, dx: 0, dy: 0, sp: 0 } }, FB_UID0);
+// Gegenprobe zu allen Kopplungen oben: derselbe Generationswechsel OHNE eine
+// Selbst-Eviction im selben Update bleibt selbstverstaendlich erlaubt.
+allowMulti('a plain rematch generation bump stays allowed',
+  { rooms: { KX7P: Object.assign({}, FB_ATTACK) } }, { 'rooms/KX7P/gen': 1 }, FB_UID0);
 deny('gen jump 0->5', db1(), 'rooms/KX7P/gen', 5);
 allow('ffa seats=3 after start', db1({ state: 'playing', p: { 0: P(H_TAB, true), 1: P(G_TAB, true), 2: P(G2_TAB, true) } }, 'ffa'), 'rooms/KX7P/seats', 3);
 allow('ffa seats=2 (min)', db1({ state: 'playing', p: { 0: P(H_TAB, true), 1: P(G_TAB, true) } }, 'ffa'), 'rooms/KX7P/seats', 2);
-allow('ffa seats=5 (max)', db1({ state: 'playing', p: { 0: P(H_TAB, true), 1: P(G_TAB, true) } }, 'ffa'), 'rooms/KX7P/seats', 5);
+// BESTANDSFORMATE: seats bleibt eine reine Zahlenpruefung - genau wie ausgeliefert.
+// Eine Praesenzbindung waere hier zwar strenger, wuerde aber ein legitimes Startrennen
+// (jemand geht zwischen state und seats kurz offline) neu scheitern lassen; der Raum
+// bliebe dann in 'playing' ohne Startsignal stehen. Football bekommt die strenge
+// Bindung, weil sein Produktvertrag genau fuenf Sitze verlangt (s. Gruppe 14).
+const FFA5 = (n) => { const p = {}; for (let i = 0; i < n; i++) p[i] = P('TAB' + i, true); return db1({ state: 'playing', p }, 'ffa'); };
+allow('ffa seats=5 with five active seats', FFA5(5), 'rooms/KX7P/seats', 5);
+allow('ffa seats stays a plain range check (unchanged shipped behaviour)', FFA5(2), 'rooms/KX7P/seats', 5);
 deny('ffa seats=6', db1({ state: 'playing', p: { 0: P(H_TAB, true), 1: P(G_TAB, true) } }, 'ffa'), 'rooms/KX7P/seats', 6);
 deny('ffa seats=1', db1({ state: 'playing', p: { 0: P(H_TAB, true), 1: P(G_TAB, true) } }, 'ffa'), 'rooms/KX7P/seats', 1);
 deny('seats while still lobby', db1({ p: { 0: P(H_TAB, true), 1: P(G_TAB, true) } }, 'ffa'), 'rooms/KX7P/seats', 2);
@@ -280,13 +414,36 @@ deny('move for eliminated seat (e pre-seeded)', playing({ p: { 0: P(H_TAB, true)
 //        write to e is rejected: no grace path, no Slot-belegt e-only, nothing. The
 //        turn-agnostic rule cannot distinguish an empty from an occupied move slot,
 //        so the whole latch is kept shut rather than shipped half-safe. ──
-deny('e latch after grace (offline seat) — deferred', playing({ p: { 0: P(H_TAB, true), 1: P(G_TAB, false, NOW - 16000) } }), 'rooms/KX7P/g/0/e/1', true);
-deny('e latch for fully-absent seat — deferred (no anchor)', playing({ p: { 0: P(H_TAB, true) } }, 'ffa'), 'rooms/KX7P/g/0/e/1', true);
-deny('e latch with occupied move slot — deferred', playing({ p: { 0: P(H_TAB, true), 1: P(G_TAB, false, NOW - 16000) }, g: { 0: { t: { 0: { 1: MOVE } } } } }), 'rooms/KX7P/g/0/e/1', true);
-deny('e latch while seat online — deferred', playing({ p: { 0: P(H_TAB, true), 1: P(G_TAB, true) } }), 'rooms/KX7P/g/0/e/1', true);
-deny('e latch before grace — deferred', playing({ p: { 0: P(H_TAB, true), 1: P(G_TAB, false, NOW - 3000) } }), 'rooms/KX7P/g/0/e/1', true);
-deny('e latch in lobby — deferred', db1({ p: { 0: P(H_TAB, true), 1: P(G_TAB, false, NOW - 16000) } }), 'rooms/KX7P/g/0/e/1', true);
-deny('e latch value not true — deferred', playing({ p: { 0: P(H_TAB, true), 1: P(G_TAB, false, NOW - 16000) } }), 'rooms/KX7P/g/0/e/1', false);
+// WICHTIG: jede Fixture hier traegt players/0 UND players/1 mit AUSDRUECKLICH
+// VERSCHIEDENEN Eigentuemern. Ohne den Rosterdatensatz des Ziels scheiterte der Write
+// bereits an players/<seat>.exists(), und ohne getrennte uids waere der "Peer" in
+// Wahrheit der Eigentuemer - der Test bewiese ueber den Raumtyp dann gar nichts.
+const RO_EV = (pOver, fmt) => playing({ players: { 0: RO_H, 1: RO_G },
+  p: pOver || { 0: P(H_TAB, true), 1: P(G_TAB, false, NOW - 16000) } }, fmt);
+// RingOut kennt kein REMOVE: eine dort gesetzte Eviction waere eine Sperre, die kein
+// RingOut-Pfad je aufloest - sie wuerde Praesenz-Reaktivierung und weitere Zuege des
+// Sitzes dauerhaft blockieren. Der Marker gehoert deshalb ausschliesslich Football.
+deny('RingOut 1v1: a peer cannot evict a stale offline seat', RO_EV(), 'rooms/KX7P/g/0/e/1', true, UID_HOST);
+deny('RingOut 1v1: a seat cannot evict ITSELF', RO_EV(), 'rooms/KX7P/g/0/e/1', true, UID_GUEST);
+deny('RingOut 1v1: the host cannot evict itself either',
+  RO_EV({ 0: P(H_TAB, true), 1: P(G_TAB, true) }), 'rooms/KX7P/g/0/e/0', true, UID_HOST);
+deny('RingOut FFA: a peer cannot evict a stale offline seat', RO_EV(null, 'ffa'), 'rooms/KX7P/g/0/e/1', true, UID_HOST);
+// Der wichtigste RingOut-Fall: ein LAUFENDES FFA mit fuenf Sitzen. Es traegt seats===5 wie
+// ein Football-Match und erfuellt damit das Startsignal-Gate - abgelehnt wird es allein,
+// weil der Eviction-Pfad ausschliesslich Football-Raeumen gehoert. Ohne diesen Test bliebe
+// die Raumtyp-Bedingung unbewiesen.
+const FFA_FULL = (() => { const p = {}, players = {};
+  for (let i = 0; i < 5; i++) {
+    p[i] = { s: 'FFATAB0' + i, on: i !== 1, t: i === 1 ? NOW - GRACE - 1 : NOW };
+    players[i] = { id: 'FFAPID0' + i, name: 'P' + i, tab: 'FFATAB0' + i, uid: 'UID_FFA' + i + '_YYYYYYYYYYYYYYYY' };
+  }
+  return db1({ state: 'playing', seats: 5, p, players }, 'ffa'); })();
+deny('RingOut FFA with five seats: a peer still cannot evict',
+  FFA_FULL, 'rooms/KX7P/g/0/e/1', true, 'UID_FFA0_YYYYYYYYYYYYYYYY');
+deny('RingOut FFA with five seats: a seat cannot evict itself',
+  FFA_FULL, 'rooms/KX7P/g/0/e/0', true, 'UID_FFA0_YYYYYYYYYYYYYYYY');
+// Die uebrigen Bedingungen des Pfades stehen im Football-Block (Gruppe 14) - nur
+// dort ist er ueberhaupt erreichbar.
 
 // ── (12) room delete — only when NO p and NO players anchor remains ──
 deny('room delete blocked: p anchor present', db1(), 'rooms/KX7P', null);
@@ -483,9 +640,9 @@ deny('team move pl 4 (seat gate, presence pre-seeded)', playing({ p: { 0: P(H_TA
   // weggelassen, waere sie fuer einen unangemeldeten Client wahr (auth.uid und eine
   // fehlende uid sind beide null) - der Sitz verloere sein Eigentum und stuende danach
   // ueber den Legacy-Pfad jedem offen.
-  // Der Harness bildet Mehrpfad-Writes durch sequenzielle Einzelwrites ab (s. Kopf der
-  // Datei). Fuer die Uebernahme heisst das: p/1 traegt bereits das NEUE Token, aber noch
-  // den ALTEN Zeitstempel - genau die Sicht, die die Regel im atomaren Write hat. ALLE
+  // Diese Gruppe stellt den atomaren Write ueber die Fixture nach: p/1 traegt bereits das
+  // NEUE Token, aber noch den ALTEN Zeitstempel - genau die Sicht, die die Regel im
+  // atomaren Write hat. ALLE
   // Faelle hier benutzen dieselbe Paarung, damit ueber sie ausschliesslich das EIGENTUM
   // entscheidet und nicht schon die p.s/players.tab-Kopplung.
   const stalePaired = owned({ p: { 0: P(H_TAB, true), 1: { s: G2_TAB, on: false, t: NOW - GRACE - 1 } } });
@@ -661,6 +818,29 @@ deny('team move pl 4 (seat gate, presence pre-seeded)', playing({ p: { 0: P(H_TA
     // ... und ein NICHT evicteter Peer darf beides weiterhin.
     const ok1 = fbRoom(Object.assign(OFFLINE(3, 1000), { g: { 0: { e: { 0: true } } } }));
     allow('a non-evicted peer may still SKIP', ok1, 'rooms/KX7P/g/0/t/0/3', SK(3), UID[1]);
+    // ... und vor allem: er darf auch NIEMANDEN EVICTIEREN. Ein Ausgeschiedener steht bis
+    // zum naechsten Rundenwechsel noch auf on:true - ohne diese Sperre koennte er reihum
+    // jeden kurz offline stehenden Teilnehmer dauerhaft aus dem Match entfernen.
+    const gone1c = fbRoom(Object.assign(OFFLINE(3), { g: { 0: { e: { 1: true } } } }));
+    deny('an evicted participant cannot EVICT anyone', gone1c, 'rooms/KX7P/g/0/e/3', true, UID[1]);
+    // Zweiter Sitz als Taeter: die Bedingung haengt am Schreiber, nicht an einer
+    // einzelnen Sitznummer - die Regel zaehlt die Sitze einzeln auf.
+    const gone0c = fbRoom(Object.assign(OFFLINE(3), { g: { 0: { e: { 0: true } } } }));
+    deny('the evicted HOST cannot evict anyone either', gone0c, 'rooms/KX7P/g/0/e/3', true, UID[0]);
+    deny('the evicted host cannot SKIP anyone either',
+      fbRoom(Object.assign(OFFLINE(3, 1000), { g: { 0: { e: { 0: true } } } })),
+      'rooms/KX7P/g/0/t/0/3', SK(3), UID[0]);
+    const ok1c = fbRoom(Object.assign(OFFLINE(3), { g: { 0: { e: { 0: true } } } }));
+    allow('a non-evicted peer may still evict', ok1c, 'rooms/KX7P/g/0/e/3', true, UID[1]);
+    // Ein NICHT evicteter Teilnehmer kann weiterhin selbst austreten - die uid-weite
+    // Sperre trifft nur Identitaeten, die bereits einen ausgeschiedenen Sitz halten.
+    allow('an untouched participant may still leave voluntarily',
+      fbRoom(Object.assign(OFFLINE(3), { g: { 0: { e: { 1: true } } } })),
+      'rooms/KX7P/g/0/e/2', true, UID[2]);
+    // ... und ein bereits evicteter Sitz kann sich nicht ein zweites Mal eintragen.
+    deny('an evicted seat cannot re-write its own eviction',
+      fbRoom(Object.assign(OFFLINE(3), { g: { 0: { e: { 1: true } } } })),
+      'rooms/KX7P/g/0/e/1', true, UID[1]);
   }
 
   // -- EVICTION -----------------------------------------------------------------
@@ -671,6 +851,36 @@ deny('team move pl 4 (seat gate, presence pre-seeded)', playing({ p: { 0: P(H_TA
   allow('a peer may evict a STALE offline participant',
     fbRoom(OFFLINE(3)), 'rooms/KX7P/g/0/e/3', true, UID[1]);
   deny('an outsider cannot evict', fbRoom(OFFLINE(3)), 'rooms/KX7P/g/0/e/3', true, 'UID_OUT');
+  deny('an eviction value other than true', fbRoom(OFFLINE(3)), 'rooms/KX7P/g/0/e/3', false, UID[1]);
+
+  // -- seats ist das Startsignal, nicht eine Zahl -------------------------------
+  // Es ist write-once und gibt die Teilnehmerzahl vor; der seats-Listener startet das
+  // Match daraufhin bei ALLEN Clients. Es darf deshalb erst existieren, wenn der Raum
+  // bereits laeuft - sonst startete ein Football-Match aus der offenen Lobby heraus,
+  // mit unbesetzten Sitzen.
+  {
+    const fbLobby = { rooms: { KX7P: Object.assign({}, fbNew, {
+      p: { 0: P(TAB[0], true), 1: P(TAB[1], true), 2: P(TAB[2], true), 3: P(TAB[3], true), 4: P(TAB[4], true) },
+      players: { 0: REC5(0), 1: REC5(1), 2: REC5(2), 3: REC5(3), 4: REC5(4) } }) } };
+    deny('Football seats in the OPEN lobby', fbLobby, 'rooms/KX7P/seats', 5, UID[0]);
+    const fbPlaying = { rooms: { KX7P: Object.assign({}, fbLobby.rooms.KX7P, { state: 'playing' }) } };
+    allow('Football seats once the match is running', fbPlaying, 'rooms/KX7P/seats', 5, UID[0]);
+    deny('Football seats with a wrong count', fbPlaying, 'rooms/KX7P/seats', 4, UID[0]);
+    deny('Football seats written by a non-host', fbPlaying, 'rooms/KX7P/seats', 5, UID[2]);
+    // Der Fuenf-Spieler-Vertrag ist serverseitig gebunden: seats=5 verlangt fuenf
+    // AKTIVE Sitze. Sonst startete ein Football-Match in einer Fuenf-Spieler-Arena,
+    // in der drei Figuren niemandem gehoeren - der Lockstep wartete ewig auf sie.
+    const fbPartial = (n) => { const p = {}, pl = {};
+      for (let i = 0; i < 5; i++) { p[i] = P(TAB[i], i < n); pl[i] = REC5(i); }
+      return { rooms: { KX7P: Object.assign({}, fbNew, { state: 'playing', p, players: pl }) } }; };
+    for (let n = 1; n < 5; n++)
+      deny('Football seats=5 with only ' + n + ' active seats', fbPartial(n), 'rooms/KX7P/seats', 5, UID[0]);
+    allow('Football seats=5 with all five active', fbPartial(5), 'rooms/KX7P/seats', 5, UID[0]);
+  }
+  deny('an eviction in the football LOBBY (no match running yet)',
+    { rooms: { KX7P: Object.assign({}, fbNew, { players: { 0: REC5(0), 1: REC5(1) },
+        p: { 0: P(TAB[0], true), 1: P(TAB[1], false, NOW - GRACE - 1) } }) } },
+    'rooms/KX7P/g/0/e/1', true, UID[0]);
   deny('an unauthenticated client cannot evict', fbRoom(OFFLINE(3)), 'rooms/KX7P/g/0/e/3', true, null);
   deny('eviction cannot be cleared',
     fbRoom(Object.assign(OFFLINE(3), { g: { 0: { e: { 3: true } } } })), 'rooms/KX7P/g/0/e/3', false, UID[1]);
@@ -700,6 +910,87 @@ deny('team move pl 4 (seat gate, presence pre-seeded)', playing({ p: { 0: P(H_TA
     db1({ v: 3, state: 'playing', p: { 0: P(H_TAB, true), 1: P(G_TAB, false, NOW - GRACE - 1) },
           players: { 0: HOST, 1: REC() } }),
     'rooms/KX7P/g/0/e/1', true, UID_GUEST);
+
+  // -- Zwischen state und seats ist das Match noch NICHT eroeffnet ---------------
+  // state='playing' schliesst nur die Lobby; erst seats===5 legt die Teilnehmermenge
+  // fest, die alle Clients gemeinsam kennen. Dazwischen darf nichts Spielrelevantes
+  // entstehen - sonst liessen sich write-once-Slots kuenftiger Runden vorab belegen
+  // oder Sitze entfernen, bevor ueberhaupt jemand angestossen hat.
+  {
+    const noStart = (over) => ({ rooms: { KX7P: (() => {
+      const r = JSON.parse(JSON.stringify(FB_ATTACK)); delete r.seats;
+      return Object.assign(r, over || {}); })() } });
+    // Fuenf aktive Sitze, aber noch kein Startsignal: genau das Fenster zwischen den
+    // beiden sequenziellen Writes des Hosts. Dieselbe Fixture traegt auch die Kopplung
+    // weiter unten, denn nur mit fuenf aktiven Sitzen ist das seats-Bein fuer sich legal.
+    const noStartAllOn = noStart({ p: (() => { const p = {}; for (let i = 0; i < 5; i++)
+      p[i] = { s: 'FBTAB00' + i, on: true, t: NOW }; return p; })() });
+    deny('a MOVE before the start signal', noStartAllOn, 'rooms/KX7P/g/0/t/0/0',
+      { k: 'move', idx: 0, dx: 10, dy: 0, sp: 0 }, FB_UID[0]);
+    deny('a SKIP before the start signal', noStart(), 'rooms/KX7P/g/0/t/0/3',
+      { k: 'skip', idx: 3, dx: 0, dy: 0, sp: 0 }, FB_UID[0]);
+    deny('an eviction before the start signal', noStart(), 'rooms/KX7P/g/0/e/3', true, FB_UID[0]);
+    deny('a self-eviction before the start signal', noStart(), 'rooms/KX7P/g/0/e/0', true, FB_UID[0]);
+    // ... auch nicht, indem der Angreifer das Startsignal im SELBEN Update mitliefert:
+    // der Slot-/Marker-Write sieht seats ueber den Vorzustand, und dort fehlt es noch.
+    allow('...the start signal alone is legal on that fixture', noStartAllOn, 'rooms/KX7P/seats', 5, FB_UID[0]);
+    // Eine PEER-Eviction laesst sich hier nicht mitliefern - sie verlangt ein offline
+    // stehendes Ziel, das Startsignal dagegen fuenf aktive Sitze. Der aussagekraeftige
+    // Fall ist deshalb der Selbstaustritt: er braucht nur Eigentum, waere auf dieser
+    // Fixture also fuer sich erlaubt - und darf trotzdem nicht mit dem Startsignal
+    // zusammen durchgehen, sonst waere das Match im selben Atemzug eroeffnet und schon
+    // um einen Teilnehmer aermer.
+    denyMulti('a self-eviction that carries the start signal along',
+      noStartAllOn, { 'rooms/KX7P/seats': 5, 'rooms/KX7P/g/0/e/0': true }, FB_UID[0]);
+    const started = { rooms: { KX7P: Object.assign({}, JSON.parse(JSON.stringify(noStartAllOn.rooms.KX7P)), { seats: 5 }) } };
+    allow('...while the same self-eviction is legal once the match is open',
+      started, 'rooms/KX7P/g/0/e/0', true, FB_UID[0]);
+    // In der Lobby erst recht nicht.
+    deny('a MOVE in the open football lobby',
+      noStart({ state: 'lobby' }), 'rooms/KX7P/g/0/t/0/0',
+      { k: 'move', idx: 0, dx: 10, dy: 0, sp: 0 }, FB_UID[0]);
+  }
+
+  // -- ERREICHBARKEIT: der vollstaendige Weg vom leeren Raum bis zum Anstoss ------
+  // Einzelne Positivtests koennen an einer Fixture haengen, die es unter den Regeln gar
+  // nicht geben kann - dann beweisen sie nichts. Dieser Block baut den Raum deshalb
+  // SCHRITTWEISE auf: jeder Schritt wird gegen die echten Regeln geprueft UND, wenn er
+  // erlaubt ist, wirklich angewendet. Der naechste Schritt sieht also nur Zustaende,
+  // die auf diesem Weg tatsaechlich entstehen koennen.
+  {
+    const live = { rooms: {} };
+    const step = (name, path, val, uid, also) => {
+      allow('reachable: ' + name, live, path, val, uid, also);
+      if (tryWrite(live, path, val, uid, also)) {
+        setPath(live, path.split('/'), val);
+        if (also) for (const k of Object.keys(also)) setPath(live, k.split('/'), also[k]);
+      }
+    };
+    step('a football room is created', 'rooms/FBQ7', Object.assign({}, fbNew, { created: NOW }), UID[0]);
+    step('the host activates its own seat', 'rooms/FBQ7/p/0', P(TAB[0], true), UID[0]);
+    for (let i = 1; i < 5; i++) {
+      // Beitritt: Praesenz-Reservierung und Rosterdatensatz sind EIN atomarer Write.
+      step('seat ' + i + ' joins (atomic reserve + roster)', 'rooms/FBQ7/p/' + i, P(TAB[i], false), UID[i],
+        { ['rooms/FBQ7/players/' + i]: REC5(i) });
+      // ... und genau hier scheiterte es vorher: die Aktivierungsklausel kannte Football
+      // nicht, der Gast blieb fuer immer auf on:false und das Match konnte nie starten.
+      step('seat ' + i + ' activates in the lobby', 'rooms/FBQ7/p/' + i, P(TAB[i], true), UID[i]);
+    }
+    step('the host opens the match', 'rooms/FBQ7/state', 'playing', UID[0]);
+    step('the host writes the five-seat start signal', 'rooms/FBQ7/seats', 5, UID[0]);
+    // Und der erste Zug jedes Sitzes laeuft auf diesem echt gewachsenen Raum.
+    for (let i = 0; i < 5; i++)
+      step('seat ' + i + ' commits its first MOVE', 'rooms/FBQ7/g/0/t/0/' + i,
+        { k: 'move', idx: i, dx: 10, dy: -10, sp: 0 }, UID[i]);
+    t('[STATE] the reachable room really holds five active seats',
+      [0, 1, 2, 3, 4].every(i => live.rooms.FBQ7.p[i].on === true && live.rooms.FBQ7.players[i].uid === UID[i]));
+    t('[STATE] the reachable room really carries seats=5 and five turn records',
+      live.rooms.FBQ7.seats === 5 && Object.keys(live.rooms.FBQ7.g[0].t[0]).length === 5);
+    // Ein sechster Sitz entsteht auf diesem Weg nicht - auch nicht der neutrale Ball.
+    deny('reachable room: no sixth seat', live, 'rooms/FBQ7/p/5', P('FTAB0005', false), 'UID_SIXTH');
+    deny('reachable room: the neutral ball cannot claim a turn slot', live, 'rooms/FBQ7/g/0/t/1/5',
+      { k: 'move', idx: 5, dx: 0, dy: 0, sp: 0 }, UID[0]);
+  }
 
   // -- REMOVE --------------------------------------------------------------------
   const evicted = fbRoom(Object.assign(OFFLINE(3), { g: { 0: { e: { 3: true } } } }));
