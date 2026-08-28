@@ -9,7 +9,10 @@
 // alive, R, score, seatGone) as a client that played through continuously.
 //   node test_reconnect.js
 const fs = require('fs');
+const { grabFunction } = require('./extract.js');
 const html = fs.readFileSync(require('path').join(__dirname, '..', 'index.html'), 'utf8');
+// Mehrzeilige Funktionen ueber ihre Klammern extrahieren statt ueber ein Zeilenmuster.
+const fn = (name) => grabFunction(html, name);
 const grab = (re, name) => {
   const m = html.match(re);
   if (!m) { console.error('FAIL: cannot extract ' + name); process.exit(1); }
@@ -34,6 +37,57 @@ const SRC = [
   grab(/function teamOf\(s\)\{[^\n]*/, 'teamOf'),
   grab(/function colorSlot\(owner\)\{[^\n]*/, 'colorSlot'),
   grab(/function placeBalls\(\)\{[\s\S]*?\n\}/, 'placeBalls'),
+  // newGame()/startRound() rufen drei Haken, die bisher leer gestellt waren. Sie werden
+  // stattdessen VOLLSTAENDIG aus index.html uebernommen - inklusive ihrer (kleinen)
+  // Aufrufhuellen. Damit fuehrt diese Suite genau denselben Code aus wie der Browser und
+  // kann nicht daran vorbeilaufen, wenn einer der Haken spaeter Spielzustand anfasst.
+  //   applyFootballHud -> fbHudOn, fbClearHudFx, fbScoreBox, fbElim4
+  //   footballResetMatchState -> fbClearSelection, fbElimReset, footballClearGoalFx
+  //   cancelAimDrag (ohne weitere Aufrufe)
+  grab(/let menuVisible=[^\n]*/, 'menuVisible'),
+  grab(/let dragging=false,dragShooter[^\n]*/, 'Drag-Zustand'),
+  grab(/let aimPid=-1,spinPid[^\n]*/, 'Zeiger-Zustand'),
+  grab(/let fbPopT=\[0,0\],fbScoreShown[^\n]*/, 'HUD-Timer'),
+  grab(/let fbGoalState='play';[^\n]*/, 'fbGoalState'),
+  grab(/let fbGoalTick=[^\n]*/, 'fbGoalTick'),
+  grab(/let footballWinner=null;[^\n]*/, 'footballWinner'),
+  grab(/let fbMorphPlan=null;[^\n]*/, 'fbMorphPlan'),
+  grab(/let fbMorphSpawn=[^\n]*/, 'fbMorphSpawn'),
+  grab(/let fbGoalFxSide=-1;[^\n]*/, 'fbGoalFxSide'),
+  grab(/let fbGoalFxStart=[^\n]*/, 'fbGoalFxStart'),
+  grab(/const fbSel=\[-1,-1\];/, 'fbSel'),
+  grab(/const FOOTBALL_ELIM_MAX_PLAYERS=[^\n]*/, 'FOOTBALL_ELIM_MAX_PLAYERS'),
+  grab(/const FOOTBALL_ELIM_START_PLAYERS=[^\n]*/, 'FOOTBALL_ELIM_START_PLAYERS'),
+  grab(/const FOOTBALL_ELIM4_PLAYERS=[^\n]*/, 'FOOTBALL_ELIM4_PLAYERS'),
+  grab(/const FOOTBALL_VARIANT_ELIM='elimination';/, 'FOOTBALL_VARIANT_ELIM'),
+  grab(/const FOOTBALL_VARIANT_ELIM4='elimination4';/, 'FOOTBALL_VARIANT_ELIM4'),
+  grab(/function fbElim4\(\)\{[^\n]*/, 'fbElim4'),
+  grab(/const FB_ELIM_LIVES=2;[\s\S]*?\nfunction fbElimReset\(\)\{[\s\S]*?\n\}/, 'Elimination-Zustand + Reset'),
+  fn('fbElimPlayers'),
+  fn('fbClearSelection'),
+  fn('footballClearGoalFx'),
+  fn('footballResetMatchState'),
+  fn('fbHudOn'),
+  fn('fbScoreBox'),
+  fn('fbClearHudFx'),
+  fn('applyFootballHud'),
+  fn('cancelAimDrag'),
+  // Ring-Out-Pfad: seit der Collapse-Phase liegt er in eigenen Funktionen neben stepSim.
+  // Diese Suite prueft die Rehydrierung bitgenau ueber simHash - dazu muss der Auswurf
+  // derselbe Produktcode sein wie im Spiel, kein Nachbau.
+  grab(/function ballsOutside\(\)\{[\s\S]*?\n\}/, 'ballsOutside'),
+  grab(/function resolveRingOuts\(crossed\)\{[\s\S]*?\n\}/, 'resolveRingOuts'),
+  // Physikphase 4B-2: stepSim loest Daempfung, Settlement und Restitution ueber
+  // curFRBall/curFEBall/curSLOWV/curRestBall/curRestBand und ueber ballRad auf. Der Block
+  // kommt woertlich aus index.html (dieselbe Spanne wie test_physics_golden.js); ausserhalb
+  // mode==='football' liefert footballPhys() null, also gelten exakt die globalen Konstanten.
+  grab(/const FOOTBALL_PHYS=\{[\s\S]*?\nfunction curRestPost\(\)[^\n]*/, 'Football-Physik-Accessoren'),
+  // Ring-Collapse: newGame() ruft resetCollapseTimer(), stepSim() ruft settleCollapse(),
+  // afterResult() ruft collapseRoundEnd(). Der Block wird WOERTLICH uebernommen und ist hier
+  // inert - collapseActive() verlangt mode==='bot' && !online, diese Suite spielt online.
+  grab(/const MATCH_COLLAPSE_SECONDS=[\s\S]*?\nfunction collapseRoundEnd\(\)\{[\s\S]*?\n\}/, 'Ring-Collapse-Block'),
+  // Arena-Football-Weiche, ebenfalls woertlich: mode ist hier nie 'football', fbElim4()
+  // liefert also konstant false - genau wie im Produkt ausserhalb des Football-Modus.
   grab(/function newGame\(\)\{[\s\S]*?\n  startRound\(\);\}/, 'newGame'),
   grab(/function resetCommits\(\)\{[\s\S]*?\n\}/, 'resetCommits'),
   grab(/function startRound\(\)\{[\s\S]*?\n  setPhaseText\(\);\}/, 'startRound'),
@@ -313,10 +367,20 @@ function makeClient(db, code, forcePid) {
     const TUNE=false; let r3dOrbit=false, r3dActive=false;
     const T=k=>k;
     const window={__FB_READY:true,__FB_ERR:null,FB};
-    const document={querySelector:()=>({textContent:'',style:{}})};
-    const els={}; function $(id){return els[id]||(els[id]={style:{},classList:{add(){},remove(){},toggle(){}},textContent:'',innerHTML:'',value:'',disabled:false,querySelector:()=>({textContent:'',style:{}})});}
+    const document={querySelector:()=>({textContent:'',style:{},classList:{add(){},remove(){},toggle(){}}})};
+    const els={}; function $(id){return els[id]||(els[id]={style:{},classList:{add(){},remove(){},toggle(){}},textContent:'',innerHTML:'',value:'',disabled:false,querySelector:()=>({textContent:'',style:{},classList:{add(){},remove(){},toggle(){}}})});}
     let toastT; const toast=m=>{ui.log.push('toast:'+m);};
-    const SFX={hit(){},drop(){},ringout(){},launch(){},round(){},win(){},rollUpdate(){},unlock(){},charge:{start(){},stop(){},update(){}}};
+    const SFX={hit(){},drop(){},ringout(){},launch(){},round(){},win(){},rollUpdate(){},unlock(){},
+      collapse(){},footballGoalStop(){},fbTransitionStop(){},charge:{start(){},stop(){},update(){}}};
+    // HUD des Ring-Collapse: reine Anzeige, in einem kopflosen Harness ohne Bedeutung.
+    function hideCollapseCount(){} function updateCollapseHud(){}
+    // Arena-Football-Zustand. Diese Suite fuehrt KEIN Football-Match (mode ist 'online' bzw.
+    // 'ffa'), deshalb ist der Reset hier bewusst wirkungslos. Damit der Haken nicht
+    // stillschweigend veraltet, prueft der Block RC-ENV am Dateiende, dass die echte
+    // Definition weiterhin existiert und weiterhin ausschliesslich Football-Zustand anfasst.
+    // cv: Zeiger-Capture existiert kopflos nicht - cancelAimDrag ruft es best-effort auf.
+    const cv={releasePointerCapture(){},setPointerCapture(){},getBoundingClientRect:()=>({left:0,top:0,width:1000,height:1000})};
+    let fbVariant='classic';
     let soundOn=false, particles=[], fx3=[], bgPulse=0, bgPulseRGB='';
     function spawn(){} function popBall(){} function fx3Hit(){} function fx3Dust(){}
     function winnerRGB(){return '';} function devSync(){}
@@ -354,7 +418,9 @@ function makeClient(db, code, forcePid) {
     let onlinePid=${JSON.stringify(pid)}, onlineTab=${JSON.stringify(tab)}, onlineName='';
     let playersRoster={}, rosterUnsub=null, lobbyHostGraceTimer=null, joinOpSeq=0;
     let phase='over', phaseStart=0, curAimer=0, balls=[], aimSet=[], commitIdx=[], commitAim=[], commitSpin=[], score=[];
-    let dragging=false,dragShooter=-1,dragOwner=-1,outBall=-1,roundWinner=-1;
+    // dragging/dragShooter/dragOwner kommen jetzt aus dem echten Drag-Zustandsblock
+    // (s. Grab 'Drag-Zustand') - hier bleiben nur die beiden Rundenvariablen.
+    let outBall=-1,roundWinner=-1;
     let replaying=false, repPlaying=false, recFrames=[];
     function setPhase(p){phase=p;phaseStart=0;}
     const rrand=()=>ui.code;
@@ -389,6 +455,42 @@ function makeClient(db, code, forcePid) {
       join(c){$('onInput').value=c;joinRoom();},
       clickStart(){startFfaMatch();},
       hash(){return simHash();},
+      // RC-ENV: die drei Haken, die newGame()/startRound() aufrufen, laufen hier als ECHTER
+      // Produktcode. Diese Sonde ruft sie einzeln auf und macht ihre Football-Nebenwirkung
+      // sichtbar, damit die Suite beweisen kann, dass es sich nicht um Attrappen handelt.
+      runHook(name){
+        if(name==='footballResetMatchState')footballResetMatchState();
+        else if(name==='applyFootballHud')applyFootballHud();
+        else if(name==='cancelAimDrag')cancelAimDrag();
+        else throw new Error('unbekannter Haken: '+name);
+      },
+      fbState(){return {goal:fbGoalState,tick:fbGoalTick,winner:footballWinner,
+                        lives:fbElimLives.slice(),sel:fbSel.slice(),fxSide:fbGoalFxSide,
+                        dragging,aimPid};},
+      pokeFbState(){fbGoalState='fall';fbGoalTick=7;footballWinner=1;fbElimLives[0]=0;
+                    fbSel[0]=3;fbGoalFxSide=1;dragging=true;aimPid=5;},
+      // Beobachteten Zustand auf lauter UNTERSCHEIDBARE Werte setzen. Ohne das koennte ein
+      // Haken z. B. balls[0].vx=0 schreiben, ohne dass sich etwas messbar aendert - die
+      // Kugeln liegen zwischen zwei Runden ohnehin still. Erst gegen diesen Zustand ist
+      // "der Haken aendert nichts" eine belastbare Aussage.
+      pokeSim(v){for(let i=0;i<balls.length;i++){const b=balls[i];
+                  b.x+=7+i;b.y-=5+i;b.vx=1.5+i;b.vy=-2.5-i;b.spin=0.3+i*0.1;}
+                score[0]=1;R=R0*0.93;
+                // ABLAUFSTEUERUNG: v waehlt zwischen zwei ENTGEGENGESETZTEN Vorzustaenden.
+                // Ein Haken, der ein Flag auf einen festen Wert zwingt (z. B. replaying=true,
+                // was im Browser die Matchsimulation abschaltet), veraendert damit in genau
+                // einem der beiden Durchgaenge etwas und wird sichtbar. Ein einziger
+                // Vorzustand wuerde die eine Haelfte der Faelle verdecken.
+                replaying=!!v;repPlaying=!!v;collapseEnabled=!!v;
+                collapseState=v?'expired':'running';},
+      // Vollstaendiger Schnappschuss dessen, was diese Suite als Zustand betrachtet:
+      // Simulationszustand (ueber simHash), Rundenzustand, Online-Sitzung UND die
+      // Ablaufsteuerungs-Flags, an denen im Browser der Spiel-Loop haengt.
+      fullState(){return JSON.stringify({h:simHash(),phase,outBall,roundWinner,curAimer,
+        score,roundNo,R,turnNo,gen,runningGen,gameStarted,online,myPlayer,roomCode,ffaN,fmt,mode,
+        aimSet,commitIdx,commitSpin,seatLeft,seatGone,pending:Object.keys(pendingSlot),
+        sid:onlineSessionId,term:onlineTerminatedSession,
+        replaying,repPlaying,collapseEnabled,collapseState,matchElapsedMs});},
       aliveOf(o){return aliveCount(o);},
       gone(o){return !!seatGone[o];},
       pid(){return onlinePid;},
@@ -663,6 +765,73 @@ async function playTurn(clients, moves) {
     t('RC11 leave after reconnect releases p+players together', !(db.data.rooms.CLN1 && db.data.rooms.CLN1.p && db.data.rooms.CLN1.p[1]) && !(db.data.rooms.CLN1 && db.data.rooms.CLN1.players && db.data.rooms.CLN1.players[1]));
     h.leave(); await tick();
     t('RC11 last leave removes the empty room (cleanup intact)', db.data.rooms.CLN1 == null);
+  }
+
+  // ══ RC-ENV: die Football-/HUD-/Drag-Haken laufen als ECHTER Produktcode ══
+  // newGame() und startRound() rufen footballResetMatchState(), applyFootballHud() und
+  // cancelAimDrag(). Fruehere Fassungen dieser Suite haben sie leer gestellt - dann prueft
+  // man aber nur noch, dass zwei gleich unvollstaendige Sandboxes uebereinstimmen. Sie sind
+  // deshalb samt ihrer Aufrufhuellen woertlich aus index.html uebernommen. Diese Gruppe misst
+  // beides direkt am laufenden Code, statt es aus dem Quelltext zu schliessen:
+  //   1. Die Haken sind echt (sie zeigen ihre Football-/Drag-Wirkung).
+  //   2. Sie ruehren den Zustand nicht an, den diese Suite vergleicht.
+  {
+    const db = makeDB();
+    const c = makeClient(db, 'ENV1'); c.setMenu('ffa', 2); c.create(); await tick();
+    const g = makeClient(db, 'X'); g.setMenu('online'); g.join('ENV1'); await tick();
+    c.clickStart(); await tick();
+
+    const c0Hash = c.hash();
+    // 1. ECHTHEIT: Football-Zustand verstellen, Haken aufrufen, Wirkung nachweisen.
+    c.pokeFbState();
+    const dirty = c.fbState();
+    t('RC-ENV Vorbedingung: Football-Zustand ist absichtlich verstellt',
+      dirty.goal === 'fall' && dirty.winner === 1 && dirty.lives[0] === 0 && dirty.sel[0] === 3);
+    c.runHook('footballResetMatchState');
+    const reset = c.fbState();
+    t('RC-ENV footballResetMatchState ist echter Produktcode (setzt Football-Zustand zurueck)',
+      reset.goal === 'play' && reset.tick === 0 && reset.winner === null &&
+      reset.lives[0] === 2 && reset.sel[0] === -1 && reset.fxSide === -1,
+      reset);
+    c.runHook('cancelAimDrag');
+    const drag = c.fbState();
+    t('RC-ENV cancelAimDrag ist echter Produktcode (raeumt den Zeiger-/Drag-Zustand)',
+      drag.dragging === false && drag.aimPid === -1, { dragging: drag.dragging, aimPid: drag.aimPid });
+
+    // Das Match laeuft nach den Hakenaufrufen unveraendert weiter.
+    await playTurn([c, g], { 0: [12, -70], 1: [-30, 60] });
+    t('RC-ENV Lockstep laeuft nach den Hakenaufrufen synchron weiter',
+      c.hash() === g.hash() && c.st().turnNo === g.st().turnNo);
+
+    // 2. WIRKUNGSLOSIGKEIT auf den beobachteten Zustand - GEMESSEN, nicht aus dem Quelltext
+    //    geschlossen. Der Vergleich laeuft ueber denselben simHash, mit dem die Suite auch
+    //    die Rehydrierung prueft, plus den vollstaendigen Zustandsschnappschuss. Der Zustand
+    //    wird vorher bewusst auf unterscheidbare Werte gebracht (pokeSim), damit auch ein
+    //    Schreibzugriff wie balls[0].vx=0 sichtbar wuerde.
+    c.pokeSim(1);
+    const poked = c.hash();
+    t('RC-ENV Vorbedingung: der beobachtete Zustand ist unterscheidbar gesetzt',
+      poked !== c0Hash && /"replaying":true/.test(c.fullState()) &&
+      /"collapseState":"expired"/.test(c.fullState()), { vorher: c0Hash, gepoked: poked });
+    for (const v of [1, 0]) {
+      c.pokeSim(v);
+      for (const hook of ['footballResetMatchState', 'applyFootballHud', 'cancelAimDrag']) {
+        const before = c.fullState();
+        c.runHook(hook);
+        const after = c.fullState();
+        t('RC-ENV ' + hook + ' laesst Simulation, Runde, Sitzung und Ablaufsteuerung unveraendert'
+          + ' (Vorzustand ' + v + ')',
+          after === before, { vorher: before.slice(0, 220), nachher: after.slice(0, 220) });
+      }
+    }
+
+    // fbElim4 ist ebenfalls woertlich uebernommen: es haengt am Modus und liefert hier false.
+    t('RC-ENV fbElim4 haengt am Football-Modus', /mode===.football./.test(grabFunction(html, 'fbElim4')));
+    // Die Sandbox-Physik ist echter Produktcode, kein Nachbau.
+    t('RC-ENV Physik-Accessoren kommen aus dem Produkt',
+      /function curRestBall\(\)\{const c=footballPhys\(\);return c\?c\.restBall:REST;\}/.test(html));
+    t('RC-ENV footballPhys ist ausserhalb Football null',
+      /function footballPhys\(\)\{return mode==='football'\?FOOTBALL_PHYS:null;\}/.test(html));
   }
 
   console.log(`\nReconnect-B2: ${pass} passed, ${fail} failed`);

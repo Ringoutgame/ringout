@@ -7,12 +7,18 @@
 // online FFA lobby/start/lockstep/disconnect/rematch FLOW with 2..5 clients.
 //   node test_ffa_flow.js
 const fs = require('fs');
+const { grabFunction } = require('./extract.js');
 const html = fs.readFileSync(require('path').join(__dirname, '..', 'index.html'), 'utf8');
 const grab = (re, name) => {
   const m = html.match(re);
   if (!m) { console.error('FAIL: cannot extract ' + name); process.exit(1); }
   return m[0];
 };
+// Mehrzeilige Funktionen werden ueber ihre KLAMMERN extrahiert, nicht ueber ein
+// Zeilenmuster: ein `[^\n]*`-Grab schneidet eine gewachsene Funktion stillschweigend
+// ab und erzeugt kaputte Sandbox-Quelle statt einer klaren Fehlermeldung. Genau daran
+// war diese Suite zerbrochen (whoCanAim wurde durch den inputLocked-Guard dreizeilig).
+const fn = (name) => grabFunction(html, name);
 
 const SRC = [
   grab(/const ONLINE_PROTOCOL_VERSION=[^\n]*/, 'ONLINE_PROTOCOL_VERSION'),
@@ -34,7 +40,12 @@ const SRC = [
   grab(/function colorSlot\(owner\)\{[^\n]*/, 'colorSlot'),
   grab(/function aliveCount\(owner\)\{[^\n]*/, 'aliveCount'),
   grab(/function allAliveCommitted\(\)\{[^\n]*/, 'allAliveCommitted'),
-  grab(/function whoCanAim\(\)\{[^\n]*/, 'whoCanAim'),
+  // whoCanAim fragt die Collapse-Eingabesperre. Der Zustandsblock bis inputLocked wird
+  // woertlich uebernommen (Konstanten, Zustand, collapseActive, inputLocked) - er ist hier
+  // vollstaendig inert, weil collapseActive() mode==='bot' && !online verlangt und diese
+  // Suite online im FFA laeuft. Kein Nachbau, damit die Sperre nicht stillschweigend abdriftet.
+  grab(/const MATCH_COLLAPSE_SECONDS=[\s\S]*?\nfunction inputLocked\(\)[^\n]*/, 'Collapse-Eingabesperre'),
+  fn('whoCanAim'),
   grab(/function whenFB\(cb\)\{[^\n]*/, 'whenFB'),
   grab(/function fbReady\(\)\{[^\n]*/, 'fbReady'),
   grab(/function rRef\(p\)\{[^\n]*/, 'rRef'),

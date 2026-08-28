@@ -31,7 +31,7 @@ const SUITES = [
   { name: 'FFA-Online-Prep',  file: 'test_ffa_online.js',     expectPassed: 53 },
   { name: 'FFA-Online-Flow',  file: 'test_ffa_flow.js',       expectPassed: 140 },
   { name: 'FFA-Online-Race',  file: 'test_ffa_race.js',       expectPassed: 115 },
-  { name: 'Reconnect-B2',     file: 'test_reconnect.js',      expectPassed: 53 },
+      { name: 'Reconnect-B2',     file: 'test_reconnect.js',      expectPassed: 67 },   // 53 Bestands-Assertionen (RC1-RC11) + 14 RC-ENV-Assertionen: die drei Haken aus newGame()/startRound() laufen als echter Produktcode, ihre Wirkungslosigkeit wird gegen zwei entgegengesetzte Vorzustaende gemessen
   { name: 'Rules',            file: 'test_rules.js',          expectPassed: 174 },
   { name: 'Public-Lobby',     file: 'test_public_lobby.js',   expectPassed: 30 },
   { name: 'Team-Duel',        file: 'test_team_duel.js',      expectPassed: 36 },

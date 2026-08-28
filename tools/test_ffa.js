@@ -16,6 +16,34 @@ const afterResultSrc = grab(/function afterResult\(\)\{[\s\S]*?\n\}/, 'afterResu
 const constSrc1 = grab(/const MAXPULL_FRAC=[^\n]*/, 'physics constants');
 const constSrc2 = grab(/const SPIN_K=[^\n]*/, 'spin constants');
 const pcolsSrc = grab(/const PCOLS=[^\n]*/, 'PCOLS');
+const nameColSrc = grab(/const NAME_COL=[^\n]*/, 'NAME_COL');
+// Physikphase 4B-2: stepSim loest Daempfung, Settlement und Restitution ueber die
+// Accessoren curFRBall/curFEBall/curSLOWV/curRestBall/curRestBand und ueber ballRad auf.
+// Der Block wird WOERTLICH aus index.html uebernommen (dieselbe Spanne wie in
+// test_physics_golden.js und test_collapse.js) statt nachgebaut: bei mode!=='football'
+// liefert footballPhys() null, also geben alle Accessoren exakt die globalen Konstanten
+// zurueck und ballRad() liefert BR. Der Harness kann damit nicht mehr von der echten
+// Physik abdriften - genau daran war diese Suite zuvor zerbrochen.
+const footballRestSrc = grab(/const FOOTBALL_PHYS=\{[\s\S]*?\nfunction curRestPost\(\)[^\n]*/, 'Football-Physik-Accessoren');
+// Ring-Out-Pfad: seit der Collapse-Phase liegt er in eigenen Funktionen neben stepSim.
+// Er traegt die Kernaussagen dieser Suite (Ausscheiden, Last-Man-Standing, Tiebreak bei
+// gleichzeitigem Ausscheiden, Rundensieger) und wird deshalb ebenfalls woertlich aus
+// index.html uebernommen - ein Nachbau im Harness wuerde eine Kopie statt des Produkts pruefen.
+const ballsOutsideSrc = grab(/function ballsOutside\(\)\{[\s\S]*?\n\}/, 'ballsOutside');
+const resolveRingOutsSrc = grab(/function resolveRingOuts\(crossed\)\{[\s\S]*?\n\}/, 'resolveRingOuts');
+const winnerRGBSrc = grab(/function winnerRGB\(loserOwner\)\{[\s\S]*?\n[^\n]*PCOLS\[w\]\.rgb;\}/, 'winnerRGB');
+const popBallSrc = grab(/function popBall\(b\)\{[^\n]*/, 'popBall');
+// Farbabfrage: popBall/resolveRingOuts lesen die Besitzerfarbe ueber pcol(). Auch dieser
+// Block kommt woertlich aus index.html - ausserhalb mode==='football' liefert pcol(i)
+// exakt PCOLS[i], die globale Tafel bleibt also die Wahrheit dieser Suite.
+const fbColSrc = grab(/const FB_COL_P5=\{[\s\S]*?\nfunction ncol\(i\)[^\n]*/, 'Football-Farbtafel + pcol/ncol');
+// Ring-Collapse: stepSim ruft settleCollapse(), afterResult ruft collapseRoundEnd(). Der
+// Block wird woertlich uebernommen und ist hier vollstaendig inert - collapseActive()
+// verlangt mode==='bot' && !online, diese Suite laeuft mit mode==='ffa'. Kein Nachbau,
+// damit eine spaetere Aenderung am Collapse-Pfad hier nicht stillschweigend abdriftet.
+const collapseSrc = grab(/const MATCH_COLLAPSE_SECONDS=[\s\S]*?\nfunction collapseRoundEnd\(\)\{[\s\S]*?\n\}/, 'Ring-Collapse-Block');
+const teamOfSrc = grab(/function teamOf\(s\)\{[^\n]*/, 'teamOf');
+const colorSlotSrc = grab(/function colorSlot\(owner\)\{[^\n]*/, 'colorSlot');
 
 function buildEnv() {
   const env = `
@@ -23,15 +51,22 @@ function buildEnv() {
     ${constSrc1}
     ${constSrc2}
     ${pcolsSrc}
+    ${nameColSrc}
+    ${teamOfSrc}
+    ${colorSlotSrc}
+    ${collapseSrc}
+    ${fbColSrc}
     function curFR(){return FRICTION;} function curFE(){return FEND;} function curST(){return STOPV;}
+    ${footballRestSrc}
     function maxPull(){return R0*MAXPULL_FRAC;}
     let balls=[], phase='sim', outBall=-1, roundWinner=-1, roundNo=1, winTarget=3;
     let aimSet=[], commitIdx=[], commitAim=[], commitSpin=[];
     let curAimer=0, bgPulse=0, bgPulseRGB='';
     let online=false, myPlayer=0, mode='ffa', fmt='single', ffaN=3, score=[];
     const SFX={hit(){},drop(){},ringout(){},launch(){},round(){},win(){},rollUpdate(){},unlock(){},charge:{start(){},stop(){},update(){}}};
-    function spawn(){} function popBall(){}
-    function winnerRGB(lo){const w=roundWinner>=0?roundWinner:1-lo;return PCOLS[w].rgb;}
+    function spawn(){}
+    ${popBallSrc}
+    ${winnerRGBSrc}
     let r3dActive=false; function fx3Hit(){} function fx3Dust(){}
     function setPhase(p){phase=p;}
     function aliveCount(o){let n=0;for(const b of balls)if(b.alive&&b.owner===o)n++;return n;}
@@ -42,6 +77,8 @@ function buildEnv() {
     function showRoundEnd(){}   // UI-Overlay-Stub: afterResult zeigt das Round-End-Panel (rein visuell)
     function gameOver(w){gameOverW=w;}
     function startRound(){startRoundCalls++;}
+    ${ballsOutsideSrc}
+    ${resolveRingOutsSrc}
     ${stepSimSrc}
     ${afterResultSrc}
     return {

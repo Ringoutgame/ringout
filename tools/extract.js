@@ -25,4 +25,45 @@ function grab(src, re, name) {
   return m[0];
 }
 
-module.exports = { loadIndexHtml, grab };
+// Extract a top-level function declaration by NAME, delimited by its own braces
+// instead of by a line pattern.
+//
+// Line-based regexes (`function f\(\)\{[^\n]*`) silently truncate as soon as a
+// function grows past one line, and `[\s\S]*?\n\}` silently over-matches when a
+// function ends with `…;}` on its last line instead of a lone `}`. Both failure
+// modes produce SYNTACTICALLY BROKEN sandbox source rather than a clear error —
+// that is exactly how the online suites went red. Brace counting has neither
+// failure mode: it either returns the complete declaration or fails loudly.
+//
+// String literals, template literals and comments are skipped so that a brace
+// inside them never moves the counter. Regex literals are NOT parsed (telling a
+// regex from a division needs a full tokenizer); a function whose body contains a
+// regex literal with an unbalanced brace must keep using an explicit `grab`.
+function grabFunction(src, name) {
+  const head = new RegExp('(^|\\n)(async\\s+)?function\\s+' + name + '\\s*\\(');
+  const m = src.match(head);
+  if (!m) { console.error('FAIL: cannot extract function ' + name); process.exit(1); }
+  const start = m.index + (m[1] ? m[1].length : 0);
+  const open = src.indexOf('{', m.index + m[0].length);
+  if (open < 0) { console.error('FAIL: no body for function ' + name); process.exit(1); }
+  let depth = 0;
+  for (let i = open; i < src.length; i++) {
+    const c = src[i];
+    if (c === '/' && src[i + 1] === '/') { i = src.indexOf('\n', i); if (i < 0) break; continue; }
+    if (c === '/' && src[i + 1] === '*') { const e = src.indexOf('*/', i + 2); if (e < 0) break; i = e + 1; continue; }
+    if (c === '"' || c === "'" || c === '`') {
+      const q = c;
+      for (i++; i < src.length; i++) {
+        if (src[i] === '\\') { i++; continue; }
+        if (src[i] === q) break;
+      }
+      continue;
+    }
+    if (c === '{') depth++;
+    else if (c === '}') { depth--; if (depth === 0) return src.slice(start, i + 1); }
+  }
+  console.error('FAIL: unbalanced braces in function ' + name);
+  process.exit(1);
+}
+
+module.exports = { loadIndexHtml, grab, grabFunction };
