@@ -344,10 +344,23 @@ console.log('ARENA FOOTBALL — Produktsuite: Classic 1v1 (Standard) + Tactical 
   for (const word of ['HIDDEN', 'COMMIT', 'HOTSEAT', 'DEV', 'ADAPTIVE'])
     ok(!new RegExp(word).test(fbModalSrc), 'kein Tech-Begriff im Auswahlmodal: "' + word + '"');
 
-  // ── ONLINE-PIN: Arena Football ist ein lokaler Modus. Es gibt keinen Pfad, der
-  //    mode='football' mit online=true verbindet.
+  // ── ONLINE-PIN: der PRODUKTweg in Arena Football ist rein lokal. Seit dem
+  //    Online-Prototyp (Phase B) gibt es genau vier Stellen, die mode='football'
+  //    setzen, und keine davon liegt im sichtbaren Produktmenue:
+  //      1. startFootball        - der Produktweg, pinnt online=false
+  //      2. der Dev-Einstieg     - nur mit ?dev=1, oeffnet den Online-Bildschirm
+  //      3. joinRoom             - Beitritt zu einem bestehenden Football-Raum
+  //      4. attemptRejoin        - Rueckkehr auf den eigenen Sitz
+  //    Die Zahl ist bewusst gepinnt: ein fuenfter Pfad waere eine neue Tuer in den
+  //    Online-Modus und muss auffallen.
   const fbAssignments = (HTML.match(/mode=menuMode='football'|mode='football'/g) || []).length;
-  ok(fbAssignments === 2, 'mode="football" wird an genau zwei Stellen gesetzt (erhalten: ' + fbAssignments + ')');
+  ok(fbAssignments === 4, 'mode="football" wird an genau vier Stellen gesetzt (erhalten: ' + fbAssignments + ')');
+  ok(/\$\('devFbOnlineBtn'\)\.onclick=\(\)=>\{\s*if\(!DEV_MENU\)return;/.test(HTML),
+     'der Online-Einstieg ist im Handler selbst an ?dev=1 gebunden');
+  ok(/if\(DEV_MENU\)\{\$\('devPanel'\)\.style\.display='';\$\('devFbOnlineSec'\)\.style\.display='';\}/.test(HTML),
+     'die Online-Schaltflaeche wird ohne ?dev=1 gar nicht erst eingeblendet');
+  ok(!/devFbOnlineBtn/.test(fbModalSrc) && !/online/i.test(fbModalSrc),
+     'die sichtbare Football-Modusauswahl kennt keinen Online-Eintrag');
   ok(/mode=menuMode='football';fmt='single';online=false;/.test(startFootballSrc),
      'der Startpfad pinnt Arena Football fest auf online=false');
   const previewSrc = grab(/function updateMenuPreview\(\)\{[\s\S]*?\n\}/, 'updateMenuPreview');

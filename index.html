@@ -669,6 +669,13 @@ body:not(.r3d) .ohero{height:12px}
       <div class="pills" id="ffaGrp"><button id="np2">2</button><button id="np3" class="on">3</button><button id="np4">4</button><button id="np5">5</button></div>
       <div class="pills" style="margin-top:8px"><button id="ffaOnline">🌐 Online-FFA</button></div>
     </div>
+    <!-- Arena Football Online (Prototyp, ?dev=1): oeffnet den BESTEHENDEN Online-Bildschirm
+         im Football-Kontext. Erstellen und Beitreten laufen dort ueber die vorhandenen
+         Aktionen. Die sichtbare Football-Modusauswahl bleibt rein lokal. -->
+    <div class="sect" id="devFbOnlineSec" style="display:none">
+      <div class="lbl">Dev · Arena Football Online (Prototyp)</div>
+      <div class="pills"><button id="devFbOnlineBtn">⚽ Football-Raum · 5 Spieler</button></div>
+    </div>
     <div class="sect" id="diffSec">
       <div class="lbl">Bot-Stärke</div>
       <div class="pills" id="diffGrp"><button id="dE">Leicht</button><button id="dM">Mittel</button><button id="dH" class="on">Schwer</button></div>
@@ -1483,6 +1490,16 @@ loadOnlineIdentity();   // stable pid + fresh tab token + persisted name, once p
 function viewAngle(){
   if(!online)return 0;
   if(mode==='ffa')return -(myPlayer*2*Math.PI/ffaN);   // TRIPLE FFA: 3 Sektoren — eigenes Paar vorne/unten
+  // Arena Football online: eigenes Tor unten. Der Winkel haengt am aktuellen Torslot,
+  // damit er den Arenaumbau 5->4->3->2 mitmacht. Ein ausgeschiedener Spieler behaelt
+  // die zuletzt gueltige Ausrichtung (slot<0 -> 0).
+  if(mode==='football'&&typeof fbElim4==='function'&&fbElim4()){
+    const n=(typeof fbElimPhaseN==='number')?fbElimPhaseN:fbElimPlayers();
+    // fbElimSlots ist SLOT -> EIGENTUEMER (fbElimApplyPhase: fbElimSlots[k]=act[k]).
+    // Der eigene Torslot ist also die POSITION des eigenen Sitzes in dieser Liste.
+    const slot=(typeof fbElimSlots!=='undefined')?fbElimSlots.indexOf(myPlayer):-1;
+    return (slot>=0&&n>0)?-(slot*2*Math.PI/n):0;
+  }
   return myPlayer===1?Math.PI:0;
 }
 
@@ -1496,7 +1513,7 @@ const DEV_MENU=new URLSearchParams(location.search).get('dev')==='1';
 // URL liest — der Football-Block selbst bleibt frei von Umgebungszugriffen und ist damit in
 // den Offline-Harnessen unveraendert lauffaehig. Ohne ?dev=1 immer null -> Classic.
 const DEV_FB_VARIANT=DEV_MENU?new URLSearchParams(location.search).get('fb'):null;
-if(DEV_MENU)$('devPanel').style.display='';
+if(DEV_MENU){$('devPanel').style.display='';$('devFbOnlineSec').style.display='';}
 $('mBot').onclick=()=>{mode=menuMode='bot';setOn('modeGrp','mBot');$('diffSec').style.display='';$('fmtSec').style.display='';$('ffaSec').style.display='none';};
 $('mPvp').onclick=()=>{mode=menuMode='pvp';setOn('modeGrp','mPvp');$('diffSec').style.display='none';$('fmtSec').style.display='';$('ffaSec').style.display='none';};
 $('mFfa').onclick=()=>{mode=menuMode='ffa';setOn('modeGrp','mFfa');$('diffSec').style.display='none';$('fmtSec').style.display='none';$('ffaSec').style.display='';};
@@ -1511,6 +1528,15 @@ $('w5').onclick=()=>{winTarget=5;setOn('winGrp','w5');};
 [['np2',2],['np3',3],['np4',4],['np5',5]].forEach(([id,n])=>{$(id).onclick=()=>{ffaN=ffaNMenu=n;setOn('ffaGrp',id);};});
 // Online-FFA (live seit M8-T3c): Button oeffnet den Online-Dialog im FFA-Kontext
 // (mode==='ffa') — createRoom baut daraus den ffa-Raum mit state:'lobby'.
+// Arena Football Online (Prototyp): setzt NUR den Kontext und uebergibt an den
+// bestehenden Online-Bildschirm. menuMode bleibt bewusst unberuehrt - der Zurueck-Weg
+// stellt damit den zuletzt im Menue gewaehlten Modus wieder her (wie bei Online-FFA).
+$('devFbOnlineBtn').onclick=()=>{
+  if(!DEV_MENU)return;
+  if(TUNE){toast('Tuning aktiv — Online deaktiviert');return;}
+  mode='football'; fbVariant=FOOTBALL_VARIANT_ELIM; fmt=FB_ONLINE_FMT;
+  openOnline();
+};
 $('ffaOnline').onclick=()=>{SFX.unlock();fmt='ffa';openOnline();};
 // Public-Lobby: Sichtbarkeits-Auswahl beim Erstellen (Default privat).
 $('onVisPriv').onclick=()=>{createVisibility='private';setOn('onVisGrp','onVisPriv');};
@@ -2576,9 +2602,13 @@ function np(){return mode==='ffa'?ffaN:(typeof fbElim4==='function'&&fbElim4()?f
 // FFA-Variante mit exakt 3 Spielern, laeuft komplett ueber die FFA-Systeme).
 function teamCap(){if(typeof fbTactical==='function'&&fbTactical())return 2;return (mode!=='ffa'&&fmt==='double')||fmt==='triple_ffa'?2:1;}
 // FFA-Raeume: 'ffa', 'triple_ffa' und 'team_duel' teilen Lobby/Seats/Sentinel-Pfad …
-function ffaRoom(){return fmt==='ffa'||fmt==='triple_ffa'||fmt==='team_duel';}
+function ffaRoom(){return fmt==='ffa'||fmt==='triple_ffa'||fmt==='team_duel'||fmt===FB_ONLINE_FMT;}
+// Genau der Online-Football-Raum (Elimination, fuenf Sitze). ffaRoom() meint die ganze
+// Mehrsitz-Familie; hier geht es um den einen Raumtyp, dessen Disconnect-Verhalten sich
+// weder wie 1v1 noch wie FFA verhaelt.
+function fbOnlineRoom(){return mode==='football'&&fmt===FB_ONLINE_FMT;}
 // … aber TRIPLE FFA hat exakt 3, TEAM DUEL exakt 4 Sitze (Rules-gesichert), klassisches FFA 5.
-function ffaSeatCap(){return fmt==='triple_ffa'?3:fmt==='team_duel'?4:FFA_MAX_SEATS;}
+function ffaSeatCap(){return fmt==='triple_ffa'?3:fmt==='team_duel'?4:fmt===FB_ONLINE_FMT?FB_ONLINE_SEATS:FFA_MAX_SEATS;}
 // TEAM DUEL: Team eines Seats (0=Blau: Seats 0/2, 1=Rot: Seats 1/3). Zugleich der
 // PCOLS-Farbslot — beide Teamkugeln tragen die Teamfarbe, Ownership bleibt pro Seat.
 function teamOf(s){return s%2;}
@@ -2880,6 +2910,28 @@ $('actBtn').onclick=()=>{if(r3dOrbit)return;if(phase!=='aim')return;const who=on
 function localPt(e){
   if(r3dActive)return r3d.s2w(e.clientX,e.clientY);   // 3D: Ray-Ebene-Schnitt -> LOGICAL (P2 steckt in der Kamera)
   const r=cv.getBoundingClientRect();const sc=LOGICAL/(r.width||dispS);let x=(e.clientX-r.left)*sc,y=(e.clientY-r.top)*sc;const va=viewAngle();if(va===Math.PI){x=2*cx-x;y=2*cy-y;}else if(va){const dx=x-cx,dy=y-cy,c=Math.cos(va),s=Math.sin(va);x=cx+dx*c+dy*s;y=cy-dx*s+dy*c;}return{x:x,y:y};}
+// Dev-Diagnose (?dev=1): WARUM ist die Eingabe gerade gesperrt? whoCanAim() liefert
+// nur -1; fuer einen Test auf echten Geraeten braucht es die entscheidende Bedingung.
+// Reine Ausgabe - kein Spielzustand, keine Auswirkung auf den Ablauf. Gemeldet wird nur
+// bei AENDERUNG des Grundes, damit die Konsole nicht zulaeuft.
+let devAimWhy='';
+function devAimBlock(){
+  if(!DEV_MENU||!online)return;
+  const why=r3dOrbit?'Orbit-Testmodus'
+    :phase!=='aim'?('phase='+phase)
+    :inputLocked()?('inputLocked, fbGoalState='+(typeof fbGoalState!=='undefined'?fbGoalState:'?'))
+    :!aliveCount(myPlayer)?'eigene Figur ist ausgeschieden (aliveCount=0)'
+    :aimSet[myPlayer]?'Zug dieser Runde bereits abgegeben'
+    :'unbekannt';
+  if(why===devAimWhy)return;
+  devAimWhy=why;
+  console.log('[aim] gesperrt fuer Sitz '+myPlayer+': '+why
+    +' | turn='+turnNo+' aktiv='+(typeof fbElimActive!=='undefined'?fbElimActive.join(''):'?')
+    +' slots='+(typeof fbElimSlots!=='undefined'?fbElimSlots.join(','):'?')
+    +' phaseN='+(typeof fbElimPhaseN!=='undefined'?fbElimPhaseN:'?')
+    +' aimSet='+aimSet.map(v=>v?1:0).join('')
+    +' pending='+Object.keys(pendingSlot).join(','));
+}
 function whoCanAim(){if(r3dOrbit)return -1;if(phase!=='aim')return -1;
   if(inputLocked())return -1;   // Timer abgelaufen: kein neuer Zug, bis der Collapse ausgewertet ist
   if(online)return (aimSet[myPlayer]||!aliveCount(myPlayer))?-1:myPlayer;if(mode==='bot')return aimSet[0]?-1:0;return aimSet[curAimer]?-1:curAimer;}
@@ -2914,7 +2966,7 @@ function cancelAimDrag(){
 }
 cv.addEventListener('pointerdown',e=>{
   if(!r3dActive){                                   // ── 2D: Originalverhalten, unveraendert ──
-    const who=whoCanAim();if(who<0)return;const p=localPt(e);
+    const who=whoCanAim();if(who<0){devAimBlock();return;}const p=localPt(e);
     if(aimPid<0){                                   // 1. Finger: eigene Kugel greifen + zuruekziehen
       const idx=pickOwnBall(who,p);if(idx<0)return;
       startAim(who,idx,p,e);
@@ -2926,6 +2978,7 @@ cv.addEventListener('pointerdown',e=>{
   }
   // ── 3D: Aim-Zone (Kugelnaehe) hat Vorrang; sonst Kamera. Nie beides gleichzeitig. ──
   const who=whoCanAim();
+  if(who<0)devAimBlock();                           // Dev-Diagnose: der Grund, nicht nur das -1
   if(who>=0&&aimPid<0&&camPid<0){                   // Aim nur, wenn KEIN Kamera-Drag aktiv
     const idx=pickOwnBall3D(who,e);
     // Tactical: derselbe Griff waehlt die Figur UND startet den Zug — pickOwnBall3D laesst
@@ -3201,6 +3254,15 @@ function simHash(){
   const mix=s=>{for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619)>>>0;}};
   for(const b of balls)mix(b.owner+':'+(b.alive?1:0)+':'+b.x+':'+b.y+':'+b.vx+':'+b.vy+':'+(b.spin||0)+';');
   mix('|R'+R+'|s'+score.join(',')+'|sg'+seatGone.map(v=>v?1:0).join(''));
+  // Arena Football Elimination: der Matchzustand steckt nicht im Score, sondern in Leben,
+  // Aktivliste, Torzuordnung, Arenaphase und Torablauf. Er wird auf jedem Client rein
+  // lokal abgeleitet - der Hash muss ihn deshalb abdecken, sonst bliebe eine Divergenz
+  // genau dort unsichtbar. typeof-Guard: simHash laeuft auch in Harnessen ohne Football.
+  if(typeof fbElim4==='function'&&fbElim4()){
+    mix('|fbP'+fbElimPhaseN+'|a'+fbElimActive.map(v=>v?1:0).join('')
+       +'|l'+fbElimLives.join(',')+'|sl'+fbElimSlots.join(',')
+       +'|g'+fbGoalState+':'+fbGoalTick+'|w'+(footballWinner===null?'-':footballWinner));
+  }
   return ('0000000'+h.toString(16)).slice(-8);
 }
 function devSync(tag,extra){
@@ -4144,6 +4206,17 @@ if(typeof DEV_MENU!=='undefined'&&DEV_MENU)window.__fbDev={
   screenAt:(x,y)=>{const q=OP(cx+x,cy+y,BR),r=cv.getBoundingClientRect(),sc=(r.width||dispS)/LOGICAL;
     return {x:r.left+q.x*sc,y:r.top+q.y*sc};},
   maxPull:()=>maxPull(),
+  // Netz- und Eingabezustand dieses Clients. Rein lesend - die Browser-Reproduktion
+  // liest damit den Zustand aller fuenf Geraete an derselben Rundengrenze und findet
+  // eine Divergenz an der Stelle, an der sie ENTSTEHT, statt erst an ihrer Folge.
+  net:()=>({seat:myPlayer,turn:turnNo,gen:gen,room:roomCode,phase:phase,online:online,
+            started:gameStarted,aimer:whoCanAim(),locked:inputLocked(),
+            alive:aliveCount(myPlayer),aimSet:aimSet.map(v=>v?1:0).join(''),
+            pending:Object.keys(pendingSlot),slots:fbElimSlots.slice(0,fbElimPlayers()),
+            goal:fbGoalState,goalTick:fbGoalTick,morph:fbMorphActive(),
+            phaseN:fbElimPhaseN,winner:footballWinner,hash:simHash(),
+            uid:(typeof fbUid==='function'?fbUid():null),va:viewAngle(),
+            dragging:dragging,aimPid:aimPid,dragOwner:dragOwner}),
 };
 function footballGoalBusy(){return mode==='football'&&fbGoalState!=='play';}
 // Zentrale Goal-Detection. Rueckgabe: 0 = Punkt Blau (+X-Tor), 1 = Punkt Rot (-X-Tor),
@@ -4929,7 +5002,9 @@ function renderLobby(p){
   let n=0,h='';
   for(let s=0;s<cap;s++){
     const here=seatActive(p,s);if(here)n++;
-    const col=PCOLS[colorSlot(s)].ui;   // TEAM DUEL: Seat-Kreis in Teamfarbe (0/2 Blau, 1/3 Rot)
+    // pcol() ist die einzige Farbabfrage, die den Football-Modus kennt (Sitz 4 = Violett,
+    // s. FB_PCOLS). Ausserhalb Football liefert sie bitgenau PCOLS[i].
+    const col=pcol(colorSlot(s)).ui;   // TEAM DUEL: Seat-Kreis in Teamfarbe (0/2 Blau, 1/3 Rot)
     h+='<div style="width:26px;height:26px;border-radius:50%;'+(here
       ?'background:'+col+';box-shadow:0 0 8px '+col+(s===myPlayer?';outline:2px solid #fff':'')
       :'border:2px dashed #2a3850')+'"></div>';
@@ -4945,23 +5020,27 @@ function renderLobby(p){
   for(let s=0;s<FFA_MAX_SEATS;s++){
     const row=$('lobbyName'+s); if(!row)continue;
     row.style.order=team?TEAM_ORDER[s]:'';
-    if(s<cap&&seatActive(p,s)){ row.textContent=nameForSeat(s); row.style.display=''; row.style.color=PCOLS[colorSlot(s)].ui; }
+    if(s<cap&&seatActive(p,s)){ row.textContent=nameForSeat(s); row.style.display=''; row.style.color=pcol(colorSlot(s)).ui; }
     else { row.textContent=''; row.style.display='none'; }
   }
   $('lobbyMine').textContent=T('youAre')+' '+nameForSeat(myPlayer);
   const host=myPlayer===0,gap=!seatsContiguous(p,n);
+  // Arena Football Elimination startet per Produktvertrag mit GENAU fuenf Teilnehmern -
+  // die Arena, die Torzuordnung und der Ablauf 5->4->3->2 sind darauf gebaut. Der Server
+  // erzwingt dasselbe (seats===5 verlangt fuenf aktive Sitze).
+  const fbo=fmt===FB_ONLINE_FMT;
   $('lobbyStart').style.display=host?'':'none';
-  $('lobbyStart').disabled=team?(n!==4||gap):trip?(n!==3||gap):(n<2||gap);
-  $('lobbyHint').textContent=host?(team&&n<4?'TEAM DUEL braucht genau 4 Spieler.':trip&&n<3?'TRIPLE FFA braucht genau 3 Spieler.':'Sitzlücke: Warte auf freien Sitz / Spieler soll neu beitreten.'):'Warte auf Host…';
-  $('lobbyHint').style.display=(host?((gap&&n>=2)||(trip&&n<3)||(team&&n<4)):true)?'':'none';
+  $('lobbyStart').disabled=fbo?(n!==FB_ONLINE_SEATS||gap):team?(n!==4||gap):trip?(n!==3||gap):(n<2||gap);
+  $('lobbyHint').textContent=host?(fbo&&n<FB_ONLINE_SEATS?'ARENA FOOTBALL braucht genau 5 Spieler.':team&&n<4?'TEAM DUEL braucht genau 4 Spieler.':trip&&n<3?'TRIPLE FFA braucht genau 3 Spieler.':'Sitzlücke: Warte auf freien Sitz / Spieler soll neu beitreten.'):'Warte auf Host…';
+  $('lobbyHint').style.display=(host?((gap&&n>=2)||(trip&&n<3)||(team&&n<4)||(fbo&&n<FB_ONLINE_SEATS)):true)?'':'none';
 }
 // Kopfbereich der Online-Seite: zweifarbiger Titel (ONLINE · FFA/1v1/2v2), Untertitel,
 // Spielerzahl-Badge — eine Stelle fuer openOnline UND attemptRejoin.
 function setOnTitle(ffa){
-  const trip=ffa&&fmt==='triple_ffa',team=ffa&&fmt==='team_duel';
-  $('onTitleMode').textContent=team?'TEAM DUEL':trip?'TRIPLE FFA':ffa?'FFA':(fmt==='double'?'2v2':'1v1');
-  $('onCtxt').textContent=team?T('onSubTeam'):trip?T('onSubTriple'):ffa?T('onSubFfa'):T('onSubVs');
-  $('onBadgeN').textContent=team?'4':trip?'3':ffa?'2–5':'2';
+  const trip=ffa&&fmt==='triple_ffa',team=ffa&&fmt==='team_duel',fbo=fmt===FB_ONLINE_FMT;
+  $('onTitleMode').textContent=fbo?'ARENA FOOTBALL':team?'TEAM DUEL':trip?'TRIPLE FFA':ffa?'FFA':(fmt==='double'?'2v2':'1v1');
+  $('onCtxt').textContent=fbo?'Elimination · 5 Spieler · 2 Leben':team?T('onSubTeam'):trip?T('onSubTriple'):ffa?T('onSubFfa'):T('onSubVs');
+  $('onBadgeN').textContent=fbo?'5':team?'4':trip?'3':ffa?'2–5':'2';
 }
 function openOnline(){
   if(TUNE){toast('Tuning aktiv — Online deaktiviert');return;}
@@ -4990,6 +5069,15 @@ function openOnline(){
 function createRoom(){
   if(TUNE){toast('Tuning aktiv — Online deaktiviert');return;}
   const ffa=mode==='ffa';   // Kontext vom ffaOnline-Button
+  // Arena Football (Dev-Prototyp): derselbe Erstellungsablauf, nur ein anderer Raumtyp.
+  // Die Weiche kommt aus dem Dev-Einstieg, der mode und fmt vor openOnline() setzt.
+  // Arena Football ist ohne ?dev=1 ein rein lokaler Modus. Ein Erstellungsversuch aus
+  // diesem Kontext bricht deshalb GANZ ab - ein Rueckfall auf einen RingOut-Raum waere
+  // ein widerspruechlicher Mischzustand: online=true bei mode==='football'.
+  if(mode==='football'&&!DEV_MENU){ setStatus(T('err')); return; }
+  // Doppelt gesichert: der Einstieg blendet sich ohne ?dev=1 gar nicht erst ein, und
+  // hier entsteht ohne ihn auch kein Football-Raum.
+  const fbo=mode==='football'&&fmt===FB_ONLINE_FMT;
   whenFB(()=>{ if(!fbReady()){setStatus(T(fbFailKey()));return;}
     (async()=>{ const op=newJoinOp(); let dc=null, code='', created=false, listed=false;
     // Snapshot the visibility ONCE, validated, at the start of the operation. From here
@@ -5001,14 +5089,14 @@ function createRoom(){
       for(let t=0;t<6;t++){ code=rrand(4); const s=await window.FB.get(window.FB.ref(window.FB.db,'rooms/'+code)); if(!joinOpCurrent(op))return; if(!s.exists())break; }
       // FFA-Kontext traegt das konkrete Format im fmt-Global: 'triple_ffa' bleibt
       // erhalten (TRIPLE-Karte/CTA), jedes andere Rest-fmt wird zu 'ffa' normalisiert.
-      const fmtNew=ffa?(fmt==='triple_ffa'||fmt==='team_duel'?fmt:'ffa'):fmt, rec=playerRecord(0);
+      const fmtNew=fbo?FB_ONLINE_FMT:ffa?(fmt==='triple_ffa'||fmt==='team_duel'?fmt:'ffa'):fmt, rec=playerRecord(0);
       // Einheitlicher Room-State (Paket A, letzte Blocker): ALLE Modi starten in
       // 'lobby'. Der explizite State ersetzt die frueheren indirekten Nicht-FFA-
       // Heuristiken (fehlende Presence/players/g) als alleinige Wahrheit fuer
       // Rejoin-/Claim-/Recycling-Erlaubnis. FFA bleibt bis zum Host-Start in 'lobby';
       // 1v1/2v2 schaltet der atomare Gastclaim auf 'playing' (siehe joinRoom).
       // RESERVE: Raum inkl. Host-Reservierung (p/0.on=false) + players/0 anlegen.
-      const room={v:ONLINE_PROTOCOL_VERSION, config:{game:ROOM_GAME_RINGOUT,winTarget:winTarget,fmt:fmtNew,visibility:visibility}, gen:0, state:'lobby',
+      const room={v:ONLINE_PROTOCOL_VERSION, config:{game:fbo?ROOM_GAME_FOOTBALL:ROOM_GAME_RINGOUT,winTarget:winTarget,fmt:fmtNew,visibility:visibility}, gen:0, state:'lobby',
         p:{0:{s:onlineTab,on:false,t:window.FB.serverTimestamp()}}, players:{0:rec}, created:window.FB.serverTimestamp()};
       await window.FB.set(window.FB.ref(window.FB.db,'rooms/'+code), room);
       created=true;   // room exists from here on -> abortFreshRoom(code,...) below is now safe to call
@@ -5039,7 +5127,7 @@ function createRoom(){
       hidePublicUI();   // entered a room -> stop the listener, hide the public UI
       $('onActions').style.display='none';$('onWait').style.display='';
       $('onCode').textContent=code;
-      if(ffa){ $('onLobby').style.display=''; renderLobby({0:{s:onlineTab,on:true,t:Date.now()}}); setStatus(T(fmtNew==='team_duel'?'teamShare':fmtNew==='triple_ffa'?'tripleShare':'ffaShare')); }
+      if(ffa||fbo){ $('onLobby').style.display=''; renderLobby({0:{s:onlineTab,on:true,t:Date.now()}}); setStatus(fbo?('ARENA FOOTBALL · '+T('shareCode')):T(fmtNew==='team_duel'?'teamShare':fmtNew==='triple_ffa'?'tripleShare':'ffaShare')); }
       else setStatus((fmt==='double'?'2v2 · ':'1v1 · ')+T('shareCode'));
       attachRoomListeners();
     }catch(e){
@@ -5165,6 +5253,10 @@ const FOOTBALL_FMTS=['elimination'];
 // Fuenf Football-Teilnehmer (Sitze 0-4). Der neutrale Ball ist KEIN Teilnehmer: er hat
 // keinen Sitz, keine Praesenz und keine Identitaet - nur einen Koerperindex.
 const FB_ONLINE_SEATS=5, FB_ONLINE_BALL_IDX=5;
+// Das Format, das ein Football-Raum im fmt-Global traegt. LOKALES Football laeuft mit
+// fmt='single' - nur ein Online-Football-Raum setzt diesen Wert. Damit ist fmt allein
+// schon die eindeutige Weiche, ohne einen zweiten Zustand einzufuehren.
+const FB_ONLINE_FMT=FOOTBALL_FMTS[0];
 // Zugereignisse. Sie sind AUSDRUECKLICH typisiert, damit nie wieder eine Ersatzbedeutung
 // in einen Nullvektor oder einen fremden Koerperindex hineingelesen werden muss:
 //   move    ein echter Abschuss des Sitzeigentuemers
@@ -5270,13 +5362,17 @@ function validateRejoinRoom(d){
   if(cfg.visibility!=='private'&&cfg.visibility!=='public')return{ok:false,reason:'noRoom'};
   if(!Number.isSafeInteger(d.gen)||d.gen<0||d.gen>GEN_MAX)return{ok:false,reason:'noRoom'};
   if(d.state!=='lobby'&&d.state!=='playing')return{ok:false,reason:'rejoinNoLobby'};
-  const ffa=cfg.fmt==='ffa'||cfg.fmt==='triple_ffa'||cfg.fmt==='team_duel';
+  // Mehrsitzige Raeume tragen ihre Teilnehmerzahl im seats-Startsignal - die
+  // FFA-Familie ebenso wie Arena Football. Ohne diesen Wert haelt der Rejoin jeden
+  // Sitz fuer ausserhalb der Besetzung und weist die Rueckkehr ab.
+  const multi=cfg.fmt==='ffa'||cfg.fmt==='triple_ffa'||cfg.fmt==='team_duel'||cfg.game===ROOM_GAME_FOOTBALL;
   let seats=0;
-  if(d.state==='playing'&&ffa){
+  if(d.state==='playing'&&multi){
     seats=d.seats;
     if(!Number.isInteger(seats)||seats<2||seats>FFA_MAX_SEATS)return{ok:false,reason:'noRoom'};
     if(cfg.fmt==='triple_ffa'&&seats!==3)return{ok:false,reason:'noRoom'};
     if(cfg.fmt==='team_duel'&&seats!==4)return{ok:false,reason:'noRoom'};
+    if(cfg.game===ROOM_GAME_FOOTBALL&&seats!==FB_ONLINE_SEATS)return{ok:false,reason:'noRoom'};
   }
   return{ok:true,fmt:cfg.fmt,winTarget:cfg.winTarget,gen:d.gen,state:d.state,seats:seats};
 }
@@ -5369,12 +5465,21 @@ function joinRoom(){
       // roomPublic residue. The displayed room is never authoritative — the seat
       // arbiter decides the actual join, not the list.
       const isPublic=!!(d.config&&d.config.visibility==='public');
-      if(v.fmt==='ffa'||v.fmt==='triple_ffa'||v.fmt==='team_duel'){   // M8-T3c: Seat per atomaren write-once-Claim statt fix p/1
-        const c=await claimSeat(code,op,v.fmt==='triple_ffa'?3:v.fmt==='team_duel'?4:FFA_MAX_SEATS);   // rolls its own writes back if the op goes stale
+      // Mehrsitzige Raeume - FFA-Familie UND Arena Football. Beide laufen ueber denselben
+      // atomaren write-once-Sitzclaim; nur Sitzzahl, Modus und Variante unterscheiden sich.
+      const joinFb=v.game===ROOM_GAME_FOOTBALL;
+      // Arena Football Online ist ein Entwicklungsprototyp. Ohne ?dev=1 fuehrt auch ein
+      // bekannter Raumcode nicht hinein - sonst waere er ueber das Beitrittsfeld faktisch
+      // veroeffentlicht.
+      if(joinFb&&!DEV_MENU){ setStatus(T('noRoom')); return; }
+      if(joinFb||v.fmt==='ffa'||v.fmt==='triple_ffa'||v.fmt==='team_duel'){   // M8-T3c: Seat per atomaren write-once-Claim statt fix p/1
+        const c=await claimSeat(code,op,joinFb?FB_ONLINE_SEATS:v.fmt==='triple_ffa'?3:v.fmt==='team_duel'?4:FFA_MAX_SEATS);   // rolls its own writes back if the op goes stale
         if(c.stale)return;                  // op superseded -> globals stay untouched (offline)
         if(c.seat<0){ setStatus(T('roomFull')); return; }
         // remote claim complete -> NOW commit the globals + UI + listeners
-        roomCode=code; myPlayer=c.seat; online=true; mode='ffa'; runningGen=-1; gameStarted=false; seatLeft=[]; seatGone=[]; playersRoster=d.players||{};
+        roomCode=code; myPlayer=c.seat; online=true; runningGen=-1; gameStarted=false; seatLeft=[]; seatGone=[]; playersRoster=d.players||{};
+        // Football: Modus UND Variante setzen, bevor irgendetwas np()/fbElim4() fragt.
+        if(joinFb){ mode='football'; fbVariant=FOOTBALL_VARIANT_ELIM; } else mode='ffa';
         winTarget=v.winTarget; fmt=v.fmt; gen=v.gen; roomPublic=isPublic;
         rememberRoom(code,c.seat);
         hidePublicUI();   // entered a room -> stop the listener, hide the public UI
@@ -5405,6 +5510,10 @@ function joinRoom(){
 // newData.parent().child('state') und saehe den neuen state dort nicht.
 function startFfaMatch(){
   const n=seatCount(lobbyP);
+  // Arena Football Elimination startet ausschliesslich mit fuenf Teilnehmern. Der Server
+  // erzwingt dasselbe: seats===5 verlangt fuenf AKTIVE Sitze, ein Start mit weniger wird
+  // dort abgelehnt und wuerde den Raum ohne Startsignal stehen lassen.
+  if(fmt===FB_ONLINE_FMT&&n!==FB_ONLINE_SEATS){toast('ARENA FOOTBALL braucht genau 5 Spieler.');return;}
   if(fmt==='triple_ffa'&&n!==3){toast('TRIPLE FFA braucht genau 3 Spieler.');return;}
   if(fmt==='team_duel'&&n!==4){toast('TEAM DUEL braucht genau 4 Spieler.');return;}
   if(n<2){toast('Mindestens 2 Spieler nötig.');return;}
@@ -5452,7 +5561,12 @@ async function attemptRejoin(code){
     const sr0=savedRoom();
     const seat=findOwnSeat(d.players,onlinePid,fbUid(),sr0&&sr0.code===code?sr0.seat:-1);
     if(seat<0){ forgetRoom(); setStatus(T('noRoom')); return false; }   // identity no longer holds a seat here — NEVER take a foreign one
-    const ffa=v.fmt==='ffa'||v.fmt==='triple_ffa'||v.fmt==='team_duel';
+    // "ffa" heisst hier: mehrsitziger Raum mit Lobby und Host-Start. Arena Football
+    // gehoert dazu; die Sitzzahl kommt aus der kanonischen Raumkonfiguration.
+    // Auch die Rueckkehr fuehrt nur mit ?dev=1 in einen Football-Raum.
+    const rjFb=roomIsFootball(d.config);
+    if(rjFb&&!DEV_MENU){ forgetRoom(); setStatus(T('noRoom')); return false; }
+    const ffa=rjFb||v.fmt==='ffa'||v.fmt==='triple_ffa'||v.fmt==='team_duel';
     if(v.state==='playing'&&ffa&&seat>=v.seats){ forgetRoom(); setStatus(T('rejoinNoLobby')); return false; }   // match started without this seat
     if(d.p&&seatActive(d.p,seat)){ setStatus(T('rejoinTab')); return false; }
     const oldRec=d.players&&d.players[seat];
@@ -5473,7 +5587,9 @@ async function attemptRejoin(code){
     // format, seats/teams/ball counts all derive from it).
     roomCode=code; myPlayer=seat; online=true; gen=v.gen; runningGen=-1; gameStarted=false;
     seatLeft=[]; seatGone=[]; playersRoster=d.players||{};
-    winTarget=v.winTarget; fmt=v.fmt; mode=ffa?'ffa':'online';
+    // Football: Modus UND Variante stehen, BEVOR irgendetwas np()/fbElim4() fragt.
+    winTarget=v.winTarget; fmt=v.fmt; mode=rjFb?'football':ffa?'ffa':'online';
+    if(rjFb)fbVariant=FOOTBALL_VARIANT_ELIM;
     roomPublic=!!(d.config&&d.config.visibility==='public');   // commit only after a successful claim
     rememberRoom(code,seat);
     hidePublicUI();   // entered a room -> stop the listener, hide the public UI
@@ -5492,7 +5608,7 @@ async function attemptRejoin(code){
     // that calls np(); gameStarted BEFORE attachRoomListeners so neither the
     // lobby paths (renderLobby/host grace/onLobbyClosed) nor the auto-start
     // (maybeStart/seats listener) can fire for an already-running room.
-    if(ffa)ffaN=v.seats;
+    if(ffa&&!rjFb)ffaN=v.seats;   // Football liest seine Spielerzahl aus fbElimPlayers()
     gameStarted=true;
     attachRoomListeners();
     let turns={};
@@ -5542,6 +5658,20 @@ function seatFinallyGone(s){
     toast('Spieler '+(s+1)+' hat das Match verlassen.');
     writeLeaveSentinel(s);
   }
+  else if(fbOnlineRoom()){
+    // Football ist ein Fuenf-Sitz-Match: der Ausfall EINES Sitzes darf es weder
+    // beenden noch die Eingabe der Uebrigen sperren. Die 1v1-Annahme im else-Zweig
+    // war hier schlicht falsch.
+    //
+    // Was hier bewusst NICHT passiert: kein Leave-Sentinel, kein SKIP, kein REMOVE,
+    // kein Rejoin, keine Arenaanpassung. Der Zug braucht den fehlenden MOVE weiterhin
+    // - die Fortsetzung nach einem Ausfall ist die Aufgabe von Phase C. Bis dahin
+    // bleibt der Spielzustand unberuehrt: keine Leben, keine Elimination, kein Tor,
+    // kein Sieger, keine Sitzverschiebung.
+    if(seatLeft[s])return;
+    seatLeft[s]=true;
+    toast('Spieler '+(s+1)+' ist nicht mehr verbunden.');
+  }
   else onOppLeft();
 }
 function attachRoomListeners(){
@@ -5581,7 +5711,7 @@ function attachRoomListeners(){
       for(let s=0;s<np();s++){
         if(s===myPlayer)continue;
         if(seatActive(p,s)){ clearMatchGrace(s); continue; }
-        if(mode==='ffa'&&seatLeft[s])continue;
+        if((mode==='ffa'||fbOnlineRoom())&&seatLeft[s])continue;
         if(p&&p[s])startMatchGrace(s);
         else seatFinallyGone(s);
       }
@@ -5609,14 +5739,18 @@ function attachRoomListeners(){
     if(gameStarted||!Number.isInteger(n)||n<2||n>FFA_MAX_SEATS)return;
     if(fmt==='triple_ffa'&&n!==3)return;   // Rules erzwingen seats===3 — alles andere ist manipuliert
     if(fmt==='team_duel'&&n!==4)return;    // Rules erzwingen seats===4 — alles andere ist manipuliert
+    if(fmt===FB_ONLINE_FMT&&n!==FB_ONLINE_SEATS)return;   // Rules erzwingen seats===5
     if(myPlayer>=n){   // Race: Seat erst nach dem Host-Kopfzaehlen geclaimt -> sauber aussteigen
       leaveOnline(); openOnline(); setStatus('Das Match ist ohne dich gestartet — tritt einem neuen Raum bei.');
       return;
     }
-    ffaN=n; maybeStart();
+    // ffaN ist die Spielerzahl der FFA-Familie. Football liest seine Zahl aus
+    // fbElimPlayers() (s. np()) — ffaN bleibt dort bewusst unberuehrt.
+    if(fmt!==FB_ONLINE_FMT)ffaN=n;
+    maybeStart();
   });
 }
-function maybeStart(){ if(gameStarted)return; gameStarted=true; if(roomPublic&&myPlayer===0){removePublicListing(roomCode);roomPublic=false;} $('online').classList.remove('show'); showGame(); startOnlineGame(); toast(T('youAre')+' '+(fmt==='team_duel'?T(teamOf(myPlayer)===0?'teamBlue':'teamRed'):T('col'+myPlayer))); }
+function maybeStart(){ if(gameStarted)return; gameStarted=true; if(roomPublic&&myPlayer===0){removePublicListing(roomCode);roomPublic=false;} $('online').classList.remove('show'); showGame(); startOnlineGame(); toast(T('youAre')+' '+(fmt==='team_duel'?T(teamOf(myPlayer)===0?'teamBlue':'teamRed'):T('col'+colSlot4Name(myPlayer)))); }
 function startOnlineGame(){ replaying=false;repPlaying=false;$('replay').classList.remove('show'); runningGen=gen; turnNo=-1; if(turnUnsub){turnUnsub();turnUnsub=null;} $('ov').classList.remove('show'); newGame(); }
 // ════ B2 canonical match rehydration ════
 // Rebuilds a RUNNING match purely from the turn history under
@@ -5630,6 +5764,11 @@ function startOnlineGame(){ replaying=false;repPlaying=false;$('replay').classLi
 // applied from the DB — never re-sent (pendingSlot starts empty; a move that
 // was only prepared locally before the reload is gone by design). Sounds stay
 // muted during the whole replay; leftover FX particles are dropped afterwards.
+// Obergrenze der Simulationsschritte je nachgespielter Runde. Eine Football-Runde mit
+// Tor durchlaeuft Ballfall, Celebration, ggf. Arenaumbau und Spawn - alles kanonische
+// Fixed-Steps, in Summe einige hundert. 20000 ist die bestehende Reissleine gegen eine
+// nicht settelnde Simulation und bleibt auch fuer Football weit ausreichend.
+const FF_MAX_STEPS_PER_TURN=20000;
 function fastForwardMatch(turns){
   const snd=soundOn; soundOn=false;
   try{
@@ -5643,11 +5782,16 @@ function fastForwardMatch(turns){
       if(turnUnsub){turnUnsub();turnUnsub=null;}
       beginReveal();
       applyLaunch();
-      let g=0; while(phase==='sim'&&g++<20000)stepSim();
+      let g=0; while(phase==='sim'&&g++<FF_MAX_STEPS_PER_TURN)stepSim();
       if(phase==='result')afterResult();   // score/round/game-over exactly like live play
       else if(phase!=='aim')break;         // safety net: unexpected phase -> stop the replay
     }
-  } finally { soundOn=snd; particles=[]; fx3=[]; }
+  } finally {
+    soundOn=snd; particles=[]; fx3=[];
+    // Der Torimpuls ist rein visuell und zeitgesteuert - nach einem Replay waere er ein
+    // Nachleuchten aus der Vergangenheit. Der Spielzustand bleibt davon unberuehrt.
+    if(typeof footballClearGoalFx==='function')footballClearGoalFx();
+  }
   updateHud(); setPhaseText();
 }
 // Opponent presence lost: reuse the end overlay as a clear way back to the
@@ -5842,6 +5986,9 @@ function onlineTurnValue(val){
 function onlineSendCommit(idx,fx,fy,spin){
   // Verlorenes Write-once-Race (z. B. gegen einen Leave-Sentinel) ist ein legitimer
   // Ausgang: still schlucken — das Turn-Echo liefert allen den gewinnenden Wert.
+  // Football-Raeume tragen die kanonische v4-Form MIT Zugart; die Rules lassen im
+  // Eigentuemerzweig dort ausschliesslich 'move' zu und verlangen idx===Sitz.
+  if(fmt===FB_ONLINE_FMT){ writeTurnSlot(myPlayer,{k:TURN_MOVE,idx:myPlayer,dx:fx,dy:fy,sp:spin||0}); return; }
   writeTurnSlot(myPlayer,{idx:idx,dx:fx,dy:fy,sp:spin||0});
 }
 function onlineRematch(){ try{ window.FB.set(rRef('gen'), runningGen+1); }catch(e){} }
@@ -7890,9 +8037,35 @@ const SIM_MAX_STEPS=5;
 // Derselbe Wert und dieselbe Begruendung wie beim Ring-Collapse-Timer
 // (MAX_COLLAPSE_TICK_DELTA_MS) — es gibt nur eine Vorstellung davon, was eine Pause ist.
 const SIM_STALL_MS=250;
+// ── AUFHOLEN IM ONLINE-LOCKSTEP ──────────────────────────────────────────────────
+// Der Browser drosselt requestAnimationFrame in einem Fenster, das nicht im Vordergrund
+// liegt, auf etwa 1 Hz - gemessen: 3 bis 5 Aufrufe in drei Sekunden statt 180. Offline
+// ist die bestehende Regel "Pause statt Aufholen" genau richtig: es wartet niemand, und
+// ein Zeitraffer waere unfair. ONLINE gilt das Gegenteil. Dort ist die Welt durch die
+// gemeinsame Zughistorie bestimmt; jeder Client muss dieselbe Rundengrenze erreichen,
+// sonst haengt er in phase 'sim' fest und kann nicht mehr zielen, waehrend die anderen
+// laengst weiter sind. Genau das war der Live-Befund nach dem Arenaumbau 5->4: dessen
+// Ablauf ist mit Abschuss, Physik, Ballfall, Jubel, Umbau und Spawn die laengste
+// zusammenhaengende Rechenstrecke des ganzen Matches.
+//
+// Aufgeholt wird ausschliesslich in denselben FESTEN Schritten - der Zeitschritt, die
+// Mikroschritte und die Physik bleiben unveraendert. Es entsteht kein variables dt und
+// kein zweiter Simulationspfad; es laufen nur mehr Schritte pro Frame.
+const SIM_CATCHUP_MAX_MS=8000;      // hoechstens acht Sekunden Rueckstand werden gehalten
+const SIM_CATCHUP_STEPS=600;        // ~10 s Spielzeit je Frame - eine Runde in einem Zug
 let simAcc=0,simPrev=0;
-// Zeitanker loeschen: der naechste Frame startet dann wie der erste, ohne Rueckstand.
-function simResetClock(){simAcc=0;simPrev=0;}
+// Sichtbarkeitswechsel (verbergen UND wieder anzeigen).
+//
+// OFFLINE: Zeitanker und Rueckstand werden verworfen. Es wartet niemand, und ein
+// Zeitraffer nach der Rueckkehr waere unfair - unveraendertes Verhalten.
+//
+// ONLINE: BEIDES muss stehenbleiben. Der Anker ist das einzige Mass fuer die Zeit, die
+// die Seite verborgen war; loescht man ihn, nimmt simAdvance den Erstbild-Zweig und das
+// ganze Intervall, in dem rAF ausgesetzt war, faellt unter den Tisch. Genau diese Zeit
+// ist online aber die Strecke bis zur gemeinsamen Rundengrenze. Sie wird deshalb im
+// naechsten Frame als dt gemessen und laeuft durch dieselbe gedeckelte Aufholstrecke
+// wie jede andere Luecke (SIM_CATCHUP_MAX_MS / SIM_CATCHUP_STEPS).
+function simResetClock(){if(online)return;simPrev=0;simAcc=0;}
 // EIN Gameplay-Schritt. Enthaelt alles, was frueher einmal pro Renderframe lief und einen
 // Zustand fortschreibt — Physik, Torablauf, Rundenende, Replayaufzeichnung und die
 // tickgezaehlten Partikel/FX-Abkling-Kurven. Reine Ausgabe (draw, r3d.render, HUD) bleibt
@@ -7910,19 +8083,22 @@ function simStep(now){
 // Es gibt keinen variablen dt in der Physik und keinen Schritt, der an die rAF-Frequenz
 // gekoppelt waere. Rueckgabe: Anzahl der gelaufenen Schritte (fuer Tests und Dev-Sonde).
 function simAdvance(now){
-  if(!simPrev){simPrev=now;simAcc=SIM_DT_MS;}          // erster Frame: genau ein Schritt
+  // Online wird der Rueckstand aufgeholt, offline verworfen (s. SIM_CATCHUP_MAX_MS).
+  const catchUp=online;
+  if(!simPrev){simPrev=now;if(!catchUp||simAcc<SIM_DT_MS)simAcc=SIM_DT_MS;}   // erster Frame: mindestens ein Schritt
   else{
     const dt=now-simPrev;simPrev=now;
     // Pause statt Rueckstand: kein Aufholen, kein Turbo, keine Kollisionskaskade.
     // Ein nicht positives dt (doppelter Zeitstempel) traegt nichts bei.
-    if(dt>SIM_STALL_MS)simAcc=SIM_DT_MS;
+    if(dt>SIM_STALL_MS)simAcc=catchUp?Math.min(simAcc+dt,SIM_CATCHUP_MAX_MS):SIM_DT_MS;
     else if(dt>0)simAcc+=dt;
   }
+  const budget=catchUp?SIM_CATCHUP_STEPS:SIM_MAX_STEPS;
   let n=0;
-  while(simAcc>=SIM_DT_MS&&n<SIM_MAX_STEPS){simAcc-=SIM_DT_MS;n++;simStep(now);}
+  while(simAcc>=SIM_DT_MS&&n<budget){simAcc-=SIM_DT_MS;n++;simStep(now);}
   // Budget ausgeschoepft und immer noch Rueckstand: verwerfen statt anhaeufen — sonst
   // schaukelt sich die Schleife bei dauerhafter Ueberlast auf (spiral of death).
-  if(n>=SIM_MAX_STEPS&&simAcc>=SIM_DT_MS)simAcc=0;
+  if(n>=budget&&simAcc>=SIM_DT_MS)simAcc=0;
   return n;
 }
 

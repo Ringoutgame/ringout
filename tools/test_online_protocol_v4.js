@@ -165,7 +165,18 @@ t('ein unbekannter Typ wird abgelehnt',
   P.validateRoom(room({ config: { game: 'arcade', winTarget: 3, fmt: 'single', visibility: 'private' } })).ok === false);
 
 t('Rejoin: gueltiger RingOut-v4-Raum', P.validateRejoinRoom(room({ state: 'playing' })).ok === true);
-t('Rejoin: gueltiger Football-v4-Raum', P.validateRejoinRoom(fbRoom({ state: 'playing' })).ok === true);
+// Ein LAUFENDER mehrsitziger Raum traegt seine Teilnehmerzahl im seats-Startsignal.
+// Ohne sie waere beim Rejoin unbekannt, welche Sitze zum Match gehoeren - der
+// Rueckkehrer wuerde als "ausserhalb der Besetzung" abgewiesen.
+t('Rejoin: gueltiger Football-v4-Raum', P.validateRejoinRoom(fbRoom({ state: 'playing', seats: 5 })).ok === true);
+t('Rejoin: der Football-Raum meldet fuenf Sitze',
+  P.validateRejoinRoom(fbRoom({ state: 'playing', seats: 5 })).seats === 5);
+t('Rejoin: laufender Football-Raum OHNE Startsignal wird abgelehnt',
+  P.validateRejoinRoom(fbRoom({ state: 'playing' })).ok === false);
+t('Rejoin: laufender Football-Raum mit falscher Sitzzahl wird abgelehnt',
+  P.validateRejoinRoom(fbRoom({ state: 'playing', seats: 4 })).ok === false);
+t('Rejoin: die Football-LOBBY braucht kein Startsignal',
+  P.validateRejoinRoom(fbRoom({ state: 'lobby' })).ok === true);
 t('Rejoin: v3 wird abgelehnt', P.validateRejoinRoom(room({ v: 3 })).ok === false);
 t('Rejoin: fehlender Typ wird abgelehnt',
   P.validateRejoinRoom(room({ config: { winTarget: 3, fmt: 'single', visibility: 'private' } })).ok === false);
@@ -203,16 +214,41 @@ t('Beitritt: die Ablehnung nennt die Versionsunvertraeglichkeit',
   t('der Peer-Weg verlangt eine abgelaufene Serverzeit', /\(now - .*\) >= 15000/.test(ev['.write']));
 }
 
-// ── (9) Football bleibt in dieser Phase LOKAL ───────────────────────────────────
-// Das Protokoll KANN einen Football-Raum beschreiben - aber kein Produktweg erzeugt ihn.
+// ── (9) Online-Football ist ein DEV-PROTOTYP, kein Produktweg ───────────────────
+// Der Raumtyp existiert jetzt auch im Client - aber ausschliesslich hinter ?dev=1.
+// Der sichtbare Produktweg in Arena Football bleibt unveraendert lokal.
 {
   const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'index.html'), 'utf8');
-  t('createRoom legt ausschliesslich RingOut-Raeume an',
-    src.indexOf('config:{game:ROOM_GAME_RINGOUT,') >= 0 && src.indexOf('game:ROOM_GAME_FOOTBALL') < 0);
-  t('startFootball pinnt weiterhin online=false',
+  t('der Produktweg pinnt Arena Football weiterhin auf online=false',
     src.indexOf("mode=menuMode='football';fmt='single';online=false;") >= 0);
-  t('es gibt keinen Online-Eintrag in der Football-Modusauswahl',
-    src.indexOf('fbOnlineBtn') < 0);
+  // Der Football-Raumtyp haengt an EINER Bedingung im Erstellungspfad, und die haengt
+  // am Dev-Kontext. Ohne ihn entsteht wie bisher ein RingOut-Raum.
+  t('createRoom entscheidet den Raumtyp an genau einer Stelle',
+    (src.match(/game:fbo\?ROOM_GAME_FOOTBALL:ROOM_GAME_RINGOUT/g) || []).length === 1);
+  // Ohne ?dev=1 bricht die Raumanlage aus dem Football-Kontext GANZ ab. Ein Rueckfall
+  // auf einen RingOut-Raum waere ein Mischzustand: online=true bei mode==='football'.
+  t('ohne ?dev=1 bricht createRoom im Football-Kontext ab',
+    src.indexOf("if(mode==='football'&&!DEV_MENU){ setStatus(T('err')); return; }") >= 0);
+  t('der Football-Raumtyp haengt an mode und fmt',
+    src.indexOf("const fbo=mode==='football'&&fmt===FB_ONLINE_FMT;") >= 0);
+  // Die Grenze steht an JEDEM Weg in einen Football-Raum, nicht nur am Einstieg:
+  // anlegen, beitreten und zurueckkehren.
+  t('der Beitritt zu einem Football-Raum verlangt ?dev=1',
+    src.indexOf("if(joinFb&&!DEV_MENU){ setStatus(T('noRoom')); return; }") >= 0);
+  t('die Rueckkehr in einen Football-Raum verlangt ?dev=1',
+    src.indexOf("if(rjFb&&!DEV_MENU){ forgetRoom(); setStatus(T('noRoom')); return false; }") >= 0);
+  // Es gibt genau EINEN Einstieg, und er ist zweifach an ?dev=1 gebunden: die
+  // Schaltflaeche wird sonst nicht eingeblendet UND der Handler steigt aus.
+  t('genau eine Schaltflaeche fuehrt in den Online-Football-Kontext',
+    (src.match(/devFbOnlineBtn/g) || []).length === 2);
+  t('der Handler prueft ?dev=1 selbst',
+    /\$\('devFbOnlineBtn'\)\.onclick=\(\)=>\{\s*if\(!DEV_MENU\)return;/.test(src));
+  t('ohne ?dev=1 wird der Einstieg nicht eingeblendet',
+    src.indexOf("if(DEV_MENU){$('devPanel').style.display='';$('devFbOnlineSec').style.display='';}") >= 0);
+  // Die sichtbare Modusauswahl (Classic/Tactical/Elimination) bleibt frei davon.
+  const mm = src.match(/<div class="ov" id="fbModeOv">[\s\S]*?<button class="wbtn" id="fbModeBack">/);
+  t('die sichtbare Football-Modusauswahl kennt keinen Online-Eintrag',
+    !!mm && mm[0].indexOf('devFbOnlineBtn') < 0 && !/online/i.test(mm[0]));
   t('kein Aufrufer verbindet startFootball mit dem Online-Einstieg',
     !/startFootball\([^)]*\)[^\n]{0,40}openOnline/.test(src));
 }

@@ -128,7 +128,11 @@ function buildEnv() {
       return r;
     };
     return {
-      sim(){ return {hz:SIM_HZ, dt:SIM_DT_MS, maxSteps:SIM_MAX_STEPS, stall:SIM_STALL_MS}; },
+      sim(){ return {hz:SIM_HZ, dt:SIM_DT_MS, maxSteps:SIM_MAX_STEPS, stall:SIM_STALL_MS,
+                     catchMax:SIM_CATCHUP_MAX_MS, catchSteps:SIM_CATCHUP_STEPS}; },
+      setOnline(v){ online=!!v; },
+      resetClock(){ simResetClock(); },
+      acc(){ return simAcc; },
       steps(){ return simSteps; },
       advance(now){ NOWREF.t=now; return simAdvance(now); },
       legacyFrame(now){ NOWREF.t=now; simStep(now); },
@@ -204,9 +208,13 @@ console.log('ARENA FOOTBALL - FIXED TIMESTEP: gleiche Simulation auf jeder Bildw
   ok((HTML.match(/stepSim\(\);/g) || []).length === 2, 'stepSim() hat genau zwei Aufrufer');
   ok(/else if\(phase==='sim'\)stepSim\(\);/.test(simStepSrc),
      'der ZEITGETRIEBENE Aufrufer ist der feste Schritt (simStep)');
-  ok(/while\(phase==='sim'&&g\+\+<20000\)stepSim\(\);/.test(HTML),
+  ok(/while\(phase==='sim'&&g\+\+<FF_MAX_STEPS_PER_TURN\)stepSim\(\);/.test(HTML),
      'der zweite Aufrufer ist die Online-Rehydrierung - sie rechnet einen Zug am Stueck ' +
      'zu Ende und haengt schon deshalb an keiner Bildwiederholrate');
+  // Die Grenze ist eine reine Schrittzahl. Waere sie eine Zeit- oder Wanduhrgroesse,
+  // haenge die Rehydrierung doch wieder an der Maschine, auf der sie laeuft.
+  ok(/const FF_MAX_STEPS_PER_TURN=\d+;/.test(HTML),
+     'die Reissleine der Rehydrierung ist eine feste Schrittzahl, keine Zeit');
   ok(!/stepSim\(\)/.test(loopSrc), 'die Renderschleife ruft die Physik nicht mehr direkt');
   ok(/simAdvance\(now\);/.test(loopSrc), 'die Renderschleife treibt ausschliesslich den Akkumulator');
   // Der Akkumulator benutzt die Wanduhr NUR zum Zaehlen der Schritte.
@@ -483,6 +491,128 @@ const SHOT = { balls: [{ x: 500, y: 500, vx: V * 0.6, vy: V * 0.8, owner: NEU }]
     ok(Math.abs(R[hz].steps - R[60].steps) <= 1, '5P bei ' + hz + ' Hz: dieselbe Zahl Gameplay-Schritte');
     ok(R[hz].finite, '5P bei ' + hz + ' Hz: keine NaN- oder Infinity-Werte');
   }
+}
+
+
+// ── HINTERGRUNDDROSSELUNG: der Online-Client muss aufholen koennen ───────────────
+// Gemessen mit fuenf offenen Seiten: requestAnimationFrame laeuft dort mit etwa 1 Hz
+// statt 60. Eine Runde aus einigen hundert festen Schritten braeuchte damit Minuten -
+// und solange steht phase auf 'sim', der Spieler kann nicht zielen. Genau das war der
+// Live-Befund nach dem Arenaumbau 5->4.
+{
+  const R = buildEnv();
+  const S = R.sim();
+  ok(S.hz === 60 && Math.abs(S.dt - 1000 / 60) < 1e-9, 'der Zeitschritt bleibt 60 Hz');
+
+  // OFFLINE: unveraendert. Eine lange Luecke ergibt GENAU einen Schritt - kein Turbo.
+  R.setOnline(false); R.resetClock();
+  R.advance(1000);
+  const off = R.advance(1000 + S.stall * 20);
+  ok(off === 1, 'offline ergibt eine lange Pause genau einen Schritt (erhalten: ' + off + ')');
+  ok(R.acc() === 0 || R.acc() < S.dt, 'offline bleibt kein Rueckstand stehen');
+
+  // ONLINE: derselbe Sprung wird aufgeholt, in denselben festen Schritten.
+  R.setOnline(true); R.resetClock();
+  R.advance(1000);
+  const on = R.advance(1000 + 3000);          // drei Sekunden Rueckstand
+  ok(on > 150, 'online werden drei Sekunden Rueckstand in einem Frame aufgeholt (erhalten: ' + on + ')');
+  ok(on === Math.floor(3000 / S.dt) || on === Math.floor(3000 / S.dt) + 1,
+     'aufgeholt wird exakt die verstrichene Zeit in festen Schritten (erhalten: ' + on + ')');
+
+  // Der Rueckstand ist gedeckelt: ein sehr langer Ausfall fuehrt nicht zu beliebig
+  // vielen Schritten in einem Frame.
+  R.setOnline(true); R.resetClock();
+  R.advance(1000);
+  const huge = R.advance(1000 + 10 * 60 * 1000);   // zehn Minuten weg
+  ok(huge <= S.catchSteps, 'der Nachlauf bleibt im Budget (erhalten: ' + huge + ', Budget ' + S.catchSteps + ')');
+  ok(huge <= Math.ceil(S.catchMax / S.dt) + 1,
+     'gehalten wird hoechstens SIM_CATCHUP_MAX_MS Rueckstand (erhalten: ' + huge + ')');
+
+  // Wieviel Spielzeit ein aufholender Frame wirklich deckt, begrenzt der KLEINERE der
+  // beiden Werte: das Schrittbudget und der gehaltene Rueckstand. Bindend ist hier der
+  // Rueckstandsdeckel - eine ganze Football-Runde passt hinein, und genau das entscheidet
+  // darueber, ob der Spieler nach dem Umbau wieder zielen kann.
+  const deckung = Math.min(S.catchSteps * S.dt, S.catchMax);
+  ok(deckung === S.catchMax, 'bindend ist der Rueckstandsdeckel, nicht das Schrittbudget');
+  ok(deckung >= 6000, 'ein aufholender Frame deckt mindestens sechs Sekunden Spielzeit (erhalten: ' + Math.round(deckung) + ' ms)');
+
+  // Und der Zeitanker: offline wird der Rueckstand beim Sichtbarkeitswechsel verworfen,
+  // online bleibt er erhalten - er ist dort die noch zu rechnende Strecke.
+  R.setOnline(false); R.resetClock(); R.advance(1000); R.advance(1000 + 100);
+  R.resetClock();
+  ok(R.acc() === 0, 'offline loescht der Sichtbarkeitswechsel den Rueckstand');
+  // Damit die Gleichheitspruefung etwas aussagt, muss ueberhaupt ein Rueckstand da sein -
+  // sonst waere sie mit 0 === 0 auch dann gruen, wenn online nichts gehalten wuerde.
+  R.setOnline(true); R.resetClock(); R.advance(2000);
+  R.advance(2000 + 2000);
+  R.setOnline(true);
+  R.advance(4000 + 2000);   // zweiter Sprung: das Budget laesst Rest stehen
+  const accBefore = R.acc();
+  ok(accBefore > 0, 'online steht nach einem Sprung ueberhaupt ein Rueckstand (erhalten: ' + Math.round(accBefore) + ' ms)');
+  R.resetClock();
+  ok(R.acc() === accBefore && R.acc() > 0,
+     'online bleibt dieser Rueckstand ueber den Sichtbarkeitswechsel erhalten');
+}
+
+
+// ── ECHTE HINTERGRUND-AUSSETZUNG: rAF setzt AUS, nicht nur gedrosselt ───────────
+// Anders als bei der Drosselung laufen hier GAR KEINE Frames. Der Sichtbarkeitswechsel
+// ist das einzige Ereignis, das die Seite waehrenddessen sieht. Online muss das
+// verborgene Intervall danach in festen Schritten aufgeholt werden - sonst haengt der
+// Client in phase 'sim' fest und kann nicht mehr zielen.
+{
+  const R = buildEnv();
+  const S = R.sim();
+  const hide = () => R.resetClock();     // visibilitychange -> hidden
+  const show = () => R.resetClock();     // visibilitychange -> visible
+
+  // (A) OFFLINE: unveraendert. Die verborgene Zeit wird NICHT nachgeholt.
+  R.setOnline(false); R.resetClock();
+  R.advance(1000); R.advance(1016);
+  hide(); show();
+  const offN = R.advance(1016 + 3000);
+  ok(offN === 1, 'offline ergibt eine verborgene Pause genau einen Schritt (erhalten: ' + offN + ')');
+  ok(R.acc() < S.dt, 'offline bleibt danach kein Rueckstand stehen');
+
+  // (B) ONLINE: das verborgene Intervall wird zum Rueckstand und in festen Schritten
+  // abgearbeitet.
+  R.setOnline(true); R.resetClock();
+  R.advance(2000); R.advance(2016);
+  hide(); show();
+  const onN = R.advance(2016 + 3000);
+  const want = Math.floor(3000 / S.dt);
+  ok(onN === want || onN === want + 1,
+     'online wird das verborgene Intervall exakt in festen Schritten aufgeholt (erhalten: ' +
+     onN + ', erwartet ' + want + ')');
+  // (E) Aufgeholt wird in FESTEN Schritten - die Summe deckt das Intervall, es gibt
+  // keinen einzelnen grossen Zeitsprung.
+  ok(Math.abs(onN * S.dt - 3000) < S.dt,
+     'die aufgeholte Zeit entspricht dem Intervall (kein variabler Zeitschritt)');
+
+  // (D) Kein Doppelzaehlen: der naechste Frame holt dasselbe Intervall NICHT erneut.
+  const again = R.advance(2016 + 3000 + 16);
+  ok(again <= 1, 'die verborgene Zeit wird genau einmal aufgeholt (naechster Frame: ' + again + ')');
+
+  // (C) Der Deckel gilt auch hier: ein sehr langer verborgener Zeitraum fuehrt nicht zu
+  // beliebig vielen Schritten.
+  R.setOnline(true); R.resetClock();
+  R.advance(5000); R.advance(5016);
+  hide(); show();
+  const longN = R.advance(5016 + 10 * 60 * 1000);
+  ok(longN <= S.catchSteps, 'verborgener Zeitraum bleibt im Schrittbudget (erhalten: ' + longN + ')');
+  ok(longN <= Math.ceil(S.catchMax / S.dt) + 1,
+     'verborgener Zeitraum wird durch SIM_CATCHUP_MAX_MS begrenzt (erhalten: ' + longN + ')');
+
+  // Das Schrittbudget muss den Rueckstandsdeckel VOLLSTAENDIG abdecken. Sonst schneidet
+  // das Budget den bereits gedeckelten Rueckstand ab, und der Client bliebe trotz
+  // Aufholstrecke zurueck. (Ohne diese Aussage waere das Budget nicht pruefbar: der
+  // Deckel greift in jedem Ablauf zuerst.)
+  ok(S.catchSteps * S.dt >= S.catchMax,
+     'das Schrittbudget deckt den Rueckstandsdeckel ab (' + Math.round(S.catchSteps * S.dt) +
+     ' ms Budget gegen ' + S.catchMax + ' ms Deckel)');
+
+  // Und der Zeitschritt selbst bleibt, was er war.
+  ok(S.hz === 60 && Math.abs(S.dt - 1000 / 60) < 1e-9, 'der Zeitschritt bleibt 60 Hz');
 }
 
 console.log('\nFixed-Timestep: ' + pass + ' passed, ' + fail + ' failed');

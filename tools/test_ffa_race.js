@@ -37,6 +37,7 @@ const SRC = [
   grab(/function np\(\)\{[^\n]*/, 'np'),
   grab(/function teamCap\(\)\{[^\n]*/, 'teamCap'),
   grab(/function ffaRoom\(\)\{[^\n]*/, 'ffaRoom'),
+  grab(/function fbOnlineRoom\(\)\{[^\n]*/, 'fbOnlineRoom'),
   grab(/function ffaSeatCap\(\)\{[^\n]*/, 'ffaSeatCap'),
   grab(/function teamOf\(s\)\{[^\n]*/, 'teamOf'),
   grab(/function colorSlot\(owner\)\{[^\n]*/, 'colorSlot'),
@@ -63,6 +64,10 @@ const SRC = [
   grab(/function seatCount\(p\)\{[^\n]*/, 'seatCount'),
   grab(/function seatsContiguous\(p,n\)\{[^\n]*/, 'seatsContiguous'),
   grab(/async function claimSeat\(code,op,maxSeats\)\{[\s\S]*?\n\}/, 'claimSeat'),
+  // Football-Farbtafel: renderLobby faerbt ueber pcol(), maybeStart benennt die eigene
+  // Farbe ueber colSlot4Name. Beides kommt woertlich aus index.html - ausserhalb des
+  // Football-Modus liefert pcol() bitgenau PCOLS[i].
+  grab(/const NAME_COL=[\s\S]*?\nfunction ncol\(i\)\{[^\n]*/, 'Football-Farbtafel'),
   grab(/function renderLobby\(p\)\{[\s\S]*?\n\}/, 'renderLobby'),
   grab(/function setOnTitle\(ffa\)\{[\s\S]*?\n\}/, 'setOnTitle'),
   grab(/function openOnline\(\)\{[\s\S]*?\n\}/, 'openOnline'),
@@ -378,6 +383,9 @@ function makeClient(db, code, forcePid) {
   const FB = db.FBfor(ui, uid);
   const body = `
     const TUNE=false; let r3dOrbit=false;
+    // Der Online-Football-Prototyp haengt an ?dev=1. Diese Suite spielt RingOut und
+    // laeuft deshalb wie ein normaler Produktclient OHNE Dev-Schalter.
+    const DEV_MENU=false;
     const T=k=>k;
     const PCOLS=[{ui:'#e33'},{ui:'#3e3'},{ui:'#33e'},{ui:'#ee3'},{ui:'#e3e'}];
     const window={__FB_READY:true,__FB_ERR:null,__FB_AUTH_ERR:null,__FB_UID:${JSON.stringify(uid)},FB};
