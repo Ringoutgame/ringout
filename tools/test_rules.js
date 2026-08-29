@@ -951,6 +951,158 @@ deny('team move pl 4 (seat gate, presence pre-seeded)', playing({ p: { 0: P(H_TA
       { k: 'move', idx: 0, dx: 10, dy: 0, sp: 0 }, FB_UID[0]);
   }
 
+  // -- ENDGUELTIGER AUSTRITT: nur MIT Eviction ---------------------------------
+  // Das gekoppelte Loeschen von Praesenz und Rosterdatensatz ist der endgueltige
+  // Austritt. In einem laufenden Football-Match hinterliess es einen Sitz, den
+  // NIEMAND mehr schliessen kann: MOVE braucht Praesenz, SKIP braucht ein
+  // ausdrueckliches on:false (nicht "gar nichts"), die Eviction braucht den
+  // Rosteranker und REMOVE die Eviction. Die Runde stuende fuer immer - und der
+  // Sitz waere nicht einmal neu besetzbar. Der Austritt muss deshalb im SELBEN
+  // Ergebnisbaum die Eviction tragen; erst sie schliesst den Sitz fuer alle ab.
+  {
+    const DEL = { 'rooms/KX7P/p/0': null, 'rooms/KX7P/players/0': null };
+    // Der kanonische Austritt: Eviction und beide Loeschungen in EINEM Ergebnis.
+    allowMulti('the canonical football leave: eviction plus both record deletes',
+      fbRoom(), { 'rooms/KX7P/g/0/e/0': true, 'rooms/KX7P/p/0': null, 'rooms/KX7P/players/0': null }, UID[0]);
+    // ... und genau das war der Befund: ohne Eviction ging es auch.
+    denyMulti('a football leave WITHOUT an eviction orphans the seat', fbRoom(), DEL, UID[0]);
+    // Beide Beine tragen die Bedingung EINZELN. Ein denyMulti allein wuerde schon
+    // gruen bleiben, wenn nur eines von beiden sie truege - und die Regel des anderen
+    // koennte still verfallen. Deshalb hier jedes Bein fuer sich, jeweils gegen den
+    // zusammengefuehrten Baum, in dem das Geschwisterbein bereits steht.
+    deny('the presence delete leg alone is refused without an eviction',
+      fbRoom(), 'rooms/KX7P/p/0', null, UID[0], { 'rooms/KX7P/players/0': null });
+    deny('the roster delete leg alone is refused without an eviction',
+      fbRoom(), 'rooms/KX7P/players/0', null, UID[0], { 'rooms/KX7P/p/0': null });
+    // ... und mit gesetzter Eviction ist jedes Bein fuer sich in Ordnung.
+    allow('the presence delete leg passes once the eviction rides along',
+      fbRoom(), 'rooms/KX7P/p/0', null, UID[0],
+      { 'rooms/KX7P/players/0': null, 'rooms/KX7P/g/0/e/0': true });
+    allow('the roster delete leg passes once the eviction rides along',
+      fbRoom(), 'rooms/KX7P/players/0', null, UID[0],
+      { 'rooms/KX7P/p/0': null, 'rooms/KX7P/g/0/e/0': true });
+    // Ein einzelnes Bein bleibt ohnehin abgelehnt - beide Anker muessen gemeinsam gehen.
+    deny('p/0 alone cannot be deleted', fbRoom(), 'rooms/KX7P/p/0', null, UID[0]);
+    deny('players/0 alone cannot be deleted', fbRoom(), 'rooms/KX7P/players/0', null, UID[0]);
+    // Die Eviction eines FREMDEN Sitzes rechtfertigt den eigenen Austritt nicht.
+    denyMulti('deleting own records while evicting a PEER instead',
+      fbRoom(OFFLINE(3)), { 'rooms/KX7P/p/0': null, 'rooms/KX7P/players/0': null,
+                            'rooms/KX7P/g/0/e/3': true }, UID[0]);
+    // e:false ist keine Eviction - der Marker kennt nur true.
+    denyMulti('deleting own records with e set to false',
+      fbRoom(), { 'rooms/KX7P/p/0': null, 'rooms/KX7P/players/0': null,
+                  'rooms/KX7P/g/0/e/0': false }, UID[0]);
+    // Fremde Haende bleiben aussen vor - auch mit korrekt gesetzter Eviction.
+    denyMulti('a peer cannot delete another participant records', fbRoom(OFFLINE(0)),
+      { 'rooms/KX7P/g/0/e/0': true, 'rooms/KX7P/p/0': null, 'rooms/KX7P/players/0': null }, UID[1]);
+    denyMulti('an outsider cannot delete participant records', fbRoom(OFFLINE(0)),
+      { 'rooms/KX7P/g/0/e/0': true, 'rooms/KX7P/p/0': null, 'rooms/KX7P/players/0': null }, 'UID_OUT');
+    denyMulti('an unauthenticated client cannot delete participant records', fbRoom(OFFLINE(0)),
+      { 'rooms/KX7P/g/0/e/0': true, 'rooms/KX7P/p/0': null, 'rooms/KX7P/players/0': null }, null);
+    // Ein beigelegter Generationswechsel legitimiert den Austritt nicht: die Eviction
+    // haengt an der AKTUELLEN Generation, und der Austritt braucht sie trotzdem.
+    denyMulti('deleting own records alongside a generation bump', fbRoom(), Object.assign({},
+      DEL, { 'rooms/KX7P/gen': 1 }), UID[0]);
+    // Und das Startsignal laesst sich nicht als Ersatz mitliefern - hier scheitert
+    // bereits das seats-Bein, weil der Ergebnisbaum nur noch vier aktive Sitze zeigt.
+    // Beide Wege, den Austritt zu legitimieren, sind damit zu.
+    denyMulti('deleting own records alongside a fresh start signal',
+      { rooms: { KX7P: (() => { const r = JSON.parse(JSON.stringify(fbRoom().rooms.KX7P));
+          delete r.seats; return r; })() } },
+      Object.assign({}, DEL, { 'rooms/KX7P/seats': 5 }), UID[0]);
+    // Der Beweis, dass der Sitz nach dem kanonischen Austritt WIRKLICH abgeschlossen
+    // ist: der offene Zugslot laesst sich per REMOVE fuellen, die Runde laeuft weiter.
+    const afterLeave = fbRoom({ g: { 0: { e: { 0: true } } },
+      p: { 1: P(TAB[1], true), 2: P(TAB[2], true), 3: P(TAB[3], true), 4: P(TAB[4], true) },
+      players: { 1: REC5(1), 2: REC5(2), 3: REC5(3), 4: REC5(4) } });
+    t('[STATE] the post-leave fixture really has BOTH anchors gone',
+      afterLeave.rooms.KX7P.p[0] === undefined && afterLeave.rooms.KX7P.players[0] === undefined
+      && afterLeave.rooms.KX7P.g[0].e[0] === true);
+    allow('after the canonical leave the open turn slot can be closed with REMOVE',
+      afterLeave, 'rooms/KX7P/g/0/t/0/0', RM(0), UID[1]);
+  }
+
+  // -- Bestandsverhalten: der Austritt anderer Raumarten bleibt, wie er war -----
+  // Die Eviction ist ein reiner Football-Begriff. Kein RingOut-Format darf sie
+  // ploetzlich fuer sein gewoehnliches Verlassen brauchen - dort gibt es sie nicht,
+  // der Austritt waere sonst unmoeglich.
+  {
+    const RO_SEATS = { single: 2, double: 2, triple_ffa: 3, team_duel: 4, ffa: 5 };
+    const roLeave = (fmt, running) => {
+      const p = {}, players = {}, n = RO_SEATS[fmt];
+      for (let i = 0; i < n; i++) { p[i] = P('ROTAB000' + i, true);
+        players[i] = { id: 'ROPID00' + i, name: 'P' + i, tab: 'ROTAB000' + i, uid: 'UID_RO' + i + '_WWWWWWWWWWWWWWWW' }; }
+      const over = { p, players };
+      if (running) { over.state = 'playing'; if (fmt !== 'single' && fmt !== 'double') over.seats = n; }
+      return db1(over, fmt);
+    };
+    for (const fmt of Object.keys(RO_SEATS)) {
+      allowMulti('RingOut ' + fmt + ' (running): the ordinary paired leave stays allowed',
+        roLeave(fmt, true), { 'rooms/KX7P/p/1': null, 'rooms/KX7P/players/1': null },
+        'UID_RO1_WWWWWWWWWWWWWWWW');
+      allowMulti('RingOut ' + fmt + ' (lobby): the ordinary paired leave stays allowed',
+        roLeave(fmt, false), { 'rooms/KX7P/p/1': null, 'rooms/KX7P/players/1': null },
+        'UID_RO1_WWWWWWWWWWWWWWWW');
+    }
+    // Football VOR dem Anstoss: in der Lobby gibt es noch kein Match, das haengen
+    // koennte - der Sitz wird dort ohnehin recycelt. Die Pflicht gilt erst ab dem
+    // Startsignal, sonst kaeme aus einer Lobby niemand mehr heraus.
+    allowMulti('football lobby: leaving before the start signal stays allowed',
+      { rooms: { KX7P: Object.assign({}, fbNew, {
+          p: { 0: P(TAB[0], true), 1: P(TAB[1], true) },
+          players: { 0: REC5(0), 1: REC5(1) } }) } },
+      { 'rooms/KX7P/p/1': null, 'rooms/KX7P/players/1': null }, UID[1]);
+    // ... und ebenso im Fenster zwischen state und seats: das Match ist noch nicht
+    // eroeffnet, es gibt keinen Zugslot, der offen bleiben koennte.
+    allowMulti('football between state and the start signal: leaving stays allowed',
+      { rooms: { KX7P: (() => { const r = JSON.parse(JSON.stringify(fbRoom().rooms.KX7P));
+          delete r.seats; return r; })() } },
+      { 'rooms/KX7P/p/1': null, 'rooms/KX7P/players/1': null }, UID[1]);
+  }
+
+  // -- SKIP darf sein Ziel nicht im selben Update online bringen ----------------
+  // SKIP bedeutet ausschliesslich: dieser Teilnehmer ist gerade offline und gibt in
+  // dieser Runde keinen Abschuss ab. Die Zielpruefung las nur den Vorzustand - ein
+  // atomares {p/<ziel>/on = true, SKIP fuer <ziel>} lieferte damit genau den
+  // verbotenen Zustand: ein online stehender Teilnehmer mit "hat ausgesetzt" im Slot.
+  // Erreichbar ist das mit EINER Identitaet, die zwei Sitze haelt - das bewusst
+  // erlaubte Zweittab-Modell (zwei Tabs eines Profils teilen die anonyme auth.uid).
+  {
+    const REACT = { s: TAB[3], on: true, t: NOW };
+    // Zwei Sitze, EIN Eigentuemer: Sitz 0 online, Sitz 3 offline.
+    const twoSeats = fbRoom(Object.assign(OFFLINE(3, 1000), {
+      players: { 0: REC5(0), 1: REC5(1), 2: REC5(2),
+                 3: Object.assign({}, REC5(3), { uid: UID[0] }), 4: REC5(4) } }));
+    allow('the offline target may be skipped', twoSeats, 'rooms/KX7P/g/0/t/0/3', SK(3), UID[0]);
+    allow('the owner may reactivate that seat', twoSeats, 'rooms/KX7P/p/3', REACT, UID[0]);
+    denyMulti('but NOT reactivate it and skip it in the same atomic update', twoSeats,
+      { 'rooms/KX7P/p/3': REACT, 'rooms/KX7P/g/0/t/0/3': SK(3) }, UID[0]);
+    // Dieselbe Reaktivierung laesst sich auch feiner schreiben - als einzelne Felder
+    // statt als ganzes Praesenzobjekt. Der Guard liest den Ergebnisbaum und sieht sie
+    // deshalb unabhaengig von der Schreibgranularitaet.
+    allowMulti('the deeper field-wise reactivation alone stays allowed', twoSeats,
+      { 'rooms/KX7P/p/3/on': true, 'rooms/KX7P/p/3/t': NOW }, UID[0]);
+    denyMulti('but not field-wise reactivation together with a skip', twoSeats,
+      { 'rooms/KX7P/p/3/on': true, 'rooms/KX7P/p/3/t': NOW, 'rooms/KX7P/g/0/t/0/3': SK(3) }, UID[0]);
+    // Und der Umkehrfall: das Ziel im selben Update entfernen UND ueberspringen.
+    denyMulti('nor deleting the target records and skipping it in one update', twoSeats,
+      { 'rooms/KX7P/p/3': null, 'rooms/KX7P/players/3': null, 'rooms/KX7P/g/0/t/0/3': SK(3) }, UID[0]);
+    // Ohne Zweitsitz ist der Angriff ohnehin unmoeglich: der Peer-Zweig verlangt einen
+    // ANDEREN aktiven Sitz desselben Schreibers.
+    denyMulti('a single-seat owner cannot reactivate and skip itself',
+      fbRoom(OFFLINE(3, 1000)), { 'rooms/KX7P/p/3': REACT, 'rooms/KX7P/g/0/t/0/3': SK(3) }, UID[3]);
+    // Ein fremder Peer kann den Sitz gar nicht erst reaktivieren.
+    deny('a peer cannot reactivate a foreign seat',
+      fbRoom(OFFLINE(3, 1000)), 'rooms/KX7P/p/3', REACT, UID[1]);
+    // Ein bereits online stehendes Ziel bleibt unantastbar - unveraenderter Vertrag.
+    deny('an online target cannot be skipped', fbRoom(), 'rooms/KX7P/g/0/t/0/3', SK(3), UID[1]);
+    // Und ein SKIP neben einem voellig unbeteiligten, legalen Geschwisterwrite
+    // bleibt selbstverstaendlich erlaubt - der Guard trifft nur das Ziel selbst.
+    allowMulti('a skip alongside the writer own MOVE stays allowed',
+      fbRoom(OFFLINE(3, 1000)),
+      { 'rooms/KX7P/g/0/t/0/3': SK(3), 'rooms/KX7P/g/0/t/0/1': MV(1) }, UID[1]);
+  }
+
   // -- ERREICHBARKEIT: der vollstaendige Weg vom leeren Raum bis zum Anstoss ------
   // Einzelne Positivtests koennen an einer Fixture haengen, die es unter den Regeln gar
   // nicht geben kann - dann beweisen sie nichts. Dieser Block baut den Raum deshalb
