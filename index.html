@@ -1958,13 +1958,13 @@ $('startBtn').onclick=()=>{SFX.unlock();if(mode==='online'){openOnline();return;
 // During a running online match the header menu must never leave silently:
 // confirm first, then take the same clean leave path as a disconnect
 // (leaveOnline() removes own presence -> opponent gets the onOppLeft overlay).
-$('menuBtn').onclick=()=>{if(online&&gameStarted){$('leaveOv').classList.add('show');return;}leaveOnline();showMenu();};
+$('menuBtn').onclick=()=>{if(online&&gameStarted){$('leaveOv').classList.add('show');return;}leaveOnline(showMenu);};
 $('leaveCancel').onclick=()=>$('leaveOv').classList.remove('show');
-$('leaveGo').onclick=()=>{$('leaveOv').classList.remove('show');$('ov').classList.remove('show');leaveOnline();showMenu();};
-$('ovMenuBtn').onclick=()=>{$('ov').classList.remove('show');leaveOnline();showMenu();};
+$('leaveGo').onclick=()=>{$('leaveOv').classList.remove('show');$('ov').classList.remove('show');leaveOnline(showMenu);};
+$('ovMenuBtn').onclick=()=>{$('ov').classList.remove('show');leaveOnline(showMenu);};
 $('sndBtn').onclick=()=>{soundOn=!soundOn;const g=soundOn?'🔊':'🔇';$('sndBtn').textContent=g;$('menuSnd').textContent=g;if(!soundOn){SFX.charge.stop();SFX.fbTransitionStop();}};
 $('resetBtn').onclick=()=>{if(online){toast(T('noOnlineReset'));return;}newGame();};
-$('rematchBtn').onclick=()=>{if(online){$('ov').classList.remove('show');onlineRematch();return;}$('ov').classList.remove('show');newGame();};
+$('rematchBtn').onclick=()=>{if(online){onlineRematch();return;}$('ov').classList.remove('show');newGame();};   // online: das Ergebnisfenster bleibt stehen, bis der Generationswechsel BESTAETIGT ist (startOnlineGame raeumt es ab) - wird er abgelehnt, sieht der Spieler weiter sein Ergebnis
 $('onCreate').onclick=()=>createRoom();
 $('onJoin').onclick=()=>joinRoom();
 // Beide Back-Wege (Header-Pfeil + unterer Button) nehmen denselben Pfad; danach laeuft
@@ -4543,6 +4543,25 @@ function footballTickGoal(){
 // einem Timeout. phase='over' haelt zugleich die Hauptschleife an: stepSim laeuft nur in
 // phase==='sim', damit gibt es ab hier keine Physikintegration, keine Goal Detection,
 // keinen Rundenstart und keine weitere Scoreaenderung.
+// C4B: Matchende OHNE verbleibenden Teilnehmer. gameOver() erwartet einen Sieger
+// (Name, Farbe, Sieg/Niederlage) - ein null waere dort kein gueltiger Wert. Dieser
+// Zustand benutzt deshalb dieselbe Ergebnisflaeche wie der Verbindungsabbruch, aber
+// ohne Sieganzeige: kein erfundener Sieger, kein Tor, kein Leben angefasst.
+function footballMatchEndNoWinner(){
+  cancelAimDrag();
+  footballFreezePlayers();
+  footballClearGoalFx();
+  footballWinner=null;
+  setPhase('over');setPhaseText();
+  $('wVic').style.display='none';
+  $('wt').style.display='';
+  $('wt').textContent='Keine Teilnehmer mehr im Match.';$('wt').className='wt';
+  $('ws').textContent='Das Match ist beendet.';
+  document.querySelector('#ov .trophy').textContent='🏁';
+  $('rematchBtn').style.display='none';$('replayBtn').style.display='none';
+  $('ov').classList.add('show');
+  updateHud();
+}
 function footballMatchEnd(){
   cancelAimDrag();                    // offener Drag/Pointer-Capture sauber weg
   footballFreezePlayers();
@@ -4760,8 +4779,14 @@ function footballElimEliminate(o){
   if(!fbElim4()||o<0||o>=fbElimPlayers()||!fbElimActive[o])return;
   fbElimActive[o]=false;
   for(const b of balls)if(b.owner===o){b.alive=false;b.vx=0;b.vy=0;b.spin=0;}
-  const act=fbElimActiveOwners();
-  if(act.length===1){
+  // C4B: Im Online-Football kommt der Sieger aus der Menge der wirklich noch
+  // Teilnehmenden - ein bereits ausgetragener oder dafuer vorgemerkter Sitz zaehlt nicht
+  // mit. Offline (Bot, lokal) gibt es diese Begriffe nicht; dort bleibt alles wie bisher.
+  const fbOn=(typeof fbOnlineRoom==='function')&&fbOnlineRoom();
+  const act=fbOn?fbEligibleOwners():fbElimActiveOwners();
+  if(act.length===0&&fbOn){
+    if(fbGoalState==='play')footballMatchEndNoWinner();
+  }else if(act.length===1){
     footballWinner=act[0];
     // Faellt die Entscheidung mitten im Torablauf (der Regelfall), uebernimmt footballTickGoal
     // das Matchende am Ende des Celebration Windows — dort wird dann auch KEIN neuer Ball mehr
@@ -5057,7 +5082,10 @@ function gameOver(winner){setPhase('over');setPhaseText();
   $('ws').textContent=(typeof fbElim4==='function'&&fbElim4())
     ?T('elimDone')
     :T('finalScore')+' · '+(team?score.slice(0,2):score).join(' : ');
-  $('rematchBtn').style.display='';$('replayBtn').style.display=mode==='football'?'none':'';
+  // C4B: Rematch nur anbieten, solange die Teilnehmerstruktur unveraendert ist.
+  $('rematchBtn').style.display=((typeof fbOnlineRoom==='function')&&fbOnlineRoom()
+    &&fbPermanentExitHappened())?'none':'';
+  $('replayBtn').style.display=mode==='football'?'none':'';
   // Football: derselbe Primaerbutton startet ein NEUES MATCH bei 0:0 (newGame). Der Replay-
   // Pfad spult Runden ueber phase 'sim'/'result' zurueck — den kennt der Football-Torablauf
   // nicht, deshalb bleibt er hier ausgeblendet. Alle anderen Modi unveraendert.
@@ -5934,6 +5962,10 @@ function seatFinallyGone(s){
     if(seatLeft[s])return;
     seatLeft[s]=true;
     toast('Spieler '+(s+1)+' ist nicht mehr verbunden.');
+    // C4B: Der Fristablauf ist der eine Ausloeser des dauerhaften Austritts - derselbe
+    // Weg, den auch ein bewusstes Verlassen nimmt. Geschrieben wird nur, wenn die
+    // Pruefungen in fbWriteEviction zustimmen; kehrt der Sitz zurueck, geschieht nichts.
+    fbWriteEviction(s);
   }
   else onOppLeft();
 }
@@ -5942,7 +5974,9 @@ function attachRoomListeners(){
   roomP={}; roomPSeen=false;   // C4A: neue Raumsitzung -> noch kein Praesenzstand gesehen
   startPresenceWatch();   // C1: ab hier wacht die Sitzung ueber ihre eigene Praesenz
   startServerClock();     // C3: Frist rechnet gegen die Serverzeit, nicht gegen die lokale Uhr
-  clearGenerationStart(); // C3: neue Raumsitzung -> Generationsgrenze wird neu bestimmt   // P0-Fix: neue Session je Raumbeitritt/-erstellung -> Transaction-/Listener-Ergebnisse einer fruehreren Session werden ungueltig
+  clearGenerationStart(); // C3: neue Raumsitzung -> Generationsgrenze wird neu bestimmt
+  fbRemovePending=[]; fbExitBusy={};   // C4B: Austritte gehoeren zur Raumsitzung
+  startEvictionWatch();   // C4B: Marker dieser Generation beobachten   // P0-Fix: neue Session je Raumbeitritt/-erstellung -> Transaction-/Listener-Ergebnisse einer fruehreren Session werden ungueltig
   onlineTerminatedSession=-1;   // neue Session startet nie im terminalen Abbruchzustand
   clearAllMatchGrace(); roomP={};   // B2: Grace-Timer einer frueheren Session sind gegenstandslos
   // P0-Nachbesserung: presUnsub/genUnsub/seatsUnsub sind reine Praesenz-/Metadaten-
@@ -5993,6 +6027,8 @@ function attachRoomListeners(){
       // C2: ein Praesenzwechsel kann eine offene Runde sofort abschliessbar machen -
       // ohne auf die Rueckkehrfrist zu warten. Die Grenzpruefung sitzt in fbWriteSkip.
       fbMaybeSkipOffline();
+      fbMaybeEvictExpired();   // C4B
+      fbMaybeWriteRemoves();   // C4B
     }
   });
   // Roster listener: durable player identities/names (id,name,tab). Keeps
@@ -6011,11 +6047,23 @@ function attachRoomListeners(){
     // Wert, ein Vergleich allein wuerde die Grenze also nie setzen. Der Beitrittszeitpunkt
     // ist dann die konservative Grenze.
     const genChanged=(g!==gen);
+    // C4B: Hatte die ALTE Generation einen dauerhaften Austritt, ist die
+    // Teilnehmerstruktur unwiederbringlich veraendert - geloeschte Rosteranker lassen
+    // sich nicht wiederherstellen. Eine neue Generation wird dann NICHT gestartet, auch
+    // wenn ein Mitspieler den Wechsel geschrieben hat (die Rules sperren nur den
+    // Schreiber selbst). Fail closed: das Match endet hier, es geht zurueck ins Menue.
+    const hatteAustritt=genChanged&&(typeof fbOnlineRoom==='function')&&fbOnlineRoom()&&fbPermanentExitHappened();
     if(genChanged||!genStartedAt)markGenerationStart();
     gen=g;
+    if(hatteAustritt){
+      toast('Nach einem endgültigen Ausscheiden kann in diesem Raum kein neues Match starten.');
+      return;   // fail closed: keine neue Generation. Der Spielzustand bleibt unangetastet -
+                // ihn zu beenden waere eine Entscheidung aus einem Marker, und die haengt
+                // am Zustellzeitpunkt (s. fbWinnerEligible).
+    }
     // C4A: VOR dem Neustart leeren - die Sentinel-Nachfuellung der neuen Runde darf die
     // Altlast der vorigen Generation nicht mehr sehen.
-    if(genChanged)clearLeaveState();
+    if(genChanged){ clearLeaveState(); fbRemovePending=[]; fbExitBusy={}; startEvictionWatch(); }
     if(gameStarted && g!==runningGen) startOnlineGame();
     // Nach dem Wechsel: weiterhin getrennte Sitze brauchen einen Weckruf in DIESER
     // Generation (s. rearmMatchGrace), und wer wirklich weg ist, wird aus der aktuellen
@@ -6099,6 +6147,7 @@ function onOppLeft(){
 }
 
 function onlineArmTurn(){
+  fbApplyPendingRemovals();   // C4B: dauerhafte Austritte VOR der neuen Runde anwenden
   turnNo++;
   pendingSlot={};   // P0-Fix: neue Turn-Runde -> keine Altlast aus vorherigen Pending-Writes
   clearAllSentinelRetries();   // P0-Nachbesserung: Retries der alten Turn-Runde sind ab hier gegenstandslos
@@ -6112,6 +6161,8 @@ function onlineArmTurn(){
   turnUnsub=window.FB.onValue(ref, snap=>{ if(isCurrentCtx(ctx)&&!isOnlineTerminated()) onlineTurnValue(snap.val()); });
   if(mode==='ffa')for(let s=0;s<np();s++)if(seatLeft[s])writeLeaveSentinel(s);   // offene Slots Verlassener fuellen
   fbMaybeSkipOffline();   // C2: Football - offene Slots bereits getrennter Sitze schliessen
+  fbMaybeEvictExpired();  // C4B: abgelaufene Sitze dauerhaft austragen
+  fbMaybeWriteRemoves();  // C4B: fuer bereits Ausgetragene den REMOVE schreiben
 }
 function isCurrentCtx(ctx){ return ctx.sid===onlineSessionId && ctx.room===roomCode && ctx.gen===gen && ctx.turnNo===turnNo; }
 // true, sobald die AKTUELLE Online-Session per onlineConnectionLost() terminal
@@ -6139,6 +6190,147 @@ function writeTurnSlot(s,payload,opts){
       .then(result=>settleSlot(s,ctx,result,null))
       .catch(err=>settleSlot(s,ctx,null,err));
   }catch(err){ settleSlot(s,ctx,null,err); }
+}
+// ════ C4B: KANONISCHER DAUERHAFTER AUSTRITT ════
+// roomEv spiegelt g/<gen>/e - die Eviction-Marker DIESER Generation. Er ist die einzige
+// Wahrheit darueber, wer dauerhaft draussen ist; der REMOVE-Datensatz macht daraus den
+// deterministischen Spielzug.
+let roomEv={}, evUnsub=null, fbExitBusy={}, fbRemovePending=[];
+function fbEvicted(s){ return roomEv&&roomEv[s]===true; }
+// Wer kann ueberhaupt noch gewinnen? Die Antwort haengt AUSSCHLIESSLICH an der
+// kanonischen Zughistorie: aktiv sein und keinen bereits gelesenen REMOVE offen haben.
+// Der Eviction-Marker ist die Berechtigung fuer den Austritt, nicht der Austritt selbst.
+// Er erreicht die Clients zu unterschiedlichen Zeitpunkten - wuerde er hier mitreden,
+// entschiede die Zustellreihenfolge ueber den Sieger und zwei Clients mit derselben
+// Historie kaemen zu verschiedenen Ergebnissen. Das Fenster zwischen Marker und REMOVE
+// wird stattdessen kurz gehalten: fbMaybeWriteRemoves schliesst den Slot an der
+// naechsten sicheren Grenze.
+function fbWinnerEligible(o){
+  if(typeof fbElimActive==='undefined'||!fbElimActive[o])return false;
+  return !fbRemovePending[o];
+}
+function fbEligibleOwners(){
+  const a=[];
+  for(let o=0;o<fbElimPlayers();o++)if(fbWinnerEligible(o))a.push(o);
+  return a;
+}
+// Hat in DIESER Generation ein dauerhafter Austritt stattgefunden? Dann ist die
+// Teilnehmerstruktur des Raums unwiederbringlich veraendert (Rosteranker koennen
+// geloescht sein) - ein Rematch derselben Struktur ist dann nicht mehr moeglich.
+function fbPermanentExitHappened(){
+  if(!roomEv)return false;
+  for(const k in roomEv)if(roomEv[k]===true)return true;
+  return false;
+}
+function stopEvictionWatch(){ if(evUnsub){ try{ evUnsub(); }catch(e){} evUnsub=null; } roomEv={}; }
+// Ein Beobachter je Generation: die Marker gehoeren zu genau einer.
+function startEvictionWatch(){
+  stopEvictionWatch();
+  if(!online||!fbOnlineRoom()||!roomCode)return;
+  const ctx={sid:onlineSessionId,room:roomCode,gen:gen};
+  try{
+    evUnsub=window.FB.onValue(window.FB.ref(window.FB.db,'rooms/'+ctx.room+'/g/'+ctx.gen+'/e'),snap=>{
+      if(ctx.sid!==onlineSessionId||ctx.room!==roomCode||ctx.gen!==gen)return;
+      roomEv=snap.val()||{};
+      // C4B: Kommt der Marker erst NACH dem Ergebnisbildschirm an, muss die
+      // Rematch-Schaltflaeche nachtraeglich verschwinden - sonst bliebe ein Angebot
+      // stehen, das nicht mehr gilt.
+      if(fbPermanentExitHappened()&&$('rematchBtn'))$('rematchBtn').style.display='none';
+      fbMaybeWriteRemoves();
+    });
+  }catch(e){ evUnsub=null; }
+}
+// Den Eviction-Marker setzen. Write-once ueber eine Transaktion: konkurrierende
+// Versuche mehrerer Clients hinterlassen genau einen Marker. Geprueft wird vorher
+// dasselbe, was die Rules serverseitig noch einmal pruefen - im Zweifel wird nicht
+// geschrieben.
+function fbWriteEviction(seat){
+  if(!online||!fbOnlineRoom()||!gameStarted||isOnlineTerminated())return false;
+  if(seat<0||seat>=fbElimPlayers())return false;
+  if(fbEvicted(seat)||fbExitBusy[seat])return false;
+  if(seat===myPlayer)return false;                 // der eigene Austritt laeuft ueber leaveOnline
+  if(!fbGraceExpired(seat))return false;           // nur ein wirklich abgelaufener Sitz
+  if(seatActive(roomP,seat))return false;          // zurueck? dann nicht
+  const ctx={sid:onlineSessionId,room:roomCode,gen:gen};
+  fbExitBusy[seat]=true;
+  const ref=window.FB.ref(window.FB.db,'rooms/'+ctx.room+'/g/'+ctx.gen+'/e/'+seat);
+  try{
+    window.FB.runTransaction(ref,cur=>cur==null?true:undefined,{applyLocally:false})
+      .then(()=>{ delete fbExitBusy[seat]; })
+      .catch(()=>{ delete fbExitBusy[seat]; });
+  }catch(e){ delete fbExitBusy[seat]; }
+  return true;
+}
+// Ist ein Sitz dauerhaft draussen, wird sein offener Slot mit dem typisierten REMOVE
+// geschlossen - an derselben sicheren Grenze wie der SKIP und mit derselben
+// Write-once-Transaktion.
+function fbWriteRemoveFor(s,attempt){
+  if(!fbSkipBoundary())return false;
+  if(s===myPlayer)return false;
+  if(!fbEvicted(s))return false;
+  if(aimSet[s]||pendingSlot[s])return false;
+  if(!aliveCount(s))return false;                  // schon aus dem Spiel genommen
+  writeTurnSlot(s,fbTurnRemove(s),{sentinel:true,attempt:attempt||0});
+  return true;
+}
+function fbMaybeWriteRemoves(){
+  if(!fbSkipBoundary())return 0;
+  let n=0;
+  for(let s=0;s<np();s++)if(fbWriteRemoveFor(s,0))n++;
+  return n;
+}
+// Der offene Slot eines Sitzes wird geschlossen - mit dem REMOVE, wenn er dauerhaft
+// ausgetragen ist, sonst mit dem SKIP. Genau hier lag ein Loch: faellt die Eviction,
+// waehrend ein SKIP noch unterwegs ist, weist der Server diesen SKIP ab (er verlangt
+// ein nicht evictiertes Ziel) - und die Wiederholung haette weder das eine noch das
+// andere geschrieben. Der Slot waere offen geblieben und die Runde stehen.
+function fbCloseSeatSlot(s,attempt){
+  return fbEvicted(s)?fbWriteRemoveFor(s,attempt):fbWriteSkip(s,attempt);
+}
+// Fristablauf -> Eviction. Der Kandidatenbegriff kommt unveraendert aus C3.
+function fbMaybeEvictExpired(){
+  if(!fbSkipBoundary())return 0;
+  let n=0;
+  for(const s of fbAbsenceCandidates())if(fbWriteEviction(s))n++;
+  return n;
+}
+// Die SPIELWIRKUNG. Sie faellt nicht beim Schreiben, sondern beim Lesen der Historie:
+// jeder Client wendet denselben REMOVE an derselben Eingabegrenze an. Verwendet werden
+// die BESTEHENDEN Bausteine - footballElimEliminate nimmt den Sitz aus dem Spiel, ohne
+// ein Leben abzuziehen oder ein Tor zu erfinden, und footballElimResetBall stellt die
+// Arena auf die verbliebene Spielerzahl um und setzt fair zurueck.
+function fbApplyPendingRemovals(){
+  // Raumtyp zuerst: onlineArmTurn laeuft auch in RingOut-Raeumen, wo es keine
+  // Football-Elimination gibt.
+  if(!fbOnlineRoom()||!fbElim4())return 0;
+  let n=0;
+  // Mehrere Austritte derselben Runde werden als EIN Vorgang angewandt. Wuerde man sie
+  // einzeln durchreichen, veroeffentlichte der Zwischenstand "einer uebrig" einen
+  // Sieger, den der naechste Austritt derselben Runde ebenfalls entfernt - der erklaerte
+  // Sieger waere dann selbst ausgetreten. Der Sieger wird deshalb EINMAL aus der
+  // endgueltigen Menge bestimmt.
+  const before=footballWinner;
+  for(let s=0;s<fbElimPlayers();s++){
+    if(!fbRemovePending[s])continue;
+    fbRemovePending[s]=false;
+    if(!fbElimActive[s])continue;
+    fbElimActive[s]=false;
+    for(const b of balls)if(b.owner===s){b.alive=false;b.vx=0;b.vy=0;b.spin=0;}
+    n++;
+  }
+  if(!n)return 0;
+  // DIESELBE Quelle wie im Torpfad: wer ausgetragen oder dafuer vorgemerkt ist, kann
+  // nicht Sieger werden. Genau einer uebrig -> bestehender Siegerpfad. Keiner uebrig ->
+  // ausdruecklich siegerloses Ende statt gameOver(null).
+  const act=fbEligibleOwners();
+  if(act.length===0){
+    if(fbGoalState==='play')footballMatchEndNoWinner();
+  }else if(act.length===1){
+    footballWinner=act[0];
+    if(footballWinner!==before&&fbGoalState==='play')footballMatchEnd();
+  }else footballElimResetBall();
+  updateHud();
+  return n;
 }
 // ── C2: SICHERER SKIP FUER EINEN VORUEBERGEHEND GETRENNTEN TEILNEHMER ─────────
 // Die Reservierung eines Sitzes ist ein RECHT AUF RUECKKEHR - keine Pflicht der
@@ -6169,6 +6361,9 @@ function fbWriteSkip(s,attempt){
   if(!aliveCount(s))return false;            // ausgeschieden -> fuer die Runde nicht erforderlich
   if(aimSet[s]||pendingSlot[s])return false; // hat bereits einen Datensatz / laeuft schon
   if(seatActive(roomP,s))return false;       // wieder verbunden -> er zieht selbst
+  // C4B: Ein dauerhaft ausgetragener Sitz bekommt keinen SKIP mehr - sonst belegte der
+  // SKIP jede Runde den Slot und der REMOVE kaeme nie zum Zug.
+  if(fbEvicted(s))return false;
   writeTurnSlot(s,fbTurnSkip(s),{sentinel:true,attempt:attempt||0});
   return true;
 }
@@ -6212,7 +6407,7 @@ function scheduleSentinelRetry(s,ctx){
     // Football: der offene Slot wird mit dem kanonischen SKIP geschlossen. fbWriteSkip
     // prueft Grenze, Praesenz und Slotzustand erneut - ist der Sitz zurueck, geschieht
     // nichts und die Retrykette endet still.
-    if(fbOnlineRoom()){ fbWriteSkip(s,ctx.attempt+1); return; }
+    if(fbOnlineRoom()){ fbCloseSeatSlot(s,ctx.attempt+1); return; }
     if(!seatLeft[s])return;                    // Seat ist nicht (mehr) verlassen -> Sentinel nicht mehr noetig
     writeLeaveSentinel(s,ctx.attempt+1);       // prueft aimSet/pendingSlot/phase erneut selbst
   },delay);
@@ -6268,6 +6463,11 @@ function processSlot(s,c){
   // Echte Commits tragen im ffa idx===seat, im triple_ffa eine EIGENE Kugel (owner
   // idx%3===seat); jeder andere idx ist per Konvention der Stand-still-Sentinel.
   if(mode==='ffa'&&(fmt==='triple_ffa'?!(Number.isInteger(c.idx)&&c.idx%3===s):c.idx!==s))seatGone[s]=true;
+  // C4B: ein typisierter REMOVE ist der dauerhafte Austritt dieses Sitzes. Er wird hier
+  // nur VORGEMERKT - angewandt wird er deterministisch an der naechsten Eingabegrenze
+  // (fbApplyPendingRemovals), damit alle Clients ihn an derselben Stelle sehen und die
+  // laufende Runde nicht mitten in der Physik veraendert wird.
+  if(c.k===TURN_REMOVE)fbRemovePending[s]=true;
   const m=sanitizeMove(s,c.idx,c.dx,c.dy,c.sp);
   commitIdx[s]=m.idx; commitAim[s]={dx:m.dx,dy:m.dy}; commitSpin[s]=m.sp; aimSet[s]=true; updateHud(); setPhaseText();
 }
@@ -6318,6 +6518,7 @@ function onlineTurnValue(val){
   if(!val)return;
   for(let s=0;s<np();s++) processSlot(s,val[s]);   // ALLE Seats inkl. des eigenen: die DB ist der alleinige Arbiter
   fbMaybeSkipOffline();   // C2: bleibt nur noch ein getrennter Sitz offen, wird er hier geschlossen
+  fbMaybeWriteRemoves();  // C4B
   maybeReveal();
 }
 function onlineSendCommit(idx,fx,fy,spin){
@@ -6328,10 +6529,122 @@ function onlineSendCommit(idx,fx,fy,spin){
   if(fmt===FB_ONLINE_FMT){ writeTurnSlot(myPlayer,{k:TURN_MOVE,idx:myPlayer,dx:fx,dy:fy,sp:spin||0}); return; }
   writeTurnSlot(myPlayer,{idx:idx,dx:fx,dy:fy,sp:spin||0});
 }
-function onlineRematch(){ try{ window.FB.set(rRef('gen'), runningGen+1); }catch(e){} }
-function leaveOnline(){
+function onlineRematch(){
+  // C4B: Nach einem dauerhaften Austritt ist die Teilnehmerstruktur dieses Raums
+  // unwiederbringlich veraendert - geloeschte Rosteranker lassen sich nicht
+  // wiederherstellen, und eine neue Generation mit ihnen zu starten hinterliesse
+  // offene Zugslots. Ein Rematch derselben Struktur ist deshalb gesperrt; fuer ein
+  // volles Match geht es zurueck ins Menue beziehungsweise in einen neuen Raum.
+  if((typeof fbOnlineRoom==='function')&&fbOnlineRoom()&&fbPermanentExitHappened()){
+    toast('Nach einem endgültigen Ausscheiden ist kein Rematch in diesem Raum möglich.');
+    return;
+  }
+  try{
+    window.FB.runTransaction(rRef('gen'),cur=>(cur===runningGen?runningGen+1:undefined),
+      {applyLocally:false})
+      .catch(()=>{ toast('Rematch nicht möglich — dieser Raum lässt kein neues Match mehr zu.'); });
+  }catch(e){}
+}
+// ════ C4B/ENTSCHEIDUNG 3: DER KANONISCHE AUSTRITT ════
+// In einem laufenden Football-Match ist das Verlassen ein DAUERHAFTER Austritt. Der
+// Marker haengt an der GENERATION - steht der lokale gen noch auf der vorigen, weisen
+// die Rules das gesamte atomare Update ab, auch die Ruecknahme von p/ und players/.
+// Wer den Fehler dann verschluckt und lokal trotzdem aufraeumt, hinterlaesst einen
+// Geistersitz: verbunden, unschliessbar, und die naechste Generation wartet ewig auf
+// seinen Zug. Deshalb wird hier zuerst der AUTORITATIVE Raumzustand gelesen, der
+// Austritt gegen genau DESSEN Generation geschrieben und erst nach der Bestaetigung
+// lokal abgeraeumt. Gelingt das nicht, wird es gesagt - nicht vorgetaeuscht.
+const LEAVE_TRIES=3;                 // begrenzt: ein Rematch-Rennen loest sich in einem Anlauf
+let fbLeaveBusy=false, fbLeaveRetired=false, fbLeaveError='', fbLeaveAfter=null;
+function fbPermanentLeaveRequired(){
+  return !!(window.FB&&roomCode&&gameStarted&&myPlayer>=0&&fbOnlineRoom()&&!fbLeaveRetired);
+}
+// Gilt der Auftrag noch? Sitz, Raum und Sitzung muessen dieselben sein - sonst gehoert
+// das Ergebnis einer anderen Absicht und darf nichts mehr abraeumen.
+function fbLeaveCtxValid(ctx){
+  return ctx.sid===onlineSessionId&&ctx.room===roomCode&&ctx.seat===myPlayer&&!!roomCode;
+}
+function fbBeginCanonicalLeave(after){
+  if(typeof after==='function')fbLeaveAfter=after;
+  if(fbLeaveBusy)return true;
+  fbLeaveBusy=true; fbLeaveError='';
+  toast('Austritt wird bestaetigt …');
+  fbCanonicalLeave(0);
+  return true;
+}
+function fbCanonicalLeave(attempt){
+  const ctx={sid:onlineSessionId,room:roomCode,seat:myPlayer,uid:fbUid(),tab:onlineTab};
+  let p;
+  try{ p=window.FB.get(window.FB.ref(window.FB.db,'rooms/'+ctx.room)); }
+  catch(e){ fbLeaveGiveUp(ctx,e); return; }
+  p.then(snap=>{
+    if(!fbLeaveCtxValid(ctx))return;                      // anderer Auftrag - stillhalten
+    const d=snap&&snap.val();
+    const rec=d&&d.players&&d.players[ctx.seat];
+    const pres=d&&d.p&&d.p[ctx.seat];
+    // (B1) Der autoritative Zustand belegt, dass von diesem Sitz nichts mehr da ist.
+    if(!d||(!rec&&!pres)){ fbLeaveFinish(ctx); return; }
+    // (B2) Der Sitz gehoert inzwischen jemand anderem - oder einer NEUEREN Sitzung
+    // desselben Kontos. Dann ist der eigene Austritt laengst geschehen und ein
+    // Schreibvorgang wuerde die fremde Sitzung austragen.
+    const fremd=(rec&&ctx.uid&&rec.uid&&rec.uid!==ctx.uid)
+             ||(rec&&ctx.tab&&rec.tab&&rec.tab!==ctx.tab)
+             ||(pres&&ctx.tab&&pres.s&&pres.s!==ctx.tab);
+    if(fremd){ fbLeaveFinish(ctx); return; }
+    const g=d.gen;
+    // Ein bereits gesetzter Marker (Fristablauf durch einen Mitspieler) ist write-once:
+    // er bleibt stehen, die Anker muessen aber trotzdem zurueckgenommen werden.
+    const schonMarkiert=!!(d.g&&d.g[g]&&d.g[g].e&&d.g[g].e[ctx.seat]===true);
+    const upd={};
+    if(pres)upd['p/'+ctx.seat]=null;
+    if(rec)upd['players/'+ctx.seat]=null;
+    // Der Marker gehoert in die JETZT gueltige Generation - nicht in die lokal bekannte.
+    if(!schonMarkiert&&d.state==='playing'&&roomGame(d.config)===ROOM_GAME_FOOTBALL
+       &&d.seats===FB_ONLINE_SEATS)
+      upd['g/'+g+'/e/'+ctx.seat]=true;
+    if(!Object.keys(upd).length){ fbLeaveFinish(ctx); return; }
+    window.FB.update(window.FB.ref(window.FB.db,'rooms/'+ctx.room),upd)
+      .then(()=>{ fbLeaveFinish(ctx); })
+      .catch(err=>{ fbLeaveRetry(ctx,attempt,err); });
+  }).catch(err=>{ fbLeaveRetry(ctx,attempt,err); });
+}
+// Die Generation kann sich waehrend des Versuchs geaendert haben - dann gilt der naechste
+// Anlauf dem frisch gelesenen Zustand. Begrenzt, damit ein dauerhaft ablehnender Server
+// nicht in eine Endlosschleife fuehrt.
+function fbLeaveRetry(ctx,attempt,err){
+  if(!fbLeaveCtxValid(ctx)){ fbLeaveBusy=false; return; }
+  if(attempt+1<LEAVE_TRIES){ fbCanonicalLeave(attempt+1); return; }
+  fbLeaveGiveUp(ctx,err);
+}
+function fbLeaveFinish(ctx){
+  fbLeaveBusy=false;
+  if(!fbLeaveCtxValid(ctx)){ fbLeaveAfter=null; return; }
+  fbLeaveRetired=true;      // der Sitz ist serverseitig zurueckgenommen
+  const after=fbLeaveAfter; fbLeaveAfter=null;
+  leaveOnline(after);
+}
+function fbLeaveGiveUp(ctx,err){
+  fbLeaveBusy=false; fbLeaveAfter=null;
+  fbLeaveError=(err&&err.message)||String(err||'unbekannt');
+  console.error('[online] permanent leave failed:',fbLeaveError);
+  if(!fbLeaveCtxValid(ctx))return;
+  // Nicht abraeumen: der Sitz lebt weiter, und das muss der Spieler wissen. Der Weg ins
+  // Menue ist nie gegangen worden, also steht der Matchzustand noch - es fehlt nur die
+  // Ansicht, die der Klick weggeschoben hat.
+  toast('Austritt nicht bestaetigt — du bist weiter im Match.');
+  // Ein terminal abgebrochenes Match zeigt sein Overlay - dahinter liegt keine
+  // spielbare Arena mehr.
+  if(phase==='over'||isOnlineTerminated())$('ov').classList.add('show');
+  else if(gameStarted)showGame();
+}
+function leaveOnline(after){
+  // C4B: der dauerhafte Austritt wird zuerst serverseitig bestaetigt (s. oben). Erst
+  // sein Rueckruf fuehrt hierher zurueck - mit fbLeaveRetired. `after` ist der Uebergang
+  // des Aufrufers (in der Regel showMenu): er raeumt den Matchzustand ab und darf
+  // deshalb erst laufen, wenn der Sitz wirklich zurueckgenommen ist.
+  if(fbPermanentLeaveRequired())return void fbBeginCanonicalLeave(after);
   joinOpSeq++;   // in-flight join/rejoin ops become stale BEFORE the early return — their continuations release own partial writes and never commit globals
-  if(!online && !roomCode)return;
+  if(!online && !roomCode){ if(typeof after==='function')after(); return; }
   onlineSessionId++;   // P0-Fix: laufende Transaktionen/Listener dieser Session sofort entwerten (auch bei sofortigem Wiederbeitritt zum selben Raum)
   onlineTerminatedSession=-1;   // terminalen Abbruchzustand sicher zuruecksetzen (die neue Session ist ohnehin != gespeicherter Session)
   clearAllSentinelRetries();   // P0-Nachbesserung: Raum wird verlassen -> kein Sentinel-Retry darf danach noch feuern
@@ -6342,6 +6655,7 @@ function leaveOnline(){
   stopPresenceWatch();   // C1: bewusstes Verlassen -> keine Wiederherstellung mehr
   stopServerClock();     // C3: und keine Zeitangleichung mehr
   clearGenerationStart();
+  stopEvictionWatch(); fbRemovePending=[]; fbExitBusy={};   // C4B
   // Deliberate leave is immediate: drop own presence AND own roster record (frees
   // the seat for recycling and signals "left, not reloading" to the others), then
   // best-effort remove the whole room. v3: the rules only allow a p/<seat> delete
@@ -6352,7 +6666,11 @@ function leaveOnline(){
   try{ if(window.FB && roomCode){
     const code=roomCode, wasPublic=roomPublic, wasHost=(myPlayer===0);   // snapshot before the globals below reset them
     const rootRef=window.FB.ref(window.FB.db,'rooms/'+code);
-    const upd={}; upd['p/'+myPlayer]=null; upd['players/'+myPlayer]=null;
+    // C4B: Im laufenden Football-Match hat fbCanonicalLeave den Sitz bereits samt
+    // Eviction-Marker gegen die autoritative Generation zurueckgenommen - dann bleibt
+    // hier nur noch das Aufraeumen des Raums.
+    const upd={};
+    if(!fbLeaveRetired){ upd['p/'+myPlayer]=null; upd['players/'+myPlayer]=null; }
     // Public-listing cleanup order (rules-conform): the atomic p/<seat>+players/<seat>
     // removal runs FIRST. Only the HOST (seat 0) owns the listing, so only a host leave
     // removes it — and only AFTER its own p/0+players/0 update settles, which leaves the
@@ -6360,14 +6678,18 @@ function leaveOnline(){
     // the host anchors, so the room stays a valid public lobby and its listing must
     // remain (the guest never touches it). removePublicListing runs inside the .then()
     // after the update; the room is then removed. Nothing here blocks the leave.
-    window.FB.update(rootRef,upd).then(()=>{
+    const cleanup=()=>{
       if(wasPublic&&wasHost)removePublicListing(code);
       window.FB.remove(rootRef).catch(()=>{});
-    }).catch(()=>{});
+    };
+    if(Object.keys(upd).length)window.FB.update(rootRef,upd).then(cleanup).catch(()=>{});
+    else cleanup();
   } }catch(e){}
   forgetRoom();
+  fbLeaveRetired=false; fbLeaveBusy=false;   // C4B: der Auftrag ist abgeschlossen
   online=false; gameStarted=false; roomPublic=false; roomCode=''; lobbyP={}; seatLeft=[]; seatGone=[]; playersRoster={};
   mode=menuMode; ffaN=ffaNMenu;   // Online-FFA stellt mode/ffaN um — Menue-Auswahl wiederherstellen
+  if(typeof after==='function')after();
 }
 // B2: after a reload with a fresh saved room, surface the rejoin affordance
 // immediately — the room is probed FIRST (exists, v3, own identity still holds a

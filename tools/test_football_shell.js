@@ -885,9 +885,14 @@ ok(/function footballGoalBusy\(\)\{return mode==='football'&&fbGoalState!=='play
 
 // ── F4. GEWINNERANZEIGE (bestehende Result-Struktur, football-scoped) ──
 ok((HTML.match(/function gameOver\(/g) || []).length === 1, 'Genau eine Result-/Gewinnerfunktion — keine neue Praesentationsschicht');
-// Eine Definition und zwei Aufrufer: der Torablauf (Classic/Tactical, First-to-3) und die
-// Elimination4-Entscheidung, wenn der vorletzte Spieler ausserhalb eines Torablaufs ausscheidet.
-ok((HTML.match(/footballMatchEnd\(/g) || []).length === 3, 'footballMatchEnd: eine Definition, genau zwei Aufrufer');
+// Eine Definition und DREI Aufrufer: der Torablauf (Classic/Tactical, First-to-3), die
+// Elimination4-Entscheidung, wenn der vorletzte Spieler ausserhalb eines Torablaufs
+// ausscheidet - und seit C4B der dauerhafte Austritt: verlassen die letzten Teilnehmer
+// das Match, endet es ueber DENSELBEN Weg. Der Aufrufer bleibt bewusst zaehlbar, damit
+// keine zweite Ergebnisschicht entsteht.
+ok((HTML.match(/footballMatchEnd\(/g) || []).length === 4, 'footballMatchEnd: eine Definition, genau drei Aufrufer');
+ok(/function fbApplyPendingRemovals/.test(HTML) && /footballMatchEnd\(\);/.test(HTML),
+  'der dritte Aufrufer ist der dauerhafte Austritt (C4B), keine neue Ergebnisschicht');
 ok(/gameOver\(footballWinner\);/.test(matchEndSrc), 'Matchende uebergibt den KANONISCHEN Gewinner (kein DOM-Text, keine Farbe)');
 ok(!/textContent|innerHTML|getElementById|\$\(/.test(matchEndSrc), 'Matchende selbst schreibt kein DOM — das macht die bestehende Result-Struktur');
 ok(/colName\(winner\)\+' '\+T\('wins'\)/.test(HTML), 'Gewinnertext kommt aus der bestehenden i18n-Zeile');

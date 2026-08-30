@@ -165,6 +165,19 @@ const SRC = [
   grab(/function writeTurnSlot\(s,payload,opts\)\{[\s\S]*?\n\}/, 'writeTurnSlot'),
   grab(/function writeLeaveSentinel\(s,attempt\)\{[\s\S]*?\n\}/, 'writeLeaveSentinel'),
   grab(/function fbSkipBoundary\(\)\{[\s\S]*?\n\}/, 'fbSkipBoundary'),
+  grab(/let roomEv=\{\}, evUnsub=null, fbExitBusy=\{\}, fbRemovePending=\[\];/, 'roomEv'),
+  grab(/function fbEvicted\(s\)\{[^\n]*/, 'fbEvicted'),
+  grab(/function fbWinnerEligible\(o\)\{[\s\S]*?\n\}/, 'fbWinnerEligible'),
+  grab(/function fbEligibleOwners\(\)\{[\s\S]*?\n\}/, 'fbEligibleOwners'),
+  grab(/function fbPermanentExitHappened\(\)\{[\s\S]*?\n\}/, 'fbPermanentExitHappened'),
+  grab(/function stopEvictionWatch\(\)\{[^\n]*/, 'stopEvictionWatch'),
+  grab(/function startEvictionWatch\(\)\{[\s\S]*?\n\}/, 'startEvictionWatch'),
+  grab(/function fbWriteEviction\(seat\)\{[\s\S]*?\n\}/, 'fbWriteEviction'),
+  grab(/function fbWriteRemoveFor\(s,attempt\)\{[\s\S]*?\n\}/, 'fbWriteRemoveFor'),
+  grab(/function fbCloseSeatSlot\(s,attempt\)\{[\s\S]*?\n\}/, 'fbCloseSeatSlot'),
+  grab(/function fbMaybeWriteRemoves\(\)\{[\s\S]*?\n\}/, 'fbMaybeWriteRemoves'),
+  grab(/function fbMaybeEvictExpired\(\)\{[\s\S]*?\n\}/, 'fbMaybeEvictExpired'),
+  grab(/function fbApplyPendingRemovals\(\)\{[\s\S]*?\n\}/, 'fbApplyPendingRemovals'),
   grab(/function fbWriteSkip\(s,attempt\)\{[\s\S]*?\n\}/, 'fbWriteSkip'),
   grab(/function fbMaybeSkipOffline\(\)\{[\s\S]*?\n\}/, 'fbMaybeSkipOffline'),
   grab(/function scheduleSentinelRetry\(s,ctx\)\{[\s\S]*?\n\}/, 'scheduleSentinelRetry'),
@@ -176,8 +189,18 @@ const SRC = [
   grab(/function maybeReveal\(\)\{[\s\S]*?\n\}/, 'maybeReveal'),
   grab(/function onlineTurnValue\(val\)\{[\s\S]*?\n\}/, 'onlineTurnValue'),
   grab(/function onlineSendCommit\(idx,fx,fy,spin\)\{[\s\S]*?\n\}/, 'onlineSendCommit'),
-  grab(/function onlineRematch\(\)\{[^\n]*/, 'onlineRematch'),
-  grab(/function leaveOnline\(\)\{[\s\S]*?\n\}/, 'leaveOnline'),
+  grab(/function onlineRematch\(\)\{[\s\S]*?\n\}/, 'onlineRematch'),
+  // C4B/Entscheidung 3: der kanonische Austritt gehoert zum Leave-Pfad dazu.
+  grab(/const LEAVE_TRIES=3;[^\n]*\n/, 'LEAVE_TRIES'),
+  grab(/let fbLeaveBusy=false[^\n]*\n/, 'fbLeaveState'),
+  fn('fbPermanentLeaveRequired'),
+  fn('fbLeaveCtxValid'),
+  fn('fbBeginCanonicalLeave'),
+  fn('fbCanonicalLeave'),
+  fn('fbLeaveRetry'),
+  fn('fbLeaveFinish'),
+  fn('fbLeaveGiveUp'),
+  grab(/function leaveOnline\(after\)\{[\s\S]*?\n\}/, 'leaveOnline'),
   // ── Identitaet und Reclaim ──
   grab(/function genToken\(n\)\{[\s\S]*?\n\}/, 'genToken'),
   grab(/function capGraphemes\(s,max\)\{[\s\S]*?\n\}/, 'capGraphemes'),
@@ -244,27 +267,41 @@ const t0 = (name, cond) => { if (cond) return; if (seen.has(name)) return; seen.
 function makeDB() {
   const data = { rooms: {} };
   const listeners = new Set();
+  const failWrites = {};
   let nowMs = 1751900000000;
   const at = parts => parts.reduce((a, k) => (a && typeof a === 'object') ? a[k] : undefined, data);
   const clone = v => (v === undefined || v === null) ? null : JSON.parse(JSON.stringify(v));
   const queue = [];
   const flush = () => { while (queue.length) queue.shift()(); };
 
+  // Zurueckgehaltene Zustellung: Schluessel ist uid|letztes Pfadsegment. Damit laesst
+  // sich nachstellen, dass ZWEI Clients denselben Schreibvorgang zu verschiedenen
+  // Zeitpunkten sehen - der Kern jeder Determinismusfrage. get() bleibt unberuehrt: der
+  // autoritative Abruf ist ein anderer Weg als der Listener.
+  const held = new Set();
+  const isHeld = l => held.has(l.uid + '|' + l.parts[l.parts.length - 1]);
   function notify() {
     for (const l of Array.from(listeners)) {
       if (!listeners.has(l)) continue;
+      if (isHeld(l)) continue;
       const cur = JSON.stringify(clone(at(l.parts)));
       if (cur !== l.last) { l.last = cur; l.cb({ val: () => clone(at(l.parts)), exists: () => at(l.parts) != null }); }
     }
   }
   function buildMerged(room, writes) {
-    const wp = {}, wpl = {}; let wstate;
+    const wp = {}, wpl = {}, wev = {}; let wstate;
     const base = seat => {
       const cur = room && room.players && room.players[seat];
       return cur ? JSON.parse(JSON.stringify(cur)) : {};
     };
     for (const w of writes) {
       if (w.parts[2] === 'p' && w.parts.length === 4) wp[w.parts[3]] = w.val;
+      // C4B: Eviction-Marker aus DEMSELBEN Update. Die echten Rules pruefen den
+      // ERGEBNISBAUM - der kanonische Football-Austritt schreibt Marker und beide
+      // Loeschungen in einem Zug. Ohne diese Zeile wiese das Modell eine regelkonforme
+      // Operation ab.
+      else if (w.parts[2] === 'g' && w.parts[4] === 'e' && w.parts.length === 6)
+        wev[w.parts[3] + '/' + w.parts[5]] = w.val;
       else if (w.parts[2] === 'players' && w.parts.length === 4) wpl[w.parts[3]] = w.val;
       // Der Reclaim schreibt EIN FELD des Rosterdatensatzes (players/<seat>/tab)
       // gemeinsam mit der neuen Praesenz. Der zusammengefuehrte Baum muss dieses
@@ -282,6 +319,10 @@ function makeDB() {
       else if (w.parts[2] === 'state' && w.parts.length === 3) wstate = w.val;
     }
     return {
+      // C4B: Eviction-Sicht auf den ERGEBNISBAUM - Marker aus demselben Update zaehlen.
+      ev: (gen, seat) => ((String(gen) + '/' + String(seat)) in wev)
+        ? wev[String(gen) + '/' + String(seat)]
+        : !!(room && room.g && room.g[gen] && room.g[gen].e && room.g[gen].e[seat] === true),
       p: seat => (String(seat) in wp) ? wp[String(seat)] : (room && room.p && room.p[seat]),
       players: seat => (String(seat) in wpl) ? wpl[String(seat)] : (room && room.players && room.players[seat]),
       state: () => wstate !== undefined ? wstate : (room && room.state)
@@ -316,8 +357,8 @@ function makeDB() {
         if (merged.players(seat) != null) throw new Error('PERMISSION_DENIED: p delete needs players delete');
         // Football im LAUFENDEN Match: der Austritt verlangt die Eviction im Ergebnis.
         if (isFb && room.seats === 5) {
-          const g = room.g && room.g[room.gen];
-          if (!(g && g.e && g.e[seat] === true)) throw new Error('PERMISSION_DENIED: football leave needs eviction');
+          if (merged.ev(room.gen, seat) !== true)
+            throw new Error('PERMISSION_DENIED: football leave needs eviction');
         }
         return;
       }
@@ -364,8 +405,8 @@ function makeDB() {
       if (val == null) {
         if (merged.p(seat) != null) throw new Error('PERMISSION_DENIED: players delete needs p delete');
         if (isFb && room.seats === 5) {
-          const g = room.g && room.g[room.gen];
-          if (!(g && g.e && g.e[seat] === true)) throw new Error('PERMISSION_DENIED: football leave needs eviction');
+          if (merged.ev(room.gen, seat) !== true)
+            throw new Error('PERMISSION_DENIED: football leave needs eviction');
         }
         return;
       }
@@ -403,6 +444,12 @@ function makeDB() {
       const mem = [0, 1, 2, 3, 4].some(i => room.players && room.players[i] && room.players[i].uid === authUid
         && room.p && room.p[i] && room.p[i].on === true);
       if (!authUid || !mem) throw new Error('PERMISSION_DENIED: gen');
+      // C4B/Entscheidung 2: Traegt die abgeschlossene Generation einen Austritt, ist der
+      // Rematch im selben Raum serverseitig gesperrt - fuer jeden Schreiber.
+      const evNow = (room.g && room.g[room.gen] && room.g[room.gen].e) || {};
+      const traegtAustritt = [0, 1, 2, 3, 4].some(i =>
+        evNow[i] === true || (merged ? merged.ev(room.gen, i) === true : false));
+      if (traegtAustritt) throw new Error('PERMISSION_DENIED: gen nach dauerhaftem Austritt');
       return;
     }
     if (key === 'g') {
@@ -444,6 +491,33 @@ function makeDB() {
         }
         return;
       }
+      if (kind === 'e') {
+        // C4B: Eviction-Marker. Nachgebildet wird der Zweig aus firebase.rules.json:
+        // v4, laufendes Match, fuenf Sitze, write-once, aktuelle Generation, der Sitz
+        // existiert - und geschrieben wird entweder vom Sitzinhaber SELBST oder von
+        // einem anderen, verbundenen und nicht evictierten Mitspieler, dessen Ziel
+        // seit mindestens 15 s offline ist.
+        const seat = +parts[5];
+        if (!isFb) throw new Error('PERMISSION_DENIED: eviction only in football');
+        if (room.state !== 'playing' || room.seats !== 5) throw new Error('PERMISSION_DENIED: eviction state');
+        if (String(room.gen) !== String(gen)) throw new Error('PERMISSION_DENIED: eviction gen');
+        if (at(parts) != null) throw new Error('PERMISSION_DENIED: eviction write-once');
+        if (val !== true) throw new Error('PERMISSION_DENIED: eviction value');
+        if (!(room.players && room.players[seat])) throw new Error('PERMISSION_DENIED: eviction unknown seat');
+        if (!authUid) throw new Error('PERMISSION_DENIED: eviction unauthenticated');
+        const ev = (room.g && room.g[gen] && room.g[gen].e) || {};
+        const on = (i) => !!(room.p && room.p[i] && room.p[i].on === true);
+        const ownSeat = [0, 1, 2, 3, 4].filter(i => room.players[i] && room.players[i].uid === authUid);
+        if (ownSeat.indexOf(seat) >= 0) return;            // Selbstaustritt, ohne Frist
+        let writer = -1;
+        for (const i of ownSeat) if (i !== seat && on(i) && ev[i] !== true) writer = i;
+        if (writer < 0) throw new Error('PERMISSION_DENIED: eviction writer must be a connected peer');
+        if (on(seat)) throw new Error('PERMISSION_DENIED: eviction target is online');
+        const t0 = room.p && room.p[seat] && room.p[seat].t;
+        if (!(typeof t0 === 'number' && (nowMs - t0) >= 15000))
+          throw new Error('PERMISSION_DENIED: eviction target not stale enough');
+        return;
+      }
       throw new Error('PERMISSION_DENIED: g path');
     }
     if (key === 'created' || key === 'v' || key === 'config') throw new Error('PERMISSION_DENIED: immutable');
@@ -462,6 +536,8 @@ function makeDB() {
     data, get now() { return nowMs; }, advance(ms) { nowMs += ms; },
     // .info/connected ist kein Raumpfad - direkt setzen und melden (C1).
     setConnected(v) { if (!data['.info']) data['.info'] = {}; data['.info'].connected = v; notify(); },
+    // Nur melden, ohne etwas zu schreiben (C4B-Tests).
+    touch() { notify(); },
     // Praesenz eines Sitzes umschalten, wie es ein serverseitiges onDisconnect tut (C2).
     setPresence(code, seat, on) {
       const r = data.rooms[code]; if (!r || !r.p || !r.p[seat]) return false;
@@ -476,6 +552,11 @@ function makeDB() {
     // Serverzeit vorstellen UND den Offset nachziehen: fuer den Client bewegt sich
     // damit die Serverzeit, nicht seine eigene Uhr.
     advanceServer(ms) { nowMs += ms; this.publishOffset(); },
+    // Einem Client einen Pfad vorenthalten bzw. ihn nachtraeglich zustellen.
+    hold(uid, key) { held.add(uid + '|' + key); },
+    release(uid, key) { held.delete(uid + '|' + key); notify(); },
+    // Die naechsten n update()-Aufrufe dieses Clients scheitern.
+    failWrites(uid, n) { failWrites[uid] = n; },
     flush,
     // Ein Client sieht die Datenbank ausschliesslich durch dieses Objekt - mit SEINER
     // Identitaet. Zwei Clients koennen sich so nicht gegenseitig als Schreiber ausgeben.
@@ -484,7 +565,7 @@ function makeDB() {
         db: {}, serverTimestamp: () => ({ __ts: true }),
         ref: (_db, p) => ({ parts: p.split('/') }),
         onValue(ref, cb) {
-          const l = { parts: ref.parts, cb, last: undefined };
+          const l = { parts: ref.parts, cb, last: undefined, uid: authUid };
           listeners.add(l);
           queue.push(() => { l.last = JSON.stringify(clone(at(l.parts))); cb({ val: () => clone(at(l.parts)), exists: () => at(l.parts) != null }); });
           return () => listeners.delete(l);
@@ -499,6 +580,9 @@ function makeDB() {
         },
         update(ref, obj) {
           return new Promise((res, rej) => queue.push(() => {
+            // Fehlerinjektion: nur so laesst sich pruefen, was passiert, wenn ein
+            // dauerhafter Austritt WIRKLICH nicht zustande kommt.
+            if (failWrites[authUid] > 0) { failWrites[authUid]--; rej(new Error('PERMISSION_DENIED: injiziert')); return; }
             const writes = Object.keys(obj).map(k => ({ parts: ref.parts.concat(k.split('/')), val: resolveTs(obj[k]) }));
             const room = data.rooms[ref.parts[1]];
             const merged = buildMerged(room, writes);
@@ -755,6 +839,17 @@ function makeClient(db, code, opts) {
       // Disconnect-Sonde: ruft die ECHTE seatFinallyGone und legt offen, was danach
       // sichtbar ist. Kein Nachbau - der Zweig selbst ist der Pruefgegenstand.
       seatGoneNow(s){ seatFinallyGone(s); },
+      leave(){ leaveOnline(); },
+      // Der Uebergang, den der Aufrufer normalerweise mitgibt (showMenu). Er raeumt den
+      // Matchzustand ab und darf deshalb erst nach der Bestaetigung laufen.
+      leaveThen(){ ui.afterCount=ui.afterCount||0; leaveOnline(()=>{ ui.afterCount++; }); },
+      afterCount(){ return ui.afterCount||0; },
+      tab(){ return onlineTab; },
+      // C4B/Entscheidung 3: was der Austritt gerade tut und woran er scheiterte.
+      leaveState(){ return { busy:fbLeaveBusy, retired:fbLeaveRetired, error:fbLeaveError }; },
+      // C4B/Entscheidung 2: der Generationswechsel OHNE den Client-Waechter - so wird
+      // sichtbar, ob der SERVER ihn sperrt.
+      forceGenWrite(){ return window.FB.set(rRef('gen'),gen+1).then(()=>'ok',()=>'denied'); },
       // C2-Sonden: die ENTSCHEIDUNG des Clients sichtbar machen. Nur das Ergebnis in der
       // Datenbank zu pruefen genuegt nicht - unzulaessige Schreibvorgaenge weist die
       // Datenbank ohnehin ab, und der Test koennte eine fehlende Pruefung im Client
@@ -762,6 +857,18 @@ function makeClient(db, code, opts) {
       skipBoundary(){ return fbSkipBoundary(); },
       grace(s){ return fbSeatGrace(s); },
       candidates(){ return fbAbsenceCandidates(); },
+      ev(){ return JSON.parse(JSON.stringify(roomEv||{})); },
+      tryEvict(s){ return fbWriteEviction(s); },
+      closeSlot(s){ return fbCloseSeatSlot(s,0); },
+      eligible(){ return fbEligibleOwners(); },
+      pendingRemovals(){ const o=[]; for(let i=0;i<fbElimPlayers();i++)if(fbRemovePending[i])o.push(i); return o; },
+      applyRemovals(){ return fbApplyPendingRemovals(); },
+      elimEliminate(o){ footballElimEliminate(o); },
+      exitHappened(){ return fbPermanentExitHappened(); },
+      rematch(){ onlineRematch(); },
+      rematchShown(){ return els['rematchBtn'] ? els['rematchBtn'].style.display !== 'none' : null; },
+      evWatch(){ return !!evUnsub; },
+      boundary(){ return fbSkipBoundary(); },
       clockReady(){ return serverClockReady; },
       genStart(){ return {at:genStartedAt,pending:genStartPending}; },
       trySkip(s){ return fbWriteSkip(s,0); },
@@ -781,7 +888,9 @@ function makeClient(db, code, opts) {
     }
   `;
   const factory = new Function('FB', 'ui', body);
-  return factory(FB, ui);
+  const api = factory(FB, ui);
+  api.uid = uid;          // fuer clientweise Zustellsteuerung im Test
+  return api;
 }
 
 // ── Ablaufhilfen ──────────────────────────────────────────────────────────────
@@ -2246,6 +2355,964 @@ async function eliminateSeat(db, cs, seat, maxRounds) {
     await tick(db, 40);
     t('C3F3 die Runde laeuft deterministisch zu Ende und alle bleiben gleich',
       sameHash(cs), cs.map(c => c.hash()));
+  }
+}
+
+
+// ── C4B · KANONISCHER DAUERHAFTER AUSTRITT ────────────────────────────────────
+// Zwei Ursachen, ein Weg: abgelaufene Frist und bewusstes Verlassen schreiben denselben
+// Eviction-Marker; ein verbundener Mitspieler schliesst den Slot mit dem typisierten
+// REMOVE; die Spielwirkung faellt deterministisch an der naechsten Eingabegrenze.
+{
+  const turnsOf = (db, code, gen) => (((db.data.rooms[code].g || {})[gen || 0] || {}).t) || {};
+  const evOf = (db, code, gen) => ((db.data.rooms[code].g || {})[gen || 0] || {}).e || {};
+  const removeCount = (db, code, seat) => {
+    let n = 0; const T = turnsOf(db, code);
+    for (const tn of Object.keys(T)) if (T[tn][String(seat)] && T[tn][String(seat)].k === 'remove') n++;
+    return n;
+  };
+  // Eine Runde weiterspielen, damit die Eingabegrenze erreicht wird.
+  const seatOf = (c) => c.st().myPlayer;
+  const nextBoundary = async (db, cs) => {
+    for (const c of cs) { const st = c.st(), me = st.myPlayer;
+      if (st.active[me] && !st.aimSet[me]) c.commitVec(50, -30, 0); }
+    await tick(db, 40);
+    for (const c of cs) c.pump();
+    await tick(db, 40);
+  };
+
+  // ── C4B-1: Fristablauf -> kanonischer Austritt ──
+  {
+    const { db, cs } = await newMatch('C4CA');
+    const code = 'C4CA', off = 3;
+    db.publishOffset(); await tick(db, 20);
+    const before = cs[0].st();
+    db.setPresence(code, off, false); db.publishOffset(); await tick(db, 20);
+    db.advanceServer(16000); await tick(db, 20);
+    t('C4B-1 Vorbedingung: C3 benennt den Sitz', cs[0].candidates().indexOf(off) >= 0, cs[0].candidates());
+
+    cs[0].seatGoneNow(off); await tick(db, 40);      // der Weckruf der Frist
+    t('C4B-1 der Eviction-Marker steht', evOf(db, code)[off] === true, evOf(db, code));
+
+    // Die laufende Runde war ueber C2 bereits mit einem SKIP geschlossen - der dauerhafte
+    // Austritt gehoert damit in die NAECHSTE Runde.
+    await nextBoundary(db, cs);
+    t('C4B-1 ein REMOVE wurde geschrieben - genau einmal', removeCount(db, code, off) === 1,
+      turnsOf(db, code));
+    await nextBoundary(db, cs);
+    const after = cs[0].st();
+    t('C4B-1 der Sitz ist aus dem Spiel genommen', after.active[off] === false, after.active);
+    t('C4B-1 KEIN Leben wurde abgezogen', after.lives.join(',') === before.lives.join(','),
+      { vorher: before.lives, nachher: after.lives });
+    t('C4B-1 KEIN Tor', cs[0].sfx().goal === 0, cs[0].sfx());
+    t('C4B-1 die Arena steht auf der verbliebenen Spielerzahl', after.phaseN === 4, after.phaseN);
+    t('C4B-1 die Uebrigen behalten ihre URSPRUENGLICHEN Sitznummern',
+      after.slots.filter(v => v >= 0).slice().sort().join(',') === '0,1,2,4', after.slots);
+    t('C4B-1 alle Clients sind deckungsgleich', sameHash(cs), cs.map(c => c.hash()));
+    t('C4B-1 kein Sieger bei vier Verbliebenen', after.winner === null, after.winner);
+  }
+
+  // ── C4B-2: bewusstes Verlassen -> derselbe Weg ──
+  {
+    const { db, cs } = await newMatch('C4CB');
+    const code = 'C4CB', quit = 2;
+    db.publishOffset(); await tick(db, 20);
+    const before = cs[0].st();
+    cs[quit].leave(); await tick(db, 40);
+    t('C4B-2 der Eviction-Marker steht', evOf(db, code)[quit] === true, evOf(db, code));
+    t('C4B-2 die eigenen Datensaetze sind zurueckgetreten',
+      db.data.rooms[code].p[quit] === undefined && db.data.rooms[code].players[quit] === undefined,
+      { p: db.data.rooms[code].p[quit], pl: db.data.rooms[code].players[quit] });
+    t('C4B-2 ein Mitspieler hat den REMOVE geschrieben - genau einmal',
+      removeCount(db, code, quit) === 1, turnsOf(db, code));
+    t('C4B-2 ohne Wartefrist', true);
+
+    await nextBoundary(db, cs.filter(c => seatOf(c) !== quit));
+    const after = cs[0].st();
+    t('C4B-2 der Sitz ist aus dem Spiel genommen', after.active[quit] === false, after.active);
+    t('C4B-2 KEIN Leben, KEIN Tor',
+      after.lives.join(',') === before.lives.join(',') && cs[0].sfx().goal === 0,
+      { lives: after.lives, sfx: cs[0].sfx() });
+    t('C4B-2 die Arena steht auf vier', after.phaseN === 4, after.phaseN);
+    t('C4B-2 die verbliebenen vier sind deckungsgleich',
+      cs.filter(c => seatOf(c) !== quit).every(c => c.hash() === cs[0].hash()),
+      cs.map(c => c.hash()));
+  }
+
+  // ── C4B-3: Rueckkehr VOR der Eviction verhindert sie ──
+  {
+    const { db, cs } = await newMatch('C4CC');
+    const code = 'C4CC', off = 1;
+    db.publishOffset(); await tick(db, 20);
+    db.setPresence(code, off, false); db.publishOffset(); await tick(db, 20);
+    db.advanceServer(16000); await tick(db, 20);
+    db.setPresence(code, off, true); db.publishOffset(); await tick(db, 20);   // er ist zurueck
+    cs[0].seatGoneNow(off); await tick(db, 40);
+    t('C4B-3 nach der Rueckkehr entsteht KEINE Eviction', evOf(db, code)[off] === undefined,
+      evOf(db, code));
+    t('C4B-3 und kein REMOVE', removeCount(db, code, off) === 0, turnsOf(db, code));
+    t('C4B-3 der Sitz bleibt aktiv', cs[0].st().active[off] === true, cs[0].st().active);
+  }
+
+  // ── C4B-3b: der Client ENTSCHEIDET selbst, nicht erst die Datenbank ──
+  // Nur den Endzustand zu pruefen genuegt nicht: unzulaessige Schreibvorgaenge weist die
+  // Datenbank ohnehin ab. Hier wird der Entschluss selbst geprueft.
+  {
+    const { db, cs } = await newMatch('C4CH');
+    const code = 'C4CH';
+    db.publishOffset(); await tick(db, 20);
+    t('C4B-3b ein VERBUNDENER Sitz wird nicht ausgetragen', cs[0].tryEvict(2) === false);
+    t('C4B-3b der eigene Sitz nie ueber diesen Weg', cs[0].tryEvict(0) === false);
+
+    db.setPresence(code, 2, false); db.publishOffset(); await tick(db, 20);
+    t('C4B-3b ein getrennter Sitz VOR Fristablauf wird nicht ausgetragen',
+      cs[0].tryEvict(2) === false, cs[0].grace(2));
+    db.advanceServer(16000); await tick(db, 20);
+    t('C4B-3b erst nach Fristablauf wird ausgetragen', cs[0].tryEvict(2) === true, cs[0].grace(2));
+  }
+
+  // ── C4B-3c: der offene Slot eines Ausgetragenen wird mit REMOVE geschlossen ──
+  // Faellt die Eviction, waehrend ein SKIP unterwegs ist, weist der Server diesen SKIP ab
+  // (er verlangt ein nicht evictiertes Ziel). Die Wiederholung darf dann nicht wieder
+  // einen SKIP versuchen - sonst bliebe der Slot fuer immer offen und die Runde stehen.
+  {
+    const { db, cs } = await newMatch('C4CI');
+    const code = 'C4CI', off = 3;
+    db.publishOffset(); await tick(db, 20);
+    db.setPresence(code, off, false); db.publishOffset(); await tick(db, 20);
+    db.advanceServer(16000); await tick(db, 20);
+    cs[0].seatGoneNow(off); await tick(db, 40);
+    t('C4B-3c Vorbedingung: der Sitz ist ausgetragen', cs[0].ev()[off] === true, cs[0].ev());
+    await nextBoundary(db, cs);
+    // Der Slot der neuen Runde ist offen - und wird mit dem REMOVE geschlossen, nicht
+    // mit einem SKIP, den der Server ablehnen wuerde.
+    const turn = cs[0].st().turnNo;
+    const rec = (turnsOf(db, code)[turn] || {})[String(off)];
+    t('C4B-3c der Slot wurde geschlossen', rec !== undefined, turnsOf(db, code)[turn]);
+    t('C4B-3c und zwar mit einem REMOVE', rec && rec.k === 'remove', rec);
+  }
+
+  // ── C4B-3d: mehrere Austritte derselben Runde kroenen keinen Ausgetretenen ──
+  // Werden die letzten beiden Teilnehmer in DERSELBEN Runde ausgetragen, darf der
+  // Zwischenstand "einer uebrig" nicht als Sieger veroeffentlicht werden.
+  {
+    const { db, cs } = await newMatch('C4CJ');
+    const code = 'C4CJ';
+    db.publishOffset(); await tick(db, 20);
+    // Erst auf zwei Aktive bringen.
+    for (const off of [4, 3, 2]) {
+      db.setPresence(code, off, false); db.publishOffset(); await tick(db, 20);
+      db.advanceServer(16000); await tick(db, 20);
+      const w = cs.find(c => seatOf(c) !== off && cs[0].st().active[seatOf(c)]);
+      w.seatGoneNow(off); await tick(db, 40);
+      await nextBoundary(db, cs); await nextBoundary(db, cs);
+    }
+    t('C4B-3d Vorbedingung: zwei Aktive', cs[0].st().active.filter(Boolean).length === 2,
+      cs[0].st().active);
+    // Und jetzt gehen BEIDE in derselben Runde.
+    db.setPresence(code, 0, false); db.setPresence(code, 1, false);
+    db.publishOffset(); await tick(db, 20);
+    db.advanceServer(16000); await tick(db, 20);
+    cs[1].seatGoneNow(0); cs[0].seatGoneNow(1); await tick(db, 40);
+    await nextBoundary(db, cs); await nextBoundary(db, cs);
+    const st = cs[0].st();
+    t('C4B-3d kein Ausgetretener wird zum Sieger erklaert',
+      st.winner === null || st.active[st.winner] === true,
+      { winner: st.winner, active: st.active, over: st.over });
+    t('C4B-3d und es wurde kein Tor und kein Leben erfunden',
+      cs[0].sfx().goal === 0 && st.lives.join(',') === '2,2,2,2,2',
+      { sfx: cs[0].sfx(), lives: st.lives });
+  }
+
+  // ── C4B-3e: SKIP in Flug, Eviction gewinnt -> die Wiederholung schliesst mit REMOVE ──
+  // Ohne die Weiche versuchte die Wiederholung erneut einen SKIP, wuerde wieder
+  // abgewiesen - und der Slot bliebe offen, die Runde stuende fuer immer.
+  {
+    const { db, cs } = await newMatch('C4CK');
+    const code = 'C4CK', off = 2;
+    db.publishOffset(); await tick(db, 20);
+    // Eine Runde regulaer spielen, damit wir in einer FRISCHEN Runde rennen koennen.
+    await nextBoundary(db, cs);
+    const turn = cs[0].st().turnNo;
+    t('C4B-3e Vorbedingung: frische Runde, Slot offen',
+      (turnsOf(db, code)[turn] || {})[String(off)] === undefined, turnsOf(db, code)[turn]);
+
+    // Jetzt faellt der Sitz aus - mit einem Zeitstempel, der die Frist bereits
+    // ueberschritten hat. Der Praesenzwechsel setzt den SKIP an; er liegt in der
+    // Warteschlange, denn geflusht wird erst spaeter.
+    const r = db.data.rooms[code];
+    r.p[off] = { s: r.p[off].s, on: false, t: db.now - 20000 };
+    db.publishOffset();                       // meldet die Trennung -> SKIP wird angesetzt
+
+    // ... und GENAU JETZT gewinnt die Eviction das Rennen.
+    r.g = r.g || {}; r.g[0] = r.g[0] || {}; r.g[0].e = { [off]: true };
+    db.publishOffset();
+
+    // Erst hier laeuft die Warteschlange: der angesetzte SKIP trifft auf einen bereits
+    // ausgetragenen Sitz und wird abgewiesen.
+    await tick(db, 30);
+    t('C4B-3e Vorbedingung: der Sitz ist ausgetragen', cs[0].ev()[off] === true, cs[0].ev());
+
+    // Die Wiederholung laeuft ueber einen echten Timer (Backoff).
+    for (let k = 0; k < 12; k++) { await new Promise(res => setTimeout(res, 60)); await tick(db, 10); }
+
+    const rec = (turnsOf(db, code)[turn] || {})[String(off)];
+    t('C4B-3e der Slot ist geschlossen - er bleibt nicht offen', rec !== undefined,
+      turnsOf(db, code)[turn]);
+    t('C4B-3e und zwar mit einem REMOVE, nicht mit einem SKIP', rec && rec.k === 'remove', rec);
+    t('C4B-3e genau ein Datensatz fuer diesen Sitz', removeCount(db, code, off) === 1,
+      turnsOf(db, code));
+    t('C4B-3e kein Client haelt noch einen offenen Schreibvorgang',
+      cs.every(c => c.st().pending === 0), cs.map(c => c.st().pending));
+    t('C4B-3e das Match laeuft weiter - kein Abbruch',
+      cs[0].st().gameStarted === true && cs[0].st().over.length === 0, cs[0].st());
+  }
+
+  // ── C4B-4: mehrere Schreiber, genau ein Marker und ein REMOVE ──
+  {
+    const { db, cs } = await newMatch('C4CD');
+    const code = 'C4CD', off = 4;
+    db.publishOffset(); await tick(db, 20);
+    db.setPresence(code, off, false); db.publishOffset(); await tick(db, 20);
+    db.advanceServer(16000); await tick(db, 20);
+    for (const c of cs) if (seatOf(c) !== off) c.seatGoneNow(off);   // alle vier gleichzeitig
+    await tick(db, 40);
+    t('C4B-4 genau ein Eviction-Marker', evOf(db, code)[off] === true
+      && Object.keys(evOf(db, code)).length === 1, evOf(db, code));
+    await nextBoundary(db, cs);
+    t('C4B-4 genau ein REMOVE', removeCount(db, code, off) === 1, turnsOf(db, code));
+    t('C4B-4 kein Client haelt einen offenen Schreibvorgang',
+      cs.every(c => c.st().pending === 0), cs.map(c => c.st().pending));
+  }
+
+  // ── C4B-5: Rehydrierung aus einer Historie MIT REMOVE ──
+  {
+    const { db, cs } = await newMatch('C4CE');
+    const code = 'C4CE', off = 0;
+    db.publishOffset(); await tick(db, 20);
+    db.setPresence(code, off, false); db.publishOffset(); await tick(db, 20);
+    db.advanceServer(16000); await tick(db, 20);
+    cs[1].seatGoneNow(off); await tick(db, 40);
+    await nextBoundary(db, cs);
+    await nextBoundary(db, cs);
+    const ref = cs[1].hash(), refTurn = cs[1].st().turnNo;
+    const fresh = makeClient(db, code, { name: 'RH' });
+    fresh.prepareReplay(0, 0);
+    fresh.replay(turnsOf(db, code));
+    t('C4B-5 ein frischer Client rekonstruiert die Historie mit REMOVE zeichengleich',
+      fresh.hash() === ref, { fresh: fresh.hash(), ref });
+    t('C4B-5 dieselbe Aktivliste und dieselben Leben',
+      fresh.st().active.join(',') === cs[1].st().active.join(',')
+      && fresh.st().lives.join(',') === cs[1].st().lives.join(','),
+      { fresh: fresh.st(), ref: cs[1].st() });
+    t('C4B-5 dieselbe Arenaphase', fresh.st().phaseN === cs[1].st().phaseN,
+      { fresh: fresh.st().phaseN, ref: cs[1].st().phaseN });
+  }
+
+  // ── C4B-6: 5 -> 4 -> 3 -> 2 ausschliesslich durch dauerhafte Austritte ──
+  {
+    const { db, cs } = await newMatch('C4CF');
+    const code = 'C4CF';
+    db.publishOffset(); await tick(db, 20);
+    const lives0 = cs[0].st().lives.join(',');
+    const erwartet = [4, 3, 2];
+    let i = 0;
+    for (const off of [4, 3, 2]) {
+      db.setPresence(code, off, false); db.publishOffset(); await tick(db, 20);
+      db.advanceServer(16000); await tick(db, 20);
+      const writer = cs.find(c => seatOf(c) !== off && cs[0].st().active[seatOf(c)]);
+      writer.seatGoneNow(off); await tick(db, 40);
+      await nextBoundary(db, cs);   // die laufende Runde schliesst der SKIP
+      await nextBoundary(db, cs);   // hier steht der REMOVE und wird angewandt
+      const st = cs[0].st();
+      t('C4B-6 nach dem Austritt von Sitz ' + off + ': Arena auf ' + erwartet[i],
+        st.phaseN === erwartet[i], { phaseN: st.phaseN, erwartet: erwartet[i] });
+      t('C4B-6 Sitz ' + off + ' ist draussen, die uebrigen bleiben',
+        st.active[off] === false, st.active);
+      t('C4B-6 Leben unveraendert', st.lives.join(',') === lives0, st.lives);
+      t('C4B-6 kein Tor unterwegs', cs[0].sfx().goal === 0, cs[0].sfx());
+      i++;
+    }
+    const fin = cs[0].st();
+    t('C4B-6 am Ende sind genau zwei aktiv',
+      fin.active.filter(Boolean).length === 2, fin.active);
+    t('C4B-6 die urspruenglichen Sitze wurden nie verdichtet',
+      fin.slots.length === 5, fin.slots);
+    t('C4B-6 alle Clients deckungsgleich', sameHash(cs), cs.map(c => c.hash()));
+  }
+
+  // ── C4B-7: Austritt bei nur noch zwei Teilnehmern ──
+  // Der bestehende Vertrag entscheidet: bleibt genau einer uebrig, ist er Sieger.
+  // Kein erfundenes Tor, kein Lebensabzug.
+  {
+    const { db, cs } = await newMatch('C4CG');
+    const code = 'C4CG';
+    db.publishOffset(); await tick(db, 20);
+    const lives0 = cs[0].st().lives.join(',');
+    for (const off of [4, 3, 2]) {
+      db.setPresence(code, off, false); db.publishOffset(); await tick(db, 20);
+      db.advanceServer(16000); await tick(db, 20);
+      const w = cs.find(c => seatOf(c) !== off && cs[0].st().active[seatOf(c)]);
+      w.seatGoneNow(off); await tick(db, 40);
+      await nextBoundary(db, cs);
+      await nextBoundary(db, cs);
+    }
+    t('C4B-7 Vorbedingung: zwei Teilnehmer', cs[0].st().active.filter(Boolean).length === 2,
+      cs[0].st().active);
+    // Und nun geht auch der zweite.
+    db.setPresence(code, 1, false); db.publishOffset(); await tick(db, 20);
+    db.advanceServer(16000); await tick(db, 20);
+    cs[0].seatGoneNow(1); await tick(db, 40);
+    await nextBoundary(db, cs);
+    await nextBoundary(db, cs);
+    const st = cs[0].st();
+    t('C4B-7 der verbliebene Spieler ist Sieger', st.winner === 0, { winner: st.winner, active: st.active });
+    t('C4B-7 ohne erfundenes Tor und ohne Lebensabzug',
+      cs[0].sfx().goal === 0 && st.lives.join(',') === lives0, { sfx: cs[0].sfx(), lives: st.lives });
+  }
+}
+
+// ── C4B · NACHWEISE ZU DEN DREI P1 AUS DEM ABSCHLUSSREVIEW ────────────────────
+{
+  const seatOf = (c) => c.st().myPlayer;
+  const nextBoundary = async (db, cs) => {
+    for (const c of cs) { const st = c.st(), me = st.myPlayer;
+      if (st.active[me] && !st.aimSet[me]) c.commitVec(50, -30, 0); }
+    await tick(db, 40);
+    for (const c of cs) c.pump();
+    await tick(db, 40);
+  };
+  // ── C4B-5a: der letzte Verbliebene wird selbst entfernt ──
+  // Ein verzoegerter REMOVE darf niemanden kroenen, der selbst schon ausgetragen ist.
+  {
+    const { db, cs } = await newMatch('C4CL');
+    const code = 'C4CL';
+    db.publishOffset(); await tick(db, 20);
+    const lives0 = cs[0].st().lives.join(',');
+    // Auf zwei Aktive bringen.
+    for (const off of [4, 3, 2]) {
+      db.setPresence(code, off, false); db.publishOffset(); await tick(db, 20);
+      db.advanceServer(16000); await tick(db, 20);
+      const w = cs.find(c => seatOf(c) !== off && cs[0].st().active[seatOf(c)]);
+      w.seatGoneNow(off); await tick(db, 40);
+      await nextBoundary(db, cs); await nextBoundary(db, cs);
+    }
+    t('C4B-5a Vorbedingung: zwei Aktive', cs[0].st().active.filter(Boolean).length === 2,
+      cs[0].st().active);
+    // Sitz 1 wird ausgetragen - waehrend fuer Sitz 0 bereits eine Eviction vorliegt.
+    db.setPresence(code, 1, false); db.setPresence(code, 0, false);
+    db.publishOffset(); await tick(db, 20);
+    db.advanceServer(16000); await tick(db, 20);
+    t('C4B-5a ein ausgetragener Sitz ist nicht mehr siegberechtigt',
+      cs[0].eligible().indexOf(0) >= 0 || cs[0].eligible().indexOf(1) >= 0
+      || cs[0].eligible().length === 0, cs[0].eligible());
+    cs[1].seatGoneNow(0); cs[0].seatGoneNow(1); await tick(db, 40);
+    await nextBoundary(db, cs); await nextBoundary(db, cs);
+    const st = cs[0].st();
+    t('C4B-5a kein ausgetragener Sitz wird Sieger',
+      st.winner === null || (st.active[st.winner] === true && cs[0].ev()[st.winner] !== true),
+      { winner: st.winner, active: st.active, ev: cs[0].ev() });
+    t('C4B-5a kein Tor, kein Lebensabzug',
+      cs[0].sfx().goal === 0 && st.lives.join(',') === lives0, { sfx: cs[0].sfx(), lives: st.lives });
+  }
+
+  // ── C4B-5b: Ergebnis ohne verbleibenden Teilnehmer ──
+  // Es darf kein Sieger erfunden werden - und gameOver darf nicht mit null aufgerufen
+  // werden (dort werden Name und Farbe eines Siegers erwartet).
+  {
+    const { db, cs } = await newMatch('C4CM');
+    const code = 'C4CM';
+    db.publishOffset(); await tick(db, 20);
+    for (const off of [4, 3, 2]) {
+      db.setPresence(code, off, false); db.publishOffset(); await tick(db, 20);
+      db.advanceServer(16000); await tick(db, 20);
+      const w = cs.find(c => seatOf(c) !== off && cs[0].st().active[seatOf(c)]);
+      w.seatGoneNow(off); await tick(db, 40);
+      await nextBoundary(db, cs); await nextBoundary(db, cs);
+    }
+    db.setPresence(code, 0, false); db.setPresence(code, 1, false);
+    db.publishOffset(); await tick(db, 20);
+    db.advanceServer(16000); await tick(db, 20);
+    cs[1].seatGoneNow(0); cs[0].seatGoneNow(1); await tick(db, 40);
+    await nextBoundary(db, cs); await nextBoundary(db, cs);
+    const st = cs[0].st();
+    t('C4B-5b gameOver wurde NICHT mit null aufgerufen',
+      st.over.every(w => w !== null && w !== undefined), st.over);
+    t('C4B-5b kein erfundener Sieger', st.winner === null || st.active[st.winner] === true,
+      { winner: st.winner, active: st.active });
+    t('C4B-5b kein Tor, keine Lebensmanipulation',
+      cs[0].sfx().goal === 0 && st.lives.join(',') === '2,2,2,2,2',
+      { sfx: cs[0].sfx(), lives: st.lives });
+  }
+
+  // ── C4B-5e: eine neue Generation startet nach einem Austritt NICHT ──
+  // Die Rules sperren nur den Schreiber selbst; ein verbundener Mitspieler koennte gen
+  // erhoehen. Jeder Client muss den Start dann verweigern.
+  {
+    const { db, cs } = await newMatch('C4CP');
+    const code = 'C4CP', off = 2;
+    db.publishOffset(); await tick(db, 20);
+    db.setPresence(code, off, false); db.publishOffset(); await tick(db, 20);
+    db.advanceServer(16000); await tick(db, 20);
+    cs[0].seatGoneNow(off); await tick(db, 40);
+    t('C4B-5e Vorbedingung: ein Austritt liegt vor', cs[0].exitHappened() === true, cs[0].ev());
+    const lauf0 = cs[0].st().runningGen;
+    // Ein Mitspieler erhoeht die Generation direkt in den Daten (so wie es ein Peer
+    // regelkonform koennte).
+    db.data.rooms[code].gen = db.data.rooms[code].gen + 1; db.touch(); await tick(db, 30);
+    t('C4B-5e kein Client startet die neue Generation',
+      cs.every(c => c.st().runningGen === lauf0), cs.map(c => c.st().runningGen));
+    t('C4B-5e und niemand wird zum Sieger erklaert',
+      cs[0].st().winner === null && cs[0].st().over.every(w => w !== null && w !== undefined),
+      { winner: cs[0].st().winner, over: cs[0].st().over });
+  }
+
+  // ── C4B-5f: der Batch benutzt dieselbe Siegerquelle ──
+  {
+    const { db, cs } = await newMatch('C4CQ');
+    const code = 'C4CQ';
+    db.publishOffset(); await tick(db, 20);
+    // Einen Sitz austragen lassen, aber den REMOVE noch NICHT anwenden: er ist
+    // evictiert und damit nicht mehr siegberechtigt.
+    db.setPresence(code, 1, false); db.publishOffset(); await tick(db, 20);
+    db.advanceServer(16000); await tick(db, 20);
+    cs[0].seatGoneNow(1); await tick(db, 40);
+    // Der Marker allein ist eine Berechtigung, kein Spielzug: solange kein REMOVE in
+    // der Historie steht, bleibt der Sitz Teilnehmer. Sonst entschiede die
+    // Zustellreihenfolge des Listeners ueber den Spielausgang.
+    t('C4B-5f der Marker allein nimmt die Siegberechtigung NICHT',
+      cs[0].eligible().indexOf(1) >= 0, { eligible: cs[0].eligible(), ev: cs[0].ev() });
+    t('C4B-5f die uebrigen bleiben siegberechtigt',
+      [0, 2, 3, 4].every(x => cs[0].eligible().indexOf(x) >= 0), cs[0].eligible());
+    // Erst der kanonische REMOVE entscheidet.
+    await nextBoundary(db, cs);
+    t('C4B-5f der kanonische REMOVE steht in der Historie',
+      cs[0].pendingRemovals().indexOf(1) >= 0, cs[0].pendingRemovals());
+    t('C4B-5f und erst er nimmt die Siegberechtigung',
+      cs[0].eligible().indexOf(1) < 0, cs[0].eligible());
+  }
+
+  // ── C4B-5c: Rematch nach dauerhaftem Austritt ist gesperrt ──
+  {
+    const { db, cs } = await newMatch('C4CN');
+    const code = 'C4CN', off = 2;
+    db.publishOffset(); await tick(db, 20);
+    t('C4B-5c vor jedem Austritt ist ein Rematch moeglich',
+      cs[0].exitHappened() === false, cs[0].exitHappened());
+    const gen0 = db.data.rooms[code].gen;
+    cs[0].rematch(); await tick(db, 30);
+    t('C4B-5c und er startet die naechste Generation', db.data.rooms[code].gen === gen0 + 1,
+      db.data.rooms[code].gen);
+
+    // Jetzt ein dauerhafter Austritt.
+    db.setPresence(code, off, false); db.publishOffset(); await tick(db, 20);
+    db.advanceServer(16000); await tick(db, 20);
+    cs[0].seatGoneNow(off); await tick(db, 40);
+    t('C4B-5c der Austritt ist vermerkt', cs[0].exitHappened() === true, cs[0].ev());
+    const gen1 = db.data.rooms[code].gen;
+    cs[0].rematch(); await tick(db, 30);
+    t('C4B-5c danach startet KEINE neue Generation mehr',
+      db.data.rooms[code].gen === gen1, db.data.rooms[code].gen);
+    t('C4B-5c kein geloeschter Rosteranker gelangt in eine neue Generation',
+      db.data.rooms[code].gen === gen1, { gen: db.data.rooms[code].gen, erwartet: gen1 });
+    // Der Server sperrt den Wechsel ohnehin (s. C4B-7a). Die Aufgabe des Clients ist
+    // eine andere: er darf den Spieler nicht ins Leere klicken lassen, sondern muss
+    // sagen, warum nichts passiert.
+    t('C4B-5c der Client sagt dem Spieler, warum kein Rematch mehr geht',
+      cs[0].discView().toasts.some(x => x.indexOf('kein Rematch in diesem Raum') >= 0),
+      cs[0].discView().toasts);
+  }
+
+  // ── C4B-5d: bewusstes Verlassen sperrt den Rematch ebenso ──
+  {
+    const { db, cs } = await newMatch('C4CO');
+    const code = 'C4CO', quit = 3;
+    db.publishOffset(); await tick(db, 20);
+    cs[quit].leave(); await tick(db, 40);
+    t('C4B-5d der Rosteranker ist zurueckgetreten',
+      db.data.rooms[code].players[quit] === undefined, db.data.rooms[code].players);
+    const gen0 = db.data.rooms[code].gen;
+    cs[0].rematch(); await tick(db, 30);
+    t('C4B-5d ein Rematch startet keine neue Generation mit fehlendem Anker',
+      db.data.rooms[code].gen === gen0, db.data.rooms[code].gen);
+    t('C4B-5d die Rematch-Schaltflaeche wird nicht angeboten',
+      cs[0].rematchShown() !== true || cs[0].exitHappened() === true,
+      { shown: cs[0].rematchShown(), exit: cs[0].exitHappened() });
+  }
+
+}
+
+
+// ── C4B · DIE WACHEN DER SIEGERBESTIMMUNG ─────────────────────────────────────
+// Geprueft wird der Entschluss selbst: wer darf Sieger werden, und was passiert, wenn
+// niemand mehr uebrig ist. Ohne diese Gruppen waeren die Wachen nicht diskriminierend
+// abgesichert.
+{
+  const seatOf = (c) => c.st().myPlayer;
+  const nextBoundary = async (db, cs) => {
+    for (const c of cs) { const st = c.st(), me = st.myPlayer;
+      if (st.active[me] && !st.aimSet[me]) c.commitVec(50, -30, 0); }
+    await tick(db, 40);
+    for (const c of cs) c.pump();
+    await tick(db, 40);
+  };
+  // Einen Sitz dauerhaft austragen (Marker + Anwendung), damit die Runde schrumpft.
+  const austragen = async (db, cs, code, off) => {
+    db.setPresence(code, off, false); db.publishOffset(); await tick(db, 20);
+    db.advanceServer(16000); await tick(db, 20);
+    const w = cs.find(c => seatOf(c) !== off && cs[0].st().active[seatOf(c)]);
+    w.seatGoneNow(off); await tick(db, 40);
+    await nextBoundary(db, cs); await nextBoundary(db, cs);
+  };
+
+  // ── C4B-6a: ein vorgemerkter Austritt gilt schon im Torpfad ──
+  // Die Lage, vor der die Wache steht: gegen den einen faellt ein echtes Tor, fuer den
+  // anderen liegt im selben Zug bereits ein dauerhafter Austritt vor. Dann ist niemand
+  // mehr uebrig - es darf kein Sieger gekroent und kein Siegerende gefeiert werden.
+  {
+    const { db, cs } = await newMatch('C4DA');
+    const code = 'C4DA';
+    db.publishOffset(); await tick(db, 20);
+    await austragen(db, cs, code, 4);
+    await austragen(db, cs, code, 3);
+    await austragen(db, cs, code, 2);
+    t('C4B-6a Vorbedingung: zwei Aktive (0 und 1)',
+      cs[0].st().active.filter(Boolean).length === 2 && cs[0].st().active[0] && cs[0].st().active[1],
+      cs[0].st().active);
+
+    // Fuer Sitz 0 liegt ein REMOVE vor, ist aber noch nicht angewandt - genau das
+    // Zeitfenster, in dem ein Zug aufgeloest wird.
+    db.setPresence(code, 0, false); db.publishOffset(); await tick(db, 20);
+    db.advanceServer(16000); await tick(db, 20);
+    cs[1].seatGoneNow(0); await tick(db, 40);
+    await nextBoundary(db, cs);
+    t('C4B-6a der REMOVE fuer Sitz 0 ist vorgemerkt, aber noch nicht angewandt',
+      cs[1].pendingRemovals().indexOf(0) >= 0 && cs[1].st().active[0] === true,
+      { pending: cs[1].pendingRemovals(), active: cs[1].st().active });
+    t('C4B-6a ein vorgemerkter Austritt nimmt die Siegberechtigung',
+      cs[1].eligible().indexOf(0) < 0, { eligible: cs[1].eligible(), pending: cs[1].pendingRemovals() });
+    t('C4B-6a und der andere bleibt berechtigt', cs[1].eligible().indexOf(1) >= 0, cs[1].eligible());
+
+    // Jetzt scheidet Sitz 1 regulaer aus - der Torpfad.
+    const vorher = cs[1].st();
+    cs[1].elimEliminate(1);
+    const st = cs[1].st();
+    t('C4B-6a kein vorgemerkt ausgetragener Sitz wird Sieger',
+      st.winner === null, { winner: st.winner, pending: cs[1].pendingRemovals() });
+    t('C4B-6a gameOver wurde NICHT mit null aufgerufen',
+      st.over.every(w => w !== null && w !== undefined), st.over);
+    t('C4B-6a das Match endet ohne Sieger', st.phase === 'over', st.phase);
+    t('C4B-6a und ohne Lebensmanipulation', st.lives.join(',') === vorher.lives.join(','),
+      { vorher: vorher.lives, nachher: st.lives });
+  }
+
+  // ── C4B-6b: der Batch entscheidet aus der ENDGUELTIGEN Menge ──
+  // Drei Spieler scheiden regulaer durch Tore aus - sie bleiben verbunden und duerfen
+  // deshalb fuer die beiden Verbliebenen schreiben. Verlieren diese beiden dauerhaft
+  // die Verbindung, werden sie im SELBEN Schritt entfernt: danach ist die berechtigte
+  // Menge leer.
+  {
+    const { db, cs } = await newMatch('C4DB');
+    const code = 'C4DB';
+    db.publishOffset(); await tick(db, 20);
+    for (const s of [4, 3, 2]) {
+      const raus = await eliminateSeat(db, cs, s, 40);
+      t('C4B-6b Sitz ' + s + ' scheidet regulaer durch Tore aus', raus === true,
+        { active: cs[0].st().active, lives: cs[0].st().lives });
+    }
+    t('C4B-6b Vorbedingung: zwei Aktive, drei verbundene Zuschauer',
+      cs[0].st().active.filter(Boolean).length === 2 && cs[0].st().active[0] && cs[0].st().active[1],
+      cs[0].st().active);
+
+    const lebenVorher = cs[2].st().lives.join(',');
+    const toreVorher = cs[2].sfx().goal;
+    db.setPresence(code, 0, false); db.setPresence(code, 1, false);
+    db.publishOffset(); await tick(db, 20);
+    db.advanceServer(16000); await tick(db, 20);
+    // Ein ausgeschiedener, aber verbundener Mitspieler traegt beide aus.
+    cs[2].seatGoneNow(0); await tick(db, 40);
+    cs[2].seatGoneNow(1); await tick(db, 40);
+    t('C4B-6b beide Austritte sind vermerkt',
+      cs[2].ev()[0] === true && cs[2].ev()[1] === true, cs[2].ev());
+    await nextBoundary(db, cs);
+    const p = cs[2].pendingRemovals();
+    t('C4B-6b beide Austritte liegen im selben Schritt an', p.indexOf(0) >= 0 && p.indexOf(1) >= 0, p);
+
+    const n = cs[2].applyRemovals();
+    const st = cs[2].st();
+    t('C4B-6b der Schritt entfernt beide', n === 2, n);
+    t('C4B-6b danach ist niemand mehr aktiv', st.active.filter(Boolean).length === 0, st.active);
+    t('C4B-6b es wird KEIN Sieger erklaert', st.winner === null, st.winner);
+    t('C4B-6b gameOver wurde NICHT mit null aufgerufen',
+      st.over.every(w => w !== null && w !== undefined), st.over);
+    t('C4B-6b der Austritt kostet weder Tor noch Leben',
+      cs[2].sfx().goal === toreVorher && st.lives.join(',') === lebenVorher,
+      { tore: cs[2].sfx().goal, lives: st.lives });
+  }
+
+  // ── C4B-6d: gleiche Historie, verschiedene Marker-Zustellung, gleiches Ergebnis ──
+  // Der Eviction-Marker erreicht zwei Clients zu verschiedenen Zeitpunkten. Beide haben
+  // dieselbe kanonische Zughistorie - also MUESSEN beide denselben Sieger und denselben
+  // simHash bestimmen. Waere der Marker Spielautoritaet, entschiede hier die
+  // Zustellreihenfolge und die beiden Clients liefen auseinander.
+  {
+    const { db, cs } = await newMatch('C4DD');
+    const code = 'C4DD';
+    db.publishOffset(); await tick(db, 20);
+    for (const s of [4, 3]) {
+      const raus = await eliminateSeat(db, cs, s, 40);
+      t('C4B-6d Sitz ' + s + ' scheidet regulaer durch Tore aus', raus === true, cs[0].st().active);
+    }
+    t('C4B-6d Vorbedingung: drei Aktive, zwei verbundene Zuschauer',
+      cs[0].st().active.join(',') === 'true,true,true,false,false', cs[0].st().active);
+
+    // Sitze 1 und 2 fallen dauerhaft aus: Marker und kanonischer REMOVE entstehen.
+    db.setPresence(code, 1, false); db.setPresence(code, 2, false);
+    db.publishOffset(); await tick(db, 20);
+    db.advanceServer(16000); await tick(db, 20);
+    cs[3].seatGoneNow(1); await tick(db, 40);
+    cs[3].seatGoneNow(2); await tick(db, 40);
+    await nextBoundary(db, cs);
+    t('C4B-6d die REMOVE-Datensaetze von 1 und 2 stehen an',
+      cs[3].pendingRemovals().join(',') === '1,2' && cs[4].pendingRemovals().join(',') === '1,2',
+      { a: cs[3].pendingRemovals(), b: cs[4].pendingRemovals() });
+
+    // Sitz 0 wird ausgetragen - der Marker erreicht cs[3] sofort, cs[4] gar nicht.
+    db.hold(cs[4].uid, 'e');
+    db.setPresence(code, 0, false); db.publishOffset(); await tick(db, 20);
+    db.advanceServer(16000); await tick(db, 20);
+    cs[3].seatGoneNow(0); await tick(db, 5);
+    t('C4B-6d die beiden Clients sehen den Marker unterschiedlich',
+      cs[3].ev()[0] === true && cs[4].ev()[0] !== true, { a: cs[3].ev(), b: cs[4].ev() });
+    t('C4B-6d ihre kanonische Historie ist identisch',
+      cs[3].pendingRemovals().join(',') === cs[4].pendingRemovals().join(',')
+      && cs[3].hash() === cs[4].hash(),
+      { a: cs[3].pendingRemovals(), b: cs[4].pendingRemovals(), ha: cs[3].hash(), hb: cs[4].hash() });
+
+    const na = cs[3].applyRemovals(), nb = cs[4].applyRemovals();
+    const a = cs[3].st(), b = cs[4].st();
+    t('C4B-6d beide wenden denselben Batch an', na === 2 && nb === 2, { na, nb });
+    t('C4B-6d beide bestimmen DENSELBEN Sieger', a.winner === b.winner,
+      { a: a.winner, b: b.winner });
+    t('C4B-6d beide melden dasselbe Ergebnis', JSON.stringify(a.over) === JSON.stringify(b.over),
+      { a: a.over, b: b.over });
+    t('C4B-6d und bleiben im selben Simulationszustand', cs[3].hash() === cs[4].hash(),
+      { a: cs[3].hash(), b: cs[4].hash() });
+    t('C4B-6d der Sieger folgt der Historie, nicht dem Marker', a.winner === 0,
+      { winner: a.winner, ev: cs[3].ev(), active: a.active });
+    t('C4B-6d gameOver wurde NICHT mit null aufgerufen',
+      a.over.every(w => w !== null && w !== undefined), a.over);
+
+    // Der Marker kommt nach - am Spielergebnis darf sich nichts mehr aendern.
+    const vorher = { winner: a.winner, over: JSON.stringify(a.over), hash: cs[4].hash() };
+    db.release(cs[4].uid, 'e'); await tick(db, 40);
+    t('C4B-6d der nachtraeglich zugestellte Marker aendert das Ergebnis nicht',
+      cs[4].st().winner === vorher.winner && JSON.stringify(cs[4].st().over) === vorher.over
+      && cs[4].hash() === vorher.hash,
+      { winner: cs[4].st().winner, over: cs[4].st().over, ev: cs[4].ev() });
+    t('C4B-6d und beide Clients bleiben deckungsgleich',
+      cs[3].st().winner === cs[4].st().winner && cs[3].hash() === cs[4].hash(),
+      { a: cs[3].st().winner, b: cs[4].st().winner });
+  }
+
+  // ── C4B-6c: nach einem Austritt startet keine neue Generation ──
+  {
+    const { db, cs } = await newMatch('C4DC');
+    const code = 'C4DC', off = 2;
+    db.publishOffset(); await tick(db, 20);
+    db.setPresence(code, off, false); db.publishOffset(); await tick(db, 20);
+    db.advanceServer(16000); await tick(db, 20);
+    cs[0].seatGoneNow(off); await tick(db, 40);
+    t('C4B-6c Vorbedingung: ein Austritt liegt vor', cs[0].exitHappened() === true, cs[0].ev());
+
+    const genVorher = db.data.rooms[code].gen;
+    const laufVorher = cs.map(c => c.st().runningGen);
+    // Ein Mitspieler erhoeht die Generation trotzdem - die Rules sperren nur den
+    // Schreiber selbst, nicht diesen Fall.
+    db.data.rooms[code].gen = genVorher + 1; db.touch(); await tick(db, 40);
+    const laufNachher = cs.map(c => c.st().runningGen);
+    t('C4B-6c kein Client startet die neue Generation',
+      laufNachher.join(',') === laufVorher.join(','), { vorher: laufVorher, nachher: laufNachher });
+    t('C4B-6c und es wird kein neuer Zug fuer diese Generation begonnen',
+      ((db.data.rooms[code].g || {})[genVorher + 1] || {}).t === undefined,
+      (db.data.rooms[code].g || {})[genVorher + 1]);
+    t('C4B-6c der geloeschte Rosteranker wird nicht wiederverwendet',
+      cs[0].st().active[off] === false || cs[0].ev()[off] === true,
+      { active: cs[0].st().active, ev: cs[0].ev() });
+  }
+}
+
+
+// ── C4B · SERVERSEITIGE REMATCH-SPERRE UND KANONISCHER AUSTRITT ──────────────
+{
+  const nextBoundary = async (db, cs) => {
+    for (const c of cs) { const st = c.st(), me = st.myPlayer;
+      if (st.active[me] && !st.aimSet[me]) c.commitVec(50, -30, 0); }
+    await tick(db, 40);
+    for (const c of cs) c.pump();
+    await tick(db, 40);
+  };
+  // Ein Schreibversuch OHNE Client-Waechter, ausgewertet gegen die Datenbank.
+  const genWrite = async (db, c) => { const p = c.forceGenWrite(); await tick(db, 30); return p; };
+
+  // ── C4B-7a: die Rematch-Sperre haengt nicht am Client ──
+  // Ein Client-Waechter kann sie nicht durchsetzen: er haengt an der Zustellung seines
+  // Listeners, und ein frisch geladener Client kennt den Marker gar nicht. Geprueft wird
+  // deshalb der Schreibvorgang selbst - er muss von der Datenbank abgelehnt werden.
+  {
+    const { db, cs } = await newMatch('C4EA');
+    const code = 'C4EA';
+    db.publishOffset(); await tick(db, 20);
+    const gen0 = db.data.rooms[code].gen;
+    t('C4B-7a ohne Austritt ist der Generationswechsel erlaubt',
+      (await genWrite(db, cs[0])) === 'ok' && db.data.rooms[code].gen === gen0 + 1,
+      db.data.rooms[code].gen);
+
+    db.setPresence(code, 2, false); db.publishOffset(); await tick(db, 20);
+    db.advanceServer(16000); await tick(db, 20);
+    cs[0].seatGoneNow(2); await tick(db, 40);
+    t('C4B-7a der Austritt steht in der Historie', cs[0].ev()[2] === true, cs[0].ev());
+
+    const gen1 = db.data.rooms[code].gen;
+    for (const i of [0, 1, 2, 3, 4]) {
+      const r = await genWrite(db, cs[i]);
+      t('C4B-7a Client ' + i + ' darf danach keine neue Generation schreiben',
+        r === 'denied' && db.data.rooms[code].gen === gen1,
+        { antwort: r, gen: db.data.rooms[code].gen });
+    }
+  }
+
+  // ── C4B-7b: der Austritt geht gegen die AUTORITATIVE Generation ──
+  // Ein fremder Rematch erhoeht die Generation, waehrend ein Client sie noch nicht
+  // zugestellt bekommen hat. Sein Austritt darf nicht gegen die alte Generation
+  // geschrieben werden - sonst wiese die Regel das gesamte atomare Update ab und der
+  // Sitz bliebe als verbundener Geistersitz stehen.
+  {
+    const { db, cs } = await newMatch('C4EB');
+    const code = 'C4EB', quit = 3;
+    db.publishOffset(); await tick(db, 20);
+    db.hold(cs[quit].uid, 'gen');
+    const genAlt = cs[quit].st().gen;
+    cs[0].rematch(); await tick(db, 40);
+    const genNeu = db.data.rooms[code].gen;
+    t('C4B-7b die Generation ist serverseitig weiter', genNeu === genAlt + 1, { genAlt, genNeu });
+    t('C4B-7b der austretende Client kennt sie noch nicht', cs[quit].st().gen === genAlt,
+      cs[quit].st().gen);
+
+    cs[quit].leave(); await tick(db, 60);
+    const room = db.data.rooms[code];
+    t('C4B-7b der Sitz ist zurueckgenommen',
+      (!room || !room.players || room.players[quit] === undefined), room && room.players);
+    t('C4B-7b keine Praesenz bleibt zurueck',
+      (!room || !room.p || room.p[quit] === undefined), room && room.p);
+    t('C4B-7b der Marker steht in der AKTUELLEN Generation',
+      !!(room && room.g && room.g[genNeu] && room.g[genNeu].e && room.g[genNeu].e[quit] === true),
+      room && room.g);
+    t('C4B-7b und nicht in der alten',
+      !(room && room.g && room.g[genAlt] && room.g[genAlt].e && room.g[genAlt].e[quit] === true),
+      room && room.g);
+    t('C4B-7b der Client hat den Raum wirklich verlassen',
+      cs[quit].st().online === false && cs[quit].st().roomCode === '', cs[quit].st());
+    t('C4B-7b und meldet keinen Fehler', cs[quit].leaveState().error === '', cs[quit].leaveState());
+  }
+
+  // ── C4B-7c: ein abgelehnter Versuch wird wiederholt, nicht verschluckt ──
+  {
+    const { db, cs } = await newMatch('C4EC');
+    const code = 'C4EC', quit = 2;
+    db.publishOffset(); await tick(db, 20);
+    db.failWrites(cs[quit].uid, 1);
+    cs[quit].leave(); await tick(db, 60);
+    const room = db.data.rooms[code];
+    t('C4B-7c der zweite Anlauf gelingt',
+      (!room || !room.players || room.players[quit] === undefined), room && room.players);
+    t('C4B-7c der Austritt ist vermerkt',
+      !!(room && room.g && room.g[room.gen] && room.g[room.gen].e
+         && room.g[room.gen].e[quit] === true), room && room.g);
+    t('C4B-7c und der Client ist danach draussen', cs[quit].st().online === false, cs[quit].st());
+  }
+
+  // ── C4B-7d: scheitert der Austritt endgueltig, wird er NICHT vorgetaeuscht ──
+  // Kein halber Austritt: entweder der Sitz ist serverseitig zurueckgenommen, oder der
+  // Spieler ist weiter im Match - und erfaehrt das auch.
+  {
+    const { db, cs } = await newMatch('C4ED');
+    const code = 'C4ED', quit = 1;
+    db.publishOffset(); await tick(db, 20);
+    db.failWrites(cs[quit].uid, 99);
+    cs[quit].leave(); await tick(db, 80);
+    const room = db.data.rooms[code];
+    t('C4B-7d der Sitz bleibt serverseitig bestehen',
+      !!(room && room.players && room.players[quit]), room && room.players);
+    t('C4B-7d die Praesenz bleibt bestehen - kein halber Austritt',
+      !!(room && room.p && room.p[quit]), room && room.p);
+    t('C4B-7d kein Austrittsmarker wurde gesetzt',
+      !(room && room.g && room.g[room.gen] && room.g[room.gen].e
+        && room.g[room.gen].e[quit] === true), room && room.g);
+    t('C4B-7d der Client bleibt im Match',
+      cs[quit].st().online === true && cs[quit].st().roomCode === code, cs[quit].st());
+    t('C4B-7d das Scheitern ist festgehalten',
+      cs[quit].leaveState().error !== '' && cs[quit].leaveState().busy === false,
+      cs[quit].leaveState());
+    t('C4B-7d und es wird dem Spieler gesagt',
+      cs[quit].discView().toasts.some(x => x.indexOf('Austritt nicht bestaetigt') >= 0),
+      cs[quit].discView().toasts);
+    t('C4B-7d nichts wurde als erledigt vermerkt', cs[quit].leaveState().retired === false,
+      cs[quit].leaveState());
+
+    db.failWrites(cs[quit].uid, 0);
+    cs[quit].leave(); await tick(db, 60);
+    const room2 = db.data.rooms[code];
+    t('C4B-7d der naechste Versuch traegt',
+      (!room2 || !room2.players || room2.players[quit] === undefined), room2 && room2.players);
+    t('C4B-7d und der Client ist danach draussen', cs[quit].st().online === false, cs[quit].st());
+  }
+
+  // ── C4B-7e: der Austritt bleibt ein dauerhafter Austritt ──
+  // Nach dem kanonischen Verlassen schliesst ein verbliebener Mitspieler den Sitz per
+  // REMOVE - genau wie beim Fristablauf, ohne Tor und ohne Lebensabzug.
+  {
+    const { db, cs } = await newMatch('C4EE');
+    const code = 'C4EE', quit = 4;
+    db.publishOffset(); await tick(db, 20);
+    const leben0 = cs[0].st().lives.join(',');
+    cs[quit].leave(); await tick(db, 60);
+    const evAt = (r) => (r && r.g && r.g[r.gen] && r.g[r.gen].e) || {};
+    t('C4B-7e der Austritt ist vermerkt',
+      evAt(db.data.rooms[code])[quit] === true, db.data.rooms[code] && db.data.rooms[code].g);
+    await nextBoundary(db, cs); await nextBoundary(db, cs);
+    const st = cs[0].st();
+    t('C4B-7e der Sitz ist aus dem Spiel genommen', st.active[quit] === false, st.active);
+    t('C4B-7e ohne Tor und ohne Lebensabzug',
+      cs[0].sfx().goal === 0 && st.lives.join(',') === leben0,
+      { sfx: cs[0].sfx(), lives: st.lives });
+    t('C4B-7e die uebrigen Sitze bleiben, wie sie waren',
+      st.active.map((v, i) => (v ? i : -1)).filter(i => i >= 0).join(',') === '0,1,2,3', st.active);
+    t('C4B-7e alle verbliebenen Clients sind deckungsgleich',
+      [0, 1, 2, 3].every(i => cs[i].hash() === cs[0].hash()), [0, 1, 2, 3].map(i => cs[i].hash()));
+  }
+}
+
+
+// ── C4B · NACHBESSERUNGEN AUS DEM ABSCHLUSSREVIEW ────────────────────────────
+{
+  // ── C4B-8a: der Uebergang ins Menue folgt der Bestaetigung, nicht dem Klick ──
+  // showMenu() raeumt den Matchzustand ab. Solange der Austritt nicht bestaetigt ist,
+  // ist der Client aber weiter Teilnehmer - ein abgeraeumter Zustand waere falsch.
+  {
+    const { db, cs } = await newMatch('C4FA');
+    const code = 'C4FA', quit = 1;
+    db.publishOffset(); await tick(db, 20);
+    const hash0 = cs[quit].hash();
+    db.failWrites(cs[quit].uid, 99);
+    cs[quit].leaveThen(); await tick(db, 80);
+    t('C4B-8a der Uebergang ist NICHT gelaufen', cs[quit].afterCount() === 0,
+      cs[quit].afterCount());
+    t('C4B-8a der Matchzustand steht unveraendert', cs[quit].hash() === hash0,
+      { vorher: hash0, nachher: cs[quit].hash() });
+    t('C4B-8a der Client ist weiter im Match', cs[quit].st().online === true, cs[quit].st());
+
+    db.failWrites(cs[quit].uid, 0);
+    cs[quit].leaveThen(); await tick(db, 60);
+    t('C4B-8a nach der Bestaetigung laeuft der Uebergang genau einmal',
+      cs[quit].afterCount() === 1, cs[quit].afterCount());
+    t('C4B-8a und der Sitz ist zurueckgenommen',
+      db.data.rooms[code] === undefined || db.data.rooms[code].players[quit] === undefined,
+      db.data.rooms[code] && db.data.rooms[code].players);
+  }
+
+  // ── C4B-8b: ein abgelehnter Rematch nimmt lokal nichts vorweg ──
+  // Ein Client, der den Marker noch nicht zugestellt bekommen hat, laeuft in die
+  // serverseitige Sperre. Er darf die neue Generation nicht schon vorher starten und
+  // sie dann wieder zuruecknehmen - beobachtbar waere ein kurzer, falscher Neustart.
+  {
+    const { db, cs } = await newMatch('C4FB');
+    const code = 'C4FB', off = 2;
+    db.publishOffset(); await tick(db, 20);
+    db.hold(cs[3].uid, 'e');            // dieser Client erfaehrt vom Austritt nichts
+    db.setPresence(code, off, false); db.publishOffset(); await tick(db, 20);
+    db.advanceServer(16000); await tick(db, 20);
+    cs[0].seatGoneNow(off); await tick(db, 40);
+    t('C4B-8b der eine Client kennt den Austritt, der andere nicht',
+      cs[0].exitHappened() === true && cs[3].exitHappened() === false,
+      { a: cs[0].ev(), b: cs[3].ev() });
+
+    const gen0 = db.data.rooms[code].gen;
+    const lauf0 = cs.map(c => c.st().runningGen);
+    const hash0 = cs[3].hash();
+    cs[3].rematch(); await tick(db, 40);
+    t('C4B-8b die Generation bleibt unveraendert', db.data.rooms[code].gen === gen0,
+      db.data.rooms[code].gen);
+    t('C4B-8b kein Client hat eine neue Generation gestartet',
+      cs.every((c, i) => c.st().runningGen === lauf0[i]), cs.map(c => c.st().runningGen));
+    t('C4B-8b auch der Anfragende nicht - sein Zustand ist unberuehrt',
+      cs[3].hash() === hash0, { vorher: hash0, nachher: cs[3].hash() });
+    t('C4B-8b und er erfaehrt, dass es nicht geht',
+      cs[3].discView().toasts.some(x => x.indexOf('Rematch nicht') >= 0),
+      cs[3].discView().toasts);
+  }
+
+  // ── C4B-8c: ein verspaeteter Austritt traegt keine fremde Sitzung aus ──
+  // Derselbe Account in einem neuen Tab kann den Sitz zurueckerobern. Ein noch laufender
+  // Austritt der alten Sitzung darf dessen Anker nicht loeschen.
+  {
+    const { db, cs } = await newMatch('C4FC');
+    const code = 'C4FC', quit = 3;
+    db.publishOffset(); await tick(db, 20);
+    // Der Sitz gehoert jetzt einer NEUEREN Sitzung desselben Kontos.
+    const neuerTab = 'FBTAB_NEU';
+    db.data.rooms[code].players[quit].tab = neuerTab;
+    db.data.rooms[code].p[quit].s = neuerTab;
+    db.touch(); await tick(db, 20);
+    t('C4B-8c die alte Sitzung kennt einen anderen Tab', cs[quit].tab() !== neuerTab,
+      { alt: cs[quit].tab(), neu: neuerTab });
+
+    cs[quit].leave(); await tick(db, 60);
+    const room = db.data.rooms[code];
+    t('C4B-8c der Rosteranker der neuen Sitzung bleibt stehen',
+      !!(room && room.players && room.players[quit] && room.players[quit].tab === neuerTab),
+      room && room.players && room.players[quit]);
+    t('C4B-8c ihre Praesenz bleibt ebenfalls stehen',
+      !!(room && room.p && room.p[quit] && room.p[quit].s === neuerTab),
+      room && room.p && room.p[quit]);
+    t('C4B-8c und es wurde kein Austritt fuer sie vermerkt',
+      !(room && room.g && room.g[room.gen] && room.g[room.gen].e
+        && room.g[room.gen].e[quit] === true), room && room.g);
+    t('C4B-8c die alte Sitzung hat den Raum trotzdem verlassen',
+      cs[quit].st().online === false, cs[quit].st());
+  }
+
+  // ── C4B-8d: ein bereits gesetzter Marker laesst die Anker nicht zurueck ──
+  // Beim Fristablauf setzt ein Mitspieler den Marker, waehrend p/ und players/ stehen
+  // bleiben. Verlaesst der Betroffene danach selbst, muessen genau diese Anker weg -
+  // und der write-once Marker darf nicht erneut geschrieben werden.
+  {
+    const { db, cs } = await newMatch('C4FD');
+    const code = 'C4FD', off = 4;
+    db.publishOffset(); await tick(db, 20);
+    db.setPresence(code, off, false); db.publishOffset(); await tick(db, 20);
+    db.advanceServer(16000); await tick(db, 20);
+    cs[0].seatGoneNow(off); await tick(db, 40);
+    const evJetzt = () => { const r = db.data.rooms[code];
+      return (r && r.g && r.g[r.gen] && r.g[r.gen].e) || {}; };
+    t('C4B-8d der Marker steht, die Anker stehen noch',
+      evJetzt()[off] === true
+      && !!db.data.rooms[code].players[off] && !!db.data.rooms[code].p[off],
+      { g: db.data.rooms[code].g, players: db.data.rooms[code].players[off] });
+
+    db.setPresence(code, off, true);   // der Betroffene ist wieder verbunden …
+    await tick(db, 20);
+    cs[off].leave(); await tick(db, 60);   // … und geht selbst
+    const room = db.data.rooms[code];
+    t('C4B-8d sein Rosteranker ist weg',
+      !room || !room.players || room.players[off] === undefined, room && room.players);
+    t('C4B-8d seine Praesenz ist weg',
+      !room || !room.p || room.p[off] === undefined, room && room.p);
+    t('C4B-8d der Marker steht unveraendert',
+      !room || (room.g && room.g[room.gen] && room.g[room.gen].e
+                && room.g[room.gen].e[off] === true), room && room.g);
+    t('C4B-8d ohne gemeldeten Fehler', cs[off].leaveState().error === '',
+      cs[off].leaveState());
   }
 }
 

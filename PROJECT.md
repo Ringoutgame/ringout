@@ -156,6 +156,25 @@ anderer angemeldeter, aktiver Teilnehmer, wenn das Ziel offline ist und seit min
 die Zahl ist dort ein Literal und entspricht `SEAT_STALE_MS`. Eine gesetzte Eviction
 sperrt Praesenz-Reaktivierung, Reclaim und jeden weiteren `move` desselben Sitzes.
 
+**Die Historie entscheidet, nicht der Marker.** Der Eviction-Marker ist die
+*Berechtigung* fuer den dauerhaften Austritt, nicht der Austritt selbst. Fuer Gameplay,
+Siegerermittlung, Replay und `simHash` gilt ausschliesslich die kanonische Zughistorie:
+gameplayseitig ist ein Spieler erst dann entfernt, wenn sein `remove`-Datensatz aus der
+Historie **angewandt** wurde (`fbApplyPendingRemovals` am Zugbeginn). Der Marker allein
+veraendert keinen Spielzustand — er erreicht die Clients zu verschiedenen Zeitpunkten,
+und wuerde er mitentscheiden, haetten zwei Clients mit derselben Historie verschiedene
+Ergebnisse.
+
+> **Bewusst akzeptierter terminaler Randfall.** Hat ein Spieler seinen `move`/`skip` fuer
+> eine bereits laufende Runde abgegeben und verlaesst danach dauerhaft das Match, wird
+> diese Runde noch unter seiner Teilnahme abgeschlossen — sein `remove` passt nicht mehr
+> in den belegten Write-once-Slot. Endet das Match genau in dieser Runde, kann er noch
+> als Sieger hervorgehen. Alle Clients kommen dabei zum selben Ergebnis. Das ist die
+> gewollte Folge von **History-Determinismus vor Live-Listener-Zeitpunkt** und keine
+> Panne: `roomEv` gehoert nicht in die Siegerlogik, ein Abrechnungszug oder eine weitere
+> Regelaenderung waeren dafuer noetig und sind ausdruecklich nicht vorgesehen. Denkbar
+> bleibt spaeter eine reine UX-Verbesserung (Hinweis im Ergebnisfenster).
+
 **Kein Spielzustand im Netz.** Leben, Aktiv-Liste, Arenaphase, Morph-Fortschritt, Torstand
 und Torablauf werden **nicht** serialisiert. Der Server haelt Identitaet, Praesenz,
 Konfiguration, Zughistorie und den Eviction-Marker — alles andere entsteht deterministisch

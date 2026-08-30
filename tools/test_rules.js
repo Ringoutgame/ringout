@@ -321,6 +321,39 @@ deny('gen in a pre-v4 room, by an active participant',
 // frischen Generation sofort wieder evictieren.
 deny('an evicted participant cannot bump the generation',
   db1({ p: { 0: P(H_TAB, true) }, g: { 0: { e: { 0: true } } } }), 'rooms/KX7P/gen', 1, UID_GUEST);
+// C4B/Entscheidung 2: Nach einem dauerhaften Austritt ist der Rematch im selben Raum
+// nicht mehr vorgesehen - und das muss der Server durchsetzen. Ein Client-Wachter kann
+// es nicht: er haengt an der Zustellreihenfolge seines Listeners, und ein frisch
+// geladener Client kennt den Marker gar nicht. Die Regel sperrt deshalb JEDEN
+// Generationswechsel, sobald die abgeschlossene Generation irgendeine Eviction traegt.
+// Da der Wechsel damit gesperrt bleibt, kann ein Marker auch nie in einer
+// ZURUECKLIEGENDEN Generation stehen - die Pruefung der laufenden genuegt.
+const FBR = (over) => ({ rooms: { KX7P: Object.assign({}, FB_ATTACK, over) } });
+const fbNachAustritt = FBR({ g: { 0: { e: { 3: true } } } });
+allow('gen increment in a football room without any permanent departure',
+  FBR({}), 'rooms/KX7P/gen', 1, FB_UID[0]);
+deny('gen increment after a permanent departure, by the host',
+  fbNachAustritt, 'rooms/KX7P/gen', 1, FB_UID[0]);
+deny('gen increment after a permanent departure, by another peer',
+  fbNachAustritt, 'rooms/KX7P/gen', 1, FB_UID[1]);
+deny('gen increment after a permanent departure, by the departed seat itself',
+  fbNachAustritt, 'rooms/KX7P/gen', 1, FB_UID[3]);
+deny('gen increment after a permanent departure, unauthenticated',
+  fbNachAustritt, 'rooms/KX7P/gen', 1, null);
+// Der Marker eines JEDEN Sitzes sperrt - nicht nur der eines bestimmten.
+for (const seat of [0, 1, 2, 4]) {
+  const e = {}; e[seat] = true;
+  deny('gen increment after a permanent departure of seat ' + seat,
+    FBR({ g: { 0: { e } } }), 'rooms/KX7P/gen', 1, FB_UID[1]);
+}
+// Gleicher Wert schreiben (kein Wechsel) bleibt ebenfalls gesperrt - die Regel
+// unterscheidet nicht, und ein Rematch ist ohnehin nicht mehr vorgesehen.
+deny('rewriting gen after a permanent departure',
+  fbNachAustritt, 'rooms/KX7P/gen', 0, FB_UID[0]);
+// Der Rueckweg bleibt frei: ohne Marker verhaelt sich alles wie bisher.
+allow('gen increment in a plain ringout room stays untouched',
+  db1({ p: { 0: P(H_TAB, true) } }), 'rooms/KX7P/gen', 1, UID_GUEST);
+
 // ATOMARER Angriff: die Eviction und der Generationswechsel im SELBEN update(). Prueft die
 // gen-Regel nur den Vorzustand, ist die Sperre noch nicht gesetzt und der Wechsel gelingt -
 // in der frischen Generation gaebe es dann gar keine Eviction mehr.
