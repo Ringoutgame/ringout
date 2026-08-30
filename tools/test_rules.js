@@ -743,6 +743,34 @@ deny('team move pl 4 (seat gate, presence pre-seeded)', playing({ p: { 0: P(H_TA
     { id: 'GUEST002', name: 'g', tab: G2_TAB, uid: 'UID_G2' }, 'UID_G2');
 
   // -- MOVE ---------------------------------------------------------------------
+  // ── C1: TRANSIENTER RECONNECT ────────────────────────────────────────────────
+  // Der Live-Befund. Ein serverseitiges onDisconnect hat p/<seat>.on auf false
+  // gesetzt; der Client laeuft weiter und will seinen naechsten Zug schreiben.
+  deny('C1 REPRODUKTION: MOVE des Sitzeigentuemers, waehrend die eigene Praesenz auf on:false steht',
+    fbRoom(OFFLINE(2, 0)), 'rooms/KX7P/g/0/t/0/2', MV(2), UID[2]);
+  allow('C1 Gegenprobe: derselbe MOVE mit aktiver Praesenz',
+    fbRoom(), 'rooms/KX7P/g/0/t/0/2', MV(2), UID[2]);
+
+  // Die Rules erlauben die Reaktivierung bereits - gleiches Token, on:false -> on:true.
+  // Damit braucht C1 KEINE Rules-Aenderung, sondern nur den fehlenden Produktpfad.
+  allow('C1 Reaktivierung der eigenen Praesenz (gleiches Token, on:false -> on:true)',
+    fbRoom(OFFLINE(2, 0)), 'rooms/KX7P/p/2', P(TAB[2], true), UID[2]);
+  allow('C1 nach der Reaktivierung ist der MOVE wieder erlaubt',
+    fbRoom(), 'rooms/KX7P/g/0/t/0/2', MV(2), UID[2]);
+
+  // Und die Grenzen der Reaktivierung - hier faellt C1 bewusst geschlossen aus.
+  deny('C1 Reaktivierung mit FREMDEM Sitzungstoken',
+    fbRoom(OFFLINE(2, 0)), 'rooms/KX7P/p/2', P('FTABXXXX', true), UID[2]);
+  deny('C1 Reaktivierung durch eine FREMDE uid',
+    fbRoom(OFFLINE(2, 0)), 'rooms/KX7P/p/2', P(TAB[2], true), UID[3]);
+  deny('C1 Reaktivierung ohne Anmeldung',
+    fbRoom(OFFLINE(2, 0)), 'rooms/KX7P/p/2', P(TAB[2], true), null);
+  deny('C1 ein dauerhaft entfernter Sitz wird NICHT wiederbelebt',
+    fbRoom(Object.assign({}, OFFLINE(2, 0), { g: { 0: { e: { 2: true } } } })),
+    'rooms/KX7P/p/2', P(TAB[2], true), UID[2]);
+  deny('C1 die Reaktivierung darf den Sitz nicht auf einen anderen Sitz umschreiben',
+    fbRoom(OFFLINE(2, 0)), 'rooms/KX7P/p/3', P(TAB[2], true), UID[2]);
+
   allow('Football MOVE by the seat owner', fbRoom(), 'rooms/KX7P/g/0/t/0/2', MV(2), UID[2]);
   deny('Football MOVE by a foreign uid', fbRoom(), 'rooms/KX7P/g/0/t/0/2', MV(2), UID[3]);
   deny('Football MOVE by an outsider', fbRoom(), 'rooms/KX7P/g/0/t/0/2', MV(2), 'UID_OUT');

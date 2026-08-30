@@ -1409,6 +1409,85 @@ async function releaseReclaim(code,seat,dc){
   catch(e){ console.error('[online] reclaim rollback failed (seat '+seat+'):',e); }
   if(dc){ try{ await dc.cancel(); }catch(e){ console.error('[online] onDisconnect cancel failed (seat '+seat+'):',e); } }
 }
+// ════ C1: Praesenz nach kurzem Verbindungsabriss wiederherstellen ════
+// Reisst die Verbindung kurz ab, fuehrt der Server das armierte onDisconnect aus und
+// setzt p/<seat> auf on:false. Das Firebase-SDK verbindet sich danach von allein wieder
+// und liefert auch weiter Daten - die Praesenz blieb aber aus, weil onDisconnect-
+// Registrierungen einmalig sind und niemand sie neu setzte. Ab da lehnen die Rules
+// jeden Zug dieses Sitzes ab (p/<seat>/on === true ist Bedingung), und der Spieler ist
+// still ausgesperrt, obwohl er verbunden ist und lebt.
+//
+// Wiederhergestellt wird ausschliesslich die VERBINDUNG, niemals Spielzustand: kein
+// Sitzwechsel, keine neue Identitaet, keine Leben, keine Runde, kein Zug. Alles
+// Spielbare bleibt aus der gemeinsamen Historie abgeleitet.
+//
+// Reihenfolge wie im Beitritt: pruefen -> ARM -> ACTIVATE. Erst das neue onDisconnect,
+// dann on:true - sonst hinterliesse ein sofort folgender zweiter Abriss einen Sitz, der
+// dauerhaft als verbunden gilt.
+let connUnsub=null, presenceRestoreBusy=false, presenceRestorePending=false;
+// Der Wiederherstellungsversuch gehoert zu GENAU dieser Sitzung, diesem Raum, diesem
+// Sitz und diesem Sitzungstoken. Alles andere ist ein Nachlaeufer und wird verworfen.
+function presenceCtxValid(ctx){
+  return online&&!!roomCode&&myPlayer>=0&&ctx.sid===onlineSessionId&&ctx.room===roomCode
+         &&ctx.seat===myPlayer&&ctx.tab===onlineTab&&!isOnlineTerminated();
+}
+// Einfachlauf mit Nachhol-Merker: waehrend ein Durchgang laeuft, wird ein weiteres
+// Verbindungssignal NICHT verworfen, sondern vorgemerkt und direkt danach nachgeholt.
+// Genau dieses Verwerfen konnte einen Sitz mit on:true ohne armiertes onDisconnect
+// zuruecklassen, wenn zwischendurch ein zweiter Abriss lag.
+async function restoreOwnPresence(ctx){
+  if(presenceRestoreBusy){ presenceRestorePending=true; return 'queued'; }
+  if(!presenceCtxValid(ctx))return 'skip';
+  presenceRestoreBusy=true;
+  let out='skip';
+  try{
+    do{ presenceRestorePending=false; out=await restorePresencePass(ctx); }
+    while(presenceRestorePending&&presenceCtxValid(ctx));
+  }finally{ presenceRestoreBusy=false; }
+  return out;
+}
+async function restorePresencePass(ctx){
+  try{
+    const snap=await window.FB.get(window.FB.ref(window.FB.db,'rooms/'+ctx.room));
+    if(!presenceCtxValid(ctx))return 'stale';
+    const v=snap.val();
+    if(!v)return 'noRoom';                                  // Raum existiert nicht mehr
+    if(v.v!==ONLINE_PROTOCOL_VERSION)return 'version';      // fremdes Protokoll
+    if((v.gen|0)!==gen)return 'gen';                        // andere Generation -> nicht raten
+    const uid=fbUid(), rec=v.players&&v.players[ctx.seat], pres=v.p&&v.p[ctx.seat];
+    // Eigentum wird VOR jedem Schreiben neu geprueft. Im Zweifel geschieht nichts.
+    if(!uid||!rec||rec.uid!==uid)return 'owner';            // nicht (mehr) unser Sitz
+    if(rec.tab!==ctx.tab)return 'session';                  // andere Sitzung haelt den Sitz
+    if(!pres||pres.s!==ctx.tab)return 'token';              // Praesenztoken passt nicht
+    const ge=v.g&&v.g[String(v.gen)];
+    if(ge&&ge.e&&ge.e[ctx.seat]===true)return 'evicted';    // dauerhaft entfernt -> NICHT wiederbeleben
+    // ARM bei JEDER Rueckverbindung - auch wenn die Praesenz schon on:true zeigt. Eine
+    // onDisconnect-Registrierung ueberlebt den Abriss nicht; ohne neues ARM bliebe der
+    // Sitz beim naechsten Ausfall faelschlich als verbunden stehen.
+    const dc=await armPresence(ctx.room,ctx.seat);          // ARM ...
+    if(!presenceCtxValid(ctx)){ try{ await dc.cancel(); }catch(e){} return 'stale'; }
+    if(pres.on===true)return 'armed';                       // verbunden - nur neu armiert
+    await activateSeat(ctx.room,ctx.seat);                  // ... dann ACTIVATE
+    return 'restored';
+  }catch(e){
+    console.error('[online] Praesenz-Wiederherstellung fehlgeschlagen (Seat '+ctx.seat+'):',e);
+    return 'error';
+  }
+}
+// Ein Beobachter je Raumsitzung. .info/connected meldet false beim Abriss und true bei
+// jeder Wiederverbindung; gehandelt wird nur bei true, und auch dann nur, wenn die
+// Pruefung oben zustimmt. Wiederholte Abrisse laufen deshalb ohne Sonderfall.
+function startPresenceWatch(){
+  stopPresenceWatch();
+  const ctx={sid:onlineSessionId,room:roomCode,get seat(){return myPlayer;},get tab(){return onlineTab;}};
+  const bound={sid:ctx.sid,room:ctx.room};
+  connUnsub=window.FB.onValue(window.FB.ref(window.FB.db,'.info/connected'),snap=>{
+    if(snap.val()!==true)return;   // getrennt: nichts erfinden, nichts schreiben
+    restoreOwnPresence({sid:bound.sid,room:bound.room,seat:myPlayer,tab:onlineTab});
+  });
+}
+function stopPresenceWatch(){ if(connUnsub){ try{ connUnsub(); }catch(e){} connUnsub=null; } }
+
 // Orchestrates the reclaim lifecycle under the join-op guard, mirroring
 // claimSeatSlot. Outcomes: {ok:true,dc} re-activated · {lost:true} rules denied
 // (foreign tab active / stale window not open / seat re-assigned) · {stale:true}
@@ -5675,7 +5754,8 @@ function seatFinallyGone(s){
   else onOppLeft();
 }
 function attachRoomListeners(){
-  onlineSessionId++;   // P0-Fix: neue Session je Raumbeitritt/-erstellung -> Transaction-/Listener-Ergebnisse einer fruehreren Session werden ungueltig
+  onlineSessionId++;
+  startPresenceWatch();   // C1: ab hier wacht die Sitzung ueber ihre eigene Praesenz   // P0-Fix: neue Session je Raumbeitritt/-erstellung -> Transaction-/Listener-Ergebnisse einer fruehreren Session werden ungueltig
   onlineTerminatedSession=-1;   // neue Session startet nie im terminalen Abbruchzustand
   clearAllMatchGrace(); roomP={};   // B2: Grace-Timer einer frueheren Session sind gegenstandslos
   // P0-Nachbesserung: presUnsub/genUnsub/seatsUnsub sind reine Praesenz-/Metadaten-
@@ -6002,6 +6082,7 @@ function leaveOnline(){
   clearAllMatchGrace(); roomP={};   // B2: in-match grace timers of this room are void as well
   try{ if(turnUnsub)turnUnsub(); }catch(e){} try{ if(genUnsub)genUnsub(); }catch(e){} try{ if(presUnsub)presUnsub(); }catch(e){} try{ if(seatsUnsub)seatsUnsub(); }catch(e){} try{ if(rosterUnsub)rosterUnsub(); }catch(e){}
   turnUnsub=genUnsub=presUnsub=seatsUnsub=rosterUnsub=null;
+  stopPresenceWatch();   // C1: bewusstes Verlassen -> keine Wiederherstellung mehr
   // Deliberate leave is immediate: drop own presence AND own roster record (frees
   // the seat for recycling and signals "left, not reloading" to the others), then
   // best-effort remove the whole room. v3: the rules only allow a p/<seat> delete

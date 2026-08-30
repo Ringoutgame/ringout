@@ -34,6 +34,12 @@ const SRC = [
   grab(/function teamCap\(\)\{[^\n]*/, 'teamCap'),
   grab(/function ffaRoom\(\)\{[^\n]*/, 'ffaRoom'),
   grab(/function fbOnlineRoom\(\)\{[^\n]*/, 'fbOnlineRoom'),
+  grab(/let connUnsub=null, presenceRestoreBusy=false, presenceRestorePending=false;/, 'connUnsub'),
+  grab(/function presenceCtxValid\(ctx\)\{[\s\S]*?\n\}/, 'presenceCtxValid'),
+  grab(/async function restoreOwnPresence\(ctx\)\{[\s\S]*?\n\}/, 'restoreOwnPresence'),
+  grab(/async function restorePresencePass\(ctx\)\{[\s\S]*?\n\}/, 'restorePresencePass'),
+  grab(/function startPresenceWatch\(\)\{[\s\S]*?\n\}/, 'startPresenceWatch'),
+  grab(/function stopPresenceWatch\(\)\{[^\n]*/, 'stopPresenceWatch'),
   grab(/function ffaSeatCap\(\)\{[^\n]*/, 'ffaSeatCap'),
   grab(/function teamOf\(s\)\{[^\n]*/, 'teamOf'),
   grab(/function colorSlot\(owner\)\{[^\n]*/, 'colorSlot'),
@@ -346,6 +352,7 @@ function makeDB() {
     set: async (ref, val) => setParts(ref, val, authUid),
     update: async (ref, obj) => {
       const keys = Object.keys(obj);
+      ui.log.push('UPD ' + keys.join(','));
       const paths = keys.map(k => ref.concat(String(k).split('/')));
       for (const p of paths) {
         const pathStr = p.join('/');
@@ -382,12 +389,22 @@ function makeDB() {
       return () => listeners.delete(l);
     },
     onDisconnect: ref => ({
-      set: async (val) => { const key = ref.join('/'); for (let i = ui.onDrop.length - 1; i >= 0; i--) if (ui.onDrop[i].ref.join('/') === key) ui.onDrop.splice(i, 1); ui.onDrop.push({ ref, val }); },
+      set: async (val) => { const key = ref.join('/'); ui.log.push('ARM ' + key); for (let i = ui.onDrop.length - 1; i >= 0; i--) if (ui.onDrop[i].ref.join('/') === key) ui.onDrop.splice(i, 1); ui.onDrop.push({ ref, val }); },
       cancel: async () => { const key = ref.join('/'); for (let i = ui.onDrop.length - 1; i >= 0; i--) if (ui.onDrop[i].ref.join('/') === key) ui.onDrop.splice(i, 1); }
     }),
     serverTimestamp: () => nowMs
   });
-  return { data, FBfor, failWrite, advance: (ms) => { nowMs += ms; }, now: () => nowMs };
+  // .info/connected ist kein Raumpfad und laeuft deshalb an checkWrite vorbei -
+  // gesetzt wird direkt am Datenbaum, danach werden die Listener benachrichtigt.
+  function setConnected(v) {
+    if (!data['.info']) data['.info'] = {};
+    data['.info'].connected = v;
+    notify();
+  }
+  // Wie viele Beobachter haengen auf einem Pfad? Ein abgemeldeter Raum darf keinen
+  // zurueckgelassenen Listener behalten (C1: kein Leck ueber Raumsitzungen hinweg).
+  const listenerCount = (path) => { let n = 0; for (const l of listeners) if (l.parts.join('/') === path) n++; return n; };
+  return { data, FBfor, failWrite, setConnected, listenerCount, advance: (ms) => { nowMs += ms; }, now: () => nowMs };
 }
 
 // findOwnSeat wird zusaetzlich DIREKT geprueft (Gruppe RC-UID2). Der echte Rumpf laeuft
@@ -489,6 +506,14 @@ function makeClient(db, code, forcePid, forceUid) {
     }
     return {
       ui, els, drive,
+      // TRANSIENTER Abriss: der Server fuehrt die armierten onDisconnect-Writes aus,
+      // die Listener dieses Clients bleiben aber bestehen - das SDK verbindet sich im
+      // Browser von allein wieder. Genau der Fall aus dem Livelauf.
+      netDrop(){ const d=ui.onDrop.slice(); ui.onDrop.length=0;
+        for(const {ref,val} of d) FB.set(ref,val).catch(()=>{}); },
+      // Zustand fuer die C1-Nachweise - rein lesend.
+      presence(){ return {seat:myPlayer,tab:onlineTab,pid:onlinePid,
+        uid:(typeof fbUid==='function'?fbUid():null),gen:gen,turn:turnNo,room:roomCode}; },
       st(){return {online,mode,fmt,ffaN,myPlayer,gameStarted,roomCode,phase,gen,runningGen,turnNo,roundNo,
         aimSet:aimSet.slice(),score:score.slice(),ballN:balls.length,lastWinner,
         alive:balls.map(b=>b.alive?1:0).join('')};},
@@ -952,6 +977,278 @@ async function playTurn(clients, moves) {
     t('RC-UID2 ein uid-geschuetzter Sitz ist NIE ueber die id erreichbar',
       FOS({ 1: rec('PIDGUES1', 'TABGUES1', B) }, 'PIDGUES1', '', -1) === -1);
     t('RC-UID2 ohne uid und ohne id kein Treffer', FOS({ 1: rec('P', 'T', B) }, '', '', -1) === -1);
+  }
+
+
+  // ══ C1: TRANSIENTER RECONNECT — PRAESENZ WIEDERHERSTELLEN ══════════════════
+  // Live beobachtet: ein kurzer Verbindungsabriss laesst p/<seat>.on auf false stehen.
+  // Die Rules verlangen on===true fuer jeden weiteren Zug - der Spieler ist still
+  // ausgesperrt, obwohl sein Client laengst wieder verbunden ist und weiter Daten
+  // empfaengt. Wiederhergestellt wird ausschliesslich die VERBINDUNG.
+  const c1Room = async (code) => {
+    const db = makeDB();
+    const h = makeClient(db, code); h.setMenu('online'); h.setFmt('single'); h.create(); await tick();
+    const g = makeClient(db, 'X'); g.setMenu('online'); g.join(code); await tick();
+    return { db, h, g, room: () => db.data.rooms[code] };
+  };
+  // Fail closed heisst: der Client versucht es GAR NICHT ERST. Nur den Endzustand zu
+  // pruefen genuegt nicht - den weist die Datenbank ohnehin ab, und der Test koennte
+  // eine fehlende Pruefung im Client nicht mehr von einer Ablehnung unterscheiden.
+  const noAttempt = (g, seat) => !g.ui.log.some(x => x.indexOf('ARM ') === 0)
+                              && !g.ui.log.some(x => x.indexOf('UPD p/' + seat) === 0);
+
+  // ── C1-A: der Grundfall, vor dem eigenen Zug ──
+  {
+    const { db, g, room } = await c1Room('C1AA');
+    const before = g.presence(), rec0 = JSON.parse(JSON.stringify(room().players[1]));
+    t('C1-A Ausgangslage: Praesenz aktiv', room().p[1].on === true, room().p[1]);
+
+    g.ui.log.length = 0;
+    g.netDrop(); await tick();                       // Abriss: Server fuehrt onDisconnect aus
+    t('C1-A REPRODUKTION: onDisconnect setzt die eigene Praesenz auf on:false',
+      room().p[1].on === false, room().p[1]);
+
+    db.setConnected(true); await tick(12);           // dasselbe SDK verbindet sich wieder
+    const after = g.presence(), p = room().p[1];
+    t('C1-A die Praesenz ist wiederhergestellt', p.on === true, p);
+    t('C1-A gleiches Sitzungstoken', p.s === before.tab, { vorher: before.tab, nachher: p.s });
+    t('C1-A gleicher Sitz', after.seat === before.seat && after.seat === 1, after);
+    t('C1-A gleiche uid', after.uid === before.uid && room().players[1].uid === before.uid, after);
+    t('C1-A gleiche pid', after.pid === before.pid, after);
+    t('C1-A der Rosterdatensatz ist unveraendert',
+      JSON.stringify(room().players[1]) === JSON.stringify(rec0), room().players[1]);
+    t('C1-A kein zusaetzlicher Sitz angelegt', Object.keys(room().players).join(',') === '0,1',
+      Object.keys(room().players));
+
+    // ARM VOR ACTIVATE: erst das neue onDisconnect, dann on:true.
+    const armAt = g.ui.log.findIndex(x => x.indexOf('ARM ') === 0);
+    const actAt = g.ui.log.findIndex(x => x.indexOf('UPD p/1') === 0);
+    t('C1-A ARM vor ACTIVATE', armAt >= 0 && actAt >= 0 && armAt < actAt,
+      { arm: armAt, activate: actAt, log: g.ui.log.slice(0, 8) });
+    t('C1-A ein neues onDisconnect ist armiert',
+      g.ui.onDrop.length === 1 && g.ui.onDrop[0].val.on === false, g.ui.onDrop.length);
+    t('C1-A und es haengt am EIGENEN Sitzpfad',
+      g.ui.onDrop[0] && g.ui.onDrop[0].ref.join('/') === 'rooms/C1AA/p/1',
+      g.ui.onDrop[0] && g.ui.onDrop[0].ref.join('/'));
+    t('C1-A das armierte onDisconnect traegt das eigene Sitzungstoken',
+      g.ui.onDrop[0] && g.ui.onDrop[0].val.s === before.tab, g.ui.onDrop[0] && g.ui.onDrop[0].val);
+
+    // Und der eigentliche Zweck: der Zug geht wieder durch.
+    t('C1-A nach der Wiederherstellung ist der eigene Zug wieder moeglich',
+      g.commitMove(60, -40) === true);
+    await tick();
+    t('C1-A der Zug liegt in der Datenbank',
+      !!(room().g && room().g[0] && room().g[0].t && room().g[0].t[0] && room().g[0].t[0][1]),
+      (room().g || {})[0]);
+  }
+
+  // ── C1-B: nach dem eigenen Zug — Write-once bleibt Write-once ──
+  {
+    const { db, g, room } = await c1Room('C1BB');
+    g.commitMove(50, 50); await tick();
+    const rec = JSON.parse(JSON.stringify(room().g[0].t[0][1]));
+    g.netDrop(); await tick();
+    db.setConnected(true); await tick(12);
+    t('C1-B die Praesenz ist wiederhergestellt', room().p[1].on === true, room().p[1]);
+    t('C1-B der bereits geschriebene Zug bleibt unveraendert',
+      JSON.stringify(room().g[0].t[0][1]) === JSON.stringify(rec), room().g[0].t[0][1]);
+    t('C1-B kein zweiter Zug im selben Slot', g.commitMove(-70, 10) === false);
+    await tick();
+    t('C1-B der Slot traegt weiterhin genau den ersten Zug',
+      JSON.stringify(room().g[0].t[0][1]) === JSON.stringify(rec), room().g[0].t[0][1]);
+  }
+
+  // ── C1-C: mehrfache Abrisse hintereinander bleiben folgenlos ──
+  {
+    const { db, g, room } = await c1Room('C1CC');
+    for (let i = 0; i < 3; i++) {
+      g.netDrop(); await tick();
+      db.setConnected(false); await tick(2);
+      db.setConnected(true); await tick(12);
+    }
+    t('C1-C nach drei Abrissen ist die Praesenz aktiv', room().p[1].on === true, room().p[1]);
+    t('C1-C genau ein armiertes onDisconnect', g.ui.onDrop.length === 1, g.ui.onDrop.length);
+    t('C1-C keine doppelten Sitze', Object.keys(room().players).join(',') === '0,1',
+      Object.keys(room().players));
+    t('C1-C der Sitz ist unveraendert', g.presence().seat === 1, g.presence());
+  }
+
+  // ── C1-N: bei JEDER Rueckverbindung wird neu armiert ──
+  // Eine onDisconnect-Registrierung ueberlebt den Abriss nicht: hat der Server sie
+  // ausgefuehrt, ist sie verbraucht. Zeigt die Praesenz danach (aus welchem Grund auch
+  // immer) schon on:true, darf das ARM trotzdem nicht entfallen - sonst bliebe der Sitz
+  // beim naechsten Ausfall faelschlich als verbunden stehen, und niemand wartet mehr auf
+  // ihn mit einer Grace.
+  {
+    const { db, g, room } = await c1Room('C1NN');
+    g.netDrop(); await tick();                       // Registrierung verbraucht, p on:false
+    room().p[1].on = true;                           // Praesenz sieht wieder aktiv aus ...
+    g.ui.onDrop.length = 0;                          // ... aber es ist NICHTS armiert
+    g.ui.log.length = 0;
+    db.setConnected(false); await tick(2);
+    db.setConnected(true); await tick(14);
+    t('C1-N auch bei aktiver Praesenz wird neu armiert',
+      g.ui.onDrop.length === 1 && g.ui.onDrop[0].val.on === false, g.ui.onDrop);
+    t('C1-N und die aktive Praesenz wird dabei nicht erneut geschrieben',
+      !g.ui.log.some(x => x.indexOf('UPD p/1') === 0), g.ui.log.slice(0, 6));
+  }
+
+  // ── C1-O: ein Signal waehrend eines laufenden Durchgangs geht nicht verloren ──
+  // Trifft waehrend der Wiederherstellung ein zweiter Abriss samt Rueckkehr ein, wurde
+  // das zweite Signal frueher von der Einfachlauf-Sperre verschluckt. Das konnte einen
+  // Sitz mit on:true OHNE armiertes onDisconnect hinterlassen.
+  {
+    const { db, g, room } = await c1Room('C1OO');
+    g.netDrop(); await tick();
+    g.ui.log.length = 0;
+    db.setConnected(true);                           // Durchgang 1 startet (wartet auf den Raum)
+    db.setConnected(false);                          // zweiter Abriss mittendrin
+    db.setConnected(true);                           // und sofort wieder zurueck
+    await tick(20);
+    const arms = g.ui.log.filter(x => x.indexOf('ARM ') === 0).length;
+    t('C1-O das zweite Verbindungssignal wird nachgeholt (mehr als ein Durchgang)',
+      arms >= 2, { arms, log: g.ui.log.slice(0, 10) });
+    t('C1-O am Ende: Praesenz aktiv UND ein onDisconnect armiert',
+      room().p[1].on === true && g.ui.onDrop.length === 1, { p: room().p[1], onDrop: g.ui.onDrop.length });
+  }
+
+  // ── C1-D: bereits aktiv — dann passiert nichts ──
+  {
+    const { db, g, room } = await c1Room('C1DD');
+    const t0 = room().p[1].t;
+    g.ui.log.length = 0;
+    db.setConnected(true); await tick(12);
+    t('C1-D bei aktiver Praesenz wird nicht geschrieben',
+      room().p[1].t === t0 && !g.ui.log.some(x => x.indexOf('UPD p/1') === 0), g.ui.log.slice(0, 5));
+  }
+
+  // ── C1-E: dauerhaft entfernter Sitz wird NICHT wiederbelebt ──
+  {
+    const { db, g, room } = await c1Room('C1EE');
+    g.netDrop(); await tick();
+    room().g = Object.assign(room().g || {}, { 0: Object.assign((room().g || {})[0] || {}, { e: { 1: true } }) });
+    g.ui.log.length = 0;
+    db.setConnected(true); await tick(12);
+    t('C1-E ein evictierter Sitz bleibt offline', room().p[1].on === false, room().p[1]);
+    t('C1-E der Client versucht es gar nicht erst', noAttempt(g, 1), g.ui.log.slice(0, 6));
+  }
+
+  // ── C1-F: Wiederverbindung nach einem Generationswechsel ──
+  // Der Client uebernimmt eine neue Generation ueber seinen eigenen gen-Listener. Die
+  // Wiederherstellung darf danach WEITER nur die Verbindung anfassen: derselbe Sitz,
+  // dieselbe Identitaet, nichts Neues - und sie bleibt an die AKTUELLE Generation
+  // gebunden (die Eviction-Sperre in C1-E prueft genau diese Bindung).
+  {
+    const { db, g, room } = await c1Room('C1FF');
+    const uid0 = g.presence().uid, tab0 = g.presence().tab;
+    g.netDrop(); await tick();
+    room().gen = 1;                                   // Rematch/Neustart durch die Gegenseite
+    await tick(4);                                    // der Client uebernimmt die Generation
+    db.setConnected(true); await tick(12);
+    const p = room().p[1];
+    t('C1-F nach dem Generationswechsel gehoert die Praesenz weiter demselben Sitz',
+      p.s === tab0 && room().players[1].uid === uid0 && g.presence().seat === 1, { p, presence: g.presence() });
+    t('C1-F der Generationswechsel legt keinen zusaetzlichen Sitz an',
+      Object.keys(room().players).join(',') === '0,1', Object.keys(room().players));
+    // Fail closed bleibt fail closed: in der NEUEN Generation evictiert -> keine Rueckkehr.
+    const { db: db2, g: g2, room: room2 } = await c1Room('C1FG');
+    g2.netDrop(); await tick();
+    room2().gen = 1;
+    room2().g = Object.assign(room2().g || {}, { 1: { e: { 1: true } } });
+    await tick(4);
+    g2.ui.log.length = 0;
+    db2.setConnected(true); await tick(12);
+    t('C1-F in der neuen Generation evictiert -> keine Wiederherstellung',
+      room2().p[1].on === false, room2().p[1]);
+    t('C1-F auch dort kein Schreibversuch', noAttempt(g2, 1), g2.ui.log.slice(0, 6));
+  }
+
+  // ── C1-G: der Sitz gehoert inzwischen einer anderen Sitzung ──
+  {
+    const { db, g, room } = await c1Room('C1GG');
+    g.netDrop(); await tick();
+    room().players[1].tab = 'FREMDTAB0001';           // andere Sitzung hat den Sitz uebernommen
+    g.ui.log.length = 0;
+    db.setConnected(true); await tick(12);
+    t('C1-G ein fremd uebernommener Sitz wird nicht zurueckgeholt',
+      room().p[1].on === false, room().p[1]);
+    t('C1-G der Client versucht es gar nicht erst', noAttempt(g, 1), g.ui.log.slice(0, 6));
+  }
+
+  // ── C1-H: fremder Eigentuemer (uid) ──
+  {
+    const { db, g, room } = await c1Room('C1HH');
+    g.netDrop(); await tick();
+    room().players[1].uid = 'UID_JEMAND_ANDERES';
+    g.ui.log.length = 0;
+    db.setConnected(true); await tick(12);
+    t('C1-H ein Sitz mit fremder uid wird nicht reaktiviert', room().p[1].on === false, room().p[1]);
+    t('C1-H der Client versucht es gar nicht erst', noAttempt(g, 1), g.ui.log.slice(0, 6));
+  }
+
+  // ── C1-L: fremdes PRAESENZ-Token ──
+  {
+    const { db, g, room } = await c1Room('C1LL');
+    g.netDrop(); await tick();
+    room().p[1].s = 'FREMDTAB0002';                  // eine andere Sitzung haelt die Praesenz
+    g.ui.log.length = 0;
+    db.setConnected(true); await tick(12);
+    t('C1-L fremdes Praesenztoken -> keine Wiederherstellung', room().p[1].on === false, room().p[1]);
+    t('C1-L der Client versucht es gar nicht erst', noAttempt(g, 1), g.ui.log.slice(0, 6));
+  }
+
+  // ── C1-I: der Raum existiert nicht mehr ──
+  {
+    const { db, g, room } = await c1Room('C1II');
+    g.netDrop(); await tick();
+    delete db.data.rooms['C1II'];
+    g.ui.log.length = 0;
+    db.setConnected(true); await tick(12);
+    t('C1-I ein verschwundener Raum wird nicht neu erzeugt', db.data.rooms['C1II'] === undefined);
+    t('C1-I und es wird nichts geschrieben', noAttempt(g, 1), g.ui.log.slice(0, 6));
+  }
+
+  // ── C1-J: bewusstes Verlassen beendet die Wiederherstellung ──
+  {
+    const { db, g, room } = await c1Room('C1JJ');
+    g.leave(); await tick();
+    g.ui.log.length = 0;
+    db.setConnected(true); await tick(12);
+    const r = db.data.rooms['C1JJ'];
+    t('C1-J nach dem Verlassen wird keine Praesenz wiederhergestellt',
+      !r || !r.p || !r.p[1] || r.p[1].on !== true, r && r.p);
+    t('C1-J und der Beobachter ist abgemeldet', noAttempt(g, 1), g.ui.log.slice(0, 6));
+    // Der Host ist weiterhin im Raum und behaelt seinen Beobachter - nur der des
+    // Verlassenden verschwindet.
+    t('C1-J der Beobachter des Verlassenden ist abgemeldet',
+      db.listenerCount('.info/connected') === 1, db.listenerCount('.info/connected'));
+  }
+
+  // ── C1-M: kein Beobachterleck ──
+  // Genau ein Beobachter je Client im Raum, und beim Verlassen verschwindet er wieder.
+  {
+    const db = makeDB();
+    const h = makeClient(db, 'C1MM'); h.setMenu('online'); h.setFmt('single'); h.create(); await tick();
+    const g = makeClient(db, 'X'); g.setMenu('online'); g.join('C1MM'); await tick();
+    t('C1-M zwei Clients im Raum -> zwei Beobachter',
+      db.listenerCount('.info/connected') === 2, db.listenerCount('.info/connected'));
+    g.leave(); await tick();
+    t('C1-M nach dem Verlassen bleibt nur der des Hosts',
+      db.listenerCount('.info/connected') === 1, db.listenerCount('.info/connected'));
+    h.leave(); await tick();
+    t('C1-M verlaesst auch der Host, bleibt kein Beobachter zurueck',
+      db.listenerCount('.info/connected') === 0, db.listenerCount('.info/connected'));
+  }
+
+  // ── C1-K: der Gegner bleibt unberuehrt ──
+  {
+    const { db, h, g, room } = await c1Room('C1KK');
+    const host0 = JSON.stringify(room().p[0]);
+    g.netDrop(); await tick();
+    db.setConnected(true); await tick(12);
+    t('C1-K die Praesenz des Gegners wird nicht angefasst',
+      JSON.stringify(room().p[0]) === host0, room().p[0]);
+    t('C1-K der Gegner behaelt seinen Sitz', h.st().myPlayer === 0, h.st().myPlayer);
   }
 
   console.log(`\nReconnect-B2: ${pass} passed, ${fail} failed`);

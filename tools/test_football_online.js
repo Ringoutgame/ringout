@@ -49,6 +49,12 @@ const SRC = [
   grab(/function teamCap\(\)\{[^\n]*/, 'teamCap'),
   grab(/function ffaRoom\(\)\{[^\n]*/, 'ffaRoom'),
   grab(/function fbOnlineRoom\(\)\{[^\n]*/, 'fbOnlineRoom'),
+  grab(/let connUnsub=null, presenceRestoreBusy=false, presenceRestorePending=false;/, 'connUnsub'),
+  grab(/function presenceCtxValid\(ctx\)\{[\s\S]*?\n\}/, 'presenceCtxValid'),
+  grab(/async function restoreOwnPresence\(ctx\)\{[\s\S]*?\n\}/, 'restoreOwnPresence'),
+  grab(/async function restorePresencePass\(ctx\)\{[\s\S]*?\n\}/, 'restorePresencePass'),
+  grab(/function startPresenceWatch\(\)\{[\s\S]*?\n\}/, 'startPresenceWatch'),
+  grab(/function stopPresenceWatch\(\)\{[^\n]*/, 'stopPresenceWatch'),
   grab(/function ffaSeatCap\(\)\{[^\n]*/, 'ffaSeatCap'),
   grab(/function teamOf\(s\)\{[^\n]*/, 'teamOf'),
   grab(/function colorSlot\(owner\)\{[^\n]*/, 'colorSlot'),
@@ -408,6 +414,8 @@ function makeDB() {
 
   return {
     data, get now() { return nowMs; }, advance(ms) { nowMs += ms; },
+    // .info/connected ist kein Raumpfad - direkt setzen und melden (C1).
+    setConnected(v) { if (!data['.info']) data['.info'] = {}; data['.info'].connected = v; notify(); },
     flush,
     // Ein Client sieht die Datenbank ausschliesslich durch dieses Objekt - mit SEINER
     // Identitaet. Zwei Clients koennen sich so nicht gegenseitig als Schreiber ausgeben.
@@ -1577,6 +1585,66 @@ async function eliminateSeat(db, cs, seat, maxRounds) {
   t('S17 RingOut FFA: weiterhin der Leave-Pfad mit Sitzvermerk',
     v2.left[2] === true && v2.toasts.some(x => x.indexOf('hat das Match verlassen') >= 0), v2);
   t('S18 RingOut FFA: kein 1v1-Overlay', v2.wt === '', v2);
+}
+
+
+// ── C1 · TRANSIENTER RECONNECT IM LAUFENDEN FOOTBALL-MATCH ────────────────────
+// Ein kurzer Verbindungsabriss darf den Spielzustand nicht beruehren - er stellt nur
+// die Verbindung wieder her. Und ein bereits Ausgeschiedener bleibt ausgeschieden.
+{
+  const { db, cs } = await newMatch('C1F1');
+  const code = 'C1F1', seat = 2, c = cs[seat];
+  const before = c.st(), hash0 = c.hash();
+  const room = () => db.data.rooms[code];
+  const rec0 = JSON.stringify(room().players[seat]);
+
+  // Der Server hat das armierte onDisconnect ausgefuehrt.
+  room().p[seat].on = false;
+  db.setConnected(true); await tick(db, 40);
+
+  const after = c.st();
+  t('C1F die Praesenz des lebenden Sitzes ist wiederhergestellt',
+    room().p[seat].on === true, room().p[seat]);
+  t('C1F gleicher Sitz', after.myPlayer === before.myPlayer && after.myPlayer === seat, after.myPlayer);
+  t('C1F Rosterdatensatz unveraendert', JSON.stringify(room().players[seat]) === rec0, room().players[seat]);
+  t('C1F keine Leben veraendert', after.lives.join(',') === before.lives.join(','),
+    { vorher: before.lives, nachher: after.lives });
+  t('C1F niemand eliminiert', after.active.join(',') === before.active.join(','), after.active);
+  t('C1F Slot->Eigentuemer unveraendert', after.slots.join(',') === before.slots.join(','), after.slots);
+  t('C1F Arenaphase, Zug und Torzustand unveraendert',
+    after.phaseN === before.phaseN && after.turnNo === before.turnNo && after.goal === before.goal, after);
+  t('C1F kein Sieger erfunden', after.winner === null && after.over.length === 0, after);
+  t('C1F Simulationszustand unveraendert (gleicher Hash)', c.hash() === hash0,
+    { vorher: hash0, nachher: c.hash() });
+  t('C1F alle fuenf Clients bleiben deckungsgleich', sameHash(cs), cs.map(x => x.hash()));
+  t('C1F kein zusaetzlicher Sitz angelegt',
+    Object.keys(room().players).length === 5, Object.keys(room().players));
+}
+
+// Der Ausgeschiedene: Identitaet und Verbindung ja - Spielrechte nein.
+{
+  const db = makeDB(), code = 'C1F2';
+  const cs = await setupMatch(db, code);
+  const victim = 3;
+  const okE = await eliminateSeat(db, cs, victim, 90);
+  t('C1F2 Vorbedingung: der Sitz ist ausgeschieden', okE && cs[0].st().active[victim] === false,
+    cs[0].st().active);
+  if (okE) {
+    const c = cs[victim], before = c.st(), hash0 = c.hash();
+    const room = () => db.data.rooms[code];
+    room().p[victim].on = false;
+    db.setConnected(true); await tick(db, 40);
+
+    t('C1F2 die Verbindung des Ausgeschiedenen wird wiederhergestellt',
+      room().p[victim].on === true, room().p[victim]);
+    t('C1F2 er bleibt ausgeschieden', c.st().active[victim] === false, c.st().active);
+    t('C1F2 er bekommt keine Leben zurueck', c.st().lives.join(',') === before.lives.join(','),
+      { vorher: before.lives, nachher: c.st().lives });
+    t('C1F2 er erhaelt kein Zielrecht', c.who() !== victim, c.who());
+    t('C1F2 der Spielzustand ist unveraendert', c.hash() === hash0, { vorher: hash0, nachher: c.hash() });
+    t('C1F2 die Ueberlebenden sind unveraendert',
+      cs[0].st().active.join(',') === before.active.join(','), cs[0].st().active);
+  }
 }
 
 console.log('\nFootball-Online: ' + pass + ' passed, ' + fail + ' failed');

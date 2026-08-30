@@ -31,10 +31,10 @@ const SUITES = [
   { name: 'FFA-Online-Prep',  file: 'test_ffa_online.js',     expectPassed: 53 },
   { name: 'FFA-Online-Flow',  file: 'test_ffa_flow.js',       expectPassed: 140 },
   { name: 'FFA-Online-Race',  file: 'test_ffa_race.js',       expectPassed: 115 },
-        { name: 'Reconnect-B2',     file: 'test_reconnect.js',      expectPassed: 84 },   // 53 Bestand (RC1-RC11) + 14 RC-ENV + 17 RC-UID/RC-UID2: Seat-Eigentum ueber auth.uid, Diebstahlversuch mit bekannter Spieler-ID, Zweittab, Mehrdeutigkeit und Legacy-Rueckfall
+        { name: 'Reconnect-B2',     file: 'test_reconnect.js',      expectPassed: 134 },   // 53 Bestand (RC1-RC11) + 14 RC-ENV + 17 RC-UID/RC-UID2: Seat-Eigentum ueber auth.uid, Diebstahlversuch mit bekannter Spieler-ID, Zweittab, Mehrdeutigkeit und Legacy-Rueckfall
           { name: 'Protokoll-v4',     file: 'test_online_protocol_v4.js', expectPassed: 93 },   // reine Schema-/Vertragsschicht: Version, Raumtyp, Sitz/Koerper, kanonische Zugereignisse
-  { name: 'Football-Online', file: 'test_football_online.js', expectPassed: 290 },   // fuenf getrennte Clients an einer Datenbank: Lobby, paralleler Commit, gleichzeitiger Abschuss, Tore/Leben, 5->4->3->2, Rehydrierung
-  { name: 'Rules',            file: 'test_rules.js',          expectPassed: 391 },   // v4: Seat-Ownership, Football-Raumtyp, typisierte Zuege (move/skip/remove) und die Eviction
+  { name: 'Football-Online', file: 'test_football_online.js', expectPassed: 308 },   // fuenf getrennte Clients an einer Datenbank: Lobby, paralleler Commit, gleichzeitiger Abschuss, Tore/Leben, 5->4->3->2, Rehydrierung
+  { name: 'Rules',            file: 'test_rules.js',          expectPassed: 400 },   // v4: Seat-Ownership, Football-Raumtyp, typisierte Zuege (move/skip/remove) und die Eviction
   { name: 'Public-Lobby',     file: 'test_public_lobby.js',   expectPassed: 30 },
   { name: 'Team-Duel',        file: 'test_team_duel.js',      expectPassed: 36 },
 ];
