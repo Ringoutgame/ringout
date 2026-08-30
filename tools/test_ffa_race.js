@@ -129,6 +129,8 @@ const SRC = [
   grab(/function clearLobbyHostGrace\(\)\{[^\n]*/, 'clearLobbyHostGrace'),
   grab(/function startLobbyHostGrace\(\)\{[\s\S]*?\n\}/, 'startLobbyHostGrace'),
   grab(/function evalLobbyHostPresence\(\)\{[\s\S]*?\n\}/, 'evalLobbyHostPresence'),
+  grab(/function clearLeaveState\(\)\{[^\n]*/, 'clearLeaveState'),
+  grab(/function rederiveLeaveState\(\)\{[\s\S]*?\n\}/, 'rederiveLeaveState'),
   grab(/function seatFinallyGone\(s\)\{[\s\S]*?\n\}/, 'seatFinallyGone'),
   grab(/async function attemptRejoin\(code\)\{[\s\S]*?\n\}/, 'attemptRejoin'),
 ].join('\n');
@@ -453,7 +455,7 @@ function makeClient(db, code, forcePid) {
     // C3: diese Suite prueft Turn-Races, nicht die Rueckkehrfrist - die Zeitangleichung
     // wird deshalb wie die uebrige Grace-Mechanik auf derselben Ebene stillgelegt.
     function startServerClock(){} function stopServerClock(){}
-    let genStartedAt=0, genStartPending=false, matchGraceGen={};
+    let genStartedAt=0, genStartPending=false, matchGraceGen={}, roomPSeen=false;
     function markGenerationStart(){} function clearGenerationStart(){}
     function startMatchGrace(s){seatFinallyGone(s);}
     function newGame(){ ui.log.push('newGame:'+np()); balls=[];aimSet=[];commitIdx=[];commitAim=[];commitSpin=[];

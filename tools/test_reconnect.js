@@ -200,6 +200,8 @@ const SRC = [
   grab(/function fbAbsenceCandidates\(\)\{[\s\S]*?\n\}/, 'fbAbsenceCandidates'),
   grab(/function clearAllMatchGrace\(\)\{[^\n]*/, 'clearAllMatchGrace'),
   grab(/function startMatchGrace\(s\)\{[\s\S]*?\n\}/, 'startMatchGrace'),
+  grab(/function clearLeaveState\(\)\{[^\n]*/, 'clearLeaveState'),
+  grab(/function rederiveLeaveState\(\)\{[\s\S]*?\n\}/, 'rederiveLeaveState'),
   grab(/function seatFinallyGone\(s\)\{[\s\S]*?\n\}/, 'seatFinallyGone'),
   grab(/async function attemptRejoin\(code\)\{[\s\S]*?\n\}/, 'attemptRejoin'),
 ].join('\n');
@@ -511,7 +513,7 @@ function makeClient(db, code, forcePid, forceUid) {
     // Die Rueckkehrfrist ist Produktvertrag (C3) und wird deshalb aus index.html
     // uebernommen, statt im Sandkasten geraten zu werden.
     const SEAT_STALE_MS=${SEAT_STALE_FROM_SOURCE};
-    let roomP={}, matchGraceTimer={};
+    let roomP={}, matchGraceTimer={}, roomPSeen=false;
     let onlinePid=${JSON.stringify(pid)}, onlineTab=${JSON.stringify(tab)}, onlineName='';
     let playersRoster={}, rosterUnsub=null, lobbyHostGraceTimer=null, joinOpSeq=0;
     let phase='over', phaseStart=0, curAimer=0, balls=[], aimSet=[], commitIdx=[], commitAim=[], commitSpin=[], score=[];
@@ -550,8 +552,18 @@ function makeClient(db, code, forcePid, forceUid) {
       // Zustand fuer die C1-Nachweise - rein lesend.
       // C3-Sonden - rein lesend.
       grace(s){ return fbSeatGrace(s); },
+      left(o){ return !!seatLeft[o]; },
+      gone(o){ return !!seatGone[o]; },
       graceWait(s){ return fbGraceWait(s); },
       timerAction(s){ return fbGraceTimerAction(s); },
+      // Den Weckruf ausloesen, ohne real zu warten: gestellte Serverzeit bewegt
+      // setTimeout nicht. Entscheidung und Handler sind die echten.
+      fireGrace(s){ const a=fbGraceTimerAction(s); if(a==='act')seatFinallyGone(s); return a; },
+      // Der Zustand unmittelbar nach attachRoomListeners: Listener haengen, aber der
+      // Praesenz-Callback hat noch nicht geliefert.
+      forgetPresenceView(){ roomP={}; roomPSeen=false; },
+      rederiveNow(){ rederiveLeaveState(); },
+      presenceSeen(){ return roomPSeen; },
       genStart(){ return {at:genStartedAt,pending:genStartPending}; },
       ctxValid(c){ return fbGraceCtxValid(c); },
       ctxNow(){ return {sid:onlineSessionId,room:roomCode,gen:gen}; },
@@ -1297,6 +1309,152 @@ async function playTurn(clients, moves) {
     t('C1-K der Gegner behaelt seinen Sitz', h.st().myPlayer === 0, h.st().myPlayer);
   }
 
+
+  // ══ C4A: VERLASSEN-ZUSTAND IST GENERATIONSGEBUNDEN ═════════════════════════
+  // seatLeft/seatGone beschreiben, wer in DIESER Generation nicht mehr mitspielt. Sie
+  // wurden bisher nur beim Betreten eines Raums geleert - ein Rematch nahm sie mit.
+  // Folgen: sofortiger Leave-Sentinel in der neuen Generation an der Frist vorbei, und
+  // weil seatGone in simHash() einfliesst, ein abweichender Zustandshash.
+  // Geprueft wird hier mit der ECHTEN Frist und gestellter Serveruhr.
+  const c4aRoom = async (code) => {
+    const db = makeDB();
+    const h = makeClient(db, code); h.setMenu('ffa', 5); h.setFmt('ffa'); h.create(); await tick();
+    const gs = [];
+    for (let i = 1; i < 4; i++) { const g = makeClient(db, 'W' + i); g.setMenu('ffa', 5); g.setFmt('ffa'); g.join(code); await tick(); gs.push(g); }
+    h.clickStart(); await tick();
+    db.publishOffset(); await tick(6);
+    return { db, h, gs, room: () => db.data.rooms[code] };
+  };
+
+  // ── C4A-1: eine TRENNUNG aus Generation 0 wirkt nicht in Generation 1 ──
+  {
+    const { db, h, room } = await c4aRoom('C4AA');
+    // Knoten bleibt, on:false - das ist eine Trennung, kein Weggang.
+    room().p[1] = { s: room().p[1].s, on: false, t: db.now() };
+    db.publishOffset(); await tick(6);
+    db.advanceServer(16000); await tick(10);
+    t('C4A-1 der Weckruf entscheidet nach Ablauf', h.fireGrace(1) === 'act');
+    await tick(6);
+    t('C4A-1 Vorbedingung: die Frist ist abgelaufen und der Sitz vermerkt',
+      h.grace(1).state === 'expired' && h.left(1) === true,
+      { g: h.grace(1), left: h.left(1) });
+    const goneVor = h.gone(1);
+
+    // Rematch.
+    room().gen = 1; db.touch(); await tick(12);
+    t('C4A-1 die neue Generation laeuft', h.st().gen === 1, h.st().gen);
+    t('C4A-1 der Vermerk aus Generation 0 wirkt NICHT weiter', h.left(1) === false,
+      { left: h.left(1), vorher: true });
+    t('C4A-1 auch der abgeleitete gone-Zustand ist geleert', h.gone(1) === false,
+      { jetzt: h.gone(1), vorher: goneVor });
+    t('C4A-1 der Knoten ist unangetastet - es wurde nichts entfernt',
+      room().p[1] !== undefined && room().players[1] !== undefined, room().p[1]);
+    t('C4A-1 die Frist laeuft in der neuen Generation NEU an - keine Umgehung',
+      h.grace(1).state === 'reserved' && h.grace(1).raw < h.grace(1).since, h.grace(1));
+    t('C4A-1 und der Sitz ist noch kein Abwesenheitskandidat', h.candidates().length === 0,
+      h.candidates());
+  }
+
+  // ── C4A-2: ein bewusstes VERLASSEN bleibt auch nach dem Wechsel gueltig ──
+  // Dort fehlt der Praesenzknoten - daran wird unterschieden.
+  {
+    const { db, h, gs, room } = await c4aRoom('C4AB');
+    gs[0].leave(); await tick(8);
+    t('C4A-2 Vorbedingung: der Knoten ist geloescht und der Sitz vermerkt',
+      room().p[1] === undefined && h.left(1) === true, { p: room().p, left: h.left(1) });
+    room().gen = 1; db.touch(); await tick(12);
+    t('C4A-2 nach dem Wechsel gilt er weiterhin als weg', h.left(1) === true, h.left(1));
+  }
+
+  // ── C4A-3: Reihenfolge der Rueckmeldungen ──
+  // Kommt der Generationswechsel VOR oder NACH der Trennungsmeldung, darf das Ergebnis
+  // nicht davon abhaengen.
+  {
+    // (a) erst Trennung, dann Generationswechsel
+    const A = await c4aRoom('C4AC');
+    A.room().p[1] = { s: A.room().p[1].s, on: false, t: A.db.now() };
+    A.db.publishOffset(); await tick(6);
+    A.db.advanceServer(16000); await tick(10);
+    A.h.fireGrace(1); await tick(6);
+    A.room().gen = 1; A.db.touch(); await tick(12);
+
+    // (b) erst Generationswechsel, dann Trennung
+    const B = await c4aRoom('C4AD');
+    B.room().gen = 1; B.db.touch(); await tick(12);
+    B.room().p[1] = { s: B.room().p[1].s, on: false, t: B.db.now() };
+    B.db.publishOffset(); await tick(6);
+    B.db.advanceServer(16000); await tick(10);
+
+    t('C4A-3 (a) Trennung vor dem Wechsel: kein Vermerk aus der alten Generation',
+      A.h.left(1) === false, A.h.left(1));
+    t('C4A-3 (b) Trennung nach dem Wechsel: sie gilt in der neuen Generation',
+      B.h.grace(1).state === 'expired', B.h.grace(1));
+    t('C4A-3 in beiden Reihenfolgen wurde nichts entfernt',
+      A.room().players[1] !== undefined && B.room().players[1] !== undefined
+      && (!A.room().g || !A.room().g[1] || A.room().g[1].e === undefined),
+      { a: A.room().players[1] !== undefined, b: B.room().players[1] !== undefined });
+  }
+
+  // ── C4A-3b: Gen-Callback VOR dem ersten Praesenzstand ──
+  // Ein leeres roomP heisst "noch nichts gesehen", nicht "niemand da". Ohne diese
+  // Unterscheidung wuerde die Neuableitung jeden fremden Sitz als verlassen markieren.
+  {
+    const { db, h, room } = await c4aRoom('C4AF');
+    t('C4A-3b Vorbedingung: ein Praesenzstand liegt vor', h.presenceSeen() === true);
+    h.forgetPresenceView();
+    t('C4A-3b danach gilt: noch nichts gesehen', h.presenceSeen() === false);
+    h.rederiveNow();
+    t('C4A-3b ohne Praesenzstand wird KEIN Sitz als verlassen markiert',
+      [1, 2, 3].every(s2 => h.left(s2) === false), [1, 2, 3].map(s2 => h.left(s2)));
+    t('C4A-3b und es wurde nichts geschrieben',
+      room().players[1] !== undefined && room().p[1] !== undefined, room().p[1]);
+  }
+
+  // ── C4A-3c: der aus der Historie rekonstruierte Zustand ueberlebt den
+  //     Initial-Callback der LAUFENDEN Generation ──
+  // Beim Rejoin baut fastForwardMatch den Verlassen-Zustand aus den Zuegen wieder auf.
+  // Der danach eintreffende erste gen-Callback traegt dieselbe Generation - er darf
+  // nichts leeren, denn aus vergangenen Zuegen laesst sich seatGone nicht neu ableiten.
+  {
+    const { db, h, gs, room } = await c4aRoom('C4AG');
+    const late = gs[2];
+    const pid = late.pid(), uid = late.uid();
+    gs[0].leave(); await tick(8);          // Sitz 1 geht -> Sentinel -> seatGone auf allen
+    t('C4A-3c Vorbedingung: der Verlassen-Zustand steht bei den Verbliebenen',
+      h.gone(1) === true && h.left(1) === true, { gone: h.gone(1), left: h.left(1) });
+
+    // Sitz 3 laedt neu und steigt in DERSELBEN Generation wieder ein.
+    late.drop();
+    const fresh = makeClient(db, 'C4AG', pid, uid);
+    fresh.setMenu('ffa', 5); fresh.setFmt('ffa');
+    const okR = await fresh.rejoin('C4AG'); await tick(12);
+    t('C4A-3c der Wiedereinstieg gelingt', okR === true && fresh.st().myPlayer === 3,
+      { ok: okR, seat: fresh.st().myPlayer });
+    t('C4A-3c der Zustand kam aus der Historie zurueck', fresh.gone(1) === true, fresh.gone(1));
+    t('C4A-3c und der Initial-Callback derselben Generation loescht ihn NICHT',
+      fresh.gone(1) === true && fresh.st().gen === h.st().gen,
+      { gone: fresh.gone(1), gen: fresh.st().gen, ref: h.st().gen });
+    t('C4A-3c beide rechnen denselben Zustand', fresh.hash() === h.hash(),
+      { fresh: fresh.hash(), h: h.hash() });
+  }
+
+  // ── C4A-4: C1/C2/C3 bleiben unberuehrt ──
+  {
+    const { db, h, room } = await c4aRoom('C4AE');
+    room().p[1] = { s: room().p[1].s, on: false, t: db.now() };
+    db.publishOffset(); await tick(6);
+    db.advanceServer(16000); await tick(10);
+    h.fireGrace(1); await tick(6);
+    room().gen = 1; db.touch(); await tick(12);
+    // Rueckkehr in der neuen Generation: die Praesenz wird ganz normal wieder aktiv.
+    room().p[1] = { s: room().p[1].s, on: true, t: db.now() };
+    db.publishOffset(); await tick(10);
+    t('C4A-4 die Rueckkehr funktioniert unveraendert',
+      h.grace(1).state === 'online' && h.left(1) === false, { g: h.grace(1), left: h.left(1) });
+    t('C4A-4 kein Kandidat, keine Eviction, kein remove',
+      h.candidates().length === 0 && (!room().g || !room().g[1] || room().g[1].e === undefined),
+      { k: h.candidates(), g: room().g && room().g[1] });
+  }
 
   // ══ C3: RUECKKEHRFRIST UND FRISTABLAUF ═════════════════════════════════════
   // Die Frist ist ein RECHT AUF RUECKKEHR. Sie laeuft gegen die Serverzeit, nicht gegen

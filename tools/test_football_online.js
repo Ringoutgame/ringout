@@ -222,6 +222,8 @@ const SRC = [
   grab(/function fbAbsenceCandidates\(\)\{[\s\S]*?\n\}/, 'fbAbsenceCandidates'),
   grab(/function clearAllMatchGrace\(\)\{[^\n]*/, 'clearAllMatchGrace'),
   grab(/function startMatchGrace\(s\)\{[\s\S]*?\n\}/, 'startMatchGrace'),
+  grab(/function clearLeaveState\(\)\{[^\n]*/, 'clearLeaveState'),
+  grab(/function rederiveLeaveState\(\)\{[\s\S]*?\n\}/, 'rederiveLeaveState'),
   grab(/function seatFinallyGone\(s\)\{[\s\S]*?\n\}/, 'seatFinallyGone'),
   grab(/async function attemptRejoin\(code\)\{[\s\S]*?\n\}/, 'attemptRejoin'),
 ].join('\n');
@@ -595,7 +597,7 @@ function makeClient(db, code, opts) {
     const NAME_MAX=16, NAME_MAX_UNITS=48, LOBBY_HOST_GRACE_MS=12000;
     // Rueckkehrfrist: Produktvertrag, deshalb aus index.html uebernommen.
     const SEAT_STALE_MS=${SEAT_STALE_FROM_SOURCE};
-    let roomP={}, matchGraceTimer={};
+    let roomP={}, matchGraceTimer={}, roomPSeen=false;
     let onlinePid=${JSON.stringify(pid)}, onlineTab=${JSON.stringify(tab)}, onlineName=${JSON.stringify(ui.name)};
     let playersRoster={}, rosterUnsub=null, lobbyHostGraceTimer=null, joinOpSeq=0;
     let phase='over', phaseStart=0, curAimer=0, balls=[], aimSet=[], commitIdx=[], commitAim=[], commitSpin=[], score=[];

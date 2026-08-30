@@ -144,6 +144,8 @@ const SRC = [
   grab(/function fbAbsenceCandidates\(\)\{[\s\S]*?\n\}/, 'fbAbsenceCandidates'),
   grab(/function clearAllMatchGrace\(\)\{[^\n]*/, 'clearAllMatchGrace'),
   grab(/function startMatchGrace\(s\)\{[\s\S]*?\n\}/, 'startMatchGrace'),
+  grab(/function clearLeaveState\(\)\{[^\n]*/, 'clearLeaveState'),
+  grab(/function rederiveLeaveState\(\)\{[\s\S]*?\n\}/, 'rederiveLeaveState'),
   grab(/function seatFinallyGone\(s\)\{[\s\S]*?\n\}/, 'seatFinallyGone'),
   grab(/const FF_MAX_STEPS_PER_TURN=[^\n]*/, 'FF_MAX_STEPS_PER_TURN'),
   grab(/function fastForwardMatch\(turns\)\{[\s\S]*?\n\}/, 'fastForwardMatch'),
@@ -421,7 +423,7 @@ function makeClient(db, code, forcePid) {
     // naechsten tick() (setImmediate pumpt die Timer-Phase), sodass die zeitfreien
     // Vor-B2-Disconnect-Asserts (Sofort-Sentinel nach drop) unveraendert gelten.
     // Das 15s-Reclaim-Fenster ist davon unabhaengig (Fake-DB-Zeit via db.advance).
-    let roomP={}, matchGraceTimer={};
+    let roomP={}, matchGraceTimer={}, roomPSeen=false;
     const SEAT_STALE_MS=0;
     // fastForwardMatch-Umgebung: Physik ist hier gestubbt (Flow-Suite testet den
     // Online-FLOW; die bit-identische Replay-Physik deckt test_reconnect ab).
@@ -478,6 +480,7 @@ function makeClient(db, code, forcePid) {
       ballDist(o){const b=balls.find(x=>x.owner===o);return b?Math.hypot(b.x-cx,b.y-cy):-1;},
       hash(){return simHash();},
       gone(o){return !!seatGone[o];},
+      left(o){return !!seatLeft[o];},
       kill(o){const b=balls.find(x=>x.owner===o);if(b)b.alive=false;},
       // P0-Fix-Spiegel: wie commit() online — NUR senden, das Turn-Echo (onlineTurnValue)
       // wendet den Move an (auch den eigenen). Kein lokaler Sonderweg mehr.
@@ -1087,6 +1090,67 @@ async function dropSeat(db, code, seat) {
     guest.leave(); await tick();
     t('PUB-GUEST-LEAVE guest never removes the listing', !guest.pubCalls().some(c => c.indexOf('remove:') === 0));
     t('PUB-GUEST-LEAVE room + host stay (still a valid public lobby)', !!db.data.rooms.PUBG && db.data.rooms.PUBG.p[0] && db.data.rooms.PUBG.p[0].on === true);
+  }
+
+
+  // ── C4A: VERLASSEN-ZUSTAND UND GENERATIONSWECHSEL ───────────────────────────
+  // Der Vermerk beschreibt, wer in DIESER Generation nicht mehr mitspielt. Bisher wurde
+  // er nur beim Betreten eines Raums geleert - ein Rematch nahm ihn mit. Zwei Faelle
+  // muessen dabei unterschieden bleiben:
+  //   Praesenzknoten FEHLT    -> bewusstes Verlassen -> gilt auch in der neuen Generation
+  //   Knoten da, on:false     -> voruebergehende Trennung -> neue Generation, neue Frist
+  const c4Room = async (code) => {
+    const db = makeDB();
+    const h = makeClient(db, code); h.setMenu('ffa', 3); h.create(); await tick();
+    const g1 = makeClient(db, 'X1'); g1.setMenu('online'); g1.join(code); await tick();
+    const g2 = makeClient(db, 'X2'); g2.setMenu('online'); g2.join(code); await tick();
+    h.clickStart(); await tick();
+    return { db, h, g1, g2 };
+  };
+
+  // Hinweis: die Generationsbindung einer TRENNUNG laesst sich hier nicht pruefen -
+  // dieser Sandkasten faehrt SEAT_STALE_MS=0, die neue Frist markiert also sofort
+  // wieder. Der Nachweis dafuer steht in tools/test_reconnect.js (echte 15 s, gestellte
+  // Serveruhr). Hier bleibt der Teil, der hier unterscheidbar ist: das bewusste Weggehen.
+
+  // ── C4A-2: bewusstes VERLASSEN gilt auch in der neuen Generation ──
+  // Hier fehlt der Praesenzknoten - das ist kein Ausfall, sondern ein Weggang.
+  {
+    const { db, h, g1, g2 } = await c4Room('C4RB');
+    g1.leave(); await tick();
+    t('C4A-2 Vorbedingung: der Praesenzknoten ist geloescht',
+      db.data.rooms.C4RB.p[1] === undefined && h.left(1) === true, db.data.rooms.C4RB.p);
+    h.rematch(); await tick();
+    t('C4A-2 in der neuen Generation gilt er weiterhin als weg', h.left(1) === true, h.left(1));
+    t('C4A-2 sein Slot wird wieder geschlossen, die Runde blockiert nicht',
+      (() => { const T = ((db.data.rooms.C4RB.g || {})[1] || {}).t; return !!(T && T[0] && T[0][1]); })(),
+      ((db.data.rooms.C4RB.g || {})[1] || {}).t);
+  }
+
+  // ── C4A-3: das Verlassen IN derselben Generation bleibt unveraendert ──
+  {
+    const { db, h, g1, g2 } = await c4Room('C4RC');
+    g1.leave(); await tick();
+    t('C4A-3 der Sitz gilt sofort als verlassen', h.left(1) === true && h.gone(1) === true,
+      { left: h.left(1), gone: h.gone(1) });
+    t('C4A-3 der Sentinel schliesst seinen Slot in DIESER Generation',
+      (() => { const c = db.data.rooms.C4RC.g[0].t[0][1]; return c && c.idx !== 1 && c.dx === 0 && c.dy === 0; })(),
+      db.data.rooms.C4RC.g[0].t[0]);
+    t('C4A-3 das Match laeuft weiter', h.st().gameStarted === true && g2.st().gameStarted === true);
+  }
+
+  // ── C4A-4: eine Trennung ist kein Verlassen ──
+  // Beide erzeugen p/<seat>/on=false. Unterschieden wird am Knoten selbst.
+  {
+    const { db, h, g1 } = await c4Room('C4RD');
+    g1.drop(); await tick();
+    t('C4A-4 nach der Trennung existiert der Knoten weiter',
+      db.data.rooms.C4RD.p[1] !== undefined && db.data.rooms.C4RD.p[1].on === false,
+      db.data.rooms.C4RD.p[1]);
+    const { db: db2, h: h2, g1: g1b } = await c4Room('C4RE');
+    g1b.leave(); await tick();
+    t('C4A-4 nach dem Verlassen ist der Knoten geloescht',
+      db2.data.rooms.C4RE.p[1] === undefined, db2.data.rooms.C4RE.p);
   }
 
   console.log('\nFFA-Online-Flow: ' + pass + ' passed, ' + fail + ' failed');

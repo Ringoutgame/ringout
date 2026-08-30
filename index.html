@@ -5697,6 +5697,12 @@ async function attemptRejoin(code){
     let turns={};
     try{ const ts=await window.FB.get(window.FB.ref(window.FB.db,'rooms/'+code+'/g/'+v.gen+'/t')); turns=ts.val()||{}; }catch(e){}
     if(!joinOpCurrent(op))return false;   // superseded during the read -> the newer op owns all state now
+    // C4A: Waehrend des Lesens kann die Gegenseite ein Rematch gestartet haben. Die
+    // gelesene Historie gehoert dann zu einer VERGANGENEN Generation - sie nachzuspielen
+    // wuerde den Zustand dieser Generation (inklusive seatGone) in die neue tragen. Der
+    // gen-Listener hat den Neustart bereits uebernommen; hier wird nur nicht mehr
+    // nachgespielt.
+    if(v.gen!==gen){ $('online').classList.remove('show'); showGame(); setStatus(T('rejoinOk')); return true; }
     $('online').classList.remove('show');
     showGame();
     fastForwardMatch(turns);
@@ -5716,6 +5722,11 @@ async function attemptRejoin(code){
 // overlay therefore waits SEAT_STALE_MS first. Timers are per seat, context-
 // bound, and cancelled the moment the seat comes back on:true.
 let roomP={}, matchGraceTimer={};
+// Hat der Praesenz-Listener fuer DIESE Raumsitzung schon einmal geliefert? Vorher ist
+// roomP leer - und ein leeres roomP heisst nicht "alle weg", sondern "noch nichts
+// gesehen". Ohne diese Unterscheidung wuerde eine Ableitung aus dem leeren Stand jeden
+// fremden Sitz als verlassen markieren (Reihenfolge Gen-Callback vor Praesenz-Callback).
+let roomPSeen=false;
 // Zu welcher Generation gehoert ein laufender Weckruf? Ohne diese Zuordnung waere
 // von aussen nicht unterscheidbar, ob nach einem Rematch noch der alte Weckruf steht
 // oder bereits ein neuer - und genau das ist die Zusicherung (s. rearmMatchGrace).
@@ -5872,6 +5883,31 @@ function startMatchGrace(s){
     seatFinallyGone(s);
   },wait);
 }
+// ════ C4A: Verlassen-Zustand ist generationsgebunden ════
+// seatLeft/seatGone beschreiben, wer in DIESER Generation nicht mehr mitspielt. Sie
+// wurden bisher nur beim Betreten eines Raums geleert - ein Rematch nahm sie also mit.
+// Folgen: ein sofortiger Leave-Sentinel in der neuen Generation (an der Frist aus C3
+// vorbei) und, weil seatGone in simHash() einfliesst, ein abweichender Zustandshash
+// gegenueber einem Client ohne diese Altlast.
+function clearLeaveState(){ seatLeft=[]; seatGone=[]; }
+// Nach dem Leeren wird aus der AKTUELLEN Praesenz neu abgeleitet - sonst bliebe ein
+// wirklich verlassener Sitz in der neuen Generation offen, und die Runde wartete auf
+// einen Zug, der nie kommt. Genau hier liegt die Unterscheidung:
+//   * Praesenzknoten fehlt  -> bewusstes Verlassen (leaveOnline loescht p+players
+//                              atomar) -> sofort behandeln, wie bisher
+//   * Knoten da, on:false   -> voruebergehende Trennung -> Frist aus C3, kein Verlassen
+function rederiveLeaveState(){
+  if(!online||!gameStarted||isOnlineTerminated())return;
+  // Ohne einen zugestellten Praesenzstand wird nicht abgeleitet: ein leeres roomP ist
+  // "noch nichts gesehen", nicht "niemand da". Der Praesenz-Callback erledigt es danach
+  // ohnehin - er behandelt fehlende Knoten selbst.
+  if(!roomPSeen)return;
+  for(let s=0;s<np();s++){
+    if(s===myPlayer)continue;
+    if(roomP&&roomP[s])continue;   // Knoten vorhanden -> Trennung, NICHT Verlassen
+    seatFinallyGone(s);
+  }
+}
 // Final leave handling — identical to the pre-B2 immediate behavior: FFA-family
 // seats are eliminated via the deterministic move sentinel (TEAM DUEL: only the
 // leaver's own ball — the partner plays on, the team only loses once both team
@@ -5903,6 +5939,7 @@ function seatFinallyGone(s){
 }
 function attachRoomListeners(){
   onlineSessionId++;
+  roomP={}; roomPSeen=false;   // C4A: neue Raumsitzung -> noch kein Praesenzstand gesehen
   startPresenceWatch();   // C1: ab hier wacht die Sitzung ueber ihre eigene Praesenz
   startServerClock();     // C3: Frist rechnet gegen die Serverzeit, nicht gegen die lokale Uhr
   clearGenerationStart(); // C3: neue Raumsitzung -> Generationsgrenze wird neu bestimmt   // P0-Fix: neue Session je Raumbeitritt/-erstellung -> Transaction-/Listener-Ergebnisse einer fruehreren Session werden ungueltig
@@ -5936,7 +5973,7 @@ function attachRoomListeners(){
     // nur on:false = Disconnect/Reload -> SEAT_STALE_MS Grace, damit der Spieler
     // seinen Seat reclaimen kann, bevor Sentinel/Overlay greifen. Kommt der Seat
     // innerhalb der Grace zurueck (on:true), passiert nichts.
-    roomP=p;
+    roomP=p; roomPSeen=true;
     if(gameStarted){
       for(let s=0;s<np();s++){
         if(s===myPlayer)continue;
@@ -5976,10 +6013,14 @@ function attachRoomListeners(){
     const genChanged=(g!==gen);
     if(genChanged||!genStartedAt)markGenerationStart();
     gen=g;
+    // C4A: VOR dem Neustart leeren - die Sentinel-Nachfuellung der neuen Runde darf die
+    // Altlast der vorigen Generation nicht mehr sehen.
+    if(genChanged)clearLeaveState();
     if(gameStarted && g!==runningGen) startOnlineGame();
     // Nach dem Wechsel: weiterhin getrennte Sitze brauchen einen Weckruf in DIESER
-    // Generation (s. rearmMatchGrace).
-    if(genChanged)rearmMatchGrace();
+    // Generation (s. rearmMatchGrace), und wer wirklich weg ist, wird aus der aktuellen
+    // Praesenz neu abgeleitet (s. rederiveLeaveState).
+    if(genChanged){ rearmMatchGrace(); rederiveLeaveState(); }
   });
   // FFA-Startsignal: seats existiert (Rule-gesichert) erst NACH state='playing' —
   // ein einziger Listener reicht daher als synchroner Start fuer Host UND Gaeste.
@@ -6295,7 +6336,7 @@ function leaveOnline(){
   onlineTerminatedSession=-1;   // terminalen Abbruchzustand sicher zuruecksetzen (die neue Session ist ohnehin != gespeicherter Session)
   clearAllSentinelRetries();   // P0-Nachbesserung: Raum wird verlassen -> kein Sentinel-Retry darf danach noch feuern
   clearLobbyHostGrace();       // deliberate leave -> no pending lobby grace may fire afterwards
-  clearAllMatchGrace(); roomP={};   // B2: in-match grace timers of this room are void as well
+  clearAllMatchGrace(); roomP={}; roomPSeen=false;   // B2: in-match grace timers of this room are void as well
   try{ if(turnUnsub)turnUnsub(); }catch(e){} try{ if(genUnsub)genUnsub(); }catch(e){} try{ if(presUnsub)presUnsub(); }catch(e){} try{ if(seatsUnsub)seatsUnsub(); }catch(e){} try{ if(rosterUnsub)rosterUnsub(); }catch(e){}
   turnUnsub=genUnsub=presUnsub=seatsUnsub=rosterUnsub=null;
   stopPresenceWatch();   // C1: bewusstes Verlassen -> keine Wiederherstellung mehr
