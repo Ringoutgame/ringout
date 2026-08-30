@@ -16,6 +16,9 @@ const fs = require('fs');
 const path = require('path');
 const { grabFunction } = require('./extract.js');
 const HTML = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+// Die echte Rueckkehrfrist aus index.html - kein im Test geratener Wert.
+const SEAT_STALE_FROM_SOURCE = Number((HTML.match(/const SEAT_STALE_MS=(\d+)/) || [])[1]);
+if (!Number.isFinite(SEAT_STALE_FROM_SOURCE)) { console.error('FAIL: cannot extract SEAT_STALE_MS'); process.exit(1); }
 const grab = (re, name) => {
   const m = HTML.match(re);
   if (!m) { console.error('FAIL: cannot extract ' + name); process.exit(1); }
@@ -201,7 +204,22 @@ const SRC = [
   fn('reclaimSeat'),
   grab(/async function releaseReclaim\(code,seat,dc\)\{[\s\S]*?\n\}/, 'releaseReclaim'),
   fn('reclaimSeatSlot'),
+  grab(/let matchGraceGen=\{\};/, 'matchGraceGen'),
   grab(/function clearMatchGrace\(s\)\{[^\n]*/, 'clearMatchGrace'),
+  grab(/function rearmMatchGrace\(\)\{[\s\S]*?\n\}/, 'rearmMatchGrace'),
+  grab(/let serverTimeOffset=0, serverClockReady=false, clockUnsub=null;/, 'serverTimeOffset'),
+  grab(/function serverNow\(\)\{[^\n]*/, 'serverNow'),
+  grab(/function startServerClock\(\)\{[\s\S]*?\n\}/, 'startServerClock'),
+  grab(/function stopServerClock\(\)\{[^\n]*/, 'stopServerClock'),
+  grab(/function fbSeatGrace\(s\)\{[\s\S]*?\n\}/, 'fbSeatGrace'),
+  grab(/function fbGraceExpired\(s\)\{[^\n]*/, 'fbGraceExpired'),
+  grab(/function fbGraceWait\(s\)\{[\s\S]*?\n\}/, 'fbGraceWait'),
+  grab(/function fbGraceTimerAction\(s\)\{[\s\S]*?\n\}/, 'fbGraceTimerAction'),
+  grab(/let genStartedAt=0, genStartPending=false;/, 'genStartedAt'),
+  grab(/function markGenerationStart\(\)\{[\s\S]*?\n\}/, 'markGenerationStart'),
+  grab(/function clearGenerationStart\(\)\{[^\n]*/, 'clearGenerationStart'),
+  grab(/function fbGraceCtxValid\(ctx\)\{[\s\S]*?\n\}/, 'fbGraceCtxValid'),
+  grab(/function fbAbsenceCandidates\(\)\{[\s\S]*?\n\}/, 'fbAbsenceCandidates'),
   grab(/function clearAllMatchGrace\(\)\{[^\n]*/, 'clearAllMatchGrace'),
   grab(/function startMatchGrace\(s\)\{[\s\S]*?\n\}/, 'startMatchGrace'),
   grab(/function seatFinallyGone\(s\)\{[\s\S]*?\n\}/, 'seatFinallyGone'),
@@ -447,6 +465,15 @@ function makeDB() {
       const r = data.rooms[code]; if (!r || !r.p || !r.p[seat]) return false;
       r.p[seat].on = !!on; r.p[seat].t = nowMs; notify(); return true;
     },
+    // C3: .info/serverTimeOffset - der Standardweg zur Angleichung an die Serverzeit.
+    publishOffset() {
+      if (!data['.info']) data['.info'] = {};
+      data['.info'].serverTimeOffset = nowMs - Date.now();
+      notify();
+    },
+    // Serverzeit vorstellen UND den Offset nachziehen: fuer den Client bewegt sich
+    // damit die Serverzeit, nicht seine eigene Uhr.
+    advanceServer(ms) { nowMs += ms; this.publishOffset(); },
     flush,
     // Ein Client sieht die Datenbank ausschliesslich durch dieses Objekt - mit SEINER
     // Identitaet. Zwei Clients koennen sich so nicht gegenseitig als Schreiber ausgeben.
@@ -565,7 +592,9 @@ function makeClient(db, code, opts) {
     let sentinelRetryTimer={};
     const SENTINEL_RETRY_BASE_MS=300, SENTINEL_RETRY_MAX_MS=2000, SENTINEL_RETRY_MAX_ATTEMPTS=11;
     let onlineTerminatedSession=-1;
-    const NAME_MAX=16, NAME_MAX_UNITS=48, LOBBY_HOST_GRACE_MS=12000, SEAT_STALE_MS=60000;
+    const NAME_MAX=16, NAME_MAX_UNITS=48, LOBBY_HOST_GRACE_MS=12000;
+    // Rueckkehrfrist: Produktvertrag, deshalb aus index.html uebernommen.
+    const SEAT_STALE_MS=${SEAT_STALE_FROM_SOURCE};
     let roomP={}, matchGraceTimer={};
     let onlinePid=${JSON.stringify(pid)}, onlineTab=${JSON.stringify(tab)}, onlineName=${JSON.stringify(ui.name)};
     let playersRoster={}, rosterUnsub=null, lobbyHostGraceTimer=null, joinOpSeq=0;
@@ -729,6 +758,10 @@ function makeClient(db, code, opts) {
       // Datenbank ohnehin ab, und der Test koennte eine fehlende Pruefung im Client
       // nicht mehr von einer Ablehnung unterscheiden.
       skipBoundary(){ return fbSkipBoundary(); },
+      grace(s){ return fbSeatGrace(s); },
+      candidates(){ return fbAbsenceCandidates(); },
+      clockReady(){ return serverClockReady; },
+      genStart(){ return {at:genStartedAt,pending:genStartPending}; },
       trySkip(s){ return fbWriteSkip(s,0); },
       discView(){ return { wt:(els['wt']?els['wt'].textContent:''),
         ws:(els['ws']?els['ws'].textContent:''),
@@ -2014,6 +2047,206 @@ async function eliminateSeat(db, cs, seat, maxRounds) {
       Object.keys(turnsOf(db, code, 1)).length === 0, turnsOf(db, code, 1));
   }
 }
+
+// ── C3 · RUECKKEHRFRIST IM LAUFENDEN FOOTBALL-MATCH ────────────────────────────
+// Die Frist ist ein Rueckkehrrecht. Sie laeuft gegen die Serverzeit und wird von den
+// SKIPs aus C2 nicht beruehrt. Am Ablauf entsteht ausschliesslich EIGNUNG - entfernt
+// wird nichts.
+{
+  const turnsOf = (db, code, gen) => (((db.data.rooms[code].g || {})[gen || 0] || {}).t) || {};
+  {
+    const { db, cs } = await newMatch('C3F1');
+    const code = 'C3F1', off = 2;
+    db.publishOffset(); await tick(db, 20);
+    t('C3F die Uhr ist angeglichen', cs[0].clockReady() === true);
+
+    const before = cs[0].st();
+    db.setPresence(code, off, false); db.publishOffset(); await tick(db, 30);
+    t('C3F direkt nach der Trennung: reserviert', cs[0].grace(off).state === 'reserved', cs[0].grace(off));
+    t('C3F noch kein Kandidat', cs[0].candidates().length === 0, cs[0].candidates());
+
+    // C2 laeuft waehrenddessen weiter: die Runde wird per SKIP geschlossen.
+    for (const c of cs) if (c.idx !== off) c.commitVec(60, -40, 0);
+    await tick(db, 40);
+    for (const c of cs) c.pump();
+    await tick(db, 40);
+    const sinceAfterSkip = cs[0].grace(off).since;
+    t('C3F die Runde lief per SKIP weiter',
+      (turnsOf(db, code)[0] || {})[String(off)] &&
+      (turnsOf(db, code)[0] || {})[String(off)].k === 'skip', turnsOf(db, code)[0]);
+
+    // Und noch eine Runde - der SKIP darf die Frist nicht verschieben.
+    for (const c of cs) if (c.idx !== off) c.commitVec(40, 40, 0);
+    await tick(db, 40);
+    for (const c of cs) c.pump();
+    await tick(db, 40);
+    t('C3F ein SKIP verschiebt den Fristbeginn NICHT',
+      cs[0].grace(off).since === sinceAfterSkip, { vorher: sinceAfterSkip, nachher: cs[0].grace(off).since });
+
+    // Jetzt die Schwelle.
+    db.advanceServer(14900); await tick(db, 20);
+    t('C3F nach 14,9 s: weiterhin reserviert', cs[0].grace(off).state === 'reserved', cs[0].grace(off));
+    t('C3F und weiterhin kein Kandidat', cs[0].candidates().length === 0, cs[0].candidates());
+    db.advanceServer(200); await tick(db, 20);
+    t('C3F ab 15 s: abgelaufen', cs[0].grace(off).state === 'expired', cs[0].grace(off));
+    t('C3F der Sitz ist jetzt Kandidat fuer die spaetere Entfernung',
+      cs[0].candidates().join(',') === String(off), cs[0].candidates());
+
+    // ── Und nun der Kern: am Ablauf passiert NICHTS ──
+    const after = cs[0].st();
+    t('C3F kein Leben verloren', after.lives.join(',') === before.lives.join(','),
+      { vorher: before.lives, nachher: after.lives });
+    t('C3F niemand eliminiert', after.active.join(',') === before.active.join(','), after.active);
+    t('C3F kein Sieger', after.winner === null && after.over.length === 0, after);
+    t('C3F keine Sitzverschiebung', after.slots.join(',') === before.slots.join(','), after.slots);
+    t('C3F die Arena bleibt unveraendert', after.phaseN === before.phaseN, after.phaseN);
+    t('C3F der Spielerdatensatz existiert weiter', db.data.rooms[code].players[off] !== undefined,
+      Object.keys(db.data.rooms[code].players));
+    t('C3F die Praesenz wurde nicht geloescht', db.data.rooms[code].p[off] !== undefined,
+      db.data.rooms[code].p[off]);
+    t('C3F KEINE Eviction geschrieben', db.data.rooms[code].g[0].e === undefined,
+      db.data.rooms[code].g[0].e);
+    t('C3F kein REMOVE-Datensatz',
+      !Object.keys(turnsOf(db, code)).some(tn => Object.keys(turnsOf(db, code)[tn])
+        .some(sn => turnsOf(db, code)[tn][sn].k === 'remove')), turnsOf(db, code));
+
+    // Rueckkehr NACH Fristablauf, aber vor jeder Entfernung: die Eignung entfaellt sofort.
+    db.setPresence(code, off, true); db.publishOffset(); await tick(db, 30);
+    t('C3F eine spaete, aber legitime Rueckkehr loescht die Eignung',
+      cs[0].grace(off).state === 'online' && cs[0].candidates().length === 0, cs[0].grace(off));
+    t('C3F der Zurueckgekehrte behaelt Sitz und Leben',
+      cs[off].st().myPlayer === off && cs[off].st().lives.join(',') === before.lives.join(','),
+      cs[off].st());
+  }
+
+  // ── C3GA: die Kandidatur ist an die laufende Generation gebunden ──
+  // Nach einem Rematch setzt das Spiel Leben und Aktivliste zurueck, die Praesenz bleibt
+  // aber stehen. Eine Trennung aus der ALTEN Generation darf in der neuen nicht sofort
+  // wieder als Abwesenheit gelten - dort beginnt die Frist von vorn.
+  {
+    const { db, cs } = await newMatch('C3GA');
+    const code = 'C3GA', off = 2;
+    db.publishOffset(); await tick(db, 20);
+    db.setPresence(code, off, false); db.publishOffset(); await tick(db, 20);
+    db.advanceServer(20000); await tick(db, 20);
+    t('C3GA Vorbedingung: abgelaufen und Kandidat in Generation 0',
+      cs[0].grace(off).state === 'expired' && cs[0].candidates().indexOf(off) >= 0,
+      { g: cs[0].grace(off), k: cs[0].candidates() });
+
+    // Rematch - der Sitz bleibt getrennt.
+    db.data.rooms[code].gen = 1; db.publishOffset(); await tick(db, 30);
+    t('C3GA nach dem Rematch ist der alte Ausfall KEIN Kandidat mehr',
+      cs[0].candidates().indexOf(off) < 0, { k: cs[0].candidates(), g: cs[0].grace(off) });
+    // Er ist aber auch nicht dauerhaft ausgeschlossen: seine Frist laeuft ab dem Beginn
+    // der neuen Generation NEU an - Wartezeit, Weckruf und Kandidatur rechnen gegen
+    // dieselbe Basis.
+    t('C3GA die Frist rechnet ab dem Generationsbeginn, nicht ab dem alten Zeitstempel',
+      cs[0].grace(off).state === 'reserved' && cs[0].grace(off).raw < cs[0].grace(off).since,
+      cs[0].grace(off));
+    db.advanceServer(16000); await tick(db, 20);
+    t('C3GA nach den eigenen 15 s der neuen Generation ist er wieder Kandidat',
+      cs[0].candidates().indexOf(off) >= 0, cs[0].candidates());
+
+    // Erst eine Trennung IN der neuen Generation zaehlt wieder - nach ihren eigenen 15 s.
+    db.setPresence(code, off, true); db.publishOffset(); await tick(db, 20);
+    db.setPresence(code, off, false); db.publishOffset(); await tick(db, 20);
+    t('C3GA eine frische Trennung ist zunaechst reserviert',
+      cs[0].grace(off).state === 'reserved' && cs[0].candidates().indexOf(off) < 0, cs[0].grace(off));
+    db.advanceServer(16000); await tick(db, 20);
+    t('C3GA und wird nach ihren eigenen 15 s wieder Kandidat',
+      cs[0].candidates().indexOf(off) >= 0, cs[0].candidates());
+  }
+
+  // ── C3GB: eine Rueckkehr loescht die finale Ausfallmerkung ──
+  // Ohne das bekaeme eine ZWEITE Trennung nie wieder einen Weckruf.
+  {
+    const { db, cs } = await newMatch('C3GB');
+    const code = 'C3GB', off = 1;
+    db.publishOffset(); await tick(db, 20);
+    db.setPresence(code, off, false); db.publishOffset(); await tick(db, 20);
+    cs[0].seatGoneNow(off);                       // Ausfall wird final vermerkt
+    t('C3GB der Ausfall ist vermerkt', cs[0].discView().left[off] === true, cs[0].discView().left);
+    db.setPresence(code, off, true); db.publishOffset(); await tick(db, 30);
+    t('C3GB die Rueckkehr loescht die Merkung', cs[0].discView().left[off] !== true,
+      cs[0].discView().left);
+    db.setPresence(code, off, false); db.publishOffset(); await tick(db, 20);
+    t('C3GB eine zweite Trennung wird wieder als reserviert gefuehrt',
+      cs[0].grace(off).state === 'reserved', cs[0].grace(off));
+  }
+
+  // ── C3F1d: ohne feststehende Generationsgrenze gibt es KEINE Kandidaten ──
+  // Der Rejoin setzt gen, bevor der Listener haengt - eine Grenze allein aus dem
+  // Vergleich "hat sich gen geaendert" wuerde nach einem Neuladen nie gesetzt. Und ohne
+  // Serverzeit darf sie gar nicht erst festgelegt werden: eine nachgehende Geraeteuhr
+  // ergaebe eine zu kleine Grenze, unter der ein alter Zeitstempel durchrutscht.
+  {
+    const { db, cs } = await newMatch('C3GC');
+    const code = 'C3GC', off = 3;
+    db.publishOffset(); await tick(db, 20);
+    t('C3F1d nach dem Beitritt steht die Generationsgrenze',
+      cs[0].genStart().at > 0 && cs[0].genStart().pending === false, cs[0].genStart());
+
+    db.setPresence(code, off, false); db.publishOffset(); await tick(db, 20);
+    db.advanceServer(20000); await tick(db, 20);
+    t('C3F1d mit Grenze wird der Sitz benannt', cs[0].candidates().indexOf(off) >= 0,
+      cs[0].candidates());
+  }
+  {
+    // Derselbe Ablauf, aber der Client bekommt nie eine Serverzeit.
+    const db = makeDB(), code = 'C3GD';
+    const cs = await setupMatch(db, code);
+    const off = 3;
+    db.setPresence(code, off, false); await tick(db, 20);
+    db.advance(30000); await tick(db, 20);
+    t('C3F1d ohne Serverzeit bleibt die Grenze unbestimmt',
+      cs[0].genStart().at === 0, cs[0].genStart());
+    t('C3F1d und es wird NIEMAND als Kandidat benannt', cs[0].candidates().length === 0,
+      cs[0].candidates());
+  }
+
+  // ── C3F2: ein ausgeschiedener Getrennter ist KEIN Abwesenheitskandidat ──
+  {
+    const db = makeDB(), code = 'C3F2';
+    const cs = await setupMatch(db, code);
+    db.publishOffset(); await tick(db, 20);
+    const victim = 1;
+    const okE = await eliminateSeat(db, cs, victim, 90);
+    t('C3F2 Vorbedingung: der Sitz ist ausgeschieden', okE && cs[0].st().active[victim] === false,
+      cs[0].st().active);
+    if (okE) {
+      db.setPresence(code, victim, false); db.publishOffset(); await tick(db, 30);
+      db.advanceServer(30000); await tick(db, 20);
+      t('C3F2 die Frist gilt auch fuer ihn als abgelaufen', cs[0].grace(victim).state === 'expired',
+        cs[0].grace(victim));
+      t('C3F2 aber er ist KEIN Abwesenheitskandidat - Eliminierung ist keine Abwesenheit',
+        cs[0].candidates().indexOf(victim) < 0, cs[0].candidates());
+      t('C3F2 und er bleibt ausgeschieden', cs[0].st().active[victim] === false, cs[0].st().active);
+    }
+  }
+
+  // ── C3F3: Fristablauf waehrend der Simulation aendert nichts ──
+  {
+    const { db, cs } = await newMatch('C3F3');
+    const code = 'C3F3', off = 4;
+    db.publishOffset(); await tick(db, 20);
+    const before = cs[0].st(), hash0 = cs[0].hash();
+    db.setPresence(code, off, false); db.publishOffset(); await tick(db, 20);
+    for (const c of cs) if (c.idx !== off) c.commitVec(80, 10, 0);
+    await tick(db, 30);
+    // Mitten in der Rechenphase laeuft die Frist ab.
+    db.advanceServer(20000); await tick(db, 20);
+    t('C3F3 der Ablauf ist waehrend der Simulation sichtbar',
+      cs[0].grace(off).state === 'expired', cs[0].grace(off));
+    t('C3F3 aber der Spielzustand wurde dadurch nicht angefasst',
+      cs[0].st().lives.join(',') === before.lives.join(',') &&
+      cs[0].st().active.join(',') === before.active.join(','), cs[0].st());
+    for (const c of cs) c.pump();
+    await tick(db, 40);
+    t('C3F3 die Runde laeuft deterministisch zu Ende und alle bleiben gleich',
+      sameHash(cs), cs.map(c => c.hash()));
+  }
+}
+
 console.log('\nFootball-Online: ' + pass + ' passed, ' + fail + ' failed');
   process.exit(fail ? 1 : 0);
 })().catch(e => { console.error('SUITE ERROR: ' + (e && e.stack || e)); process.exit(1); });

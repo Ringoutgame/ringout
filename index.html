@@ -4276,6 +4276,10 @@ if(typeof DEV_MENU!=='undefined'&&DEV_MENU)window.__fbDev={
   fx:()=>({edge:[fbFxEdge(0),fbFxEdge(1),fbFxEdge(2)],
            drain:Array.from({length:FOOTBALL_ELIM_MAX_PLAYERS},(_,k)=>fbFxDrain(k))}),
   winner:()=>footballWinner,
+  // C3: Fristzustand und Abwesenheitskandidaten - rein lesend, keine Entscheidung.
+  grace:(s)=>fbSeatGrace(s),
+  candidates:()=>fbAbsenceCandidates(),
+  clockReady:()=>serverClockReady,
   // Wer darf gerade zielen (-1 = niemand) und wo liegt seine Figur auf dem Bildschirm.
   // Beides rein lesend; die Browser-Abnahme setzt damit ECHTE Zeigergesten an der richtigen
   // Stelle ab, statt interne Zugfunktionen aufzurufen.
@@ -5712,17 +5716,161 @@ async function attemptRejoin(code){
 // overlay therefore waits SEAT_STALE_MS first. Timers are per seat, context-
 // bound, and cancelled the moment the seat comes back on:true.
 let roomP={}, matchGraceTimer={};
-function clearMatchGrace(s){ if(matchGraceTimer[s]){clearTimeout(matchGraceTimer[s]);matchGraceTimer[s]=null;} }
+// Zu welcher Generation gehoert ein laufender Weckruf? Ohne diese Zuordnung waere
+// von aussen nicht unterscheidbar, ob nach einem Rematch noch der alte Weckruf steht
+// oder bereits ein neuer - und genau das ist die Zusicherung (s. rearmMatchGrace).
+let matchGraceGen={};
+// ════ C3: Rueckkehrfrist auf autoritativer Zeitbasis ════
+// Die lokale Uhr eines Geraets ist keine gemeinsame Grundlage: zwei Clients, die
+// dieselbe Trennung zu verschiedenen Zeitpunkten bemerken (spaeter Beitritt, Neuladen,
+// verzoegerter Listener), kaemen mit einer eigenen Stoppuhr zu verschiedenen
+// Ablaufzeitpunkten. p/<seat>/t traegt dagegen an JEDEM Praesenzwechsel die Serverzeit -
+// auch das armierte onDisconnect schreibt sie. Zusammen mit .info/serverTimeOffset,
+// dem Standardweg zur Angleichung der lokalen Uhr, ist die Frist rein abgeleitet.
+// Es gibt deshalb kein Countdown-Paket und keinen zusaetzlichen Datensatz.
+let serverTimeOffset=0, serverClockReady=false, clockUnsub=null;
+// Beginn der aktuellen Generation nach eigener (server-angeglichener) Zeit. Eine
+// Trennung, die noch aus der vorigen Generation stammt, darf nach einem Rematch nicht
+// sofort wieder als Abwesenheit gelten - dort beginnt die Frist neu.
+let genStartedAt=0, genStartPending=false;
+// Die Generationsgrenze wird NUR auf einer gueltigen Zeitbasis gesetzt. Ohne Serverzeit
+// waere sie nach einer nachgehenden Geraeteuhr zu klein - ein Zeitstempel aus der alten
+// Generation koennte dann groesser sein und faelschlich zugelassen werden. Bis die Uhr
+// steht, bleibt die Grenze unbestimmt, und unbestimmt heisst: keine Kandidaten.
+function markGenerationStart(){
+  if(serverClockReady){ genStartedAt=serverNow(); genStartPending=false; }
+  else { genStartedAt=0; genStartPending=true; }
+}
+function clearGenerationStart(){ genStartedAt=0; genStartPending=false; }
+function serverNow(){ return Date.now()+serverTimeOffset; }
+function startServerClock(){
+  stopServerClock();
+  try{ clockUnsub=window.FB.onValue(window.FB.ref(window.FB.db,'.info/serverTimeOffset'),
+    snap=>{ const v=snap.val(); if(typeof v==='number'&&isFinite(v)){
+      serverTimeOffset=v; serverClockReady=true;
+      if(genStartPending)markGenerationStart();   // vorgemerkte Grenze jetzt festlegen
+    } }); }
+  catch(e){ clockUnsub=null; }
+}
+function stopServerClock(){ if(clockUnsub){ try{ clockUnsub(); }catch(e){} clockUnsub=null; } serverClockReady=false; }
+// Fristzustand eines Sitzes, ausschliesslich abgeleitet:
+//   'online'    - verbunden, keine Frist
+//   'reserved'  - getrennt, innerhalb der 15 Sekunden: Sitz, Identitaet und Leben bleiben
+//   'expired'   - getrennt und die Frist ist ueberschritten
+//   'unknown'   - kein verwertbarer Zeitstempel; im Zweifel wird NICHT abgelaufen
+// age zaehlt ab dem autoritativen Uebergang, nicht ab der eigenen Beobachtung.
+function fbSeatGrace(s){
+  const p=roomP&&roomP[s];
+  if(!p)return {state:'unknown',reason:'noPresence',age:0,since:null};
+  if(p.on===true)return {state:'online',reason:'',age:0,since:null};
+  const raw=p.t;
+  if(typeof raw!=='number'||!isFinite(raw))return {state:'unknown',reason:'noTimestamp',age:0,since:null};
+  // Ohne angeglichene Uhr wird NICHT entschieden. Eine ungeprueft schnelle oder
+  // nachgehende Geraeteuhr wuerde die Frist sonst willkuerlich verkuerzen oder
+  // verlaengern - im Zweifel bleibt es beim bisherigen Verhalten (volle Wartezeit).
+  if(!serverClockReady)return {state:'unknown',reason:'noClock',age:0,since:raw,raw:raw};
+  // Die Fristbasis liegt nie VOR dem Beginn der laufenden Generation. Nach einem Rematch
+  // laeuft die Frist damit neu an, statt aus der alten Generation weiterzuzaehlen: sonst
+  // wuerde ein dort bereits abgelaufener Ausfall sofort wieder entscheiden - und ein
+  // dauerhaft getrennter Football-Sitz koennte in der neuen Generation nie Kandidat
+  // werden, weil sein alter Zeitstempel immer vor der Generationsgrenze liegt.
+  // Wartezeit, Weckruf-Entscheidung und Kandidatur rechnen so gegen DIESELBE Basis.
+  const t=(genStartedAt&&raw<genStartedAt)?genStartedAt:raw;
+  const age=serverNow()-t;
+  // Ein Zeitstempel in der Zukunft ist kein Ablauf, sondern ein Hinweis auf eine
+  // noch nicht eingeschwungene Uhr.
+  if(age<0)return {state:'unknown',reason:'future',age:age,since:t,raw:raw};
+  return {state:age>=SEAT_STALE_MS?'expired':'reserved',reason:'',age:age,since:t,raw:raw};
+}
+function fbGraceExpired(s){ return fbSeatGrace(s).state==='expired'; }
+// Restwartezeit bis zur Schwelle - aus dem autoritativen Zeitstempel, nicht aus dem
+// Moment der eigenen Beobachtung. Ein Client, der eine zehn Sekunden alte Trennung zum
+// ersten Mal sieht, wartet noch fuenf Sekunden, nicht wieder fuenfzehn.
+function fbGraceWait(s){
+  const g=fbSeatGrace(s);
+  return (g.state==='reserved')?Math.max(0,SEAT_STALE_MS-g.age)
+        :(g.state==='unknown')?SEAT_STALE_MS:0;
+}
+// Was tut der Weckruf, wenn er feuert? 'rearm' heisst: es ist noch nicht entschieden,
+// erneut wecken. 'act' heisst: die Frist ist abgelaufen (oder es gibt keine bessere
+// Grundlage als das Verhalten vor C3, naemlich wenn gar keine Serverzeit vorliegt -
+// dann hat der lokale Weckruf bereits die volle Frist abgewartet).
+// Ein ZUKUENFTIGER Zeitstempel entscheidet nie: das ist eine noch nicht eingeschwungene
+// Uhr, kein Ablauf.
+function fbGraceTimerAction(s){
+  const g=fbSeatGrace(s);
+  if(g.state==='online')return 'stop';
+  if(g.state==='reserved')return 'rearm';
+  if(g.state==='unknown'&&g.reason==='future')return 'rearm';
+  return 'act';
+}
+// Ein armierter Weckruf gehoert zu genau einer Sitzung, einem Raum und einer
+// Generation. Nach einem Rematch ist er gegenstandslos - eine Frist aus der alten
+// Generation darf in der neuen nichts ausloesen.
+function fbGraceCtxValid(ctx){
+  return ctx.sid===onlineSessionId&&ctx.room===roomCode&&ctx.gen===gen&&!isOnlineTerminated();
+}
+// Uebergabe an eine spaetere dauerhafte Entfernung: WER waere geeignet? Rein lesend und
+// bei jedem Aufruf neu abgeleitet - es gibt bewusst keine gespeicherte Kandidatenliste,
+// die veralten koennte. Eine Rueckkehr laesst die Eignung im selben Moment entfallen.
+// Eine gameplay-seitige Eliminierung ist KEINE Abwesenheit und zaehlt hier nicht.
+function fbAbsenceCandidates(){
+  const out=[];
+  if(!online||!fbOnlineRoom()||!gameStarted||isOnlineTerminated())return out;
+  // Steht die Generationsgrenze nicht fest (frisch beigetreten, Uhr noch nicht
+  // angeglichen), wird niemand benannt. Eine spaetere dauerhafte Entfernung darf sich
+  // nie auf eine Grenze stuetzen, die es noch gar nicht gibt.
+  if(!genStartedAt)return out;
+  for(let s=0;s<np();s++){
+    if(s===myPlayer)continue;
+    if(!aliveCount(s))continue;
+    const g=fbSeatGrace(s);
+    if(g.state!=='expired')continue;
+    // Die Fristbasis ist bereits generationsrelativ (s. fbSeatGrace): ein Ausfall aus
+    // der vorigen Generation zaehlt hier ab deren Beginn, nicht ab seinem alten
+    // Zeitstempel - er braucht also die vollen fuenfzehn Sekunden dieser Generation.
+    if(typeof g.since!=='number')continue;
+    out.push(s);
+  }
+  return out;
+}
+function clearMatchGrace(s){ if(matchGraceTimer[s]){clearTimeout(matchGraceTimer[s]);matchGraceTimer[s]=null;} delete matchGraceGen[s]; }
+// C3: Ein Generationswechsel entwertet jeden laufenden Weckruf - er traegt den alten
+// Generationskontext. Ein gen-Write erzeugt aber KEINEN neuen Praesenz-Callback, also
+// bekaemen weiterhin getrennte Sitze in der neuen Generation nie wieder einen Ablauf:
+// weder seatFinallyGone noch einen Leave-Sentinel, und die neue Runde wartete ewig.
+// Deshalb werden sie hier ausdruecklich neu armiert.
+function rearmMatchGrace(){
+  if(!online||!gameStarted||isOnlineTerminated())return;
+  for(let s=0;s<np();s++){
+    if(s===myPlayer)continue;
+    if(!(roomP&&roomP[s]))continue;        // Knoten ganz weg = bewusstes Leave, anderer Pfad
+    if(seatActive(roomP,s))continue;       // verbunden - nichts zu tun
+    clearMatchGrace(s);                    // alter Kontext raus ...
+    startMatchGrace(s);                    // ... neuer Weckruf mit der neuen Generation
+  }
+}
 function clearAllMatchGrace(){ for(const s in matchGraceTimer)clearMatchGrace(s); }
+// Der Timer ist nur noch ein WECKRUF, keine Entscheidung. Geweckt wird fruehestens
+// nach der Restfrist, die sich aus dem autoritativen Zeitstempel ergibt; ist die Frist
+// beim Aufwachen noch nicht abgelaufen (spaeter Beobachter, verschobene Uhr), wird fuer
+// den Rest erneut geweckt. Ein zweiter Beobachter derselben Trennung kommt damit auf
+// denselben Ablaufzeitpunkt wie der erste.
 function startMatchGrace(s){
   if(matchGraceTimer[s])return;
-  const ctx={sid:onlineSessionId,room:roomCode};
+  const ctx={sid:onlineSessionId,room:roomCode,gen:gen};
+  const wait=fbGraceWait(s);
+  matchGraceGen[s]=gen;
   matchGraceTimer[s]=setTimeout(()=>{
-    matchGraceTimer[s]=null;
-    if(ctx.sid!==onlineSessionId||ctx.room!==roomCode||isOnlineTerminated())return;
+    matchGraceTimer[s]=null; delete matchGraceGen[s];
+    if(!fbGraceCtxValid(ctx))return;
     if(!gameStarted||seatActive(roomP,s))return;   // came back within the grace
+    // Autoritative Nachpruefung: noch nicht entschieden -> fuer die Restzeit erneut wecken.
+    const act=fbGraceTimerAction(s);
+    if(act==='stop')return;
+    if(act==='rearm'){ startMatchGrace(s); return; }
     seatFinallyGone(s);
-  },SEAT_STALE_MS);
+  },wait);
 }
 // Final leave handling — identical to the pre-B2 immediate behavior: FFA-family
 // seats are eliminated via the deterministic move sentinel (TEAM DUEL: only the
@@ -5755,7 +5903,9 @@ function seatFinallyGone(s){
 }
 function attachRoomListeners(){
   onlineSessionId++;
-  startPresenceWatch();   // C1: ab hier wacht die Sitzung ueber ihre eigene Praesenz   // P0-Fix: neue Session je Raumbeitritt/-erstellung -> Transaction-/Listener-Ergebnisse einer fruehreren Session werden ungueltig
+  startPresenceWatch();   // C1: ab hier wacht die Sitzung ueber ihre eigene Praesenz
+  startServerClock();     // C3: Frist rechnet gegen die Serverzeit, nicht gegen die lokale Uhr
+  clearGenerationStart(); // C3: neue Raumsitzung -> Generationsgrenze wird neu bestimmt   // P0-Fix: neue Session je Raumbeitritt/-erstellung -> Transaction-/Listener-Ergebnisse einer fruehreren Session werden ungueltig
   onlineTerminatedSession=-1;   // neue Session startet nie im terminalen Abbruchzustand
   clearAllMatchGrace(); roomP={};   // B2: Grace-Timer einer frueheren Session sind gegenstandslos
   // P0-Nachbesserung: presUnsub/genUnsub/seatsUnsub sind reine Praesenz-/Metadaten-
@@ -5790,7 +5940,15 @@ function attachRoomListeners(){
     if(gameStarted){
       for(let s=0;s<np();s++){
         if(s===myPlayer)continue;
-        if(seatActive(p,s)){ clearMatchGrace(s); continue; }
+        if(seatActive(p,s)){
+          clearMatchGrace(s);
+          // C3: Football merkt einen Ausfall in seatLeft. Kommt der Sitz zurueck, ist
+          // die Merkung gegenstandslos - sonst bekaeme eine ZWEITE Trennung nie wieder
+          // einen Weckruf. Fuer FFA bleibt seatLeft unangetastet: dort bedeutet es
+          // "hat das Match verlassen" und steuert die Sentinel-Nachfuellung.
+          if(fbOnlineRoom()&&seatLeft[s])seatLeft[s]=false;
+          continue;
+        }
         if((mode==='ffa'||fbOnlineRoom())&&seatLeft[s])continue;
         if(p&&p[s])startMatchGrace(s);
         else seatFinallyGone(s);
@@ -5811,8 +5969,17 @@ function attachRoomListeners(){
   });
   genUnsub=window.FB.onValue(rRef('gen'), snap=>{
     if(!isCurrentRoom())return;
-    const g=snap.val(); if(g==null)return; gen=g;
+    const g=snap.val(); if(g==null)return;
+    // Auch der ERSTE Callback markiert: beim Rejoin steht gen bereits auf dem gelesenen
+    // Wert, ein Vergleich allein wuerde die Grenze also nie setzen. Der Beitrittszeitpunkt
+    // ist dann die konservative Grenze.
+    const genChanged=(g!==gen);
+    if(genChanged||!genStartedAt)markGenerationStart();
+    gen=g;
     if(gameStarted && g!==runningGen) startOnlineGame();
+    // Nach dem Wechsel: weiterhin getrennte Sitze brauchen einen Weckruf in DIESER
+    // Generation (s. rearmMatchGrace).
+    if(genChanged)rearmMatchGrace();
   });
   // FFA-Startsignal: seats existiert (Rule-gesichert) erst NACH state='playing' —
   // ein einziger Listener reicht daher als synchroner Start fuer Host UND Gaeste.
@@ -6132,6 +6299,8 @@ function leaveOnline(){
   try{ if(turnUnsub)turnUnsub(); }catch(e){} try{ if(genUnsub)genUnsub(); }catch(e){} try{ if(presUnsub)presUnsub(); }catch(e){} try{ if(seatsUnsub)seatsUnsub(); }catch(e){} try{ if(rosterUnsub)rosterUnsub(); }catch(e){}
   turnUnsub=genUnsub=presUnsub=seatsUnsub=rosterUnsub=null;
   stopPresenceWatch();   // C1: bewusstes Verlassen -> keine Wiederherstellung mehr
+  stopServerClock();     // C3: und keine Zeitangleichung mehr
+  clearGenerationStart();
   // Deliberate leave is immediate: drop own presence AND own roster record (frees
   // the seat for recycling and signals "left, not reloading" to the others), then
   // best-effort remove the whole room. v3: the rules only allow a p/<seat> delete

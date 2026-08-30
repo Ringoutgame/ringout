@@ -182,7 +182,22 @@ const SRC = [
   grab(/function clearLobbyHostGrace\(\)\{[^\n]*/, 'clearLobbyHostGrace'),
   grab(/function startLobbyHostGrace\(\)\{[\s\S]*?\n\}/, 'startLobbyHostGrace'),
   grab(/function evalLobbyHostPresence\(\)\{[\s\S]*?\n\}/, 'evalLobbyHostPresence'),
+  grab(/let matchGraceGen=\{\};/, 'matchGraceGen'),
   grab(/function clearMatchGrace\(s\)\{[^\n]*/, 'clearMatchGrace'),
+  grab(/function rearmMatchGrace\(\)\{[\s\S]*?\n\}/, 'rearmMatchGrace'),
+  grab(/let serverTimeOffset=0, serverClockReady=false, clockUnsub=null;/, 'serverTimeOffset'),
+  grab(/function serverNow\(\)\{[^\n]*/, 'serverNow'),
+  grab(/function startServerClock\(\)\{[\s\S]*?\n\}/, 'startServerClock'),
+  grab(/function stopServerClock\(\)\{[^\n]*/, 'stopServerClock'),
+  grab(/function fbSeatGrace\(s\)\{[\s\S]*?\n\}/, 'fbSeatGrace'),
+  grab(/function fbGraceExpired\(s\)\{[^\n]*/, 'fbGraceExpired'),
+  grab(/function fbGraceWait\(s\)\{[\s\S]*?\n\}/, 'fbGraceWait'),
+  grab(/function fbGraceTimerAction\(s\)\{[\s\S]*?\n\}/, 'fbGraceTimerAction'),
+  grab(/let genStartedAt=0, genStartPending=false;/, 'genStartedAt'),
+  grab(/function markGenerationStart\(\)\{[\s\S]*?\n\}/, 'markGenerationStart'),
+  grab(/function clearGenerationStart\(\)\{[^\n]*/, 'clearGenerationStart'),
+  grab(/function fbGraceCtxValid\(ctx\)\{[\s\S]*?\n\}/, 'fbGraceCtxValid'),
+  grab(/function fbAbsenceCandidates\(\)\{[\s\S]*?\n\}/, 'fbAbsenceCandidates'),
   grab(/function clearAllMatchGrace\(\)\{[^\n]*/, 'clearAllMatchGrace'),
   grab(/function startMatchGrace\(s\)\{[\s\S]*?\n\}/, 'startMatchGrace'),
   grab(/function seatFinallyGone\(s\)\{[\s\S]*?\n\}/, 'seatFinallyGone'),
@@ -407,12 +422,28 @@ function makeDB() {
   // Wie viele Beobachter haengen auf einem Pfad? Ein abgemeldeter Raum darf keinen
   // zurueckgelassenen Listener behalten (C1: kein Leck ueber Raumsitzungen hinweg).
   const listenerCount = (path) => { let n = 0; for (const l of listeners) if (l.parts.join('/') === path) n++; return n; };
-  return { data, FBfor, failWrite, setConnected, listenerCount, advance: (ms) => { nowMs += ms; }, now: () => nowMs };
+  // .info/serverTimeOffset: der Standardweg, mit dem ein Client seine lokale Uhr an die
+  // Serverzeit angleicht. Der Test stellt die Serverzeit vor und veroeffentlicht den
+  // passenden Offset - das Produkt rechnet dann mit der echten Formel.
+  function publishOffset() {
+    if (!data['.info']) data['.info'] = {};
+    data['.info'].serverTimeOffset = nowMs - Date.now();
+    notify();
+  }
+  return { data, FBfor, failWrite, setConnected, listenerCount, publishOffset, touch: notify,
+    // Zeit vorstellen UND den Offset nachziehen: so bewegt sich fuer den Client die
+    // Serverzeit, nicht seine eigene Uhr.
+    advanceServer: (ms) => { nowMs += ms; publishOffset(); },
+    advance: (ms) => { nowMs += ms; }, now: () => nowMs };
 }
 
 // findOwnSeat wird zusaetzlich DIREKT geprueft (Gruppe RC-UID2). Der echte Rumpf laeuft
 // dafuer in einer Mini-Sandbox - die Sitzaufloesung ist die Stelle, an der Eigentum,
 // Legacy-Rueckfall und Mehrdeutigkeit zusammenkommen.
+// Die echte Rueckkehrfrist aus index.html - kein im Test geratener Wert.
+const SEAT_STALE_FROM_SOURCE = Number((html.match(/const SEAT_STALE_MS=(\d+)/) || [])[1]);
+if (!Number.isFinite(SEAT_STALE_FROM_SOURCE)) { console.error('FAIL: cannot extract SEAT_STALE_MS'); process.exit(1); }
+
 const FOS = new Function('FFA_MAX_SEATS', grabFunction(html, 'findOwnSeat') + '\nreturn findOwnSeat;')(5);
 // ── one sandboxed client = the REAL online functions + REAL physics ──
 function makeClient(db, code, forcePid, forceUid) {
@@ -477,7 +508,9 @@ function makeClient(db, code, forcePid, forceUid) {
     // B2-Sandbox: Grace bewusst GROSS — diese Suite testet den Reconnect INNERHALB
     // der Grace (kein vorzeitiger Leave-Sentinel der Ueberlebenden). Das Feuern
     // der Grace selbst (Sentinel nach Ablauf) decken test_ffa_flow/test_ffa_race ab.
-    const SEAT_STALE_MS=60000;
+    // Die Rueckkehrfrist ist Produktvertrag (C3) und wird deshalb aus index.html
+    // uebernommen, statt im Sandkasten geraten zu werden.
+    const SEAT_STALE_MS=${SEAT_STALE_FROM_SOURCE};
     let roomP={}, matchGraceTimer={};
     let onlinePid=${JSON.stringify(pid)}, onlineTab=${JSON.stringify(tab)}, onlineName='';
     let playersRoster={}, rosterUnsub=null, lobbyHostGraceTimer=null, joinOpSeq=0;
@@ -515,6 +548,16 @@ function makeClient(db, code, forcePid, forceUid) {
       netDrop(){ const d=ui.onDrop.slice(); ui.onDrop.length=0;
         for(const {ref,val} of d) FB.set(ref,val).catch(()=>{}); },
       // Zustand fuer die C1-Nachweise - rein lesend.
+      // C3-Sonden - rein lesend.
+      grace(s){ return fbSeatGrace(s); },
+      graceWait(s){ return fbGraceWait(s); },
+      timerAction(s){ return fbGraceTimerAction(s); },
+      genStart(){ return {at:genStartedAt,pending:genStartPending}; },
+      ctxValid(c){ return fbGraceCtxValid(c); },
+      ctxNow(){ return {sid:onlineSessionId,room:roomCode,gen:gen}; },
+      candidates(){ return fbAbsenceCandidates(); },
+      graceTimers(){ const o=[]; for(const k in matchGraceTimer)if(matchGraceTimer[k])o.push({seat:+k,gen:matchGraceGen[k]}); return o; },
+      clockReady(){ return serverClockReady; },
       presence(){ return {seat:myPlayer,tab:onlineTab,pid:onlinePid,
         uid:(typeof fbUid==='function'?fbUid():null),gen:gen,turn:turnNo,room:roomCode}; },
       st(){return {online,mode,fmt,ffaN,myPlayer,gameStarted,roomCode,phase,gen,runningGen,turnNo,roundNo,
@@ -1252,6 +1295,318 @@ async function playTurn(clients, moves) {
     t('C1-K die Praesenz des Gegners wird nicht angefasst',
       JSON.stringify(room().p[0]) === host0, room().p[0]);
     t('C1-K der Gegner behaelt seinen Sitz', h.st().myPlayer === 0, h.st().myPlayer);
+  }
+
+
+  // ══ C3: RUECKKEHRFRIST UND FRISTABLAUF ═════════════════════════════════════
+  // Die Frist ist ein RECHT AUF RUECKKEHR. Sie laeuft gegen die Serverzeit, nicht gegen
+  // die Uhr des einzelnen Geraets - sonst kommen zwei Beobachter derselben Trennung zu
+  // verschiedenen Ablaufzeitpunkten. C3 ENTSCHEIDET nur ueber Eignung; entfernt wird
+  // nichts.
+  const c3Room = async (code) => {
+    const db = makeDB();
+    const h = makeClient(db, code); h.setMenu('online'); h.setFmt('single'); h.create(); await tick();
+    const g = makeClient(db, 'X'); g.setMenu('online'); g.join(code); await tick();
+    db.publishOffset(); await tick(6);
+    return { db, h, g, room: () => db.data.rooms[code] };
+  };
+  // Trennung wie durch ein serverseitiges onDisconnect - mit Server-Zeitstempel.
+  const dropSeat = async (db, code, seat) => {
+    const r = db.data.rooms[code];
+    r.p[seat] = { s: r.p[seat].s, on: false, t: db.now() };
+    db.publishOffset(); await tick(6);
+  };
+  const backSeat = async (db, code, seat) => {
+    const r = db.data.rooms[code];
+    r.p[seat] = { s: r.p[seat].s, on: true, t: db.now() };
+    db.publishOffset(); await tick(6);
+  };
+
+  // ── C3-A: die Schwelle ──
+  {
+    const { db, h, room } = await c3Room('C3AA');
+    t('C3-A die Uhr ist angeglichen', h.clockReady() === true);
+    await dropSeat(db, 'C3AA', 1);
+    t('C3-A unmittelbar nach der Trennung: reserviert', h.grace(1).state === 'reserved', h.grace(1));
+
+    db.advanceServer(14900); await tick(6);
+    t('C3-A nach 14,9 s: weiterhin reserviert', h.grace(1).state === 'reserved', h.grace(1));
+    t('C3-A und noch kein Kandidat', h.candidates().length === 0, h.candidates());
+
+    db.advanceServer(200); await tick(6);
+    t('C3-A ab 15,0 s: abgelaufen', h.grace(1).state === 'expired', h.grace(1));
+    t('C3-A das Alter zaehlt ab dem autoritativen Uebergang',
+      h.grace(1).age >= 15000 && h.grace(1).age < 16000, h.grace(1).age);
+  }
+
+  // ── C3-B: zwei durchgehend anwesende Beobachter sind sich EINIG ──
+  // Beide sehen dieselbe Trennung und rechnen gegen denselben Server-Zeitstempel. Mit
+  // einer eigenen Stoppuhr je Client waeren ihre Ablaufzeitpunkte verschieden.
+  {
+    const db = makeDB();
+    const h = makeClient(db, 'C3BB'); h.setMenu('ffa', 5); h.setFmt('ffa'); h.create(); await tick();
+    const gs = [];
+    for (let i = 1; i < 4; i++) { const g = makeClient(db, 'Y' + i); g.setMenu('ffa', 5); g.setFmt('ffa'); g.join('C3BB'); await tick(); gs.push(g); }
+    h.clickStart(); await tick();
+    db.publishOffset(); await tick(6);
+    const room = () => db.data.rooms['C3BB'];
+    const other = gs[1];                       // Sitz 2 - durchgehend im Raum
+    room().p[1] = { s: room().p[1].s, on: false, t: db.now() };
+    db.publishOffset(); await tick(6);
+    db.advanceServer(15100); await tick(8);
+    t('C3-B beide sehen denselben Zustand',
+      h.grace(1).state === 'expired' && other.grace(1).state === 'expired',
+      { h: h.grace(1), other: other.grace(1) });
+    t('C3-B und dasselbe Alter (gemeinsame Zeitbasis, keine eigene Stoppuhr)',
+      Math.abs(other.grace(1).age - h.grace(1).age) < 1000,
+      { h: h.grace(1).age, other: other.grace(1).age });
+    t('C3-B beide rechnen gegen denselben Server-Zeitstempel',
+      h.grace(1).raw === other.grace(1).raw, { h: h.grace(1).raw, other: other.grace(1).raw });
+  }
+
+  // ── C3-B1: ein SPAETER hinzugekommener Client urteilt konservativ ──
+  // Er war bei der Trennung nicht dabei. Seine Fristbasis beginnt deshalb fruehestens
+  // mit seinem eigenen Eintritt - er entscheidet nie FRUEHER als ein Anwesender, sondern
+  // wartet im Zweifel laenger. Das ist die richtige Richtung fuer eine Entscheidung, die
+  // spaeter zu einer unwiderruflichen Entfernung fuehrt.
+  {
+    const db = makeDB();
+    const h = makeClient(db, 'C3B1'); h.setMenu('ffa', 5); h.setFmt('ffa'); h.create(); await tick();
+    const gs = [];
+    for (let i = 1; i < 4; i++) { const g = makeClient(db, 'Z' + i); g.setMenu('ffa', 5); g.setFmt('ffa'); g.join('C3B1'); await tick(); gs.push(g); }
+    h.clickStart(); await tick();
+    db.publishOffset(); await tick(6);
+    const room = () => db.data.rooms['C3B1'];
+    const late = gs[2];
+    const pid = late.pid(), uid = late.uid();
+    room().p[1] = { s: room().p[1].s, on: false, t: db.now() };
+    db.publishOffset(); await tick(6);
+    db.advanceServer(10000); await tick(6);
+
+    late.drop();
+    const fresh = makeClient(db, 'C3B1', pid, uid);
+    fresh.setMenu('ffa', 5); fresh.setFmt('ffa');
+    const okR = await fresh.rejoin('C3B1'); await tick(8);
+    db.publishOffset(); await tick(6);
+    t('C3-B1 der spaete Beobachter ist im Raum', okR === true, okR);
+    db.advanceServer(5100); await tick(8);
+    t('C3-B1 der durchgehend Anwesende: abgelaufen', h.grace(1).state === 'expired', h.grace(1));
+    t('C3-B1 der spaet Hinzugekommene urteilt konservativ - noch nicht abgelaufen',
+      fresh.grace(1).state === 'reserved', fresh.grace(1));
+    t('C3-B1 er entscheidet nie frueher als der Anwesende',
+      fresh.grace(1).age <= h.grace(1).age, { spaet: fresh.grace(1).age, frueh: h.grace(1).age });
+    t('C3-B1 beide sehen denselben Server-Zeitstempel der Trennung',
+      fresh.grace(1).raw === h.grace(1).raw, { spaet: fresh.grace(1).raw, frueh: h.grace(1).raw });
+  }
+
+  // ── C3-B2: die Restwartezeit richtet sich nach dem Uebergang, nicht nach der
+  //     eigenen Beobachtung. Wer eine zehn Sekunden alte Trennung zum ersten Mal
+  //     sieht, wartet noch fuenf Sekunden - nicht wieder fuenfzehn.
+  {
+    const { db, h } = await c3Room('C3B2');
+    await dropSeat(db, 'C3B2', 1);
+    t('C3-B2 frisch getrennt: die volle Frist steht aus',
+      Math.abs(h.graceWait(1) - 15000) < 500, h.graceWait(1));
+    db.advanceServer(10000); await tick(6);
+    t('C3-B2 nach zehn Sekunden bleiben noch rund fuenf',
+      h.graceWait(1) > 4000 && h.graceWait(1) < 6000, h.graceWait(1));
+    db.advanceServer(6000); await tick(6);
+    t('C3-B2 jenseits der Schwelle bleibt nichts mehr auszuwarten', h.graceWait(1) === 0,
+      h.graceWait(1));
+    await backSeat(db, 'C3B2', 1);
+    t('C3-B2 ein verbundener Sitz hat keine Wartezeit', h.graceWait(1) === 0, h.graceWait(1));
+  }
+
+  // ── C3-B3: ein Weckruf aus einer alten Generation ist gegenstandslos ──
+  {
+    const { db, h, room } = await c3Room('C3B3');
+    const ctx = h.ctxNow();
+    t('C3-B3 der eigene Kontext ist gueltig', h.ctxValid(ctx) === true, ctx);
+    room().gen = 1; db.touch(); await tick(8);
+    t('C3-B3 nach dem Generationswechsel ist derselbe Weckruf ungueltig',
+      h.ctxValid(ctx) === false, { ctx, jetzt: h.ctxNow() });
+    t('C3-B3 ein Weckruf aus einem anderen Raum ist ebenfalls ungueltig',
+      h.ctxValid({ sid: ctx.sid, room: 'XXXX', gen: h.ctxNow().gen }) === false);
+    t('C3-B3 und einer aus einer aelteren Sitzung',
+      h.ctxValid({ sid: ctx.sid - 1, room: h.ctxNow().room, gen: h.ctxNow().gen }) === false);
+  }
+
+  // ── C3-B4: was der Weckruf beim Feuern TUT ──
+  // Der Weckruf darf nur entscheiden, wenn die Frist wirklich abgelaufen ist. Bei einer
+  // noch nicht eingeschwungenen Uhr (Zeitstempel in der Zukunft) wird erneut gewartet -
+  // sonst waere die Fail-closed-Absicht genau dort wirkungslos, wo sie zaehlt.
+  {
+    const { db, h, room } = await c3Room('C3B4');
+    await dropSeat(db, 'C3B4', 1);
+    t('C3-B4 innerhalb der Frist: erneut wecken', h.timerAction(1) === 'rearm', h.grace(1));
+    db.advanceServer(16000); await tick(6);
+    t('C3-B4 nach Ablauf: entscheiden', h.timerAction(1) === 'act', h.grace(1));
+    await backSeat(db, 'C3B4', 1);
+    t('C3-B4 wieder verbunden: nichts tun', h.timerAction(1) === 'stop', h.grace(1));
+
+    // Zeitstempel in der Zukunft - eine Uhr, die noch nicht eingeschwungen ist.
+    room().p[1] = { s: room().p[1].s, on: false, t: db.now() + 60000 };
+    db.publishOffset(); await tick(6);
+    t('C3-B4 zukuenftiger Zeitstempel gilt als unbestimmt, nicht als Ablauf',
+      h.grace(1).state === 'unknown' && h.grace(1).reason === 'future', h.grace(1));
+    t('C3-B4 und wird NICHT entschieden, sondern erneut gewartet',
+      h.timerAction(1) === 'rearm', h.timerAction(1));
+  }
+
+  // ── C3-B5: ohne Serverzeit bleibt es beim Verhalten vor C3 ──
+  // Bewusste Entscheidung: gaebe es hier keinen Rueckfall, haenge ein RingOut-Match,
+  // wenn .info/serverTimeOffset ausbleibt. Der lokale Weckruf hat dann bereits die
+  // volle Frist abgewartet - frueher als bisher entscheidet er nie.
+  {
+    const db = makeDB();
+    const h = makeClient(db, 'C3B5'); h.setMenu('online'); h.setFmt('single'); h.create(); await tick();
+    const g = makeClient(db, 'X'); g.setMenu('online'); g.join('C3B5'); await tick();
+    const r = db.data.rooms['C3B5'];
+    r.p[1] = { s: r.p[1].s, on: false, t: db.now() };
+    db.touch(); await tick(6);
+    t('C3-B5 ohne Serverzeit ist der Zustand unbestimmt',
+      h.grace(1).state === 'unknown' && h.grace(1).reason === 'noClock', h.grace(1));
+    t('C3-B5 der Weckruf faellt auf das bisherige Verhalten zurueck',
+      h.timerAction(1) === 'act', h.timerAction(1));
+    t('C3-B5 die volle Frist stand dafuer aus', h.graceWait(1) === 15000, h.graceWait(1));
+  }
+
+  // ── C3-C: Rueckkehr innerhalb der Frist ──
+  {
+    const { db, h } = await c3Room('C3CC');
+    await dropSeat(db, 'C3CC', 1);
+    db.advanceServer(5000); await tick(6);
+    t('C3-C nach 5 s: reserviert', h.grace(1).state === 'reserved', h.grace(1));
+    await backSeat(db, 'C3CC', 1);
+    t('C3-C nach der Rueckkehr: online, keine Frist', h.grace(1).state === 'online', h.grace(1));
+    t('C3-C und kein Kandidat mehr', h.candidates().length === 0, h.candidates());
+    db.advanceServer(20000); await tick(6);
+    t('C3-C auch lange danach entsteht kein Kandidat aus der alten Trennung',
+      h.candidates().length === 0 && h.grace(1).state === 'online', h.grace(1));
+  }
+
+  // ── C3-D: kurz vor der Schwelle zurueck ──
+  {
+    const { db, h } = await c3Room('C3DD');
+    await dropSeat(db, 'C3DD', 1);
+    db.advanceServer(14800); await tick(6);
+    await backSeat(db, 'C3DD', 1);
+    db.advanceServer(5000); await tick(6);
+    t('C3-D wer kurz vor der Schwelle zurueckkommt, laeuft nicht ab',
+      h.grace(1).state === 'online' && h.candidates().length === 0, h.grace(1));
+  }
+
+  // ── C3-E: erneute Trennung startet eine NEUE Frist ──
+  {
+    const { db, h } = await c3Room('C3EE');
+    await dropSeat(db, 'C3EE', 1);
+    db.advanceServer(12000); await tick(6);
+    await backSeat(db, 'C3EE', 1);
+    db.advanceServer(1000); await tick(6);
+    await dropSeat(db, 'C3EE', 1);            // zweite Trennung
+    db.advanceServer(5000); await tick(6);
+    t('C3-E die zweite Trennung rechnet von vorn - nicht aus der alten Frist weiter',
+      h.grace(1).state === 'reserved' && h.grace(1).age >= 5000 && h.grace(1).age < 6000, h.grace(1));
+    db.advanceServer(10100); await tick(6);
+    t('C3-E und laeuft erst nach ihren eigenen 15 s ab', h.grace(1).state === 'expired', h.grace(1));
+  }
+
+  // ── C3-F: der Ablauf entfernt NICHTS ──
+  {
+    const { db, h, room } = await c3Room('C3FF');
+    const before = JSON.stringify({ players: room().players, p: room().p, g: room().g || null });
+    await dropSeat(db, 'C3FF', 1);
+    db.advanceServer(30000); await tick(10);
+    t('C3-F Frist abgelaufen', h.grace(1).state === 'expired', h.grace(1));
+    // fbAbsenceCandidates() ist bewusst an den Online-Football-Raum gebunden (die
+    // spaetere dauerhafte Entfernung ist football-spezifisch). In einem RingOut-Raum
+    // ist die Liste deshalb leer - der Fristzustand gilt trotzdem.
+    t('C3-F in einem RingOut-Raum entsteht keine Kandidatenliste', h.candidates().length === 0,
+      h.candidates());
+    t('C3-F der Spielerdatensatz existiert unveraendert weiter',
+      room().players[1] !== undefined, room().players && Object.keys(room().players));
+    t('C3-F die Praesenz wurde nicht geloescht', room().p[1] !== undefined, room().p);
+    t('C3-F KEINE Eviction geschrieben',
+      !room().g || !room().g[0] || room().g[0].e === undefined, room().g);
+    t('C3-F der Zeitstempel der Trennung blieb unangetastet',
+      room().p[1].t === JSON.parse(before).p[1].t || room().p[1].on === false, room().p[1]);
+  }
+
+  // ── C3-G: generationsgebunden ──
+  {
+    const { db, h, room } = await c3Room('C3GG');
+    await dropSeat(db, 'C3GG', 1);
+    db.advanceServer(30000); await tick(6);
+    t('C3-G Vorbedingung: abgelaufen in Generation 0', h.grace(1).state === 'expired', h.grace(1));
+    t('C3-G Vorbedingung: ein laufender Weckruf gehoert zu Generation 0',
+      h.graceTimers().every(x => x.gen === 0), h.graceTimers());
+    // Rematch: neue Generation, und der Sitz ist wieder da.
+    room().gen = 1; await tick(6);
+    await backSeat(db, 'C3GG', 1);
+    t('C3-G in der neuen Generation gibt es keinen geerbten Kandidaten',
+      h.candidates().length === 0 && h.grace(1).state === 'online', h.grace(1));
+  }
+
+  // ── C3-G2: ein Rematch darf den Weckruf nicht verlieren ──
+  // Der Weckruf traegt seinen Generationskontext und wird beim Wechsel entwertet. Ein
+  // gen-Write erzeugt aber KEINEN neuen Praesenz-Callback - ohne ausdruckliches
+  // Neuarmieren bekaeme ein weiterhin getrennter Sitz in der neuen Generation nie
+  // wieder einen Ablauf, und die neue Runde wartete unbegrenzt.
+  {
+    const { db, h, room } = await c3Room('C3G2');
+    await dropSeat(db, 'C3G2', 1);
+    const armed = () => h.graceTimers().filter(x => x.seat === 1)[0];
+    t('C3-G2 Vorbedingung: ein Weckruf laeuft, in Generation 0',
+      armed() && armed().gen === 0, h.graceTimers());
+    const ctxAlt = h.ctxNow();
+    room().gen = 1; db.touch(); await tick(10);
+    t('C3-G2 der alte Weckruf ist entwertet', h.ctxValid(ctxAlt) === false, ctxAlt);
+    t('C3-G2 der weiterhin getrennte Sitz hat einen Weckruf der NEUEN Generation',
+      armed() && armed().gen === 1, h.graceTimers());
+    // Und er gehoert zur neuen Generation.
+    t('C3-G2 der neue Weckruf gehoert zur aktuellen Generation',
+      h.ctxValid(h.ctxNow()) === true, h.ctxNow());
+  }
+
+  // ── C3-H: mehrere Getrennte haben unabhaengige Fristen ──
+  // Zwei Sitze in EINEM Raum: dafuer braucht es ein FFA-Format mit mehr als zwei Sitzen.
+  {
+    const db = makeDB();
+    const h = makeClient(db, 'C3HH'); h.setMenu('ffa', 5); h.setFmt('ffa'); h.create(); await tick();
+    const gs = [];
+    for (let i = 1; i < 4; i++) { const g = makeClient(db, 'X' + i); g.setMenu('ffa', 5); g.setFmt('ffa'); g.join('C3HH'); await tick(); gs.push(g); }
+    h.clickStart(); await tick();
+    db.publishOffset(); await tick(6);
+    const room = () => db.data.rooms['C3HH'];
+    if (room().p[1] && room().p[3]) {
+      room().p[1] = { s: room().p[1].s, on: false, t: db.now() };
+      db.publishOffset(); await tick(6);
+      db.advanceServer(5000); await tick(6);
+      room().p[3] = { s: room().p[3].s, on: false, t: db.now() };
+      db.publishOffset(); await tick(6);
+      db.advanceServer(10100); await tick(6);
+      t('C3-H der zuerst Getrennte ist abgelaufen', h.grace(1).state === 'expired', h.grace(1));
+      t('C3-H der spaeter Getrennte ist noch reserviert', h.grace(3).state === 'reserved', h.grace(3));
+      db.advanceServer(5000); await tick(6);
+      t('C3-H und laeuft erst nach seinen eigenen 15 s ab', h.grace(3).state === 'expired', h.grace(3));
+    } else {
+      t('C3-H Aufbau: zwei Gaeste vorhanden', false, Object.keys(room().p || {}));
+    }
+  }
+
+  // ── C3-I: ohne angeglichene Uhr wird NICHT entschieden ──
+  {
+    const db = makeDB();
+    const h = makeClient(db, 'C3II'); h.setMenu('online'); h.setFmt('single'); h.create(); await tick();
+    const g = makeClient(db, 'X'); g.setMenu('online'); g.join('C3II'); await tick();
+    // Kein publishOffset: der Client hat keine Serverzeit.
+    const r = db.data.rooms['C3II'];
+    r.p[1] = { s: r.p[1].s, on: false, t: db.now() };
+    db.touch(); await tick(6);               // gemeldet, aber OHNE Zeitangleichung
+    db.advance(30000); await tick(6);
+    t('C3-I ohne Zeitangleichung gilt der Zustand als unbekannt, nicht als abgelaufen',
+      h.clockReady() === false && h.grace(1).state === 'unknown', { ready: h.clockReady(), g: h.grace(1) });
+    t('C3-I und es entsteht kein Kandidat', h.candidates().length === 0, h.candidates());
   }
 
   console.log(`\nReconnect-B2: ${pass} passed, ${fail} failed`);

@@ -449,7 +449,12 @@ function makeClient(db, code, forcePid) {
     // damit alle Vor-B2-Disconnect-Asserts (Sofort-Sentinel/Overlay) unveraendert
     // gelten und timerCount() weiterhin NUR Sentinel-Retries zaehlt.
     let roomP={};
-    function clearMatchGrace(){} function clearAllMatchGrace(){}
+    function clearMatchGrace(){} function clearAllMatchGrace(){} function rearmMatchGrace(){}
+    // C3: diese Suite prueft Turn-Races, nicht die Rueckkehrfrist - die Zeitangleichung
+    // wird deshalb wie die uebrige Grace-Mechanik auf derselben Ebene stillgelegt.
+    function startServerClock(){} function stopServerClock(){}
+    let genStartedAt=0, genStartPending=false, matchGraceGen={};
+    function markGenerationStart(){} function clearGenerationStart(){}
     function startMatchGrace(s){seatFinallyGone(s);}
     function newGame(){ ui.log.push('newGame:'+np()); balls=[];aimSet=[];commitIdx=[];commitAim=[];commitSpin=[];
       for(let i=0;i<np();i++){aimSet.push(false);commitIdx.push(-1);commitAim.push({dx:0,dy:0});commitSpin.push(0);}
