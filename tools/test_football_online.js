@@ -161,6 +161,9 @@ const SRC = [
   grab(/function isOnlineTerminated\(\)\{[^\n]*/, 'isOnlineTerminated'),
   grab(/function writeTurnSlot\(s,payload,opts\)\{[\s\S]*?\n\}/, 'writeTurnSlot'),
   grab(/function writeLeaveSentinel\(s,attempt\)\{[\s\S]*?\n\}/, 'writeLeaveSentinel'),
+  grab(/function fbSkipBoundary\(\)\{[\s\S]*?\n\}/, 'fbSkipBoundary'),
+  grab(/function fbWriteSkip\(s,attempt\)\{[\s\S]*?\n\}/, 'fbWriteSkip'),
+  grab(/function fbMaybeSkipOffline\(\)\{[\s\S]*?\n\}/, 'fbMaybeSkipOffline'),
   grab(/function scheduleSentinelRetry\(s,ctx\)\{[\s\S]*?\n\}/, 'scheduleSentinelRetry'),
   grab(/function onlineConnectionLost\(ctx\)\{[\s\S]*?\n\}/, 'onlineConnectionLost'),
   grab(/function clearSentinelRetry\(s\)\{[\s\S]*?\n\}/, 'clearSentinelRetry'),
@@ -390,11 +393,34 @@ function makeDB() {
         if (at(parts) != null) throw new Error('PERMISSION_DENIED: turn write-once');
         if (isFb) {
           if (room.seats !== 5) throw new Error('PERMISSION_DENIED: turn before start signal');
-          if (!val || val.k !== 'move') throw new Error('PERMISSION_DENIED: only move in phase B');
+          if (!val || (val.k !== 'move' && val.k !== 'skip' && val.k !== 'remove'))
+            throw new Error('PERMISSION_DENIED: unknown turn kind');
           if (val.idx !== pl) throw new Error('PERMISSION_DENIED: idx must equal seat');
           const owner = room.players && room.players[pl] && room.players[pl].uid;
-          if (owner !== authUid) throw new Error('PERMISSION_DENIED: turn owner');
-          if (!(room.p && room.p[pl] && room.p[pl].on === true)) throw new Error('PERMISSION_DENIED: turn presence');
+          const ev = (room.g && room.g[gen] && room.g[gen].e) || {};
+          const on = (i) => !!(room.p && room.p[i] && room.p[i].on === true);
+          if (val.k === 'move') {
+            // Eigentuemerzweig: nur der Sitzinhaber selbst, und nur solange er verbunden ist.
+            if (owner !== authUid) throw new Error('PERMISSION_DENIED: turn owner');
+            if (!on(pl)) throw new Error('PERMISSION_DENIED: turn presence');
+          } else {
+            // Fremdzweig: irgendein ANDERER Sitzinhaber, selbst verbunden und nicht evictiert.
+            let writer = -1;
+            for (let i = 0; i < 5; i++)
+              if (i !== pl && room.players && room.players[i] && room.players[i].uid === authUid) writer = i;
+            if (writer < 0) throw new Error('PERMISSION_DENIED: skip writer must be another seat owner');
+            if (!on(writer)) throw new Error('PERMISSION_DENIED: skip writer must be online');
+            if (ev[writer] === true) throw new Error('PERMISSION_DENIED: evicted writer');
+            if (val.dx !== 0 || val.dy !== 0 || val.sp !== 0)
+              throw new Error('PERMISSION_DENIED: skip/remove must carry the zero vector');
+            if (val.k === 'skip') {
+              // Der Kern des Vertrags: das Ziel muss offline sein - im ERGEBNISBAUM.
+              if (on(pl)) throw new Error('PERMISSION_DENIED: skip target is online');
+              if (ev[pl] === true) throw new Error('PERMISSION_DENIED: skip for an evicted seat');
+            } else {
+              if (ev[pl] !== true) throw new Error('PERMISSION_DENIED: remove without eviction');
+            }
+          }
         }
         return;
       }
@@ -416,6 +442,11 @@ function makeDB() {
     data, get now() { return nowMs; }, advance(ms) { nowMs += ms; },
     // .info/connected ist kein Raumpfad - direkt setzen und melden (C1).
     setConnected(v) { if (!data['.info']) data['.info'] = {}; data['.info'].connected = v; notify(); },
+    // Praesenz eines Sitzes umschalten, wie es ein serverseitiges onDisconnect tut (C2).
+    setPresence(code, seat, on) {
+      const r = data.rooms[code]; if (!r || !r.p || !r.p[seat]) return false;
+      r.p[seat].on = !!on; r.p[seat].t = nowMs; notify(); return true;
+    },
     flush,
     // Ein Client sieht die Datenbank ausschliesslich durch dieses Objekt - mit SEINER
     // Identitaet. Zwei Clients koennen sich so nicht gegenseitig als Schreiber ausgeben.
@@ -693,6 +724,12 @@ function makeClient(db, code, opts) {
       // Disconnect-Sonde: ruft die ECHTE seatFinallyGone und legt offen, was danach
       // sichtbar ist. Kein Nachbau - der Zweig selbst ist der Pruefgegenstand.
       seatGoneNow(s){ seatFinallyGone(s); },
+      // C2-Sonden: die ENTSCHEIDUNG des Clients sichtbar machen. Nur das Ergebnis in der
+      // Datenbank zu pruefen genuegt nicht - unzulaessige Schreibvorgaenge weist die
+      // Datenbank ohnehin ab, und der Test koennte eine fehlende Pruefung im Client
+      // nicht mehr von einer Ablehnung unterscheiden.
+      skipBoundary(){ return fbSkipBoundary(); },
+      trySkip(s){ return fbWriteSkip(s,0); },
       discView(){ return { wt:(els['wt']?els['wt'].textContent:''),
         ws:(els['ws']?els['ws'].textContent:''),
         toasts:ui.log.filter(x=>x.indexOf('toast:')===0),
@@ -1270,10 +1307,24 @@ async function eliminateSeat(db, cs, seat, maxRounds) {
     t('N der volle Spielzustand kam aus der Historie', back.hash() === ref, { back: back.hash(), ref });
     t('N derselbe Zug', back.st().turnNo === refTurn, { back: back.st().turnNo, ref: refTurn });
     t('N die Rueckkehr war still', back.sfx().goal === 0 && back.sfx().launch === 0, back.sfx());
-    t('N kein Sitz wurde uebersprungen oder entfernt',
-      db.data.rooms.FBQ6.g[0].e === undefined &&
-      Object.keys(db.data.rooms.FBQ6.g[0].t).every(tn =>
-        Object.keys(db.data.rooms.FBQ6.g[0].t[tn]).every(sn => db.data.rooms.FBQ6.g[0].t[tn][sn].k === 'move')));
+    // Diese Aussage stammt aus Phase B, als es fuer Football noch gar keinen SKIP gab.
+    // Mit C2 bekommt der getrennte Sitz waehrend seiner Abwesenheit regulaer einen
+    // SKIP - das ist der Zweck der Aenderung. Unveraendert gilt: KEINE Eviction, KEIN
+    // remove, und ein SKIP nur fuer den Sitz, der tatsaechlich getrennt war.
+    {
+      const T = db.data.rooms.FBQ6.g[0].t;
+      const kinds = {};
+      for (const tn of Object.keys(T)) for (const sn of Object.keys(T[tn])) {
+        (kinds[T[tn][sn].k] = kinds[T[tn][sn].k] || []).push(tn + '/' + sn);
+      }
+      t('N keine Eviction und kein remove', db.data.rooms.FBQ6.g[0].e === undefined && !kinds.remove,
+        { e: db.data.rooms.FBQ6.g[0].e, kinds: Object.keys(kinds) });
+      t('N ein SKIP entsteht ausschliesslich fuer den getrennten Sitz 2',
+        (kinds.skip || []).every(x => x.split('/')[1] === '2'), kinds.skip);
+      t('N alle uebrigen Datensaetze sind echte Zuege',
+        (kinds.move || []).length + (kinds.skip || []).length ===
+        Object.keys(T).reduce((n, tn) => n + Object.keys(T[tn]).length, 0), Object.keys(kinds));
+    }
 
     // Und danach laeuft der Lockstep zu fuenft normal weiter.
     const five = [cs[0], cs[1], back, cs[3], cs[4]];
@@ -1647,6 +1698,322 @@ async function eliminateSeat(db, cs, seat, maxRounds) {
   }
 }
 
+
+// ── C2 · VORUEBERGEHEND OFFLINE → SICHERER SKIP ────────────────────────────────
+// Die Reservierung eines Sitzes ist ein RECHT AUF RUECKKEHR, keine Pflicht der uebrigen,
+// auf ihn zu warten. Ist ein aktiver Teilnehmer an einer Eingabegrenze offline und hat
+// keinen Zug abgegeben, schliesst ein Mitspieler dessen Slot mit dem kanonischen
+// Nullzug - auf dem URSPRUENGLICHEN Sitz.
+{
+  const turnsOf = (db, code, gen) => (((db.data.rooms[code].g || {})[gen || 0] || {}).t) || {};
+  const offline = async (db, code, seat) => { db.setPresence(code, seat, false); await tick(db, 20); };
+  const online = async (db, code, seat) => { db.setPresence(code, seat, true); await tick(db, 20); };
+
+  // ── C2-1: offline VOR dem Zug → SKIP, und die Runde laeuft weiter ──
+  {
+    const { db, cs } = await newMatch('C21A');
+    const code = 'C21A', off = 3;
+    const before = cs[0].st();
+    await offline(db, code, off);
+    for (const c of cs) if (c.idx !== off) c.commitVec(60, -40, 0);
+    await tick(db, 40);
+    for (const c of cs) c.pump();
+    await tick(db, 40);
+
+    const rec = turnsOf(db, code)[0] || {};
+    const after = cs[0].st();
+    t('C2-1 der getrennte Sitz bekommt einen SKIP',
+      rec[String(off)] && rec[String(off)].k === 'skip', rec[String(off)]);
+    t('C2-1 der SKIP traegt den Nullvektor und den EIGENEN Sitzindex',
+      rec[String(off)] && rec[String(off)].idx === off && rec[String(off)].dx === 0
+      && rec[String(off)].dy === 0 && rec[String(off)].sp === 0, rec[String(off)]);
+    t('C2-1 er steht im Slot des URSPRUENGLICHEN Sitzes',
+      Object.keys(rec).sort().join(',') === '0,1,2,3,4', Object.keys(rec));
+    t('C2-1 die Runde laeuft weiter', after.turnNo === before.turnNo + 1, after.turnNo);
+    t('C2-1 alle fuenf Clients sind deckungsgleich', sameHash(cs), cs.map(c => c.hash()));
+
+    // Die Zusicherungen aus dem Vertrag.
+    t('C2-1 kein Leben verloren', after.lives.join(',') === before.lives.join(','),
+      { vorher: before.lives, nachher: after.lives });
+    t('C2-1 niemand eliminiert', after.active.join(',') === before.active.join(','), after.active);
+    t('C2-1 kein Tor', after.goal === 'play' && cs[0].sfx().goal === 0, { goal: after.goal });
+    t('C2-1 keine Sitzverschiebung', after.slots.join(',') === before.slots.join(','), after.slots);
+    t('C2-1 kein REMOVE und keine Eviction',
+      db.data.rooms[code].g[0].e === undefined
+      && !Object.keys(turnsOf(db, code)).some(tn => Object.keys(turnsOf(db, code)[tn])
+        .some(sn => turnsOf(db, code)[tn][sn].k === 'remove')), db.data.rooms[code].g[0].e);
+    t('C2-1 die Arena bleibt unveraendert', after.phaseN === before.phaseN, after.phaseN);
+    t('C2-1 der Roster bleibt vollstaendig - kein Sitz freigegeben',
+      Object.keys(db.data.rooms[code].players).length === 5
+      && db.data.rooms[code].players[off] !== undefined, Object.keys(db.data.rooms[code].players));
+    t('C2-1 die Praesenz des Getrennten bleibt offline (Reservierung besteht)',
+      db.data.rooms[code].p[off].on === false, db.data.rooms[code].p[off]);
+    // Und der Koerper: er bleibt stehen, lebt und ist weiter da.
+    const body = cs[0].raw().balls.find(b => b.owner === off);
+    t('C2-1 die Figur des Uebersprungenen lebt weiter', !!body && body.alive === true, !!body);
+  }
+
+  // ── C2-2: offline NACH dem eigenen Zug → der Zug bleibt ──
+  {
+    const { db, cs } = await newMatch('C22A');
+    const code = 'C22A', off = 2;
+    cs[off].commitVec(70, 20, 0); await tick(db, 30);
+    const mine = JSON.stringify(turnsOf(db, code)[0][String(off)]);
+    await offline(db, code, off);
+    for (const c of cs) if (c.idx !== off) c.commitVec(50, -30, 0);
+    await tick(db, 40);
+    for (const c of cs) c.pump();
+    await tick(db, 40);
+    const rec = turnsOf(db, code)[0][String(off)];
+    t('C2-2 der bereits abgegebene Zug bleibt unveraendert', JSON.stringify(rec) === mine, rec);
+    t('C2-2 er wird NICHT durch einen SKIP ersetzt', rec.k === 'move', rec.k);
+    t('C2-2 die Runde laeuft normal weiter', cs[0].st().turnNo === 1, cs[0].st().turnNo);
+  }
+
+  // ── C2-3: Trennung waehrend der Simulation → kein SKIP mitten hinein ──
+  {
+    const { db, cs } = await newMatch('C23A');
+    const code = 'C23A', off = 1;
+    for (const c of cs) c.commitVec(80, 10, 0);
+    await tick(db, 30);
+    // Jetzt laeuft die Runde. Waehrenddessen faellt Sitz 1 aus.
+    t('C2-3 Vorbedingung: die Runde rechnet', cs[0].st().phase !== 'aim', cs[0].st().phase);
+    await offline(db, code, off);
+    const t0 = JSON.stringify(turnsOf(db, code)[0]);
+    t('C2-3 waehrend der Simulation entsteht kein zusaetzlicher Datensatz',
+      JSON.stringify(turnsOf(db, code)[0]) === t0, turnsOf(db, code)[0]);
+    for (const c of cs) c.pump();
+    await tick(db, 40);
+    t('C2-3 die Runde 0 traegt weiterhin fuenf echte Zuege',
+      Object.keys(turnsOf(db, code)[0]).length === 5
+      && Object.keys(turnsOf(db, code)[0]).every(k => turnsOf(db, code)[0][k].k === 'move'),
+      turnsOf(db, code)[0]);
+    t('C2-3 kein Leben und keine Elimination durch die Trennung',
+      cs[0].st().lives.join(',') === '2,2,2,2,2' && cs[0].st().active.join(',') === 'true,true,true,true,true',
+      cs[0].st());
+
+    // ── C2-4: an der NAECHSTEN Eingabegrenze bekommt er dann seinen SKIP ──
+    await tick(db, 20);
+    for (const c of cs) if (c.idx !== off) c.commitVec(40, 40, 0);
+    await tick(db, 40);
+    for (const c of cs) c.pump();
+    await tick(db, 40);
+    const r1 = turnsOf(db, code)[1] || {};
+    t('C2-4 in der naechsten Runde erhaelt der weiterhin getrennte Sitz einen SKIP',
+      r1[String(off)] && r1[String(off)].k === 'skip', r1[String(off)]);
+  }
+
+  // ── C2-5: Rueckkehr VOR dem SKIP → der SKIP wird abgelehnt ──
+  // Der Schreibvorgang liegt in der Warteschlange, waehrend die Praesenz zurueckkommt.
+  // Geprueft wird beim Schreiben, nicht beim Auswaehlen - genau wie in den echten Rules.
+  {
+    const { db, cs } = await newMatch('C25A');
+    const code = 'C25A', off = 4;
+    // Der SKIP wird angesetzt (die Clients sehen die Trennung sofort), liegt aber noch
+    // in der Warteschlange, als die Praesenz zurueckkehrt. Geprueft wird beim Schreiben.
+    db.setPresence(code, off, false);
+    db.setPresence(code, off, true);
+    await tick(db, 40);
+    const rec = (turnsOf(db, code)[0] || {})[String(off)];
+    t('C2-5 kehrt der Sitz vorher zurueck, entsteht KEIN SKIP',
+      rec === undefined || rec.k === 'move', rec);
+    // Und er zieht wieder selbst.
+    cs[off].commitVec(55, 15, 0); await tick(db, 30);
+    const rec2 = (turnsOf(db, code)[0] || {})[String(off)];
+    t('C2-5 der zurueckgekehrte Spieler zieht selbst', rec2 && rec2.k === 'move', rec2);
+  }
+
+  // ── C2-6: Rueckkehr NACH dem SKIP → Runde N bleibt SKIP, Runde N+1 zaehlt wieder ──
+  {
+    const { db, cs } = await newMatch('C26A');
+    const code = 'C26A', off = 2;
+    await offline(db, code, off);
+    for (const c of cs) if (c.idx !== off) c.commitVec(60, -40, 0);
+    await tick(db, 40);
+    const skipped = JSON.stringify(turnsOf(db, code)[0][String(off)]);
+    t('C2-6 Vorbedingung: der SKIP steht', JSON.parse(skipped).k === 'skip', skipped);
+    // Er kehrt zurueck, bevor die naechste Runde beginnt.
+    await online(db, code, off);
+    for (const c of cs) c.pump();
+    await tick(db, 40);
+    t('C2-6 der SKIP der Runde 0 bleibt unveraendert',
+      JSON.stringify(turnsOf(db, code)[0][String(off)]) === skipped, turnsOf(db, code)[0][String(off)]);
+    t('C2-6 derselbe Sitz, dieselbe Identitaet', cs[off].st().myPlayer === off, cs[off].st().myPlayer);
+    t('C2-6 unveraenderte Leben', cs[off].st().lives.join(',') === '2,2,2,2,2', cs[off].st().lives);
+    // Runde 1: er spielt wieder normal mit.
+    for (const c of cs) c.commitVec(45, 25, 0);
+    await tick(db, 40);
+    const r1 = turnsOf(db, code)[1] || {};
+    t('C2-6 in der naechsten Runde zieht er wieder selbst',
+      r1[String(off)] && r1[String(off)].k === 'move', r1[String(off)]);
+    for (const c of cs) c.pump();
+    await tick(db, 40);
+    t('C2-6 alle bleiben deckungsgleich', sameHash(cs), cs.map(c => c.hash()));
+  }
+
+  // ── C2-7: MOVE gegen SKIP - genau ein Datensatz ──
+  {
+    const { db, cs } = await newMatch('C27A');
+    const code = 'C27A', off = 3;
+    db.setPresence(code, off, false);
+    db.flush();                       // SKIP-Versuche laufen an
+    cs[off].commitVec(65, -15, 0);    // im selben Moment zieht der Spieler doch
+    await tick(db, 40);
+    const rec = (turnsOf(db, code)[0] || {})[String(off)];
+    t('C2-7 es existiert genau EIN Datensatz', rec !== undefined && typeof rec === 'object', rec);
+    t('C2-7 und er ist entweder ein echter Zug oder ein SKIP - nie beides, nie halb',
+      rec && (rec.k === 'move' || rec.k === 'skip') && rec.idx === off, rec);
+    t('C2-7 die Clients bleiben deckungsgleich', sameHash(cs), cs.map(c => c.hash()));
+  }
+
+  // ── C2-8: mehrere Clients schreiben denselben SKIP ──
+  {
+    const { db, cs } = await newMatch('C28A');
+    const code = 'C28A', off = 0;
+    await offline(db, code, off);     // alle vier verbliebenen sehen dasselbe
+    const rec = (turnsOf(db, code)[0] || {})[String(off)];
+    t('C2-8 trotz mehrerer Schreiber entsteht genau ein SKIP', rec && rec.k === 'skip', rec);
+    t('C2-8 kein Client haelt einen offenen Schreibvorgang',
+      cs.every(c => c.st().pending === 0), cs.map(c => c.st().pending));
+  }
+
+  // ── C2-9: zwei Teilnehmer gleichzeitig getrennt ──
+  {
+    const { db, cs } = await newMatch('C29A');
+    const code = 'C29A';
+    db.setPresence(code, 1, false); db.setPresence(code, 4, false); await tick(db, 30);
+    for (const c of cs) if (c.idx !== 1 && c.idx !== 4) c.commitVec(60, -40, 0);
+    await tick(db, 40);
+    for (const c of cs) c.pump();
+    await tick(db, 40);
+    const rec = turnsOf(db, code)[0] || {};
+    t('C2-9 beide bekommen ihren eigenen SKIP auf ihrem eigenen Sitz',
+      rec['1'] && rec['1'].k === 'skip' && rec['1'].idx === 1 &&
+      rec['4'] && rec['4'].k === 'skip' && rec['4'].idx === 4, { s1: rec['1'], s4: rec['4'] });
+    t('C2-9 die uebrigen drei haben echte Zuege',
+      ['0', '2', '3'].every(k => rec[k] && rec[k].k === 'move'), rec);
+    t('C2-9 die Runde laeuft weiter', cs[0].st().turnNo === 1, cs[0].st().turnNo);
+    t('C2-9 kein Leben verloren, niemand eliminiert',
+      cs[0].st().lives.join(',') === '2,2,2,2,2'
+      && cs[0].st().active.join(',') === 'true,true,true,true,true', cs[0].st());
+  }
+
+  // ── C2-9b: der Client ENTSCHEIDET richtig, nicht nur die Datenbank ──
+  // Diese Gruppe prueft den Entschluss selbst: fbWriteSkip muss ablehnen, bevor
+  // ueberhaupt geschrieben wird.
+  {
+    const { db, cs } = await newMatch('C29B');
+    const code = 'C29B';
+    t('C2-9b in der Eingabephase ist die Grenze offen', cs[0].skipBoundary() === true);
+    t('C2-9b ein VERBUNDENER Sitz wird nicht uebersprungen', cs[0].trySkip(2) === false);
+    t('C2-9b der eigene Sitz wird nie uebersprungen', cs[0].trySkip(0) === false);
+
+    // Sitz 2 zieht selbst, ist danach offline: sein Zug darf nicht ersetzt werden.
+    cs[2].commitVec(70, 20, 0); await tick(db, 30);
+    db.setPresence(code, 2, false); await tick(db, 20);
+    t('C2-9b ein bereits abgegebener Zug wird nicht durch einen SKIP ersetzt',
+      cs[0].trySkip(2) === false);
+
+    // Waehrend die Runde rechnet, ist die Grenze zu.
+    for (const c of cs) if (c.idx !== 2) c.commitVec(50, -30, 0);
+    await tick(db, 40);
+    t('C2-9b waehrend der Simulation ist die Grenze geschlossen',
+      cs[0].st().phase === 'aim' || cs[0].skipBoundary() === false,
+      { phase: cs[0].st().phase, boundary: cs[0].skipBoundary() });
+    // Und ausdruecklich: in keiner Nicht-Eingabephase darf sie offen sein.
+    let sawClosed = false;
+    for (let k = 0; k < 400; k++) {
+      if (cs[0].st().phase !== 'aim') { sawClosed = cs[0].skipBoundary() === false; break; }
+      cs[0].pump(1);
+    }
+    t('C2-9b ausserhalb der Eingabephase ist die Grenze nachweislich geschlossen', sawClosed !== false,
+      { phase: cs[0].st().phase, boundary: cs[0].skipBoundary() });
+  }
+
+  // ── C2-10: duennbesetzte Sitze nach Eliminierungen (4P, 3P) ──
+  // Nach einem Ausfall sind die aktiven URSPRUNGSsitze nicht mehr 0..n-1. Der SKIP muss
+  // trotzdem auf dem urspruenglichen Sitz landen und nicht auf einer kompakten Nummer.
+  {
+    const db = makeDB(), code = 'C2SP';
+    const cs = await setupMatch(db, code);
+    const okE = await eliminateSeat(db, cs, 1, 90);
+    t('C2-10 Vorbedingung: Sitz 1 ist ausgeschieden', okE && cs[0].st().active[1] === false,
+      cs[0].st().active);
+    if (okE) {
+      await tick(db, 30);
+      const alive = cs[0].st().active.map((v, i) => v ? i : -1).filter(i => i >= 0);
+      const off = alive[alive.length - 1];
+      const turn = cs[0].st().turnNo;
+      db.setPresence(code, off, false); await tick(db, 30);
+      for (const s2 of alive) if (s2 !== off) cs[s2].commitVec(60, -40, 0);
+      await tick(db, 40);
+      const rec = turnsOf(db, code)[turn] || {};
+      t('C2-10 der SKIP steht auf dem URSPRUENGLICHEN Sitz ' + off,
+        rec[String(off)] && rec[String(off)].k === 'skip' && rec[String(off)].idx === off, rec);
+      t('C2-10 der ausgeschiedene Sitz bekommt KEINEN Datensatz',
+        rec['1'] === undefined, rec);
+      t('C2-10 die Sitznummern werden nicht verdichtet',
+        Object.keys(rec).sort().join(',') === alive.slice().sort().join(','),
+        { slots: Object.keys(rec), alive });
+    }
+  }
+
+  // ── C2-11: ein ausgeschiedener, getrennter Sitz bekommt keinen SKIP ──
+  {
+    const db = makeDB(), code = 'C2EL';
+    const cs = await setupMatch(db, code);
+    const victim = 3;
+    const okE = await eliminateSeat(db, cs, victim, 90);
+    t('C2-11 Vorbedingung: der Sitz ist ausgeschieden', okE && cs[0].st().active[victim] === false,
+      cs[0].st().active);
+    if (okE) {
+      db.setPresence(code, victim, false); await tick(db, 30);
+      const turn = cs[0].st().turnNo;
+      const rec = turnsOf(db, code)[turn] || {};
+      t('C2-11 fuer den Ausgeschiedenen entsteht kein SKIP', rec[String(victim)] === undefined, rec);
+    }
+  }
+
+  // ── C2-12: Rehydrierung aus einer Historie MIT SKIP ──
+  {
+    const { db, cs } = await newMatch('C2RH');
+    const code = 'C2RH', off = 2;
+    await offline(db, code, off);
+    for (const c of cs) if (c.idx !== off) c.commitVec(60, -40, 0);
+    await tick(db, 40);
+    for (const c of cs) c.pump();
+    await tick(db, 40);
+    await online(db, code, off);
+    for (const c of cs) c.commitVec(35, 45, 0);
+    await tick(db, 40);
+    for (const c of cs) c.pump();
+    await tick(db, 40);
+    const ref = cs[0].hash(), refTurn = cs[0].st().turnNo;
+    const fresh = makeClient(db, code, { name: 'RH' });
+    fresh.prepareReplay(0, 0);
+    fresh.replay(turnsOf(db, code));
+    t('C2-12 ein frischer Client rekonstruiert die Historie mit SKIP zeichengleich',
+      fresh.hash() === ref, { fresh: fresh.hash(), ref });
+    t('C2-12 und steht beim selben Zug', fresh.st().turnNo === refTurn,
+      { fresh: fresh.st().turnNo, ref: refTurn });
+  }
+
+  // ── C2-13: eine neue Generation traegt keine alten SKIPs ──
+  {
+    const { db, cs } = await newMatch('C2GN');
+    const code = 'C2GN', off = 1;
+    await offline(db, code, off);
+    for (const c of cs) if (c.idx !== off) c.commitVec(60, -40, 0);
+    await tick(db, 40);
+    t('C2-13 Vorbedingung: SKIP in Generation 0',
+      (turnsOf(db, code, 0)[0] || {})[String(off)] &&
+      (turnsOf(db, code, 0)[0] || {})[String(off)].k === 'skip', turnsOf(db, code, 0)[0]);
+    await online(db, code, off);
+    db.data.rooms[code].gen = 1; await tick(db, 30);
+    t('C2-13 die neue Generation startet ohne Datensaetze',
+      Object.keys(turnsOf(db, code, 1)).length === 0, turnsOf(db, code, 1));
+  }
+}
 console.log('\nFootball-Online: ' + pass + ' passed, ' + fail + ' failed');
   process.exit(fail ? 1 : 0);
 })().catch(e => { console.error('SUITE ERROR: ' + (e && e.stack || e)); process.exit(1); });

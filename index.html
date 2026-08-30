@@ -5795,6 +5795,9 @@ function attachRoomListeners(){
         if(p&&p[s])startMatchGrace(s);
         else seatFinallyGone(s);
       }
+      // C2: ein Praesenzwechsel kann eine offene Runde sofort abschliessbar machen -
+      // ohne auf die Rueckkehrfrist zu warten. Die Grenzpruefung sitzt in fbWriteSkip.
+      fbMaybeSkipOffline();
     }
   });
   // Roster listener: durable player identities/names (id,name,tab). Keeps
@@ -5900,6 +5903,7 @@ function onlineArmTurn(){
   // bereits zugestellte Firebase-Events), darf den jetzigen Zustand nie beruehren.
   turnUnsub=window.FB.onValue(ref, snap=>{ if(isCurrentCtx(ctx)&&!isOnlineTerminated()) onlineTurnValue(snap.val()); });
   if(mode==='ffa')for(let s=0;s<np();s++)if(seatLeft[s])writeLeaveSentinel(s);   // offene Slots Verlassener fuellen
+  fbMaybeSkipOffline();   // C2: Football - offene Slots bereits getrennter Sitze schliessen
 }
 function isCurrentCtx(ctx){ return ctx.sid===onlineSessionId && ctx.room===roomCode && ctx.gen===gen && ctx.turnNo===turnNo; }
 // true, sobald die AKTUELLE Online-Session per onlineConnectionLost() terminal
@@ -5927,6 +5931,46 @@ function writeTurnSlot(s,payload,opts){
       .then(result=>settleSlot(s,ctx,result,null))
       .catch(err=>settleSlot(s,ctx,null,err));
   }catch(err){ settleSlot(s,ctx,null,err); }
+}
+// ── C2: SICHERER SKIP FUER EINEN VORUEBERGEHEND GETRENNTEN TEILNEHMER ─────────
+// Die Reservierung eines Sitzes ist ein RECHT AUF RUECKKEHR - keine Pflicht der
+// uebrigen, auf ihn zu warten. Ist ein aktiver Teilnehmer an einer Eingabegrenze
+// offline und hat keinen Zug abgegeben, schreibt irgendein verbundener Mitspieler den
+// kanonischen Nullzug (k:'skip') auf dessen URSPRUENGLICHEN Sitz.
+//
+// Was ein SKIP NICHT ist: kein Abschuss, kein Leben, kein Tor, keine Elimination, kein
+// REMOVE, keine Sitzverschiebung, keine Arenaanpassung. Der Koerper bleibt stehen, wo
+// die deterministische Simulation ihn hat, bleibt kollidierbar und bleibt am Leben.
+//
+// Die Autoritaet kommt aus den bestehenden v4-Rules: schreiben darf jeder Sitzinhaber,
+// der selbst verbunden und nicht evictiert ist, und nur solange das ZIEL im
+// Ergebnisbaum offline ist. Kehrt es vorher zurueck, wird der Schreibvorgang abgelehnt -
+// genau so soll es sein. Die Write-once-Transaction entscheidet jedes Rennen.
+//
+// Sichere Grenze: ausschliesslich die Eingabephase eines regulaeren Spielzugs. Waehrend
+// Physik, Torfall, Jubel, Umbau oder Spawn wird nichts eingestreut.
+function fbSkipBoundary(){
+  return online&&fbOnlineRoom()&&gameStarted&&!isOnlineTerminated()
+       &&phase==='aim'&&fbGoalState==='play'&&!fbMorphActive();
+}
+// Ein einzelner SKIP. Prueft alle Bedingungen selbst, damit auch ein spaeter Retry
+// nichts schreibt, was inzwischen gegenstandslos ist.
+function fbWriteSkip(s,attempt){
+  if(!fbSkipBoundary())return false;
+  if(s===myPlayer)return false;              // der eigene Sitz ist nie "offline"
+  if(!aliveCount(s))return false;            // ausgeschieden -> fuer die Runde nicht erforderlich
+  if(aimSet[s]||pendingSlot[s])return false; // hat bereits einen Datensatz / laeuft schon
+  if(seatActive(roomP,s))return false;       // wieder verbunden -> er zieht selbst
+  writeTurnSlot(s,fbTurnSkip(s),{sentinel:true,attempt:attempt||0});
+  return true;
+}
+// Alle offenen Sitze einer Runde pruefen. Mehrere Clients duerfen das gleichzeitig tun:
+// die Write-once-Transaction laesst genau einen Datensatz entstehen.
+function fbMaybeSkipOffline(){
+  if(!fbSkipBoundary())return 0;
+  let n=0;
+  for(let s=0;s<np();s++)if(fbWriteSkip(s,0))n++;
+  return n;
 }
 // Verlassener Seat wuerde den Lockstep blockieren: irgendein verbliebener Client
 // fuellt dessen offenen Move-Slot mit einem Stand-still-Sentinel (idx!==seat
@@ -5957,6 +6001,10 @@ function scheduleSentinelRetry(s,ctx){
   sentinelRetryTimer[s]=setTimeout(()=>{
     sentinelRetryTimer[s]=null;
     if(!isCurrentCtx(ctx))return;              // Session/Raum/Generation/Turn gewechselt -> Retry gegenstandslos
+    // Football: der offene Slot wird mit dem kanonischen SKIP geschlossen. fbWriteSkip
+    // prueft Grenze, Praesenz und Slotzustand erneut - ist der Sitz zurueck, geschieht
+    // nichts und die Retrykette endet still.
+    if(fbOnlineRoom()){ fbWriteSkip(s,ctx.attempt+1); return; }
     if(!seatLeft[s])return;                    // Seat ist nicht (mehr) verlassen -> Sentinel nicht mehr noetig
     writeLeaveSentinel(s,ctx.attempt+1);       // prueft aimSet/pendingSlot/phase erneut selbst
   },delay);
@@ -6061,6 +6109,7 @@ function maybeReveal(){
 function onlineTurnValue(val){
   if(!val)return;
   for(let s=0;s<np();s++) processSlot(s,val[s]);   // ALLE Seats inkl. des eigenen: die DB ist der alleinige Arbiter
+  fbMaybeSkipOffline();   // C2: bleibt nur noch ein getrennter Sitz offen, wird er hier geschlossen
   maybeReveal();
 }
 function onlineSendCommit(idx,fx,fy,spin){

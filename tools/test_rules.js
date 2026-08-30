@@ -822,6 +822,22 @@ deny('team move pl 4 (seat gate, presence pre-seeded)', playing({ p: { 0: P(H_TA
   // Sonst koennte ein online stehender Spieler sich selbst ueberspringen oder sich ohne
   // Eviction als entfernt eintragen - beides waere eine Ersatzbedeutung im eigenen Slot,
   // und die verbliebenen Clients wuerden ueber die aktive Teilnehmermenge auseinanderlaufen.
+  // ── C2: die beiden Faelle, die der neue Produktpfad direkt beruehrt ──
+  // Der Schreiber muss selbst verbunden sein - ein Getrennter darf keine Runde schliessen.
+  {
+    const bothOff = fbRoom({ p: { 0: P(TAB[0], true), 1: P(TAB[1], false), 2: P(TAB[2], true),
+      3: P(TAB[3], false), 4: P(TAB[4], true) } });
+    deny('C2 ein selbst OFFLINE Mitspieler darf keinen SKIP schreiben',
+      bothOff, 'rooms/KX7P/g/0/t/0/3', SK(3), UID[1]);
+    allow('C2 ein verbundener Mitspieler darf denselben SKIP schreiben',
+      bothOff, 'rooms/KX7P/g/0/t/0/3', SK(3), UID[2]);
+  }
+  // Nacheinander ist erlaubt: erst SKIP, spaeter Rueckkehr. Die Reaktivierung bleibt
+  // moeglich, obwohl fuer die laufende Runde bereits ein SKIP steht (C1 + C2 zusammen).
+  allow('C2 nach einem SKIP darf derselbe Sitz seine Praesenz wieder aktivieren',
+    fbRoom(Object.assign({}, OFFLINE(3, 0), { g: { 0: { t: { 0: { 3: SK(3) } } } } })),
+    'rooms/KX7P/p/3', P(TAB[3], true), UID[3]);
+
   deny('an online owner cannot SKIP itself', fbRoom(), 'rooms/KX7P/g/0/t/0/2', SK(2), UID[2]);
   deny('an online owner cannot REMOVE itself without an eviction',
     fbRoom(), 'rooms/KX7P/g/0/t/0/2', RM(2), UID[2]);
