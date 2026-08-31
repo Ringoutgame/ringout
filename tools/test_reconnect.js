@@ -68,6 +68,7 @@ const SRC = [
   grab(/const FOOTBALL_ELIM4_PLAYERS=[^\n]*/, 'FOOTBALL_ELIM4_PLAYERS'),
   grab(/const FOOTBALL_VARIANT_ELIM='elimination';/, 'FOOTBALL_VARIANT_ELIM'),
   grab(/const FOOTBALL_VARIANT_ELIM4='elimination4';/, 'FOOTBALL_VARIANT_ELIM4'),
+  grab(/let fbElimStartN=0;.*/, 'fbElimStartN'),
   grab(/function fbElim4\(\)\{[^\n]*/, 'fbElim4'),
   grab(/const FB_ELIM_LIVES=2;[\s\S]*?\nfunction fbElimReset\(\)\{[\s\S]*?\n\}/, 'Elimination-Zustand + Reset'),
   fn('fbElimPlayers'),

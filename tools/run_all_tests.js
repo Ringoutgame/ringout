@@ -20,7 +20,7 @@ const SUITES = [
   { name: 'Football-Arena',   file: 'test_football_arena.js', expectPassed: 71 },    // Classic auf der kanonischen Shouldered-Wide-Arena, buendiges Tor, M1, Ballradius 25
   { name: 'Football-Tactical', file: 'test_football_tactical.js', expectPassed: 246 },   // Tactical 1v1 (2 Figuren, 1 Zug je Team/Runde) + sichtbare Modusauswahl der drei Produktmodi
   { name: 'Football-Elim',    file: 'test_football_elimination4.js', expectPassed: 1229 },  // Dev-Einstieg auf vier Startspieler: ZWEI LEBEN + adaptive Arena 4 -> 3 -> 2 -> 1 + fairer Respawn
-  { name: 'Football-Elim5',   file: 'test_football_elimination5.js', expectPassed: 314 },  // Produktmodus Elimination: 5 -> 4 -> 3 -> 2 -> Sieger, dieselbe Architektur
+  { name: 'Football-Elim5',   file: 'test_football_elimination5.js', expectPassed: 315 },  // Produktmodus Elimination: 5 -> 4 -> 3 -> 2 -> Sieger, dieselbe Architektur
   { name: 'Fixed-Timestep',  file: 'test_fixed_timestep.js', expectPassed: 202 },  // Gameplay laeuft in festen 60-Hz-Schritten, unabhaengig von der Bildwiederholrate
   { name: 'r3d-Mapping',      file: 'test_r3d_mapping.js',    expectPassed: 52 },
   { name: 'Sanitize',         file: 'test_sanitize.js',       expectPassed: 24 },
@@ -32,9 +32,9 @@ const SUITES = [
   { name: 'FFA-Online-Flow',  file: 'test_ffa_flow.js',       expectPassed: 148 },
   { name: 'FFA-Online-Race',  file: 'test_ffa_race.js',       expectPassed: 115 },
         { name: 'Reconnect-B2',     file: 'test_reconnect.js',      expectPassed: 213 },   // 53 Bestand (RC1-RC11) + 14 RC-ENV + 17 RC-UID/RC-UID2: Seat-Eigentum ueber auth.uid, Diebstahlversuch mit bekannter Spieler-ID, Zweittab, Mehrdeutigkeit und Legacy-Rueckfall
-          { name: 'Protokoll-v4',     file: 'test_online_protocol_v4.js', expectPassed: 93 },   // reine Schema-/Vertragsschicht: Version, Raumtyp, Sitz/Koerper, kanonische Zugereignisse
-  { name: 'Football-Online', file: 'test_football_online.js', expectPassed: 579 },   // fuenf getrennte Clients an einer Datenbank: Lobby, paralleler Commit, gleichzeitiger Abschuss, Tore/Leben, 5->4->3->2, Rehydrierung
-  { name: 'Rules',            file: 'test_rules.js',          expectPassed: 414 },   // v4: Seat-Ownership, Football-Raumtyp, typisierte Zuege (move/skip/remove) und die Eviction
+          { name: 'Protokoll-v4',     file: 'test_online_protocol_v4.js', expectPassed: 96 },   // reine Schema-/Vertragsschicht: Version, Raumtyp, Sitz/Koerper, kanonische Zugereignisse
+  { name: 'Football-Online', file: 'test_football_online.js', expectPassed: 697 },   // fuenf getrennte Clients an einer Datenbank: Lobby, paralleler Commit, gleichzeitiger Abschuss, Tore/Leben, 5->4->3->2, Rehydrierung
+  { name: 'Rules',            file: 'test_rules.js',          expectPassed: 459 },   // v4: Seat-Ownership, Football-Raumtyp, typisierte Zuege (move/skip/remove) und die Eviction
   { name: 'Public-Lobby',     file: 'test_public_lobby.js',   expectPassed: 30 },
   { name: 'Team-Duel',        file: 'test_team_duel.js',      expectPassed: 36 },
 ];

@@ -354,6 +354,101 @@ deny('rewriting gen after a permanent departure',
 allow('gen increment in a plain ringout room stays untouched',
   db1({ p: { 0: P(H_TAB, true) } }), 'rooms/KX7P/gen', 1, UID_GUEST);
 
+// C5: Das Startsignal eines Football-Raums traegt die Teilnehmerzahl. Erlaubt sind zwei
+// bis fuenf; gezaehlt werden nur zusammenhaengende Sitze ab 0, die ALLE verbunden sind,
+// und oberhalb der Zahl darf kein weiterer Sitz belegt sein - sonst bliebe ein bereits
+// beigetretener Spieler ohne Startsignal im Raum zurueck.
+const fbLobby = (n, over = {}) => {
+  const p = {}, players = {};
+  for (let i = 0; i < n; i++) {
+    p[i] = { s: 'FBTAB00' + i, on: true, t: NOW };
+    players[i] = { id: 'FBPID00' + i, name: 'P' + i, tab: 'FBTAB00' + i, uid: FB_UID[i] };
+  }
+  const room = { v: V, config: { game: 'football', winTarget: 3, fmt: 'elimination', visibility: 'private' },
+                 gen: 0, state: 'playing', p, players, created: NOW - 5000 };
+  return { rooms: { KX7P: Object.assign(room, over) } };
+};
+for (const n of [2, 3, 4, 5]) {
+  allow('football start signal with ' + n + ' participants', fbLobby(n), 'rooms/KX7P/seats', n, FB_UID[0]);
+  deny('football start signal ' + n + ' written by a guest', fbLobby(n), 'rooms/KX7P/seats', n, FB_UID[1]);
+}
+deny('football start signal with a single participant', fbLobby(1), 'rooms/KX7P/seats', 1, FB_UID[0]);
+deny('football start signal above the room capacity', fbLobby(5), 'rooms/KX7P/seats', 6, FB_UID[0]);
+deny('football start signal of zero', fbLobby(2), 'rooms/KX7P/seats', 0, FB_UID[0]);
+// Jeder gezaehlte Sitz muss verbunden sein - in JEDER Besetzung und fuer JEDEN dieser
+// Sitze. Ein Sitz ohne lebenden Praesenzknoten koennte seinen Zug nicht schreiben, und
+// niemand duerfte ihn ueberspringen (SKIP verlangt p/<seat>/on === false): das Match
+// staende sofort. Und ein bereits beigetretener Spieler darf nicht uebergangen werden.
+for (const n of [2, 3, 4, 5]) {
+  for (let seat = 0; seat < n; seat++) {
+    const db = fbLobby(n);
+    db.rooms.KX7P.p[seat].on = false;
+    deny('football start signal with ' + n + ' participants while seat ' + seat + ' is offline',
+      db, 'rooms/KX7P/seats', n, FB_UID[0]);
+  }
+}
+deny('football start signal that leaves a joined player out',
+  fbLobby(4), 'rooms/KX7P/seats', 3, FB_UID[0]);
+deny('football start signal that leaves two joined players out',
+  fbLobby(5), 'rooms/KX7P/seats', 2, FB_UID[0]);
+
+// Der Start ist ATOMAR: state und seats stehen im selben Update. Das ist der Grund,
+// warum die Bedingungen oben ueberhaupt streng sein duerfen - eine Ablehnung faellt
+// vollstaendig zurueck, der Raum bleibt Lobby, und der Host kann es erneut versuchen.
+// Nacheinander geschrieben waere das unmoeglich: die state-Regel verlangt
+// data==='lobby' und laesst sich deshalb kein zweites Mal schreiben.
+for (const n of [2, 3, 4, 5]) {
+  const db = fbLobby(n, { state: 'lobby' });
+  allowMulti('football start writes state and seats in ONE update (' + n + ')', db,
+    { 'rooms/KX7P/state': 'playing', 'rooms/KX7P/seats': n }, FB_UID[0]);
+}
+{
+  // Das Rennen: waehrend der Host zaehlt, belegt ein weiterer Spieler einen Sitz.
+  const db = fbLobby(3, { state: 'lobby' });
+  denyMulti('football start loses the race against a late joiner - as a WHOLE', db,
+    { 'rooms/KX7P/state': 'playing', 'rooms/KX7P/seats': 2 }, FB_UID[0]);
+}
+// Das Startsignal ist write-once.
+deny('football start signal written twice',
+  fbLobby(3, { seats: 3 }), 'rooms/KX7P/seats', 3, FB_UID[0]);
+// Und es gilt nur im laufenden Match.
+deny('football start signal while the room is still a lobby',
+  fbLobby(3, { state: 'lobby' }), 'rooms/KX7P/seats', 3, FB_UID[0]);
+// Gegenprobe: die uebrigen Formate bleiben unveraendert.
+allow('ffa start signal is untouched', db1({ state: 'playing', p: { 0: P(H_TAB, true) } }, 'ffa'),
+  'rooms/KX7P/seats', 3, UID_GUEST);
+deny('triple_ffa still demands exactly three',
+  db1({ state: 'playing', p: { 0: P(H_TAB, true) } }, 'triple_ffa'), 'rooms/KX7P/seats', 4, UID_GUEST);
+
+// Ein kleiner gestartetes Match traegt dieselben Vertraege wie ein volles: Zug, SKIP,
+// REMOVE und Eviction haengen am Startsignal, nicht an der Zahl fuenf.
+const FB3 = (over) => {
+  const p = {}, players = {};
+  for (let i = 0; i < 3; i++) {
+    p[i] = { s: 'FBTAB00' + i, on: i !== 2, t: i === 2 ? NOW - GRACE - 1 : NOW };
+    players[i] = { id: 'FBPID00' + i, name: 'P' + i, tab: 'FBTAB00' + i, uid: FB_UID[i] };
+  }
+  return { rooms: { KX7P: Object.assign({ v: V, config: { game: 'football', winTarget: 3, fmt: 'elimination', visibility: 'private' },
+    gen: 0, state: 'playing', seats: 3, p, players, created: NOW - 5000 }, over || {}) } };
+};
+allow('three-player match: a move by the seat owner', FB3(), 'rooms/KX7P/g/0/t/0/0',
+  { k: 'move', idx: 0, dx: 100, dy: -50, sp: 0.5 }, FB_UID[0]);
+allow('three-player match: a skip for the offline seat', FB3(), 'rooms/KX7P/g/0/t/0/2',
+  { k: 'skip', idx: 2, dx: 0, dy: 0, sp: 0 }, FB_UID[0]);
+allow('three-player match: eviction of the expired seat', FB3(), 'rooms/KX7P/g/0/e/2', true, FB_UID[0]);
+allow('three-player match: remove after the eviction', FB3({ g: { 0: { e: { 2: true } } } }),
+  'rooms/KX7P/g/0/t/0/2', { k: 'remove', idx: 2, dx: 0, dy: 0, sp: 0 }, FB_UID[0]);
+deny('three-player match: remove without an eviction', FB3(), 'rooms/KX7P/g/0/t/0/2',
+  { k: 'remove', idx: 2, dx: 0, dy: 0, sp: 0 }, FB_UID[0]);
+deny('three-player match: a move for an unused seat', FB3(), 'rooms/KX7P/g/0/t/0/3',
+  { k: 'move', idx: 3, dx: 100, dy: -50, sp: 0.5 }, FB_UID[0]);
+deny('three-player match: a skip for an unused seat', FB3(), 'rooms/KX7P/g/0/t/0/4',
+  { k: 'skip', idx: 4, dx: 0, dy: 0, sp: 0 }, FB_UID[0]);
+deny('three-player match: eviction of an unused seat', FB3(), 'rooms/KX7P/g/0/e/3', true, FB_UID[0]);
+// Ein laufendes Match ohne Startsignal bleibt geschlossen.
+deny('football turn without a start signal', FB3({ seats: null }), 'rooms/KX7P/g/0/t/0/0',
+  { k: 'move', idx: 0, dx: 100, dy: -50, sp: 0.5 }, FB_UID[0]);
+
 // ATOMARER Angriff: die Eviction und der Generationswechsel im SELBEN update(). Prueft die
 // gen-Regel nur den Vorzustand, ist die Sperre noch nicht gesetzt und der Wechsel gelingt -
 // in der frischen Generation gaebe es dann gar keine Eviction mehr.

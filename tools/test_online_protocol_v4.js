@@ -173,8 +173,16 @@ t('Rejoin: der Football-Raum meldet fuenf Sitze',
   P.validateRejoinRoom(fbRoom({ state: 'playing', seats: 5 })).seats === 5);
 t('Rejoin: laufender Football-Raum OHNE Startsignal wird abgelehnt',
   P.validateRejoinRoom(fbRoom({ state: 'playing' })).ok === false);
-t('Rejoin: laufender Football-Raum mit falscher Sitzzahl wird abgelehnt',
-  P.validateRejoinRoom(fbRoom({ state: 'playing', seats: 4 })).ok === false);
+// Ein Football-Match startet mit zwei bis fuenf Teilnehmern; die Zahl steht im
+// Startsignal und ist damit auch fuer den Rueckkehrer eindeutig.
+t('Rejoin: laufender Football-Raum mit zwei bis fuenf Sitzen wird angenommen',
+  [2, 3, 4, 5].every(n => P.validateRejoinRoom(fbRoom({ state: 'playing', seats: n })).ok === true));
+t('Rejoin: die gemeldete Sitzzahl ist die des Startsignals',
+  [2, 3, 4, 5].every(n => P.validateRejoinRoom(fbRoom({ state: 'playing', seats: n })).seats === n));
+t('Rejoin: ein Football-Raum mit nur einem Sitz wird abgelehnt',
+  P.validateRejoinRoom(fbRoom({ state: 'playing', seats: 1 })).ok === false);
+t('Rejoin: mehr Sitze als der Raum fasst wird abgelehnt',
+  P.validateRejoinRoom(fbRoom({ state: 'playing', seats: 6 })).ok === false);
 t('Rejoin: die Football-LOBBY braucht kein Startsignal',
   P.validateRejoinRoom(fbRoom({ state: 'lobby' })).ok === true);
 t('Rejoin: v3 wird abgelehnt', P.validateRejoinRoom(room({ v: 3 })).ok === false);

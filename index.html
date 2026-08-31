@@ -1613,7 +1613,7 @@ $('w5').onclick=()=>{winTarget=5;setOn('winGrp','w5');};
 $('devFbOnlineBtn').onclick=()=>{
   if(!DEV_MENU)return;
   if(TUNE){toast('Tuning aktiv — Online deaktiviert');return;}
-  mode='football'; fbVariant=FOOTBALL_VARIANT_ELIM; fmt=FB_ONLINE_FMT;
+  mode='football'; fbVariant=FOOTBALL_VARIANT_ELIM; fmt=FB_ONLINE_FMT; fbElimStartN=0;
   openOnline();
 };
 $('ffaOnline').onclick=()=>{SFX.unlock();fmt='ffa';openOnline();};
@@ -1917,6 +1917,7 @@ function startFootball(variant){
   // Vier-Spieler-Elimination; jeder andere Wert faellt auf den Standardmodus zurueck.
   // Die drei Produktmodi sind ueber die sichtbare Modusauswahl erreichbar, der Dev-Einstieg
   // ausschliesslich ueber ?dev=1&fb=elimination4.
+  fbElimStartN=0;   // lokale Partie: die Variante bestimmt die Teilnehmerzahl
   const dev4=variant===FOOTBALL_VARIANT_ELIM4&&typeof DEV_MENU!=='undefined'&&DEV_MENU;
   fbVariant=(variant===FOOTBALL_VARIANT_TACTICAL||variant===FOOTBALL_VARIANT_ELIM||dev4)?variant:'classic';
   $('fbModeOv').classList.remove('show');
@@ -4607,7 +4608,16 @@ function fbTactical(){return mode==='football'&&fbVariant===FOOTBALL_VARIANT_TAC
 function fbElim4(){return mode==='football'&&(fbVariant===FOOTBALL_VARIANT_ELIM||fbVariant===FOOTBALL_VARIANT_ELIM4);}
 // Startspielerzahl des laufenden Matches. Sie bestimmt die Laenge aller Schleifen ueber
 // Spieler, die erste Arenaphase und die Zahl der verdeckten Zuege je Runde.
-function fbElimPlayers(){return fbVariant===FOOTBALL_VARIANT_ELIM4?FOOTBALL_ELIM4_PLAYERS:FOOTBALL_ELIM_START_PLAYERS;}
+// Wie viele Teilnehmer hat DIESES Match? Lokal gibt die Variante die Zahl vor. Online
+// steht sie im kanonischen Startsignal `seats` und gilt unveraendert fuer die ganze
+// Generation - deshalb wird sie dort einmal uebernommen und nicht laufend aus der
+// Praesenz abgeleitet: waehrend des Matches gehen Spieler verloren, die Startbesetzung
+// aendert sich dadurch nicht. Ein Raum fasst weiterhin hoechstens FB_ONLINE_SEATS.
+let fbElimStartN=0;          // 0 = keine Online-Vorgabe -> Variantenvorgabe gilt
+function fbElimPlayers(){
+  if(fbElimStartN>=2)return fbElimStartN;
+  return fbVariant===FOOTBALL_VARIANT_ELIM4?FOOTBALL_ELIM4_PLAYERS:FOOTBALL_ELIM_START_PLAYERS;
+}
 // Startaufstellung in BR (gleiche Konvention wie FOOTBALL_ARENA). Blau steht bei -x, Rot
 // exakt an der Mittelachse gespiegelt bei +x -> identische Distanzverhaeltnisse zu Ball,
 // eigenem Tor und Gegnertor. 'front' ist die offensivere Figur nahe der Mittellinie, 'back'
@@ -5136,14 +5146,16 @@ function renderLobby(p){
   }
   $('lobbyMine').textContent=T('youAre')+' '+nameForSeat(myPlayer);
   const host=myPlayer===0,gap=!seatsContiguous(p,n);
-  // Arena Football Elimination startet per Produktvertrag mit GENAU fuenf Teilnehmern -
-  // die Arena, die Torzuordnung und der Ablauf 5->4->3->2 sind darauf gebaut. Der Server
-  // erzwingt dasselbe (seats===5 verlangt fuenf aktive Sitze).
+  // Arena Football Elimination startet mit zwei bis fuenf Teilnehmern; der Raum fasst
+  // fuenf und zeigt das auch (n/5). Ab zwei darf der Host starten - die Arena und der
+  // Ablauf ergeben sich aus der Startbesetzung (2 = Shouldered Wide, 3 = Dreieck,
+  // 4 = Quadrat, 5 = Fuenfeck). Der Server erzwingt dasselbe: seats 2-5, alle
+  // gezaehlten Sitze verbunden, darueber kein belegter Sitz.
   const fbo=fmt===FB_ONLINE_FMT;
   $('lobbyStart').style.display=host?'':'none';
-  $('lobbyStart').disabled=fbo?(n!==FB_ONLINE_SEATS||gap):team?(n!==4||gap):trip?(n!==3||gap):(n<2||gap);
-  $('lobbyHint').textContent=host?(fbo&&n<FB_ONLINE_SEATS?'ARENA FOOTBALL braucht genau 5 Spieler.':team&&n<4?'TEAM DUEL braucht genau 4 Spieler.':trip&&n<3?'TRIPLE FFA braucht genau 3 Spieler.':'Sitzlücke: Warte auf freien Sitz / Spieler soll neu beitreten.'):'Warte auf Host…';
-  $('lobbyHint').style.display=(host?((gap&&n>=2)||(trip&&n<3)||(team&&n<4)||(fbo&&n<FB_ONLINE_SEATS)):true)?'':'none';
+  $('lobbyStart').disabled=fbo?(n<2||gap):team?(n!==4||gap):trip?(n!==3||gap):(n<2||gap);
+  $('lobbyHint').textContent=host?(fbo&&n<2?'Mindestens 2 Spieler erforderlich.':team&&n<4?'TEAM DUEL braucht genau 4 Spieler.':trip&&n<3?'TRIPLE FFA braucht genau 3 Spieler.':'Sitzlücke: Warte auf freien Sitz / Spieler soll neu beitreten.'):'Warte auf Host…';
+  $('lobbyHint').style.display=(host?((gap&&n>=2)||(trip&&n<3)||(team&&n<4)||(fbo&&n<2)):true)?'':'none';
 }
 // Kopfbereich der Online-Seite: zweifarbiger Titel (ONLINE · FFA/1v1/2v2), Untertitel,
 // Spielerzahl-Badge — eine Stelle fuer openOnline UND attemptRejoin.
@@ -5483,7 +5495,7 @@ function validateRejoinRoom(d){
     if(!Number.isInteger(seats)||seats<2||seats>FFA_MAX_SEATS)return{ok:false,reason:'noRoom'};
     if(cfg.fmt==='triple_ffa'&&seats!==3)return{ok:false,reason:'noRoom'};
     if(cfg.fmt==='team_duel'&&seats!==4)return{ok:false,reason:'noRoom'};
-    if(cfg.game===ROOM_GAME_FOOTBALL&&seats!==FB_ONLINE_SEATS)return{ok:false,reason:'noRoom'};
+    if(cfg.game===ROOM_GAME_FOOTBALL&&(seats<2||seats>FB_ONLINE_SEATS))return{ok:false,reason:'noRoom'};
   }
   return{ok:true,fmt:cfg.fmt,winTarget:cfg.winTarget,gen:d.gen,state:d.state,seats:seats};
 }
@@ -5616,23 +5628,44 @@ function joinRoom(){
   });
 }
 
-// Host-Start (M8-T3c): sequenziell state -> seats. KEIN Multi-Path-update():
-// RTDB validiert Multi-Path-Updates pro Pfad, die seats-Rule prueft
-// newData.parent().child('state') und saehe den neuen state dort nicht.
+// Host-Start: state und seats gehoeren in EIN atomares update(). Sequenziell geschrieben
+// war der Start unumkehrbar riskant - die state-Regel verlangt data==='lobby' und laesst
+// sich deshalb nicht wiederholen. Wurde das Startsignal danach abgelehnt (ein Spieler
+// tritt im selben Moment bei, ein gezaehlter Sitz geht offline), blieb der Raum fuer
+// immer 'playing' ohne seats: niemand startete, niemand konnte mehr beitreten, und ein
+// zweiter Versuch war unmoeglich. Atomar faellt eine Ablehnung vollstaendig zurueck, der
+// Raum bleibt Lobby und der Host kann erneut starten.
+// Die seats-Regel liest den neuen Zustand ueber newData.parent() - also den
+// ZUSAMMENGEFUEHRTEN Ergebnisbaum, in dem das state-Bein desselben Updates steht. Dass
+// RTDB Geschwister eines Multi-Path-Updates so sieht, traegt schon der kanonische
+// Austritt (Praesenz + Rosteranker + Eviction-Marker in einem Update, live bestaetigt).
 function startFfaMatch(){
   const n=seatCount(lobbyP);
-  // Arena Football Elimination startet ausschliesslich mit fuenf Teilnehmern. Der Server
-  // erzwingt dasselbe: seats===5 verlangt fuenf AKTIVE Sitze, ein Start mit weniger wird
-  // dort abgelehnt und wuerde den Raum ohne Startsignal stehen lassen.
-  if(fmt===FB_ONLINE_FMT&&n!==FB_ONLINE_SEATS){toast('ARENA FOOTBALL braucht genau 5 Spieler.');return;}
+  // Arena Football Elimination startet mit zwei bis fuenf Teilnehmern; der Raum fasst
+  // hoechstens fuenf. Es braucht dafuer KEINE eigene Schranke mehr - die gemeinsame
+  // Mindestzahl weiter unten (n<2) ist genau diese Bedingung. Der Server verlangt
+  // dasselbe: `seats` muss zwischen zwei und fuenf liegen, die gezaehlten Sitze muessen
+  // ALLE verbunden sein und darueber darf kein weiterer Sitz belegt sein - sonst wuerde
+  // ein bereits beigetretener Spieler ohne Startsignal zurueckbleiben.
   if(fmt==='triple_ffa'&&n!==3){toast('TRIPLE FFA braucht genau 3 Spieler.');return;}
   if(fmt==='team_duel'&&n!==4){toast('TEAM DUEL braucht genau 4 Spieler.');return;}
   if(n<2){toast('Mindestens 2 Spieler nötig.');return;}
   if(!seatsContiguous(lobbyP,n)){toast('Warte auf freien Sitz / Spieler soll neu beitreten.');return;}
   $('lobbyStart').disabled=true;
   (async()=>{ try{
-    await window.FB.set(rRef('state'),'playing');
-    await window.FB.set(rRef('seats'),n);
+    if(fmt===FB_ONLINE_FMT){
+      // Football: atomar. Nur hier kann das Startsignal ueberhaupt abgelehnt werden
+      // (Besetzung, Verbundenheit, kein Sitz darueber) - und eine Ablehnung MUSS
+      // vollstaendig zurueckfallen, sonst bliebe der Raum unrettbar 'playing' ohne seats.
+      const start={}; start['state']='playing'; start['seats']=n;
+      await window.FB.update(rRef(''),start);
+    }else{
+      // FFA-Familie: unveraendert nacheinander. Ihre seats-Regel prueft nur den
+      // Zahlenbereich, das zweite Bein kann also nicht scheitern - und der bestehende,
+      // vielfach abgesicherte Pfad bleibt damit unberuehrt.
+      await window.FB.set(rRef('state'),'playing');
+      await window.FB.set(rRef('seats'),n);
+    }
     if(roomPublic){removePublicListing(roomCode);roomPublic=false;}   // match started -> drop the listing once (best-effort)
   }catch(e){ setStatus('Start fehlgeschlagen: '+(e.message||e)); $('lobbyStart').disabled=false; } })();
 }
@@ -5720,6 +5753,7 @@ async function attemptRejoin(code){
     // lobby paths (renderLobby/host grace/onLobbyClosed) nor the auto-start
     // (maybeStart/seats listener) can fire for an already-running room.
     if(ffa&&!rjFb)ffaN=v.seats;   // Football liest seine Spielerzahl aus fbElimPlayers()
+    if(rjFb)fbElimStartN=v.seats;   // dieselbe kanonische Quelle wie beim Start
     gameStarted=true;
     attachRoomListeners();
     let turns={};
@@ -6078,7 +6112,10 @@ function attachRoomListeners(){
     if(gameStarted||!Number.isInteger(n)||n<2||n>FFA_MAX_SEATS)return;
     if(fmt==='triple_ffa'&&n!==3)return;   // Rules erzwingen seats===3 — alles andere ist manipuliert
     if(fmt==='team_duel'&&n!==4)return;    // Rules erzwingen seats===4 — alles andere ist manipuliert
-    if(fmt===FB_ONLINE_FMT&&n!==FB_ONLINE_SEATS)return;   // Rules erzwingen seats===5
+    if(fmt===FB_ONLINE_FMT&&n>FB_ONLINE_SEATS)return;   // mehr Sitze als der Raum fasst -> manipuliert
+    // Die Startbesetzung dieser Generation. Sie steht VOR maybeStart, weil np() und
+    // fbElimReset() sie sofort brauchen.
+    if(fmt===FB_ONLINE_FMT)fbElimStartN=n;
     if(myPlayer>=n){   // Race: Seat erst nach dem Host-Kopfzaehlen geclaimt -> sauber aussteigen
       leaveOnline(); openOnline(); setStatus('Das Match ist ohne dich gestartet — tritt einem neuen Raum bei.');
       return;
@@ -6600,7 +6637,7 @@ function fbCanonicalLeave(attempt){
     if(rec)upd['players/'+ctx.seat]=null;
     // Der Marker gehoert in die JETZT gueltige Generation - nicht in die lokal bekannte.
     if(!schonMarkiert&&d.state==='playing'&&roomGame(d.config)===ROOM_GAME_FOOTBALL
-       &&d.seats===FB_ONLINE_SEATS)
+       &&d.seats>=2&&d.seats<=FB_ONLINE_SEATS)
       upd['g/'+g+'/e/'+ctx.seat]=true;
     if(!Object.keys(upd).length){ fbLeaveFinish(ctx); return; }
     window.FB.update(window.FB.ref(window.FB.db,'rooms/'+ctx.room),upd)
@@ -6687,6 +6724,7 @@ function leaveOnline(after){
   } }catch(e){}
   forgetRoom();
   fbLeaveRetired=false; fbLeaveBusy=false;   // C4B: der Auftrag ist abgeschlossen
+  fbElimStartN=0;                            // die Startbesetzung gehoert dem verlassenen Raum
   online=false; gameStarted=false; roomPublic=false; roomCode=''; lobbyP={}; seatLeft=[]; seatGone=[]; playersRoster={};
   mode=menuMode; ffaN=ffaNMenu;   // Online-FFA stellt mode/ffaN um — Menue-Auswahl wiederherstellen
   if(typeof after==='function')after();
