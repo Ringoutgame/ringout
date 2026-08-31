@@ -229,13 +229,15 @@ ok(/const rb=ballRad\(b\);/.test(footballBlock), 'Anti-Wedge-Kontakte nutzen bal
   const p = F.phys();
   ok(p.friction === 0.9958, 'Spieler-Daempfung 0.9958');
   ok(p.frictionBall === 0.9964, 'Ball-Daempfung 0.9964');
-  ok(p.fend === 0.9760 && p.fendBall === 0.9790, 'Auslaufdaempfung 0.9760 / 0.9790 (Spieler / Ball)');
+  ok(p.fend === 0.9620 && p.fendBall === 0.9790, 'Auslaufdaempfung 0.9620 / 0.9790 (Spieler / Ball)');
+  // Action-Feel 01: das mittlere Band gilt NUR fuer Spielerkugeln.
+  ok(p.frictionMid === 0.9840 && p.fastv === 4.00, 'mittleres Spielerband 0.9840 ab 4.00');
   ok(p.slowv === 0.70, 'Auslaufschwelle slowv 0.70');
   ok(p.stopv === 0.075, 'Settlement-Schwelle stopv 0.075');
   ok(p.restBall === 0.44 && p.restBand === 0.60 && p.restPost === 0.50, 'Restitution 0.44 / 0.60 / 0.50');
   ok(p.frictionBall !== p.friction, 'Spieler-/Ball-Daempfung sind getrennt');
   const e = F.eff();
-  ok(e.fr === 0.9958 && e.frB === 0.9964 && e.fe === 0.9760 && e.feB === 0.9790 && e.sv === 0.70 && e.st === 0.075,
+  ok(e.fr === 0.9958 && e.frB === 0.9964 && e.fe === 0.9620 && e.feB === 0.9790 && e.sv === 0.70 && e.st === 0.075,
      'Accessoren liefern im Football-Modus exakt die freigegebenen Daempfungswerte');
   ok(e.rb === 0.44 && e.rband === 0.60 && e.rpost === 0.50, 'Restitutions-Accessoren liefern M1');
   // Ausserhalb Football: exakt die globalen Konstanten (RingOut unveraendert).

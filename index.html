@@ -2239,6 +2239,74 @@ const SFX=(()=>{
       const o=c.createOscillator();o.type='sine';o.frequency.setValueAtTime(f0,t);o.frequency.exponentialRampToValueAtTime(115,t+.28);o.connect(g);o.start();o.stop(t+.38);
       const g2=c.createGain();g2.gain.setValueAtTime(.0001,t);g2.gain.linearRampToValueAtTime(.018,t+.028);g2.gain.exponentialRampToValueAtTime(.0005,t+.36);g2.connect(lp);
       const o2=c.createOscillator();o2.type='sine';o2.frequency.setValueAtTime(f0*0.5,t);o2.frequency.exponentialRampToValueAtTime(65,t+.28);o2.connect(g2);o2.start();o2.stop(t+.38);});},
+    // ── ARENA FOOTBALL: ABSCHUSS ──────────────────────────────────────────────────
+    // Kurz, koerperhaft, leicht futuristisch: ein Luftzug (gefiltertes Rauschen), ein
+    // fallender Koerper und ein harter Anschlag. Die Zugstaerke steuert Lautstaerke,
+    // Helligkeit und Tiefe des Falls - ein leichter Schuss zischt, ein voller setzt sich
+    // hin. Der Klang haengt am KANONISCHEN Abschussereignis (applyLaunch), nicht an der
+    // Eingabe: online hoert damit jeder Client genau einmal denselben Abschuss.
+    fbLaunch(pwr){go(c=>{
+      const t=c.currentTime,p=Math.max(0,Math.min(1,pwr));
+      const amp=.055+.075*Math.pow(p,1.3);
+      // Luftzug: schmalbandiges Rauschen, das mit der Staerke oeffnet.
+      const bp=c.createBiquadFilter();bp.type='bandpass';bp.Q.value=1.1;
+      bp.frequency.setValueAtTime(700+1500*p,t);bp.frequency.exponentialRampToValueAtTime(240,t+.16);
+      bp.connect(c.destination);
+      const ng=c.createGain();ng.gain.setValueAtTime(amp*.55,t);
+      ng.gain.exponentialRampToValueAtTime(.0008,t+.13+.05*p);ng.connect(bp);
+      const n=c.createBufferSource();n.buffer=noise(c);n.loop=true;n.connect(ng);n.start(t);n.stop(t+.2);
+      // Koerper: kurzer Abwaertsfall, je staerker desto tiefer.
+      const lp=c.createBiquadFilter();lp.type='lowpass';lp.frequency.setValueAtTime(1400,t);
+      lp.frequency.exponentialRampToValueAtTime(420,t+.18);lp.connect(c.destination);
+      const g=c.createGain();g.gain.setValueAtTime(.0001,t);g.gain.linearRampToValueAtTime(amp,t+.012);
+      g.gain.exponentialRampToValueAtTime(.0006,t+.19+.06*p);g.connect(lp);
+      const o=c.createOscillator();o.type='triangle';
+      o.frequency.setValueAtTime(300+140*p,t);o.frequency.exponentialRampToValueAtTime(96-26*p,t+.16);
+      o.connect(g);o.start(t);o.stop(t+.26);
+      // Anschlag: ein einzelner harter Transient, damit der Abschuss einen Punkt hat.
+      const cg=c.createGain();cg.gain.setValueAtTime(amp*.85,t);
+      cg.gain.exponentialRampToValueAtTime(.0006,t+.035);cg.connect(c.destination);
+      const co=c.createOscillator();co.type='square';co.frequency.setValueAtTime(180+90*p,t);
+      co.connect(cg);co.start(t);co.stop(t+.04);});},
+    // ── ARENA FOOTBALL: KONTAKTARTEN ─────────────────────────────────────────────
+    // EINE Modalsynthese, vier Charaktere - keine vier Klangmaschinen:
+    //   'player'  Marmor auf Marmor: hell, kurz, klickend (der Bestandsklang)
+    //   'ball'    Figur gegen Ball: tiefer, voller, laenger nachschwingend
+    //   'band'    Bande: kurzer, trockener Steinanschlag ohne langen Koerper
+    //   'post'    Torpfosten: derselbe Anschlag mit einem metallischen Oberton
+    // Lautstaerke und Helligkeit haengen an der Aufprallgeschwindigkeit; Sperrzeit,
+    // Stimmenzahl und Paarentprellung sind dieselben wie beim Bestandsklang - eine
+    // Kontaktserie knallt dadurch nicht als Salve.
+    fbImpact(power,pk,art){
+      if(power<.05)return;
+      const now=performance.now();
+      if(now-hitAny<30||hitVoices>=8)return;
+      if(pk!==undefined){if(now-(hitLast[pk]||0)<70)return;hitLast[pk]=now;}
+      hitAny=now;
+      go(c=>{
+        hitVoices++;setTimeout(()=>hitVoices--,260);
+        const t=c.currentTime,p=Math.min(1,power),det=.94+Math.random()*.12;
+        const K=art==='ball' ?{f:900+520*p, amp:.12+.46*Math.pow(p,1.3), body:250*det, bl:.16, bg:1.15, moden:[[1,1,.09],[1.71,.5+.5*p,.07],[2.44,.25+.7*p,.05]], metall:0}
+              :art==='band' ?{f:1250+700*p, amp:.09+.34*Math.pow(p,1.5), body:210*det, bl:.05, bg:.55, moden:[[1,1,.035],[1.94,.35+.5*p,.028]], metall:0}
+              :art==='post' ?{f:1650+900*p, amp:.10+.38*Math.pow(p,1.45), body:230*det, bl:.06, bg:.6, moden:[[1,1,.05],[2.19,.5+.5*p,.05]], metall:.35+.4*p}
+                            :{f:1500+900*p, amp:.10+.42*Math.pow(p,1.4), body:190*det, bl:.08, bg:.8, moden:[[1,1,.06],[1.83,.4+.6*p,.045],[2.71,.2+.8*p,.035],[4.16,p,.028]], metall:0};
+        const f0=K.f*det;
+        const hp=c.createBiquadFilter();hp.type='highpass';hp.frequency.value=2200;hp.connect(c.destination);
+        const ng=c.createGain();ng.gain.setValueAtTime(K.amp*.7,t);ng.gain.exponentialRampToValueAtTime(.001,t+.02);ng.connect(hp);
+        const n=c.createBufferSource();n.buffer=noise(c);n.loop=true;n.connect(ng);n.start(t);n.stop(t+.025);
+        for(const[r,w,dur]of K.moden){
+          if(w<.03)continue;
+          const g=c.createGain();g.gain.setValueAtTime(K.amp*w*.5,t);g.gain.exponentialRampToValueAtTime(.0008,t+dur+p*.05);g.connect(c.destination);
+          const o=c.createOscillator();o.type='sine';o.frequency.value=f0*r;o.connect(g);o.start(t);o.stop(t+dur+p*.06);}
+        if(K.metall>0){                       // Pfosten: ein langer, klarer Oberton
+          const g=c.createGain();g.gain.setValueAtTime(K.amp*K.metall*.42,t);
+          g.gain.exponentialRampToValueAtTime(.0006,t+.30);g.connect(c.destination);
+          const o=c.createOscillator();o.type='sine';o.frequency.value=f0*3.37;o.connect(g);o.start(t);o.stop(t+.32);}
+        const bg=c.createGain();bg.gain.setValueAtTime(K.amp*K.bg,t);
+        bg.gain.exponentialRampToValueAtTime(.001,t+K.bl+p*.04);bg.connect(c.destination);
+        const bo=c.createOscillator();bo.type='sine';bo.frequency.setValueAtTime(K.body,t);
+        bo.frequency.exponentialRampToValueAtTime(K.body*.5,t+K.bl);bo.connect(bg);bo.start(t);bo.stop(t+K.bl+p*.05);
+      });},
     // Murmel-Klick via Modal-Synthese: 20ms-Kontakt-Transient + inharmonische Teiltoene + tiefer Koerper.
     // Aufprallstaerke koppelt Lautstaerke (nichtlinear), Helligkeit (hohe Moden) und Tonhoehe;
     // leichte Zufalls-Verstimmung pro Hit, damit Serien nicht maschinell klingen.
@@ -3384,8 +3452,13 @@ function applyLaunch(){
     const mul=typeof fbLaunchMul==='function'?fbLaunchMul(Math.hypot(commitAim[p].dx,commitAim[p].dy)):LAUNCH;
     balls[idx].vx=commitAim[p].dx*mul;balls[idx].vy=commitAim[p].dy*mul;balls[idx].spin=commitSpin[p]||0;}
     maxp=Math.max(maxp,Math.hypot(commitAim[p].dx,commitAim[p].dy));}
-  SFX.launch(maxp/maxPull());
-  for(let p=0;p<commitIdx.length;p++){const idx=commitIdx[p];if(idx<0||!balls[idx])continue;const sp=Math.hypot(commitAim[p].dx,commitAim[p].dy);if(sp>BR&&!r3dActive)spawn(balls[idx].x,balls[idx].y,5,[PCOLS[colorSlot(balls[idx].owner)].ui],sp*0.02,0.6);}
+  // Der Abschuss ist EIN Ereignis - hier, an der kanonischen Stelle. Online loest ihn
+  // jeder Client aus derselben Zughistorie aus und hoert ihn damit genau einmal.
+  if(typeof fbSfxLaunch==='function')fbSfxLaunch(maxp/maxPull()); else SFX.launch(maxp/maxPull());
+  for(let p=0;p<commitIdx.length;p++){const idx=commitIdx[p];if(idx<0||!balls[idx])continue;
+    const sp=Math.hypot(commitAim[p].dx,commitAim[p].dy);
+    if(mode==='football'){ if(sp>BR*0.25&&typeof fbFeelLaunch==='function')fbFeelLaunch(balls[idx],Math.min(1,sp/maxPull())); }
+    else if(sp>BR&&!r3dActive)spawn(balls[idx].x,balls[idx].y,5,[PCOLS[colorSlot(balls[idx].owner)].ui],sp*0.02,0.6);}
   setPhase('sim');setPhaseText();
 }
 // TEAM DUEL: roundWinner traegt den TEAM-Index (0/1 = PCOLS Blau/Rot); -2 ist der
@@ -3393,6 +3466,129 @@ function applyLaunch(){
 function winnerRGB(loserOwner){
   if(fmt==='team_duel')return roundWinner>=0?PCOLS[roundWinner].rgb:'255,201,64';
   const w=roundWinner>=0?roundWinner:1-loserOwner;return PCOLS[w].rgb;}
+// ── ARENA FOOTBALL: RUECKMELDUNG (rein praesentativ) ─────────────────────────────
+// Zwischen Spiel und Ausgabe steht bewusst eine duenne Schicht. Sie hat zwei Aufgaben:
+// die Football-Klaenge dort zu benutzen, wo es sie gibt, und ueberall sonst - in den
+// Offline-Harnessen, die nur den Bestandsklang stellen - lautlos auf ihn zurueckzufallen.
+// KEINE dieser Funktionen liest oder schreibt Spielzustand; sie koennen ersatzlos
+// ausfallen, ohne dass sich eine einzige Zahl der Simulation aendert.
+function fbSfxLaunch(pwr){
+  if(mode==='football'&&SFX&&typeof SFX.fbLaunch==='function')SFX.fbLaunch(pwr);
+  else SFX.launch(pwr);
+}
+// art: 'player' | 'ball' | 'band' | 'post' - die Eskalation der Rueckmeldung.
+function fbSfxImpact(power,key,art){
+  if(mode==='football'&&SFX&&typeof SFX.fbImpact==='function')SFX.fbImpact(power,key,art);
+  else SFX.hit(power,key);
+}
+// Der winzige Bildimpuls bei einem WUCHTIGEN Kontakt Figur/Ball. Er lebt vollstaendig im
+// Renderer (fbCamKick); fehlt der 3D-Block, geschieht nichts.
+function fbFeelKick(mag){ if(typeof fbCamKick==='function')fbCamKick(mag); }
+// ── STUFEN (Action-Feel 02) ──────────────────────────────────────────────────────
+// Nicht jeder Kontakt verdient ein Bild. Die Staerke kommt ausschliesslich aus der
+// KANONISCHEN Stossgeschwindigkeit; es entsteht kein neuer Spielzustand.
+//   0 Mikrokontakt  -> gar nichts
+//   1 normal        -> ein Funke, ein kleiner Kern
+//   2 kraeftig      -> Funken, Ring, Kern
+//   3 Heldentreffer -> volles kurzes Ereignis (nur Ball und harte Bandentreffer)
+const FB_FX_T1=0.16, FB_FX_T2=0.40, FB_FX_T3=0.62;
+function fbFxTier(mag){ return mag<FB_FX_T1?0:(mag<FB_FX_T2?1:(mag<FB_FX_T3?2:3)); }
+// Waehrend einer Rehydrierung wird die Historie durch dieselbe Pipeline gespielt. Der
+// Klang ist dort schon stumm (soundOn), das Bild muss es genauso sein: ein Rueckkehrer
+// soll den Zustand bekommen, nicht die Funken von vor zwei Minuten.
+let fbFxMute=false;
+// Ein-/Ausschalter fuer die Bildstummschaltung. Bewusst eine FUNKTION: die Offline-
+// Harnesse uebernehmen fastForwardMatch woertlich, kennen diese Schicht aber nicht -
+// mit derselben typeof-Weiche wie ueberall faellt sie dort ersatzlos weg.
+function fbFxSilence(v){ const alt=fbFxMute; fbFxMute=!!v; return alt; }
+function fbFxOn(){ return mode==='football'&&r3dActive&&!fbFxMute&&!replaying; }
+const fbRgb=(o)=>pcol(colorSlot(o)).rgb;
+// Der wichtigste Kontakt des Spiels: Figur trifft den neutralen Ball.
+function fbFeelBallHit(x,y,dx,dy,mag,owner){
+  if(!fbFxOn())return;
+  const st=fbFxTier(mag); if(!st)return;
+  // EIN lesbares Ereignis: ein scharfer Kern, ein Ring, der Angreifer laedt sich auf,
+  // der Ball bekommt seinen Saum. Funken sind hier Beiwerk, kein Schauer.
+  const col=fbRgb(owner);
+  fx3Flash(x,y,mag,st>=3?'255,248,224':col);
+  if(st>=2)fx3Shock(x,y,mag,col);
+  if(st>=3){
+    fx3Glint(x,y,mag,'255,250,232',.30);            // genau EIN heller Glanz
+    fx3Sparks(x,y,dx,dy,mag,col,2,0.9);             // zwei gerichtete Splitter, mehr nicht
+    fbGlowOwner(owner,1); fbBallAccent(mag);
+  }else if(st>=2){ fx3Sparks(x,y,dx,dy,mag*.8,col,1,0.7); fbGlowOwner(owner,mag*.75); }
+}
+// Die Arena antwortet: der neutrale Ball an der Bande ist das Signaturbild dieses Passes.
+function fbFeelWall(x,y,nx,ny,mag,neutral,owner){
+  if(!fbFxOn())return;
+  const st=fbFxTier(mag); if(!st)return;
+  const col=neutral?'255,238,198':fbRgb(owner);
+  if(neutral){
+    // Der schwarze Ball an der Bande: die WAND antwortet - mit Licht, nicht mit
+    // Partikeln. Ein konzentrierter Kern, die Bande leuchtet lokal auf, der Puls laeuft
+    // nach beiden Seiten aus. Hoechstens EIN heller Glanz in der Mitte, ein bis zwei
+    // Splitter. Danach verlischt alles zuegig.
+    fx3Wall(x,y,nx,ny,mag,col,owner,st>=2);
+    fx3Flash(x,y,mag,'255,248,224');
+    if(st>=2)fx3Shock(x,y,mag*.85,col);
+    if(st>=3){
+      fx3Glint(x,y,mag,'255,252,238',.28);          // der eine Glanz, nur beim harten Schlag
+      fx3Sparks(x,y,nx,ny,mag,'255,240,205',2,1.1);
+    }else if(st>=2)fx3Sparks(x,y,nx,ny,mag*.8,col,1,0.9);
+  }else{
+    // Dieselbe Sprache in der SPIELERFARBE - Licht auf der Wand, ein bis zwei farbige
+    // Splitter, kein weisser Funkenschauer.
+    fx3Wall(x,y,nx,ny,mag*.7,col,owner,false);
+    fx3Flash(x,y,mag*.55,col);
+    if(st>=2)fx3Sparks(x,y,nx,ny,mag*.7,col,2,1.0);
+  }
+}
+// Torpfosten: hart, hell, metallisch - beim Ball noch eine Spur mehr.
+function fbFeelPost(x,y,mag,neutral,owner){
+  if(!fbFxOn())return;
+  const st=fbFxTier(mag); if(!st)return;
+  // Metallisch und kurz: ein scharfer Glanz, ein bis drei Striche - kein Schauer.
+  const m=neutral?mag:mag*.7;
+  const col=neutral?'255,240,205':fbRgb(owner);
+  fx3Flash(x,y,m,'255,250,232');
+  if(neutral)fx3Glint(x,y,m,'255,255,255',.26);     // der Glanz gehoert dem Ball
+  fx3Sparks(x,y,0,0,m,col,neutral?(st>=2?3:2):(st>=2?2:1),6.283);
+  if(st>=2&&neutral)fx3Shock(x,y,m*.7,'255,232,180');
+}
+// Figur gegen Figur: ein kurzer Kontaktfunke in BEIDEN Farben, mehr nicht.
+function fbFeelPlayers(x,y,dx,dy,mag,o1,o2){
+  if(!fbFxOn())return;
+  const st=fbFxTier(mag); if(!st)return;
+  // Ein kurzer Kontaktblitz in der Mischung beider Farben, beide Kugeln hellen kurz auf.
+  // Kein weisser Funkenschauer - Figur gegen Figur ist Kontakt, nicht Schauspiel.
+  if(st>=2){
+    fx3Flash(x,y,mag*.6,fbRgb(o1));
+    fx3Flash(x,y,mag*.45,fbRgb(o2));
+    fx3Sparks(x,y,dx,dy,mag*.7,fbRgb(o1),1,0.7);
+    fx3Sparks(x,y,-dx,-dy,mag*.7,fbRgb(o2),1,0.7);
+    fbGlowOwner(o1,mag*.6); fbGlowOwner(o2,mag*.6);
+  }else fx3Flash(x,y,mag*.4,fbRgb(o1));
+}
+// Die beiden Materialakzente leben im Renderer (Emissivwert der Kugel bzw. kurzer Saum
+// am schwarzen Ball). Ohne 3D-Block gibt es sie nicht.
+function fbGlowOwner(o,mag){ if(r3d&&typeof r3d.setGlow==='function')r3d.setGlow(o,mag); }
+function fbBallAccent(mag){ if(r3d&&typeof r3d.setBallAccent==='function')r3d.setBallAccent(mag); }
+// Der Abschusseffekt am Koerper. Ebenfalls reine Ausgabe.
+function fbFeelLaunch(b,mag){
+  // Auch der Abschuss schweigt, waehrend die Historie durchlaeuft: ein Rueckkehrer soll
+  // den Zustand bekommen, nicht die Abschuesse der letzten zwei Minuten - und im
+  // 2D-Zweig wuerden dabei Partikel entstehen, die waehrend des Nachspielens niemand
+  // abbaut.
+  if(fbFxMute||replaying)return;
+  if(r3dActive){ if(typeof fx3Launch==='function')fx3Launch(b.x,b.y,b.vx,b.vy,mag,b.owner); }
+  else spawn(b.x,b.y,6+Math.floor(mag*10),[pcol(colorSlot(b.owner)).ui,'#ffffff'],3+mag*7,0.7);
+}
+// MUSIK (bewusst noch nicht umgesetzt): Ein spaeterer reaktiver Musiklayer haengt sich an
+// GENAU diese Schicht - Abschuss, Kontaktart, Torereignis. Er braucht dafuer keinen neuen
+// Spielzustand und keinen Timer: die drei Ereignisse oben plus fbGoalState und
+// fbElimActiveOwners().length (wie viele noch im Match sind) reichen als Eingang fuer
+// Intensitaet und Schichtwahl. Die Entscheidung ueber die Richtung faellt nach dem
+// Playtest dieses Passes.
 function popBall(b){if(r3dActive)fx3Dust(b.x,b.y,b.vx,b.vy);else spawn(b.x,b.y,26,[pcol(colorSlot(b.owner)).ui,'#ffffff'],Math.max(5,Math.hypot(b.vx,b.vy))*0.9,1.1);}
 
 // ── RING-OUT: positionsreine Ermittlung + gemeinsame Verarbeitung ──
@@ -3828,18 +4024,29 @@ const FOOTBALL_CONTACT_ITERATIONS=3;
 //   slowv/fend     Auslauf: unterhalb slowv greift das haertere fend fuer BEIDE Kugelarten.
 //                  Gegenlaeufig zur Daempfung ausgelegt: die schnelle Phase bleibt
 //                  lebendig, der langweilige Kriechauslauf endet FRUEHER.
+//   fastv/frictionMid   NUR Spielerkugeln (Action-Feel 01). Der Zug soll sich anfuehlen wie
+//                  ABSCHUSS -> TREFFER -> SCHNELLE RUHE -> NAECHSTER ZUG. Der Abschuss
+//                  selbst bleibt deshalb unangetastet: oberhalb fastv daempft weiterhin
+//                  friction, die ersten rund 0.8 s eines Maximalschusses sind bitgleich
+//                  wie zuvor. Erst DANACH, im mittleren Tempo, greift das haertere
+//                  frictionMid - genau in der Phase, in der vorher nur noch Wartezeit war.
+//                  Der neutrale Ball kennt dieses Band NICHT: er bleibt der lebendigere
+//                  Koerper und darf laenger laufen.
 //   stopv          Settlement-Schwelle: darunter endet der Zug.
 //
-// GEMESSEN (freies Ausrollen, Maximalschuss): Spielerfigur 5.7 s, neutraler Ball 4.9 s bis
-// zum Stillstand — davon nur rund 0.8 s Kriechauslauf unterhalb slowv. Der Vorgaengersatz
-// (0.9976/0.9982, slowv 0.50, fend 0.9905, stopv 0.050) brauchte 11.0 bzw. 14.0 s und legte
-// dabei 2.6 bis 3.4 Arenalaengen zurueck; der Zug war spielerisch laengst vorbei, waehrend
-// der Ball noch minutenlang wirkende Sekunden weiterkroch.
+// GEMESSEN (freies Ausrollen, Maximalschuss, Frames/60): Der Vorgaengersatz (0.9976/0.9982,
+// slowv 0.50, fend 0.9905, stopv 0.050) brauchte 11.0 bzw. 14.0 s und legte dabei 2.6 bis
+// 3.4 Arenalaengen zurueck; der Zug war spielerisch laengst vorbei, waehrend der Ball noch
+// minutenlang wirkende Sekunden weiterkroch. Der Satz davor kam auf 4.18 s (Spieler) und
+// 3.73 s (Ball). MIT dem mittleren Band und dem haerteren Spieler-fend laeuft eine
+// Spielerfigur nach dem Maximalschuss in rund 2.4 s aus, der neutrale Ball unveraendert
+// in rund 3.7 s — die Reihenfolge (Ball lebendiger als Spieler) bleibt damit erhalten.
 //   restBall       Kontaktimpuls Kugel/Kugel (Spieler -> Ball) 0.44
 //   restBand > restPost: die Bande wirft am lebendigsten zurueck (0.60), der Pfosten ist
 //                  hart aber nicht federnd (0.50). Alle Restitutionen < 1, Daempfung < 1 —
 //                  nirgends wird Energie erzeugt.
-const FOOTBALL_PHYS={friction:0.9958,frictionBall:0.9964,fend:0.9760,fendBall:0.9790,
+const FOOTBALL_PHYS={friction:0.9958,frictionBall:0.9964,fend:0.9620,fendBall:0.9790,
+  fastv:4.00,frictionMid:0.9840,
   slowv:0.70,stopv:0.075,restBall:0.44,restBand:0.60,restPost:0.50};
 // ── ARENA FOOTBALL: BALLGROESSE (final, Ballgroessen-Phase B3) ────────────────────
 // ZENTRALE Radiusarchitektur: BR bleibt die Laengeneinheit der Torgeometrie (3.560*BR usw.)
@@ -3879,6 +4086,12 @@ function curFEBall(){const c=footballPhys();return c?c.fendBall:FEND;}
 // Umschaltschwelle zwischen Gleit- und Auslaufdaempfung. Ausserhalb Football exakt die
 // globale Konstante — die Bestandsmodi rechnen damit unveraendert.
 function curSLOWV(){const c=footballPhys();return c?c.slowv:SLOWV;}
+// Mittleres Band der SPIELERKUGELN (Action-Feel 01). Ausserhalb Football gibt es kein
+// zweites Band: curFMID liefert dort denselben Wert wie curFR und curFASTV unendlich, der
+// Vergleich faellt also immer auf den Bestandswert zurueck und jede Nicht-Football-Runde
+// rechnet bitgenau wie zuvor.
+function curFMID(){const c=footballPhys();return c?c.frictionMid:FRICTION;}
+function curFASTV(){const c=footballPhys();return c?c.fastv:Infinity;}
 function curRestPost(){const c=footballPhys();return c?c.restPost:REST;}
 function footballGoalClearHalf(){return fbArena().postInner*BR;}         // lichte Halbbreite auf Ballhoehe
 function footballGoalCenterHalf(){return footballGoalClearHalf()-fbBallR();}    // nutzbare Zentrums-Halbbreite fuer den NEUTRALEN Ball (Bestand: clearHalf-BR)
@@ -4040,7 +4253,11 @@ function footballPostProbe(b){
 // dadurch bitgenau, weil X*1-Y*0 in Gleitkomma genau X ist.
 function fbUnfoldX(X,Y,cs,sn){return X*cs-Y*sn;}
 function fbUnfoldY(X,Y,cs,sn){return X*sn+Y*cs;}
-function footballResolvePost(b){
+// emit: darf dieser Durchgang Klang und Bild ausloesen? Die Kontaktaufloesung laeuft
+// mehrfach je Micro-Step (FOOTBALL_CONTACT_ITERATIONS) - ohne diese Weiche haette ein
+// anhaltender Pfostenkontakt bis zu sechs Rueckmeldungen pro Frame gegeben. Die Physik
+// ist davon unberuehrt: der Parameter steuert ausschliesslich die Ausgabe.
+function footballResolvePost(b,emit){
   const p=footballPostProbe(b),r=ballRad(b);
   if(!p||p.d>=r)return false;                          // kein Kontakt / nur Beruehrabstand
   const sx=p.sx,sy=p.sy,nx=p.nx,ny=p.ny,d=p.d,cs=p.cs,sn=p.sn;
@@ -4056,6 +4273,14 @@ function footballResolvePost(b){
   if(vn<0){                                             // nur Normalanteil reflektiert, Tangentialanteil bleibt
     const RX=sx*(vX-(1+e)*vn*nx),RY=sy*(vY-(1+e)*vn*ny);
     b.vx=fbUnfoldX(RX,RY,cs,sn);b.vy=fbUnfoldY(RX,RY,cs,sn);
+    // Torpfosten: derselbe Steinanschlag wie die Bande, aber mit einem metallischen
+    // Oberton - der Pfosten ist das haerteste Hindernis der Arena und soll sich auch so
+    // anhoeren. Reine Ausgabe, wie ueberall in dieser Schicht.
+    if(emit){
+      if(typeof fbSfxImpact==='function')fbSfxImpact(Math.min(1,-vn/5),700+balls.indexOf(b),'post');
+      if(typeof fbFeelPost==='function')
+        fbFeelPost(b.x,b.y,Math.min(1,-vn/5),b.owner===FOOTBALL_NEUTRAL_OWNER,b.owner);
+    }
   }
   return true;
 }
@@ -4930,12 +5155,15 @@ function stepSim(){
   // und die Daempfungszeile bleibt bitgenau der Bestandspfad (wichtig fuer Golden-Physik,
   // Ring-Collapse, FFA mit 5 Spielern und Online-Lockstep).
   const NFR=curFRBall(),NFE=curFEBall(),SV=curSLOWV(),NEU=mode==='football'?FOOTBALL_NEUTRAL_OWNER:-1;
+  // Mittleres Band der Spielerkugeln (Action-Feel 01). Ausserhalb Football ist FASTV
+  // unendlich: der Vergleich faellt immer auf FR zurueck, die Zeile bleibt bitgenau.
+  const FMID=curFMID(),FASTV=curFASTV();
   // Torablauf: Spieler stehen still, bevor ueberhaupt integriert wird. Der neutrale Ball
   // laeuft planar weiter (der Renderer legt den Fall als reine Hoehe darueber).
   const fbSeq=mode==='football'&&fbGoalState!=='play';
   if(fbSeq)footballFreezePlayers();
   for(let s=0;s<2;s++){
-    for(const b of balls){if(!b.alive)continue;b.x+=b.vx;b.y+=b.vy;const nb=b.owner===NEU;const f=Math.sqrt(b.vx*b.vx+b.vy*b.vy)<SV?(nb?NFE:FE):(nb?NFR:FR);b.vx*=f;b.vy*=f;if(b.spin){const v=Math.sqrt(b.vx*b.vx+b.vy*b.vy);if(v>0.01){const sx=-b.vy/v,sy=b.vx/v,sa=SPIN_K*b.spin*v;b.vx+=sx*sa;b.vy+=sy*sa;}b.spin*=SPIN_DECAY;}}
+    for(const b of balls){if(!b.alive)continue;b.x+=b.vx;b.y+=b.vy;const nb=b.owner===NEU;const sp=Math.sqrt(b.vx*b.vx+b.vy*b.vy);const f=sp<SV?(nb?NFE:FE):(nb?NFR:(sp<FASTV?FMID:FR));b.vx*=f;b.vy*=f;if(b.spin){const v=Math.sqrt(b.vx*b.vx+b.vy*b.vy);if(v>0.01){const sx=-b.vy/v,sy=b.vx/v,sa=SPIN_K*b.spin*v;b.vx+=sx*sa;b.vy+=sy*sa;}b.spin*=SPIN_DECAY;}}
     // KONTAKTAUFLOESUNG — im Football-Modus FOOTBALL_CONTACT_ITERATIONS mal, sonst
     // GENAU EINMAL (ci=1 -> bit-identisch zum bisherigen Pfad, kein Risiko fuer
     // Golden-Physik, Ring-Collapse, FFA, Team-Duel und Online-Lockstep).
@@ -4958,7 +5186,22 @@ function stepSim(){
             // duerfen dafuer weder ein zweites Mal knallen noch ein zweites Mal funken —
             // ausserhalb 'football' ist it immer 0, dort aendert sich damit gar nichts.
             if(it===0){
-            const mag=Math.min(1,Math.abs(vn)/5);SFX.hit(mag,i*8+j);
+            const mag=Math.min(1,Math.abs(vn)/5);
+            // Zwei Kontaktarten: Marmor auf Marmor - oder eine Figur am Ball, die
+            // tiefer und voller klingt. Ein wirklich wuchtiger Ballkontakt bekommt
+            // zusaetzlich den winzigen Bildimpuls.
+            const amBall=mode==='football'&&(a.owner===NEU||b.owner===NEU);
+            if(typeof fbSfxImpact==='function')fbSfxImpact(mag,i*8+j,amBall?'ball':'player');
+            else SFX.hit(mag,i*8+j);
+            if(amBall&&mag>0.55&&typeof fbFeelKick==='function')fbFeelKick(mag);
+            // Bild: der Held ist der Ballkontakt, Figur gegen Figur bleibt ein Funke.
+            // Der Stosspunkt liegt auf der Verbindungslinie, die Richtung ist die Normale.
+            if(mode==='football'){
+              const kx=a.x+nx*ballRad(a),ky=a.y+ny*ballRad(a);
+              if(amBall){ if(typeof fbFeelBallHit==='function')
+                  fbFeelBallHit(kx,ky,nx,ny,mag,a.owner===NEU?b.owner:a.owner); }
+              else if(typeof fbFeelPlayers==='function')fbFeelPlayers(kx,ky,nx,ny,mag,a.owner,b.owner);
+            }
             const mx=(a.x+b.x)/2,my=(a.y+b.y)/2;
             if(r3dActive)fx3Hit(mx,my,mag);
             else spawn(mx,my,14+Math.floor(mag*16),['#00d4ff','#ff4d4d','#ffffff','#ffc940'],Math.abs(vn)*0.7+2,1);
@@ -4983,7 +5226,7 @@ function stepSim(){
       // wer die freie Oeffnung ohne Pfostenkontakt erreicht. footballResolvePost meldet
       // nur ECHTE Penetration (d<BR) — eine bereits auf Beruehrabstand korrigierte Kugel
       // liefert false und erhaelt in den Folgeiterationen keinen zweiten Bounce.
-      if(footballResolvePost(fb)){footballHoldRescue(fb);continue;}
+      if(footballResolvePost(fb,ci===1||it===0)){footballHoldRescue(fb);continue;}
       // Bereits durch ein Tor ausgetretener neutraler Ball: die Bande gilt fuer ihn nicht mehr.
       // Ohne dieses Latch wuerde ihn die runde Grenze, sobald er draussen tangential aus dem
       // Torfenster driftet, kuenstlich wieder nach innen reflektieren. Stattdessen ist hier
@@ -4999,10 +5242,19 @@ function stepSim(){
       if(fbd>fbLim){
         if(footballCanPassGoal(fb)){fb.fbPassed=true;continue;}   // Toroeffnung: keine Bandenkollision
         const fnx=fbs.nx,fny=fbs.nz,fbo=fbd-fbLim;fb.x-=fnx*fbo;fb.y-=fny*fbo;  // exakt auf die Grenze zurueckgesetzt
-        const fvn=fb.vx*fnx+fb.vy*fny;if(fvn>0){fb.vx-=(1+RBAND)*fvn*fnx;fb.vy-=(1+RBAND)*fvn*fny;}
+        const fvn=fb.vx*fnx+fb.vy*fny;if(fvn>0){fb.vx-=(1+RBAND)*fvn*fnx;fb.vy-=(1+RBAND)*fvn*fny;
+          // Bande: kurzer, trockener Steinanschlag. Nur beim ECHTEN Rueckprall (fvn>0),
+          // nicht bei der reinen Lagekorrektur - sonst raschelte jede anliegende Kugel.
+          if((ci===1||it===0)&&typeof fbSfxImpact==='function')
+            fbSfxImpact(Math.min(1,fvn/5),900+balls.indexOf(fb),'band');
+          if((ci===1||it===0)&&typeof fbFeelWall==='function')
+            fbFeelWall(fb.x+fnx*ballRad(fb),fb.y+fny*ballRad(fb),fnx,fny,Math.min(1,fvn/5),
+                       fb.owner===NEU,fb.owner);}
         // Die Bandenkorrektur setzt die Kugel auf die Grenzlinie — die durch den Sockel
         // laeuft. Sie darf sie dabei nicht in den Marmor schieben: einmal nachkorrigieren.
-        footballResolvePost(fb);
+        // Rein geometrische Nachkorrektur: sie meldet nichts (der Bandentreffer hat eben
+        // schon geklungen), sonst laege auf einem Kontakt zweierlei Rueckmeldung.
+        footballResolvePost(fb,false);
       }
     }}
     else{const crossed=ballsOutside();
@@ -6208,7 +6460,11 @@ function startOnlineGame(){ replaying=false;repPlaying=false;$('replay').classLi
 // nicht settelnde Simulation und bleibt auch fuer Football weit ausreichend.
 const FF_MAX_STEPS_PER_TURN=20000;
 function fastForwardMatch(turns){
+  // Die Historie laeuft durch dieselbe Pipeline wie das echte Spiel. Klang UND Bild sind
+  // dabei stumm: ein Rueckkehrer bekommt den Zustand, nicht die Funken von vor zwei
+  // Minuten. Beides wird im finally wieder freigegeben, auch bei einem Abbruch.
   const snd=soundOn; soundOn=false;
+  const fx=(typeof fbFxSilence==='function')&&fbFxSilence(true);
   try{
     startOnlineGame();
     let iter=0;
@@ -6225,7 +6481,7 @@ function fastForwardMatch(turns){
       else if(phase!=='aim')break;         // safety net: unexpected phase -> stop the replay
     }
   } finally {
-    soundOn=snd; particles=[]; fx3=[];
+    soundOn=snd; if(typeof fbFxSilence==='function')fbFxSilence(fx); particles=[]; fx3=[];
     // Der Torimpuls ist rein visuell und zeitgesteuert - nach einem Replay waere er ein
     // Nachleuchten aus der Vergangenheit. Der Spielzustand bleibt davon unberuehrt.
     if(typeof footballClearGoalFx==='function')footballClearGoalFx();
@@ -6813,13 +7069,120 @@ whenFB(()=>{ offerRejoinOnBoot(); });
 function spawn(x,y,n,cols,speed,sizeMul){for(let i=0;i<n;i++){const a=Math.random()*Math.PI*2,sp=speed*(0.25+Math.random()*0.85);
   particles.push({x,y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,life:1,dec:0.02+Math.random()*0.03,size:BR*0.22*sizeMul*(0.5+Math.random()*0.9),col:cols[Math.floor(Math.random()*cols.length)]});}}
 function updParticles(){for(const p of particles){p.x+=p.vx;p.y+=p.vy;p.vx*=0.9;p.vy*=0.9;p.life-=p.dec;}if(particles.length)particles=particles.filter(p=>p.life>0);
-  if(fx3.length){for(const f of fx3){if(f.t===2){f.x+=f.vx;f.y+=f.vy;f.vx*=0.92;f.vy*=0.92;}f.life-=f.dec;}fx3=fx3.filter(f=>f.life>0);}
+  if(fx3.length){for(const f of fx3){if(f.vx!==undefined){f.x+=f.vx;f.y+=f.vy;f.vx*=0.90;f.vy*=0.90;}f.life-=f.dec;}fx3=fx3.filter(f=>f.life>0);}
   if(bgPulse>0.001)bgPulse*=0.90;else bgPulse=0;}
 
 // ── 3D-Kontakt-FX (nur r3dActive): dezente Licht-Glints, feine Impuls-Ringe und Staub
 //    statt der 2D-Konfetti-Partikel — lieber fast unsichtbar als aufgemalt. ──
 let fx3=[];
-function fx3Hit(x,y,mag){fx3.push({t:0,x,y,life:1,dec:.10,mag});fx3.push({t:1,x,y,life:1,dec:.065,mag});}
+// ── ARENA FOOTBALL: EFFEKTSPRACHE (Action-Feel 02) ───────────────────────────────
+// Sieben kurzlebige Formen, alle prozedural auf dem Overlay gezeichnet:
+//   t0 Glint     kleiner Lichtpunkt (Bestand)
+//   t1 Ring      duenner Kontaktring (Bestand)
+//   t2 Staub     driftende Flocke (Bestand)
+//   t3 Schock    farbiger, schnell aufgehender Ring - der Stoss selbst
+//   t4 Funke     kurzer gerichteter Strich, driftet und verglueht
+//   t5 Blitz     konzentrierter heller Kern - der Moment des Treffers
+//   t6 Bande     lokale Antwort der Arena: ein kurzer Bogen AUF der Bande
+// Es gibt bewusst keinen Dauerschweif: jede Form ist nach hoechstens einer knappen
+// halben Sekunde verschwunden.
+// HARTE OBERGRENZE. Bei Andrang faellt der AELTESTE Eintrag heraus - die Liste kann
+// dadurch weder wachsen noch Speicher halten, und es gibt keine Allokationsspitze bei
+// einer Kontaktserie (wichtig auf dem Telefon).
+const FX3_MAX=140;
+// Ab welchem Tempo zieht ein Koerper einen Strich, und ab wann traegt er voll? Beide
+// Werte sind reine Darstellung - die Physik kennt sie nicht. FB_TRAIL_V liegt deutlich
+// ueber dem Auslaufbereich, damit ein ausrollender Koerper nichts mehr zieht.
+const FB_TRAIL_V=2.2, FB_TRAIL_FULL=6.0;
+function fx3Push(o){ if(fx3.length>=FX3_MAX)fx3.shift(); fx3.push(o); }
+function fx3Hit(x,y,mag){fx3Push({t:0,x,y,life:1,dec:.10,mag});fx3Push({t:1,x,y,life:1,dec:.065,mag});}
+// Ein Stossring in der Farbe des Verursachers.
+function fx3Shock(x,y,mag,rgb){fx3Push({t:3,x,y,life:1,dec:.085+.02*(1-mag),mag,rgb});}
+// Ein heller Kern. Kurz, konzentriert, nie flaechig.
+function fx3Flash(x,y,mag,rgb){fx3Push({t:5,x,y,life:1,dec:.16,mag,rgb});}
+// Funken: n Striche in einen Kegel um die Richtung (dx,dy). Ohne Richtung ringsum.
+function fx3Sparks(x,y,dx,dy,mag,rgb,n,spread){
+  const v=Math.hypot(dx,dy),ux=v>1e-6?dx/v:1,uy=v>1e-6?dy/v:0,sp=spread===undefined?1.1:spread;
+  for(let i=0;i<n;i++){
+    const a=(i/Math.max(1,n-1)-0.5)*sp+(Math.random()-0.5)*0.22;
+    const c=Math.cos(a),s2=Math.sin(a),sp2=(1.6+3.4*mag)*(0.6+Math.random()*0.7);
+    fx3Push({t:4,x,y,vx:(ux*c-uy*s2)*sp2,vy:(ux*s2+uy*c)*sp2,
+             life:1,dec:.075+.05*Math.random(),mag,rgb});}
+}
+// Sternfunkeln: ein vierstrahliger Glanz, extrem kurz. Das ist die Premiumsprache
+// dieses Spiels - wenige, klare Lichtpunkte statt vieler Kruemel.
+function fx3Glint(x,y,mag,rgb,dec){fx3Push({t:7,x,y,life:1,dec:dec||.24,mag,rgb,
+  rot:Math.random()*1.57});}
+// ── DIE ARENA ANTWORTET (Action-Feel 02B) ────────────────────────────────────────
+// Der Ball trifft die Bande - und die Bande leuchtet GENAU DORT auf, wo er sie getroffen
+// hat. Damit das Licht wirklich auf der Wand liegt und nicht davor schwebt, wird der
+// Verlauf der Bande beim Treffer EINMAL abgetastet: von der Trefferstelle aus in beide
+// Tangentenrichtungen, jeder Schritt zurueck auf die Bandenlinie gezogen. Das Ergebnis
+// ist eine kurze Polylinie, die exakt der Krummung folgt - in jeder Arenaform, ohne eine
+// zweite Geometrie im Code. Gezeichnet wird darauf ein heller Knoten und zwei Auslaeufer,
+// die nach aussen wandern und verloeschen.
+// Die Abtastung liest die bestehende Signed-Distance NUR - sie schreibt nichts und wird
+// ausschliesslich aus der Ausgabeschicht gerufen, nachdem die Physik ihre Werte
+// uebernommen hat.
+const FB_WALL_SEG=6;                      // Stuetzpunkte je Seite
+// Die SICHTBARE Bandenlinie. footballBoundSD taugt dafuer NICHT: sie ist um den Radius
+// der jeweiligen Kugel nach innen versetzt (das ist ihre Aufgabe - sie beschreibt, wo ein
+// Mittelpunkt anstossen darf). Das Licht soll aber dort liegen, wo die Wand zu sehen ist.
+// Deshalb dieselben Formfunktionen mit Radius NULL - kein zweites Geometriemodell, und
+// footballBoundSD selbst bleibt unangetastet.
+function fbWallSD(x,y){
+  const av=fbArena();
+  if(av.poly)return footballPolySD(x-cx,y-cy,av.poly,fbCorner());
+  if(av.tri)return footballTriSD(x-cx,y-cy,av.apothem*BR,fbCorner());
+  return footballShapeSD(x-cx,y-cy,fbHalfLen(),fbHalfWid(),fbCorner());
+}
+function fbWallPath(x,y,nx,ny,owner,spanne){
+  const tx=-ny,ty=nx,pts=[];
+  for(let s=-FB_WALL_SEG;s<=FB_WALL_SEG;s++){
+    const u=s/FB_WALL_SEG;
+    let px=x+tx*spanne*u, py=y+ty*spanne*u;
+    // Zwei Newton-Schritte auf der Signed-Distance genuegen: der Punkt rutscht auf die
+    // Bandenlinie, die Krummung wird dabei mitgenommen.
+    for(let k=0;k<2;k++){
+      const sd=fbWallSD(px,py),d=sd.sd,gx=sd.nx,gy=sd.nz;
+      px-=gx*d;py-=gy*d;
+    }
+    pts.push(px,py);
+  }
+  return pts;
+}
+function fx3Wall(x,y,nx,ny,mag,rgb,owner,stark){
+  const spanne=BR*(stark?5.0:2.6)*(0.55+0.75*mag);
+  let pts=null;
+  try{ pts=fbWallPath(x,y,nx,ny,owner,spanne); }catch(e){ pts=null; }
+  fx3Push({t:6,x,y,nx,ny,life:1,dec:stark?.055:.085,mag,rgb,pts,stark:!!stark});
+}
+// Abschuss (Action-Feel 01): ein kurzer Ring am Koerper plus wenige Staubfaeden ENTGEGEN
+// der Schussrichtung - der Eindruck eines Abstosses, kein Dauerschweif. Intensitaet und
+// Anzahl haengen an der Zugstaerke; nach rund einer Fuenftelsekunde ist nichts mehr da.
+// EIN Abschusseffekt - der aus Pass 01, um Energie erweitert statt verdoppelt:
+// Energiekern + Schockring in Spielerfarbe + wenige Funken entgegen der Schussrichtung +
+// der bestehende Staub. Nach rund einer Drittelsekunde ist alles weg, kein Dauerschweif.
+function fx3Launch(x,y,vx,vy,mag,owner){
+  const m=Math.max(0,Math.min(1,mag));
+  const rgb=(owner!==undefined&&typeof pcol==='function')?pcol(colorSlot(owner)).rgb:'255,246,225';
+  fx3Push({t:1,x,y,life:1,dec:.075,mag:.5+.9*m});                  // Kontaktring (Bestand)
+  fx3Push({t:0,x,y,life:1,dec:.13,mag:.4+.7*m});                   // kurzer Lichtpunkt (Bestand)
+  // Der Held ist die KUGEL: sie laedt sich auf (fbGlowOwner unten), bekommt einen
+  // duennen farbigen Hof und einen kurzen Energiestrich in Schussrichtung. Funken sind
+  // hier fast vollstaendig gestrichen - die Bewegung macht das Tempo, nicht der Glitzer.
+  if(m>0.10){ fx3Flash(x,y,.35+.5*m,rgb); fx3Shock(x,y,.35+.55*m,rgb); }
+  const v=Math.hypot(vx,vy)||1,ux=-vx/v,uy=-vy/v;
+  if(m>0.45){
+    fx3Shock(x,y,.22+.30*m,rgb);                    // zweiter, engerer Hof
+    fx3Push({t:4,x,y,vx:-ux*(2.4+3.2*m),vy:-uy*(2.4+3.2*m),life:1,dec:.11,mag:.55+.45*m,rgb});
+  }
+  const n=1+Math.round(m*2);                      // Staub: sparsam, nur als Erdung
+  for(let i=0;i<n;i++){const a=(i/Math.max(1,n)-0.5)*0.8,c=Math.cos(a),s2=Math.sin(a);
+    fx3Push({t:2,x,y,vx:(ux*c-uy*s2)*(1.2+2.2*m),vy:(ux*s2+uy*c)*(1.2+2.2*m),
+             life:1,dec:.055+.02*Math.random(),mag:.6+.5*m});}
+  if(owner!==undefined)fbGlowOwner(owner,.45+.55*m);
+}
 function fx3Dust(x,y,vx,vy){for(let i=0;i<5;i++){const a=Math.random()*Math.PI*2,s=0.4+Math.random()*0.9;
   fx3.push({t:2,x,y,vx:vx*.35+Math.cos(a)*s,vy:vy*.35+Math.sin(a)*s,life:1,dec:.022+Math.random()*.012,mag:.7+Math.random()*.5});}}
 function drawFx3(){
@@ -6835,11 +7198,76 @@ function drawFx3(){
       const wr=BR*(0.8+1.7*k)*(0.7+.5*f.mag),a=f.life*.20*(.5+.5*f.mag),q0=OP(f.x,f.y,0);
       ctx.strokeStyle='rgba(255,246,225,'+a.toFixed(3)+')';ctx.lineWidth=Math.max(.7,BR*.06*q0.s*f.life);
       ctx.beginPath();for(let i=0;i<=12;i++){const an=i*Math.PI/6,q=OP(f.x+Math.cos(an)*wr,f.y+Math.sin(an)*wr,0);i?ctx.lineTo(q.x,q.y):ctx.moveTo(q.x,q.y);}ctx.stroke();
-    }else{                             // Staub: weicher, warm-grauer Puff nahe der Bodenebene
+    }else if(f.t===2){                 // Staub: weicher, warm-grauer Puff nahe der Bodenebene
       const q=OP(f.x,f.y,BR*.3),r=BR*q.s*f.mag*(.6+1.1*k),a=f.life*f.life*.13;
       const g=ctx.createRadialGradient(q.x,q.y,0,q.x,q.y,r);
       g.addColorStop(0,'rgba(232,226,212,'+a.toFixed(3)+')');g.addColorStop(1,'rgba(232,226,212,0)');
-      ctx.fillStyle=g;ctx.beginPath();ctx.arc(q.x,q.y,r,0,7);ctx.fill();}
+      ctx.fillStyle=g;ctx.beginPath();ctx.arc(q.x,q.y,r,0,7);ctx.fill();
+    }else if(f.t===3){                 // Schockring: geht schnell auf, wird duenner, verschwindet
+      const wr=BR*(0.55+2.6*k)*(0.55+.9*f.mag),a=f.life*f.life*.42*(.45+.55*f.mag);
+      ctx.strokeStyle='rgba('+f.rgb+','+a.toFixed(3)+')';
+      ctx.lineWidth=Math.max(.8,BR*.10*OP(f.x,f.y,0).s*f.life*(.5+.6*f.mag));
+      ctx.beginPath();for(let i=0;i<=16;i++){const an=i*Math.PI/8,q=OP(f.x+Math.cos(an)*wr,f.y+Math.sin(an)*wr,0);
+        i?ctx.lineTo(q.x,q.y):ctx.moveTo(q.x,q.y);}ctx.stroke();
+    }else if(f.t===4){                 // Funke: kurzer Strich in Flugrichtung, verglueht
+      const q=OP(f.x,f.y,BR*.42),v=Math.hypot(f.vx,f.vy)||1;
+      const q2=OP(f.x-f.vx*2.2,f.y-f.vy*2.2,BR*.42),a=f.life*f.life*(.55+.35*f.mag);
+      ctx.strokeStyle='rgba('+f.rgb+','+a.toFixed(3)+')';
+      ctx.lineWidth=Math.max(.6,BR*.055*q.s*(.5+.7*f.mag)*f.life);
+      ctx.beginPath();ctx.moveTo(q2.x,q2.y);ctx.lineTo(q.x,q.y);ctx.stroke();
+    }else if(f.t===5){                 // Blitz: konzentrierter Kern, sofort wieder weg
+      const q=OP(f.x,f.y,BR*.5),r=BR*q.s*(.42+1.05*f.mag)*(.45+.55*f.life),a=f.life*f.life*(.62+.3*f.mag);
+      const g=ctx.createRadialGradient(q.x,q.y,0,q.x,q.y,r);
+      g.addColorStop(0,'rgba(255,255,255,'+a.toFixed(3)+')');
+      g.addColorStop(.42,'rgba('+f.rgb+','+(a*.7).toFixed(3)+')');
+      g.addColorStop(1,'rgba('+f.rgb+',0)');
+      ctx.fillStyle=g;ctx.beginPath();ctx.arc(q.x,q.y,r,0,7);ctx.fill();
+    }else if(f.t===7){                 // Sternfunkeln: vierstrahliger Glanz, sehr kurz
+      const q=OP(f.x,f.y,BR*.55),r=BR*q.s*(.30+.75*f.mag)*(.35+.75*f.life);
+      const a=f.life*f.life*(.75+.25*f.mag);
+      ctx.strokeStyle='rgba('+f.rgb+','+a.toFixed(3)+')';
+      ctx.lineWidth=Math.max(.6,BR*.045*q.s*f.life);
+      ctx.beginPath();
+      for(let i=0;i<2;i++){const an=f.rot+i*Math.PI/2;
+        ctx.moveTo(q.x-Math.cos(an)*r,q.y-Math.sin(an)*r);
+        ctx.lineTo(q.x+Math.cos(an)*r,q.y+Math.sin(an)*r);}
+      ctx.stroke();
+      const g=ctx.createRadialGradient(q.x,q.y,0,q.x,q.y,r*.5);
+      g.addColorStop(0,'rgba(255,255,255,'+(a*.8).toFixed(3)+')');
+      g.addColorStop(1,'rgba('+f.rgb+',0)');
+      ctx.fillStyle=g;ctx.beginPath();ctx.arc(q.x,q.y,r*.5,0,7);ctx.fill();
+    }else{                             // Bande: das Licht liegt AUF der Wand
+      // Die Polylinie folgt der echten Bandenkrummung (einmal beim Treffer abgetastet).
+      // Der helle Knoten sitzt auf der Trefferstelle, zwei Auslaeufer wandern nach aussen
+      // und verloeschen - die Wand leuchtet nur dort, wo sie getroffen wurde.
+      const a=f.life*f.life*(.55+.45*f.mag)*(f.stark?1:.6);
+      const q0=OP(f.x,f.y,BR*.35);
+      if(f.pts){
+        const n=FB_WALL_SEG,front=k;                       // 0..1: wie weit das Licht lief
+        ctx.lineCap='round';
+        for(const dir of [-1,1]){
+          for(let i=0;i<n;i++){
+            const u0=(i/n),u1=((i+1)/n);
+            // Ein Segment leuchtet, waehrend die Lichtfront darueber hinweggeht.
+            const naeh=1-Math.min(1,Math.abs(front-u0)*2.6);
+            if(naeh<=0.02)continue;
+            const i0=n+dir*i,i1=n+dir*(i+1);
+            const p0=OP(f.pts[i0*2],f.pts[i0*2+1],BR*.35);
+            const p1=OP(f.pts[i1*2],f.pts[i1*2+1],BR*.35);
+            ctx.strokeStyle='rgba('+f.rgb+','+(a*naeh*(1-u0*.65)).toFixed(3)+')';
+            ctx.lineWidth=Math.max(.8,BR*.16*q0.s*naeh*(1-u0*.5));
+            ctx.beginPath();ctx.moveTo(p0.x,p0.y);ctx.lineTo(p1.x,p1.y);ctx.stroke();
+          }
+        }
+        ctx.lineCap='butt';
+      }
+      // Der Knoten: ein heller Kern genau am Aufschlagpunkt.
+      const r=BR*q0.s*(.34+.62*f.mag)*(.4+.6*f.life);
+      const g=ctx.createRadialGradient(q0.x,q0.y,0,q0.x,q0.y,r);
+      g.addColorStop(0,'rgba(255,255,255,'+(a*.95).toFixed(3)+')');
+      g.addColorStop(.45,'rgba('+f.rgb+','+(a*.7).toFixed(3)+')');
+      g.addColorStop(1,'rgba('+f.rgb+',0)');
+      ctx.fillStyle=g;ctx.beginPath();ctx.arc(q0.x,q0.y,r,0,7);ctx.fill();}
   }
 }
 
@@ -7079,6 +7507,64 @@ function draw(){
   for(const p of particles){const q=OP(p.x,p.y,0);ctx.globalAlpha=Math.max(0,p.life);ctx.beginPath();ctx.arc(q.x,q.y,p.size*q.s,0,7);ctx.fillStyle=p.col;ctx.fill();}
   ctx.globalAlpha=1;
   if(r3dActive&&fx3.length)drawFx3();
+  // ── BEWEGUNGSSTRICH (Action-Feel 02C) ──
+  // Schnelle Koerper ziehen einen kurzen, duennen Strich hinter sich her. Er entsteht
+  // NICHT aus Partikeln: er wird je Bild direkt aus der aktuellen Geschwindigkeit
+  // gezeichnet. Damit gibt es nichts zu verwalten, nichts zu recyceln und unterhalb der
+  // Schwelle buchstaeblich gar nichts - kein Band, kein Nachleuchten im Stillstand.
+  // Der neutrale Ball zieht nur mit, solange sein Treffersaum lebt (also nach einem
+  // wuchtigen Schlag), und dann in Weissgold statt in einer Spielerfarbe.
+  if(r3dActive&&mode==='football'&&phase!=='aim'){
+    const acc=(r3d&&typeof r3d.ballAcc==='function')?r3d.ballAcc():0;
+    for(const b of balls){
+      if(!b.alive)continue;
+      const v=Math.hypot(b.vx,b.vy);
+      if(v<FB_TRAIL_V)continue;                       // langsames Rollen zieht nichts
+      const neutral=b.owner===FOOTBALL_NEUTRAL_OWNER;
+      if(neutral&&acc<=0.05)continue;                 // der Ball nur nach einem harten Schlag
+      const st=Math.min(1,(v-FB_TRAIL_V)/(FB_TRAIL_FULL-FB_TRAIL_V));
+      const rgb=neutral?'255,244,214':pcol(colorSlot(b.owner)).rgb;
+      const rad=ballRad(b),q=OP(b.x,b.y,rad*.75);
+      const laenge=rad*(0.9+2.6*st)*(neutral?acc:1);
+      const ux=b.vx/v,uy=b.vy/v;
+      // Drei kurze, immer blassere Abschnitte: zusammen ein weicher Strich, einzeln
+      // billig zu zeichnen.
+      for(let i=0;i<3;i++){
+        const a0=laenge*(i/3),a1=laenge*((i+1)/3);
+        const p0=OP(b.x-ux*a0,b.y-uy*a0,rad*.75),p1=OP(b.x-ux*a1,b.y-uy*a1,rad*.75);
+        const al=(0.26+0.30*st)*(1-i/3)*(neutral?acc:1);
+        ctx.strokeStyle='rgba('+rgb+','+al.toFixed(3)+')';
+        ctx.lineWidth=Math.max(.8,rad*0.55*q.s*(1-i*0.28));
+        ctx.lineCap='round';
+        ctx.beginPath();ctx.moveTo(p0.x,p0.y);ctx.lineTo(p1.x,p1.y);ctx.stroke();
+      }
+      ctx.lineCap='butt';
+    }
+  }
+
+  // ── TREFFERSAUM DES NEUTRALEN BALLS (Action-Feel 02) ──
+  // Nach einem WUCHTIGEN Schlag traegt der schwarze Ball fuer den Bruchteil einer Sekunde
+  // einen hellen Saum - er bleibt dabei schwarz, das Material wird nicht angefasst.
+  // Danach ist nichts mehr da: kein Dauerschweif, kein Nachleuchten beim Rollen.
+  if(r3dActive&&mode==='football'&&r3d&&typeof r3d.ballAcc==='function'){
+    const acc=r3d.ballAcc();
+    if(acc>0.02){
+      const nb=balls.find(b=>b.alive&&b.owner===FOOTBALL_NEUTRAL_OWNER);
+      if(nb){
+        const q=OP(nb.x,nb.y,fbBallR()*0.9),rr=fbBallR()*q.s*(1.02+0.30*(1-acc));
+        ctx.strokeStyle='rgba(255,244,214,'+(acc*acc*0.55).toFixed(3)+')';
+        ctx.lineWidth=Math.max(1,fbBallR()*0.10*q.s*acc);
+        ctx.beginPath();ctx.arc(q.x,q.y,rr,0,7);ctx.stroke();
+        const v=Math.hypot(nb.vx,nb.vy);
+        if(v>1.2){                       // feiner Nachzieher in Bewegungsrichtung
+          const q2=OP(nb.x-nb.vx*2.6,nb.y-nb.vy*2.6,fbBallR()*0.9);
+          ctx.strokeStyle='rgba(255,240,205,'+(acc*acc*0.34).toFixed(3)+')';
+          ctx.lineWidth=Math.max(.8,fbBallR()*0.12*q.s*acc);
+          ctx.beginPath();ctx.moveTo(q2.x,q2.y);ctx.lineTo(q.x,q.y);ctx.stroke();
+        }
+      }
+    }
+  }
 
   // selection highlight (Doppel/TRIPLE FFA: zeig die waehlbaren eigenen Kugeln)
   if(((fmt==='double'&&mode!=='ffa')||fmt==='triple_ffa')&&!dragging){const aimer=whoCanAim();
@@ -8473,12 +8959,49 @@ async function initR3D(){
     const mkBallMat=pc=>new THREE.MeshPhysicalMaterial({color:pc.m3,map:ballTex,roughness:.07,metalness:.05,
       clearcoat:1.0,clearcoatRoughness:.07,envMapIntensity:1.15,specularIntensity:1.0});
     const ballMat=PCOLS.map(mkBallMat);
-    // Football-Materialsatz: dieselben fuenf Materialien in derselben Reihenfolge wie die
-    // Football-Farbtafel (s. FB_PCOLS), plus EIN zusaetzliches fuer den fuenften Spieler.
-    // Der neutrale Ball liegt auf Slot 5 und bekommt damit weiterhin exakt das bisherige
-    // dunkle Material - es wird kein Material doppelt angelegt.
-    const p5Mat=mkBallMat(FB_COL_P5);
-    const ballMatFB=[ballMat[0],ballMat[1],ballMat[2],ballMat[3],p5Mat,ballMat[4]];
+    // ── FOOTBALL-MATERIALSATZ (Action-Feel 02B) ─────────────────────────────────
+    // IM RUHEZUSTAND sieht eine Football-Kugel aus wie immer: derselbe Grundton, dieselbe
+    // Oberflaeche, dieselben Reflexe wie in RingOut - das Eigenleuchten steht auf NULL und
+    // traegt damit nichts bei. Der Satz existiert nur, damit die kurze AKTION ihre Werte
+    // veraendern darf, ohne die RingOut-Materialien anzufassen.
+    // Waehrend eines Abschusses oder eines wuchtigen Treffers laedt sich die Kugel fuer
+    // etwa drei Zehntelsekunden auf: das Eigenleuchten geht hoch, der Grundton wird
+    // kurz satter - und faellt danach exakt auf den Ruhewert zurueck. Nicht die Kugel ist
+    // premium, sondern der Moment.
+    const FB_EMIS_REST=0.0, FB_EMIS_PEAK=0.85;
+    const fbDeepen=(hex)=>{const r=(hex>>16)&255,g=(hex>>8)&255,b=hex&255,k=0.72;
+      return ((Math.round(r*k)<<16)|(Math.round(g*k)<<8)|Math.round(b*k));};
+    const mkBallMatFB=pc=>{
+      const m=new THREE.MeshPhysicalMaterial({color:pc.m3,map:ballTex,
+        emissive:pc.m3,emissiveIntensity:FB_EMIS_REST,
+        roughness:.07,metalness:.05,clearcoat:1.0,clearcoatRoughness:.07,
+        envMapIntensity:1.15,specularIntensity:1.0});
+      // Die beiden Endpunkte der Aufladung werden EINMAL vorberechnet und liegen am
+      // Material: Ruhefarbe und Aktionsfarbe. Dazwischen wird pro Frame interpoliert -
+      // ohne Allokation und ohne dass der Ruhewert je verloren geht.
+      m.userData.fbBase=new THREE.Color(pc.m3);
+      m.userData.fbHot=new THREE.Color(fbDeepen(pc.m3));
+      return m;
+    };
+    // Der NEUTRALE Ball bleibt schwarz: kein Eigenleuchten, kein aufgehellter Grundton.
+    // Sein kurzer Treffersaum liegt spaeter als Zeichnung auf dem Overlay, nicht im
+    // Material - er soll aufblitzen, nicht die Farbe des Balls veraendern.
+    const p5Mat=mkBallMatFB(FB_COL_P5);
+    const ballMatFB=[mkBallMatFB(PCOLS[0]),mkBallMatFB(PCOLS[1]),mkBallMatFB(PCOLS[2]),
+                     mkBallMatFB(PCOLS[3]),p5Mat,ballMat[4]];
+    // Reaktion: je Farbslot ein abklingender Wert, dazu der Saum am neutralen Ball. Beides
+    // ist reiner Rendererzustand - die Simulation kennt es nicht und liest es nie.
+    const fbGlow=[0,0,0,0,0,0];
+    let fbBallAcc=0;
+    function fbSetGlow(owner,mag){const sl=colorSlot(owner);
+      fbGlow[sl]=Math.max(fbGlow[sl],Math.max(0,Math.min(1,mag)));}
+    function fbSetBallAccent(mag){fbBallAcc=Math.max(fbBallAcc,Math.max(0,Math.min(1,mag)));}
+    function fbGlowDecay(){
+      let aktiv=false;
+      for(let i=0;i<fbGlow.length;i++){if(fbGlow[i]>0.004){fbGlow[i]*=0.86;aktiv=true;}else fbGlow[i]=0;}
+      if(fbBallAcc>0.004){fbBallAcc*=0.88;aktiv=true;}else fbBallAcc=0;
+      return aktiv;
+    }
     const ballMatFor=slot=>(mode==='football'?ballMatFB:ballMat)[slot]||ballMat[0];
     const ballMeshes=[],fallT=[],decals=[],fallV=[],prevP=[],selRings=[];
     const rollAx=new THREE.Vector3(),rollQ=new THREE.Quaternion();   // Roll-Temps (keine Allokation pro Frame)
@@ -8493,11 +9016,18 @@ async function initR3D(){
     // Gesten setzen ZIELWERTE (T); sync() daempft weich dorthin -> ruhiges, fluessiges Gefuehl
     const POLAR0=Math.atan2(27,19);
     let camYaw=0,camPolar=POLAR0,camDistF=1;
+    // ACTION FEEL 01: ein winziger Bildimpuls bei einem wuchtigen Kontakt Figur/Ball.
+    // Bewusst KEIN Screenshake: die Kamera zieht fuer den Bruchteil einer Sekunde ein
+    // knappes Prozent naeher heran und laesst sofort wieder los. Der Wert lebt nur hier
+    // im Renderer, wird pro Frame gedaempft und beruehrt keinen Spielzustand - ohne 3D
+    // gibt es ihn gar nicht.
+    let fbKick=0;
+    function fbCamKick(mag){ fbKick=Math.min(1,Math.max(fbKick,Math.max(0,Math.min(1,mag)))); }
     let camYawT=0,camPolarT=POLAR0,camDistFT=1;
     let camP=null,math=null,curVA=0,orbitCtl=null,geo=null;   // curVA: aktive Ansichts-Rotation (viewAngle)
     let curFBK='';   // zuletzt gerahmte Football-Arenaform (s. fbFrameKey)
     function updateCam(){                            // leichtgewichtig: nur Auge/Mathe (kein Resize)
-      const dist=geo.baseDist*camDistF;
+      const dist=geo.baseDist*camDistF*(1-fbKick*0.011);   // Bildimpuls: hoechstens 1.1 % naeher
       const yawW=curVA+camYaw;                       // Kamera-Azimut folgt der Ansichts-Rotation (1v1: 0/PI wie bisher)
       const spol=Math.sin(camPolar),cpol=Math.cos(camPolar);
       camP={ex:cx+dist*spol*Math.sin(yawW),ey:35+dist*cpol,ez:cy+dist*spol*Math.cos(yawW),tx:cx,ty:35,tz:cy,
@@ -8559,6 +9089,11 @@ async function initR3D(){
         camYaw+=(camYawT-camYaw)*.18;camPolar+=(camPolarT-camPolar)*.18;camDistF+=(camDistFT-camDistF)*.18;
         updateCam();
       }
+      // Der Bildimpuls klingt schnell ab - er ist ein Akzent, keine Bewegung. Solange er
+      // laeuft, wird die Kamera jeden Frame nachgezogen.
+      if(fbKick>0.002){ fbKick*=0.80; updateCam(); } else if(fbKick){ fbKick=0; updateCam(); }
+      // Eigenleuchten und Ballsaum klingen im selben Takt ab.
+      fbGlowDecay();
       const bob=Math.sin(nowS*.45)*5;                 // Schwebe-Bob (ruhiger); Mapping folgt exakt via camP.py
       camP.py=bob;
       if(r3dOrbit&&orbitCtl){orbitCtl.update();       // Orbit-Testmodus: Mathe folgt der Live-Kamera
@@ -8624,6 +9159,15 @@ async function initR3D(){
           sr.rotation.x=-Math.PI/2;sr.renderOrder=2;sr.visible=false;selRings[i]=sr;scene.add(sr);}
         const b=balls[i];
         m.material=ballMatFor(colorSlot(b.owner));   // TEAM DUEL: Teamfarbe (0/2 Blau, 1/3 Rot)
+        // Football: Eigenleuchten UND Grundton folgen der Aufladung dieses Farbslots.
+        // Bei Aufladung 0 stehen beide exakt auf dem Ruhewert - die Kugel sieht dann aus
+        // wie vor diesem Pass. Ausserhalb Football wird hier nichts angefasst.
+        if(mode==='football'&&b.owner!==FOOTBALL_NEUTRAL_OWNER&&m.material.userData.fbBase){
+          const g=fbGlow[colorSlot(b.owner)];
+          m.material.emissiveIntensity=FB_EMIS_REST+(FB_EMIS_PEAK-FB_EMIS_REST)*g;
+          if(g>0)m.material.color.copy(m.material.userData.fbBase).lerp(m.material.userData.fbHot,g);
+          else m.material.color.copy(m.material.userData.fbBase);
+        }
         // Sichtbarer Radius == Physikradius (ballRad): die geteilte BR-Kugelgeometrie wird
         // pro Kugel skaliert. Fuer Spieler und alle Nicht-Football-Modi ist rs exakt 1.
         const rad=ballRad(b),rs=rad/BR;
@@ -8712,6 +9256,13 @@ async function initR3D(){
     }
     r3d={
       resize(){frame();},
+      // Der kurze Treffersaum des neutralen Balls (Action-Feel 02). Die Zeichnung liegt im
+      // Overlay, der Wert im Renderer - hier ist die Leseluke. Rein praesentativ.
+      ballAcc(){return fbBallAcc;},
+      // Und hier die beiden Schreibluken: Materialglanz eines Farbslots und Ballsaum.
+      // Beide Zustaende gehoeren dem Renderer; die Ereignisschicht setzt sie nur an.
+      setGlow(o,mag){fbSetGlow(o,mag);},
+      setBallAccent(mag){fbSetBallAccent(mag);},
       w2s(lx,ly,h){return math.w2s(lx,ly,h);},
       s2w(px,py){return math.s2w(px,py);},
       cam:{ // Spieler-Kamera (nur ?r3d=1): Gesten setzen Ziele, sync() daempft -> Mapping bleibt exakt

@@ -1003,12 +1003,21 @@ console.log('ARENA FOOTBALL - ELIMINATION: ZWEI LEBEN + ADAPTIVE ARENA + FAIRER 
       ok(E.canPass(4) === true, 'Phase ' + ph + ' Tor ' + k + ': knapp innerhalb der Torbreite offen');
       E.setPos(4, E.cx + d[0] * out + t[0] * (ch + 1), E.cy + d[1] * out + t[1] * (ch + 1));
       ok(E.canPass(4) === false, 'Phase ' + ph + ' Tor ' + k + ': knapp ausserhalb der Torbreite geschlossen');
-      // Und der Ball kommt dort auch real nicht durch.
-      for (let o = 0; o < 4; o++) E.setPos(o, E.cx + (o - 1.5) * 3, E.cy + (o - 1.5) * 3);
+      // Und der Ball kommt dort auch real nicht durch. Geprueft wird genau DIESES Tor:
+      // dass der Ball nach dem Abprall quer durch die Arena laeuft und irgendwann ein
+      // ANDERES Tor findet, ist ein regulaeres Spielereignis und nicht die Aussage hier.
+      // Positionen UND Geschwindigkeiten zuruecksetzen: der vorige Durchgang hat die
+      // Figuren angestossen, und ein Restschwung wuerde den naechsten Schuss ablenken.
+      for (let o = 0; o < 4; o++) { E.setPos(o, E.cx + (o - 1.5) * 3, E.cy + (o - 1.5) * 3); E.setVel(o, 0, 0); }
       const off = ch + 30;
       const sx = d[0] * 30 + t[0] * off, sy = d[1] * 30 + t[1] * off;
       const rr = E.slam(4, E.cx + sx, E.cy + sy, d[0] * 30, d[1] * 30, 60);
-      ok(rr.passed === false && rr.worst <= 1e-6,
+      let durchDiesesTor = false;
+      if (rr.passed) {
+        const b = E.snapshot()[4];
+        durchDiesesTor = E.fold(b.x - E.cx, b.y - E.cy).side === k;
+      }
+      ok(durchDiesesTor === false && rr.worst <= 1e-6,
          'Phase ' + ph + ' Tor ' + k + ': ein Schuss neben der Toroeffnung wird geblockt');
     }
   }
@@ -1598,7 +1607,8 @@ console.log('ARENA FOOTBALL - ELIMINATION: ZWEI LEBEN + ADAPTIVE ARENA + FAIRER 
      'keine Immunitaet, kein Teaming-Schutz, keine Fairnesskorrektur');
 
   // Keine phase-spezifischen Physikwerte: derselbe Satz gilt in jeder Arenaphase.
-  ok(/const FOOTBALL_PHYS=\{friction:0\.9958,frictionBall:0\.9964,fend:0\.9760,fendBall:0\.9790,/.test(HTML),
+  ok(/const FOOTBALL_PHYS=\{friction:0\.9958,frictionBall:0\.9964,fend:0\.9620,fendBall:0\.9790,/.test(HTML)
+     && /fastv:4\.00,frictionMid:0\.9840,/.test(HTML),
      'die Football-Physik gilt phasenunabhaengig mit den freigegebenen Werten');
   ok(/const FOOTBALL_BALL_RADIUS=25;/.test(HTML), 'Ballradius unveraendert 25');
   ok(!/fbElimPhaseN[^\n]*(friction|rest|slowv|stopv)/i.test(HTML),

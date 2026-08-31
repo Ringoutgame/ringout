@@ -735,9 +735,18 @@ const untilMorph = (E) => { for (let i = 0; i < 600 && E.goalState() !== 'morph'
      'die Football-Tafel uebernimmt P1-P4 unveraendert und haengt Violett vor den Ballslot');
   ok(/function pcol\(i\)\{return mode==='football'\?\(FB_PCOLS\[i\]\|\|PCOLS\[i\]\):PCOLS\[i\];\}/.test(HTML),
      'ausserhalb Football liefert die Farbabfrage exakt die globale Tafel');
-  // 4. Das 3D-Kugelmaterial folgt derselben Trennung: genau EIN zusaetzliches Material.
-  ok(/const ballMatFB=\[ballMat\[0\],ballMat\[1\],ballMat\[2\],ballMat\[3\],p5Mat,ballMat\[4\]\];/.test(HTML),
-     'der Football-Materialsatz legt genau ein zusaetzliches Material an');
+  // 4. Das 3D-Kugelmaterial folgt derselben Trennung: Football hat seit Action-Feel 02
+  //    einen EIGENEN Satz (satterer Grundton, leises Eigenleuchten) - und der neutrale
+  //    Ball bleibt darin exakt das bisherige dunkle Material, ohne Eigenleuchten.
+  ok(/const ballMatFB=\[mkBallMatFB\(PCOLS\[0\]\),mkBallMatFB\(PCOLS\[1\]\),mkBallMatFB\(PCOLS\[2\]\),\s*mkBallMatFB\(PCOLS\[3\]\),p5Mat,ballMat\[4\]\];/.test(HTML),
+     'der Football-Materialsatz ist eigenstaendig und teilt sich nur den Ball mit RingOut');
+  ok(/const p5Mat=mkBallMatFB\(FB_COL_P5\);/.test(HTML),
+     'der fuenfte Spieler kommt aus demselben Football-Materialweg');
+  ok(/const ballMat=PCOLS\.map\(mkBallMat\);/.test(HTML),
+     'RingOut behaelt unveraendert seinen eigenen Materialsatz');
+  // Der neutrale Ball bekommt KEIN Eigenleuchten - er bleibt schwarz.
+  ok(/emissive:pc\.m3,emissiveIntensity:FB_EMIS_REST/.test(HTML),
+     'das Eigenleuchten sitzt im Football-Material und ruht sehr leise');
   ok(/const ballMatFor=slot=>\(mode==='football'\?ballMatFB:ballMat\)\[slot\]\|\|ballMat\[0\];/.test(HTML),
      'ausserhalb Football wird unveraendert der bisherige Materialsatz benutzt');
   // 5. Der Siegername und die Siegerfarbe folgen derselben Verschiebung - ein siegreicher
@@ -783,7 +792,7 @@ const untilMorph = (E) => { for (let i = 0; i < 600 && E.goalState() !== 'morph'
   // Zwei Leben unveraendert.
   ok(/const FB_ELIM_LIVES=2;/.test(HTML), 'die Lebenszahl ist unveraendert zwei');
   // Physik, Abschusskurve und Zeitbasis unveraendert.
-  ok(/const FOOTBALL_PHYS=\{friction:0\.9958,frictionBall:0\.9964,fend:0\.9760,fendBall:0\.9790,/.test(HTML),
+  ok(/const FOOTBALL_PHYS=\{friction:0\.9958,frictionBall:0\.9964,fend:0\.9620,fendBall:0\.9790,/.test(HTML),
      'die Physik ist unveraendert');
   ok(/const FB_LAUNCH_SCALE=1\.26;/.test(HTML) && /const FB_LAUNCH_CURVE=0\.98;/.test(HTML),
      'die Abschusskurve ist unveraendert');

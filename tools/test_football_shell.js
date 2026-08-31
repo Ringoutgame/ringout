@@ -88,7 +88,7 @@ const wedgeSrc = grab(/const FOOTBALL_WEDGE_MIN_CONTACTS=[\s\S]*?\nfunction foot
 const goalClearHalfSrc = grab(/function footballGoalClearHalf\([^\n]*/, 'footballGoalClearHalf');
 const goalCenterHalfSrc = grab(/function footballGoalCenterHalf\([^\n]*/, 'footballGoalCenterHalf');
 const goalCanPassSrc = grab(/function footballCanPassGoal\(b\)\{[\s\S]*?\n\}/, 'footballCanPassGoal');
-const resolvePostSrc = grab(/function footballResolvePost\(b\)\{[\s\S]*?\n\}/, 'footballResolvePost');
+const resolvePostSrc = grab(/function footballResolvePost\(b,emit\)\{[\s\S]*?\n\}/, 'footballResolvePost');
 // Goal Detection: seit der Vier-Tore-Faltung liegt die Linienpruefung in
 // footballGoalCrossed (liefert die getroffene TORSEITE), footballGoalSide ist nur noch die
 // Classic-Abbildung "Punkt fuer die Gegenseite". Geprueft wird deshalb beides als eine Einheit.
@@ -209,6 +209,7 @@ const goalAudio={plays:0,matchPoints:0,preloads:0,stops:0};   // Tor-Audio: Aufr
       linearV(frac){ return maxPull()*frac*LAUNCH; },
       // Effektive Physik, wie stepSim sie sieht — geht durch dieselben Accessoren.
       effective(){ return {fr:curFR(), fe:curFE(), stopv:curST(), slowv:curSLOWV(),
+                           fmid:curFMID(), fastv:curFASTV(),
                            frBall:curFRBall(), feBall:curFEBall(),
                            restBall:curRestBall(), restBand:curRestBand(), restPost:curRestPost()}; },
       wedgeConst(){ return {minContacts:FOOTBALL_WEDGE_MIN_CONTACTS, dot:FOOTBALL_WEDGE_DOT,
@@ -551,7 +552,7 @@ for (const owner of [0, 1]) for (const dir of [+1, -1]) {
 // Torrettungstasche: die Taschenrueckwand wird dabei rein positional gehalten, damit eine
 // am Sockel entlangschleifende Spielerkugel nicht an ihr vorbeilaeuft - ohne zweiten
 // Impuls und nur dort, wo es ueberhaupt eine Tasche gibt.
-ok(/if\(footballResolvePost\(fb\)\)\{footballHoldRescue\(fb\);continue;\}/.test(HTML),
+ok(/if\(footballResolvePost\(fb,ci===1\|\|it===0\)\)\{footballHoldRescue\(fb\);continue;\}/.test(HTML),
    'Pfostenkollision laeuft VOR der Grenzentscheidung und beendet den Sub-Step');
 ok(/function footballHoldRescue\(b\)\{[\s\S]{0,400}?b\.x-=s\.nx\*o;b\.y-=s\.nz\*o;/.test(HTML),
    'der Taschenhalt ist rein positional - keine Geschwindigkeitsaenderung');
@@ -567,8 +568,15 @@ ok(/\(1\+e\)\*vn\*nx/.test(resolvePostSrc) && /\(1\+e\)\*vn\*ny/.test(resolvePos
    /const e=curRestPost\(\);/.test(resolvePostSrc),
   'Sockelreflexion nutzt unveraenderte Formel mit e=curRestPost() (kontaktartabhaengige Restitution)');
 ok(!/REST\s*=|REST\*\s*[0-9]/.test(resolvePostSrc), 'Sockelreflexion definiert keine eigene Restitution');
-ok((HTML.match(/footballResolvePost\(fb\)/g) || []).length === 2,
+// Zwei Aufloesungen, unveraendert - nur die RUECKMELDUNG unterscheidet sie jetzt: der
+// erste Durchgang darf klingen und funken, die Nachkorrektur der Bandenkorrektur nicht
+// (sonst laege auf einem Kontakt zweierlei Rueckmeldung).
+ok((HTML.match(/footballResolvePost\(fb,/g) || []).length === 2,
   'Sockelaufloesung: einmal vor der Grenzentscheidung, einmal als Nachkorrektur der Bandenkorrektur');
+ok(/footballResolvePost\(fb,ci===1\|\|it===0\)/.test(HTML),
+  'die Rueckmeldung des Sockels feuert hoechstens einmal je Micro-Step');
+ok(/footballResolvePost\(fb,false\)/.test(HTML),
+  'die Nachkorrektur meldet nichts');
 
 // ── C. SPIELERBÄLLE: Barriere an beiden Toren ──
 for (const owner of [0, 1]) for (const dir of [+1, -1]) {
@@ -1374,7 +1382,10 @@ ok(/for\(let it=0;it<ci;it\+\+\)\{/.test(HTML), 'Kontaktaufloesung laeuft in ein
     let x = start.x, y = start.y, vx = start.vx, vy = start.vy;
     for (let s = 0; s < 2; s++) {
       x += vx; y += vy;
-      const f = Math.sqrt(vx * vx + vy * vy) < E.slowv ? E.fe : E.fr;
+      // Drei Baender fuer eine SPIELERKUGEL: unter slowv das harte Ende, darueber bis
+      // fastv das mittlere Band, darueber die unveraenderte Flugdaempfung.
+      const sp = Math.sqrt(vx * vx + vy * vy);
+      const f = sp < E.slowv ? E.fe : (sp < E.fastv ? E.fmid : E.fr);
       vx *= f; vy *= f;
     }
     return { x, y, vx, vy };
@@ -1446,12 +1457,20 @@ ok(/if\(it===0\)\{/.test(HTML), 'Treffer-Feedback ist auf den ersten Kontaktpass
 
 // ── A. Genau ein Produktivstandard mit den freigegebenen Daempfungswerten ──
 {
-  const FINAL = { friction: 0.9958, frictionBall: 0.9964, fend: 0.9760, fendBall: 0.9790,
+  const FINAL = { friction: 0.9958, frictionBall: 0.9964, fend: 0.9620, fendBall: 0.9790,
+                  fastv: 4.00, frictionMid: 0.9840,
                   slowv: 0.70, stopv: 0.075, restBall: 0.44, restBand: 0.60, restPost: 0.50 };
   const P = buildEnv('football', 'single'), prod = P.prodPhys(), T = P.tune();
   for (const k of Object.keys(FINAL))
     ok(prod[k] === FINAL[k], 'FOOTBALL_PHYS.' + k + ' = ' + FINAL[k] + ' (erhalten: ' + prod[k] + ')');
-  ok(Object.keys(prod).length === 9, 'FOOTBALL_PHYS enthaelt genau diese neun Werte, keine Restfelder');
+  ok(Object.keys(prod).length === 11, 'FOOTBALL_PHYS enthaelt genau diese elf Werte, keine Restfelder');
+  // Die Trennung ist der Kern des Action-Feels: das mittlere Band und das haerteste
+  // Ende gelten NUR fuer Spielerkugeln, der neutrale Ball behaelt seine Werte.
+  ok(FINAL.frictionMid < FINAL.friction && FINAL.fend < FINAL.frictionMid,
+     'Spieler: mittleres Band daempft haerter als der Flug, das Ende haerter als beide');
+  ok(FINAL.frictionBall > FINAL.friction && FINAL.fendBall > FINAL.fend,
+     'der neutrale Ball bleibt in jedem Band der lebendigere Koerper');
+  ok(FINAL.fastv > FINAL.slowv, 'die Bandgrenzen liegen in der richtigen Reihenfolge');
   ok((HTML.match(/const FOOTBALL_PHYS=/g) || []).length === 1,
      'FOOTBALL_PHYS ist genau einmal definiert (zentrale Konfiguration)');
   ok(/function footballPhys\(\)\{return mode==='football'\?FOOTBALL_PHYS:null;\}/.test(HTML),
@@ -2537,19 +2556,31 @@ const fbCssSrc = grab(/#game\.fb \.status\{[\s\S]*?\n\.arena-wrap\{/, 'Football-
     return { frames, tailFrames: tail === null || !frames ? null : frames - tail, dist, finite, maxSD, end: E.get() };
   };
 
-  for (const [who, owner] of [['Spieler', 0], ['Ball', 4]]) {
+  // NEU ist der neutrale Ball (Owner 5). Vorher stand hier Owner 4 - das ist eine
+  // SPIELERKUGEL, die Zeile hat den Ball also nie gemessen. Seit Spieler und Ball
+  // getrennt gedaempft werden, faellt das auf.
+  for (const [who, owner] of [['Spieler', 0], ['Ball', NEU]]) {
     const r = runSettle(owner);
     const secs = r.frames / 60;
     ok(r.finite, who + ': keine NaN- oder Infinity-Werte');
     ok(r.frames > 0, who + ': das Settlement wird ueberhaupt erreicht');
     // Regressionsfenster, keine Punktmessung: entscheidend ist, dass der Auslauf klar
     // unter dem alten Kriechverhalten bleibt und trotzdem nicht abgehackt wirkt.
-    ok(secs >= 2.0 && secs <= 7.0,
-       who + ': Auslauf ' + secs.toFixed(2) + ' s liegt im freigegebenen Fenster [2.0, 7.0]');
+    // Getrennte Fenster, seit Spieler und Ball getrennt gedaempft werden: der Zug soll
+    // sich anfuehlen wie ABSCHUSS -> TREFFER -> SCHNELLE RUHE. Die Spielerfigur kommt
+    // deshalb deutlich frueher zur Ruhe, der neutrale Ball bleibt der lebendigere Koerper.
+    const fenster = owner === NEU ? [2.5, 7.0] : [1.4, 3.4];
+    ok(secs >= fenster[0] && secs <= fenster[1],
+       who + ': Auslauf ' + secs.toFixed(2) + ' s liegt im freigegebenen Fenster [' +
+       fenster[0].toFixed(1) + ', ' + fenster[1].toFixed(1) + ']');
     ok(r.tailFrames !== null && r.tailFrames / 60 <= 1.5,
        who + ': Low-Speed-Tail ' + (r.tailFrames / 60).toFixed(2) + ' s <= 1.5 s');
-    ok(r.dist >= ARENA_LEN * 0.9,
-       who + ': Maximalschuss legt ' + Math.round(r.dist) + ' px zurueck (>= 0.9 Arenalaengen)');
+    // Der Weg ist fuer die Spielerfigur bewusst kuerzer geworden - genau das ist der
+    // gewonnene Auslauf. Er muss aber immer noch quer durch die Arena tragen.
+    const mindest = owner === NEU ? 0.9 : 0.55;
+    ok(r.dist >= ARENA_LEN * mindest,
+       who + ': Maximalschuss legt ' + Math.round(r.dist) + ' px zurueck (>= ' +
+       mindest.toFixed(2) + ' Arenalaengen)');
     ok(r.maxSD <= 1e-6, who + ': kein Bandendurchbruch (max SD ' + r.maxSD.toFixed(6) + ')');
     // STOPVERHALTEN: nach dem Settlement steht ALLES exakt still - kein Mikrokriechen.
     ok(r.end.balls.every((b) => b.vx === 0 && b.vy === 0),
@@ -2695,6 +2726,61 @@ const fbCssSrc = grab(/#game\.fb \.status\{[\s\S]*?\n\.arena-wrap\{/, 'Football-
     for (let i2 = 0; i2 < 300; i2++) K.step();
     ok(JSON.stringify(K.score()) === before, 'das Tor wird nicht ein zweites Mal gewertet');
   }
+}
+
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  ACTION FEEL 01 — RUECKMELDUNG IST AUSGABE, NIE SPIELZUSTAND
+// ══════════════════════════════════════════════════════════════════════════════
+{
+  const quelle = (name) => {
+    const i = HTML.indexOf('function ' + name + '(');
+    if (i < 0) return '';
+    const j = HTML.indexOf('\n}', i);
+    return j < 0 ? '' : HTML.slice(i, j + 2);
+  };
+  // Die vier Funktionen der Schicht existieren und fassen KEINEN Spielzustand an.
+  for (const n of ['fbSfxLaunch', 'fbSfxImpact', 'fbFeelKick', 'fbFeelLaunch']) {
+    const q = quelle(n);
+    ok(q.length > 0, 'die Rueckmeldeschicht kennt ' + n);
+    ok(!/\b(?:b|a|fb)\.(?:vx|vy|x|y|spin|alive|owner)\s*=/.test(q),
+       n + ' schreibt keinen Kugelzustand');
+    ok(!/\b(?:score|fbGoalState|fbElimLives|fbElimActive|footballWinner|phase|turnNo)\s*=/.test(q),
+       n + ' schreibt keinen Spielzustand');
+    ok(!/Math\.random/.test(q) || n === 'fbFeelLaunch',
+       n + ' wuerfelt nicht im Entscheidungsweg');
+  }
+  // Der Abschussklang haengt am KANONISCHEN Abschuss - genau eine Ausloesung je Zug.
+  const launchSrc = HTML.match(/function applyLaunch\(\)\{[\s\S]*?\n\}/)[0];
+  ok((launchSrc.match(/fbSfxLaunch\(/g) || []).length === 1,
+     'der Abschussklang wird im kanonischen Abschuss genau einmal ausgeloest');
+  ok(/typeof fbSfxLaunch==='function'/.test(launchSrc),
+     'und faellt ohne die Schicht auf den Bestandsklang zurueck');
+  // Vier Kontaktarten, eine Klangmaschine.
+  const impactSrc = HTML.match(/fbImpact\(power,pk,art\)\{[\s\S]*?\n      \}\);\},/)[0];
+  for (const art of ['ball', 'band', 'post'])
+    ok(impactSrc.indexOf("art==='" + art + "'") >= 0, 'die Kontaktart ' + art + ' hat einen eigenen Charakter');
+  ok(/if\(now-hitAny<30\|\|hitVoices>=8\)return;/.test(impactSrc),
+     'dieselbe Sperrzeit und Stimmenbegrenzung wie der Bestandsklang - keine Klangsalve');
+  ok(/if\(now-\(hitLast\[pk\]\|\|0\)<70\)return;/.test(impactSrc),
+     'und dieselbe Entprellung je Kontaktpaar');
+  // Der Bildimpuls lebt im Renderer und ist winzig.
+  ok(/let fbKick=0;/.test(HTML) && /function fbCamKick\(mag\)\{/.test(HTML),
+     'der Bildimpuls ist ein reiner Rendererzustand');
+  ok(/1-fbKick\*0\.011/.test(HTML), 'er bewegt die Kamera um hoechstens 1.1 Prozent');
+  // Gesucht wird ausfuehrbarer Code, nicht das Wort: der Kommentar im Produktcode sagt
+  // ausdruecklich, dass es KEINEN Screenshake gibt.
+  const ohneKommentar = HTML.replace(/\/\/[^\n]*/g, '');
+  ok(!/\b(shake|rumble)\s*[=(]/i.test(ohneKommentar), 'kein Screenshake im Produktcode');
+  // Tor- und Transitionsklang bleiben unangetastet.
+  ok(/footballGoal\(mp\)\{/.test(HTML) || /footballGoal\(/.test(HTML), 'der Torklang existiert unveraendert');
+  ok(/fbTransitionBed\(/.test(HTML) && /fbTransitionLock\(/.test(HTML),
+     'die Arenatransitionsklaenge existieren unveraendert');
+  // Musik ist in diesem Pass bewusst NICHT umgesetzt - nur der Anschlusspunkt ist benannt.
+  ok(/MUSIK \(bewusst noch nicht umgesetzt\)/.test(HTML),
+     'der Anschlusspunkt fuer eine spaetere Musikschicht ist benannt');
+  ok(!/createBufferSource\(\)[\s\S]{0,200}loop=true[\s\S]{0,200}music/i.test(HTML),
+     'es gibt keine Hintergrundmusik in diesem Pass');
 }
 
 console.log('\nFootball-Shell: ' + pass + ' passed, ' + fail + ' failed');
