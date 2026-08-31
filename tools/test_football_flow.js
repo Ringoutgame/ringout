@@ -186,6 +186,9 @@ function buildEnv(ci, preset) {
       rad(b){ return ballRad(b); },
       boundSD(b){ const s=footballBoundSD(b); return {sd:s.sd, nx:s.nx, nz:s.nz}; },
       canPass(b){ return footballCanPassGoal(b); },
+      // Die fuer diese Kugel GUELTIGE Grenze: Bande, im Torfenster zuzueglich der
+      // Torrettungstasche (fuer den neutralen Ball immer 0).
+      rescueLimit(b){ return footballRescueLimit(b); },
       tune(){ return {MAXPULL_FRAC,LAUNCH,FRICTION,FEND,SLOWV,REST,STOPV,SPIN_K,SPIN_DECAY,
         maxPull:maxPull(), maxLaunchV:maxPull()*LAUNCH}; },
       reset(){ balls=[]; phase='sim'; outBall=-1; roundWinner=-1; score=[0,0];
@@ -281,9 +284,12 @@ function contactsAt(state, i, eps) {
   // Rounded-Rectangle-Grenze ueber die ECHTE Signed-Distance-Quelle (footballBoundSD):
   // sd >= 0 heisst Ballmitte auf/jenseits der Grenze, die Aussennormale kommt mit.
   if (bandApplies(b)) {
-    const s = PROBE.boundSD(b);
-    if (s.sd >= -eps)
-      out.push({ type: 'band', nx: -s.nx, ny: -s.nz, pen: Math.max(0, s.sd), gap: s.sd });
+    // Gemessen wird gegen die fuer DIESE Kugel gueltige Grenze: fuer eine Spielerkugel im
+    // Torfenster ist das die um die Torrettungstasche versetzte Bandenlinie, sonst die
+    // Bande selbst (Limit 0) - dort bleibt die Messung bitgleich wie zuvor.
+    const s = PROBE.boundSD(b), lim = PROBE.rescueLimit(b), sd = s.sd - lim;
+    if (sd >= -eps)
+      out.push({ type: 'band', nx: -s.nx, ny: -s.nz, pen: Math.max(0, sd), gap: sd });
   }
   return out;
 }
@@ -505,9 +511,11 @@ function makeRun(env, results) {
     if (maxPostRest > 1e-6) { rec.notes.push('Sockel-Restpenetration ' + f4(maxPostRest) + ' px'); rec.verdict = 'FAIL'; }
     for (const b of sEnd) {
       if (!b.alive || !bandApplies(b)) continue;
-      const s = PROBE.boundSD(b);
-      if (s.sd > 1e-6) {
-        rec.notes.push('Ball ausserhalb der Bande: sd=' + f4(s.sd));
+      // Wieder gegen die GUELTIGE Grenze: eine Spielerkugel darf im Torfenster bis zur
+      // Taschentiefe hinaus, sonst niemand irgendwo.
+      const s = PROBE.boundSD(b), sd = s.sd - PROBE.rescueLimit(b);
+      if (sd > 1e-6) {
+        rec.notes.push('Kugel ausserhalb ihrer Grenze: sd=' + f4(sd));
         rec.verdict = 'FAIL';
       }
     }

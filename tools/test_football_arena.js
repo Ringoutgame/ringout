@@ -101,6 +101,11 @@ function buildEnv(mode0) {
       score(){ return score.slice(); },
       escapes(){ let n=0; for(const b of balls) n+=(b.fbEscapes||0); return n; },
       sd(i){ return footballBoundSD(balls[i]).sd; },
+      // Ueberschuss ueber die fuer diese Kugel GUELTIGE Grenze: Bande, im Torfenster
+      // zuzueglich der Torrettungstasche (fuer den neutralen Ball immer die Bande).
+      over(i){ return footballBoundSD(balls[i]).sd-footballRescueLimit(balls[i]); },
+      rescueDepth(){ return footballRescueDepth(); },
+      rescueLimit(i){ return footballRescueLimit(balls[i]); },
       place(){ placeBalls(); return balls.map(b=>({x:b.x,y:b.y,owner:b.owner})); },
       get(){ return balls.map(b=>({x:b.x,y:b.y,vx:b.vx,vy:b.vy,owner:b.owner,
                                   alive:b.alive,spin:b.spin,passed:!!b.fbPassed})); }
@@ -307,7 +312,7 @@ ok(/const rb=ballRad\(b\);/.test(footballBlock), 'Anti-Wedge-Kontakte nutzen bal
       const s = F.get();
       for (let j = 0; j < 3; j++) {
         if (!Number.isFinite(s[j].x) || !Number.isFinite(s[j].vx)) nan = true;
-        if (!s[j].passed) maxSd = Math.max(maxSd, F.sd(j));
+        if (!s[j].passed) maxSd = Math.max(maxSd, F.over(j));
       }
     }
     esc += F.escapes();
@@ -315,7 +320,9 @@ ok(/const rb=ballRad\(b\);/.test(footballBlock), 'Anti-Wedge-Kontakte nutzen bal
   ok(!nan, 'keine NaN/Infinity in 300 Zufallslaeufen');
   // Bekanntes, dokumentiertes Residuum an der Ecke Pfostenvorderkante/Bandenlinie
   // (< 1 LOGICAL, deterministisch, Folgeframe holt zurueck) -> Toleranz 1.5.
-  ok(maxSd <= 1.5, 'kein Arena-Ausbruch (max sd ' + maxSd.toFixed(3) + ', Toleranz 1.5)');
+  // Gemessen wird der Ueberschuss ueber die gueltige Grenze - im Torfenster darf eine
+  // SPIELERKUGEL bis zur Taschentiefe hinaus, sonst nirgends.
+  ok(maxSd <= 1.5, 'kein Arena-Ausbruch (max Ueberschuss ' + maxSd.toFixed(3) + ', Toleranz 1.5)');
   ok(esc === 0, 'keine Anti-Wedge-Escapes');
   // Bande erzeugt nie Energie (0/30/45/60 Grad gegen die Laengsseiten-Normale):
   let gained = false;

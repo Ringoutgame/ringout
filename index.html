@@ -3936,6 +3936,63 @@ function footballCanPassGoal(b){
   const F=footballFold(b.x-cx,b.y-cy);
   return footballGoalOpen(F.side)&&Math.abs(F.y)<=footballGoalCenterHalf()&&Math.abs(F.x)>Math.abs(F.y);
 }
+// ── TORRETTUNGSTASCHE ─────────────────────────────────────────────────────────────
+// Eine Verteidigung, die es vorher nicht gab: der Ball liegt in der Toroeffnung, kurz vor
+// der Linie - der Verteidiger soll hineingehen und ihn herausschlagen koennen. Bisher war
+// die Bande fuer Spielerkugeln auch im Torfenster geschlossen (footballCanPassGoal gibt
+// ihnen immer false), sie standen also an einer unsichtbaren Wand vor dem Tor.
+//
+// Die Tasche ist KEINE neue Geometrie: sie ist dieselbe Bandenlinie, nur um einen festen
+// Betrag nach aussen versetzt - und ausschliesslich im lichten Torfenster. Zwei Saetze
+// beschreiben sie vollstaendig:
+//   * Wie tief?  So tief, dass die Kugel VOLLSTAENDIG zwischen den Sockeln bleibt: ihre
+//     Vorderkante darf die Sockelhinterkante nicht erreichen, ein Spielerradius bleibt als
+//     Nahtabstand. Damit fuehrt die BESTEHENDE Sockelkollision (footballResolvePost, gilt
+//     fuer alle Kugeln) die Tasche seitlich - es gibt keine zweite Seitenwand.
+//   * Fuer wen?  Nur farbige Spielerkugeln. Der neutrale Ball bekommt hier nichts: fuer ihn
+//     ist das Tor unveraendert offen, er passiert es ueber footballCanPassGoal und faellt
+//     wie bisher heraus. Die Tasche traegt ihn nicht und lenkt ihn nicht ab.
+// Die Torlinie bleibt unberuehrt (s. footballGoalCrossed): gerettet werden kann nur, was
+// noch nicht gewertet ist.
+function footballRescueDepth(){
+  const av=fbArena();
+  return Math.max(0,(av.postBack-av.postFront)*BR-BR);
+}
+// Seitliche Ausdehnung des Torfensters fuer eine SPIELERKUGEL. Bewusst die LICHTE Weite
+// (Pfosteninnenkante), nicht die um den Spielerradius verengte: die Seitenwand der Tasche
+// ist der Sockel selbst, und der ist fuer alle Kugeln solide. Eine Spielerkugel kann ihr
+// Zentrum ohnehin nur bis clearHalf-BR bringen - dort liegt sie am Sockel an. Waere das
+// Fenster genau dort zu Ende, fiele die Taschentiefe im Moment der Sockelberuehrung
+// schlagartig auf null, und die Kugel bekaeme in derselben Lage zwei widersprechende
+// Korrekturen (Sockel nach innen, Bande nach innen) - genau die Naht, die es nicht geben
+// darf. Mit der lichten Weite endet die Tasche dort, wo der Sockel sie ohnehin abschliesst.
+function footballGoalPlayerHalf(){return footballGoalClearHalf();}
+// Wie weit darf DIESE Kugel ueber die Bandenlinie hinaus? 0 = gar nicht (Bestandsverhalten).
+// Die Rueckwand der Tasche gilt AUCH, waehrend der Sockel gerade eine Kollision aufloest.
+// Ein Sockeltreffer beendet sonst die Grenzentscheidung dieser Iteration (ein Impuls je
+// Kugel und Iteration) - eine Spielerkugel, die am Sockel entlangschleift, wuerde in
+// diesen Iterationen ungebremst weiter nach aussen laufen und erst einen Frame spaeter
+// zurueckgeholt. Sichtbar waere ein kurzer Ausschlag hinter das Tor. Dieser Halt ist
+// deshalb REIN POSITIONAL: kein zweiter Impuls, keine Reflexion - nur die Zusicherung,
+// dass die Tasche nicht tiefer wird als sie ist. Er greift ausschliesslich dort, wo es
+// ueberhaupt eine Tasche gibt (Spielerkugel im Torfenster); ueberall sonst bleibt der
+// Bestandspfad bitgenau unberuehrt.
+function footballHoldRescue(b){
+  const lim=footballRescueLimit(b);
+  if(lim<=0)return false;
+  const s=footballBoundSD(b);
+  if(s.sd<=lim)return false;
+  const o=s.sd-lim;b.x-=s.nx*o;b.y-=s.nz*o;
+  return true;
+}
+function footballRescueLimit(b){
+  if(b.owner===FOOTBALL_NEUTRAL_OWNER)return 0;      // der Ball kennt die Tasche nicht
+  const F=footballFold(b.x-cx,b.y-cy);
+  if(!footballGoalOpen(F.side))return 0;             // geschlossenes Tor ist Wand
+  if(Math.abs(F.x)<=Math.abs(F.y))return 0;          // nur an einer Stirnseite, nie im Eckbogen
+  if(Math.abs(F.y)>footballGoalPlayerHalf())return 0;
+  return footballRescueDepth();
+}
 // Torpfosten-Kollision (Marmor-Sockel) — gilt fuer ALLE Kugeln, auch fuer bereits
 // ausgetretene neutrale Baelle: ein Pfosten ist ein echtes Hindernis, kein Grenzsonderfall.
 // Es gibt vier Sockel (2 Tore x 2 Seiten). Durch Spiegelung an beiden Achsen wird jeder Fall
@@ -4046,7 +4103,7 @@ function footballContacts(b,out){
   // ausgetretener oder in der Toroeffnung stehender neutraler Ball ist nicht eingeklemmt.
   if(!b.fbPassed&&!footballCanPassGoal(b)){
     const s=footballBoundSD(b);                       // dieselbe Grenze wie die Aufloesung
-    if(s.sd>=-FOOTBALL_WEDGE_EPS)out.push({nx:-s.nx,ny:-s.nz,other:null});
+    if(s.sd>=footballRescueLimit(b)-FOOTBALL_WEDGE_EPS)out.push({nx:-s.nx,ny:-s.nz,other:null});
   }
   return out;
 }
@@ -4321,13 +4378,15 @@ function footballGoalCrossed(b){
   const F=footballFold(b.x-cx,b.y-cy),dx=F.x;
   if(Math.abs(dx)-fbBallR()>fbArena().postBack*BR)return F.side;   // vollstaendig hinter der Torlinie
   // TOTZONEN-SCHUTZ (Review-Befund der Arena-Finalisierung): Auf dem Rechteck kann ein
-  // langsam durchgetretener Ball VOR der Torlinie liegenbleiben — jenseits der maximalen
-  // Spielerreichweite (Spielerzentrum hoechstens halfLen-BR, Kontakt bei BR+fbBallR ->
-  // erreichbare Ballmitte hoechstens halfLen+fbBallR). Auf der Kreisarena war diese Lage
-  // geometrisch unmoeglich; ohne Wertung waere das Match dauerhaft blockiert (kein Tor,
-  // kein Reset, Ball unerreichbar). Ein RUHENDER (v < stopv), unerreichbarer Ball im
+  // langsam durchgetretener Ball VOR der Torlinie liegenbleiben. Ohne Wertung waere das
+  // Match dauerhaft blockiert (kein Tor, kein Reset). Ein RUHENDER (v < stopv) Ball im
   // Torkanal zaehlt deshalb als Tor der Seite, in deren Kanal er liegt — deterministisch,
   // tickbasiert, kein Teleport, keine Aenderung am regulaeren Linienkriterium.
+  // Seit der Torrettungstasche reicht ein Verteidiger tiefer als frueher (Zentrum bis
+  // halfLen-BR+Taschentiefe), die unerreichbare Zone ist also kleiner geworden. Die Regel
+  // bleibt trotzdem unveraendert: sie ist Teil der kanonischen Torerkennung, und die Linie
+  // zu verschieben waere eine Aenderung an der Wertung. Sie greift ausserdem nur bei einem
+  // RUHENDEN Ball - der Rettungsfall (rollender Ball vor der Linie) beruehrt sie nicht.
   if(Math.abs(dx)>fbHalfLen()+fbBallR()&&Math.sqrt(b.vx*b.vx+b.vy*b.vy)<curST())return F.side;
   return -1;
 }
@@ -4924,7 +4983,7 @@ function stepSim(){
       // wer die freie Oeffnung ohne Pfostenkontakt erreicht. footballResolvePost meldet
       // nur ECHTE Penetration (d<BR) — eine bereits auf Beruehrabstand korrigierte Kugel
       // liefert false und erhaelt in den Folgeiterationen keinen zweiten Bounce.
-      if(footballResolvePost(fb))continue;
+      if(footballResolvePost(fb)){footballHoldRescue(fb);continue;}
       // Bereits durch ein Tor ausgetretener neutraler Ball: die Bande gilt fuer ihn nicht mehr.
       // Ohne dieses Latch wuerde ihn die runde Grenze, sobald er draussen tangential aus dem
       // Torfenster driftet, kuenstlich wieder nach innen reflektieren. Stattdessen ist hier
@@ -4934,9 +4993,12 @@ function stepSim(){
       // dass Abstand und Normale aus der Signed-Distance-Form kommen. Fuer die Variante
       // 'circle' ist footballShapeSD bitgenau der alte Radialtest.
       const fbs=footballBoundSD(fb),fbd=fbs.sd;
-      if(fbd>0){
+      // Die wirksame Grenze dieser Kugel: die Bande - oder, fuer eine Spielerkugel im
+      // Torfenster, die um die Taschentiefe nach aussen versetzte Bande.
+      const fbLim=footballRescueLimit(fb);
+      if(fbd>fbLim){
         if(footballCanPassGoal(fb)){fb.fbPassed=true;continue;}   // Toroeffnung: keine Bandenkollision
-        const fnx=fbs.nx,fny=fbs.nz;fb.x-=fnx*fbd;fb.y-=fny*fbd;  // exakt auf die Grenze zurueckgesetzt
+        const fnx=fbs.nx,fny=fbs.nz,fbo=fbd-fbLim;fb.x-=fnx*fbo;fb.y-=fny*fbo;  // exakt auf die Grenze zurueckgesetzt
         const fvn=fb.vx*fnx+fb.vy*fny;if(fvn>0){fb.vx-=(1+RBAND)*fvn*fnx;fb.vy-=(1+RBAND)*fvn*fny;}
         // Die Bandenkorrektur setzt die Kugel auf die Grenzlinie — die durch den Sockel
         // laeuft. Sie darf sie dabei nicht in den Marmor schieben: einmal nachkorrigieren.

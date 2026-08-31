@@ -182,6 +182,9 @@ const goalAudio={plays:0,matchPoints:0,preloads:0,stops:0};   // Tor-Audio: Aufr
       cx, cy, R0, BR,
       // ── Arena-Geometrie (Rounded Rectangle, alles aus FOOTBALL_ARENA) ──
       halfLen(){ return fbHalfLen(); },
+      // Tiefe der Torrettungstasche (nur farbige Spielerkugeln, nur im Torfenster).
+      rescueDepth(){ return footballRescueDepth(); },
+      rescueLimitAt(x,y,owner){ return footballRescueLimit({x,y,owner,alive:true}); },
       halfWid(){ return fbHalfWid(); },
       cornerR(){ return fbCorner(); },
       neutralR(){ return fbBallR(); },
@@ -543,7 +546,17 @@ for (const owner of [0, 1]) for (const dir of [+1, -1]) {
 { const r = shootGoal(NEU, +1, POST_MID, 6, 400);
   ok(r.dist <= NEUTRAL_LIM + 1e-6, 'Blockierter Schuss setzt kein fbPassed (Ball bleibt drinnen)'); }
 // Quelltext-Invarianten der Phase 1B.
-ok(/if\(footballResolvePost\(fb\)\)continue;/.test(HTML), 'Pfostenkollision laeuft VOR der Grenzentscheidung und beendet den Sub-Step');
+// Der Sockel entscheidet weiterhin ZUERST und beendet die Grenzentscheidung dieser
+// Iteration (genau ein Impuls je Kugel und Iteration). Einziger Zusatz seit der
+// Torrettungstasche: die Taschenrueckwand wird dabei rein positional gehalten, damit eine
+// am Sockel entlangschleifende Spielerkugel nicht an ihr vorbeilaeuft - ohne zweiten
+// Impuls und nur dort, wo es ueberhaupt eine Tasche gibt.
+ok(/if\(footballResolvePost\(fb\)\)\{footballHoldRescue\(fb\);continue;\}/.test(HTML),
+   'Pfostenkollision laeuft VOR der Grenzentscheidung und beendet den Sub-Step');
+ok(/function footballHoldRescue\(b\)\{[\s\S]{0,400}?b\.x-=s\.nx\*o;b\.y-=s\.nz\*o;/.test(HTML),
+   'der Taschenhalt ist rein positional - keine Geschwindigkeitsaenderung');
+ok(!/function footballHoldRescue\(b\)\{[\s\S]{0,400}?b\.v[xy]/.test(HTML),
+   'der Taschenhalt fasst die Geschwindigkeit nicht an');
 ok(HTML.indexOf('footballResolvePost(fb)') < HTML.indexOf('if(fb.fbPassed){footballTryGoal(fb);continue;}'), 'Pfostenpruefung steht vor dem fbPassed-Latch');
 ok((HTML.match(/footballResolvePost\(/g) || []).length === 3, 'Genau eine Definition + zwei Aufrufe von footballResolvePost (keine zweite Pfostenlogik)');
 // 4B-2: die Formel ist unveraendert, nur der eingesetzte Restitutionswert kommt jetzt
@@ -1643,8 +1656,14 @@ for (const p of ['PROD', 'BASELINE']) {
   B2.setBalls([{ x: B2.cx, y: B2.cy, vx: 5.0, vy: 0, owner: 0 }]);
   let g = 0; while (g++ < 1200 && B2.get().phase === 'sim') B2.step();
   const pb = B2.get().balls[0];
-  ok(Math.abs(pb.x - B2.cx) <= B2.halfLen() - B2.BR + 1e-6 && JSON.stringify(B2.score()) === '[0,0]',
-     p + ': Spielerbarriere haelt, kein Score');
+  // Seit der Torrettungstasche endet die Spielerkugel nicht mehr an der Bandenlinie,
+  // sondern eine flache Taschentiefe dahinter - im Tor, aber nicht hindurch. Gewertet
+  // wird dabei nichts: Spielerkugeln koennen kein Tor erzielen.
+  ok(Math.abs(pb.x - B2.cx) <= B2.halfLen() - B2.BR + B2.rescueDepth() + 1e-6
+     && JSON.stringify(B2.score()) === '[0,0]',
+     p + ': Spieler bleibt in der Tasche, kein Score (x-Abstand ' +
+     Math.abs(pb.x - B2.cx).toFixed(2) + ', Grenze ' +
+     (B2.halfLen() - B2.BR + B2.rescueDepth()).toFixed(2) + ')');
   // First-to-3 unveraendert
   ok(M.winScore === 3, p + ': FOOTBALL_WIN_SCORE bleibt 3');
 }

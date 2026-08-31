@@ -160,13 +160,20 @@ function buildEnv(devFbVariant) {
       // owner 0 = Spielerradius (32), neutral = Ballradius (25).
       boundSDAt(x,y,neutral){ const b={x,y,owner:neutral?FOOTBALL_NEUTRAL_OWNER:0,alive:true};
                               const s=footballBoundSD(b); return {sd:s.sd,nx:s.nx,nz:s.nz}; },
+      // Die fuer DIESE Kugel geltende Grenze: Bande, im Torfenster zuzueglich der
+      // Torrettungstasche. Reine Abfrage des Produktcodes.
+      rescueLimit(i){ return footballRescueLimit(balls[i]); },
+      rescueLimitAt(x,y,neutral){ const b={x,y,owner:neutral?FOOTBALL_NEUTRAL_OWNER:0,alive:true};
+                                  return footballRescueLimit(b); },
+      rescueDepth(){ return footballRescueDepth(); },
+      playerHalf(){ return footballGoalPlayerHalf(); },
       // Einen Koerper mit Startlage und Geschwindigkeit gegen die Bande schiessen und
       // beobachten, ob er die Arena in IRGENDEINEM Schritt verlaesst.
       slam(idx,x0,y0,vx,vy,steps){
         phase='sim';
         balls[idx].x=x0;balls[idx].y=y0;balls[idx].vx=vx;balls[idx].vy=vy;
         balls[idx].fbPassed=false;
-        let worst=-Infinity,fin=true;
+        let worst=-Infinity,over=-Infinity,fin=true;
         for(let k=0;k<steps;k++){
           stepSim();
           if(fbGoalState!=='play')break;
@@ -177,8 +184,13 @@ function buildEnv(devFbVariant) {
           if(b.fbPassed)break;
           const s=footballBoundSD(b).sd;
           if(s>worst)worst=s;
+          // Ueberschuss ueber die fuer diese Kugel GUELTIGE Grenze. Ausserhalb des
+          // Torfensters ist das die Bande selbst (Limit 0), dort misst over genau
+          // dasselbe wie worst.
+          const ov=s-footballRescueLimit(b);
+          if(ov>over)over=ov;
         }
-        return {worst,fin,passed:!!balls[idx].fbPassed,
+        return {worst,over,fin,passed:!!balls[idx].fbPassed,
                 d:Math.hypot(balls[idx].x-cx,balls[idx].y-cy)};
       },
       postClear(i){ const p=footballPostProbe(balls[i]); return !p||p.d>=ballRad(balls[i])-1e-6; },
@@ -278,6 +290,9 @@ function buildEnv(devFbVariant) {
       // -- Direkte Zustandsmanipulation fuer Szenarien --
       setVel(i,vx,vy){ balls[i].vx=vx; balls[i].vy=vy; },
       setPos(i,x,y){ balls[i].x=x; balls[i].y=y; },
+      // Den Durchtritts-Latch setzen: fuer Szenarien, die den Zustand NACH der
+      // Torlinie pruefen, ohne den ganzen Anlauf zu simulieren.
+      setPassed(i,v){ balls[i].fbPassed=!!v; },
       setPhaseRaw(p){ phase=p; },
       hash(){ let h=2166136261>>>0;
         const mix=s=>{for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619)>>>0;}};
@@ -950,7 +965,7 @@ console.log('ARENA FOOTBALL - ELIMINATION: ZWEI LEBEN + ADAPTIVE ARENA + FAIRER 
           E.setPos(4, E.cx, E.cy);
           const r = E.slam(0, E.cx + t.u[0] * 40, E.cy + t.u[1] * 40, t.u[0] * sp, t.u[1] * sp, 90);
           ok(r.fin, 'Phase ' + ph + ' v=' + sp + ' ' + t.n + ': Spieler ohne NaN');
-          ok(r.worst <= 1e-6,
+          ok(r.over <= 1e-6,
              'Phase ' + ph + ' v=' + sp + ' ' + t.n + ': Spieler bleibt in der Arena (max sd ' +
              r.worst.toFixed(2) + ')');
           ok(r.passed === false, 'Phase ' + ph + ' v=' + sp + ' ' + t.n + ': Spieler passiert kein Tor');
@@ -2051,7 +2066,10 @@ const fbCore = (c) => c.poly ? c.poly.map(v => v.slice())
         const r = E.slam(4, x0, y0, cs * sp, sn * sp, 500);
         runs++;
         if (!r.fin) bad++;
-        else if (!r.passed && E.boundSD(4) > 0) outside++;
+        // Float-Residuum statt exakter Null: eine ruhende Kugel landet nach der
+        // Bandenkorrektur regelmaessig auf ~1e-14 px jenseits der Linie. Gemeint ist
+        // 'nicht draussen', nicht 'bitgenau null'.
+        else if (!r.passed && E.boundSD(4) > 1e-9) outside++;
       }
     }
     ok(outside === 0 && bad === 0,
@@ -2063,7 +2081,10 @@ const fbCore = (c) => c.poly ? c.poly.map(v => v.slice())
       P.forcePhase(ph);
       const th = k * Math.PI / 12;
       const r = P.slam(0, P.cx, P.cy, Math.cos(th) * 34, Math.sin(th) * 34, 400);
-      if (!r.fin || P.boundSD(0) > 0) pEsc++;
+      // Die gueltige Grenze der Spielerkugel: die Bande - im Torfenster zuzueglich der
+      // Torrettungstasche. Ausserhalb des Fensters ist das Limit 0, die Pruefung also
+      // unveraendert scharf.
+      if (!r.fin || P.boundSD(0) > P.rescueLimit(0) + 1e-6) pEsc++;
     }
     ok(pEsc === 0, 'Phase ' + ph + ': auch die Spielerkugel bleibt in jeder Richtung innerhalb');
   }
@@ -3155,6 +3176,242 @@ const parkFull = (E) => {
   // Ohne Kommentare geprueft: es darf keine zweite Kennzahl neben den Leben stehen.
   ok(!/Tore|Punkte|Score|score\[/.test(renderBarSrc.replace(/\/\/[^\n]*/g, '')),
      'die Leiste zeigt NUR Leben - keine Tore, Punkte oder Gegentore daneben');
+}
+
+
+// ══════════════════════════════════════════════════════════════════════════════════
+//  TORRETTUNGSTASCHE — der Verteidiger darf ins eigene Tor
+// ══════════════════════════════════════════════════════════════════════════════════
+// Die Tasche ist die bestehende Bandenlinie, im lichten Torfenster um eine feste Tiefe
+// nach aussen versetzt, und sie gilt ausschliesslich fuer farbige Spielerkugeln. Geprueft
+// wird beides: dass der Verteidiger wirklich hineinkommt - und dass er nicht weiter kommt.
+{
+  // Abstand Zentrum -> Bandenlinie ENTLANG einer Torrichtung, gesucht in der echten
+  // Signed-Distance. Damit stimmt die Rechnung in jeder Arenaform (Fuenfeck, Quadrat,
+  // Dreieck, Schulterform) ohne eine zweite Geometrie im Test.
+  const wand = (E, slot) => {
+    const d = E.dirs()[slot];
+    let lo = 0, hi = E.arena().halfLen * 3;
+    for (let i = 0; i < 60; i++) {
+      const m = (lo + hi) / 2;
+      if (E.boundSDAt(E.cx + d[0] * m, E.cy + d[1] * m, false).sd < 0) lo = m; else hi = m;
+    }
+    return lo;
+  };
+  const imTor = (E, slot, tief, quer) => {
+    const d = E.dirs()[slot], w = wand(E, slot);
+    return { x: E.cx + d[0] * (w + tief) - d[1] * (quer || 0),
+             y: E.cy + d[1] * (w + tief) + d[0] * (quer || 0) };
+  };
+  // Alles ausser dem Schuetzen eng ins Zentrum - inklusive des neutralen Balls, damit
+  // waehrend des Laufs kein Tor faellt und niemand den Weg kreuzt.
+  const raeumen = (E, ausser) => {
+    const n = E.playerCount();
+    for (let o = 0; o <= n; o++) {
+      if (o === ausser) continue;
+      E.setPos(o, E.cx + (o - n / 2) * 3, E.cy + (o - n / 2) * 3);
+      E.setVel(o, 0, 0);
+    }
+  };
+  const hinein = (E, idx, slot, speed, quer, steps) => {
+    raeumen(E, idx);
+    const d = E.dirs()[slot], start = imTor(E, slot, -5 * E.BR, quer || 0);
+    return E.slam(idx, start.x, start.y, d[0] * speed, d[1] * speed, steps || 300);
+  };
+
+  for (const [variante, phasen] of [['elimination4', [4, 3, 2]], ['elimination', [5, 4, 3, 2]]]) {
+    for (const ph of phasen) {
+      const E = buildEnv(variante); E.newMatch(); E.forcePhase(ph);
+      const tiefe = E.rescueDepth(), etikett = variante + ' Phase ' + ph + ': ';
+      ok(tiefe > 0, etikett + 'die Tasche hat eine Tiefe (' + tiefe.toFixed(2) + ' px)');
+
+      for (let slot = 0; slot < ph; slot++) {
+        // Frische Umgebung je Slot: ein vorheriger Lauf kann den Torzustand verlassen
+        // haben, und dann liefe der naechste gar nicht erst los.
+        const E = buildEnv(variante); E.newMatch(); E.forcePhase(ph);
+        // ── A: der Verteidiger kommt ueber die alte Sperrebene ──
+        const r = hinein(E, 0, slot, 22, 0);
+        ok(r.fin, etikett + 'Slot ' + slot + ': kein NaN beim Eintritt');
+        ok(r.worst > 1e-3,
+           etikett + 'Slot ' + slot + ': der Verteidiger kommt ueber die Bandenlinie (max sd ' +
+           r.worst.toFixed(2) + ')');
+        // ── B: und nicht weiter als die Tasche tief ist ──
+        ok(r.over <= 1e-6,
+           etikett + 'Slot ' + slot + ': er bleibt in der Tasche (Ueberschuss ' +
+           r.over.toFixed(4) + ')');
+        ok(r.worst <= tiefe + 1e-6,
+           etikett + 'Slot ' + slot + ': die Tiefe ist die Taschentiefe (' + r.worst.toFixed(2) +
+           ' <= ' + tiefe.toFixed(2) + ')');
+        ok(!r.passed, etikett + 'Slot ' + slot + ': eine Spielerkugel tritt nie durch das Tor');
+        ok(E.postClear(0), etikett + 'Slot ' + slot + ': keine Restpenetration im Sockel');
+      }
+    }
+  }
+
+  // ── C: derselbe Weg mit dem neutralen Ball — die Tasche traegt ihn nicht ──
+  {
+    const E = buildEnv('elimination4'); E.newMatch(); E.forcePhase(4);
+    const ball = E.playerCount();
+    raeumen(E, ball);
+    const d = E.dirs()[0], w = wand(E, 0);
+    const r = E.slam(ball, E.cx + d[0] * (w - 5 * E.BR), E.cy + d[1] * (w - 5 * E.BR),
+                     d[0] * 22, d[1] * 22, 300);
+    ok(r.passed, 'C: der neutrale Ball tritt durch dieselbe Oeffnung');
+    ok(E.rescueLimit(ball) === 0, 'C: fuer den Ball gibt es keine Taschentiefe');
+    const p = imTor(E, 0, E.rescueDepth() * 0.5, 0);
+    ok(E.rescueLimitAt(p.x, p.y, true) === 0, 'C: auch mitten in der Tasche traegt den Ball nichts');
+    ok(E.rescueLimitAt(p.x, p.y, false) === E.rescueDepth(),
+       'C: an derselben Stelle traegt sie eine Spielerkugel');
+  }
+
+  // ── D: Rettung VOR der Linie ──
+  // Der Ball rollt langsam in die Toroeffnung, der Verteidiger faehrt hinein und schlaegt
+  // ihn heraus. Ohne die Tasche waere er an der Bande stehen geblieben.
+  {
+    const E = buildEnv('elimination4'); E.newMatch(); E.forcePhase(4);
+    const ball = E.playerCount(), slot = 0, d = E.dirs()[slot], w = wand(E, slot);
+    raeumen(E, 0);
+    // Der Verteidiger steht bereits in der Tasche - genau die Lage, die es vorher nicht
+    // gab. Der Ball rollt von innen auf das Tor zu und prallt an ihm ab.
+    const sp = imTor(E, slot, E.rescueDepth() * 0.9, 0);
+    E.setPos(0, sp.x, sp.y); E.setVel(0, 0, 0);
+    const bp = imTor(E, slot, -2.6 * E.BR, 0);
+    E.setPos(ball, bp.x, bp.y); E.setVel(ball, d[0] * 9, d[1] * 9);
+    let kontakt = false;
+    for (let k = 0; k < 300 && E.goalState() === 'play'; k++) {
+      E.step();
+      const b = E.snapshot();
+      if (Math.hypot(b[0].x - b[ball].x, b[0].y - b[ball].y) <= E.rad(0) + E.rad(ball) + 1) kontakt = true;
+    }
+    const b = E.snapshot()[ball], F = E.fold(b.x - E.cx, b.y - E.cy);
+    ok(kontakt, 'D: der Verteidiger erreicht den Ball in der Toroeffnung');
+    ok(E.goalState() === 'play', 'D: kein Tor - er war rechtzeitig da (Zustand ' + E.goalState() + ')');
+    ok(E.crossed(ball) < 0, 'D: die Torlinie wurde nie ueberquert');
+    ok(F.x < w, 'D: der Ball ist wieder im Feld (' + F.x.toFixed(1) + ' < ' + w.toFixed(1) + ')');
+  }
+
+  // ── E: nach der Linie ist Tor ──
+  {
+    const E = buildEnv('elimination4'); E.newMatch(); E.forcePhase(4);
+    const ball = E.playerCount(), slot = 0, d = E.dirs()[slot], a = E.arenaCfg();
+    raeumen(E, 0);
+    const hinterLinie = (a.postBack * E.BR) + E.rad(ball) + 2;
+    E.setPos(ball, E.cx + d[0] * hinterLinie, E.cy + d[1] * hinterLinie);
+    E.setVel(ball, d[0] * 2, d[1] * 2);
+    E.setPassed(ball, true);
+    ok(E.crossed(ball) === slot, 'E: der Ball hat die kanonische Torlinie ueberquert');
+    E.step();
+    ok(E.goalState() !== 'play', 'E: das Tor wird gewertet (Zustand ' + E.goalState() + ')');
+    const leben = E.lives().join(',');
+    const sp = imTor(E, slot, -2 * E.BR, 0);
+    E.setPos(0, sp.x, sp.y); E.setVel(0, d[0] * 30, d[1] * 30);
+    for (let k = 0; k < 60; k++) E.step();
+    ok(E.goalState() !== 'play', 'E: der spaetere Spielerkontakt nimmt das Tor nicht zurueck');
+    ok(E.lives().join(',') === leben, 'E: und aendert die Leben nicht (' + E.lives().join(',') + ')');
+  }
+
+  // ── F: Eintritt mit Hoechstgeschwindigkeit ──
+  {
+    for (const ph of [4, 3, 2]) {
+      const E = buildEnv('elimination4'); E.newMatch(); E.forcePhase(ph);
+      for (let slot = 0; slot < ph; slot++) {
+        const r = hinein(E, 0, slot, 60, 0, 400);
+        ok(r.fin && r.over <= 1e-6,
+           'F: Phase ' + ph + ' Slot ' + slot + ': kein Durchschlagen bei Hoechsttempo (Ueberschuss ' +
+           r.over.toFixed(4) + ')');
+        ok(!r.passed, 'F: Phase ' + ph + ' Slot ' + slot + ': auch schnell tritt kein Spieler durch');
+      }
+    }
+  }
+
+  // ── G: die seitlichen Kanten der Oeffnung ──
+  {
+    for (const ph of [4, 3, 2]) {
+      const E = buildEnv('elimination4'); E.newMatch(); E.forcePhase(ph);
+      // Die aeusserste Lage, die eine Spielerkugel im Fenster einnehmen kann: tangential
+      // am Sockel. Weiter aussen liegt ihr Mittelpunkt IM Marmor - kein gueltiger Zustand,
+      // aus dem heraus man Physik pruefen koennte.
+      const halb = E.arena().clearHalf - E.BR;
+      for (let slot = 0; slot < ph; slot++) {
+        for (const q of [-halb, -halb * 0.8, halb * 0.8, halb]) {
+          const r = hinein(E, 0, slot, 30, q, 300);
+          ok(r.fin && r.over <= 1e-6,
+             'G: Phase ' + ph + ' Slot ' + slot + ' quer ' + q.toFixed(0) +
+             ': keine Naht (Ueberschuss ' + r.over.toFixed(4) + ')');
+          ok(E.postClear(0),
+             'G: Phase ' + ph + ' Slot ' + slot + ' quer ' + q.toFixed(0) + ': kein Steckenbleiben im Sockel');
+        }
+      }
+    }
+  }
+
+  // ── H2: ausserhalb des Torfensters gibt es keine Tasche ──
+  // Rings um die Arena abgetastet: eine Tasche gibt es GENAU dort, wo auch das Tor ist -
+  // im lichten Fenster einer offenen Torseite. Ueberall sonst bleibt die Bande die Bande.
+  {
+    for (const [variante, phasen] of [['elimination4', [4, 3, 2]], ['elimination', [5, 4, 3, 2]]]) {
+      for (const ph of phasen) {
+        const E = buildEnv(variante); E.newMatch(); E.forcePhase(ph);
+        const tiefe = E.rescueDepth(), halb = E.arena().clearHalf;
+        let falschOffen = 0, falschZu = 0, imFenster = 0;
+        for (let k = 0; k < 720; k++) {
+          const th = k * Math.PI / 360, ux = Math.cos(th), uy = Math.sin(th);
+          // Der Punkt, der eine halbe Taschentiefe hinter der Bandenlinie liegt.
+          let lo = 0, hi = E.arena().halfLen * 3;
+          for (let i = 0; i < 50; i++) { const m = (lo + hi) / 2;
+            if (E.boundSDAt(E.cx + ux * m, E.cy + uy * m, false).sd < 0) lo = m; else hi = m; }
+          const rr = lo + tiefe * 0.5;
+          const x = E.cx + ux * rr, y = E.cy + uy * rr;
+          const F = E.fold(x - E.cx, y - E.cy);
+          const drin = Math.abs(F.y) <= halb && Math.abs(F.x) > Math.abs(F.y) && E.goalOpen(F.side);
+          const lim = E.rescueLimitAt(x, y, false);
+          if (drin) { imFenster++; if (lim !== tiefe) falschZu++; }
+          else if (lim !== 0) falschOffen++;
+        }
+        ok(imFenster > 0, 'H2: ' + variante + ' Phase ' + ph + ': das Torfenster wird getroffen (' +
+           imFenster + ' von 720 Richtungen)');
+        ok(falschOffen === 0, 'H2: ' + variante + ' Phase ' + ph +
+           ': keine Tasche ausserhalb des Torfensters (' + falschOffen + ' Ausreisser)');
+        ok(falschZu === 0, 'H2: ' + variante + ' Phase ' + ph +
+           ': im Torfenster traegt sie ueberall (' + falschZu + ' Luecken)');
+      }
+    }
+  }
+
+  // ── H3: ein geschlossenes Tor ist auch fuer den Verteidiger eine Wand ──
+  // Zwischen Gegentor und Arenaumbau steht das Tor des Ausgeschiedenen noch, ist aber
+  // geschlossen: dort darf weder der Ball hindurch noch ein Spieler hinein.
+  {
+    const E = buildEnv('elimination4'); E.newMatch(); E.forcePhase(4);
+    const slot = 0, o = E.slotOwner(slot);
+    ok(o >= 0 && E.goalOpen(slot), 'H3: das Tor ist zunaechst offen');
+    const p = imTor(E, slot, E.rescueDepth() * 0.5, 0);
+    ok(E.rescueLimitAt(p.x, p.y, false) === E.rescueDepth(), 'H3: und traegt eine Spielerkugel');
+    E.eliminate(o);
+    ok(!E.goalOpen(slot), 'H3: nach dem Ausscheiden ist das Tor geschlossen');
+    ok(E.rescueLimitAt(p.x, p.y, false) === 0,
+       'H3: dann gibt es dort auch keine Tasche mehr');
+    // Und die Kugel kommt dort nicht mehr hinein.
+    raeumen(E, 1);
+    const r = hinein(E, 1, slot, 30, 0, 200);
+    ok(r.fin && r.worst <= 1e-6,
+       'H3: der Verteidiger prallt am geschlossenen Tor ab (max sd ' + r.worst.toFixed(4) + ')');
+  }
+
+  // ── I: Determinismus ──
+  {
+    const lauf = () => {
+      const E = buildEnv('elimination4'); E.newMatch(); E.forcePhase(4);
+      hinein(E, 0, 0, 24, 0, 200);
+      return E.hash();
+    };
+    const a = lauf(), b = lauf();
+    ok(a === b, 'I: derselbe Eintritt ergibt denselben Zustand (' + a + ')');
+    const E = buildEnv('elimination4'); E.newMatch(); E.forcePhase(4);
+    const p = imTor(E, 0, 0.4 * E.BR, 0);
+    ok(E.rescueLimitAt(p.x, p.y, false) === E.rescueLimitAt(p.x, p.y, false),
+       'I: die Taschengrenze ist eine reine Funktion von Ort und Kugelart');
+  }
 }
 
 console.log('\nFootball-Elimination: ' + pass + ' passed, ' + fail + ' failed');
