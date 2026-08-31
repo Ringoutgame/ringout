@@ -26,3 +26,9 @@ assets/*.blend
 # (Pixabay Content License: keine Standalone-Weitergabe der unbearbeiteten Datei.
 #  Der produktive Schnitt bleibt getrackt — Herkunft/Lizenz: assets/audio/README.md)
 assets/audio/Goal sound Arena Football.mp3
+
+# Hosting-Ausgabe (erzeugt aus index.html + Laufzeit-Assets via tools/build_hosting.js)
+public/
+
+# Arbeitsverzeichnis des Firebase-CLI (lokaler Cache, kein Projektinhalt)
+.firebase/
