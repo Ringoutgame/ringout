@@ -817,6 +817,10 @@ body:not(.r3d) .ohero{height:12px}
     <div class="pills" id="vibeGrp" style="margin-bottom:16px">
       <button id="vibeOnBtn">ON</button><button id="vibeOffBtn">OFF</button>
     </div>
+    <div class="lbl" id="setMusicLbl" style="text-align:left;margin-top:6px">Music</div>
+    <div class="pills" id="musicGrp" style="margin-bottom:16px">
+      <button id="musicOnBtn">ON</button><button id="musicOffBtn">OFF</button>
+    </div>
     <div class="lbl" id="setEnvLbl" style="text-align:left;margin-top:6px">Environment</div>
     <div class="pills" id="envGrp" style="margin-bottom:16px">
       <button id="envDawnBtn" aria-pressed="true">Dawn</button><button id="envDayBtn" aria-pressed="false">Day</button>
@@ -1079,6 +1083,10 @@ let mode='bot',diff='hard',winTarget=3,soundOn=true;   // Bot ist hard-only im S
 // echte Geraete mit Vibration API zeigen den Toggle als bedienbar (siehe applyLang).
 const VIBE_SUPPORTED=typeof navigator!=='undefined'&&'vibrate' in navigator;
 let vibrationOn=(()=>{try{const v=localStorage.getItem('ringout_vibe');return v===null?true:v==='1';}catch(e){return true;}})();
+// Musik: eigener Schalter neben Klang und Vibration, in localStorage gemerkt (Default an).
+// Bewusst NICHT an soundOn gekoppelt - wer den Rhythmus nicht mag, soll die Spielklaenge
+// behalten duerfen. Der Klangschalter bleibt uebergeordnet: ohne Klang keine Musik.
+let musicOn=(()=>{try{const v=localStorage.getItem('ringout_music');return v===null?true:v==='1';}catch(e){return true;}})();
 const VIBE_CLICK_MS=10, VIBE_CONFIRM_MS=25;   // normaler Klick vs. Play-Online-FFA-Start (deutlicher)
 // Environment-Profil (rein lokale, rein visuelle Praeferenz — kein Netzwerk/Physik/Firebase).
 // Gueltige Werte ausschliesslich 'dawn'|'day'; alles andere/fehlend -> 'dawn'. Versionierter Key.
@@ -1688,7 +1696,7 @@ en:{tagline:'PULL BACK · RELEASE · KNOCK THEM OUT',chip:'FEATURED',
   ctaFfa:'PLAY ONLINE FFA',ctaVs:'PLAY ONLINE VERSUS',ctaBot:'START BOT TRAINING',ctaFootball:'START ARENA FOOTBALL 1V1',infoFootball:'BLAU VS ROT · INTEGRATIONS-SHELL',
   infoFfa:'2–5 PLAYERS · HOST STARTS',infoVs:'2 PLAYERS · 2 BALLS EACH',infoBot:'VS AI · SOLO PRACTICE',
   bot1v1T:'1v1 VS BOT',bot1v1S:'1 BALL EACH',bot2v2T:'2v2 DUO VS BOT',bot2v2S:'2 BALLS EACH',comingSoon:'COMING SOON',
-  setTitle:'SETTINGS',setLang:'Language',vibeLbl:'Vibration',vibeUnsupported:' (not available)',
+  setTitle:'SETTINGS',setLang:'Language',vibeLbl:'Vibration',vibeUnsupported:' (not available)',musicLbl:'Music',
   env:'Environment',envDawn:'Dawn',envDay:'Day',
   onSubFfa:'Free for all · 2 to 5 players',onSubVs:'Versus · 2 players',
   createBtn:'Create',createSub:'Create a room and invite your friends.',
@@ -1733,7 +1741,7 @@ de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'FEATURED',
   ctaFfa:'ONLINE FFA SPIELEN',ctaVs:'ONLINE VERSUS SPIELEN',ctaBot:'BOT-TRAINING STARTEN',
   infoFfa:'2–5 SPIELER · HOST STARTET',infoVs:'2 SPIELER · 2 KUGELN PRO SPIELER',infoBot:'GEGEN KI · SOLO-TRAINING',
   bot1v1T:'1v1 GEGEN BOT',bot1v1S:'1 KUGEL PRO SEITE',bot2v2T:'2v2 DUO GEGEN BOT',bot2v2S:'2 KUGELN PRO SEITE',comingSoon:'BALD VERFÜGBAR',
-  setTitle:'EINSTELLUNGEN',setLang:'Sprache',vibeLbl:'Vibration',vibeUnsupported:' (nicht verfügbar)',
+  setTitle:'EINSTELLUNGEN',setLang:'Sprache',vibeLbl:'Vibration',vibeUnsupported:' (nicht verfügbar)',musicLbl:'Musik',
   env:'Umgebung',envDawn:'Dämmerung',envDay:'Tag',
   onSubFfa:'Free for all · 2 bis 5 Spieler',onSubVs:'Versus · 2 Spieler',
   createBtn:'Erstellen',createSub:'Erstelle einen Raum und lade Freunde ein.',
@@ -1778,7 +1786,7 @@ tr:{tagline:'GERİ ÇEK · BIRAK · DIŞARI İT',chip:'FEATURED',
   ctaFfa:'ONLINE FFA OYNA',ctaVs:'ONLINE VERSUS OYNA',ctaBot:'BOT ANTRENMANI BAŞLAT',
   infoFfa:'2–5 OYUNCU · HOST BAŞLATIR',infoVs:'2 OYUNCU · HERKESE 2 TOP',infoBot:'YAPAY ZEKÂYA KARŞI · SOLO ANTRENMAN',
   bot1v1T:'BOTA KARŞI 1v1',bot1v1S:'HERKESE 1 TOP',bot2v2T:'BOTA KARŞI 2v2 DUO',bot2v2S:'HERKESE 2 TOP',comingSoon:'ÇOK YAKINDA',
-  setTitle:'AYARLAR',setLang:'Dil',vibeLbl:'Titreşim',vibeUnsupported:' (desteklenmiyor)',
+  setTitle:'AYARLAR',setLang:'Dil',vibeLbl:'Titreşim',vibeUnsupported:' (desteklenmiyor)',musicLbl:'Müzik',
   env:'Ortam',envDawn:'Şafak',envDay:'Gündüz',
   onSubFfa:'Herkes tek · 2–5 oyuncu',onSubVs:'Karşılıklı · 2 oyuncu',
   createBtn:'Oda kur',createSub:'Bir oda kur ve arkadaşlarını davet et.',
@@ -1845,6 +1853,8 @@ function applyLang(){
   setOn('langGrp',{en:'langEn',de:'langDe',tr:'langTr'}[LANG]);
   $('setVibeLbl').textContent=T('vibeLbl')+(VIBE_SUPPORTED?'':T('vibeUnsupported'));
   setOn('vibeGrp',vibrationOn?'vibeOnBtn':'vibeOffBtn');
+  $('setMusicLbl').textContent=T('musicLbl');
+  setOn('musicGrp',musicOn?'musicOnBtn':'musicOffBtn');
   $('setEnvLbl').textContent=T('env');$('envDawnBtn').textContent=T('envDawn');$('envDayBtn').textContent=T('envDay');
   setOnAria('envGrp',envProfile==='day'?'envDayBtn':'envDawnBtn');
   // Online-Seite: Karten-Titel/-Texte, Toggle-Labels (nur der Text-Span — Icons bleiben)
@@ -1873,6 +1883,11 @@ for(const[id,lg]of[['langEn','en'],['langDe','de'],['langTr','tr']])
 $('vibeOnBtn').disabled=$('vibeOffBtn').disabled=!VIBE_SUPPORTED;
 for(const[id,on]of[['vibeOnBtn',true],['vibeOffBtn',false]])
   $(id).onclick=()=>{vibrationOn=on;try{localStorage.setItem('ringout_vibe',on?'1':'0');}catch(e){}setOn('vibeGrp',id);};
+// Musik-Toggle: OFF heisst SOFORT still - nicht erst beim naechsten Zug. ON startet
+// nichts von selbst; der naechste Bildlauf in Arena Football holt den Rhythmus zurueck.
+for(const[id,on]of[['musicOnBtn',true],['musicOffBtn',false]])
+  $(id).onclick=()=>{musicOn=on;try{localStorage.setItem('ringout_music',on?'1':'0');}catch(e){}setOn('musicGrp',id);
+    if(!on&&typeof fbMusicStop==='function')fbMusicStop();};
 // Environment-Auswahl: Wahl sofort lokal speichern + UI aktualisieren; sichtbare Anwendung
 // uebernimmt der 3D-Layer (live nur im sicheren Idle, sonst beim naechsten Menue-Wechsel).
 for(const[id,key]of[['envDawnBtn','dawn'],['envDayBtn','day']])
@@ -1929,7 +1944,7 @@ $('fbClassicBtn').onclick=()=>{if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);startFo
 $('fbTacticalBtn').onclick=()=>{if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);startFootball(FOOTBALL_VARIANT_TACTICAL);};
 $('fbElimBtn').onclick=()=>{if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);startFootball(FOOTBALL_VARIANT_ELIM);};
 $('fbModeBack').onclick=()=>$('fbModeOv').classList.remove('show');
-$('menuSnd').onclick=()=>{soundOn=!soundOn;const g=soundOn?'🔊':'🔇';$('menuSnd').textContent=g;$('sndBtn').textContent=g;if(!soundOn){SFX.charge.stop();SFX.fbTransitionStop();}};
+$('menuSnd').onclick=()=>{soundOn=!soundOn;const g=soundOn?'🔊':'🔇';$('menuSnd').textContent=g;$('sndBtn').textContent=g;if(!soundOn){SFX.charge.stop();SFX.fbTransitionStop();if(typeof fbMusicStop==='function')fbMusicStop();}};
 // ── Menue-Preview: die ECHTE 3D-Szene zeigt den gewaehlten Modus. Setzt nur den
 //    Pre-Game-Zustand (wie frueher die Menue-Pills) und laesst den echten Spawner
 //    (placeBalls) die Kugeln stellen — der 3D-Renderer spiegelt balls[] ohnehin
@@ -1963,7 +1978,7 @@ $('menuBtn').onclick=()=>{if(online&&gameStarted){$('leaveOv').classList.add('sh
 $('leaveCancel').onclick=()=>$('leaveOv').classList.remove('show');
 $('leaveGo').onclick=()=>{$('leaveOv').classList.remove('show');$('ov').classList.remove('show');leaveOnline(showMenu);};
 $('ovMenuBtn').onclick=()=>{$('ov').classList.remove('show');leaveOnline(showMenu);};
-$('sndBtn').onclick=()=>{soundOn=!soundOn;const g=soundOn?'🔊':'🔇';$('sndBtn').textContent=g;$('menuSnd').textContent=g;if(!soundOn){SFX.charge.stop();SFX.fbTransitionStop();}};
+$('sndBtn').onclick=()=>{soundOn=!soundOn;const g=soundOn?'🔊':'🔇';$('sndBtn').textContent=g;$('menuSnd').textContent=g;if(!soundOn){SFX.charge.stop();SFX.fbTransitionStop();if(typeof fbMusicStop==='function')fbMusicStop();}};
 $('resetBtn').onclick=()=>{if(online){toast(T('noOnlineReset'));return;}newGame();};
 $('rematchBtn').onclick=()=>{if(online){onlineRematch();return;}$('ov').classList.remove('show');newGame();};   // online: das Ergebnisfenster bleibt stehen, bis der Generationswechsel BESTAETIGT ist (startOnlineGame raeumt es ab) - wird er abgelehnt, sieht der Spieler weiter sein Ergebnis
 $('onCreate').onclick=()=>createRoom();
@@ -2008,6 +2023,48 @@ $('menu').addEventListener('scroll',updScrollHint,{passive:true});
 window.addEventListener('resize',()=>updScrollHint());
 
 // ════ SOUND ════
+// ════ DIE KLANG-DNA VON ARENA FOOTBALL ════════════════════════════════════════
+// Zwei Stellen brauchen sie: das durchlaufende Thema (FBMUSIC) und der Torklang (SFX).
+// Sie steht deshalb genau EINMAL hier oben. Wer eine der beiden Stellen aendert, aendert
+// zwangslaeufig auch die andere - und genau das ist gewollt: der Torklang ist ein Zitat
+// des Themas, kein zweiter Klang, der zufaellig aehnlich ist.
+
+// Die Toene des Arena-Football-Rufs.
+const FB_MOTIF={G3:196.00,A3:220.00,C4:261.63,E4:329.63,G4:392.00,A4:440.00,B4:493.88,
+                C5:523.25,D5:587.33,E5:659.25,G5:783.99,A5:880.00,C6:1046.50};
+// Und seine Klangfarbe: zwei minimal gegeneinander verstimmte Koerper hinter einem
+// Filter, das im Anschlag zufaellt (das Gezupfte), plus eine kurze metallische Transiente
+// auf einem INHARMONISCHEN Oberton (das Glasige - der Teil, der auch aus einem
+// Telefonlautsprecher noch durchkommt).
+const FB_TIMBRE={detune:1.0028,detuneJit:0.0008,partial:5.42,filtOpen:7.5,filtFall:1.55,
+                 filtTime:0.13,filtQ:3.5,sawMix:0.20,transient:0.44,transientDec:0.05};
+// Eine Stimme dieses Instruments. `halte(src,chain,t0,t1)` ist die Stimmenverwaltung des
+// Aufrufers - jedes Modul fuehrt seine eigene, die Klangfarbe teilen sie sich.
+function fbPluckVoice(c,dest,t,f,dur,amp,rnd,halte){
+  const K=FB_TIMBRE;
+  const lp=c.createBiquadFilter();lp.type='lowpass';lp.Q.value=K.filtQ;
+  lp.frequency.setValueAtTime(Math.min(11000,f*K.filtOpen),t);
+  lp.frequency.exponentialRampToValueAtTime(f*K.filtFall,t+K.filtTime);
+  lp.connect(dest);
+  const g=c.createGain();
+  g.gain.setValueAtTime(0.0001,t);
+  g.gain.linearRampToValueAtTime(amp,t+0.006);
+  g.gain.exponentialRampToValueAtTime(0.0006,t+dur*0.85+0.12);
+  g.connect(lp);
+  const o1=c.createOscillator();o1.type='triangle';o1.frequency.value=f;o1.connect(g);
+  const g2=c.createGain();g2.gain.value=K.sawMix;g2.connect(g);
+  const o2=c.createOscillator();o2.type='sawtooth';
+  o2.frequency.value=f*(K.detune+K.detuneJit*rnd());o2.connect(g2);
+  halte(o1,[g,lp],t,t+dur+0.22);
+  halte(o2,[g2],t,t+dur+0.22);
+  const mg=c.createGain();
+  mg.gain.setValueAtTime(amp*K.transient,t);
+  mg.gain.exponentialRampToValueAtTime(0.0004,t+K.transientDec);
+  mg.connect(dest);
+  const mo=c.createOscillator();mo.type='sine';mo.frequency.value=f*K.partial;
+  mo.connect(mg);halte(mo,[mg],t,t+K.transientDec+0.02);
+}
+
 const SFX=(()=>{
   let c=null,noiseBuf=null,clickBuf=null;
   function ac(){if(!c)c=new(window.AudioContext||window.webkitAudioContext)();if(c.state==='suspended')c.resume();return c;}
@@ -2100,6 +2157,12 @@ const SFX=(()=>{
   // Ausgangspegel: deutlich ueber Roll (~0.28) und Hit (~0.50), also klar der belohnende
   // Hoehepunkt, aber ohne Clipping und ohne Schreckmoment -> kein eigener Limiter noetig.
   const FOOTBALL_GOAL_ASSET_GAIN=0.80;
+  // Ab Pass 03C traegt die SIGNATUR den Torklang (fbGoalSting). Das Stockasset ist ein
+  // "Cinematic Sci-Fi Whoosh" und stammt aus DERSELBEN Quelldatei wie die beiden
+  // Arena-Transitionsklaenge - ein Tor klang dadurch wie ein Arenaumbau, also nach nichts
+  // Bestimmtem. Es wird nicht geloescht, sondern auf null geregelt: ein Wert ueber 0 legt
+  // es jederzeit wieder als Unterlage unter die Signatur.
+  const FOOTBALL_GOAL_ASSET_MIX=0.0;
   // Matchpunkt: derselbe Schnitt, nur minimal angehoben. Die eigentliche Aufwertung leisten
   // das laengere Celebration Window und das Result-Overlay — kein Pitch-Gimmick, keine Extraschicht.
   const FOOTBALL_GOAL_MATCHPOINT_GAIN_MUL=1.06;
@@ -2166,26 +2229,151 @@ const SFX=(()=>{
   function releaseGoalVoice(v){
     if(!fbGoalVoices.delete(v))return;
     try{v.src.disconnect();}catch(e){}
-    try{v.g.disconnect();}catch(e){}
+    // Ein GETEILTER Ausgang - die Signatur haengt alle ihre Schichten an einen
+    // einzigen Gain - darf hier NICHT getrennt werden. Die kuerzeste Stimme ist
+    // nach 40 ms durch, die Figur beginnt erst nach 100 ms: sie wuerde den Weg
+    // zum Ausgang mit sich reissen, und vom Tor bliebe nur der erste Knacks.
+    // Getrennt wird er, wenn die LETZTE Stimme dieses Tores durch ist (goalSting).
+    if(v.g&&!v.geteilt)try{v.g.disconnect();}catch(e){}
+    // Die Signatur haengt mehrere Knoten je Stimme dazwischen (Filter, Huellkurven);
+    // sie werden mit derselben Freigabe getrennt - es gibt keine zweite Verwaltung.
+    if(v.chain)for(const n of v.chain){try{n.disconnect();}catch(e){}}
+  }
+  // ── DER TORKLANG VON ARENA FOOTBALL ─────────────────────────────────────────
+  // Kein Fanfarenstoss, kein Jubel, kein Whoosh von der Stange: die Arena laesst
+  // gespeicherte ENERGIE frei. Fuenf Schichten, zusammen unter 1.4 s:
+  //   1 GEWICHT      ein kurzer, tiefer Anschlag - der Treffer hat Masse
+  //   2 ENTLADUNG    ein schneller Anstieg: das Tor hat etwas ausgeloest
+  //   3 GLANZ        eine helle, glasige Transiente auf dem inharmonischen Oberton der
+  //                  Figur - genau die Farbe, die auch das Thema traegt
+  //   4 FIGUR        E-G-A: der Anfang des Arena-Football-Rufs, im Instrument des Themas
+  //   5 NACHKLANG    ein kurzer, weiter Ausklang
+  // Die Wiedererkennung tragen Schicht 3 und 4. Beide liegen in einem Bereich, den auch
+  // ein Telefonlautsprecher wiedergibt - der Bass ist Zugabe, nicht Bedingung.
+  // Alle Schichten haengen an EINEM Gain: damit laesst sich der ganze Klang in einem Zug
+  // ausblenden (footballGoalStop) und die Balance an einer Stelle einstellen.
+  const FB_GOAL_GAIN=0.66;              // der lauteste Klang des Spiels
+  const FB_GOAL_MP_MUL=1.08;            // Matchpunkt: dieselbe Identitaet, etwas mehr davon
+  function goalSting(matchPoint){
+    go(c=>{
+      const t=c.currentTime,mp=!!matchPoint;
+      const sg=c.createGain();
+      sg.gain.value=FB_GOAL_GAIN*(mp?FB_GOAL_MP_MUL:1);
+      sg.connect(c.destination);
+      // Alle Schichten teilen sich `sg`. Getrennt wird er deshalb erst, wenn die letzte
+      // von ihnen durch ist - sonst nimmt die kuerzeste den Rest mit.
+      let offen=0;
+      const halte=(src,chain,t0,t1)=>{
+        offen++;
+        const v={src,g:sg,chain,geteilt:true};
+        fbGoalVoices.add(v);
+        src.onended=()=>{
+          releaseGoalVoice(v);
+          if(--offen<=0){try{sg.disconnect();}catch(e){}}
+        };
+        src.start(t0);src.stop(t1);
+      };
+      // 1 GEWICHT - kontrolliert und knapp, keine Kinoexplosion
+      const wg=c.createGain();
+      wg.gain.setValueAtTime(0.0001,t);
+      wg.gain.linearRampToValueAtTime(mp?0.60:0.53,t+0.006);
+      wg.gain.exponentialRampToValueAtTime(0.0006,t+0.16);
+      wg.connect(sg);
+      const wo=c.createOscillator();wo.type='sine';
+      wo.frequency.setValueAtTime(132,t);
+      wo.frequency.exponentialRampToValueAtTime(42,t+0.09);
+      wo.connect(wg);halte(wo,[wg],t,t+0.20);
+      const kg=c.createGain();                       // der harte Punkt des Anschlags
+      kg.gain.setValueAtTime(0.28,t);
+      kg.gain.exponentialRampToValueAtTime(0.0006,t+0.03);
+      const klp=c.createBiquadFilter();klp.type='lowpass';klp.frequency.value=1400;
+      klp.connect(sg);kg.connect(klp);
+      const kn=c.createBufferSource();kn.buffer=noise(c);kn.loop=true;kn.connect(kg);
+      halte(kn,[kg,klp],t,t+0.04);
+      // 2 ENTLADUNG - Rauschen und Ton steigen gemeinsam auf
+      const rb=c.createBiquadFilter();rb.type='bandpass';rb.Q.value=1.1;
+      rb.frequency.setValueAtTime(280,t+0.02);
+      rb.frequency.exponentialRampToValueAtTime(4200,t+0.24);
+      rb.connect(sg);
+      const rg=c.createGain();
+      rg.gain.setValueAtTime(0.0001,t+0.02);
+      rg.gain.linearRampToValueAtTime(0.24,t+0.10);
+      rg.gain.exponentialRampToValueAtTime(0.0006,t+0.30);
+      rg.connect(rb);
+      const rn=c.createBufferSource();rn.buffer=noise(c);rn.loop=true;rn.connect(rg);
+      halte(rn,[rg,rb],t+0.02,t+0.32);
+      const tl=c.createBiquadFilter();tl.type='lowpass';tl.Q.value=1.2;
+      tl.frequency.setValueAtTime(320,t+0.02);
+      tl.frequency.exponentialRampToValueAtTime(3000,t+0.22);
+      tl.connect(sg);
+      const tg=c.createGain();
+      tg.gain.setValueAtTime(0.0001,t+0.02);
+      tg.gain.linearRampToValueAtTime(mp?0.23:0.19,t+0.09);
+      tg.gain.exponentialRampToValueAtTime(0.0006,t+0.28);
+      tg.connect(tl);
+      const to=c.createOscillator();to.type='sawtooth';
+      to.frequency.setValueAtTime(FB_MOTIF.A4/4,t+0.02);              // A2 steigt
+      to.frequency.exponentialRampToValueAtTime(FB_MOTIF.A4,t+0.22);  // auf A4
+      to.connect(tg);halte(to,[tg,tl],t+0.02,t+0.30);
+      // 3 GLANZ - derselbe inharmonische Oberton wie im Instrument der Figur
+      const gg=c.createGain();
+      gg.gain.setValueAtTime(0.0001,t+0.015);
+      gg.gain.linearRampToValueAtTime(0.16,t+0.03);
+      gg.gain.exponentialRampToValueAtTime(0.0004,t+0.12);
+      gg.connect(sg);
+      const glanz=c.createOscillator();glanz.type='sine';
+      glanz.frequency.value=FB_MOTIF.A4*FB_TIMBRE.partial;               // 2384 Hz: hell, nicht schrill
+      glanz.connect(gg);halte(glanz,[gg],t+0.015,t+0.14);
+      // 4 DIE FIGUR - E G A, beim Matchpunkt mit einem aufloesenden Ton mehr
+      const frag=mp?[FB_MOTIF.E5,FB_MOTIF.G5,FB_MOTIF.A5,FB_MOTIF.C6]
+                   :[FB_MOTIF.E5,FB_MOTIF.G5,FB_MOTIF.A5];
+      for(let k=0;k<frag.length;k++)
+        fbPluckVoice(c,sg,t+0.10+k*0.085,frag[k],0.34,0.30,Math.random,halte);
+      // 5 NACHKLANG - weit, kurz, und ohne das Spiel aufzuhalten
+      const elp=c.createBiquadFilter();elp.type='lowpass';elp.frequency.value=900;
+      elp.connect(sg);
+      const eg=c.createGain();
+      eg.gain.setValueAtTime(0.0001,t+0.06);
+      eg.gain.linearRampToValueAtTime(mp?0.17:0.14,t+0.20);
+      eg.gain.exponentialRampToValueAtTime(0.0006,t+(mp?1.25:0.95));
+      eg.connect(elp);
+      for(const f of [FB_MOTIF.A4/4,FB_MOTIF.E4/2]){                  // A2 und E3
+        const eo=c.createOscillator();eo.type='triangle';eo.frequency.value=f;
+        eo.connect(eg);halte(eo,[eg,elp],t+0.06,t+(mp?1.35:1.05));
+      }
+    });
   }
   return{
     charge,
     // Erzwingt Context-Erzeugung/-Resume aus einer User-Geste (Mobile-Autoplay-Unlock)
     unlock(){if(soundOn)try{ac();}catch(e){}},
+    // Der LAUFENDE Context - oder nichts. Erzeugt bewusst KEINEN: die Musikschicht darf
+    // nie selbst einen Context aufmachen, sonst entstuende auf Mobilgeraeten ein zweiter,
+    // dauerhaft gesperrter Context. Vor der ersten Nutzergeste bleibt die Musik damit
+    // einfach still - ohne Fehler, ohne Wiederholungsversuche im Log.
+    ctxRunning(){return c&&c.state==='running'?c:null;},
+    // Das GETEILTE Rauschbuffer (siehe noise()). Die Musik legt kein zweites an.
+    noiseBuf(){if(!c)return null;try{return noise(c);}catch(e){return null;}},
     // Kontrolliertes Preload aus der User-Geste, die Arena Football startet: der Context ist
     // hier bereits entsperrt, das erste Tor spielt damit ohne Ladeverzoegerung. Rein optional —
     // faellt es aus, laedt footballGoal() beim ersten Tor nach (dann ggf. still).
-    footballGoalPreload(){if(soundOn)try{loadFootballGoalAsset(ac());}catch(e){}},
+    // Der Aufruf entsperrt zugleich den Context aus der Startgeste heraus; das Asset
+    // wird nur geladen, wenn es ueberhaupt mitspielt (s. FOOTBALL_GOAL_ASSET_MIX).
+    footballGoalPreload(){if(soundOn)try{const cc=ac();if(FOOTBALL_GOAL_ASSET_MIX>0)loadFootballGoalAsset(cc);}catch(e){}},
+    // Die Signatur einzeln - fuer die Dev-Hoerprobe und die Tests.
+    fbGoalSting(matchPoint){goalSting(matchPoint);},
     // GENAU EIN Aufruf pro bestaetigtem Tor (einziger Aufrufer: footballTryGoal, das nur aus
     // 'play' wertet — dieselbe Einmalgarantie wie footballGoalFxTrigger). Jedes Tor bekommt
     // eine FRISCHE BufferSource an einem eigenen Gain: schnelle Wiederholungen ueberlagern
     // sauber, statt sich einen Wiedergabecursor zu teilen.
     footballGoal(matchPoint){
+      goalSting(matchPoint);                       // die Signatur ist der Torklang
+      if(FOOTBALL_GOAL_ASSET_MIX<=0)return;        // das Stockasset liegt still (s. dort)
       go(c=>{
         if(fbGoalLoad===0)loadFootballGoalAsset(c);
         if(fbGoalLoad!==2)return;                  // laedt noch oder fehlt -> Tor laeuft still weiter
         const g=c.createGain();
-        g.gain.value=FOOTBALL_GOAL_ASSET_GAIN*(matchPoint?FOOTBALL_GOAL_MATCHPOINT_GAIN_MUL:1);
+        g.gain.value=FOOTBALL_GOAL_ASSET_GAIN*FOOTBALL_GOAL_ASSET_MIX*(matchPoint?FOOTBALL_GOAL_MATCHPOINT_GAIN_MUL:1);
         g.connect(c.destination);
         const src=c.createBufferSource();src.buffer=fbGoalBuf;src.connect(g);
         const v={src,g};fbGoalVoices.add(v);
@@ -2374,8 +2562,451 @@ const SFX=(()=>{
     }
   };
 })();
-// Mobile-Autoplay: der erste Touch/Klick irgendwo entsperrt den AudioContext aus der Geste heraus
-window.addEventListener('pointerdown',()=>SFX.unlock(),{once:true});
+// ── MOBILE-AUTOPLAY: ENTSPERREN, BIS ES WIRKLICH GEKLAPPT HAT ────────────────
+// Klang darf erst nach einer echten Nutzergeste beginnen - daran wird nicht gedreht.
+// Ein EINZELNER Versuch reicht dafuer aber nicht: die erste Geste auf der Startseite ist
+// haeufig ein Wischen, und ein Wischen erteilt nicht in jedem Browser eine Audiofreigabe.
+// Scheitert dieser eine Versuch, bleibt der Context stumm liegen, weil sich der Zuhoerer
+// bereits abgemeldet hat. Deshalb wird bei JEDER Geste erneut versucht - und erst
+// abgemeldet, wenn der Context TATSAECHLICH laeuft.
+// In der Capture-Phase, damit kein Handler dazwischen den Versuch verhindern kann; ein
+// zweiter AudioContext entsteht dabei nie (ac() gibt immer denselben zurueck).
+(()=>{
+  const GESTEN=['pointerdown','touchend','keydown','click'];
+  const versuch=()=>{
+    SFX.unlock();
+    if(SFX.ctxRunning&&SFX.ctxRunning())
+      for(const g of GESTEN)window.removeEventListener(g,versuch,true);
+  };
+  for(const g of GESTEN)window.addEventListener(g,versuch,true);
+})();
+// ════ ARENA FOOTBALL — DAS THEMA (Action-Feel 03B) ════════════════════════════
+// Nicht ein Rhythmus, der auf Ereignisse antwortet, sondern ein STUECK, das durchlaeuft.
+// Es beginnt am Menue, es traegt die Lobby, es traegt das Match, es traegt das Ergebnis -
+// als EINE Komposition mit EINER Uhr. Was zwischen diesen Orten wechselt, ist die
+// Besetzung, nie das Stueck. Ein Abschuss, ein Treffer, ein Tor legen sich DARAUF; sie
+// starten die Figur nicht, sie verschieben sie nicht, sie beenden sie nicht.
+//
+// Fuenf Zusagen:
+//   1. KEIN ZWEITER AUDIOCONTEXT. Der Context kommt von SFX und wird hier nie erzeugt -
+//      solange er nicht laeuft, schweigt das Thema (Mobile-Autoplay).
+//   2. EINE ABSOLUTE UHR. Die Stelle im Stueck ergibt sich allein aus der verstrichenen
+//      Zeit. Navigation, Stille, Hintergrundtab und Tore verschieben sie nicht; es wird
+//      nie zurueckgesetzt und nie nachgeholt.
+//   3. KEIN SPIELZUSTAND. Es wird gelesen, nie geschrieben - kein simHash, kein
+//      Protokoll, keine Serialisierung.
+//   4. GENAU EIN ZEITGEBER, ein Vorlauf von 0.18 s, ein Stimmenbudget; jede Stimme
+//      trennt sich nach ihrer Stopzeit selbst wieder ab.
+//   5. RINGOUT BLEIBT RINGOUT. Waehrend eines FFA-, Team-Duel- oder Bot-Spiels schweigt
+//      das Thema - dort gilt die bestehende Klangwelt.
+const FBMUSIC=(()=>{
+  // ── DIE KOMPOSITION ───────────────────────────────────────────────────────
+  // 126 BPM im Achtelraster. Eine ZELLE sind zwei Takte (16 Schritte, 3.81 s), die
+  // vollstaendige FORM sechs Zellen (96 Schritte, 22.86 s). Der Ruf steht in drei der
+  // sechs Zellen: haeufig genug, um nach ein paar Sekunden wiederzukommen, selten genug,
+  // um nach dem fuenften Match nicht zu nerven.
+  const BPM=126, STEP=30/BPM, BAR=8, CELL=16, CELLS=6, TOTAL=CELL*CELLS;
+  // Das Stimmenbudget wird je SCHRITT geprueft, nicht je Stimme: ein begonnener Schritt
+  // wird zu Ende geplant. Die Grenze ist damit weich - hoechstens ein Schritt (bis zu
+  // sieben Stimmen) steht darueber. Erreicht wird sie ohnehin nur, wenn der Audiofaden
+  // Stimmen verschluckt; im Normalbetrieb liegt die Spitze bei einem Bruchteil.
+  // Der Vorlauf muss deutlich groesser sein als die schlechteste zu erwartende
+  // Verspaetung des Zeitgebers. Auf einem Telefon, dessen Hauptfaden die 3D-Szene traegt,
+  // kann ein 40-ms-Intervall auf ein Vielfaches gedehnt werden; mit einem knappen Vorlauf
+  // haengt der Planer dann dauerhaft hinterher. 0.35 s sind rund neun Zeitgeberlaeufe
+  // Reserve und bleiben trotzdem kurz genug, dass ein Besetzungswechsel sofort greift.
+  const LOOKAHEAD=0.50, TIMER_MS=25, MAX_VOICES=32, VOICE_HEADROOM=8;
+  const MASTER=0.34;          // das Thema sitzt UNTER dem Spielklang (Tor ~0.69, Treffer ~0.50)
+  const AMB=0.020;            // Arenaluft: mehr gefuehlt als gehoert
+  const FADE=0.45;            // s: jeder Besetzungswechsel ist eine Rampe, nie ein Schnitt
+  const GOAL_DUCK=1.10;       // s: so lange tritt das Thema fuer den Torklang zurueck
+  const HERO_MS=260;          // ms: Mindestabstand zwischen zwei Ballakzenten
+
+  // Tonvorrat: a-aeolisch, bewusst ohne Leitton - offen, modal, nie suess. Er steht
+  // ausserhalb dieses Moduls (FB_MOTIF), weil der Torklang dieselben Toene zitiert.
+  const T=FB_MOTIF;
+
+  // ── DER FINGERABDRUCK ─────────────────────────────────────────────────────
+  // Drei kurze Anschlaege, dann ein langer - und zwar ZWEIMAL hintereinander mit
+  // demselben Rhythmus, aber anderer Tonfolge. Genau diese Wiederholung macht die Figur
+  // nach wenigen Sekunden wiedererkennbar: der RHYTHMUS stellt die Frage, die TONHOEHE
+  // beantwortet sie.
+  //   Schritt      0     2     3     6 (lang)
+  //   Ruf          E4    E4    G4    A4        steigt an und bleibt stehen
+  //   Antwort      C5    B4    G4    A4        kommt von oben und loest auf
+  const RUF=[[0,T.E4,1],[2,T.E4,1],[3,T.G4,1],[6,T.A4,2]];
+  const ANTWORT=[[8,T.C5,1],[10,T.B4,1],[11,T.G4,1],[14,T.A4,2]];
+  const HOOK=RUF.concat(ANTWORT);
+  // Variante: derselbe Ruf, aber die Antwort steigt hoeher und bleibt OFFEN - sie endet
+  // auf der Sekunde statt auf dem Grundton. Danach kommt der Ruf zurueck und loest auf.
+  const VARIANTE=RUF.concat([[8,T.E5,1],[10,T.D5,1],[11,T.C5,1],[14,T.B4,2]]);
+  // Atem: dieselbe Figur eine Oktave tiefer und halbiert. Platz, damit der Ruf wirkt.
+  const ATEM=[[0,T.A3,1],[3,T.C4,1],[6,T.E4,3],[11,T.G3,3]];
+  // Wende: derselbe Fingerabdruck, aber abwaerts - und danach Stille bis zum Ruf.
+  const WENDE=[[0,T.E5,1],[2,T.C5,1],[3,T.B4,1],[6,T.G4,2],[8,T.A4,3]];
+  const FORM=[HOOK,VARIANTE,HOOK,ATEM,HOOK,WENDE];
+  // Der harmonische Boden je Zelle: i i VI VI VII i. Aeolisch, kein Vier-Akkord-Pop -
+  // und der Ruf steht dadurch dreimal ueber DREI verschiedenen Grundtoenen. Dieselbe
+  // Melodie, jedes Mal ein anderes Licht.
+  const ROOT=[55.00,55.00,43.65,43.65,49.00,55.00];
+  // Schlagwerk je Zelle (16 Schritte). Welche davon tatsaechlich klingen, entscheidet
+  // die Besetzung - die Muster selbst sind in jeder Szene dieselben.
+  const KICK=[1,0,0,0,0,0,1,0, 1,0,0,0,1,0,0,0];
+  const HAT =[0,1,0,1,0,1,1,1, 0,1,0,1,0,1,0,1];
+  const BASS=[1,0,0,0,0,0,1,0, 1,0,0,1,0,0,1,0];
+
+  // ── DIE BESETZUNG ─────────────────────────────────────────────────────────
+  // EINE Besetzung fuer das ganze Produkt. Der zweite Puls - die Zaehlung und das volle
+  // Kickmuster - ist genau das, was den Rhythmus traegt; er gehoert deshalb ins MENUE,
+  // nicht erst ins Match. Dort wird die Identitaet gelernt.
+  const SCHICHT={bed:0.30,bass:0.29,motif:0.30,kick:0.33,hat:0.105};
+  // Unterschieden wird nur noch der PEGEL. Im Match tritt die Musik zurueck, damit
+  // Torklang, Ballschlag und Aufprall klar davor sitzen; die Komposition bleibt dieselbe
+  // und der Rhythmus genauso energisch. Menue und Ergebnis sind die Markenfassung.
+  const SZENE={menu:1.00,lobby:0.95,match:0.76};
+  // Der Zuschlag im Match, wenn es eng wird (5 Spieler -> 0, 2 Spieler -> 1). Die
+  // MELODIE waechst dabei kaum: sie soll wiedererkennbar bleiben, nicht lauter werden.
+  const ZUSCHLAG={bed:0.06,bass:0.12,motif:0.04,kick:0.20,hat:0.085};
+
+  // Eigener Zufall, ausschliesslich fuer Klangfarbe und Betonung. Vollstaendig von der
+  // Simulation getrennt; er faellt nie eine Spielentscheidung.
+  let seed=0x9e3779b9>>>0;
+  function mRnd(){seed=(seed*1664525+1013904223)>>>0;return seed/4294967296;}
+
+  let c=null,master=null,duck=null,gBed=null,gBass=null,gMotif=null,gKick=null,gHat=null,gAmb=null;
+  let droneA=null,droneB=null,droneBG=null,droneFilt=null;
+  let ambSrc=null,ambFilt=null,ambLfo=null,ambLfoG=null;
+  let timer=0,step=0,nextT=0,startT=0,voices=0,build0=0,stopGen=0,lastHero=0,sched=0;
+  let scene='off',iv=0,dark=false,alive=false;
+
+  // Der Stimmenzaehler gehoert dem AUFBAU, nicht dem Modul: eine Stimme aus einem
+  // frueheren Aufbau darf den Zaehler des aktuellen nicht mehr anfassen. Ohne diese
+  // Bindung koennte ein ausbleibendes onended den Zaehler dauerhaft anheben - ab
+  // MAX_VOICES plant scheduleStep nichts mehr, und das Thema verstummt lautlos.
+  function voice(src,chain,t,stop,offset){
+    const b0=build0;
+    voices++;
+    src.onended=()=>{
+      if(b0===build0&&voices>0)voices--;
+      try{src.disconnect();}catch(e){}
+      for(const n of chain){try{n.disconnect();}catch(e){}}
+    };
+    if(offset==null)src.start(t);else src.start(t,offset);
+    src.stop(stop);
+  }
+  // Alte Automation loeschen, aktuellen Wert FESTHALTEN, dann das neue Ziel setzen.
+  // Ohne das Festhalten laesst die Spezifikation offen, auf welchen Wert der Parameter
+  // beim Loeschen zurueckfaellt - und aus einer weichen Rampe wird ein Sprung.
+  function hold(p,v,tc,t){
+    p.cancelScheduledValues(t);
+    p.setValueAtTime(p.value,t);
+    p.setTargetAtTime(v,t,tc);
+  }
+
+  function build(cc){
+    c=cc;build0++;voices=0;sched=0;
+    // Der Nullpunkt liegt bewusst knapp in der ZUKUNFT: der erste Einstieg rastet auf
+    // den naechsten Takt, und der soll Takt 0 sein - das Stueck beginnt mit dem Ruf, nicht
+    // mit seiner Antwort. Ab hier laeuft die Uhr, und zwar genau einmal.
+    startT=cc.currentTime+0.08;
+    master=cc.createGain();master.gain.value=0.0001;master.connect(cc.destination);
+    duck=cc.createGain();duck.gain.value=1;duck.connect(master);
+    const mk=()=>{const g=cc.createGain();g.gain.value=0.0001;g.connect(duck);return g;};
+    gBed=mk();gBass=mk();gMotif=mk();gKick=mk();gHat=mk();
+    // Die Atmosphaere haengt bewusst NEBEN dem Duck: sie bleibt auch beim Tor stehen,
+    // damit der Raum nicht kurz zusammenfaellt.
+    gAmb=cc.createGain();gAmb.gain.value=0.0001;gAmb.connect(master);
+    // Bett: Grundton und Quinte hinter einem Tiefpass. Zwei dauerhafte Oszillatoren -
+    // die Harmonik wandert zellenweise per Rampe, dafuer entsteht kein neuer Knoten.
+    droneFilt=cc.createBiquadFilter();droneFilt.type='lowpass';
+    droneFilt.frequency.value=190;droneFilt.Q.value=0.7;droneFilt.connect(gBed);
+    droneA=cc.createOscillator();droneA.type='sine';droneA.frequency.value=ROOT[0];
+    droneA.connect(droneFilt);droneA.start();
+    droneB=cc.createOscillator();droneB.type='triangle';droneB.frequency.value=ROOT[0]*1.5;
+    droneBG=cc.createGain();droneBG.gain.value=0.30;droneBG.connect(droneFilt);
+    droneB.connect(droneBG);droneB.start();
+    // Arenaluft: sehr leises, tief gefiltertes Rauschen mit langsamer Bewegung. Kein
+    // Publikumssample, keine erkennbaren Stimmen - nur ein grosser Raum, der atmet.
+    const nb=(typeof SFX!=='undefined'&&SFX.noiseBuf)?SFX.noiseBuf():null;
+    if(nb){
+      ambFilt=cc.createBiquadFilter();ambFilt.type='lowpass';
+      ambFilt.frequency.value=330;ambFilt.Q.value=0.5;ambFilt.connect(gAmb);
+      ambSrc=cc.createBufferSource();ambSrc.buffer=nb;ambSrc.loop=true;
+      ambSrc.playbackRate.value=0.25;ambSrc.connect(ambFilt);ambSrc.start();
+      ambLfo=cc.createOscillator();ambLfo.type='sine';ambLfo.frequency.value=0.07;
+      ambLfoG=cc.createGain();ambLfoG.gain.value=120;
+      ambLfo.connect(ambLfoG);ambLfoG.connect(ambFilt.frequency);ambLfo.start();
+    }
+    alive=true;
+  }
+  // Vollstaendiger Abbau. Er passiert NUR, wenn der Spieler die Musik ausschaltet oder
+  // stummschaltet - nicht beim Navigieren: sonst verloere das Stueck seine Uhr.
+  function teardown(){
+    if(!alive)return;
+    const t=c?c.currentTime:0;
+    for(const o of [droneA,droneB,ambSrc,ambLfo]){
+      if(!o)continue;
+      o.onended=(function(n){return()=>{try{n.disconnect();}catch(e){}};})(o);
+      try{o.stop(t+FADE+0.05);}catch(e){}
+    }
+    const nodes=[master,duck,gBed,gBass,gMotif,gKick,gHat,gAmb,droneFilt,droneBG,ambFilt,ambLfoG];
+    setTimeout(()=>{for(const n of nodes){if(n)try{n.disconnect();}catch(e){}}},
+               Math.round((FADE+0.20)*1000));
+    master=duck=gBed=gBass=gMotif=gKick=gHat=gAmb=null;
+    droneA=droneB=droneBG=droneFilt=null;
+    ambSrc=ambFilt=ambLfo=ambLfoG=null;
+    alive=false;
+  }
+
+  function hoerbar(){return alive&&scene!=='off'&&!dark;}
+  function pegel(layer){
+    const mix=SZENE[scene];
+    if(mix==null)return 0.0001;
+    const zu=(scene==='match')?ZUSCHLAG[layer]*iv:0;
+    return (SCHICHT[layer]+zu)*mix;
+  }
+  function applyGains(){
+    if(!alive||!c)return;
+    const t=c.currentTime,tc=FADE/3,on=hoerbar();
+    hold(master.gain,on?MASTER:0.0001,tc,t);
+    hold(gBed.gain,on?pegel('bed'):0.0001,tc,t);
+    hold(gBass.gain,on?pegel('bass'):0.0001,tc,t);
+    hold(gMotif.gain,on?pegel('motif'):0.0001,tc,t);
+    hold(gKick.gain,on?pegel('kick'):0.0001,tc,t);
+    hold(gHat.gain,on?pegel('hat'):0.0001,tc,t);
+    if(gAmb)hold(gAmb.gain,on?AMB:0.0001,tc,t);
+  }
+
+  // Die Klangfarbe des Rufs steht ausserhalb dieses Moduls (fbPluckVoice, s. dort): der
+  // Torklang zitiert die Figur mit WOERTLICH derselben Stimme. Zwei Fassungen davon waeren
+  // zwei Instrumente, die nur zufaellig aehnlich klingen - und genau das soll es nicht sein.
+  function pluck(t,f,steps){
+    fbPluckVoice(c,gMotif,t,f,steps*STEP,0.34,mRnd,voice);
+  }
+  function kick(t,amp){
+    const g=c.createGain();
+    g.gain.setValueAtTime(0.0001,t);
+    g.gain.linearRampToValueAtTime(amp,t+0.006);
+    g.gain.exponentialRampToValueAtTime(0.0008,t+0.16);
+    g.connect(gKick);
+    const o=c.createOscillator();o.type='sine';
+    o.frequency.setValueAtTime(96,t);
+    o.frequency.exponentialRampToValueAtTime(38,t+0.09);
+    o.connect(g);voice(o,[g],t,t+0.18);
+  }
+  function hat(t,amp){
+    const nb=(typeof SFX!=='undefined'&&SFX.noiseBuf)?SFX.noiseBuf():null;
+    if(!nb)return;
+    const bp=c.createBiquadFilter();bp.type='bandpass';
+    bp.frequency.value=5200*(0.85+0.30*mRnd());bp.Q.value=1.4;bp.connect(gHat);
+    const g=c.createGain();
+    g.gain.setValueAtTime(amp,t);
+    g.gain.exponentialRampToValueAtTime(0.0006,t+0.045+0.020*mRnd());
+    g.connect(bp);
+    const src=c.createBufferSource();src.buffer=nb;src.loop=true;src.connect(g);
+    voice(src,[g,bp],t,t+0.09,mRnd()*0.85);
+  }
+  // Warmer tiefer Puls: ein kurzer gezupfter Bass auf dem Grundton der Zelle.
+  function bass(t,f,amp){
+    const lp=c.createBiquadFilter();lp.type='lowpass';lp.Q.value=1.6;
+    lp.frequency.setValueAtTime(560,t);
+    lp.frequency.exponentialRampToValueAtTime(150,t+0.20);
+    lp.connect(gBass);
+    const g=c.createGain();
+    g.gain.setValueAtTime(0.0001,t);
+    g.gain.linearRampToValueAtTime(amp*0.5,t+0.010);
+    g.gain.exponentialRampToValueAtTime(0.0006,t+0.34);
+    g.connect(lp);
+    const o=c.createOscillator();o.type='triangle';o.frequency.value=f;
+    o.connect(g);voice(o,[g,lp],t,t+0.40);
+  }
+
+  function scheduleStep(i,t){
+    if(!alive||voices>=MAX_VOICES)return;
+    sched++;                                          // kumulativ: was WIRKLICH geplant wurde
+    const ci=(i/CELL)|0,k=i%CELL;
+    if(k===0){                                        // Harmonik wandert zellenweise
+      const r=ROOT[ci];
+      droneA.frequency.setTargetAtTime(r,t,0.30);
+      droneB.frequency.setTargetAtTime(r*1.5,t,0.30);
+    }
+    // Der Ruf laeuft in JEDER Szene - er ist das Thema, nicht die Belohnung.
+    const zelle=FORM[ci];
+    for(let n=0;n<zelle.length;n++)if(zelle[n][0]===k)pluck(t,zelle[n][1],zelle[n][2]);
+    // Puls, Zaehlung und Bass laufen in JEDER Szene nach demselben Muster - der zweite
+    // Puls ist Teil der Identitaet, nicht eine Belohnung fuers Spielen. Leiser wird er
+    // im Match ueber den Szenenpegel, nicht ueber ausgelassene Schlaege.
+    if(KICK[k])kick(t,(k%BAR)===0?1:0.72);
+    if(HAT[k])hat(t,(k%4===1)?0.95:0.58);
+    if(BASS[k])bass(t,ROOT[ci]*2,(k%BAR)===0?1:0.7);
+  }
+
+  // ── DIE UHR ───────────────────────────────────────────────────────────────
+  // Sie ist ABSOLUT: die Stelle im Stueck ergibt sich allein aus der Zeit seit dem
+  // Aufbau. Deshalb gibt es weder ein Zuruecksetzen beim Navigieren noch ein Nachholen
+  // nach einer Pause - es wird nur wieder eingestiegen, dort wo das Stueck gerade steht.
+  //   toBar=true   Einstieg nach Stille: rastet auf den naechsten TAKT, damit er nie
+  //                mitten in eine Figur faellt.
+  //   toBar=false  Wiedereinrasten nach einem Ausreisser: der naechste Schritt genuegt.
+  function align(toBar){
+    let k=Math.ceil((c.currentTime+0.03-startT)/STEP);
+    if(k<0)k=0;
+    if(toBar)k=Math.ceil(k/BAR)*BAR;
+    nextT=startT+k*STEP;
+    step=k%TOTAL;
+  }
+  function tick(){
+    if(!hoerbar()||!c)return;
+    const now=c.currentTime;
+    // Ist das Raster hinter die Uhr gefallen - ein haengender Hauptfaden, ein
+    // Hintergrundtab, ein langsames Telefon -, wird NICHT nachgeholt: es wird auf die
+    // Gegenwart neu eingerastet UND danach sofort weitergeplant. Das Weiterplanen ist der
+    // entscheidende Teil: ein verspaeteter Lauf, der nur einrastet und zurueckkehrt,
+    // bleibt wirkungslos - und aus lauter verspaeteten Laeufen wird Stille.
+    if(nextT<now)align(false);
+    while(nextT<now+LOOKAHEAD){
+      scheduleStep(step,nextT);
+      nextT+=STEP;step=(step+1)%TOTAL;
+    }
+  }
+  // Ohne laufenden Context passiert gar nichts - kein Aufbau, kein Fehler, kein Log.
+  function ensure(){
+    if(alive)return true;
+    const cc=(typeof SFX!=='undefined'&&SFX.ctxRunning)?SFX.ctxRunning():null;
+    if(!cc)return false;
+    try{build(cc);}catch(e){alive=false;return false;}
+    return true;
+  }
+  function run(){if(timer)return;align(true);timer=setInterval(tick,TIMER_MS);}
+  function halt(){if(timer){clearInterval(timer);timer=0;}}
+  function apply(){applyGains();if(hoerbar())run();else halt();}
+  // Ein Akzent legt sich auf das Stueck - er greift nie hinein.
+  function akzentOk(){return alive&&c&&!dark&&scene!=='off';}
+
+  return{
+    // Der einzige Eingang aus dem Spiel. Billig: aendert sich nichts, passiert nichts.
+    set(sc,intensity){
+      const q=Math.round(Math.max(0,Math.min(1,intensity||0))*20)/20;
+      if(sc===scene&&q===iv)return;
+      if(sc!=='off'&&!ensure())return;   // noch nicht entsperrt -> beim naechsten Bild erneut
+      if(sc!=='off')stopGen++;           // entwertet einen bestellten Abbau: das Stueck laeuft weiter
+      scene=sc;iv=q;
+      if(!alive)return;
+      apply();
+    },
+    // Abschuss: ein kurzer, tiefer Impuls UNTER dem Abschussklang. Bewusst zurueckhaltend
+    // und bewusst ohne Bezug zur Figur - ein Schuss darf das Stueck nicht anfassen.
+    launch(pwr){
+      if(!akzentOk()||scene!=='match')return;
+      const p=Math.max(0,Math.min(1,pwr||0)),t=c.currentTime;
+      const g=c.createGain();
+      g.gain.setValueAtTime(0.0001,t);
+      g.gain.linearRampToValueAtTime(0.050+0.065*p,t+0.010);
+      g.gain.exponentialRampToValueAtTime(0.0006,t+0.24+0.08*p);
+      g.connect(master);
+      const o=c.createOscillator();o.type='sine';
+      o.frequency.setValueAtTime(120+40*p,t);
+      o.frequency.exponentialRampToValueAtTime(41,t+0.16);
+      o.connect(g);voice(o,[g],t,t+0.38);
+    },
+    // NUR der Heldentreffer Figur/Ball - nie ein Ton je Kontakt. Die Auswahl trifft die
+    // Spielschicht (Stufe 3), die Sperrzeit hier verhindert zusaetzlich jede Salve.
+    hero(mag){
+      if(!akzentOk()||scene!=='match')return;
+      const now=(typeof performance!=='undefined'&&performance.now)?performance.now():Date.now();
+      if(now-lastHero<HERO_MS)return;
+      lastHero=now;
+      const m=Math.max(0,Math.min(1,mag||0)),t=c.currentTime;
+      const g=c.createGain();
+      g.gain.setValueAtTime(0.0001,t);
+      g.gain.linearRampToValueAtTime(0.060+0.055*m,t+0.008);
+      g.gain.exponentialRampToValueAtTime(0.0006,t+0.20);
+      g.connect(master);
+      const o=c.createOscillator();o.type='triangle';
+      o.frequency.setValueAtTime(T.E4/2,t);
+      o.frequency.exponentialRampToValueAtTime(T.A3/2,t+0.16);
+      o.connect(g);voice(o,[g],t,t+0.28);
+    },
+    // Tor: das Thema tritt STARK zurueck und laesst dem Torklang die Buehne. Der
+    // motivische Akzent liegt im TORKLANG selbst (SFX.fbGoalSting) und nicht hier - er
+    // muss auch dann erklingen, wenn die Musik ausgeschaltet ist. Danach laeuft das
+    // Stueck an genau der Stelle weiter, an der es ohnehin stuende: die Uhr wurde nie
+    // angehalten, und es wird nichts zurueckgesetzt.
+    goal(){
+      if(!akzentOk())return;
+      const t=c.currentTime;
+      hold(duck.gain,0.16,0.05,t);
+      duck.gain.setTargetAtTime(1,t+GOAL_DUCK,0.35);   // und von selbst wieder zurueck
+    },
+    // Matchende: KEIN fremdes Siegeslied. Die Antwort der Figur, langsam und tief -
+    // C B G A. Danach laeuft das Thema in der Menuebesetzung weiter; der Uebergang
+    // dorthin macht der normale Bildlauf, nicht dieser Aufruf.
+    result(win){
+      if(!akzentOk())return;
+      const t=c.currentTime;
+      hold(duck.gain,0.30,0.06,t);
+      duck.gain.setTargetAtTime(1,t+1.60,0.45);
+      const noten=win?[T.C5,T.B4,T.G4,T.A4]:[T.C5,T.B4,T.G4,T.E4];
+      for(let k=0;k<noten.length;k++){
+        const t0=t+0.08+k*0.16;
+        const lang=k===noten.length-1;
+        const g=c.createGain();
+        g.gain.setValueAtTime(0.0001,t0);
+        g.gain.linearRampToValueAtTime(lang?0.056:0.046,t0+0.012);
+        g.gain.exponentialRampToValueAtTime(0.0006,t0+(lang?1.30:0.44));
+        g.connect(master);
+        const o=c.createOscillator();o.type='triangle';o.frequency.value=noten[k];
+        o.connect(g);voice(o,[g],t0,t0+(lang?1.40:0.50));
+      }
+    },
+    // Musik aus, Klang aus: anhalten UND abbauen. Der einzige Weg, der die Uhr des
+    // Stuecks beendet - Navigieren tut das nie.
+    stop(){
+      halt();scene='off';iv=0;
+      if(!alive)return;
+      hold(master.gain,0.0001,FADE/3,c.currentTime);
+      const g0=++stopGen;
+      setTimeout(()=>{if(g0===stopGen&&scene==='off')teardown();},Math.round((FADE+0.25)*1000));
+    },
+    // Hintergrundtab: still und ohne Zeitgeber, der Aufbau bleibt aber stehen. Bei der
+    // Rueckkehr steigt das Stueck dort wieder ein, wo es inzwischen STUENDE - die Uhr
+    // lief die ganze Zeit weiter, nachgeholt wird nichts.
+    setDark(v){
+      const d=!!v;
+      if(d===dark)return;
+      dark=d;
+      if(!alive)return;
+      apply();
+    },
+    // Nur lesen (Tests, Dev-Probe) - nichts davon veraendert Klang oder Spiel.
+    scene(){return scene;},
+    intensity(){return iv;},
+    voices(){return voices;},
+    running(){return !!timer;},
+    live(){return alive;},
+    formSeconds(){return TOTAL*STEP;},
+    cellSeconds(){return CELL*STEP;},
+    // Die Stelle im Stueck, abgeleitet aus der absoluten Uhr. Genau daran laesst sich
+    // pruefen, dass Navigation, Tor und Tabwechsel sie NICHT zuruecksetzen.
+    pos(){
+      if(!alive||!c)return null;
+      const el=c.currentTime-startT,k=Math.floor(el/STEP);
+      return{elapsed:el,step:((k%TOTAL)+TOTAL)%TOTAL,cell:((Math.floor(k/CELL)%CELLS)+CELLS)%CELLS,
+             cycles:Math.floor(k/TOTAL),sched:sched,dark:dark,
+             // Wie weit ist der Planer der Uhr VORAUS? Faellt dieser Wert dauerhaft auf
+             // null, kommt der Zeitgeber nicht hinterher - genau daran liess sich der
+             // Planerfehler am echten Geraet erkennen.
+             lead:nextT-c.currentTime};
+    }
+  };
+})();
+// Hintergrundtab: das Thema darf nicht weiterlaufen. Ein einziger Listener, keine eigene
+// Zustandsableitung - dieselbe Sichtbarkeitspruefung wie der Collapse-Timer.
+document.addEventListener('visibilitychange',()=>{
+  const h=(typeof collapseHidden==='function')?collapseHidden()
+         :(document.hidden===true||(document.visibilityState!=null&&document.visibilityState!=='visible'));
+  try{FBMUSIC.setDark(h);}catch(e){}
+});
 // Dev-Hoerprobe des Torsounds (?dev=1): G = normales Tor, Shift+G = Matchpunkt. Ruft
 // ausschliesslich die Audioausgabe auf — kein Score, kein Goal-State, keine Animation.
 // Der Listener wird ohne ?dev=1 gar nicht erst registriert.
@@ -2426,7 +3057,7 @@ function wireMenuClickFeedback(){
   const IDS=['cardFfa','card2v2','cardBot','ctaBtn',
     'bot1v1','bot2v2','botBack','ffaOnline','onCreate','onJoin','onBack','onBack2','lobbyStart',
     'homeViewAll','homeCreate','homeJoinCode','pubRefresh','onVisPriv','onVisPub',
-    'menuSet','setClose','langEn','langDe','langTr','vibeOnBtn','vibeOffBtn','envDawnBtn','envDayBtn','menuBtn',
+    'menuSet','setClose','langEn','langDe','langTr','vibeOnBtn','vibeOffBtn','musicOnBtn','musicOffBtn','envDawnBtn','envDayBtn','menuBtn',
     'startBtn','rematchBtn','ovMenuBtn','leaveCancel','leaveGo'];
   const SOUND_IDS=new Set(IDS.filter(id=>id!=='ctaBtn'));
   for(const id of IDS){ const el=$(id); if(el)wireBtnFx(el,SOUND_IDS.has(id)); }
@@ -3475,6 +4106,9 @@ function winnerRGB(loserOwner){
 function fbSfxLaunch(pwr){
   if(mode==='football'&&SFX&&typeof SFX.fbLaunch==='function')SFX.fbLaunch(pwr);
   else SFX.launch(pwr);
+  // Der Musikakzent haengt am SELBEN kanonischen Ereignis wie der Abschussklang - er
+  // liegt darunter und faellt mit demselben Zeitstempel.
+  if(typeof fbMusicLaunch==='function')fbMusicLaunch(pwr);
 }
 // art: 'player' | 'ball' | 'band' | 'post' - die Eskalation der Rueckmeldung.
 function fbSfxImpact(power,key,art){
@@ -3583,12 +4217,93 @@ function fbFeelLaunch(b,mag){
   if(r3dActive){ if(typeof fx3Launch==='function')fx3Launch(b.x,b.y,b.vx,b.vy,mag,b.owner); }
   else spawn(b.x,b.y,6+Math.floor(mag*10),[pcol(colorSlot(b.owner)).ui,'#ffffff'],3+mag*7,0.7);
 }
-// MUSIK (bewusst noch nicht umgesetzt): Ein spaeterer reaktiver Musiklayer haengt sich an
-// GENAU diese Schicht - Abschuss, Kontaktart, Torereignis. Er braucht dafuer keinen neuen
-// Spielzustand und keinen Timer: die drei Ereignisse oben plus fbGoalState und
-// fbElimActiveOwners().length (wie viele noch im Match sind) reichen als Eingang fuer
-// Intensitaet und Schichtwahl. Die Entscheidung ueber die Richtung faellt nach dem
-// Playtest dieses Passes.
+// ── DAS THEMA: DIE SCHICHT ZWISCHEN PRODUKT UND MUSIK (Action-Feel 03B) ──
+// Die Musik bekommt KEINE eigenen Ereignisse und keinen eigenen Zustand. Sie liest, was
+// ohnehin sichtbar ist - welcher Bildschirm offen ist, wie viele noch im Match sind -
+// und haengt fuer ihre Akzente an denselben KANONISCHEN Ereignissen wie Klang und Bild.
+// Keine dieser Funktionen schreibt Spielzustand, keine wird serialisiert, keine geht in
+// simHash ein: faellt die ganze Schicht aus, aendert sich keine Zahl der Simulation.
+
+// Darf das Thema ueberhaupt klingen? Waehrend einer Rehydrierung und einer Wiedergabe
+// schweigt es aus demselben Grund wie Klang und Bild: ein Rueckkehrer soll den ZUSTAND
+// bekommen, nicht die Geschichte.
+function fbMusicAllowed(){
+  if(!(musicOn&&soundOn&&!replaying&&!fbFxMute))return false;
+  // Ein terminal abgebrochener Onlineraum ist fuer den Spieler zu Ende - das
+  // Abbruchfenster steht bereits, aber weder Phase noch Modus sagen es.
+  if(online&&typeof isOnlineTerminated==='function'&&isOnlineTerminated())return false;
+  return true;
+}
+// Der Onlinebildschirm (Raumliste, Beitritt, Lobby) liegt als Flaeche UEBER dem Menue.
+// Die Referenz wird einmal geholt: der Aufruf steht in der Bildschleife.
+let fbMusicOnlinePanel=null;
+function fbMusicLobbyOpen(){
+  if(!fbMusicOnlinePanel)fbMusicOnlinePanel=document.getElementById('online');
+  return !!fbMusicOnlinePanel&&fbMusicOnlinePanel.classList.contains('show');
+}
+// WO spielt das Thema? Genau vier Antworten - und sie beschreiben Bildschirme, nicht
+// Spielphasen. Das ist der Kern von Pass 03B: das Stueck laeuft durch, die BESETZUNG
+// wechselt.
+//   'menu'   Startseite, Moduskarten, Football-Modusauswahl, Ergebnisfenster
+//   'lobby'  Onlinebildschirm: Raumliste, Beitritt, Warten auf den Start
+//   'match'  laufendes Arena-Football-Match
+//   'off'    RingOut, FFA, Team Duel, Bot-Training - dort gilt die bestehende Klangwelt
+function fbMusicScene(){
+  if(!fbMusicAllowed())return 'off';
+  if(menuVisible)return fbMusicLobbyOpen()?'lobby':'menu';
+  if(mode!=='football')return 'off';
+  // Das Ergebnisfenster ist kein Match mehr: das Thema bleibt, tritt aber zurueck.
+  if(phase==='over')return 'menu';
+  return 'match';
+}
+// Wie viel steht auf dem Spiel? Rein ABGELEITET aus dem, was ohnehin sichtbar ist:
+// wie viele noch im Match sind (5 -> 0.00, 4 -> 0.33, 3 -> 0.67, 2 -> 1.00) bzw. wie nah
+// der Matchpunkt ist. Ein letztes Leben hebt zusaetzlich leicht an. Die Zuordnung ist
+// ABSOLUT, nicht relativ zur Startgroesse: ein Online-Duell zu zweit ist von der ersten
+// Sekunde an ein Duell. Sie steuert AUSSCHLIESSLICH die Besetzung, nie die Komposition.
+function fbMusicIntensity(){
+  if(mode!=='football')return 0;
+  let v=0;
+  if(typeof fbElim4==='function'&&fbElim4()){
+    const act=fbElimActiveOwners();
+    v=Math.max(0,Math.min(1,(5-act.length)/3));
+    let low=99;
+    for(const o of act)if(fbElimLives[o]<low)low=fbElimLives[o];
+    if(low<=1)v=Math.min(1,v+0.15);
+  }else{
+    const hi=Math.max(score[0]||0,score[1]||0);
+    v=Math.max(0,Math.min(1,hi/Math.max(1,FOOTBALL_WIN_SCORE-1)));
+  }
+  return v;
+}
+// Einmal je Bild aus loop(). Der Aufruf ist billig: FBMUSIC.set() vergleicht Szene und
+// Intensitaet und tut nichts, solange sich nichts geaendert hat.
+function fbMusicSync(){
+  if(typeof FBMUSIC==='undefined')return;
+  const sc=fbMusicScene();
+  FBMUSIC.set(sc,sc==='match'?fbMusicIntensity():0);
+}
+// Akzente gehoeren dem Match. Im Menue und in der Lobby gibt es nichts zu quittieren.
+function fbMusicAccentOk(){
+  return typeof FBMUSIC!=='undefined'&&fbMusicScene()==='match';
+}
+function fbMusicLaunch(pwr){ if(fbMusicAccentOk())FBMUSIC.launch(pwr); }
+// Nur die HELDENSTUFE - dieselbe Schwelle, die auch das grosse Bild ausloest.
+function fbMusicHero(mag){ if(fbMusicAccentOk()&&fbFxTier(mag)>=3)FBMUSIC.hero(mag); }
+// Der Torklang traegt den motivischen Akzent selbst; hier bleibt nur das Ducking.
+function fbMusicGoal(){ if(fbMusicAccentOk())FBMUSIC.goal(); }
+// Die Aufloesung ist ein AKZENT auf dem laufenden Stueck, kein Ende: das Thema geht
+// danach in der Menuebesetzung weiter, den Uebergang macht der normale Bildlauf.
+// Waehrend einer Rehydrierung endet das Match aus der HISTORIE heraus - dort darf gar
+// nichts klingen, sonst braechte ausgerechnet der Rueckkehrer den Abschluss eines
+// Matches mit, das er nie gehoert hat.
+function fbMusicResult(win){
+  if(typeof FBMUSIC==='undefined')return;
+  if(!fbMusicAllowed())return;
+  FBMUSIC.result(!!win);
+}
+// Der einzige Weg, der die Uhr des Stuecks beendet: Musik aus oder Klang aus.
+function fbMusicStop(){ if(typeof FBMUSIC!=='undefined')FBMUSIC.stop(); }
 function popBall(b){if(r3dActive)fx3Dust(b.x,b.y,b.vx,b.vy);else spawn(b.x,b.y,26,[pcol(colorSlot(b.owner)).ui,'#ffffff'],Math.max(5,Math.hypot(b.vx,b.vy))*0.9,1.1);}
 
 // ── RING-OUT: positionsreine Ermittlung + gemeinsame Verarbeitung ──
@@ -4559,6 +5274,16 @@ if(typeof DEV_MENU!=='undefined'&&DEV_MENU)window.__fbDev={
   fx:()=>({edge:[fbFxEdge(0),fbFxEdge(1),fbFxEdge(2)],
            drain:Array.from({length:FOOTBALL_ELIM_MAX_PLAYERS},(_,k)=>fbFxDrain(k))}),
   winner:()=>footballWinner,
+  // Action-Feel 03: der Zustand der Musikschicht. Rein lesend - Zustand, Intensitaet,
+  // lebende Stimmen, laufender Zeitgeber und ob ueberhaupt ein Graph steht. Damit laesst
+  // sich am ECHTEN Geraet pruefen, was ein Sandkasten nicht beweisen kann: dass nach dem
+  // Verlassen des Modus kein Zeitgeber und keine Stimme uebrig bleibt.
+  music:()=>{try{const p=FBMUSIC.pos();return{scene:FBMUSIC.scene(),intensity:FBMUSIC.intensity(),
+              voices:FBMUSIC.voices(),running:FBMUSIC.running(),live:FBMUSIC.live(),
+              form:FBMUSIC.formSeconds(),
+              elapsed:p?p.elapsed:null,step:p?p.step:null,cell:p?p.cell:null,
+              cycles:p?p.cycles:null,sched:p?p.sched:null,dark:p?p.dark:null,lead:p?p.lead:null};}
+             catch(e){return null;}},
   // C3: Fristzustand und Abwesenheitskandidaten - rein lesend, keine Entscheidung.
   grace:(s)=>fbSeatGrace(s),
   candidates:()=>fbAbsenceCandidates(),
@@ -4760,6 +5485,7 @@ function footballTryGoal(b){
   // damit exakt einmal pro Tor. footballWinner steht eine Zeile vorher fest -> Matchpunkt
   // ohne zweiten Zustand. Reine Ausgabe: kein Rueckgabewert, kein Einfluss auf Score/State/Timing.
   if(mode==='football')SFX.footballGoal(footballWinner!==null);
+  if(typeof fbMusicGoal==='function')fbMusicGoal();
   updateHud();
 }
 // Rundenreset nach dem Ballfall. placeBalls() erzeugt FRISCHE Kugelobjekte (mkBall) —
@@ -4845,12 +5571,14 @@ function footballMatchEndNoWinner(){
   document.querySelector('#ov .trophy').textContent='🏁';
   $('rematchBtn').style.display='none';$('replayBtn').style.display='none';
   $('ov').classList.add('show');
+  if(typeof fbMusicResult==='function')fbMusicResult(false);   // ohne Sieger: ruhige Aufloesung, dann Stille
   updateHud();
 }
 function footballMatchEnd(){
   cancelAimDrag();                    // offener Drag/Pointer-Capture sauber weg
   footballFreezePlayers();
   footballClearGoalFx();              // der Impuls des Siegtores ist hier laengst abgelaufen — Ergebnisbild startet garantiert ruhig
+  if(typeof fbMusicResult==='function')fbMusicResult(true);   // der Rhythmus haelt an und loest auf — unter dem Ergebnis bleibt es still
   gameOver(footballWinner);
 }
 // ══ ARENA FOOTBALL TACTICAL 1V1 — 2 Figuren je Spieler, EINE Figur pro Runde ════════
@@ -5104,6 +5832,7 @@ function footballElimTryGoal(b){
   footballGoalFxTrigger(slot);              // rein visueller Torimpuls am getroffenen Tor
   footballElimConcede(own);
   SFX.footballGoal(footballWinner!==null);
+  if(typeof fbMusicGoal==='function')fbMusicGoal();
   updateHud();
 }
 // EIN Gegentor fuer diesen Spieler. Genau EIN Lebensabzug je Torereignis: der einzige
@@ -5199,7 +5928,8 @@ function stepSim(){
             if(mode==='football'){
               const kx=a.x+nx*ballRad(a),ky=a.y+ny*ballRad(a);
               if(amBall){ if(typeof fbFeelBallHit==='function')
-                  fbFeelBallHit(kx,ky,nx,ny,mag,a.owner===NEU?b.owner:a.owner); }
+                  fbFeelBallHit(kx,ky,nx,ny,mag,a.owner===NEU?b.owner:a.owner);
+                if(typeof fbMusicHero==='function')fbMusicHero(mag); }
               else if(typeof fbFeelPlayers==='function')fbFeelPlayers(kx,ky,nx,ny,mag,a.owner,b.owner);
             }
             const mx=(a.x+b.x)/2,my=(a.y+b.y)/2;
@@ -6465,6 +7195,11 @@ function fastForwardMatch(turns){
   // Minuten. Beides wird im finally wieder freigegeben, auch bei einem Abbruch.
   const snd=soundOn; soundOn=false;
   const fx=(typeof fbFxSilence==='function')&&fbFxSilence(true);
+  // Und das Thema: der Lauf hier blockiert den Hauptfaden, ein Bildlauf kommt also
+  // waehrenddessen NICHT. Ohne diesen Aufruf klaengen Bett und Arenaluft durch die ganze
+  // Rehydrierung weiter, und ein faelliger Planerlauf koennte danach noch Schritte der
+  // alten Szene planen. Der naechste Bildlauf holt die richtige Szene von selbst zurueck.
+  if(typeof fbMusicSync==='function')fbMusicSync();
   try{
     startOnlineGame();
     let iter=0;
@@ -6482,6 +7217,7 @@ function fastForwardMatch(turns){
     }
   } finally {
     soundOn=snd; if(typeof fbFxSilence==='function')fbFxSilence(fx); particles=[]; fx3=[];
+    if(typeof fbMusicSync==='function')fbMusicSync();   // Klang, Bild und Thema werden gemeinsam freigegeben
     // Der Torimpuls ist rein visuell und zeitgesteuert - nach einem Replay waere er ein
     // Nachleuchten aus der Vergangenheit. Der Spielzustand bleibt davon unberuehrt.
     if(typeof footballClearGoalFx==='function')footballClearGoalFx();
@@ -9419,6 +10155,7 @@ function simAdvance(now){
 function loop(now){
   if(PERF)perfTick(now);
   simAdvance(now);
+  fbMusicSync();   // reaktive Musik: reine Ausgabe. Steht VOR der Wiedergabe-Abkuerzung, damit sie waehrend eines Replays verstummt statt weiterzulaufen.
   if(replaying){ SFX.rollUpdate(null,false); if(r3dActive)r3d.render(); requestAnimationFrame(loop); return; }
   tickCollapse(now);   // Ring-Collapse-Timer (nur Bot Training): zaehlt nur in der Planungsphase, loest Auto-Stand + Collapse aus
   // RINGOUT-Feedback + Dev-Sync-Log: reiner Phasen-Watcher (stepSim/Physik unangetastet)

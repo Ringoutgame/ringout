@@ -22,6 +22,7 @@ const SUITES = [
   { name: 'Football-Elim',    file: 'test_football_elimination4.js', expectPassed: 1504 },  // Dev-Einstieg auf vier Startspieler: ZWEI LEBEN + adaptive Arena 4 -> 3 -> 2 -> 1 + fairer Respawn
   { name: 'Football-Elim5',   file: 'test_football_elimination5.js', expectPassed: 318 },
   { name: 'Football-FX',      file: 'test_football_fx.js',     expectPassed: 112 },    // Action-Feel 02: gedeckelte Effektliste, kurzlebige Formen, keine Spielzustandsberuehrung, RingOut unberuehrt  // Produktmodus Elimination: 5 -> 4 -> 3 -> 2 -> Sieger, dieselbe Architektur
+  { name: 'Football-Musik',   file: 'test_football_music.js',  expectPassed: 345 },   // Action-Feel 03C: durchlaufendes Thema mit Signaturfigur, Entsperrung bei jeder Geste, eine Besetzung mit drei Pegeln, Signatur-Torklang
   { name: 'Fixed-Timestep',  file: 'test_fixed_timestep.js', expectPassed: 202 },  // Gameplay laeuft in festen 60-Hz-Schritten, unabhaengig von der Bildwiederholrate
   { name: 'r3d-Mapping',      file: 'test_r3d_mapping.js',    expectPassed: 52 },
   { name: 'Sanitize',         file: 'test_sanitize.js',       expectPassed: 24 },

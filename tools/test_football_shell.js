@@ -2424,7 +2424,10 @@ const fbCssSrc = grab(/#game\.fb \.status\{[\s\S]*?\n\.arena-wrap\{/, 'Football-
   // ── B. Eine Audio-Engine: der bestehende Context/Unlock-Pfad wird wiederverwendet ──
   ok((HTML.match(/new\(window\.AudioContext\|\|window\.webkitAudioContext\)\(\)/g) || []).length === 1,
      'es existiert genau EINE AudioContext-Instanziierung im gesamten Dokument');
-  ok(/loadFootballGoalAsset\(ac\(\)\)/.test(sfxSrc),
+  // Das Preload nimmt weiterhin denselben ac()-Pfad (und entsperrt damit aus der
+  // Startgeste heraus); geladen wird das Asset seit Pass 03C nur noch, wenn es ueberhaupt
+  // mitspielt - den Torklang traegt die Signatur (fbGoalSting).
+  ok(/footballGoalPreload\(\)\{if\(soundOn\)try\{const cc=ac\(\);if\(FOOTBALL_GOAL_ASSET_MIX>0\)loadFootballGoalAsset\(cc\);\}catch\(e\)\{\}\}/.test(sfxSrc),
      'das Preload laeuft ueber den bestehenden ac()-Unlock-Pfad (User-Geste)');
   ok(/go\(c=>\{/.test(goalSrc), 'die Wiedergabe laeuft ueber den bestehenden go()-Wrapper');
   ok(/function go\(f\)\{if\(soundOn\)/.test(sfxSrc),
@@ -2480,7 +2483,7 @@ const fbCssSrc = grab(/#game\.fb \.status\{[\s\S]*?\n\.arena-wrap\{/, 'Football-
   const mul = Number(HTML.match(/const FOOTBALL_GOAL_MATCHPOINT_GAIN_MUL=([\d.]+);/)[1]);
   ok(mul > 1 && mul <= 1.08, 'die Matchpunkt-Anhebung bleibt minimal (+' + Math.round((mul - 1) * 100) + ' %)');
   ok(mul === 1.06, 'der Matchpunkt-Multiplikator ist unveraendert 1.06 (' + mul + ')');
-  ok(/FOOTBALL_GOAL_ASSET_GAIN\*\(matchPoint\?FOOTBALL_GOAL_MATCHPOINT_GAIN_MUL:1\)/.test(goalSrc),
+  ok(/FOOTBALL_GOAL_ASSET_GAIN\*FOOTBALL_GOAL_ASSET_MIX\*\(matchPoint\?FOOTBALL_GOAL_MATCHPOINT_GAIN_MUL:1\)/.test(goalSrc),
      'Matchpunkt variiert AUSSCHLIESSLICH ueber den Gain');
   ok(!/playbackRate|detune/.test(goalSrc),
      'kein Pitch-Gimmick: normales Tor und Matchpunkt klingen identisch');
@@ -2776,9 +2779,10 @@ const fbCssSrc = grab(/#game\.fb \.status\{[\s\S]*?\n\.arena-wrap\{/, 'Football-
   ok(/footballGoal\(mp\)\{/.test(HTML) || /footballGoal\(/.test(HTML), 'der Torklang existiert unveraendert');
   ok(/fbTransitionBed\(/.test(HTML) && /fbTransitionLock\(/.test(HTML),
      'die Arenatransitionsklaenge existieren unveraendert');
-  // Musik ist in diesem Pass bewusst NICHT umgesetzt - nur der Anschlusspunkt ist benannt.
-  ok(/MUSIK \(bewusst noch nicht umgesetzt\)/.test(HTML),
-     'der Anschlusspunkt fuer eine spaetere Musikschicht ist benannt');
+  // Der Anschlusspunkt von Pass 02 ist eingeloest: die Musik haengt an genau diesen
+  // Ereignissen und bringt keinen eigenen Spielzustand mit (Details: test_football_music).
+  ok(/const FBMUSIC=\(\(\)=>\{/.test(HTML) && /function fbMusicSync\(\)\{/.test(HTML),
+     'die reaktive Musikschicht haengt an der bestehenden Ausgabeschicht');
   ok(!/createBufferSource\(\)[\s\S]{0,200}loop=true[\s\S]{0,200}music/i.test(HTML),
      'es gibt keine Hintergrundmusik in diesem Pass');
 }

@@ -2959,8 +2959,8 @@ const fbCore = (c) => c.poly ? c.poly.map(v => v.slice())
   for (const name of ['fbGoalState', 'fbGoalTick', 'fbElimPhaseN', 'footballWinner', 'fbMorphPlan'])
     ok0(!new RegExp(name + '\\s*=[^=]').test(src), 'der Ausloeser schreibt nicht in ' + name);
   ok(true, 'der Audio-Ausloeser liest nur den Fortschritt - kein Spielzustand, kein Zufall');
-  ok(/if\(!soundOn\)\{SFX\.charge\.stop\(\);SFX\.fbTransitionStop\(\);\}/.test(HTML),
-     'Stummschalten stoppt einen laufenden Transitionsklang');
+  ok(/if\(!soundOn\)\{SFX\.charge\.stop\(\);SFX\.fbTransitionStop\(\);if\(typeof fbMusicStop==='function'\)fbMusicStop\(\);\}/.test(HTML),
+     'Stummschalten stoppt einen laufenden Transitionsklang (und die Musik)');
   ok((HTML.match(/SFX\.fbTransitionStop\(\)/g) || []).length >= 4,
      'gestoppt wird bei Matchreset, Menuerueckkehr und an beiden Stummschaltern');
   ok(/function playTa\(src,gain\)\{\s*go\(cc=>\{/.test(HTML),
