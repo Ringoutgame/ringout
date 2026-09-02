@@ -425,7 +425,12 @@ body.booting #menu{opacity:0;visibility:hidden}
 .ov{position:fixed;inset:0;background:rgba(4,7,12,.92);backdrop-filter:blur(6px);display:none;place-items:center;z-index:100}
 .ov.show{display:grid}
 /* Match-End-/Modal-Panel im Premium-Look (Navy-Glass, Gold-Rand, weiche Entrance) */
-.wb{background:linear-gradient(180deg,rgba(19,27,45,.97),rgba(10,15,26,.98));border-radius:22px;padding:28px 22px;text-align:center;width:300px;max-width:88vw;border:1px solid rgba(255,201,64,.28);box-shadow:0 24px 60px rgba(4,8,16,.6),0 0 50px rgba(255,190,60,.08);animation:wp .4s cubic-bezier(.2,1.4,.4,1)}
+.wb{background:linear-gradient(180deg,rgba(19,27,45,.97),rgba(10,15,26,.98));border-radius:22px;padding:28px 22px;text-align:center;width:300px;max-width:88vw;border:1px solid rgba(255,201,64,.28);box-shadow:0 24px 60px rgba(4,8,16,.6),0 0 50px rgba(255,190,60,.08);animation:wp .4s cubic-bezier(.2,1.4,.4,1);
+  /* Kurzer Bildschirm (Telefon im Querformat): ein Panel, das hoeher als der Viewport
+     ist, waere oben UND unten abgeschnitten - .ov zentriert, und html/body sind
+     overflow:hidden. Der Zurueck-Knopf waere damit unerreichbar. Also laeuft das Panel
+     selbst. Auf hohen Bildschirmen greift die Grenze nie. */
+  max-height:calc(100vh - 24px);max-height:calc(100dvh - 24px);overflow-y:auto;overscroll-behavior:contain}
 @keyframes wp{from{transform:scale(.6) translateY(20px);opacity:0}to{transform:scale(1);opacity:1}}
 /* Match-End-Headline: gross, ikonisch — Gold bei VICTORY, gedaempft bei DEFEAT */
 .wvic{font-size:clamp(26px,8vw,36px);font-weight:900;letter-spacing:.18em;margin-right:-.18em;text-transform:uppercase;color:var(--gold);margin-bottom:6px;text-shadow:0 0 30px rgba(255,201,64,.55),0 2px 10px rgba(0,0,0,.5)}
@@ -800,6 +805,10 @@ body:not(.r3d) .ohero{height:12px}
     <button class="vopt" id="fbElimBtn">
       <span class="vopt-t" id="fbElimT">ELIMINATION</span>
       <span class="vopt-s" id="fbElimS">5 PLAYERS · TWO LIVES EACH</span>
+    </button>
+    <button class="vopt" id="fbOnlineBtn">
+      <span class="vopt-t" id="fbOnlineT">ONLINE</span>
+      <span class="vopt-s" id="fbOnlineS">2–5 PLAYERS · PLAY WITH FRIENDS</span>
     </button>
     <button class="wbtn" id="fbModeBack">↩ Back</button>
   </div>
@@ -1615,9 +1624,10 @@ $('w5').onclick=()=>{winTarget=5;setOn('winGrp','w5');};
 [['np2',2],['np3',3],['np4',4],['np5',5]].forEach(([id,n])=>{$(id).onclick=()=>{ffaN=ffaNMenu=n;setOn('ffaGrp',id);};});
 // Online-FFA (live seit M8-T3c): Button oeffnet den Online-Dialog im FFA-Kontext
 // (mode==='ffa') — createRoom baut daraus den ffa-Raum mit state:'lobby'.
-// Arena Football Online (Prototyp): setzt NUR den Kontext und uebergibt an den
-// bestehenden Online-Bildschirm. menuMode bleibt bewusst unberuehrt - der Zurueck-Weg
-// stellt damit den zuletzt im Menue gewaehlten Modus wieder her (wie bei Online-FFA).
+// Arena Football Online aus dem Dev-Panel. Er bleibt erhalten, obwohl es seit dem
+// Produktweg (fbOnlineBtn in der Modusauswahl) keinen zwingenden Grund mehr dafuer gibt:
+// er ist der kuerzere Weg beim Testen, weil er die Modusauswahl ueberspringt. Beide
+// Einstiege setzen exakt denselben Kontext und rufen denselben Bildschirm.
 $('devFbOnlineBtn').onclick=()=>{
   if(!DEV_MENU)return;
   if(TUNE){toast('Tuning aktiv — Online deaktiviert');return;}
@@ -1686,6 +1696,9 @@ en:{tagline:'PULL BACK · RELEASE · KNOCK THEM OUT',chip:'FEATURED',
   fbT:'ARENA FOOTBALL',fbClassicT:'CLASSIC 1V1',fbClassicS:'1 FIGURE PER PLAYER',
   fbTacticalT:'TACTICAL 1V1',fbTacticalS:'2 FIGURES · 1 MOVE PER ROUND',
   fbElimT:'ELIMINATION',fbElimS:'5 PLAYERS · TWO LIVES EACH',
+  fbOnlineT:'ONLINE',fbOnlineS:'2–5 PLAYERS · PLAY WITH FRIENDS',
+  fbNo3d:'Arena Football needs the real 3D scene (not available).',
+  onSubFb:'Elimination · 2 to 5 players · two lives each',
   secPlay:'PLAY',secRooms:'ONLINE ROOMS',secHow:'HOW TO PLAY',viewAll:'VIEW ALL',
   joinCodeBtn:'JOIN CODE',howLead:'Learn the rules and master the ring.',
   createRoomSub:'Invite your friends',joinCodeSub:'Enter room code',
@@ -1731,6 +1744,9 @@ de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'FEATURED',
   fbT:'ARENA FOOTBALL',fbClassicT:'CLASSIC 1V1',fbClassicS:'1 FIGUR PRO SPIELER',
   fbTacticalT:'TACTICAL 1V1',fbTacticalS:'2 FIGUREN · 1 ZUG PRO RUNDE',
   fbElimT:'ELIMINATION',fbElimS:'5 SPIELER · JE 2 LEBEN',
+  fbOnlineT:'ONLINE',fbOnlineS:'2–5 SPIELER · MIT FREUNDEN SPIELEN',
+  fbNo3d:'Arena Football benötigt die echte 3D-Szene (nicht verfügbar).',
+  onSubFb:'Elimination · 2 bis 5 Spieler · je 2 Leben',
   secPlay:'SPIELEN',secRooms:'ONLINE-RÄUME',secHow:'SO WIRD GESPIELT',viewAll:'ALLE ANZEIGEN',
   scrollHint:'SCROLLEN FÜR MEHR',soonT:'BALD MEHR',soonS:'Neue Modi und Features sind in Arbeit.',
   joinCodeBtn:'CODE BEITRETEN',howLead:'Lerne die Regeln und meistere den Ring.',
@@ -1776,6 +1792,9 @@ tr:{tagline:'GERİ ÇEK · BIRAK · DIŞARI İT',chip:'FEATURED',
   fbT:'ARENA FOOTBALL',fbClassicT:'CLASSIC 1V1',fbClassicS:'OYUNCU BAŞINA 1 FİGÜR',
   fbTacticalT:'TACTICAL 1V1',fbTacticalS:'2 FİGÜR · TUR BAŞINA 1 HAMLE',
   fbElimT:'ELİMİNASYON',fbElimS:'5 OYUNCU · HER BİRİNE 2 CAN',
+  fbOnlineT:'ONLINE',fbOnlineS:'2–5 OYUNCU · ARKADAŞLARINLA OYNA',
+  fbNo3d:'Arena Football gerçek 3B sahneye ihtiyaç duyar (kullanılamıyor).',
+  onSubFb:'Eliminasyon · 2-5 oyuncu · her birine 2 can',
   secPlay:'OYNA',secRooms:'ONLINE ODALAR',secHow:'NASIL OYNANIR',viewAll:'TÜMÜNÜ GÖR',
   scrollHint:'KAYDIR VE KEŞFET',soonT:'ÇOK YAKINDA DAHA FAZLASI',soonS:'Yeni modlar ve özellikler yolda.',
   joinCodeBtn:'KODLA KATIL',howLead:'Kuralları öğren ve ringe hâkim ol.',
@@ -1846,6 +1865,7 @@ function applyLang(){
   $('fbClassicT').textContent=T('fbClassicT');$('fbClassicS').textContent=T('fbClassicS');
   $('fbTacticalT').textContent=T('fbTacticalT');$('fbTacticalS').textContent=T('fbTacticalS');
   $('fbElimT').textContent=T('fbElimT');$('fbElimS').textContent=T('fbElimS');
+  $('fbOnlineT').textContent=T('fbOnlineT');$('fbOnlineS').textContent=T('fbOnlineS');
   $('onInput').placeholder=T('enterCode');
   $('nameLbl').textContent=T('nameLbl');$('nameInput').placeholder=T('namePh');$('rejoinBtn').textContent=T('rejoinBtn');
   {const bt=$('bootTxt');if(bt)bt.textContent=T('loading');}   // Boot-Overlay existiert nur bis zum First-Frame
@@ -1905,7 +1925,7 @@ $('ctaBtn').onclick=()=>{
   // ARENA FOOTBALL: Modusauswahl statt Sofortstart. Ein gueltiger Dev-Direktlink
   // (?dev=1&fb=classic|tactical|elimination|elimination4) ueberspringt die Auswahl bewusst.
   if(menuSel==='football'){if(SFX.click())vibrateMs(VIBE_CLICK_MS);   // oeffnet nur die Auswahl — wie beim Bot-Dialog
-    if(!r3dActive){toast('Arena Football benötigt die echte 3D-Szene (nicht verfügbar).');return;}
+    if(!r3dActive){toast(T('fbNo3d'));return;}
     if(DEV_FB_VARIANT==='classic'||DEV_FB_VARIANT===FOOTBALL_VARIANT_TACTICAL||DEV_FB_VARIANT===FOOTBALL_VARIANT_ELIM||DEV_FB_VARIANT===FOOTBALL_VARIANT_ELIM4){startFootball(DEV_FB_VARIANT);return;}
     $('fbModeOv').classList.add('show');return;}
   if(menuSel==='bot'){if(SFX.click())vibrateMs(VIBE_CLICK_MS);$('botOv').classList.add('show');return;}       // Format-Auswahl: 1v1 / 2v2 Duo vs Bot
@@ -1943,6 +1963,19 @@ function startFootball(variant){
 $('fbClassicBtn').onclick=()=>{if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);startFootball('classic');};
 $('fbTacticalBtn').onclick=()=>{if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);startFootball(FOOTBALL_VARIANT_TACTICAL);};
 $('fbElimBtn').onclick=()=>{if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);startFootball(FOOTBALL_VARIANT_ELIM);};
+// ARENA FOOTBALL ONLINE - der normale Produktweg. Er setzt NUR den Kontext (Raumtyp,
+// Variante) und uebergibt an den bestehenden Onlinebildschirm; Raumformat, Sitzclaim,
+// Lobby, Host-Start, Reconnect und der kanonische Austritt sind unveraendert dieselben
+// wie bisher. menuMode bleibt bewusst unberuehrt - der Zurueck-Weg stellt damit den
+// zuletzt im Menue gewaehlten Modus wieder her (wie bei Online-FFA).
+$('fbOnlineBtn').onclick=()=>{
+  if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);
+  if(TUNE){toast('Tuning aktiv — Online deaktiviert');return;}
+  if(!r3dActive){toast(T('fbNo3d'));return;}
+  $('fbModeOv').classList.remove('show');
+  mode='football'; fbVariant=FOOTBALL_VARIANT_ELIM; fmt=FB_ONLINE_FMT; fbElimStartN=0;
+  openOnline();
+};
 $('fbModeBack').onclick=()=>$('fbModeOv').classList.remove('show');
 $('menuSnd').onclick=()=>{soundOn=!soundOn;const g=soundOn?'🔊':'🔇';$('menuSnd').textContent=g;$('sndBtn').textContent=g;if(!soundOn){SFX.charge.stop();SFX.fbTransitionStop();if(typeof fbMusicStop==='function')fbMusicStop();}};
 // ── Menue-Preview: die ECHTE 3D-Szene zeigt den gewaehlten Modus. Setzt nur den
@@ -1986,6 +2019,12 @@ $('onJoin').onclick=()=>joinRoom();
 // Beide Back-Wege (Header-Pfeil + unterer Button) nehmen denselben Pfad; danach laeuft
 // die Public-Liste fuer die Home-Rooms-Vorschau weiter (startPublicListing stoppt zuerst).
 const onlineBack=()=>{leaveOnline();mode=menuMode;ffaN=ffaNMenu;$('online').classList.remove('show');
+  // Den Menuekontext vollstaendig wiederherstellen. Ohne das bliebe nach einem Abbruch
+  // aus dem Football-Onlinebildschirm dessen Raumformat im fmt-Global stehen, waehrend
+  // mode schon wieder RingOut ist - ein Mischzustand, der erst beim naechsten Start
+  // auffiele. updateMenuPreview setzt mode, fmt und Spielerzahl gemeinsam aus der
+  // sichtbaren Menueauswahl und stellt die Vorschau darauf ein.
+  updateMenuPreview();
   whenFB(()=>{if(fbReady()&&menuVisible)startPublicListing();});updScrollHint();};
 $('onBack').onclick=onlineBack;
 $('onBack2').onclick=onlineBack;
@@ -3058,8 +3097,13 @@ function wireMenuClickFeedback(){
     'bot1v1','bot2v2','botBack','ffaOnline','onCreate','onJoin','onBack','onBack2','lobbyStart',
     'homeViewAll','homeCreate','homeJoinCode','pubRefresh','onVisPriv','onVisPub',
     'menuSet','setClose','langEn','langDe','langTr','vibeOnBtn','vibeOffBtn','musicOnBtn','musicOffBtn','envDawnBtn','envDayBtn','menuBtn',
+    'fbClassicBtn','fbTacticalBtn','fbElimBtn','fbOnlineBtn','fbModeBack',
     'startBtn','rematchBtn','ovMenuBtn','leaveCancel','leaveGo'];
-  const SOUND_IDS=new Set(IDS.filter(id=>id!=='ctaBtn'));
+  // Diese Knoepfe rufen SFX.click() SELBST (sie brauchen dessen Rueckgabe fuer die
+  // staerkere Bestaetigungsvibration). Sie bekommen hier deshalb nur die sichtbare
+  // Druckreaktion - ein zweiter Klang waere ein doppelter Anschlag.
+  const EIGENER_KLANG=new Set(['ctaBtn','fbClassicBtn','fbTacticalBtn','fbElimBtn','fbOnlineBtn']);
+  const SOUND_IDS=new Set(IDS.filter(id=>!EIGENER_KLANG.has(id)));
   for(const id of IDS){ const el=$(id); if(el)wireBtnFx(el,SOUND_IDS.has(id)); }
 }
 wireMenuClickFeedback();
@@ -6206,8 +6250,8 @@ function renderLobby(p){
 function setOnTitle(ffa){
   const trip=ffa&&fmt==='triple_ffa',team=ffa&&fmt==='team_duel',fbo=fmt===FB_ONLINE_FMT;
   $('onTitleMode').textContent=fbo?'ARENA FOOTBALL':team?'TEAM DUEL':trip?'TRIPLE FFA':ffa?'FFA':(fmt==='double'?'2v2':'1v1');
-  $('onCtxt').textContent=fbo?'Elimination · 5 Spieler · 2 Leben':team?T('onSubTeam'):trip?T('onSubTriple'):ffa?T('onSubFfa'):T('onSubVs');
-  $('onBadgeN').textContent=fbo?'5':team?'4':trip?'3':ffa?'2–5':'2';
+  $('onCtxt').textContent=fbo?T('onSubFb'):team?T('onSubTeam'):trip?T('onSubTriple'):ffa?T('onSubFfa'):T('onSubVs');
+  $('onBadgeN').textContent=fbo?'2–5':team?'4':trip?'3':ffa?'2–5':'2';
 }
 function openOnline(){
   if(TUNE){toast('Tuning aktiv — Online deaktiviert');return;}
@@ -6236,17 +6280,16 @@ function openOnline(){
 function createRoom(){
   if(TUNE){toast('Tuning aktiv — Online deaktiviert');return;}
   const ffa=mode==='ffa';   // Kontext vom ffaOnline-Button
-  // Arena Football (Dev-Prototyp): derselbe Erstellungsablauf, nur ein anderer Raumtyp.
-  // Die Weiche kommt aus dem Dev-Einstieg, der mode und fmt vor openOnline() setzt.
-  // Arena Football ist ohne ?dev=1 ein rein lokaler Modus. Ein Erstellungsversuch aus
-  // diesem Kontext bricht deshalb GANZ ab - ein Rueckfall auf einen RingOut-Raum waere
-  // ein widerspruechlicher Mischzustand: online=true bei mode==='football'.
-  if(mode==='football'&&!DEV_MENU){ setStatus(T('err')); return; }
-  // Doppelt gesichert: der Einstieg blendet sich ohne ?dev=1 gar nicht erst ein, und
-  // hier entsteht ohne ihn auch kein Football-Raum.
+  // Arena Football: derselbe Erstellungsablauf, nur ein anderer Raumtyp. Die Weiche
+  // kommt aus dem Einstieg, der mode und fmt vor openOnline() setzt - seit dem
+  // Produktweg aus der Modusauswahl, weiterhin auch aus dem Dev-Panel.
   const fbo=mode==='football'&&fmt===FB_ONLINE_FMT;
-  whenFB(()=>{ if(!fbReady()){setStatus(T(fbFailKey()));return;}
-    (async()=>{ const op=newJoinOp(); let dc=null, code='', created=false, listed=false;
+  // Der Auftrag entsteht VOR dem Warten auf Firebase - sonst koennte ein Rueckweg,
+  // der waehrend des Wartens genommen wird, ihn nicht entwerten (s. leaveOnline).
+  const op=newJoinOp();
+  whenFB(()=>{ if(!joinOpCurrent(op))return;
+    if(!fbReady()){setStatus(T(fbFailKey()));return;}
+    (async()=>{ let dc=null, code='', created=false, listed=false;
     // Snapshot the visibility ONCE, validated, at the start of the operation. From here
     // on the create uses only this immutable local value — a UI toggle flip during an
     // await can no longer change this operation's path, listing decision or cleanup.
@@ -6613,8 +6656,12 @@ function joinRoom(){
   if(TUNE){toast('Tuning aktiv — Online deaktiviert');return;}
   const code=($('onInput').value||'').toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,4);
   if(code.length<4){ setStatus(T('code4')); return; }
-  whenFB(()=>{ if(!fbReady()){setStatus(T(fbFailKey()));return;}
-    (async()=>{ const op=newJoinOp();
+  // Wie beim Erstellen: der Auftrag entsteht VOR dem Warten, damit ein Rueckweg
+  // waehrend des Wartens ihn zuverlaessig entwertet.
+  const op=newJoinOp();
+  whenFB(()=>{ if(!joinOpCurrent(op))return;
+    if(!fbReady()){setStatus(T(fbFailKey()));return;}
+    (async()=>{
     try{
       setStatus(T('joining'));
       const s=await window.FB.get(window.FB.ref(window.FB.db,'rooms/'+code));
@@ -6635,10 +6682,12 @@ function joinRoom(){
       // Mehrsitzige Raeume - FFA-Familie UND Arena Football. Beide laufen ueber denselben
       // atomaren write-once-Sitzclaim; nur Sitzzahl, Modus und Variante unterscheiden sich.
       const joinFb=v.game===ROOM_GAME_FOOTBALL;
-      // Arena Football Online ist ein Entwicklungsprototyp. Ohne ?dev=1 fuehrt auch ein
-      // bekannter Raumcode nicht hinein - sonst waere er ueber das Beitrittsfeld faktisch
-      // veroeffentlicht.
-      if(joinFb&&!DEV_MENU){ setStatus(T('noRoom')); return; }
+      // Arena Football braucht die echte 3D-Szene: ohne sie sagt schon die Statuszeile,
+      // dass der Modus nicht spielbar ist, und der Einstieg lehnt ausdruecklich ab. Der
+      // Weg ueber einen Raumcode muss dieselbe Bedingung erfuellen - sonst besetzt ein
+      // nicht spielbarer Client einen Sitz, und das Match wartet auf einen Zug, der nie
+      // kommt (bis Frist und REMOVE greifen).
+      if(joinFb&&!r3dActive){ setStatus(T('fbNo3d')); return; }
       if(joinFb||v.fmt==='ffa'||v.fmt==='triple_ffa'||v.fmt==='team_duel'){   // M8-T3c: Seat per atomaren write-once-Claim statt fix p/1
         const c=await claimSeat(code,op,joinFb?FB_ONLINE_SEATS:v.fmt==='triple_ffa'?3:v.fmt==='team_duel'?4:FFA_MAX_SEATS);   // rolls its own writes back if the op goes stale
         if(c.stale)return;                  // op superseded -> globals stay untouched (offline)
@@ -6751,9 +6800,10 @@ async function attemptRejoin(code){
     if(seat<0){ forgetRoom(); setStatus(T('noRoom')); return false; }   // identity no longer holds a seat here — NEVER take a foreign one
     // "ffa" heisst hier: mehrsitziger Raum mit Lobby und Host-Start. Arena Football
     // gehoert dazu; die Sitzzahl kommt aus der kanonischen Raumkonfiguration.
-    // Auch die Rueckkehr fuehrt nur mit ?dev=1 in einen Football-Raum.
     const rjFb=roomIsFootball(d.config);
-    if(rjFb&&!DEV_MENU){ forgetRoom(); setStatus(T('noRoom')); return false; }
+    // Auch die Rueckkehr: ein Sitz gehoert nur einem Client, der ihn auch spielen kann.
+    // Der gespeicherte Raum bleibt bestehen - mit verfuegbarer 3D-Szene gelingt sie.
+    if(rjFb&&!r3dActive){ setStatus(T('fbNo3d')); return false; }
     const ffa=rjFb||v.fmt==='ffa'||v.fmt==='triple_ffa'||v.fmt==='team_duel';
     if(v.state==='playing'&&ffa&&seat>=v.seats){ forgetRoom(); setStatus(T('rejoinNoLobby')); return false; }   // match started without this seat
     if(d.p&&seatActive(d.p,seat)){ setStatus(T('rejoinTab')); return false; }

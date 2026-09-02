@@ -1,6 +1,6 @@
 # PROJECT.md — RingOut
 
-**Zuletzt aktualisiert:** 2026-08-28 (Online-Protokoll v4 mit Football-Raumtyp; Online-Sitze gehoeren der Firebase-`auth.uid`; Arena Football: **Elimination startet mit fuenf Spielern** auf dem Broad Rounded Pentagon, Ablauf 5P → 4P → 3P → 2P → Sieger; **zwei Leben** in der Elimination, Classic auf der kanonischen Shouldered-Wide-Arena, **fester 60-Hz-Gameplay-Takt** unabhaengig von der Bildwiederholrate, neu abgestimmte Daempfung und dynamischere Abschusskurve; finale adaptive Elimination-Arenaformen — Rounded Square / Broad Rounded Triangle / Shouldered Wide; **beide** Arenawechsel 4→3 und 3→2 sind animiert und tragen Gold-Kantenfeedback plus Transitionsklang; **drei** sichtbare Modi — Classic 1v1 als Standard, Tactical 1v1, Elimination; Elimination ist jetzt regulaer ueber die Modusauswahl startbar, weiterhin lokal/Hotseat)
+**Zuletzt aktualisiert:** 2026-09-02 (**Arena Football Online ist ueber das normale Produktmenue erreichbar** — `?dev=1` ist fuer Spieler nicht mehr noetig; Online-Protokoll v4 mit Football-Raumtyp; Online-Sitze gehoeren der Firebase-`auth.uid`; Arena Football: **Elimination startet mit fuenf Spielern** auf dem Broad Rounded Pentagon, Ablauf 5P → 4P → 3P → 2P → Sieger; **zwei Leben** in der Elimination, Classic auf der kanonischen Shouldered-Wide-Arena, **fester 60-Hz-Gameplay-Takt** unabhaengig von der Bildwiederholrate, neu abgestimmte Daempfung und dynamischere Abschusskurve; finale adaptive Elimination-Arenaformen — Rounded Square / Broad Rounded Triangle / Shouldered Wide; **beide** Arenawechsel 4→3 und 3→2 sind animiert und tragen Gold-Kantenfeedback plus Transitionsklang; **drei** sichtbare Modi — Classic 1v1 als Standard, Tactical 1v1, Elimination; Elimination ist jetzt regulaer ueber die Modusauswahl startbar, weiterhin lokal/Hotseat)
 
 - **Aktueller stabiler Projekt-HEAD:** `5a23dc424fb3126c33c29543b7c6571b87a65ec7`
 - **Implementierungs-Commit UX-Phase 3:** `babbbe78ee388489321d1f0cb3e032bbaabd0725`
@@ -84,7 +84,7 @@ Bei den E2E-Harnessen ist die Produktions-Firebase hart geblockt.
 | ONLINE FFA | ✅ Flaggschiff (Default-Auswahl) | 2–5 Spieler via Firebase, Raum erstellen/Code teilen, Host startet ab 2 |
 | ONLINE VERSUS | ✅ | **2 echte Spieler** via Firebase; CTA öffnet Format-Modal: 1v1 DUEL (`fmt='single'`, 1 Kugel/Spieler) oder 2v2 DUO DUEL (`fmt='double'`, 2 Kugeln/Spieler). Bewusst nicht „Team Battle" — reserviert für einen echten 4-Spieler-Modus |
 | BOT TRAINING | ✅ | Spieler gegen Hard-Bot; CTA öffnet Format-Modal: 1v1 VS BOT oder 2v2 DUO VS BOT (`botMove()` routet fmt-abhängig auf `bot1v1`/`bot2v2`) |
-| ARENA FOOTBALL | ✅ | **Lokal/Hotseat**, nie online. CTA öffnet die Modusauswahl (`#fbModeOv`, gleiche Modalstruktur wie das Bot-Format-Modal): **Classic 1v1** (Standard, hervorgehoben) oder **Tactical 1v1**. Details unten unter „Arena-Football-Modi" |
+| ARENA FOOTBALL | ✅ | CTA öffnet die Modusauswahl (`#fbModeOv`, gleiche Modalstruktur wie das Bot-Format-Modal) mit **vier** Einträgen: **Classic 1v1** (Standard, hervorgehoben), **Tactical 1v1**, **Elimination** und **ONLINE** (2–5 Spieler). Classic, Tactical und Elimination sind lokal/Hotseat; ONLINE führt in den bestehenden Online-Bildschirm (Protokoll-v4-Football-Raum). Details unten unter „Arena-Football-Modi" |
 | 2 Spieler (Hotseat) | ❌ nur `?dev=1` | Lokales Pass-and-Play mit Sichtschutz-Bildschirm — als Testbasis erhalten |
 | FFA lokal | ❌ nur `?dev=1` | 2–5 Spieler Hotseat (M8-T2) inkl. Spieleranzahl-Auswahl — Testbasis für Online-FFA |
 
@@ -203,9 +203,10 @@ und Torablauf werden **nicht** serialisiert. Der Server haelt Identitaet, Praese
 Konfiguration, Zughistorie und den Eviction-Marker — alles andere entsteht deterministisch
 aus der Historie. Es gibt keine zweite Wahrheit.
 
-> Phase A definiert ausschliesslich das Protokoll. **Arena Football ist weiterhin rein
-> lokal**: kein Produktweg erzeugt einen Football-Raum, es gibt keinen Online-Eintrag in
-> der Football-Modusauswahl, und `startFootball()` pinnt unveraendert `online=false`.
+> Phase A definierte ausschliesslich das Protokoll. **Seit 2026-09-02 ist der Weg
+> oeffentlich**: die Football-Modusauswahl hat einen ONLINE-Eintrag, der in denselben
+> Online-Bildschirm fuehrt. `startFootball()` pinnt unveraendert `online=false` — der
+> LOKALE Weg bleibt lokal; der Onlineweg ist ein eigener Einstieg daneben.
 
 ---
 
@@ -300,12 +301,14 @@ sind die beiden gestarteten Figuren markiert.
 **Physik, Arena, Tor, Score, Goal-FX und Goal-Sound sind in Classic und Tactical identisch** —
 Tactical aendert ausschliesslich Bodyanzahl und Figurenwahl.
 
-**Online:** Arena Football ist in **allen drei** Modi ein rein lokaler Modus. `mode='football'` wird
-an genau zwei Stellen gesetzt: im Startpfad (`online=false`) und in der Menue-Vorschau, die bei
-`online` sofort aussteigt. Online-Raeume tragen kein `mode`-Feld — Football ist ueber den
-Lockstep-Pfad nicht erreichbar. Eine Online-Unterstuetzung fuer Tactical oder Elimination
-(mehr Bodies im Snapshot, Owner-/Index-/Slot-Annahmen, Reconnect) ist **nicht** implementiert
-und waere ein eigener Auftrag mit Protokollarbeit.
+**Online:** **Elimination** ist online spielbar und seit 2026-09-02 ueber das normale Menue
+erreichbar (ARENA FOOTBALL → ONLINE, 2–5 Spieler). **Classic und Tactical bleiben rein lokal** —
+der Lockstep-Pfad ist auf Classic-Bodyzahlen ausgelegt, eine Online-Unterstuetzung fuer Tactical
+waere ein eigener Auftrag mit Protokollarbeit, und die UI bietet Tactical in keinem
+Online-Kontext an. `mode='football'` wird an genau **fuenf** Stellen gesetzt: im lokalen
+Startpfad (`online=false`), im oeffentlichen Onlineeinstieg, im Dev-Einstieg, beim Beitritt und
+bei der Rueckkehr. Online-Raeume tragen kein `mode`-Feld — der Raumtyp steht in
+`config.game` (`ROOM_GAME_FOOTBALL`), und Beitritt wie Rueckkehr lesen ihn von dort.
 
 **Verworfen:** eine dritte Variante „Tactical Dual" (beide Figuren je Team gleichzeitig planbar)
 wurde prototypisch gebaut und im Spieltest verworfen — unuebersichtlicher, deutlich defensiver,

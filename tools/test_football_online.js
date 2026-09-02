@@ -638,10 +638,13 @@ function makeClient(db, code, opts) {
   const FB = db.FBfor(ui, uid);
   const body = `
     const TUNE=false; let r3dOrbit=false;
-    // Die echte Ansicht des Spiels ist 3D. Der Harness kann beide Wege fahren: der
-    // 2D-Zweig prueft die reine Identitaets-/Eingabelogik, der 3D-Zweig zusaetzlich die
-    // Trefferpruefung ueber die echte Projektion.
-    let r3dActive=${opts.d3 ? 'true' : 'false'};
+    // Die echte Ansicht des Spiels ist 3D - Arena Football verlangt sie, und der
+    // Beitritt lehnt einen Client ohne sie ab (er koennte einen Sitz besetzen, ohne
+    // ziehen zu koennen). Ein Client des Harness ist deshalb standardmaessig SPIELBAR.
+    // Die Zeigerpruefung faehrt trotzdem beide Wege: sie schaltet die Ansicht nach dem
+    // Beitritt um (view2d) - der 2D-Zweig prueft die reine Eingabelogik, der 3D-Zweig
+    // zusaetzlich die Trefferpruefung ueber die echte Projektion.
+    let r3dActive=${opts.no3d ? 'false' : 'true'};
     // Der Online-Football-Prototyp haengt vollstaendig an ?dev=1. Der Harness stellt
     // beide Faelle dar, damit die Grenze selbst geprueft werden kann.
     const DEV_MENU=${opts.dev === false ? 'false' : 'true'};
@@ -786,6 +789,9 @@ function makeClient(db, code, opts) {
       },
       viewAngle(){ return viewAngle(); },
       who(){ return whoCanAim(); },
+      // Nur fuer die Zeigerpruefung: die Ansicht umschalten, NACHDEM der Sitz steht.
+      view2d(){ r3dActive=false; },
+      view3d(){ r3dActive=true; },
       // Zeigen mit dem Finger - vollstaendig ueber die echten Handler. Der Bildschirmpunkt
       // wird so gewaehlt, dass localPt() genau auf die eigene Figur zurueckrechnet: die
       // Ansichtsdrehung wird dafuer VORWAERTS angewandt (localPt dreht sie zurueck).
@@ -1552,60 +1558,169 @@ async function eliminateSeat(db, cs, seat, maxRounds) {
     for (const c of cs) c.drop();
   }
 
-  // ── (P) DIE DEV-GRENZE GILT AN JEDEM WEG ────────────────────────────────────
-  // Der Prototyp ist nicht veroeffentlicht. Es genuegt deshalb NICHT, nur die
-  // Schaltflaeche zu verstecken: wer den Raumcode kennt, darf ohne ?dev=1 auch ueber
-  // das Beitrittsfeld oder eine gespeicherte Rueckkehr nicht hineinkommen.
+  // ── (P) DER OEFFENTLICHE WEG TRAEGT - UND SCHUETZT WEITER ───────────────────
+  // Arena Football Online ist ab jetzt ein normaler Produktweg. Geprueft wird an der
+  // echten Datenbank, dass ein Client OHNE ?dev=1 einen Football-Raum anlegt, ueber den
+  // Raumcode beitritt und auf seinen Sitz zurueckkehrt - und dass dabei alles andere
+  // unveraendert gilt: Kapazitaet fuenf, Start ab zwei, eingefrorene Startbesetzung,
+  // kein spaeter Beitritt. Der Dev-Schalter ist kein Tuersteher mehr, sondern nur noch
+  // eine Abkuerzung im Menue: beide Wege muessen dasselbe Ergebnis liefern.
   {
     const db = makeDB();
-    // Bewusst nur VIER Sitze besetzt: Sitz 4 ist frei. Sonst scheiterte der Beitritt
-    // schon an der vollen Lobby und der Test bewiese ueber die Dev-Grenze nichts.
+    // Ein ganz normaler Client legt den Raum an.
+    const host = makeClient(db, 'PUB1', { name: 'HOST', dev: false });
+    host.enterFootball(); host.create(); await tick(db);
+    t('P ohne ?dev=1 entsteht ein Raum', !!db.data.rooms.PUB1, Object.keys(db.data.rooms));
+    t('P und zwar ein FOOTBALL-Raum, kein RingOut-Raum',
+      db.data.rooms.PUB1.config.game === 'football', db.data.rooms.PUB1.config);
+    t('P mit dem bestehenden Raumformat', db.data.rooms.PUB1.config.fmt === 'elimination',
+      db.data.rooms.PUB1.config.fmt);
+    t('P er startet in der Lobby', db.data.rooms.PUB1.state === 'lobby');
+    t('P der Host sitzt auf Sitz 0 und ist online',
+      host.st().online === true && host.st().myPlayer === 0 && host.st().mode === 'football',
+      host.st());
+
+    // Beitritt ueber den Raumcode - ebenfalls ohne Dev-Schalter.
+    const gaeste = [];
+    for (let i = 1; i < 5; i++) {
+      const g = makeClient(db, 'PUB1', { name: 'G' + i, dev: false });
+      g.join('PUB1'); await tick(db);
+      gaeste.push(g);
+    }
+    t('P vier weitere Clients treten ohne ?dev=1 bei',
+      gaeste.every((g, i) => g.st().online === true && g.st().myPlayer === i + 1),
+      gaeste.map(g => g.st().myPlayer));
+    t('P alle landen im Football-Modus',
+      gaeste.every(g => g.st().mode === 'football' && g.st().fmt === 'elimination'));
+    t('P der Raum fasst genau fuenf Sitze',
+      Object.keys(db.data.rooms.PUB1.players).length === 5);
+    // Der sechste kommt nicht mehr hinein - die Kapazitaet ist unveraendert.
+    const sechster = makeClient(db, 'PUB1', { name: 'G5', dev: false });
+    sechster.join('PUB1'); await tick(db);
+    t('P ein sechster Client bekommt keinen Sitz', sechster.st().online === false, sechster.st());
+    t('P und der Raum bleibt bei fuenf',
+      Object.keys(db.data.rooms.PUB1.players).length === 5);
+    sechster.drop();
+
+    // Der Host startet - dasselbe Startsignal wie bisher.
+    host.start(); await tick(db);
+    t('P der oeffentliche Host startet das Match', db.data.rooms.PUB1.state === 'playing');
+    t('P und friert die Startbesetzung ein', db.data.rooms.PUB1.seats === 5,
+      db.data.rooms.PUB1.seats);
+    for (const g of gaeste) g.drop();
+    host.drop();
+  }
+
+  {
+    // Start ab ZWEI - auch das gilt fuer den oeffentlichen Weg unveraendert, und allein
+    // startet weiterhin niemand.
+    const db = makeDB();
+    const a = makeClient(db, 'PUB2', { name: 'A', dev: false });
+    a.enterFootball(); a.create(); await tick(db);
+    t('P allein ist der Startknopf gesperrt', a.lobbyStartDisabled() === true);
+    a.start(); await tick(db, 20);
+    t('P und es wird kein Startsignal geschrieben', db.data.rooms.PUB2.seats === undefined,
+      db.data.rooms.PUB2.seats);
+    t('P der Raum bleibt in der Lobby', db.data.rooms.PUB2.state === 'lobby');
+    const b = makeClient(db, 'PUB2', { name: 'B', dev: false });
+    b.join('PUB2'); await tick(db);
+    t('P zu zweit ist er frei', a.lobbyStartDisabled() === false);
+    a.start(); await tick(db);
+    t('P und das Match startet zu zweit', db.data.rooms.PUB2.seats === 2,
+      db.data.rooms.PUB2.seats);
+    // Und danach kommt niemand mehr hinein - die Besetzung ist eingefroren.
+    const spaet = makeClient(db, 'PUB2', { name: 'SPAET', dev: false });
+    spaet.join('PUB2'); await tick(db);
+    t('P ein spaeter Beitritt bleibt draussen', spaet.st().online === false ||
+      spaet.st().myPlayer >= db.data.rooms.PUB2.seats, spaet.st());
+    t('P die eingefrorene Besetzung bleibt bei zwei', db.data.rooms.PUB2.seats === 2);
+    spaet.drop(); a.drop(); b.drop();
+  }
+
+  {
+    // Die Rueckkehr auf den eigenen Sitz - ohne Dev-Schalter, und mit demselben
+    // Ergebnis wie mit ihm. Die Grenze ist der SITZ, nicht der Schalter.
+    const db = makeDB();
     const cs = [];
-    for (let i = 0; i < 4; i++) cs.push(makeClient(db, 'FBQ4', { name: 'P' + (i + 1) }));
+    for (let i = 0; i < 3; i++) cs.push(makeClient(db, 'PUB3', { name: 'R' + i, dev: false }));
     cs[0].enterFootball(); cs[0].create(); await tick(db);
-    for (let i = 1; i < 4; i++) { cs[i].join('FBQ4'); await tick(db); }
-    t('P Vorbedingung: vier Sitze belegt, Sitz 4 ist frei',
-      Object.keys(db.data.rooms.FBQ4.players).length === 4 && db.data.rooms.FBQ4.players[4] === undefined);
-
-    // Ein normaler Produktclient - ohne Dev-Schalter - auf den freien Sitz.
-    const plain = makeClient(db, 'FBQ4', { name: 'PLAIN', dev: false });
-    plain.join('FBQ4'); await tick(db);
-    t('P ohne ?dev=1 fuehrt der Raumcode nicht in den Football-Raum',
-      plain.st().online === false && plain.st().mode !== 'football', plain.st());
-    t('P der freie Sitz bleibt frei', db.data.rooms.FBQ4.players[4] === undefined);
-    // Gegenprobe: derselbe Beitritt MIT Dev-Schalter gelingt.
-    const devJoin = makeClient(db, 'FBQ4', { name: 'P5' });
-    devJoin.join('FBQ4'); await tick(db);
-    t('P mit ?dev=1 gelingt derselbe Beitritt',
-      devJoin.st().online === true && devJoin.st().myPlayer === 4, devJoin.st());
-    cs.push(devJoin);
+    for (let i = 1; i < 3; i++) { cs[i].join('PUB3'); await tick(db); }
     cs[0].start(); await tick(db);
-    t('P das Match startet danach normal', db.data.rooms.FBQ4.seats === 5);
+    t('P Vorbedingung: ein laufendes Match zu dritt', db.data.rooms.PUB3.seats === 3);
+    const weg = cs[2], pid = weg.pid, uid = weg.uid;
+    weg.drop(); db.data.rooms.PUB3.p[2].on = false;
+    const zurueck = makeClient(db, 'PUB3', { pid, uid, name: 'R2', dev: false });
+    const p1 = zurueck.rejoin('PUB3'); await tick(db); const ok1 = await p1; await tick(db);
+    t('P ohne ?dev=1 gelingt die Rueckkehr auf den eigenen Sitz',
+      ok1 === true && zurueck.st().myPlayer === 2, { ok1, st: zurueck.st() });
+    // Gegenprobe: derselbe Weg MIT Dev-Schalter liefert dasselbe - der Schalter ist
+    // keine Grenze mehr, sondern nur noch eine Abkuerzung im Menue.
+    zurueck.drop(); db.data.rooms.PUB3.p[2].on = false;
+    const mitDev = makeClient(db, 'PUB3', { pid, uid, name: 'R2' });
+    const p2 = mitDev.rejoin('PUB3'); await tick(db); const ok2 = await p2; await tick(db);
+    t('P mit ?dev=1 gelingt dieselbe Rueckkehr',
+      ok2 === true && mitDev.st().myPlayer === 2, { ok2 });
+    // Ein FREMDER Sitz bleibt unerreichbar - daran hat sich nichts geaendert.
+    const fremd = makeClient(db, 'PUB3', { name: 'FREMD', dev: false });
+    const p3 = fremd.rejoin('PUB3'); await tick(db); const ok3 = await p3; await tick(db);
+    t('P eine fremde Identitaet kommt weiterhin nicht auf einen Sitz',
+      ok3 === false && fremd.st().online === false, { ok3, st: fremd.st() });
+    fremd.drop(); mitDev.drop();
+    for (const c of cs) c.drop();
+  }
 
-    // Auch die Rueckkehr auf einen eigenen Sitz bleibt ohne Dev-Schalter verschlossen.
-    const gone = cs[3], pid = gone.pid, uid = gone.uid;
-    gone.drop(); db.data.rooms.FBQ4.p[3].on = false;
-    const backNoDev = makeClient(db, 'FBQ4', { pid, uid, name: 'P4', dev: false });
-    const pend = backNoDev.rejoin('FBQ4'); await tick(db); const okNo = await pend; await tick(db);
-    t('P ohne ?dev=1 gelingt auch die Rueckkehr nicht', okNo === false && backNoDev.st().online === false);
-    // ... mit Dev-Schalter dagegen schon - die Grenze ist der Schalter, nicht der Sitz.
-    const backDev = makeClient(db, 'FBQ4', { pid, uid, name: 'P4' });
-    const pend2 = backDev.rejoin('FBQ4'); await tick(db); const okYes = await pend2; await tick(db);
-    t('P mit ?dev=1 gelingt dieselbe Rueckkehr', okYes === true && backDev.st().myPlayer === 3, { okYes });
+  {
+    // Ein Client OHNE 3D-Szene darf keinen Sitz bekommen. Arena Football braucht sie -
+    // ohne sie sagt schon die Statuszeile, dass der Modus nicht spielbar ist. Bekaeme er
+    // trotzdem einen Sitz, wartete das Match auf einen Zug, den er nicht machen kann,
+    // bis Frist und REMOVE greifen.
+    const db = makeDB();
+    const wirt = makeClient(db, 'N3D1', { name: 'H', dev: false });
+    wirt.enterFootball(); wirt.create(); await tick(db);
+    const blind = makeClient(db, 'N3D1', { name: 'BLIND', dev: false, no3d: true });
+    blind.join('N3D1'); await tick(db);
+    t('P ein Client ohne 3D-Szene bekommt keinen Sitz',
+      blind.st().online === false && blind.st().roomCode === '', blind.st());
+    t('P und der Sitz bleibt frei', db.data.rooms.N3D1.players[1] === undefined,
+      Object.keys(db.data.rooms.N3D1.players));
+    // Ein sehender Client bekommt denselben Sitz sofort - die Bedingung ist die Szene,
+    // nicht der Raum.
+    const sehend = makeClient(db, 'N3D1', { name: 'G', dev: false });
+    sehend.join('N3D1'); await tick(db);
+    t('P ein spielbarer Client bekommt ihn', sehend.st().myPlayer === 1, sehend.st());
+    wirt.start(); await tick(db);
+    t('P und das Match startet', db.data.rooms.N3D1.seats === 2);
 
-    // Und ein Client ohne Dev-Schalter legt selbst dann keinen Football-Raum an,
-    // wenn der Kontext gesetzt waere.
-    const maker = makeClient(db, 'FBR2', { name: 'NODEV', dev: false });
-    maker.enterFootball(); maker.create(); await tick(db);
-    t('P ohne ?dev=1 entsteht kein Football-Raum',
-      !db.data.rooms.FBR2 || db.data.rooms.FBR2.config.game !== 'football',
-      db.data.rooms.FBR2 && db.data.rooms.FBR2.config);
-    // Und es entsteht auch kein ERSATZraum. Ein Rueckfall auf einen RingOut-Raum waere
-    // ein widerspruechlicher Mischzustand: online=true, waehrend mode 'football' bleibt.
-    t('P ohne ?dev=1 entsteht ueberhaupt kein Raum', !db.data.rooms.FBR2, db.data.rooms.FBR2);
-    t('P der Client bleibt offline und lokal',
-      maker.st().online === false && maker.st().roomCode === '', maker.st());
-    maker.drop(); plain.drop(); backNoDev.drop(); backDev.drop();
+    // Auch die RUECKKEHR auf den eigenen Sitz verlangt die Szene.
+    const pid = sehend.pid, uid = sehend.uid;
+    sehend.drop(); db.data.rooms.N3D1.p[1].on = false;
+    const zurueckBlind = makeClient(db, 'N3D1', { pid, uid, name: 'G', dev: false, no3d: true });
+    const pb = zurueckBlind.rejoin('N3D1'); await tick(db); const okb = await pb; await tick(db);
+    t('P ohne 3D-Szene gelingt auch die Rueckkehr nicht',
+      okb === false && zurueckBlind.st().online === false, { okb, st: zurueckBlind.st() });
+    t('P der Sitz bleibt dabei unberuehrt', db.data.rooms.N3D1.players[1] !== undefined);
+    // Mit Szene gelingt genau dieselbe Rueckkehr - der gespeicherte Raum wurde nicht
+    // verworfen, nur der Versuch abgelehnt.
+    const zurueckSehend = makeClient(db, 'N3D1', { pid, uid, name: 'G', dev: false });
+    const pz = zurueckSehend.rejoin('N3D1'); await tick(db); const okz = await pz; await tick(db);
+    t('P mit 3D-Szene gelingt dieselbe Rueckkehr',
+      okz === true && zurueckSehend.st().myPlayer === 1, { okz, st: zurueckSehend.st() });
+    zurueckBlind.drop(); zurueckSehend.drop(); blind.drop(); wirt.drop();
+  }
+
+  {
+    // Und der Dev-Weg selbst ist unveraendert: ein Client MIT ?dev=1 legt denselben
+    // Raum an und spielt denselben Ablauf.
+    const db = makeDB();
+    const cs = [];
+    for (let i = 0; i < 2; i++) cs.push(makeClient(db, 'PUB4', { name: 'D' + i }));
+    cs[0].enterFootball(); cs[0].create(); await tick(db);
+    cs[1].join('PUB4'); await tick(db);
+    cs[0].start(); await tick(db);
+    t('K der Dev-Weg legt denselben Raumtyp an',
+      db.data.rooms.PUB4.config.game === 'football' && db.data.rooms.PUB4.seats === 2);
+    await playRound(db, cs, () => [-50, 30]);
+    t('K und spielt sich unveraendert', sameHash(cs) && cs[0].st().turnNo >= 0);
     for (const c of cs) c.drop();
   }
 
@@ -1666,10 +1781,14 @@ async function eliminateSeat(db, cs, seat, maxRounds) {
   {
     const setup = async (db, code, d3) => {
       const cs = [];
-      for (let i = 0; i < 5; i++) cs.push(makeClient(db, code, { name: 'P' + (i + 1), d3: !!d3 }));
+      for (let i = 0; i < 5; i++) cs.push(makeClient(db, code, { name: 'P' + (i + 1) }));
       cs[0].enterFootball(); cs[0].create(); await tick(db);
       for (let i = 1; i < 5; i++) { cs[i].join(code); await tick(db); }
       cs[0].start(); await tick(db);
+      // Die Ansicht wird ERST nach dem Beitritt umgeschaltet: ein Client ohne 3D-Szene
+      // bekaeme gar keinen Sitz (s. Beitrittsbedingung). Geprueft wird hier die
+      // Eingabelogik, nicht die Beitrittsbedingung.
+      if (!d3) for (const c of cs) c.view2d();
       return cs;
     };
     // Eine vollstaendige Zeile der Matrix: jeder Sitz versucht zu zielen, und das

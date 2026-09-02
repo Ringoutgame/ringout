@@ -222,43 +222,87 @@ t('Beitritt: die Ablehnung nennt die Versionsunvertraeglichkeit',
   t('der Peer-Weg verlangt eine abgelaufene Serverzeit', /\(now - .*\) >= 15000/.test(ev['.write']));
 }
 
-// ── (9) Online-Football ist ein DEV-PROTOTYP, kein Produktweg ───────────────────
-// Der Raumtyp existiert jetzt auch im Client - aber ausschliesslich hinter ?dev=1.
-// Der sichtbare Produktweg in Arena Football bleibt unveraendert lokal.
+// ── (9) Online-Football ist ein PRODUKTWEG - mit genau EINEM Netzweg ────────────
+// Der Raumtyp ist ab jetzt ohne ?dev=1 erreichbar. Was dabei NICHT entstehen darf, ist
+// ein zweiter Netzweg: dieselbe Raumanlage, derselbe Beitritt, dieselbe Rueckkehr,
+// dieselbe Lobby. Die beiden Einstiege setzen nur den Kontext davor.
 {
   const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'index.html'), 'utf8');
-  t('der Produktweg pinnt Arena Football weiterhin auf online=false',
+  t('der lokale Produktweg pinnt Arena Football weiterhin auf online=false',
     src.indexOf("mode=menuMode='football';fmt='single';online=false;") >= 0);
-  // Der Football-Raumtyp haengt an EINER Bedingung im Erstellungspfad, und die haengt
-  // am Dev-Kontext. Ohne ihn entsteht wie bisher ein RingOut-Raum.
+  // Der Football-Raumtyp haengt an EINER Bedingung im Erstellungspfad.
   t('createRoom entscheidet den Raumtyp an genau einer Stelle',
     (src.match(/game:fbo\?ROOM_GAME_FOOTBALL:ROOM_GAME_RINGOUT/g) || []).length === 1);
-  // Ohne ?dev=1 bricht die Raumanlage aus dem Football-Kontext GANZ ab. Ein Rueckfall
-  // auf einen RingOut-Raum waere ein Mischzustand: online=true bei mode==='football'.
-  t('ohne ?dev=1 bricht createRoom im Football-Kontext ab',
-    src.indexOf("if(mode==='football'&&!DEV_MENU){ setStatus(T('err')); return; }") >= 0);
   t('der Football-Raumtyp haengt an mode und fmt',
     src.indexOf("const fbo=mode==='football'&&fmt===FB_ONLINE_FMT;") >= 0);
-  // Die Grenze steht an JEDEM Weg in einen Football-Raum, nicht nur am Einstieg:
-  // anlegen, beitreten und zurueckkehren.
-  t('der Beitritt zu einem Football-Raum verlangt ?dev=1',
-    src.indexOf("if(joinFb&&!DEV_MENU){ setStatus(T('noRoom')); return; }") >= 0);
-  t('die Rueckkehr in einen Football-Raum verlangt ?dev=1',
-    src.indexOf("if(rjFb&&!DEV_MENU){ forgetRoom(); setStatus(T('noRoom')); return false; }") >= 0);
-  // Es gibt genau EINEN Einstieg, und er ist zweifach an ?dev=1 gebunden: die
-  // Schaltflaeche wird sonst nicht eingeblendet UND der Handler steigt aus.
-  t('genau eine Schaltflaeche fuehrt in den Online-Football-Kontext',
-    (src.match(/devFbOnlineBtn/g) || []).length === 2);
-  t('der Handler prueft ?dev=1 selbst',
+  // Die drei frueheren ?dev=1-Sperren sind GEFALLEN - das ist der Zweck dieses Passes.
+  // Geprueft wird ihr Verschwinden woertlich, damit eine Rueckkehr auffaellt.
+  t('die Raumanlage verlangt kein ?dev=1 mehr',
+    src.indexOf("if(mode==='football'&&!DEV_MENU){ setStatus(T('err')); return; }") < 0);
+  t('der Beitritt verlangt kein ?dev=1 mehr',
+    src.indexOf("if(joinFb&&!DEV_MENU){ setStatus(T('noRoom')); return; }") < 0);
+  t('die Rueckkehr verlangt kein ?dev=1 mehr',
+    src.indexOf("if(rjFb&&!DEV_MENU){ forgetRoom(); setStatus(T('noRoom')); return false; }") < 0);
+  // Aber der Raumtyp selbst bleibt die Weiche: joinRoom und attemptRejoin lesen ihn
+  // weiterhin aus der KANONISCHEN Raumkonfiguration, nicht aus dem lokalen Zustand.
+  t('der Beitritt erkennt den Football-Raum an der Raumkonfiguration',
+    src.indexOf("const joinFb=v.game===ROOM_GAME_FOOTBALL;") >= 0);
+  t('die Rueckkehr ebenfalls',
+    src.indexOf("const rjFb=roomIsFootball(d.config);") >= 0);
+  // ZWEI Einstiege, EIN Kontext, EIN Bildschirm. Der Dev-Einstieg bleibt vollstaendig
+  // erhalten und bleibt an ?dev=1 gebunden.
+  const KONTEXT = "mode='football'; fbVariant=FOOTBALL_VARIANT_ELIM; fmt=FB_ONLINE_FMT; fbElimStartN=0;";
+  t('beide Einstiege setzen woertlich denselben Kontext',
+    (src.match(new RegExp(KONTEXT.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')) || []).length === 2);
+  t('und beide rufen denselben Onlinebildschirm',
+    (src.match(/openOnline\(\);/g) || []).length >= 2);
+  t('der Dev-Einstieg prueft ?dev=1 weiterhin selbst',
     /\$\('devFbOnlineBtn'\)\.onclick=\(\)=>\{\s*if\(!DEV_MENU\)return;/.test(src));
-  t('ohne ?dev=1 wird der Einstieg nicht eingeblendet',
+  t('und das Dev-Panel wird ohne ?dev=1 weiterhin nicht eingeblendet',
     src.indexOf("if(DEV_MENU){$('devPanel').style.display='';$('devFbOnlineSec').style.display='';}") >= 0);
-  // Die sichtbare Modusauswahl (Classic/Tactical/Elimination) bleibt frei davon.
+  t('die Dev-Schaltflaeche existiert unveraendert genau einmal',
+    (src.match(/devFbOnlineBtn/g) || []).length === 2);
+  // Der sichtbare Einstieg liegt jetzt in der Modusauswahl - ohne Entwicklerbegriffe.
   const mm = src.match(/<div class="ov" id="fbModeOv">[\s\S]*?<button class="wbtn" id="fbModeBack">/);
-  t('die sichtbare Football-Modusauswahl kennt keinen Online-Eintrag',
-    !!mm && mm[0].indexOf('devFbOnlineBtn') < 0 && !/online/i.test(mm[0]));
-  t('kein Aufrufer verbindet startFootball mit dem Online-Einstieg',
+  t('die Modusauswahl fuehrt selbst nach Online',
+    !!mm && mm[0].indexOf('fbOnlineBtn') >= 0);
+  t('und nennt dabei keinen Entwicklerbegriff',
+    !!mm && mm[0].indexOf('devFbOnlineBtn') < 0 && !/DEV|\?dev=1/.test(mm[0]));
+  t('der Onlineeinstieg startet kein lokales Match',
     !/startFootball\([^)]*\)[^\n]{0,40}openOnline/.test(src));
+  // Und es entsteht KEIN zweites Raumformat, kein zweiter Firebase-Pfad, keine zweite
+  // Lobby: die Konstanten des Football-Raums bleiben die bisherigen und stehen je einmal.
+  t('es gibt genau ein Football-Raumformat',
+    (src.match(/const FB_ONLINE_FMT=/g) || []).length === 1);
+  t('und genau eine Sitzzahl dafuer',
+    (src.match(/const FB_ONLINE_SEATS=/g) || []).length === 1);
+  t('die Lobby ist dieselbe wie fuer die FFA-Familie',
+    (src.match(/function renderLobby\(/g) || []).length === 1);
+  // Der Auftrag muss VOR dem Warten auf Firebase entstehen. whenFB() verschiebt den
+  // Rueckruf; wer in dieser Zeit den Rueckweg nimmt, erhoeht zwar joinOpSeq, kann einen
+  // noch nicht erzeugten Auftrag aber nicht entwerten. Der Rueckruf holte sich dann eine
+  // frische, "aktuelle" Nummer - und Raum, Praesenz, onDisconnect, Listener und
+  // gespeicherte Rueckkehr entstuenden hinter dem Ruecken des Spielers.
+  for (const fn of ['createRoom', 'joinRoom']) {
+    const body = src.slice(src.indexOf('function ' + fn + '()'));
+    const iOp = body.indexOf('const op=newJoinOp();'), iWait = body.indexOf('whenFB(');
+    t(fn + ': der Auftrag entsteht VOR dem Warten auf Firebase',
+      iOp >= 0 && iWait >= 0 && iOp < iWait);
+    t(fn + ': und der Rueckruf prueft ihn als erstes',
+      /whenFB\(\(\)=>\{ if\(!joinOpCurrent\(op\)\)return;/.test(body.slice(iWait, iWait + 120)));
+  }
+  t('es gibt keinen zweiten Auftrag im Rueckruf',
+    (src.match(/const op=newJoinOp\(\);/g) || []).length === 3);   // createRoom, joinRoom, attemptRejoin
+  // Arena Football verlangt die echte 3D-Szene - an JEDEM Weg in einen Sitz.
+  t('der Beitritt lehnt einen Client ohne 3D-Szene ab',
+    src.indexOf("if(joinFb&&!r3dActive){ setStatus(T('fbNo3d')); return; }") >= 0);
+  t('die Rueckkehr ebenfalls',
+    src.indexOf("if(rjFb&&!r3dActive){ setStatus(T('fbNo3d')); return false; }") >= 0);
+  t('und der Einstieg benutzt dieselbe Meldung',
+    (src.match(/T\('fbNo3d'\)/g) || []).length >= 3);
+  t('die es dreisprachig gibt', (src.match(/fbNo3d:'/g) || []).length === 3);
+  t('und der Host-Start ebenfalls',
+    (src.match(/function startFfaMatch\(/g) || []).length === 1);
 }
 
 console.log('\nOnline-Protokoll-v4: ' + pass + ' passed, ' + fail + ' failed');

@@ -297,22 +297,26 @@ console.log('ARENA FOOTBALL — Produktsuite: Classic 1v1 (Standard) + Tactical 
   ok(/fbVariant='classic';/.test(showMenuSrc),
      'showMenu() setzt die Football-Variante auf den Standardmodus zurueck');
 
-  // ── SICHTBARE MODUSAUSWAHL: genau DREI Optionen, Classic als einzige Empfehlung ──
-  // Elimination ist seit der Produktintegration der dritte sichtbare Modus. Geprueft wird
-  // das Modal selbst (Struktur, Reihenfolge, Empfehlung) und die Verdrahtung der Buttons.
+  // ── SICHTBARE MODUSAUSWAHL: genau VIER Optionen, Classic als einzige Empfehlung ──
+  // Drei lokale Modi plus ONLINE - seit dem oeffentlichen Onlineeinstieg der vierte
+  // sichtbare Eintrag. Geprueft wird das Modal selbst (Struktur, Reihenfolge, Empfehlung)
+  // und die Verdrahtung der Buttons.
   const fbModalSrc = grab(/<div class="ov" id="fbModeOv">[\s\S]*?<button class="wbtn" id="fbModeBack">/, 'fbModeOv');
   const voptBtns = fbModalSrc.match(/<button class="vopt[^"]*" id="(\w+)">/g) || [];
-  ok(voptBtns.length === 3, 'die Modusauswahl zeigt genau drei Optionen (erhalten: ' + voptBtns.length + ')');
+  ok(voptBtns.length === 4, 'die Modusauswahl zeigt genau vier Optionen (erhalten: ' + voptBtns.length + ')');
   ok(/<button class="vopt rec" id="fbClassicBtn">/.test(fbModalSrc), 'Option 1 ist Classic');
   ok(/<button class="vopt" id="fbTacticalBtn">/.test(fbModalSrc), 'Option 2 ist Tactical');
   ok(/<button class="vopt" id="fbElimBtn">/.test(fbModalSrc), 'Option 3 ist Elimination');
+  ok(/<button class="vopt" id="fbOnlineBtn">/.test(fbModalSrc), 'Option 4 ist Online');
   ok(fbModalSrc.indexOf('fbClassicBtn') < fbModalSrc.indexOf('fbTacticalBtn') &&
-     fbModalSrc.indexOf('fbTacticalBtn') < fbModalSrc.indexOf('fbElimBtn'),
-     'Reihenfolge Classic -> Tactical -> Elimination');
+     fbModalSrc.indexOf('fbTacticalBtn') < fbModalSrc.indexOf('fbElimBtn') &&
+     fbModalSrc.indexOf('fbElimBtn') < fbModalSrc.indexOf('fbOnlineBtn'),
+     'Reihenfolge Classic -> Tactical -> Elimination -> Online');
   ok((fbModalSrc.match(/class="vopt rec"/g) || []).length === 1,
      'genau EINE Option ist empfohlen (.vopt.rec)');
   ok(!/id="fbElimBtn"[\s\S]{0,40}rec/.test(fbModalSrc) && /<button class="vopt" id="fbElimBtn">/.test(fbModalSrc),
      'Elimination wird NICHT empfohlen — Classic bleibt der Standard');
+  ok(!/id="fbOnlineBtn"[\s\S]{0,40}rec/.test(fbModalSrc), 'Online wird ebenfalls nicht empfohlen');
   ok(/id="fbModeBack"/.test(HTML) && /\$\('fbModeBack'\)\.onclick=\(\)=>\$\('fbModeOv'\)\.classList\.remove\('show'\)/.test(HTML),
      'der Zurueck-Button schliesst das Modal unveraendert');
   // Jede Option ruft denselben einzigen Startpfad mit ihrer Variante auf — kein zweiter Pfad,
@@ -324,8 +328,22 @@ console.log('ARENA FOOTBALL — Produktsuite: Classic 1v1 (Standard) + Tactical 
        id + ' startet ueber startFootball() mit der eigenen Variante und derselben Haptik');
   }
   // Eine Definition, drei Menue-Aufrufer, der Dev-Direktlink — und eine Kommentarerwaehnung.
+  // ONLINE ist bewusst NICHT darunter: es startet kein lokales Match, sondern uebergibt
+  // an den bestehenden Onlinebildschirm.
   ok((HTML.match(/startFootball\(/g) || []).length === 6,
      'kein zweiter Startpfad neben startFootball() (erhalten: ' + (HTML.match(/startFootball\(/g) || []).length + ')');
+  const onlineHandler = grab(/\$\('fbOnlineBtn'\)\.onclick=\(\)=>\{[\s\S]*?\n\};/, 'fbOnlineBtn-Handler');
+  ok(!/startFootball/.test(onlineHandler), 'ONLINE startet kein lokales Match');
+  ok(/mode='football'; fbVariant=FOOTBALL_VARIANT_ELIM; fmt=FB_ONLINE_FMT; fbElimStartN=0;/.test(onlineHandler),
+     'es setzt nur den Kontext - Raumtyp, Variante, freie Startbesetzung');
+  ok(/openOnline\(\);/.test(onlineHandler),
+     'und uebergibt an den BESTEHENDEN Onlinebildschirm - kein zweiter Ablauf');
+  ok(/\$\('fbModeOv'\)\.classList\.remove\('show'\);/.test(onlineHandler),
+     'die Modusauswahl schliesst sich dabei');
+  ok(/if\(TUNE\)/.test(onlineHandler) && /r3dActive/.test(onlineHandler),
+     'und es gelten dieselben Vorbedingungen wie fuer die lokalen Modi (Tuning, 3D-Szene)');
+  // Der Produktweg ist NICHT an ?dev=1 gebunden - genau das ist der Zweck.
+  ok(!/DEV_MENU/.test(onlineHandler), 'der Produktweg verlangt kein ?dev=1');
   // Keine Zwischenbestaetigung und kein zweites Elimination-Modal.
   ok(!/fbElimOv|fbElimConfirm|elimConfirm/.test(HTML), 'Elimination hat keinen zweiten Bestaetigungsschritt');
 
@@ -340,27 +358,112 @@ console.log('ARENA FOOTBALL — Produktsuite: Classic 1v1 (Standard) + Tactical 
      'die Elimination-Strings existieren in genau drei Sprachtabellen');
   ok(/\$\('fbElimT'\)\.textContent=T\('fbElimT'\);\$\('fbElimS'\)\.textContent=T\('fbElimS'\);/.test(HTML),
      'applyLang() beschriftet die dritte Option mit');
+  ok((HTML.match(/fbOnlineT:'/g) || []).length === 3 && (HTML.match(/fbOnlineS:'/g) || []).length === 3,
+     'auch die Online-Strings stehen in genau drei Sprachtabellen');
+  ok((HTML.match(/onSubFb:'/g) || []).length === 3,
+     'und der Untertitel des Onlinebildschirms ebenfalls');
+  ok(/\$\('fbOnlineT'\)\.textContent=T\('fbOnlineT'\);\$\('fbOnlineS'\)\.textContent=T\('fbOnlineS'\);/.test(HTML),
+     'applyLang() beschriftet auch die vierte Option');
   // Keine Tech-Begriffe in der primaeren Auswahl.
   for (const word of ['HIDDEN', 'COMMIT', 'HOTSEAT', 'DEV', 'ADAPTIVE'])
     ok(!new RegExp(word).test(fbModalSrc), 'kein Tech-Begriff im Auswahlmodal: "' + word + '"');
 
-  // ── ONLINE-PIN: der PRODUKTweg in Arena Football ist rein lokal. Seit dem
-  //    Online-Prototyp (Phase B) gibt es genau vier Stellen, die mode='football'
-  //    setzen, und keine davon liegt im sichtbaren Produktmenue:
-  //      1. startFootball        - der Produktweg, pinnt online=false
-  //      2. der Dev-Einstieg     - nur mit ?dev=1, oeffnet den Online-Bildschirm
-  //      3. joinRoom             - Beitritt zu einem bestehenden Football-Raum
-  //      4. attemptRejoin        - Rueckkehr auf den eigenen Sitz
-  //    Die Zahl ist bewusst gepinnt: ein fuenfter Pfad waere eine neue Tuer in den
-  //    Online-Modus und muss auffallen.
+  // ── EINSTIEGS-PIN: es gibt genau FUENF Stellen, die mode='football' setzen. Die
+  //    Zahl ist bewusst gepinnt - eine sechste waere eine neue Tuer in den Modus und
+  //    muss auffallen:
+  //      1. startFootball        - der lokale Produktweg, pinnt online=false
+  //      2. fbOnlineBtn          - der oeffentliche Onlineeinstieg aus der Modusauswahl
+  //      3. der Dev-Einstieg     - derselbe Kontext, nur ohne den Umweg ueber die Auswahl
+  //      4. joinRoom             - Beitritt zu einem bestehenden Football-Raum
+  //      5. attemptRejoin        - Rueckkehr auf den eigenen Sitz
   const fbAssignments = (HTML.match(/mode=menuMode='football'|mode='football'/g) || []).length;
-  ok(fbAssignments === 4, 'mode="football" wird an genau vier Stellen gesetzt (erhalten: ' + fbAssignments + ')');
+  ok(fbAssignments === 5, 'mode="football" wird an genau fuenf Stellen gesetzt (erhalten: ' + fbAssignments + ')');
+  // Der DEV-Einstieg bleibt vollstaendig erhalten und bleibt an ?dev=1 gebunden.
   ok(/\$\('devFbOnlineBtn'\)\.onclick=\(\)=>\{\s*if\(!DEV_MENU\)return;/.test(HTML),
-     'der Online-Einstieg ist im Handler selbst an ?dev=1 gebunden');
+     'der Dev-Einstieg ist im Handler selbst weiterhin an ?dev=1 gebunden');
   ok(/if\(DEV_MENU\)\{\$\('devPanel'\)\.style\.display='';\$\('devFbOnlineSec'\)\.style\.display='';\}/.test(HTML),
-     'die Online-Schaltflaeche wird ohne ?dev=1 gar nicht erst eingeblendet');
-  ok(!/devFbOnlineBtn/.test(fbModalSrc) && !/online/i.test(fbModalSrc),
-     'die sichtbare Football-Modusauswahl kennt keinen Online-Eintrag');
+     'und das Dev-Panel wird ohne ?dev=1 weiterhin nicht eingeblendet');
+  // Und beide Einstiege setzen WOERTLICH denselben Kontext - es gibt keinen zweiten Weg.
+  const devHandler = grab(/\$\('devFbOnlineBtn'\)\.onclick=\(\)=>\{[\s\S]*?\n\};/, 'devFbOnlineBtn-Handler');
+  const KONTEXT = "mode='football'; fbVariant=FOOTBALL_VARIANT_ELIM; fmt=FB_ONLINE_FMT; fbElimStartN=0;";
+  ok(devHandler.includes(KONTEXT) && onlineHandler.includes(KONTEXT),
+     'Produktweg und Dev-Einstieg setzen denselben Kontext');
+  ok(/openOnline\(\);/.test(devHandler), 'und beide rufen denselben Onlinebildschirm');
+  // Die sichtbare Auswahl fuehrt jetzt selbst dorthin - ohne Entwicklerbegriffe.
+  ok(!/devFbOnlineBtn|DEV|\?dev=1/.test(fbModalSrc),
+     'die Modusauswahl nennt keinen Entwicklerbegriff');
+  ok(/id="fbOnlineBtn"/.test(fbModalSrc), 'sondern einen normalen Online-Eintrag');
+  // Vier Optionen sind hoeher als ein Telefon im QUERFORMAT. Gemessen bei 568x320 und
+  // 667x375: das Panel war 485 px hoch, der Zurueck-Knopf lag vollstaendig ausserhalb -
+  // und weil .ov zentriert und html/body overflow:hidden sind, war er unerreichbar.
+  // Das Panel bekommt deshalb eine Hoehengrenze und laeuft innen.
+  ok(/max-height:calc\(100vh - 24px\);max-height:calc\(100dvh - 24px\);overflow-y:auto/.test(HTML),
+     'das Modalpanel ist hoehenbegrenzt und scrollt auf kurzen Bildschirmen');
+  ok(/overscroll-behavior:contain/.test(HTML),
+     'und nimmt die Seite dahinter nicht mit');
+
+  // ── DER KOPF DES ONLINEBILDSCHIRMS sagt die Wahrheit ──
+  // Der Raum fasst fuenf, gestartet wird ab zwei. Ein Kopf, der "5" verspricht, waere
+  // eine Falschauskunft an genau der Stelle, an der der Spieler entscheidet.
+  const titelSrc = grab(/function setOnTitle\(ffa\)\{[\s\S]*?\n\}/, 'setOnTitle');
+  ok(/\$\('onTitleMode'\)\.textContent=fbo\?'ARENA FOOTBALL'/.test(titelSrc),
+     'der Onlinebildschirm nennt Arena Football beim Namen');
+  ok(/\$\('onBadgeN'\)\.textContent=fbo\?'2–5'/.test(titelSrc),
+     'und zeigt die Spielerzahl als 2–5, nicht als feste 5');
+  ok(/\$\('onCtxt'\)\.textContent=fbo\?T\('onSubFb'\)/.test(titelSrc),
+     'der Untertitel kommt aus der Sprachtabelle - dreisprachig wie alles andere');
+  ok(!/Elimination · 5 Spieler/.test(HTML),
+     'der fest verdrahtete Fuenf-Spieler-Text ist verschwunden');
+
+  // ── DER RUECKWEG: kein Rest aus dem Onlinebildschirm ──
+  // Wer den Onlinebildschirm verlaesst, ohne einen Raum betreten zu haben, muss den
+  // Menuekontext VOLLSTAENDIG wiederfinden. Ohne das bliebe nach einem Abbruch aus dem
+  // Football-Online das Raumformat im fmt-Global stehen, waehrend mode schon wieder
+  // RingOut ist - ein Mischzustand, der erst beim naechsten Start auffiele.
+  const backSrc = grab(/const onlineBack=\(\)=>\{[\s\S]*?updScrollHint\(\);\};/, 'onlineBack');
+  ok(/leaveOnline\(\);/.test(backSrc), 'der Rueckweg nimmt den bestehenden Verlassen-Pfad');
+  ok(/mode=menuMode;/.test(backSrc), 'stellt den zuletzt gewaehlten Menuemodus wieder her');
+  ok(/updateMenuPreview\(\);/.test(backSrc),
+     'und setzt mode, Format und Spielerzahl gemeinsam aus der sichtbaren Auswahl zurueck');
+  ok(backSrc.indexOf('leaveOnline();') < backSrc.indexOf('updateMenuPreview();'),
+     'und zwar ERST nach dem Verlassen - sonst liefe die Vorschau in eine offene Sitzung');
+  // updateMenuPreview fasst eine laufende Sitzung nie an.
+  const prevSrc = grab(/function updateMenuPreview\(\)\{[\s\S]*?\n\}/, 'updateMenuPreview');
+  ok(/if\(online\)return;/.test(prevSrc), 'die Vorschau ruehrt eine laufende Online-Sitzung nicht an');
+
+  // ── DER AUSTRITT AUS EINEM LAUFENDEN MATCH bleibt der kanonische ──
+  // Der neue Einstieg darf die C4B-Semantik nicht umgehen: ein laufendes Football-Match
+  // wird ueber denselben bestaetigten Austritt verlassen wie bisher.
+  ok(/if\(fbPermanentLeaveRequired\(\)\)return void fbBeginCanonicalLeave\(after\);/.test(HTML),
+     'leaveOnline faehrt fuer ein laufendes Football-Match weiterhin den kanonischen Austritt');
+  ok(/function fbPermanentLeaveRequired\(\)\{\s*return !!\(window\.FB&&roomCode&&gameStarted&&myPlayer>=0&&fbOnlineRoom\(\)&&!fbLeaveRetired\);/.test(HTML),
+     'und die Bedingung dafuer ist unveraendert an das LAUFENDE Match gebunden');
+  ok(!/fbPermanentLeaveRequired|fbBeginCanonicalLeave/.test(onlineHandler),
+     'der neue Einstieg kennt den Austrittspfad gar nicht - er kann ihn nicht umgehen');
+  ok(!/leaveOnline/.test(onlineHandler),
+     'und verlaesst beim Betreten auch keine Sitzung');
+
+  // ── DIE MUSIK laeuft weiter ──
+  // Der Onlinebildschirm ist eine Flaeche UEBER dem Menue: die Szene wechselt auf
+  // 'lobby', die Uhr des Stuecks laeuft unveraendert weiter.
+  ok(!/fbMusicStop|FBMUSIC/.test(onlineHandler),
+     'der Einstieg haelt das Thema nicht an - es wechselt nur die Besetzung');
+  ok(/if\(menuVisible\)return fbMusicLobbyOpen\(\)\?'lobby':'menu';/.test(HTML),
+     'der Onlinebildschirm ist der Lobby-Zustand des laufenden Themas');
+  ok(/return !!fbMusicOnlinePanel&&fbMusicOnlinePanel\.classList\.contains\('show'\);/.test(HTML),
+     'erkannt an derselben Flaeche, die der Einstieg oeffnet');
+
+  // ── RINGOUT bleibt unberuehrt ──
+  // Der Einstieg fasst weder den RingOut-Onlineweg noch die Menueauswahl an.
+  ok(/\$\('ffaOnline'\)\.onclick=\(\)=>\{SFX\.unlock\(\);fmt='ffa';openOnline\(\);\};/.test(HTML),
+     'der FFA-Onlineeinstieg ist unveraendert');
+  ok(!/menuMode/.test(onlineHandler),
+     'der Football-Einstieg laesst die Menueauswahl stehen - der Rueckweg findet sie wieder');
+  ok((HTML.match(/function openOnline\(\)\{/g) || []).length === 1,
+     'es gibt genau EINEN Onlinebildschirm fuer alle Modi');
+  ok((HTML.match(/function createRoom\(\)\{/g) || []).length === 1 &&
+     (HTML.match(/function joinRoom\(\)\{/g) || []).length === 1,
+     'und je genau eine Raumanlage und einen Beitritt');
   ok(/mode=menuMode='football';fmt='single';online=false;/.test(startFootballSrc),
      'der Startpfad pinnt Arena Football fest auf online=false');
   const previewSrc = grab(/function updateMenuPreview\(\)\{[\s\S]*?\n\}/, 'updateMenuPreview');
