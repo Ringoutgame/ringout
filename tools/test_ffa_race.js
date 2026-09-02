@@ -208,6 +208,15 @@ function makeDB() {
     if (!room) throw new Error('PERMISSION_DENIED: no room');
     if (!merged) merged = buildMerged(room, [{ parts, val }]);
     const fmt = room.config && room.config.fmt, key = parts[2];
+    // Vergleichsschreiben auf die Protokollversion (Action Core 04 / Protokoll v5):
+    // erlaubt ist ausschliesslich ein WERTGLEICHES Schreiben. Es reist im atomaren
+    // Sitzclaim mit und weist einen Raum ab, der zwischen Pruefung und Claim geloescht
+    // und mit anderer Version neu angelegt wurde.
+    if (key === 'v') {
+      if (val !== room.v) throw new Error('PERMISSION_DENIED: protocol version mismatch');
+      return;
+    }
+
     if (key === 'p') {
       const seat = +parts[3];
       if (seat >= 5 || (fmt !== 'ffa' && seat >= 2)) throw new Error('PERMISSION_DENIED: seat range');

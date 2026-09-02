@@ -1,6 +1,6 @@
 # PROJECT.md — RingOut
 
-**Zuletzt aktualisiert:** 2026-09-02 (**das sichtbar offene Tormaul ist auch physisch offen** — im Torfenster weist allein die Sockelgeometrie zurueck, keine Bandenlinie; **Arena Football Online ist ueber das normale Produktmenue erreichbar** — `?dev=1` ist fuer Spieler nicht mehr noetig; Online-Protokoll v4 mit Football-Raumtyp; Online-Sitze gehoeren der Firebase-`auth.uid`; Arena Football: **Elimination startet mit fuenf Spielern** auf dem Broad Rounded Pentagon, Ablauf 5P → 4P → 3P → 2P → Sieger; **zwei Leben** in der Elimination, Classic auf der kanonischen Shouldered-Wide-Arena, **fester 60-Hz-Gameplay-Takt** unabhaengig von der Bildwiederholrate, neu abgestimmte Daempfung und dynamischere Abschusskurve; finale adaptive Elimination-Arenaformen — Rounded Square / Broad Rounded Triangle / Shouldered Wide; **beide** Arenawechsel 4→3 und 3→2 sind animiert und tragen Gold-Kantenfeedback plus Transitionsklang; **drei** sichtbare Modi — Classic 1v1 als Standard, Tactical 1v1, Elimination; Elimination ist jetzt regulaer ueber die Modusauswahl startbar, weiterhin lokal/Hotseat)
+**Zuletzt aktualisiert:** 2026-09-02 (**Action Core — massenbehaftete Energieübertragung Spieler → Ball**, ein Volltreffer gibt dem Ball 96,7 % statt 71,4 %; **Online-Protokoll v5** — Verträglichkeitsriegel für die massenbehaftete Football-Physik aus Action Core 04, v4-Räume laufen serverseitig aus; **das sichtbar offene Tormaul ist auch physisch offen** — im Torfenster weist allein die Sockelgeometrie zurueck, keine Bandenlinie; **Arena Football Online ist ueber das normale Produktmenue erreichbar** — `?dev=1` ist fuer Spieler nicht mehr noetig; Online-Protokoll v4 mit Football-Raumtyp; Online-Sitze gehoeren der Firebase-`auth.uid`; Arena Football: **Elimination startet mit fuenf Spielern** auf dem Broad Rounded Pentagon, Ablauf 5P → 4P → 3P → 2P → Sieger; **zwei Leben** in der Elimination, Classic auf der kanonischen Shouldered-Wide-Arena, **fester 60-Hz-Gameplay-Takt** unabhaengig von der Bildwiederholrate, neu abgestimmte Daempfung und dynamischere Abschusskurve; finale adaptive Elimination-Arenaformen — Rounded Square / Broad Rounded Triangle / Shouldered Wide; **beide** Arenawechsel 4→3 und 3→2 sind animiert und tragen Gold-Kantenfeedback plus Transitionsklang; **drei** sichtbare Modi — Classic 1v1 als Standard, Tactical 1v1, Elimination; Elimination ist jetzt regulaer ueber die Modusauswahl startbar, weiterhin lokal/Hotseat)
 
 - **Aktueller stabiler Projekt-HEAD:** `5a23dc424fb3126c33c29543b7c6571b87a65ec7`
 - **Implementierungs-Commit UX-Phase 3:** `babbbe78ee388489321d1f0cb3e032bbaabd0725`
@@ -118,10 +118,90 @@ Bei den E2E-Harnessen ist die Produktions-Firebase hart geblockt.
   `curRestPost()`. Außerhalb von `mode === 'football'` liefern sie exakt die globalen
   Konstanten — alle Bestandsmodi rechnen unverändert weiter (Golden-Physik 13/13).
 
-### Online-Protokoll v4
+### Action Core — Energieübertragung Spieler → Ball (2026-09-02)
 
-`ONLINE_PROTOCOL_VERSION = 4`. Ein v3-Raum wird sauber abgelehnt (Versionsmeldung beim
-Beitritt, `noRoom` beim Rejoin) — keine stille Teilinterpretation, keine Live-Migration.
+**Befund.** Der Ball-Ball-Stoßimpuls rechnete **ohne Masse** (`imp = -(1+RB)*vn/2`) und
+behandelte damit den 25-px-Ball als exakt so schwer wie eine 32-px-Spielerkugel. Ein
+sauberer Volltreffer gab dem Ball nur **71,4 %** der Kontaktgeschwindigkeit und **51 %**
+der Bewegungsenergie. Deshalb fühlte sich kein Schuss gefährlich an — nicht wegen der
+Dämpfung, der Restitution oder der Arena.
+
+**Korrektur.** Keine Verstärkung, sondern die fehlende Größe:
+`FOOTBALL_BALL_MASS = (25/32)³ = 0.476837158203125` — gleiche Dichte, Masse folgt dem
+Volumen. `25/32` ist in Gleitkomma exakt (Zweierpotenz im Nenner), die dritte Potenz
+ebenfalls; der Wert ist auf jeder Maschine bitgleich und lockstep-tauglich. `ballMass(b)`
+liefert ihn ausschließlich für den neutralen Ball im Football-Modus, sonst `1`. Der Impuls
+lautet `-(1+RB)*vn/(1/ma+1/mb)`, verteilt als `imp/ma` und `imp/mb`. **Für zwei gleich
+schwere Kugeln reduziert sich das bitgenau auf die alte Formel** (`1/1+1/1` ist exakt 2,
+`x/1` exakt `x`) — Spieler gegen Spieler und jeder Modus außer Football sind unberührt
+(Golden-Physik 13/13).
+
+**Wirkung.** Volltreffer 71,4 % → **96,7 %** der Kontaktgeschwindigkeit, Energieanteil
+51 % → **93,6 %**. Das Könnensgefälle bleibt und wird **schärfer**: 0°/15°/30°/45° liefern
+96,7 / 93,1 / 82,2 / 67,7 % (vorher 71,4 / 68,8 / 60,7 / 50,0) — der Abstand zwischen
+perfekt und schräg wächst von 21,4 auf **29,0** Prozentpunkte. Winkel und Zugstärke
+bleiben beide eigenständige taktische Größen. Über 400 Züge je Stufe fallen bei starken
+Zügen 35 → **53** Tore, die Torzone wird 188 → **273** mal erreicht; schwache Züge bleiben
+bei 0 Toren.
+
+**Was ausdrücklich NICHT geändert wurde.** Die Dämpfung beider Kugelarten ist
+**bitgleich** (an den Konstanten und am freien Lauf ohne Kontakt nachgewiesen) — der
+Auslauf des neutralen Balls wurde **nicht** verkürzt, seine gefährliche Zeit bleibt bei
+3,20 s, seine Wegstrecke wächst von 1477 auf 1939 px. Restitutionen (Bande 0,60, Sockel
+0,50, Ball 0,44), Torgeometrie, Torfenster, Rettungstasche, Arenaformen und `LAUNCH` sind
+unangetastet. Die Durchdringungskorrektur bleibt bewusst **hälftig**: eine massegewichtete
+Trennung wurde gemessen und verworfen, sie drückt den leichten Ball in die Bande statt aus
+ihr heraus.
+
+**Kein Tempo-Deckel.** Der Stoß ist verlustbehaftet und kann keine Energie erzeugen. Über
+600 Ketten mit bis zu fünf Maximalschüssen liegt das Höchsttempo des Balls bei **9,81 px
+je Teilschritt** (149 % des Abschusstempos) gegen eine kleinste Kontaktdistanz von 57 px —
+ein Deckel würde starke Schüsse beschneiden, ohne etwas zu sichern. Gemessen statt
+gedeckelt: `tools/test_football_action_core.js`.
+
+### Online-Protokoll v5
+
+`ONLINE_PROTOCOL_VERSION = 5`. Ein Raum mit einer anderen Version wird sauber abgelehnt
+(Versionsmeldung beim Beitritt, `noRoom` beim Rejoin) — keine stille Teilinterpretation,
+keine Live-Migration.
+
+**Warum v5 (2026-09-02).** v5 ist **keine Schemaänderung** — das Raumformat ist Feld für
+Feld dasselbe wie v4. v5 markiert eine **Simulationsrevision**: seit Action Core 04 kennt
+der Football-Stoßimpuls Massen (der neutrale Ball wiegt `(25/32)³` einer Spielerkugel).
+Ein sauberer Volltreffer gibt dem Ball dadurch 96,7 % statt 71,4 % der
+Kontaktgeschwindigkeit. Zwei Clients mit unterschiedlichem Stand rechnen **ab dem ersten
+Ballkontakt** auseinander; Lockstep, Wiedergabe und Rehydrierung divergieren sofort, Tor
+und Punktestand können abweichen. Ein v4- und ein v5-Client dürfen sich deshalb nie einen
+Raum teilen. Es gibt bewusst **keine** Kompatibilitätsschicht.
+
+**Wer trennt.** Der **Client**, nicht der Server. Es gibt genau vier Stellen, an denen
+sich dieser Client an einen fremden Raum bindet, und jede vergleicht strikt gegen die
+eigene Version: `validateRoom` (Beitritt per Code und über die öffentliche Liste),
+`validateRejoinRoom` (sichtbarer Wiedereintritt und das Angebot beim Seitenstart),
+`publicListingView` (die öffentliche Liste selbst) und `restorePresencePass` (die
+Wiederverbindung nach einem Abriss — geprüft, **bevor** irgendetwas geschrieben wird).
+Angelegt wird ein Raum an genau **einer** Stelle, die `v: ONLINE_PROTOCOL_VERSION` setzt;
+öffentlicher und Dev-Einstieg laufen beide durch sie.
+
+**Übergangsregeln (Firebase).** Die Rules akzeptieren während der Umstellung **v4 und
+v5**, wo Protokollgültigkeit verlangt wird — sonst wäre jeder noch offene v4-Raum sofort
+tot, obwohl die alten Clients dort völlig legitim weiterspielen. Bestehende v4-Räume
+laufen aus, es gibt **keine** Migration und kein Umschreiben. Neu und ausdrücklich: die
+Raumversion ist **unveränderlich** (`(!data.exists() || newData.val() === data.val())`) —
+ein v4-Raum kann nicht zu einem v5-Raum werden und umgekehrt. Ebenfalls neu: der
+**Zugslot** `g/<gen>/t/<turn>/<seat>` ist jetzt versionsgebunden; er war bisher die
+einzige Schreibstelle des Lockstep-Stroms ohne Versionsriegel.
+
+**Vergleichsschreiben beim Sitzclaim.** Zwischen der Raumprüfung des Clients und seinem
+Sitzclaim kann der Raum gelöscht und unter demselben Code mit einer **anderen** Version
+neu angelegt worden sein — ein leerer Raum darf gelöscht werden, und vier Zeichen Raumcode
+sind schnell wieder vergeben. Ein zweites `get()` verschöbe das Fenster nur. Der Claim
+trägt deshalb `v: ONLINE_PROTOCOL_VERSION` im **selben atomaren Multi-Path-Write**, und
+die Rules lassen auf `rooms/<code>/v` ausschließlich ein **wertgleiches** Schreiben zu
+(`.write: data.exists() && newData.exists() && newData.val() === data.val()`). Stimmt die
+Version nicht, wird das gesamte Update abgewiesen — kein Sitz in einer fremden Simulation,
+kein halber Zustand. Das gilt für beide Claimwege, den ersten Sitz und den Wiedereintritt.
+Gefunden im unabhängigen Review.
 
 **Raumtyp.** `config.game` trennt die beiden Produktfamilien serverseitig:
 `'ringout'` (alle bestehenden Formate) und `'football'` (`config.fmt === 'elimination'`).
@@ -659,7 +739,9 @@ keinen URL-Parameter** — Produktionsphysik hängt nicht von der Adresszeile ab
   Umlenkung der vorhandenen Geschwindigkeit; nur im Stillstand ein eng begrenzter
   Mindest-Escape (`FOOTBALL_ESCAPE_MIN_V = 0.12` px/Micro-Step). Kein Zufall, keine
   Zeitabhängigkeit → lockstep-tauglich.
-- **Kein Massenmodell**, keine Maximalgeschwindigkeit, `LAUNCH` unverändert.
+- **Massenmodell seit Action Core 04** (2026-09-02, s. u.): der Stoßimpuls kennt Massen,
+  aber nur der neutrale Ball ist leichter. Weiterhin **keine Maximalgeschwindigkeit**,
+  `LAUNCH` unverändert.
 - Messnotiz mit allen Zahlen und der Herleitung:
   `artifacts/football-physics-audit/README.md`.
 - Tests: `tools/test_football_shell.js` (Struktur, Werte, Abgrenzung, Auslauffenster,

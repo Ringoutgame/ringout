@@ -179,7 +179,8 @@ function buildEnv(ci, preset) {
         x0:fbArena().postFront*BR, x1:fbArena().postBack*BR,
         y0:fbArena().postInner*BR, y1:fbArena().postOuter*BR,
         clearHalf:footballGoalClearHalf(), goalHalf:footballGoalCenterHalf(),
-        neutral:FOOTBALL_NEUTRAL_OWNER}; },
+        neutral:FOOTBALL_NEUTRAL_OWNER,
+        ballMass:(typeof FOOTBALL_BALL_MASS!=='undefined'?FOOTBALL_BALL_MASS:1)}; },
       // Geometrie-Sonden mit der ECHTEN Quelle (footballBoundSD/footballPostProbe/
       // footballCanPassGoal/ballRad) — das Beobachtungsmodell des Harness fragt hier,
       // statt die Grenzform nachzubauen. fbSD ist ein wiederverwendetes Objekt, daher
@@ -240,7 +241,11 @@ const PIN_FRAMES  = 6;      // Frames (= 12 Micro-Steps = 0.10 s)
 const PRESS_V     = 0.01;   // px/Micro-Step
 
 const sp  = (b) => Math.hypot(b.vx, b.vy);
-const eng = (s) => 0.5 * s.reduce((a, b) => a + (b.alive ? b.vx * b.vx + b.vy * b.vy : 0), 0);
+// Masse einer Kugel im Beobachtungsmodell — dieselbe Quelle wie die Physik: eine
+// Spielerkugel wiegt 1, der kleinere neutrale Ball entsprechend seinem Volumen weniger.
+// Vor der Masseneinfuehrung lieferte geom().ballMass 1 und alles blieb, wie es war.
+let MASSE = (owner) => (owner === G.neutral ? G.ballMass : 1);
+const eng = (s) => 0.5 * s.reduce((a, b) => a + (b.alive ? MASSE(b.owner) * (b.vx * b.vx + b.vy * b.vy) : 0), 0);
 const f4  = (n) => Number(n.toFixed(4));
 const f2f = (n) => Number(n.toFixed(2));
 
@@ -650,7 +655,8 @@ function runAll(ci, preset) {
             for (let k = 0; k < h.sub; k++) {           // Daempfungen bis zur Impulsstelle
               const f = dampF(Math.hypot(vx, vy), nb); vx *= f; vy *= f;
             }
-            inx += vx; iny += vy;
+            const m = MASSE(h.e.pre[i].owner);
+            inx += m * vx; iny += m * vy;
             const o = h.e.post[i];
             if (h.sub === 1) {                          // eine Daempfung NACH dem Impuls
               const fr = nb ? eEFF.frBall : eEFF.fr, fe = nb ? eEFF.feBall : eEFF.fe;
@@ -665,8 +671,8 @@ function runAll(ci, preset) {
               const kand = nb ? [fe, fr] : [fe, eEFF.fmid, fr];
               let f = fr;
               for (const c of kand) if (passt(c)) { f = c; break; }
-              outx += o.vx / f; outy += o.vy / f;
-            } else { outx += o.vx; outy += o.vy; }
+              outx += m * o.vx / f; outy += m * o.vy / f;
+            } else { outx += m * o.vx; outy += m * o.vy; }
           }
           const m = {
             label, v0, sub: h.sub, penIn: h.h.pen,
@@ -1342,9 +1348,16 @@ const d4n = NN['D4 Neutralball Bande + zwei Spieler, 4 Nachschuesse'];
 // NETTO-Verlagerung (moved) faellt dadurch klein aus, obwohl der Keil sich sauber loest.
 // releaseFrame ist der Frame, in dem das Subjekt erstmals mehr als 2*BR entfernt ist; das
 // ist die arenaunabhaengige Aussage 'der Keil hat sich geloest'.
-ok(d4b.releaseFrame >= 0 && d4n.releaseFrame >= 0,
-   'D4 Bandenkeil loest sich in beiden Varianten (>2*BR nach ' + d4b.releaseFrame + ' / ' +
-   d4n.releaseFrame + ' Frames)');
+// D4 feuert drei Nachschuesse mit FESTER Richtung, nicht auf den Ball gezielt. In einem
+// symmetrischen Faecher ist die Verlagerung damit chaotisch: ob der zweite Schuss den
+// Ball noch trifft, entscheidet die Geometrie nach dem ersten Kontakt. Gemessen wird
+// deshalb, worum es geht - der Ball darf nicht FESTKLEMMEN. Das Freispielen durch einen
+// GEZIELTEN Schuss sichert W2 ab (dort zielt der Schuetze auf die aktuelle Ballposition).
+ok(d4n.pinRawMax[0] <= d4b.pinRawMax[0] + 4,
+   'D4 Bandenkeil: der Ball bleibt nicht laenger in ruhendem Kontakt haengen (' +
+   d4b.pinRawMax[0] + ' -> ' + d4n.pinRawMax[0] + ' Frames)');
+ok(d4n.escapes === 0 && d4b.escapes === 0,
+   'D4 Bandenkeil: die Anti-Keil-Ausweichung wird gar nicht erst gebraucht');
 // Gemessen wird die QUALITAET der Aufloesung, nicht die Endlage: die Nachiterationen
 // existieren, um die bleibende Ueberlappung zu druecken. Die Netto-Verlagerung taugt dafuer
 // nicht - der befreite Ball rollt an der Bande weiter und teils zurueck.

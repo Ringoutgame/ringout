@@ -1,4 +1,8 @@
-// ONLINE-PROTOKOLL v4 — reine Schema-/Client-Semantik.
+// ONLINE-PROTOKOLL — reine Schema-/Client-Semantik.
+//
+// Der Dateiname traegt bewusst KEINE Versionsnummer mehr: die Suite liest die aktuelle
+// Version aus index.html und war schon immer versionsneutral geschrieben. Ein Name mit
+// fester Nummer waere beim naechsten Sprung wieder falsch.
 //
 // Diese Suite prueft AUSSCHLIESSLICH die pure Vertragsschicht: Protokollversion, Raumtyp,
 // Football-Kontrakt, Sitz-/Koerpertrennung und die drei kanonischen Zugereignisse. Die
@@ -7,7 +11,7 @@
 //
 // Alle Quellen kommen WOERTLICH aus index.html; nichts wird nachgebaut.
 //
-//   node tools/test_online_protocol_v4.js
+//   node tools/test_online_protocol.js
 //
 const { loadIndexHtml, grab, grabFunction } = require('./extract.js');
 const html = loadIndexHtml();
@@ -20,6 +24,10 @@ const SRC = [
   grab(html, /const ROOM_GAME_RINGOUT=[\s\S]*?\nfunction validateTurnRecord\(rec,game,seat\)\{[\s\S]*?\n\}/, 'Protokoll v4'),
   grabFunction(html, 'validateRoom'),
   grabFunction(html, 'validateRejoinRoom'),
+  // Die dritte Raumpruefung: sie entscheidet, was in der oeffentlichen Liste ueberhaupt
+  // erscheint — und damit, welchen Raum ein Spieler per Klick betreten kann.
+  grab(html, /const ROOM_MAX_AGE_MS=[^\n]*/, 'ROOM_MAX_AGE_MS'),
+  grabFunction(html, 'publicListingView'),
   grabFunction(html, 'pickFreeSeat'),
   grabFunction(html, 'seatActive'),
 ].join('\n');
@@ -33,7 +41,7 @@ const P = new Function(`
     MOVE: TURN_MOVE, SKIP: TURN_SKIP, REMOVE: TURN_REMOVE,
     roomGame, roomIsFootball, validGamePair, roomSeatCap,
     fbTurnMove, fbTurnSkip, fbTurnRemove, validateTurnRecord,
-    validateRoom, validateRejoinRoom
+    validateRoom, validateRejoinRoom, publicListingView
   };
 `)();
 
@@ -42,12 +50,39 @@ const t = (name, cond, info) => {
   cond ? pass++ : (fail++, console.error('FAIL: ' + name + (info !== undefined ? ' -> ' + JSON.stringify(info) : '')));
 };
 
-console.log('ONLINE-PROTOKOLL v4 — Schema und kanonische Zugereignisse\n');
+console.log('ONLINE-PROTOKOLL v' + P.VER + ' — Schema und kanonische Zugereignisse\n');
 
 // ── (1) Protokollversion ─────────────────────────────────────────────────────────
-t('die Protokollversion ist 4', P.VER === 4, P.VER);
-t('die Rules verlangen dieselbe Version', /"newData\.val\(\) === 4"/.test(
-  require('fs').readFileSync(require('path').join(__dirname, '..', 'firebase.rules.json'), 'utf8')));
+// v5 ist KEINE Schemaaenderung, sondern eine SIMULATIONSREVISION: seit Action Core 04
+// kennt der Football-Stossimpuls Massen. Zwei Clients mit unterschiedlichem Stand rechnen
+// ab dem ersten Ballkontakt auseinander, duerfen sich also nie einen Raum teilen.
+t('die Protokollversion ist 5', P.VER === 5, P.VER);
+const RULES = require('fs').readFileSync(
+  require('path').join(__dirname, '..', 'firebase.rules.json'), 'utf8');
+// WAEHREND DER UMSTELLUNG akzeptiert der Server beide Versionen — sonst waere jeder noch
+// offene v4-Raum sofort tot, obwohl die alten Clients dort legitim weiterspielen. Die
+// TRENNUNG leistet der Client, nicht der Server (die drei Raumpruefungen unten).
+t('die Rules lassen waehrend der Umstellung v4 UND v5 zu',
+  /\(newData\.val\(\) === 4 \|\| newData\.val\(\) === 5\)/.test(RULES));
+const V_REGEL = (RULES.match(/"v": \{[^}]*\}/) || [''])[0];
+t('und keine andere Protokollversion — geprueft am v-Validator selbst',
+  /=== 4/.test(V_REGEL) && /=== 5/.test(V_REGEL) &&
+  !/=== 3|=== 6|=== 2|=== 1/.test(V_REGEL), V_REGEL);
+// Die Protokollnummer eines bestehenden Raums ist unveraenderlich — ein v4-Raum kann
+// nicht zu einem v5-Raum umgeschrieben werden und umgekehrt.
+// Der Zugslot ist die Schreibstelle, die den Lockstep-Strom traegt. Er war bisher als
+// EINZIGE nicht versionsgebunden — die Trennung lag allein beim Client. Mit v5 bekommt
+// auch er den Riegel: ein Bug im Client kann damit keinen fremdversionigen Raum mehr
+// mit Zuegen beschreiben.
+t('auch der Zugslot ist versionsgebunden',
+  /\(root\.child\('rooms'\)\.child\(\$code\)\.child\('v'\)\.val\(\) === 4 \|\| root\.child\('rooms'\)\.child\(\$code\)\.child\('v'\)\.val\(\) === 5\) && \(\(!root/.test(RULES));
+t('die Rules machen die Raumversion unveraenderlich',
+  /\(!data\.exists\(\) \|\| newData\.val\(\) === data\.val\(\)\)/.test(RULES));
+// Jede Raumpruefung des Clients vergleicht strikt gegen die eigene Version — es gibt
+// keinen Pfad, der eine fremde Version durchliesse.
+t('alle Raumpruefungen des Clients vergleichen strikt auf die eigene Version',
+  (html.match(/!==ONLINE_PROTOCOL_VERSION/g) || []).length === 4,
+  (html.match(/!==ONLINE_PROTOCOL_VERSION/g) || []).length);
 
 // ── (2) Raumtyp und Format ───────────────────────────────────────────────────────
 t('RingOut ist der Standardtyp', P.RINGOUT === 'ringout' && P.FOOTBALL === 'football');
@@ -154,7 +189,9 @@ t('ein voller Football-Raum meldet erst bei fuenf belegten Sitzen voll',
 t('RingOut 1v1 bleibt ein Zweispielerraum',
   P.validateRoom(room({ p: { 0: { s: 'a', on: true, t: 1 }, 1: { s: 'b', on: true, t: 1 } } })).ok === false);
 t('ein v3-Raum wird abgelehnt', P.validateRoom(room({ v: 3 })).ok === false);
-t('ein v5-Raum wird abgelehnt', P.validateRoom(room({ v: 5 })).ok === false);
+t('ein v4-Raum wird abgelehnt — kein gemischter Lockstep',
+  P.validateRoom(room({ v: 4 })).ok === false);
+t('ein v6-Raum wird abgelehnt', P.validateRoom(room({ v: 6 })).ok === false);
 t('ein Raum ohne Typ wird abgelehnt',
   P.validateRoom(room({ config: { winTarget: 3, fmt: 'single', visibility: 'private' } })).ok === false);
 t('Football mit RingOut-Format wird abgelehnt',
@@ -164,7 +201,7 @@ t('RingOut mit Football-Format wird abgelehnt',
 t('ein unbekannter Typ wird abgelehnt',
   P.validateRoom(room({ config: { game: 'arcade', winTarget: 3, fmt: 'single', visibility: 'private' } })).ok === false);
 
-t('Rejoin: gueltiger RingOut-v4-Raum', P.validateRejoinRoom(room({ state: 'playing' })).ok === true);
+t('Rejoin: gueltiger Raum der eigenen Version', P.validateRejoinRoom(room({ state: 'playing' })).ok === true);
 // Ein LAUFENDER mehrsitziger Raum traegt seine Teilnehmerzahl im seats-Startsignal.
 // Ohne sie waere beim Rejoin unbekannt, welche Sitze zum Match gehoeren - der
 // Rueckkehrer wuerde als "ausserhalb der Besetzung" abgewiesen.
@@ -186,6 +223,12 @@ t('Rejoin: mehr Sitze als der Raum fasst wird abgelehnt',
 t('Rejoin: die Football-LOBBY braucht kein Startsignal',
   P.validateRejoinRoom(fbRoom({ state: 'lobby' })).ok === true);
 t('Rejoin: v3 wird abgelehnt', P.validateRejoinRoom(room({ v: 3 })).ok === false);
+// Der gemerkte Raum aus einer frueheren Sitzung kann ein v4-Raum sein. Auch er wird
+// abgewiesen — sonst haenge sich der neue Client an eine fremde Simulation.
+t('Rejoin: ein gemerkter v4-Raum wird abgelehnt',
+  P.validateRejoinRoom(room({ v: 4, state: 'playing' })).ok === false);
+t('Rejoin: und meldet das als noRoom, nicht als Fehler',
+  P.validateRejoinRoom(room({ v: 4, state: 'playing' })).reason === 'noRoom');
 t('Rejoin: fehlender Typ wird abgelehnt',
   P.validateRejoinRoom(room({ config: { winTarget: 3, fmt: 'single', visibility: 'private' } })).ok === false);
 t('Rejoin: die Ablehnung ist lokalisierbar (Schluessel statt Rohtext)',
@@ -305,5 +348,54 @@ t('Beitritt: die Ablehnung nennt die Versionsunvertraeglichkeit',
     (src.match(/function startFfaMatch\(/g) || []).length === 1);
 }
 
-console.log('\nOnline-Protokoll-v4: ' + pass + ' passed, ' + fail + ' failed');
+
+// ── (9) KEIN GEMISCHTER LOCKSTEP — alle Wege in einen Raum ────────────────────
+// Es gibt genau vier Stellen, an denen dieser Client sich an einen fremden Raum bindet,
+// und jede prueft die Protokollversion strikt gegen die eigene:
+//   validateRoom          Beitritt ueber Raumcode und ueber die oeffentliche Liste
+//   validateRejoinRoom    sichtbarer Wiedereintritt und das Angebot beim Seitenstart
+//   publicListingView     die oeffentliche Raumliste selbst
+//   restorePresencePass   die Wiederverbindung nach einem Verbindungsabriss
+// Die ersten drei sind oben an ihren Rueckgabewerten geprueft. Die vierte ist eine
+// asynchrone Firebase-Funktion und wird deshalb an ihrer Quelle geprueft.
+{
+  const restore = html.slice(html.indexOf('async function restorePresencePass'),
+                            html.indexOf('async function restorePresencePass') + 1200);
+  t('die Wiederverbindung prueft die Version, bevor sie irgendetwas schreibt',
+    /if\(v\.v!==ONLINE_PROTOCOL_VERSION\)return 'version';/.test(restore));
+  t('und tut das VOR der Eigentumspruefung des Sitzes',
+    restore.indexOf("!==ONLINE_PROTOCOL_VERSION") < restore.indexOf('rec.uid!==uid'));
+
+  // Das Vergleichsschreiben: der Sitzclaim traegt die eigene Version mit, damit ein
+  // zwischen Pruefung und Claim neu angelegter Raum fremder Version das ganze Update
+  // abweist. Beide Claimwege — erster Sitz und Wiedereintritt — muessen es fuehren.
+  t('der Sitzclaim traegt die eigene Protokollversion mit',
+    (html.match(/upd\['v'\]=ONLINE_PROTOCOL_VERSION;/g) || []).length === 2,
+    (html.match(/upd\['v'\]=ONLINE_PROTOCOL_VERSION;/g) || []).length);
+  t('und die Rules lassen auf der Raumversion nur ein wertgleiches Schreiben zu',
+    /"v": \{ "\.write": "data\.exists\(\) && newData\.exists\(\) && newData\.val\(\) === data\.val\(\)"/.test(RULES));
+
+  // Es gibt genau EINE Stelle, die einen Raum anlegt — beide Produktwege (oeffentlicher
+  // Football-Einstieg und Dev-Einstieg) laufen durch sie. Ein zweiter Anlageort koennte
+  // eine andere Version schreiben.
+  t('genau eine Stelle legt einen Raum an, und sie schreibt die eigene Version',
+    (html.match(/v:ONLINE_PROTOCOL_VERSION/g) || []).length === 1);
+  t('und keine Stelle schreibt eine feste Versionsnummer',
+    !/\bv: ?[0-9]+,/.test(html.slice(html.indexOf('const room={v:ONLINE_PROTOCOL_VERSION'),
+                                    html.indexOf('const room={v:ONLINE_PROTOCOL_VERSION') + 400)));
+
+  // Und die Gegenprobe fuer den Beitritt ueber die oeffentliche Liste: ein v4-Raum
+  // erscheint dort gar nicht erst.
+  const pub = (ver) => ({ v: ver, config: { game: 'ringout', winTarget: 3, fmt: 'ffa',
+    visibility: 'public' }, gen: 0, state: 'lobby',
+    p: { 0: { s: 'HOSTTAB0', on: true, t: 1 } },
+    players: { 0: { id: 'H', name: 'H', tab: 'HOSTTAB0' } }, created: Date.now() });
+  t('die oeffentliche Liste zeigt einen Raum der eigenen Version',
+    P.publicListingView(pub(P.VER), Date.now()).show === true);
+  t('die oeffentliche Liste zeigt keinen v4-Raum',
+    P.publicListingView(pub(4), Date.now()).show === false);
+  t('und raeumt seinen Eintrag weg', P.publicListingView(pub(4), Date.now()).remove === true);
+}
+
+console.log('\nOnline-Protokoll: ' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

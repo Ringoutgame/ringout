@@ -9,6 +9,8 @@
 const fs = require('fs');
 const { grabFunction } = require('./extract.js');
 const html = fs.readFileSync(require('path').join(__dirname, '..', 'index.html'), 'utf8');
+// Die Protokollversion kommt aus index.html, nie aus einer Zahl im Test.
+const VER = Number(html.split('const ONLINE_PROTOCOL_VERSION=')[1].split(';')[0]);
 const grab = (re, name) => {
   const m = html.match(re);
   if (!m) { console.error('FAIL: cannot extract ' + name); process.exit(1); }
@@ -234,6 +236,15 @@ function makeDB() {
     if (!room) throw new Error('PERMISSION_DENIED: no room');
     if (!merged) merged = buildMerged(room, [{ parts, val }]);
     const fmt = room.config && room.config.fmt, key = parts[2];
+    // Vergleichsschreiben auf die Protokollversion (Action Core 04 / Protokoll v5):
+    // erlaubt ist ausschliesslich ein WERTGLEICHES Schreiben. Es reist im atomaren
+    // Sitzclaim mit und weist einen Raum ab, der zwischen Pruefung und Claim geloescht
+    // und mit anderer Version neu angelegt wurde.
+    if (key === 'v') {
+      if (val !== room.v) throw new Error('PERMISSION_DENIED: protocol version mismatch');
+      return;
+    }
+
     if (key === 'p') {
       const seat = +parts[3];
       if (seat >= 5 || (fmt !== 'ffa' && seat >= 2)) throw new Error('PERMISSION_DENIED: seat range');
@@ -560,7 +571,7 @@ async function dropSeat(db, code, seat) {
     const db = makeDB();
     const [h, g1, g2] = [makeClient(db, 'FFA3'), makeClient(db, 'X'), makeClient(db, 'X')];
     h.setMenu('ffa', 3); h.create(); await tick();
-    t('S1 room created ffa lobby v4 (ringout)', db.data.rooms.FFA3.state === 'lobby' && db.data.rooms.FFA3.config.fmt === 'ffa' && db.data.rooms.FFA3.config.game === 'ringout' && db.data.rooms.FFA3.v === 4);
+    t('S1 room created ffa lobby v' + VER + ' (ringout)', db.data.rooms.FFA3.state === 'lobby' && db.data.rooms.FFA3.config.fmt === 'ffa' && db.data.rooms.FFA3.config.game === 'ringout' && db.data.rooms.FFA3.v === VER);
     t('S1 host roster record written', !!db.data.rooms.FFA3.players && db.data.rooms.FFA3.players[0] && db.data.rooms.FFA3.players[0].id === h.pid());
     g1.setMenu('online'); g1.join('FFA3'); await tick();
     g2.setMenu('online'); g2.join('FFA3'); await tick();

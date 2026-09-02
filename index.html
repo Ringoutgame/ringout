@@ -1321,6 +1321,14 @@ function seatActive(p,s){ return !!(p&&p[s]&&p[s].on===true); }
 // benign "lost" outcome, not an error.
 async function reserveSeat(code,seat){
   const upd={}; upd['p/'+seat]={s:onlineTab,on:false,t:window.FB.serverTimestamp()}; upd['players/'+seat]=playerRecord(seat);
+  // VERGLEICHSSCHREIBEN auf die Protokollversion. Zwischen der Raumpruefung und
+  // diesem Claim kann der Raum geloescht und unter demselben Code mit einer ANDEREN
+  // Version neu angelegt worden sein — ein leerer Raum darf geloescht werden, und
+  // vier Zeichen Raumcode sind schnell wieder vergeben. Die eigene Version reist
+  // deshalb im selben atomaren Update mit: die Rules lassen auf rooms/<code>/v nur
+  // ein WERTGLEICHES Schreiben zu, ein fremdversionierter Raum weist das ganze
+  // Update ab. Kein Sitz in einer fremden Simulation, kein halber Zustand.
+  upd['v']=ONLINE_PROTOCOL_VERSION;
   try{ await window.FB.update(window.FB.ref(window.FB.db,'rooms/'+code),upd); return {ok:true}; }
   catch(e){
     if(/permission[_ ]?denied/i.test(String((e&&(e.code||e.message))||e)))return {ok:false,lost:true};
@@ -1411,6 +1419,10 @@ async function reclaimSeat(code,seat,keepName,legacy){
   // Er bleibt Legacy bis zur echten Neuvergabe.
   if(legacy)delete rec.uid;
   const upd={}; upd['p/'+seat]={s:onlineTab,on:false,t:window.FB.serverTimestamp()}; upd['players/'+seat]=rec;
+  // Dasselbe Vergleichsschreiben wie beim ersten Claim (siehe reserveSeat): auch ein
+  // Wiedereintritt darf nicht in einem inzwischen neu angelegten Raum fremder Version
+  // landen.
+  upd['v']=ONLINE_PROTOCOL_VERSION;
   try{ await window.FB.update(window.FB.ref(window.FB.db,'rooms/'+code),upd); return {ok:true}; }
   catch(e){
     if(/permission[_ ]?denied/i.test(String((e&&(e.code||e.message))||e)))return {ok:false,lost:true};
@@ -4829,6 +4841,20 @@ function fbBallR(){return mode==='football'?FOOTBALL_BALL_RADIUS:BR;}
 // FOOTBALL_NEUTRAL_OWNER ab — Harnesses ohne Football-Konstanten (Golden, Collapse)
 // laufen damit unveraendert.
 function ballRad(b){return mode==='football'&&b.owner===FOOTBALL_NEUTRAL_OWNER?fbBallR():BR;}
+// ── MASSE (Action Core 04) ────────────────────────────────────────────────────────
+// Der Stossimpuls rechnete bisher ohne Masse und behandelte damit den 25-px-Ball als
+// exakt so schwer wie eine 32-px-Spielerkugel. Ein sauberer Volltreffer gab ihm deshalb
+// nur 71.4 % der Spielergeschwindigkeit und 51 % der Bewegungsenergie - der Ball ging
+// nach dem besten moeglichen Schuss nur 227 px weit, ein knappes Viertel der Arena.
+// Die Masse ist keine Verstaerkung, sondern die fehlende Groesse: bei gleicher Dichte
+// verhaelt sie sich wie das Volumen, also wie die dritte Potenz des Radius. 25/32 ist in
+// Gleitkomma exakt (Nenner ist eine Zweierpotenz), die dritte Potenz damit ebenfalls -
+// der Wert ist auf jeder Maschine bitgleich und lockstep-tauglich.
+// Eine Spielerkugel wiegt 1. Fuer zwei gleich schwere Kugeln - also fuer JEDEN
+// Spieler-Spieler-Stoss und in JEDEM Modus ausser Football - reduziert sich der
+// Impuls bitgenau auf die alte Fassung (1/1 + 1/1 ist exakt 2, imp/1 ist exakt imp).
+const FOOTBALL_BALL_MASS=Math.pow(FOOTBALL_BALL_RADIUS/BR,3);   // = 0.476837158203125
+function ballMass(b){return mode==='football'&&b.owner===FOOTBALL_NEUTRAL_OWNER?FOOTBALL_BALL_MASS:1;}
 // EINZIGE Stelle, die entscheidet, ob die Football-Physik gilt. Jeder Konsument
 // (Daempfung, Settlement, Restitution, Anti-Wedge) fragt hier — null heisst
 // "kein Football", also Bestandsverhalten.
@@ -6083,9 +6109,22 @@ function stepSim(){
         // (Golden-Physik, Collapse, FFA, Lockstep) bleibt damit bitgenau unveraendert.
         const rr=ballRad(a)+ballRad(b);
         if(d>0&&d<rr){const nx=dx/d,ny=dy/d,ov=rr-d;
+          // Die Durchdringung wird weiterhin HAELFTIG aufgeteilt, obwohl der Impuls
+          // Massen kennt. Das ist Absicht und gemessen: eine massegewichtete Trennung
+          // druecke den leichteren Ball staerker heraus — an einer Bande aber genau in
+          // sie hinein, worauf die Bandenkorrektur ihn zurueckschiebt. Die Ueberlappung
+          // blieb dadurch groesser statt kleiner (Spitze 0.22 statt 2.51 px erst nach
+          // Iteration, bleibend 0.19 statt 0.58). Die Trennung ist eine geometrische
+          // Entklemmung, keine Dynamik; sie bleibt symmetrisch.
+          const ma=ballMass(a),mb=ballMass(b),isum=1/ma+1/mb;
           a.x-=nx*ov/2;a.y-=ny*ov/2;b.x+=nx*ov/2;b.y+=ny*ov/2;
           const rvx=b.vx-a.vx,rvy=b.vy-a.vy,vn=rvx*nx+rvy*ny;
-          if(vn<0){const imp=-(1+RB)*vn/2;a.vx-=imp*nx;a.vy-=imp*ny;b.vx+=imp*nx;b.vy+=imp*ny;
+          // Stossimpuls MIT Masse. Gleich schwere Kugeln liefern exakt die frueheren
+          // Zahlen; nur der leichtere neutrale Ball nimmt mehr Geschwindigkeit auf und
+          // laesst der Spielerkugel entsprechend mehr. Es wird dabei keine Energie
+          // erzeugt: die Restitution bleibt unter 1, der Stoss bleibt verlustbehaftet.
+          if(vn<0){const imp=-(1+RB)*vn/isum,ia=imp/ma,ib=imp/mb;
+            a.vx-=ia*nx;a.vy-=ia*ny;b.vx+=ib*nx;b.vy+=ib*ny;
             // Treffer-Feedback (Sound, Partikel, Hintergrundpuls) haengt am ERSTEN
             // Durchgang. Die Nachiterationen korrigieren denselben Kontakt zu Ende und
             // duerfen dafuer weder ein zweites Mal knallen noch ein zweites Mal funken —
@@ -6595,7 +6634,17 @@ function joinPublicRoom(code){
 // v4 fuehrt Faehigkeiten ein, die eine aeltere Fassung nicht sicher lesen kann: einen
 // expliziten Raumtyp, fuenf Football-Sitze, den neutralen Ballkoerper und typisierte
 // Zugereignisse. Ein v3-Raum wird deshalb sauber abgelehnt statt teilweise gelesen.
-const ONLINE_PROTOCOL_VERSION=4;
+// v5 ist KEINE Schemaaenderung — das Raumformat ist Feld fuer Feld dasselbe wie in v4.
+// v5 markiert eine SIMULATIONSREVISION: der Football-Stossimpuls kennt seit Action Core 04
+// Massen (der neutrale Ball wiegt (25/32)^3 einer Spielerkugel). Ein sauberer Volltreffer
+// gibt dem Ball dadurch 96.7 % statt 71.4 % der Kontaktgeschwindigkeit. Zwei Clients mit
+// unterschiedlichem Stand rechnen ab dem ERSTEN Ballkontakt auseinander — Lockstep,
+// Wiedergabe und Rehydrierung divergieren sofort, Tor und Punktestand koennen abweichen.
+// Deshalb duerfen sie sich nie denselben Raum teilen. Es gibt bewusst KEINE
+// Kompatibilitaetsschicht: ein v5-Client betritt keinen v4-Raum, ein v4-Client keinen
+// v5-Raum. Bestehende v4-Raeume laufen serverseitig weiter aus (die Rules akzeptieren
+// waehrend der Umstellung beide Versionen), sie sterben natuerlich.
+const ONLINE_PROTOCOL_VERSION=5;
 const FFA_MAX_SEATS=5;   // Online-FFA: Seats 0-4 (Host=0), Farben aus PCOLS
 // ── RAUMTYP (v4) ──────────────────────────────────────────────────────────────────
 // config.game trennt die beiden Produktfamilien serverseitig. Bewusst NICHT 'mode':

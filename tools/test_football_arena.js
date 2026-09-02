@@ -85,6 +85,8 @@ function buildEnv(mode0) {
       ballR(){ return fbBallR(); },
       rad(owner){ return ballRad({owner}); },
       neutral(){ return FOOTBALL_NEUTRAL_OWNER; },
+      // Masse des neutralen Balls — dieselbe Quelle wie die Physik.
+      ballMass(){ return typeof FOOTBALL_BALL_MASS!=='undefined'?FOOTBALL_BALL_MASS:1; },
       clearHalf(){ return footballGoalClearHalf(); },
       centerHalf(){ return footballGoalCenterHalf(); },
       canPass(b){ return footballCanPassGoal(b); },
@@ -367,11 +369,19 @@ ok(/const rb=ballRad\(b\);/.test(footballBlock), 'Anti-Wedge-Kontakte nutzen bal
     F.step();
     const t = F.get();
     if (t[1].vx !== 0) {
-      energyOk = (Math.hypot(t[0].vx, t[0].vy) + Math.hypot(t[1].vx, t[1].vy)) <= Math.hypot(pre[0].vx, pre[0].vy) + 1e-9;
+      // Seit Action Core 04 kennt der Stossimpuls Massen. Die Erhaltungsgroesse ist
+      // damit die GEWICHTETE Summe: die Summe der blossen Geschwindigkeiten darf und
+      // muss steigen, wenn der leichtere Ball beschleunigt wird - Energie entsteht
+      // dabei keine. Geprueft wird deshalb die Bewegungsenergie 1/2*m*v^2.
+      const mB = F.ballMass();
+      const eVor = 0.5 * (pre[0].vx * pre[0].vx + pre[0].vy * pre[0].vy);
+      const eNach = 0.5 * (t[0].vx * t[0].vx + t[0].vy * t[0].vy)
+                  + 0.5 * mB * (t[1].vx * t[1].vx + t[1].vy * t[1].vy);
+      energyOk = eNach <= eVor + 1e-9;
       break;
     }
   }
-  ok(energyOk, 'Spieler->Ball-Kontakt erzeugt keine Energie');
+  ok(energyOk, 'Spieler->Ball-Kontakt erzeugt keine Energie (massegewichtet)');
   // Fixed Timestep: exakt 2 Micro-Steps pro stepSim, keine Frame-Time-Abhaengigkeit.
   ok(/for\(let s=0;s<2;s\+\+\)\{/.test(stepSimSrc), 'stepSim laeuft mit festen 2 Micro-Steps');
   // Wanduhr nur im dokumentiert REIN VISUELLEN Goal-FX-Impuls (footballGoalFxTrigger/-Level,

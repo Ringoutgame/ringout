@@ -16,6 +16,8 @@ const fs = require('fs');
 const path = require('path');
 const { grabFunction } = require('./extract.js');
 const HTML = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+// Die Protokollversion kommt aus index.html, nie aus einer Zahl im Test.
+const VER = Number(HTML.split('const ONLINE_PROTOCOL_VERSION=')[1].split(';')[0]);
 // Die echte Rueckkehrfrist aus index.html - kein im Test geratener Wert.
 const SEAT_STALE_FROM_SOURCE = Number((HTML.match(/const SEAT_STALE_MS=(\d+)/) || [])[1]);
 if (!Number.isFinite(SEAT_STALE_FROM_SOURCE)) { console.error('FAIL: cannot extract SEAT_STALE_MS'); process.exit(1); }
@@ -345,6 +347,15 @@ function makeDB() {
     const cfg = room.config || {}, fmt = cfg.fmt, isFb = cfg.game === 'football';
     const cap = isFb ? 5 : fmt === 'triple_ffa' ? 3 : fmt === 'team_duel' ? 4 : fmt === 'ffa' ? 5 : 2;
     const key = parts[2];
+    // Vergleichsschreiben auf die Protokollversion (Action Core 04 / Protokoll v5):
+    // erlaubt ist ausschliesslich ein WERTGLEICHES Schreiben. Es reist im atomaren
+    // Sitzclaim mit und weist einen Raum ab, der zwischen Pruefung und Claim geloescht
+    // und mit anderer Version neu angelegt wurde.
+    if (key === 'v') {
+      if (val !== room.v) throw new Error('PERMISSION_DENIED: protocol version mismatch');
+      return;
+    }
+
     if (key === 'p') {
       const seat = +parts[3];
       if (seat >= cap) throw new Error('PERMISSION_DENIED: seat range');
@@ -1061,7 +1072,7 @@ async function eliminateSeat(db, cs, seat, maxRounds) {
     for (let i = 0; i < 6; i++) cs.push(makeClient(db, CODE, { name: 'P' + (i + 1) }));
     cs[0].enterFootball(); cs[0].create(); await tick(db);
     const room = db.data.rooms[CODE];
-    t('A der Raum ist ein v4-Raum', room && room.v === 4);
+    t('A der Raum traegt die aktuelle Protokollversion v' + VER, room && room.v === VER);
     t('A Raumtyp football', room && room.config.game === 'football');
     t('A Format elimination', room && room.config.fmt === 'elimination');
     t('A der Ersteller sitzt auf Sitz 0', cs[0].st().myPlayer === 0 && room.players[0].uid === cs[0].uid);

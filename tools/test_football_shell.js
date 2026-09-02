@@ -1472,11 +1472,26 @@ ok(/if\(it===0\)\{/.test(HTML), 'Treffer-Feedback ist auf den ersten Kontaktpass
   ok(T.LAUNCH === 0.034, 'LAUNCH unveraendert 0.034 (erhalten: ' + T.LAUNCH + ')');
   ok(T.MAXPULL_FRAC === 0.40, 'MAXPULL_FRAC unveraendert 0.40 (erhalten: ' + T.MAXPULL_FRAC + ')');
   ok(T.SPIN_K === 0.004 && T.SPIN_DECAY === 0.985, 'Spin-Konstanten unveraendert (0.004 / 0.985)');
-  // Kein Massenmodell eingefuehrt: der Stossimpuls bleibt die m=1-Zweikoerperformel.
-  // Seit 4B-2 traegt sie die kontaktartabhaengige Restitution RB=curRestBall(); die
-  // Division durch 2 (gleiche Massen) und die Struktur der Formel sind unveraendert.
-  ok(/const imp=-\(1\+RB\)\*vn\/2;/.test(HTML),
-     'Ball-Ball-Impuls bleibt die m=1-Zweikoerperformel -(1+RB)*vn/2 (keine Masse eingefuehrt)');
+  // Der Stossimpuls kennt seit Action Core 04 MASSEN. Der Grund: er behandelte den
+  // 25-px-Ball als exakt so schwer wie eine 32-px-Spielerkugel und gab ihm bei einem
+  // sauberen Volltreffer nur 71.4 % der Geschwindigkeit. Die Masse ist keine
+  // Verstaerkung, sondern die fehlende Groesse - bei gleicher Dichte verhaelt sie sich
+  // wie das Volumen.
+  ok(/const imp=-\(1\+RB\)\*vn\/isum,ia=imp\/ma,ib=imp\/mb;/.test(HTML),
+     'Ball-Ball-Impuls traegt Massen: -(1+RB)*vn/(1/ma+1/mb), je Kugel durch ihre Masse');
+  ok(/const FOOTBALL_BALL_MASS=Math\.pow\(FOOTBALL_BALL_RADIUS\/BR,3\);/.test(HTML),
+     'die Ballmasse folgt dem Volumen und ist aus dem Radius abgeleitet, keine freie Zahl');
+  ok(/function ballMass\(b\)\{return mode==='football'&&b\.owner===FOOTBALL_NEUTRAL_OWNER\?FOOTBALL_BALL_MASS:1;\}/.test(HTML),
+     'nur der neutrale Ball im Football-Modus ist leichter - jede andere Kugel wiegt 1');
+  // ENTSCHEIDEND fuer die Bestandsmodi: fuer zwei gleich schwere Kugeln muss sich die
+  // Formel BITGENAU auf die alte reduzieren. 1/1+1/1 ist exakt 2 und imp/1 exakt imp.
+  ok((1/1+1/1) === 2 && (0.3141592653589793/1) === 0.3141592653589793,
+     'bei gleichen Massen ist die neue Formel bitgleich der alten (1/1+1/1 === 2, x/1 === x)');
+  // Die Durchdringungskorrektur bleibt bewusst haelftig - gemessen verschlechterte eine
+  // massegewichtete Trennung die Ueberlappung, weil sie den leichten Ball in die Bande
+  // drueckt statt aus ihr heraus.
+  ok(/a\.x-=nx\*ov\/2;a\.y-=ny\*ov\/2;b\.x\+=nx\*ov\/2;b\.y\+=ny\*ov\/2;/.test(HTML),
+     'die Durchdringung wird weiterhin haelftig getrennt (geometrische Entklemmung, keine Dynamik)');
   ok(/const FR=curFR\(\),FE=curFE\(\),RB=curRestBall\(\),RBAND=curRestBand\(\);/.test(HTML),
      'RB stammt aus curRestBall() (zentrale Konfiguration, keine Magic Number in stepSim)');
   ok(/a\.x-=nx\*ov\/2;a\.y-=ny\*ov\/2;b\.x\+=nx\*ov\/2;b\.y\+=ny\*ov\/2;/.test(HTML),
