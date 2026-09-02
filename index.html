@@ -4903,10 +4903,129 @@ function footballGoalOpen(slot){
   const o=fbElimSlotOwner(slot);
   return o>=0&&!!fbElimActive[o];
 }
+// FB_GOAL_PASS_EPS ist kein Spielraum, sondern Rechengenauigkeit: footballResolvePost
+// setzt eine streifende Kugel exakt auf die Korridorkante und schreibt sie als
+// b.y = cy + PY; die Rueckfaltung (b.y - cy) meldet dann 88.92000000000004 statt 88.92 und
+// der Vergleich kippt. Seit im Fenster keine Bandenlinie mehr gilt, bliebe so eine Kugel
+// weder gewertet noch gehalten - sie schliffe durch das offene Tor aus der Arena. Ein
+// Millionstel Pixel liegt weit unter jeder sichtbaren oder spielbaren Groesse; die
+// Torbreite aendert sich dadurch nicht.
+const FB_GOAL_PASS_EPS=1e-6;
 function footballCanPassGoal(b){
   if(b.owner!==FOOTBALL_NEUTRAL_OWNER)return false;
   const F=footballFold(b.x-cx,b.y-cy);
-  return footballGoalOpen(F.side)&&Math.abs(F.y)<=footballGoalCenterHalf()&&Math.abs(F.x)>Math.abs(F.y);
+  if(!footballGoalOpen(F.side)||Math.abs(F.x)<=Math.abs(F.y))return false;
+  return Math.abs(F.y)<=footballGoalCenterHalf()+FB_GOAL_PASS_EPS;
+}
+// ── DAS SICHTBARE TORFENSTER ──────────────────────────────────────────────────────
+// footballCanPassGoal beantwortet: PASST der Ball hindurch? (Mitte innerhalb clearHalf-r)
+// Diese Funktion beantwortet die andere, bisher damit vermischte Frage: STEHT an dieser
+// Stelle ueberhaupt Marmor? Im ganzen lichten Fenster steht dort ein Tor, keine Wand.
+//
+// Der Unterschied ist genau das Band zwischen (clearHalf - r) und clearHalf: dort passt
+// der Ball nicht hindurch, steht aber sichtbar im offenen Tor. Solange beide Fragen
+// zusammenfielen, hat ihn die gerade Stirnbande abgewiesen - bis zu 20.3 px frueher als
+// der Pfosten und mit der Normale (-1,0), also exakt 180 Grad geradeaus (gemessen in
+// artifacts/football-goal-mouth/). Genau das sah aus wie eine unsichtbare Wand im Tor.
+//
+// Ab hier gilt: im Fenster loest die Bande NICHT auf. Zurueckgewiesen wird vom SOCKEL,
+// mit dessen echter Kantennormale - ein Streifer laeuft am Pfosten entlang oder wird nach
+// innen ins Tor abgelenkt. Die Torbreite selbst aendert sich dadurch nicht: durchgelassen
+// wird weiterhin nur, wer nach footballCanPassGoal hindurchpasst.
+// NUR der neutrale Ball. Spielerkugeln behalten ihre eigene Grenze (Torrettungstasche).
+function footballGoalWindow(b){
+  if(b.owner!==FOOTBALL_NEUTRAL_OWNER)return false;
+  const F=footballFold(b.x-cx,b.y-cy);
+  return footballGoalOpen(F.side)&&Math.abs(F.y)<=footballGoalClearHalf()&&Math.abs(F.x)>Math.abs(F.y);
+}
+// ── GEFEGTE SOCKELKOLLISION ───────────────────────────────────────────────────────
+// Sobald die Bande im Torfenster nichts mehr aufhaelt, ist der Sockel dort das einzige
+// Hindernis - und ein DISKRETER Punkttest reicht dafuer nicht: bei vollem Tempo legt der
+// Ball je Micro-Step mehrere Pixel zurueck und kann an der Kante vorbeispringen. Das
+// Ergebnis waere ein zerfranstes Band aus Treffern und Fehlschuessen, je nachdem, wo der
+// Schritt zufaellig endet.
+// Deshalb wird die STRECKE dieses Micro-Steps gegen den um den Ballradius aufgeweiteten
+// Sockel geschnitten - die Minkowski-Summe, also ein Rechteck mit runden Ecken. Der erste
+// Beruehrpunkt entscheidet, unabhaengig von der Schrittweite. Nur Vergleiche und eine
+// Quadratwurzel: kein Zufall, keine Zeitabhaengigkeit, kein Reihenfolgeeffekt - lockstep-
+// tauglich deterministisch.
+// Gilt NUR fuer den neutralen Ball: nur fuer ihn faellt die Bande im Fenster weg, nur er
+// kann dort also ueberhaupt an der Kante vorbeispringen.
+function footballSweepPost(b,px,py){
+  if(mode!=='football'||b.owner!==FOOTBALL_NEUTRAL_OWNER)return false;
+  const r=ballRad(b),av=fbArena();
+  // Kanonischer Rahmen der STARTlage - er gilt fuer die ganze Strecke dieses Schritts.
+  const S=footballFold(px-cx,py-cy),cs=S.cs,sn=S.sn;
+  const sx=S.x>=0?1:-1,sy=S.y>=0?1:-1;
+  const AX=sx*S.x,AY=sy*S.y;
+  const ex=b.x-cx,ey=b.y-cy;                       // Endlage in DENSELBEN Rahmen
+  const EX=sx*(ex*cs+ey*sn),EY=sy*(ey*cs-ex*sn);
+  const dx=EX-AX,dy=EY-AY;
+  if(dx===0&&dy===0)return false;
+  const rx0=av.postFront*BR,rx1=av.postBack*BR,ry0=av.postInner*BR,ry1=av.postOuter*BR;
+  const x0=rx0-r,x1=rx1+r,y0=ry0-r,y1=ry1+r;       // aufgeweitetes Rechteck
+  // Beruehrt die Kugel den Sockel schon am Startpunkt, gehoert der Fall dem diskreten
+  // Loeser: er korrigiert eine bestehende Durchdringung. Gefragt ist dafuer der ECHTE
+  // Abstand zum Rechteck - nicht die Lage im aufgeweiteten Rechteck, dessen Eckquadrate
+  // auch freie Punkte enthalten. Wer dort schon aussteigt, verliert die flachen
+  // Eckentreffer, fuer die diese Pruefung da ist.
+  const qax=AX<rx0?rx0:(AX>rx1?rx1:AX),qay=AY<ry0?ry0:(AY>ry1?ry1:AY);
+  if((AX-qax)*(AX-qax)+(AY-qay)*(AY-qay)<r*r)return false;
+  // Schichttest gegen das aufgeweitete Rechteck.
+  let t0=0,t1=1;
+  if(dx===0){ if(AX<x0||AX>x1)return false; }
+  else{ let p=(x0-AX)/dx,q=(x1-AX)/dx; if(p>q){const w=p;p=q;q=w;} if(p>t0)t0=p; if(q<t1)t1=q; }
+  if(dy===0){ if(AY<y0||AY>y1)return false; }
+  else{ let p=(y0-AY)/dy,q=(y1-AY)/dy; if(p>q){const w=p;p=q;q=w;} if(p>t0)t0=p; if(q<t1)t1=q; }
+  if(t0>t1||t0>1||t1<0)return false;
+  let t=t0>0?t0:0;
+  // Liegt der Eintritt in einem ECKbereich? Dann entscheidet der Kreis um die echte Ecke,
+  // nicht die Kante des aufgeweiteten Rechtecks.
+  let CX=AX+t*dx,CY=AY+t*dy;
+  const kx=CX<rx0?rx0:(CX>rx1?rx1:null);
+  const ky=CY<ry0?ry0:(CY>ry1?ry1:null);
+  let nx,ny;
+  if(kx!==null&&ky!==null){
+    const fx=AX-kx,fy=AY-ky;
+    const A2=dx*dx+dy*dy,B2=2*(fx*dx+fy*dy),C2=fx*fx+fy*fy-r*r;
+    const disc=B2*B2-4*A2*C2;
+    if(A2<=0||disc<0)return false;                 // die Strecke geht an der Ecke vorbei
+    const sq=Math.sqrt(disc);
+    let tc=(-B2-sq)/(2*A2);
+    if(tc<0)tc=(-B2+sq)/(2*A2);
+    if(tc<0||tc>1)return false;
+    t=tc;CX=AX+t*dx;CY=AY+t*dy;
+    nx=(CX-kx)/r;ny=(CY-ky)/r;
+  }else if(kx!==null){ nx=CX<rx0?-1:1;ny=0; }
+  else if(ky!==null){ nx=0;ny=CY<ry0?-1:1; }
+  else return false;                               // Mitte im echten Rechteck: gibt es hier nicht
+  // ZUSTAENDIGKEIT. Die gefegte Pruefung gibt es nur, weil im offenen Torfenster keine
+  // Bandenlinie mehr steht. UEBERALL SONST ist die Bande weiterhin Eigentuemerin des
+  // Kontakts - die Sockelstirn liegt buendig in ihr, und die aeussere Sockelflanke liegt
+  // ganz hinter ihr. Griffe der Sweep auch dort zu, bekaeme die Kugel die schraege
+  // Pfostennormale und danach von der Bande ihre Lage: ein Kontakt mit zwei Besitzern.
+  // Gemessen an der aeusseren Sockelecke: Ausfall (-2.094, 5.874) statt der waagerechten
+  // Bandenreflexion. Zugelassen ist deshalb nur ein Beruehrpunkt auf der Torseite des
+  // Sockels - dort, wo die Bande nichts mehr aufhaelt.
+  if(!footballGoalOpen(S.side)||CY>ry0)return false;
+  const FVX=b.vx*cs+b.vy*sn,FVY=b.vy*cs-b.vx*sn;
+  const vX=sx*FVX,vY=sy*FVY,vn=vX*nx+vY*ny;
+  // Eine Kugel, die sich vom Sockel WEGBEWEGT, ueberquert seine Oberflaeche nicht - sie
+  // verlaesst sie. Ohne diese Frage genuegt ein Beruehrpunkt bei t=0, um sie in jedem
+  // Teilschritt erneut auf die Kante zurueckzusetzen und dort festzuklemmen. Welche Seite
+  // der Arena das trifft, entschiede allein der Rundungsfehler der Seitenfaltung: gemessen
+  // wurde eine Kugel am -X-Tor festgeklemmt, am baugleichen +X-Tor nicht - 2.05 px
+  // Unterschied zwischen zwei Toren, die sich gleich verhalten muessen.
+  if(vn>=0)return false;
+  // Lage auf den ersten Beruehrpunkt setzen und die Geschwindigkeit dort spiegeln.
+  b.x=cx+fbUnfoldX(sx*CX,sy*CY,cs,sn);
+  b.y=cy+fbUnfoldY(sx*CX,sy*CY,cs,sn);
+  const e=curRestPost();
+  const RX=sx*(vX-(1+e)*vn*nx),RY=sy*(vY-(1+e)*vn*ny);
+  b.vx=fbUnfoldX(RX,RY,cs,sn);b.vy=fbUnfoldY(RX,RY,cs,sn);
+  if(typeof fbSfxImpact==='function')fbSfxImpact(Math.min(1,-vn/5),700+balls.indexOf(b),'post');
+  if(typeof fbFeelPost==='function')fbFeelPost(b.x,b.y,Math.min(1,-vn/5),true,b.owner);
+  return true;
 }
 // ── TORRETTUNGSTASCHE ─────────────────────────────────────────────────────────────
 // Eine Verteidigung, die es vorher nicht gab: der Ball liegt in der Toroeffnung, kurz vor
@@ -5016,6 +5135,13 @@ function fbUnfoldY(X,Y,cs,sn){return X*sn+Y*cs;}
 // mehrfach je Micro-Step (FOOTBALL_CONTACT_ITERATIONS) - ohne diese Weiche haette ein
 // anhaltender Pfostenkontakt bis zu sechs Rueckmeldungen pro Frame gegeben. Die Physik
 // ist davon unberuehrt: der Parameter steuert ausschliesslich die Ausgabe.
+// Haelt der Sockel diese Kugel LAENGS auf? Nur eine Kante mit Anteil in Torrichtung
+// tut das: die Stirnflaeche und die runden Ecken (nx != 0) blocken, die Innenflaeche
+// (nx == 0) laesst die Kugel an sich entlangschleifen - und wer daran entlangschleift,
+// laeuft ins Tor. Die Frage wird bewusst ueber footballPostProbe gestellt, also ueber
+// dieselbe Geometrie, mit der der Sockel auch aufloest: so kann zwischen "der Sockel
+// haelt sie" und "sie ist hindurch" keine Luecke entstehen, auch keine von der Breite
+// eines Rundungsfehlers.
 function footballResolvePost(b,emit){
   const p=footballPostProbe(b),r=ballRad(b);
   if(!p||p.d>=r)return false;                          // kein Kontakt / nur Beruehrabstand
@@ -5084,8 +5210,9 @@ function footballContacts(b,out){
   const p=footballPostProbe(b);
   if(p&&p.d<=rb+FOOTBALL_WEDGE_EPS)out.push({nx:p.sx*p.nx,ny:p.sy*p.ny,other:null});
   // Die Bande zaehlt nur, wenn sie fuer DIESE Kugel ueberhaupt gilt — ein bereits
-  // ausgetretener oder in der Toroeffnung stehender neutraler Ball ist nicht eingeklemmt.
-  if(!b.fbPassed&&!footballCanPassGoal(b)){
+  // ausgetretener oder im sichtbaren Torfenster stehender neutraler Ball ist nicht
+  // eingeklemmt. Dieselbe Zustaendigkeitsfrage wie in der Aufloesung.
+  if(!b.fbPassed&&!footballGoalWindow(b)){
     const s=footballBoundSD(b);                       // dieselbe Grenze wie die Aufloesung
     if(s.sd>=footballRescueLimit(b)-FOOTBALL_WEDGE_EPS)out.push({nx:-s.nx,ny:-s.nz,other:null});
   }
@@ -5936,7 +6063,12 @@ function stepSim(){
   const fbSeq=mode==='football'&&fbGoalState!=='play';
   if(fbSeq)footballFreezePlayers();
   for(let s=0;s<2;s++){
-    for(const b of balls){if(!b.alive)continue;b.x+=b.vx;b.y+=b.vy;const nb=b.owner===NEU;const sp=Math.sqrt(b.vx*b.vx+b.vy*b.vy);const f=sp<SV?(nb?NFE:FE):(nb?NFR:(sp<FASTV?FMID:FR));b.vx*=f;b.vy*=f;if(b.spin){const v=Math.sqrt(b.vx*b.vx+b.vy*b.vy);if(v>0.01){const sx=-b.vy/v,sy=b.vx/v,sa=SPIN_K*b.spin*v;b.vx+=sx*sa;b.vy+=sy*sa;}b.spin*=SPIN_DECAY;}}
+    for(const b of balls){if(!b.alive)continue;const swx=b.x,swy=b.y;b.x+=b.vx;b.y+=b.vy;const nb=b.owner===NEU;const sp=Math.sqrt(b.vx*b.vx+b.vy*b.vy);const f=sp<SV?(nb?NFE:FE):(nb?NFR:(sp<FASTV?FMID:FR));b.vx*=f;b.vy*=f;if(b.spin){const v=Math.sqrt(b.vx*b.vx+b.vy*b.vy);if(v>0.01){const sx=-b.vy/v,sy=b.vx/v,sa=SPIN_K*b.spin*v;b.vx+=sx*sa;b.vy+=sy*sa;}b.spin*=SPIN_DECAY;}
+      // Gefegte Sockelkollision direkt nach dem Schritt: sie faengt die Kante, an der ein
+      // schneller Ball sonst vorbeispraenge, seit die Bande im Torfenster nichts mehr
+      // aufhaelt. Ausserhalb Football ist NEU = -1 - keine Kugel traegt diesen owner, der
+      // Zweig ist dort unerreichbar und der Bestandspfad bleibt bitgenau.
+      if(nb&&typeof footballSweepPost==='function')footballSweepPost(b,swx,swy);}
     // KONTAKTAUFLOESUNG — im Football-Modus FOOTBALL_CONTACT_ITERATIONS mal, sonst
     // GENAU EINMAL (ci=1 -> bit-identisch zum bisherigen Pfad, kein Risiko fuer
     // Golden-Physik, Ring-Collapse, FFA, Team-Duel und Online-Lockstep).
@@ -6005,6 +6137,15 @@ function stepSim(){
       // Ohne dieses Latch wuerde ihn die runde Grenze, sobald er draussen tangential aus dem
       // Torfenster driftet, kuenstlich wieder nach innen reflektieren. Stattdessen ist hier
       // der einzige Ort, an dem ein Tor gewertet wird — pro Sub-Step und nur aus 'play'.
+      // DER DURCHTRITT IST WIDERRUFLICH. Solange die Stirnbande quer durch die Oeffnung
+      // lief, konnte eine Kugel hinter der Bandenlinie gar nicht mehr umkehren — das Latch
+      // durfte endgueltig sein. Im offenen Torfenster kann die Sockelkante sie noch
+      // zurueckwerfen. Taucht sie danach wieder INNERHALB der Bandenlinie auf, ist sie
+      // eben nicht durchgetreten: das Latch wird zurueckgenommen und die Bande ist wieder
+      // fuer sie zustaendig. Ohne diese Ruecknahme bliebe sie dauerhaft von jeder
+      // Einschliessung ausgenommen und koennte die Arena spaeter an beliebiger Stelle
+      // verlassen — gemessen wurden 40 solcher Kugeln je Arena.
+      if(fb.fbPassed&&footballBoundSD(fb).sd<=footballRescueLimit(fb))fb.fbPassed=false;
       if(fb.fbPassed){footballTryGoal(fb);continue;}
       // Rounded-Rectangle-Grenze: exakt dieselbe Aufloesung wie zuvor auf dem Kreis, nur
       // dass Abstand und Normale aus der Signed-Distance-Form kommen. Fuer die Variante
@@ -6015,6 +6156,12 @@ function stepSim(){
       const fbLim=footballRescueLimit(fb);
       if(fbd>fbLim){
         if(footballCanPassGoal(fb)){fb.fbPassed=true;continue;}   // Toroeffnung: keine Bandenkollision
+        // ZUSTAENDIGKEIT AM TOR: im sichtbaren Fenster steht kein Marmor. Wer dort nicht
+        // hindurchpasst, gehoert dem SOCKEL - er wurde oben (gefegt und diskret) bereits
+        // abgefragt und weist mit seiner echten Kantennormale zurueck. Die Bande haelt hier
+        // nichts auf; sonst reflektierten zwei Kollider dieselbe Stelle mit
+        // widerspruechlichen Normalen.
+        if(footballGoalWindow(fb))continue;
         const fnx=fbs.nx,fny=fbs.nz,fbo=fbd-fbLim;fb.x-=fnx*fbo;fb.y-=fny*fbo;  // exakt auf die Grenze zurueckgesetzt
         const fvn=fb.vx*fnx+fb.vy*fny;if(fvn>0){fb.vx-=(1+RBAND)*fvn*fnx;fb.vy-=(1+RBAND)*fvn*fny;
           // Bande: kurzer, trockener Steinanschlag. Nur beim ECHTEN Rueckprall (fvn>0),

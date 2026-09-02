@@ -15,12 +15,13 @@ const path = require('path'), { spawnSync } = require('child_process');
 const SUITES = [
   { name: 'Syntax',           file: 'test_syntax.js',         expectPassed: null },
   { name: 'Golden-Physik',    file: 'test_physics_golden.js', expectPassed: 13 },
-  { name: 'Football-Shell',   file: 'test_football_shell.js', expectPassed: 917 },   // Arena-Finalisierung + Review-Fixes: Rounded Rectangle B, gerades Tor, M1, Ballradius 25
+  { name: 'Football-Shell',   file: 'test_football_shell.js', expectPassed: 927 },   // Arena-Finalisierung + Review-Fixes: Rounded Rectangle B, gerades Tor, M1, Ballradius 25
   { name: 'Football-Flow',    file: 'test_football_flow.js',  expectPassed: 154 },   // Arena-Finalisierung 2026-08-07: M1-Wirkungsmessung, Rechteckgrenze, Ballradius 25
-  { name: 'Football-Arena',   file: 'test_football_arena.js', expectPassed: 72 },    // Classic auf der kanonischen Shouldered-Wide-Arena, buendiges Tor, M1, Ballradius 25
+  { name: 'Football-Arena',   file: 'test_football_arena.js', expectPassed: 73 },    // Classic auf der kanonischen Shouldered-Wide-Arena, buendiges Tor, M1, Ballradius 25
   { name: 'Football-Tactical', file: 'test_football_tactical.js', expectPassed: 282 },   // Tactical 1v1 (2 Figuren, 1 Zug je Team/Runde) + sichtbare Modusauswahl der drei Produktmodi
-  { name: 'Football-Elim',    file: 'test_football_elimination4.js', expectPassed: 1504 },  // Dev-Einstieg auf vier Startspieler: ZWEI LEBEN + adaptive Arena 4 -> 3 -> 2 -> 1 + fairer Respawn
+  { name: 'Football-Elim',    file: 'test_football_elimination4.js', expectPassed: 1510 },  // Dev-Einstieg auf vier Startspieler: ZWEI LEBEN + adaptive Arena 4 -> 3 -> 2 -> 1 + fairer Respawn
   { name: 'Football-Elim5',   file: 'test_football_elimination5.js', expectPassed: 319 },
+  { name: 'Football-Tormund', file: 'test_football_goal_mouth.js', expectPassed: 263 },  // sichtbar offen heisst physisch offen: im Torfenster keine Bande, der Sockel besitzt die Zurueckweisung, das Tor wird nie breiter als es aussieht
   { name: 'Football-FX',      file: 'test_football_fx.js',     expectPassed: 112 },    // Action-Feel 02: gedeckelte Effektliste, kurzlebige Formen, keine Spielzustandsberuehrung, RingOut unberuehrt  // Produktmodus Elimination: 5 -> 4 -> 3 -> 2 -> Sieger, dieselbe Architektur
   { name: 'Football-Musik',   file: 'test_football_music.js',  expectPassed: 345 },   // Action-Feel 03C: durchlaufendes Thema mit Signaturfigur, Entsperrung bei jeder Geste, eine Besetzung mit drei Pegeln, Signatur-Torklang
   { name: 'Fixed-Timestep',  file: 'test_fixed_timestep.js', expectPassed: 202 },  // Gameplay laeuft in festen 60-Hz-Schritten, unabhaengig von der Bildwiederholrate

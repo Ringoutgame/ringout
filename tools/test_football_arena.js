@@ -107,6 +107,8 @@ function buildEnv(mode0) {
       rescueDepth(){ return footballRescueDepth(); },
       rescueLimit(i){ return footballRescueLimit(balls[i]); },
       place(){ placeBalls(); return balls.map(b=>({x:b.x,y:b.y,owner:b.owner})); },
+      // Steht diese Kugel im sichtbaren Torfenster? Dort gibt es keine Bandenlinie.
+      inWindow(i){ return footballGoalWindow(balls[i]); },
       get(){ return balls.map(b=>({x:b.x,y:b.y,vx:b.vx,vy:b.vy,owner:b.owner,
                                   alive:b.alive,spin:b.spin,passed:!!b.fbPassed})); }
     };
@@ -301,7 +303,7 @@ ok(/const rb=ballRad\(b\);/.test(footballBlock), 'Anti-Wedge-Kontakte nutzen bal
   };
   ok(run() === run(), 'deterministisch: identische Laeufe sind bitgleich');
   let seed = 7; const rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
-  let nan = false, maxSd = -1e9, esc = 0;
+  let nan = false, maxSd = -1e9, maxFenster = -1e9, esc = 0;
   for (let t = 0; t < 300; t++) {
     F.reset();
     F.setBalls([
@@ -314,7 +316,13 @@ ok(/const rb=ballRad\(b\);/.test(footballBlock), 'Anti-Wedge-Kontakte nutzen bal
       const s = F.get();
       for (let j = 0; j < 3; j++) {
         if (!Number.isFinite(s[j].x) || !Number.isFinite(s[j].vx)) nan = true;
-        if (!s[j].passed) maxSd = Math.max(maxSd, F.over(j));
+        // Der Einschluss wird ab jetzt GETRENNT gemessen. Der alte, global gedachte Satz
+        // ("nie mehr als ~1.5 px ueber die vordere Bandenlinie") war nur deshalb wahr,
+        // weil die Bande auch quer durch die Toroeffnung lief. Im sichtbaren Fenster gibt
+        // es dort keine Bande - der Ball darf bis zum Sockel, und nur bis dorthin.
+        if (s[j].passed) continue;
+        if (F.inWindow(j)) maxFenster = Math.max(maxFenster, F.over(j));
+        else maxSd = Math.max(maxSd, F.over(j));
       }
     }
     esc += F.escapes();
@@ -324,7 +332,11 @@ ok(/const rb=ballRad\(b\);/.test(footballBlock), 'Anti-Wedge-Kontakte nutzen bal
   // (< 1 LOGICAL, deterministisch, Folgeframe holt zurueck) -> Toleranz 1.5.
   // Gemessen wird der Ueberschuss ueber die gueltige Grenze - im Torfenster darf eine
   // SPIELERKUGEL bis zur Taschentiefe hinaus, sonst nirgends.
-  ok(maxSd <= 1.5, 'kein Arena-Ausbruch (max Ueberschuss ' + maxSd.toFixed(3) + ', Toleranz 1.5)');
+  ok(maxSd <= 1.5, 'kein Arena-Ausbruch ausserhalb des Torfensters (max Ueberschuss ' +
+     maxSd.toFixed(3) + ', Toleranz 1.5)');
+  // INNERHALB des Fensters gibt es keine Bandenlinie - aber der Sockel begrenzt die Tiefe.
+  ok(maxFenster <= 25, 'im Torfenster bleibt die Tiefe vom Sockel begrenzt (max ' +
+     Math.max(0, maxFenster).toFixed(3) + ', Grenze 25)');
   ok(esc === 0, 'keine Anti-Wedge-Escapes');
   // Bande erzeugt nie Energie (0/30/45/60 Grad gegen die Laengsseiten-Normale):
   let gained = false;

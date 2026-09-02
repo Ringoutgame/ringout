@@ -1,6 +1,6 @@
 # PROJECT.md — RingOut
 
-**Zuletzt aktualisiert:** 2026-09-02 (**Arena Football Online ist ueber das normale Produktmenue erreichbar** — `?dev=1` ist fuer Spieler nicht mehr noetig; Online-Protokoll v4 mit Football-Raumtyp; Online-Sitze gehoeren der Firebase-`auth.uid`; Arena Football: **Elimination startet mit fuenf Spielern** auf dem Broad Rounded Pentagon, Ablauf 5P → 4P → 3P → 2P → Sieger; **zwei Leben** in der Elimination, Classic auf der kanonischen Shouldered-Wide-Arena, **fester 60-Hz-Gameplay-Takt** unabhaengig von der Bildwiederholrate, neu abgestimmte Daempfung und dynamischere Abschusskurve; finale adaptive Elimination-Arenaformen — Rounded Square / Broad Rounded Triangle / Shouldered Wide; **beide** Arenawechsel 4→3 und 3→2 sind animiert und tragen Gold-Kantenfeedback plus Transitionsklang; **drei** sichtbare Modi — Classic 1v1 als Standard, Tactical 1v1, Elimination; Elimination ist jetzt regulaer ueber die Modusauswahl startbar, weiterhin lokal/Hotseat)
+**Zuletzt aktualisiert:** 2026-09-02 (**das sichtbar offene Tormaul ist auch physisch offen** — im Torfenster weist allein die Sockelgeometrie zurueck, keine Bandenlinie; **Arena Football Online ist ueber das normale Produktmenue erreichbar** — `?dev=1` ist fuer Spieler nicht mehr noetig; Online-Protokoll v4 mit Football-Raumtyp; Online-Sitze gehoeren der Firebase-`auth.uid`; Arena Football: **Elimination startet mit fuenf Spielern** auf dem Broad Rounded Pentagon, Ablauf 5P → 4P → 3P → 2P → Sieger; **zwei Leben** in der Elimination, Classic auf der kanonischen Shouldered-Wide-Arena, **fester 60-Hz-Gameplay-Takt** unabhaengig von der Bildwiederholrate, neu abgestimmte Daempfung und dynamischere Abschusskurve; finale adaptive Elimination-Arenaformen — Rounded Square / Broad Rounded Triangle / Shouldered Wide; **beide** Arenawechsel 4→3 und 3→2 sind animiert und tragen Gold-Kantenfeedback plus Transitionsklang; **drei** sichtbare Modi — Classic 1v1 als Standard, Tactical 1v1, Elimination; Elimination ist jetzt regulaer ueber die Modusauswahl startbar, weiterhin lokal/Hotseat)
 
 - **Aktueller stabiler Projekt-HEAD:** `5a23dc424fb3126c33c29543b7c6571b87a65ec7`
 - **Implementierungs-Commit UX-Phase 3:** `babbbe78ee388489321d1f0cb3e032bbaabd0725`
@@ -551,11 +551,26 @@ Rendering, Spawns und Kamera ist `FOOTBALL_ARENA` (Werte in BR = 32 logische Ein
 - **Tor (buendig):** gerades Torasset `assets/arena_football_goal.glb`
   (1 Blender-Einheit = 2·BR). Sockelkanten tangential 3.560..5.282 BR → lichte
   Torbreite **227.84**; `postFront == halfLen` legt die Sockelvorderkante exakt auf
-  die Bandeninnenflaeche → keine Ballfang-Tasche, der Sockel ist aus dem Feld heraus
-  unerreichbar (Mindestabstand exakt ein Ballradius). Torlinie bei `postBack 20.368 BR`
-  (= 651.776); `goalAnchor` mittig im Sockel. Spieler werden an der Oeffnung von der
-  Grenze geblockt (`footballCanPassGoal` nur fuer den neutralen Ball, mit explizitem
-  Stirnseiten-Term `|x−cx| > |y−cy|`).
+  die Bandeninnenflaeche. Torlinie bei `postBack 20.368 BR` (= 651.776); `goalAnchor`
+  mittig im Sockel. Spieler werden an der Oeffnung von der Grenze geblockt
+  (`footballCanPassGoal` nur fuer den neutralen Ball, mit explizitem Stirnseiten-Term
+  `|x−cx| > |y−cy|`).
+- **Toroeffnung — sichtbar offen heisst physisch offen (2026-09-02):** fuer den neutralen
+  Ball verlaeuft im lichten Torfenster (`footballGoalWindow`, `|y| ≤ postInner·BR`) **keine
+  Bandenlinie**; dort weist allein der Sockel zurueck. Der Sockel ist damit erreichbar —
+  die frueher hier dokumentierte Zusage "aus dem Feld heraus unerreichbar, Mindestabstand
+  exakt ein Ballradius" galt nur, solange die Stirnbande quer durch die Oeffnung lief, und
+  war der Grund fuer Rueckpraller mit exakt 180 Grad bis zu 20.3 px vor dem Pfosten.
+  **Genau ein Eigentuemer je Kontakt:** auf der Torseite des Sockels der Sockel
+  (`footballSweepPost`, deterministisch gefegt, nur bei annaehernder Bewegung und nur bei
+  Beruehrpunkten mit `CY ≤ postInner·BR`), ueberall sonst unveraendert die Bande.
+  `fbPassed` ist **widerruflich**: eine Kugel, die wieder innerhalb der Bandenlinie
+  auftaucht, verliert den Latch, bevor gewertet wird — ohne das waere sie dauerhaft von
+  jeder Einschliessung ausgenommen. Der Korridorvergleich traegt `FB_GOAL_PASS_EPS = 1e-6`,
+  die Rechengenauigkeit der Seitenfaltung ueber `(cx, cy)`, nicht einen Spielraum.
+  Wertungsautoritaet, Torbreite, Sockellage, Torlinie und die Torrettungstasche der
+  Spielerkugeln sind unveraendert; ausserhalb des Fensters ist das Verhalten bitgleich mit
+  dem Stand davor. Regressionen: `tools/test_football_goal_mouth.js`.
 - **Neutraler Ball:** `FOOTBALL_BALL_RADIUS = 25` (Spieler bleiben BR = 32).
   `ballRad(b)` ist die einzige Radiusquelle fuer Physik UND Rendering (Kontaktdistanz,
   Bandengrenze, Pfosten, Toroeffnung, Torlinie, Anti-Wedge, Mesh-/Decal-Scale,

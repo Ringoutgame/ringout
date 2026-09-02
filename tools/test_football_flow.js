@@ -187,6 +187,7 @@ function buildEnv(ci, preset) {
       rad(b){ return ballRad(b); },
       boundSD(b){ const s=footballBoundSD(b); return {sd:s.sd, nx:s.nx, nz:s.nz}; },
       canPass(b){ return footballCanPassGoal(b); },
+      inWindow(b){ return footballGoalWindow(b); },
       // Die fuer diese Kugel GUELTIGE Grenze: Bande, im Torfenster zuzueglich der
       // Torrettungstasche (fuer den neutralen Ball immer 0).
       rescueLimit(b){ return footballRescueLimit(b); },
@@ -265,9 +266,11 @@ function postContact(p, eps) {
   return best;
 }
 // Gilt die Bande fuer diese Kugel? Exakt die Regel aus stepSim: ein bereits
-// ausgetretener Ball (fbPassed) und ein Ball in der nutzbaren Toroeffnung
-// (footballCanPassGoal — ECHTE Quellfunktion via PROBE) sind ausgenommen.
-const bandApplies = (b) => !b.passed && !PROBE.canPass(b);
+// ausgetretener Ball (fbPassed) und ein Ball im SICHTBAREN Torfenster sind ausgenommen.
+// Seit dem Torfenster-Pass ist das Fenster die LICHTE Kante, nicht die Durchlassbreite:
+// zwischen beiden steht das offene Tor, und dort haelt der Sockel auf, nicht die Bande.
+// footballGoalWindow ist dafuer die ECHTE Quellfunktion via PROBE.
+const bandApplies = (b) => !b.passed && !PROBE.inWindow(b);
 
 function contactsAt(state, i, eps) {
   const b = state[i], out = [];
@@ -1720,11 +1723,14 @@ for (const p of PRESETS)
   for (let k = 0; k < 200; k++) env.step();
   ok(env.goalAudio().goalSounds === 1, 'auch die folgende freie Spielphase loest keinen Torsound aus');
 
-  // ── Torprobe ohne Wertung: Ball knapp neben der Oeffnung bleibt still ──
-  // (frueher "Pfosteninnenkante"; auf dem Rechteck reflektiert die Bande neben dem
-  // Tor — kein fbPassed, keine Wertung, kein Sound. Gleicher Aufbau wie Probe 3.)
+  // ── Torprobe ohne Wertung: Ball neben der SICHTBAREN Oeffnung bleibt still ──
+  // Seit dem Torfenster-Pass ist "neben der Oeffnung" die lichte Kante, nicht mehr die
+  // Durchlassbreite: zwischen beiden steht das offene Tor, und ein Ball dort gehoert dem
+  // SOCKEL (er kann von dort sogar hineingelenkt werden - "vom Pfosten ins Tor").
+  // Erst jenseits von clearHalf steht wieder Marmor; dort reflektiert die Bande wie eh
+  // und je — kein fbPassed, keine Wertung, kein Sound.
   env.reset();
-  env.setBalls([{ x: cx, y: cy + G.goalHalf + 1, vx: PROBE_V, vy: 0, owner: G.neutral }]);
+  env.setBalls([{ x: cx, y: cy + G.clearHalf + 1, vx: PROBE_V, vy: 0, owner: G.neutral }]);
   for (let k = 0; k < 900 && env.goalState() === 'play'; k++) env.step();
   ok(env.score()[0] + env.score()[1] === 0 && env.goalAudio().goalSounds === 0,
      'Torprobe ohne Wertung (Bande neben der Oeffnung) loest keinen Torsound aus');

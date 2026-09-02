@@ -163,6 +163,7 @@ function buildEnv(devFbVariant) {
       // Die fuer DIESE Kugel geltende Grenze: Bande, im Torfenster zuzueglich der
       // Torrettungstasche. Reine Abfrage des Produktcodes.
       rescueLimit(i){ return footballRescueLimit(balls[i]); },
+      inWindowAt(x,y){ return footballGoalWindow({x,y,owner:FOOTBALL_NEUTRAL_OWNER,alive:true}); },
       rescueLimitAt(x,y,neutral){ const b={x,y,owner:neutral?FOOTBALL_NEUTRAL_OWNER:0,alive:true};
                                   return footballRescueLimit(b); },
       rescueDepth(){ return footballRescueDepth(); },
@@ -209,6 +210,11 @@ function buildEnv(devFbVariant) {
       snapshot(){ return balls.map(b=>({x:b.x,y:b.y,vx:b.vx,vy:b.vy,owner:b.owner,alive:b.alive,passed:!!b.fbPassed})); },
       rad(i){ return ballRad(balls[i]); },
       boundSD(i){ return footballBoundSD(balls[i]).sd; },
+      // Steht diese Kugel im sichtbaren Torfenster? Dort verlaeuft keine Bandenlinie.
+      inWindow(i){ return footballGoalWindow(balls[i]); },
+      // Wie tief darf eine Kugel dort hoechstens stehen: die Laengsausdehnung des Sockels
+      // plus ihr eigener Radius - dahinter faellt das Tor.
+      windowDepth(i){ const a=fbArena(); return (a.postBack-a.postFront)*BR+ballRad(balls[i]); },
       ringLevel(i){ return fbTacticalRingLevel(i); },
       sel(){ return fbSel.slice(); },
       // -- Faltung / Torgeometrie --
@@ -676,16 +682,22 @@ console.log('ARENA FOOTBALL - ELIMINATION: ZWEI LEBEN + ADAPTIVE ARENA + FAIRER 
     E.setPos(4, E.cx + ux * r, E.cy + uy * r);
     E.setVel(4, -uy * sp, ux * sp);          // exakt tangential
     E.setPhaseRaw('sim');
-    let minD = Infinity, fin = true;
+    let minD = Infinity, fin = true, tor = false, maxAus = 0;
     for (let k = 0; k < 500; k++) {
       E.step();
-      if (E.goalState() !== 'play') break;
+      if (E.goalState() !== 'play') { tor = true; break; }
       const b = E.snapshot()[4];
       const d = Math.hypot(b.x - E.cx, b.y - E.cy);
       if (!Number.isFinite(d)) { fin = false; break; }
       if (d < minD) minD = d;
+      // Der ECHTE Einschluss, direkt gemessen: ausserhalb eines offenen Torfensters darf
+      // die Bandenlinie nicht ueberschritten werden. Im Fenster gibt es keine.
+      if (!b.passed && !E.inWindowAt(b.x, b.y)) {
+        const ue = E.boundSDAt(b.x, b.y, true).sd - E.rescueLimitAt(b.x, b.y, true);
+        if (ue > maxAus) maxAus = ue;
+      }
     }
-    return { minD: minD, fin: fin, start: r };
+    return { minD: minD, fin: fin, start: r, tor: tor, maxAus: maxAus };
   };
 
   for (const ph of [4, 3, 2]) {
@@ -698,9 +710,21 @@ console.log('ARENA FOOTBALL - ELIMINATION: ZWEI LEBEN + ADAPTIVE ARENA + FAIRER 
     if (Math.hypot(ux, uy) < 1e-9) { ux = -D[0][1]; uy = D[0][0]; }
     const r = outerRun(E, ux, uy, 26);
     ok(r.fin, 'Phase ' + ph + ': kein NaN auf der Aussenbahn');
-    ok(r.minD < r.start * 0.55,
-       'Phase ' + ph + ': der tangential gestartete Ball kehrt ins Innere zurueck (' +
-       Math.round(r.minD) + ' < ' + Math.round(r.start * 0.55) + ')');
+    // Der Zweck dieser Probe ist der EINSCHLUSS: ein tangential an der Bande entlang
+    // gestarteter Ball darf nicht davonlaufen. Seit dem Torfenster-Pass hat er einen
+    // zweiten zulaessigen Ausgang: erreicht er auf seiner Bahn ein offenes Tor, faellt es -
+    // ein Bankschuss, und der ist ausdruecklich erwuenscht. Beide Enden sind in Ordnung;
+    // ein Davonlaufen ist es nicht.
+    // DER eigentliche Einschluss - direkt gemessen statt ueber einen Ersatzwert.
+    ok(r.maxAus <= 1.5,
+       'Phase ' + ph + ': der Ball verlaesst die Bandenlinie ausserhalb des Torfensters nicht (' +
+       r.maxAus.toFixed(3) + ' <= 1.5)');
+    // Und er laeuft nicht davon: er kehrt deutlich ins Innere zurueck oder faellt ins Tor.
+    // Die 0.60 sind gemessen (Phase 4: 0.33, Phase 3: 0.57, Phase 2: Tor) - mit offenen
+    // Torfenstern reitet die tangentiale Bahn etwas weiter aussen als vor dem Pass.
+    ok(r.tor || r.minD < r.start * 0.60,
+       'Phase ' + ph + ': der tangential gestartete Ball kehrt ins Innere zurueck oder faellt ins Tor (' +
+       (r.tor ? 'Tor' : Math.round(r.minD) + ' < ' + Math.round(r.start * 0.60)) + ')');
     console.log('Aussenlauf Phase ' + ph + ': Start ' + Math.round(r.start) +
                 ' -> minimale Zentrumsdistanz ' + Math.round(r.minD));
     const sn = E.snapshot();
@@ -2066,7 +2090,7 @@ const fbCore = (c) => c.poly ? c.poly.map(v => v.slice())
     E.newMatch();
     E.forcePhase(ph);
     const a = E.arenaCfg();
-    let outside = 0, bad = 0, runs = 0;
+    let outside = 0, bad = 0, runs = 0, tiefstesFenster = 0;
     for (let k = 0; k < 48; k++) {
       const th = k * Math.PI / 24, cs = Math.cos(th), sn = Math.sin(th);
       const starts = [[E.cx, E.cy, 40],
@@ -2079,11 +2103,24 @@ const fbCore = (c) => c.poly ? c.poly.map(v => v.slice())
         // Float-Residuum statt exakter Null: eine ruhende Kugel landet nach der
         // Bandenkorrektur regelmaessig auf ~1e-14 px jenseits der Linie. Gemeint ist
         // 'nicht draussen', nicht 'bitgenau null'.
-        else if (!r.passed && E.boundSD(4) > 1e-9) outside++;
+        //
+        // Seit dem Torfenster-Pass gibt es einen zweiten zulaessigen Verbleib: IM
+        // sichtbaren Tormaul verlaeuft keine Bandenlinie, dort haelt allein der Sockel.
+        // Eine Kugel, die dort liegen bleibt, ist nicht 'aus der Arena' - sie steckt im
+        // Tor und ist von den Spielern erreichbar. Gemessen wird sie trotzdem: der Sockel
+        // begrenzt ihre Tiefe, sie darf nicht weiter als bis zur Torlinie kommen.
+        else if (!r.passed && E.boundSD(4) > 1e-9) {
+          if (E.inWindow(4)) tiefstesFenster = Math.max(tiefstesFenster, E.boundSD(4));
+          else outside++;
+        }
       }
     }
     ok(outside === 0 && bad === 0,
-       'Phase ' + ph + ': kein Ball endet ausserhalb, keine NaN in ' + runs + ' harten Schuessen');
+       'Phase ' + ph + ': kein Ball endet ausserhalb des Tormauls, keine NaN in ' + runs +
+       ' harten Schuessen');
+    ok(tiefstesFenster <= E.windowDepth(4),
+       'Phase ' + ph + ': wer im Tormaul liegen bleibt, kommt nicht ueber den Sockel hinaus (' +
+       tiefstesFenster.toFixed(2) + ' <= ' + E.windowDepth(4).toFixed(2) + ')');
     let pEsc = 0;
     for (let k = 0; k < 24; k++) {
       const P = buildEnv('elimination4');

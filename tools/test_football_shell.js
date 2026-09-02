@@ -619,8 +619,46 @@ ok(/footballCanPassGoal\(fb\)/.test(HTML), 'stepSim nutzt die zentrale Toroeffnu
 // Genau EINE autoritative Passage-Entscheidung im gesamten Quelltext.
 // 4B-2: ein zweiter Aufruf kam in footballContacts dazu — die Wedge-Erkennung fragt
 // DIESELBE zentrale Funktion, statt die Toroeffnung ein zweites Mal zu modellieren.
-ok((HTML.match(/footballCanPassGoal\(/g) || []).length === 3, 'Genau eine Definition + zwei Aufrufe von footballCanPassGoal (keine zweite Physiklogik)');
-ok(/!footballCanPassGoal\(b\)\)/.test(wedgeSrc), 'Wedge-Erkennung nutzt die zentrale Toroeffnungs-Pruefung');
+// Seit dem Torfenster-Pass sind es ZWEI Fragen, jede mit genau einer Definition:
+//   footballCanPassGoal   PASST der Ball hindurch?      (Definition + 1 Aufruf)
+//   footballGoalWindow    STEHT dort ueberhaupt Marmor? (Definition + 2 Aufrufe)
+// Die zweite ist neu; sie trennt die Durchlassbreite von der Zustaendigkeit der Bande.
+ok((HTML.match(/footballCanPassGoal\(/g) || []).length === 2,
+   'Genau eine Definition + ein Aufruf von footballCanPassGoal (keine zweite Physiklogik)');
+ok((HTML.match(/footballGoalWindow\(/g) || []).length === 3,
+   'Genau eine Definition + zwei Aufrufe von footballGoalWindow (Bandenausnahme, Keilerkennung)');
+// DER DURCHTRITT IST WIDERRUFLICH. fbPassed nimmt eine Kugel dauerhaft von der Bande aus.
+// Solange die Stirnbande quer durch die Oeffnung lief, konnte eine Kugel hinter der
+// Bandenlinie nicht mehr umkehren — das Latch durfte endgueltig sein. Im offenen
+// Torfenster kann die Sockelkante sie noch zurueckwerfen; ohne Ruecknahme bliebe sie
+// danach fuer immer uneingeschlossen und koennte die Arena an beliebiger Stelle verlassen.
+ok(/if\(fb\.fbPassed&&footballBoundSD\(fb\)\.sd<=footballRescueLimit\(fb\)\)fb\.fbPassed=false;/.test(HTML),
+   'eine wieder innerhalb der Bandenlinie auftauchende Kugel verliert ihr Durchtritts-Latch');
+ok(HTML.indexOf('fb.fbPassed=false;') < HTML.indexOf('if(fb.fbPassed){footballTryGoal(fb);continue;}'),
+   'die Ruecknahme steht VOR der Wertung — eine zurueckgeworfene Kugel wertet kein Tor');
+// Und der Korridorvergleich traegt die Rechengenauigkeit der Seitenfaltung, sonst bleibt
+// eine an der Pfosteninnenflaeche schleifende Kugel an der Schwelle haengen: weder
+// gewertet noch gehalten, seit im Fenster keine Bandenlinie mehr gilt.
+ok(/const FB_GOAL_PASS_EPS=1e-6;/.test(HTML), 'FB_GOAL_PASS_EPS ist benannt, keine nackte Zahl');
+ok(/Math\.abs\(F\.y\)<=footballGoalCenterHalf\(\)\+FB_GOAL_PASS_EPS/.test(HTML),
+   'der Korridorvergleich benutzt sie');
+ok(/!footballGoalWindow\(b\)\)/.test(wedgeSrc),
+   'Wedge-Erkennung nutzt dieselbe Zustaendigkeitsfrage wie die Aufloesung');
+// Im Fenster loest die Bande NICHT auf - sonst reflektierten zwei Kollider dieselbe
+// Stelle mit widerspruechlichen Normalen.
+ok(/if\(footballGoalWindow\(fb\)\)continue;/.test(HTML),
+   'im sichtbaren Torfenster haelt die Bande nichts auf - der Sockel ist zustaendig');
+// Und die Sockelkante wird GEFEGT geprueft, nicht nur punktuell: sonst spraenge ein
+// schneller Ball an ihr vorbei, seit dort keine Bande mehr steht.
+ok(/function footballSweepPost\(b,px,py\)\{/.test(HTML),
+   'die Sockelkollision hat eine gefegte Fassung');
+ok(/if\(nb&&typeof footballSweepPost==='function'\)footballSweepPost\(b,swx,swy\);/.test(HTML),
+   'sie haengt direkt an der Integration - vor jeder Kontaktaufloesung');
+ok(/const disc=B2\*B2-4\*A2\*C2;/.test(HTML),
+   'sie schneidet die Strecke gegen die runde Ecke, nicht nur gegen die Rechteckkante');
+ok(!/Math\.random/.test(HTML.slice(HTML.indexOf('function footballSweepPost'),
+                                   HTML.indexOf('function footballSweepPost') + 3000)),
+   'und enthaelt keinen Zufall - lockstep-tauglich deterministisch');
 // Neutraler Ball (owner 4) existiert in normalen Modi gar nicht -> kein Mode-Leck moeglich.
 const Bn = buildEnv('bot', 'single');
 Bn.setBalls([{ x: Bn.cx + Bn.R0 * 0.55, y: Bn.cy, vx: 5, vy: 0, owner: NEU }, { x: Bn.cx, y: Bn.cy, vx: 0, vy: 0, owner: 0 }]);
