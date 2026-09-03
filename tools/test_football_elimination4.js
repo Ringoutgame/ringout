@@ -75,7 +75,7 @@ const stepSimSrc         = grab(/function stepSim\(\)\{[\s\S]*?\n\}/, 'stepSim')
 // Der Elimination4-Abschnitt als Ganzes - Grundlage der Struktur-Assertions weiter unten.
 const elimBlockSrc       = grab(/ARENA FOOTBALL ELIMINATION [\s\S]*?\nfunction footballElimResetBall\(\)\{[\s\S]*?\n\}/, 'Elimination-Block');
 const renderBarSrc       = grab(/function renderElimBar\(\)\{[\s\S]*?\n\}/, 'renderElimBar');
-const startFootballSrc   = grab(/function startFootball\(variant\)\{[\s\S]*?\n\}/, 'startFootball');
+const startFootballSrc   = grab(/function startFootball\(variant,rules\)\{[\s\S]*?\n\}/, 'startFootball');
 const ctaSrc             = grab(/\$\('ctaBtn'\)\.onclick=\(\)=>\{[\s\S]*?\n\};/, 'CTA-Handler');
 const foldSrc            = grab(/const fbFold=\{[\s\S]*?\nfunction footballCanPassGoal\(b\)\{[\s\S]*?\n\}/, 'Seitenfaltung');
 const fxRenderSrc        = grab(/const goalFxParts=\[\];[\s\S]*?\n    \};/, 'Renderer-Goal-FX-Block');
@@ -493,10 +493,14 @@ console.log('ARENA FOOTBALL - ELIMINATION: ZWEI LEBEN + ADAPTIVE ARENA + FAIRER 
   ok(a.postFront === a.halfLen, 'Sockelvorderkante liegt exakt auf der Bandeninnenflaeche');
   ok(near(a.postBack - a.postFront, ca.postBack - ca.postFront),
      'Sockeltiefe unveraendert aus der Produktivarena uebernommen');
+  // Die Toroeffnung ist in JEDER Phase und in jedem Modus dieselbe: die gemessenen
+  // Sockelkanten des Assets. Sie kann damit auch beim Uebergang 3P->2P nicht wachsen.
   ok(a.postInner === ca.postInner && a.postOuter === ca.postOuter,
      'Torbreite unveraendert: postInner/postOuter exakt wie im Produktivmodus');
-  ok(near(E.arena().clearHalf, C.arena().clearHalf),
-     'lichte Torbreite identisch zu Classic (227.84 - keine Retunung)');
+  ok(a.postInner === 3.560 && a.postOuter === 5.282,
+     'und das sind die gemessenen Asset-Kanten 3.560/5.282');
+  ok(near(E.arena().clearHalf, C.arena().clearHalf) && near(E.arena().clearHalf, 3.560 * E.BR),
+     'lichte Torbreite 227.84 - identisch mit Classic, in Elimination wird nichts retuned');
   const straightHalf = a.halfLen - a.corner;
   ok(straightHalf > a.postOuter,
      'der Torsockel passt in das gerade Seitensegment (' + straightHalf.toFixed(2) + ' > ' + a.postOuter + ')');
@@ -612,7 +616,7 @@ console.log('ARENA FOOTBALL - ELIMINATION: ZWEI LEBEN + ADAPTIVE ARENA + FAIRER 
     ok(near(c[0] * n[0] + c[1] * n[1], -0.5, 1e-12),
        'Phase 3: der Winkel zwischen benachbarten Toren ist 120 Grad (Skalarprodukt -0.5)');
   }
-  ok(near(E.arena().clearHalf, C.arena().clearHalf), 'Phase 3: lichte Torbreite unveraendert 227.84');
+  ok(near(E.arena().clearHalf, 3.560 * E.BR), 'Phase 3: lichte Torbreite unveraendert 227.84 (Classic-Streckung wirkt hier nicht)');
   for (let s = 0; s < 3; s++) {
     const lineT = a3.postBack * E.BR, d = d3[s];
     const f = E.fold(d[0] * lineT, d[1] * lineT);
@@ -642,7 +646,7 @@ console.log('ARENA FOOTBALL - ELIMINATION: ZWEI LEBEN + ADAPTIVE ARENA + FAIRER 
   ok(a2.postFront === a2.halfLen, 'Phase 2: beide Tore haben dieselbe Zentrumsdistanz');
   ok(a2.halfLen > a2.halfWid, 'Phase 2: klare Laengsachse (Classic-Layout)');
   ok(goalWallLen(a2.poly, d2[0]) / 2 > a2.postOuter, 'Phase 2: der Torsockel passt in das gerade Seitensegment');
-  ok(near(E.arena().clearHalf, C.arena().clearHalf), 'Phase 2: lichte Torbreite unveraendert 227.84');
+  ok(near(E.arena().clearHalf, 3.560 * E.BR), 'Phase 2: lichte Torbreite unveraendert 227.84 (Classic-Streckung wirkt hier nicht)');
   const s2 = arcSharePoly(a2.poly, a2.corner);
   ok(s2 < arcShareRect(18.00, 12.70, 6.85), 'Phase 2: weniger gekruemmte Aussenfuehrung als Classic');
 
@@ -1819,7 +1823,8 @@ console.log('ARENA FOOTBALL - ELIMINATION: ZWEI LEBEN + ADAPTIVE ARENA + FAIRER 
   const src = parts.map((re, i) => G(re, 'Rendererquelle ' + i)).join('');
   // Sandbox mit den echten Rendererquellen und den finalen Arenakonstanten.
   FB_SANDBOX = () => new Function(
-    'const FB_GOAL_HALF_DEPTH=1.184,FB_TRI_COS30=0.8660254037844387,' +
+    'const FB_GOAL_HALF_DEPTH=1.184,FB_GOAL_ASSET_INNER=3.560,FB_GOAL_ASSET_OUTER=5.282,' +
+    'FB_TRI_COS30=0.8660254037844387,' +
     'FB_TRI_TAN60=1.7320508075688772;const FOOTBALL_ELIM4_DIRS=[[0,-1],[1,0],[0,1],[-1,0]];' +
     'const FOOTBALL_ELIM3_DIRS=[[0,-1],[FB_TRI_COS30,0.5],[-FB_TRI_COS30,0.5]];' +
     'const FOOTBALL_ELIM2_DIRS=[[1,0],[-1,0]];' +

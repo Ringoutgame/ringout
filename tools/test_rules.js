@@ -105,7 +105,11 @@ function tryWrite(db, path, value, uid, alsoWrites) {
 const V = Number(require('fs')
   .readFileSync(require('path').join(__dirname, '..', 'index.html'), 'utf8')
   .split('const ONLINE_PROTOCOL_VERSION=')[1].split(';')[0]);
-const V_ALT = 4;   // Vorgaengerversion, die waehrend der Umstellung weiterlaufen darf
+// Waehrend der Umstellung laufen DREI Vorgaengerversionen weiter: v4, v5 und die
+// verbrannte v6 (Action Core 05, im Spieltest abgelehnt — die Nummer bleibt vergeben,
+// damit ein noch offener v6-Raum nicht faelschlich fuer den heutigen Stand gehalten
+// wird). Alle drei muessen bedient werden, sonst waeren noch offene Raeume sofort tot.
+const V_ALT = [4, 5, 6];
 const GRACE = 15000;
 const H_TAB = 'HOSTTAB0', G_TAB = 'GTAB0001', G2_TAB = 'GTAB0002';
 // Durable roster records; players/<seat>.tab MUST equal p/<seat>.s (coupling).
@@ -1356,16 +1360,34 @@ deny('team move pl 4 (seat gate, presence pre-seeded)', playing({ p: { 0: P(H_TA
 }
 
 
-// ── (13) PROTOKOLL-UMSTELLUNG v4 -> v5 ────────────────────────────────────────
-// Der Client springt auf v5, weil Action Core 04 die deterministische Simulation geaendert
-// hat (massenbehafteter Football-Stossimpuls). Zwei Clients mit unterschiedlichem Stand
-// duerfen sich deshalb nie einen Raum teilen.
+// ── (13) PROTOKOLLUEBERGANG v4 / v5 / v6 -> v7 ────────────────────────────────
+// Der Client steht auf v7. Jede Nummer davor markiert eine SIMULATIONSREVISION, keine
+// Schemaaenderung — das Raumformat ist Feld fuer Feld dasselbe geblieben:
+//   v5  massenbehafteter Football-Stossimpuls (Action Core 04)
+//   v6  VERBRANNT. Die Nummer markierte die Abstimmung auf anhaltende Ballenergie
+//       (Action Core 05); der Spieltest hat sie abgelehnt, sie ist aus dem Produktivcode
+//       entfernt. Die Nummer bleibt trotzdem vergeben, weil dieser Stand oeffentlich war:
+//       ein noch offener v6-Raum darf nie fuer den heutigen gehalten werden.
+//   v7  Timed Classic (90 s Bedenkzeit, Golden Goal) aendert den Rundenablauf.
+//       Die zwischenzeitlich unter v7 erprobte breitere Classic-Toroeffnung ist nach dem
+//       Spieltest zurueckgenommen; die Nummer bleibt v7 und wird nicht recycelt.
+// Zwei Clients mit unterschiedlichem Stand rechnen auseinander und duerfen sich deshalb
+// nie einen Raum teilen.
 //
-// Diese Trennung leistet der CLIENT, nicht der Server: jede seiner drei Raumpruefungen
-// vergleicht strikt auf die eigene Version. Der Server muss waehrend der Umstellung BEIDE
-// Versionen bedienen — sonst waere jeder noch offene v4-Raum sofort tot, obwohl die alten
-// Clients dort voellig legitim weiterspielen. Was der Server garantiert, ist etwas anderes
-// und Wichtigeres: die Version eines bestehenden Raums ist UNVERAENDERLICH.
+// Diese Trennung leistet der CLIENT, nicht der Server: alle VIER Raumpruefungen
+// (validateRoom, validateRejoinRoom, publicListingView, restorePresencePass) vergleichen
+// strikt auf die eigene Version. Der Server muss waehrend des Uebergangs ALLE VIER
+// Versionen bedienen — sonst waere jeder noch offene v4-, v5- oder v6-Raum sofort tot,
+// obwohl die dort sitzenden Clients voellig legitim zu Ende spielen. Was der Server
+// garantiert, ist etwas anderes und Wichtigeres: die Version eines bestehenden Raums ist
+// UNVERAENDERLICH.
+//
+// Wo die Versionsliste in den Rules steht: einmal als Validator des Feldes v selbst und an
+// VIER versionsgebundenen Schreibpfaden — gen, dem Zugslot g/<gen>/t/<turn>/<seat>, dem
+// Ausscheidungsslot g/<gen>/e/<seat> und dem Eintrag der oeffentlichen Raumliste. Bei der
+// Raumliste steht dieselbe Liste ein zweites Mal NEGATIV, damit ein Eintrag mit unbekannter
+// Version abgeraeumt werden kann. Das Vergleichsschreiben beim Sitzclaim bleibt die Sperre
+// gegen das Rennen zwischen Raumpruefung und Sitzbelegung.
 {
   const UIDF = { 0: 'UID_T0_AAAAAAAAAAAAAAAAAAA', 1: 'UID_T1_BBBBBBBBBBBBBBBBBBB',
                  2: 'UID_T2_CCCCCCCCCCCCCCCCCCC', 3: 'UID_T3_DDDDDDDDDDDDDDDDDDD',
@@ -1382,33 +1404,48 @@ deny('team move pl 4 (seat gate, presence pre-seeded)', playing({ p: { 0: P(H_TA
   };
   const MVF = (seat) => ({ k: 'move', idx: seat, dx: 100, dy: -50, sp: 0.5 });
 
-  t('die Fixtures fahren auf der aktuellen Client-Version', V === 5);
+  t('die Fixtures fahren auf der aktuellen Client-Version', V === 7);
 
-  // (a) ANLEGEN — waehrend der Umstellung sind beide Versionen gueltig.
-  allow('create v5 (aktueller Client)', { rooms: {} }, 'rooms/KX7P', mkRoom('single', { v: 5 }));
-  allow('create v4 (alter Client, noch im Umlauf)', { rooms: {} }, 'rooms/KX7P', mkRoom('single', { v: 4 }));
+  // (a) ANLEGEN — waehrend des Uebergangs sind alle vier Versionen gueltig.
+  allow('create v7 (aktueller Client)', { rooms: {} }, 'rooms/KX7P', mkRoom('single', { v: 7 }));
+  allow('create v6 (verbrannte Nummer, noch im Umlauf)', { rooms: {} }, 'rooms/KX7P', mkRoom('single', { v: 6 }));
+  allow('create v5 (alter Client, noch im Umlauf)', { rooms: {} }, 'rooms/KX7P', mkRoom('single', { v: 5 }));
+  allow('create v4 (noch aelterer Client)', { rooms: {} }, 'rooms/KX7P', mkRoom('single', { v: 4 }));
   deny('create v3 (zu alt)', { rooms: {} }, 'rooms/KX7P', mkRoom('single', { v: 3 }));
-  deny('create v6 (gibt es nicht)', { rooms: {} }, 'rooms/KX7P', mkRoom('single', { v: 6 }));
+  deny('create v8 (gibt es nicht)', { rooms: {} }, 'rooms/KX7P', mkRoom('single', { v: 8 }));
 
   // (b) UNVERAENDERLICHKEIT — die Version laesst sich weder heben noch senken.
-  deny('v4 -> v5 umschreiben', db1({ v: 4 }), 'rooms/KX7P/v', 5, UID_HOST);
-  deny('v5 -> v4 umschreiben', db1({ v: 5 }), 'rooms/KX7P/v', 4, UID_HOST);
-  deny('v4 -> v5 ohne Anmeldung', db1({ v: 4 }), 'rooms/KX7P/v', 5, null);
-  deny('v4 -> v5 als Gast', db1({ v: 4 }), 'rooms/KX7P/v', 5, UID_GUEST);
+  deny('v5 -> v6 umschreiben', db1({ v: 5 }), 'rooms/KX7P/v', 6, UID_HOST);
+  deny('v6 -> v5 umschreiben', db1({ v: 6 }), 'rooms/KX7P/v', 5, UID_HOST);
+  deny('v4 -> v6 umschreiben', db1({ v: 4 }), 'rooms/KX7P/v', 6, UID_HOST);
+  deny('v6 -> v4 umschreiben', db1({ v: 6 }), 'rooms/KX7P/v', 4, UID_HOST);
+  deny('v5 -> v6 ohne Anmeldung', db1({ v: 5 }), 'rooms/KX7P/v', 6, null);
+  deny('v5 -> v6 als Gast', db1({ v: 5 }), 'rooms/KX7P/v', 6, UID_GUEST);
+  // Die Unveraenderlichkeit ruht auf ZWEI Regeln, und beide werden gebraucht:
+  // .validate faengt jedes UMSCHREIBEN ab (der Wert muesste gleich bleiben), aber
+  // .validate wird beim LOESCHEN gar nicht ausgewertet. Gegen das Loeschen schuetzt
+  // allein das newData.exists() im .write der Version. Ohne diesen Fall waere ein
+  // Wegfall des Vergleichsschreibens von aussen nicht bemerkbar - ein versionsloser
+  // Raum wuerde jede Versionspruefung der uebrigen Regeln ins Leere laufen lassen.
+  deny('die Raumversion loeschen', db1({ v: 7 }), 'rooms/KX7P/v', null, UID_HOST);
+  deny('v6 -> v7 umschreiben', db1({ v: 6 }), 'rooms/KX7P/v', 7, UID_HOST);
+  deny('v7 -> v6 umschreiben', db1({ v: 7 }), 'rooms/KX7P/v', 6, UID_HOST);
+  deny('v4 -> v7 umschreiben', db1({ v: 4 }), 'rooms/KX7P/v', 7, UID_HOST);
 
-  // (c) LAUFENDER BETRIEB in beiden Versionen. Fuer v4 ist das der Beweis, dass
-  //     bestehende Raeume weiterlaufen; fuer v5, dass der neue Client spielen kann.
-  for (const ver of [V_ALT, V]) {
+  // (c) LAUFENDER BETRIEB in allen vier Versionen. Fuer v4, v5 und v6 ist das der Beweis,
+  //     dass bestehende Raeume zu Ende gespielt werden koennen; fuer v7, dass der aktuelle
+  //     Client spielen kann.
+  for (const ver of V_ALT.concat([V])) {
     allow('v' + ver + ': Zug des Sitzeigentuemers',
           fbVer(ver, 5), 'rooms/KX7P/g/0/t/0/0', MVF(0), UIDF[0]);
   }
   // Eine Version, die es nicht gibt, spielt in keinem Fall mit.
   deny('v3-Raum: kein Zug', fbVer(3, 5), 'rooms/KX7P/g/0/t/0/0', MVF(0), UIDF[0]);
-  deny('v6-Raum: kein Zug', fbVer(6, 5), 'rooms/KX7P/g/0/t/0/0', MVF(0), UIDF[0]);
+  deny('v8-Raum: kein Zug', fbVer(8, 5), 'rooms/KX7P/g/0/t/0/0', MVF(0), UIDF[0]);
 
   // (d) Football startet in BEIDEN Versionen mit zwei bis fuenf Sitzen — die Umstellung
   //     fasst die Startbesetzung nicht an.
-  for (const ver of [V_ALT, V])
+  for (const ver of V_ALT.concat([V]))
     for (const n of [2, 3, 4, 5])
       allow('v' + ver + ': Football mit ' + n + ' Startsitzen, Zug von Sitz 0',
             fbVer(ver, n), 'rooms/KX7P/g/0/t/0/0', MVF(0), UIDF[0]);
@@ -1425,26 +1462,27 @@ deny('team move pl 4 (seat gate, presence pre-seeded)', playing({ p: { 0: P(H_TA
       'rooms/KX7P/players/1': { id: 'GUEST001', name: 'G', tab: G_TAB, uid: UID_GUEST },
       'rooms/KX7P/v': ver,
     });
-    for (const ver of [V_ALT, V]) {
+    for (const ver of V_ALT.concat([V])) {
       allowMulti('v' + ver + ': Sitzclaim mit passender Version',
                  db1({ v: ver, p: { 0: P(H_TAB, true) } }, 'ffa'), claim(ver), UID_GUEST);
-      const fremd = ver === V ? V_ALT : V;
-      denyMulti('v' + ver + ': Sitzclaim mit Version ' + fremd + ' wird ganz abgewiesen',
-                db1({ v: ver, p: { 0: P(H_TAB, true) } }, 'ffa'), claim(fremd), UID_GUEST);
+      for (const fremd of V_ALT.concat([V]).filter((x) => x !== ver))
+        denyMulti('v' + ver + ': Sitzclaim mit Version ' + fremd + ' wird ganz abgewiesen',
+                  db1({ v: ver, p: { 0: P(H_TAB, true) } }, 'ffa'), claim(fremd), UID_GUEST);
     }
     // Und der Riegel gilt auch fuer sich allein: /v ist nur wertgleich beschreibbar.
     allow('wertgleiches Schreiben auf /v ist erlaubt (das Vergleichsschreiben)',
           db1({ v: V }), 'rooms/KX7P/v', V, UID_GUEST);
-    deny('ein abweichendes Schreiben auf /v nicht',
-         db1({ v: V }), 'rooms/KX7P/v', V_ALT, UID_GUEST);
+    for (const fremd of V_ALT)
+      deny('ein abweichendes Schreiben auf /v nicht (' + fremd + ')',
+           db1({ v: V }), 'rooms/KX7P/v', fremd, UID_GUEST);
   }
 
-  // (f) Die oeffentliche Raumliste nimmt beide Versionen an und raeumt eine fremde weg.
+  // (f) Die oeffentliche Raumliste nimmt alle vier Versionen an und raeumt eine fremde weg.
   const pubRoom = (ver) => ({ rooms: { KX7P: {
     v: ver, config: { game: 'ringout', winTarget: 3, fmt: 'ffa', visibility: 'public' },
     gen: 0, state: 'lobby', p: { 0: P(H_TAB, true) }, players: { 0: HOST }, created: NOW - 5000 } },
     publicRooms: {} });
-  for (const ver of [V_ALT, V])
+  for (const ver of V_ALT.concat([V]))
     allow('v' + ver + ': Eintrag in der oeffentlichen Raumliste',
           pubRoom(ver), 'publicRooms/KX7P', LISTING, UID_HOST);
   deny('v3: kein Eintrag in der oeffentlichen Raumliste',

@@ -208,6 +208,12 @@ function buildEnv(ci, preset) {
       goalState(){ return fbGoalState; },
       goalTick(){ return fbGoalTick; },
       score(){ return score.slice(); },
+      setScore(a,b){ score=[a,b]; },
+      // Zeitmodus Classic: die Regulaeruhr in festen Ticks.
+      bank(w){ return fbBank[w]; },
+      setBank(w,t){ fbBank[w]=t; },
+      rounds(){ return fbRoundsDone; },
+      golden(){ return fbGolden; },
       winner(){ return footballWinner; },
       overCalls(){ return gameOverCalls.slice(); },
       fx(){ return {sfxHits, spawnCalls}; },
@@ -795,29 +801,32 @@ function runAll(ci, preset) {
     rec.postM = m; M.POST.push(m); return m;
   };
   // Flache Drift (Steigung 0.13) auf die Sockel-INNENFLAECHE: Start 11 px vor der
-  // Ballmitten-Grenze (hx - ballR = 474.2), Durchtritt bei y-cy ~ 81.4 < 88.92,
-  // Kontakt bei y-cy = 88.92 (= y0 - ballR) und x-cx ~ 530 — mitten im Kanal,
-  // deutlich VOR der Torlinie (599.976). Vier Startgeschwindigkeiten.
-  // Der Startpunkt haengt an G.hx statt an einer festen Zahl: die Szenarien bleiben
-  // damit auch nach einem Formwechsel der Arena an derselben Stelle im Torkanal.
+  // Ballmitten-Grenze (hx - ballR = 474.2), Kontakt bei y-cy = G.goalHalf (= y0 - ballR)
+  // und x-cx ~ 530 — mitten im Kanal, deutlich VOR der Torlinie. Vier Startgeschwindigkeiten.
+  // Der Startpunkt haengt an G.hx UND G.goalHalf statt an festen Zahlen: die Szenarien
+  // bleiben damit auch nach einem Formwechsel der Arena oder einer Aenderung der
+  // Toroeffnung an derselben Stelle im Torkanal. Der Abstand von 8.92 px unter der
+  // Kanalkante ist der Anlauf, den die Drift zum Kontakt braucht — er ist die Groesse,
+  // die das Szenario definiert, nicht die absolute Hoehe.
   {
-    const sI = 0.13, uI = 1 / Math.hypot(1, sI), sxI = cx + G.hx - 36, syI = cy + 80;
+    const yI = G.goalHalf - 8.92;
+    const sI = 0.13, uI = 1 / Math.hypot(1, sI), sxI = cx + G.hx - 36, syI = cy + yI;
     [1.0, 2.0, 4.0, VMAX].forEach((v0, k) => {
       run('I' + (k + 1) + ' Sockel-Innenflaeche im Torkanal v=' + f2f(v0), 'I',
         [B(sxI, syI, v0 * uI, v0 * uI * sI, G.neutral)],
         { maxFrames: 1600, analyze: (r) => postMetric(r, 'innenflaeche', v0) });
     });
-    // Steilere Driften treffen die SOCKEL-VORDERECKE (499.2,113.92): die Kontaktnormale
+    // Steilere Driften treffen die SOCKEL-VORDERECKE (499.2, clearHalf): die Kontaktnormale
     // kommt vom Eckpunkt und ist schraeg — die Kreis/AABB-Aufloesung der Quelle.
     run('I5 Sockel-Vorderecke flach v=4.0', 'I',
-      [B(sxI, cy + 80, 4.0 / Math.hypot(1, 0.30), 4.0 * 0.30 / Math.hypot(1, 0.30), G.neutral)],
+      [B(sxI, cy + yI, 4.0 / Math.hypot(1, 0.30), 4.0 * 0.30 / Math.hypot(1, 0.30), G.neutral)],
       { maxFrames: 1600, analyze: (r) => postMetric(r, 'vorderecke', 4.0) });
     run('I6 Sockel-Vorderecke steil v=4.0', 'I',
-      [B(sxI, cy + 70, 4.0 / Math.hypot(1, 0.80), 4.0 * 0.80 / Math.hypot(1, 0.80), G.neutral)],
+      [B(sxI, cy + yI - 10, 4.0 / Math.hypot(1, 0.80), 4.0 * 0.80 / Math.hypot(1, 0.80), G.neutral)],
       { maxFrames: 1600, analyze: (r) => postMetric(r, 'vorderecke-steil', 4.0) });
     // Gespiegelte Innenflaeche (-y): beide Sockelseiten rechnen exakt symmetrisch.
     run('I7 Sockel-Innenflaeche gespiegelt v=4.0', 'I',
-      [B(sxI, cy - 80, 4.0 * uI, -4.0 * uI * sI, G.neutral)],
+      [B(sxI, cy - yI, 4.0 * uI, -4.0 * uI * sI, G.neutral)],
       { maxFrames: 1600, analyze: (r) => postMetric(r, 'innenflaeche-sued', 4.0) });
   }
 
@@ -1763,6 +1772,9 @@ for (const p of PRESETS)
   env.setMode('football');
 
   // ── Mehrere Tore: je Tor genau ein Sound; erst das Siegtor ist Matchpunkt ──
+  // Classic steht seit dem Regelpass wieder auf FIRST TO 3 (die Standardregel; Speed Match
+  // ist die zweite, ausdruecklich zu waehlende). Das dritte Tor entscheidet deshalb direkt
+  // — dieselbe Bahn wie vor dem Zeitmodus-Pass, ohne Umweg ueber ein Golden Goal.
   env.reset();
   const perGoal = [];
   for (let g = 0; g < 3; g++) {
@@ -1778,7 +1790,8 @@ for (const p of PRESETS)
      'die beiden Tore vor der Entscheidung nutzen die normale Variante');
   ok(perGoal[2].mp === 1 && perGoal[2].winner !== null,
      'genau das Siegtor nutzt die Matchpunktvariante');
-  ok(env.score()[0] === 3, 'First-to-3 ist erreicht — der Matchpunkt haengt am kanonischen Gewinner');
+  ok(env.winner() === 0 && env.score()[0] === 3,
+     'das dritte Tor entscheidet das Match — First to 3 unveraendert');
 
   // ── Matchende schneidet den Siegtor-Sound nicht ab ──
   runToPlay();

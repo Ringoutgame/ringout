@@ -78,7 +78,11 @@ const SRC = [
   // WIRKLICH durch den Eingabewaechter laeuft und nicht daran vorbei.
   handler(/cv\.addEventListener\('pointerdown',e=>\{[\s\S]*?\n  \}\}\);/, 'onPointerDown'),
   handler(/window\.addEventListener\('pointermove',e=>\{[\s\S]*?\n  \}\}\);/, 'onPointerMove'),
-  handler(/window\.addEventListener\('pointerup',e=>\{[\s\S]*?commit\(who,sh,fx,fy,spin\);\}\);/, 'onPointerUp'),
+  // Der Release liest den Zugvektor jetzt aus aimVectorFromDrag() — derselben Quelle,
+  // aus der auch der Ablauf der Bedenkzeit schoepft. Beide muessen im Test durch
+  // GENAU diese Funktion laufen, sonst prueft der Test einen Nachbau.
+  grab(/function aimVectorFromDrag\(\)\{[\s\S]*?\n\}/, 'aimVectorFromDrag'),
+  handler(/window\.addEventListener\('pointerup',e=>\{[\s\S]*?commit\(who,sh,v\.fx,v\.fy,v\.spin\);\}\);/, 'onPointerUp'),
   grab(/function viewAngle\(\)\{[\s\S]*?\n\}/, 'viewAngle'),
   // Zustandsvariablen, die newGame()/startRound()/der Torablauf anfassen.
   grab(/let menuVisible=[^\n]*/, 'menuVisible'),

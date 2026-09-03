@@ -53,21 +53,32 @@ const t = (name, cond, info) => {
 console.log('ONLINE-PROTOKOLL v' + P.VER + ' — Schema und kanonische Zugereignisse\n');
 
 // ── (1) Protokollversion ─────────────────────────────────────────────────────────
-// v5 ist KEINE Schemaaenderung, sondern eine SIMULATIONSREVISION: seit Action Core 04
-// kennt der Football-Stossimpuls Massen. Zwei Clients mit unterschiedlichem Stand rechnen
-// ab dem ersten Ballkontakt auseinander, duerfen sich also nie einen Raum teilen.
-t('die Protokollversion ist 5', P.VER === 5, P.VER);
+// Keine dieser Versionen ist eine Schemaaenderung — alle markieren SIMULATIONSREVISIONEN.
+// v5: der Football-Stossimpuls kennt Massen (Action Core 04).
+// v6: VERBRANNT. Die Nummer markierte die Sustained-Energy-Abstimmung (Action Core 05),
+//     die der Spieltest abgelehnt hat; sie ist vollstaendig aus dem Produktivcode
+//     entfernt. Die Nummer wird NICHT wiederverwendet — sie kann bei Testern in
+//     Umlauf gewesen sein, und ein v6-Raum darf nie fuer den heutigen Stand gehalten
+//     werden. Die Rules bedienen sie waehrend der Umstellung weiter.
+// v7: Timed Classic (90 s Bedenkzeit, Golden Goal) aendert den Rundenablauf
+//     gegenueber v5. Die zwischenzeitlich unter v7 erprobte breitere Classic-Toroeffnung
+//     ist nach dem Spieltest zurueckgenommen; die NUMMER bleibt v7, weil sie oeffentlich
+//     im Umlauf war und ein Raum aus dem Zwischenstand nie fuer den heutigen gelten darf.
+// Zwei Clients mit unterschiedlichem Stand rechnen ab dem ersten schnellen Ball
+// auseinander und duerfen sich nie einen Raum teilen.
+t('die Protokollversion ist 7', P.VER === 7, P.VER);
 const RULES = require('fs').readFileSync(
   require('path').join(__dirname, '..', 'firebase.rules.json'), 'utf8');
 // WAEHREND DER UMSTELLUNG akzeptiert der Server beide Versionen — sonst waere jeder noch
 // offene v4-Raum sofort tot, obwohl die alten Clients dort legitim weiterspielen. Die
 // TRENNUNG leistet der Client, nicht der Server (die drei Raumpruefungen unten).
-t('die Rules lassen waehrend der Umstellung v4 UND v5 zu',
-  /\(newData\.val\(\) === 4 \|\| newData\.val\(\) === 5\)/.test(RULES));
+t('die Rules lassen waehrend der Umstellung v4, v5, v6 UND v7 zu',
+  /\(newData\.val\(\) === 4 \|\| newData\.val\(\) === 5 \|\| newData\.val\(\) === 6 \|\| newData\.val\(\) === 7\)/.test(RULES));
 const V_REGEL = (RULES.match(/"v": \{[^}]*\}/) || [''])[0];
 t('und keine andere Protokollversion — geprueft am v-Validator selbst',
-  /=== 4/.test(V_REGEL) && /=== 5/.test(V_REGEL) &&
-  !/=== 3|=== 6|=== 2|=== 1/.test(V_REGEL), V_REGEL);
+  /=== 4/.test(V_REGEL) && /=== 5/.test(V_REGEL) && /=== 6/.test(V_REGEL) &&
+  /=== 7/.test(V_REGEL) &&
+  !/=== 3|=== 8|=== 2|=== 1/.test(V_REGEL), V_REGEL);
 // Die Protokollnummer eines bestehenden Raums ist unveraenderlich — ein v4-Raum kann
 // nicht zu einem v5-Raum umgeschrieben werden und umgekehrt.
 // Der Zugslot ist die Schreibstelle, die den Lockstep-Strom traegt. Er war bisher als
@@ -75,7 +86,7 @@ t('und keine andere Protokollversion — geprueft am v-Validator selbst',
 // auch er den Riegel: ein Bug im Client kann damit keinen fremdversionigen Raum mehr
 // mit Zuegen beschreiben.
 t('auch der Zugslot ist versionsgebunden',
-  /\(root\.child\('rooms'\)\.child\(\$code\)\.child\('v'\)\.val\(\) === 4 \|\| root\.child\('rooms'\)\.child\(\$code\)\.child\('v'\)\.val\(\) === 5\) && \(\(!root/.test(RULES));
+  /\.child\('v'\)\.val\(\) === 4 \|\| root\.child\('rooms'\)\.child\(\$code\)\.child\('v'\)\.val\(\) === 5 \|\| root\.child\('rooms'\)\.child\(\$code\)\.child\('v'\)\.val\(\) === 6 \|\| root\.child\('rooms'\)\.child\(\$code\)\.child\('v'\)\.val\(\) === 7\) && \(\(!root/.test(RULES));
 t('die Rules machen die Raumversion unveraenderlich',
   /\(!data\.exists\(\) \|\| newData\.val\(\) === data\.val\(\)\)/.test(RULES));
 // Jede Raumpruefung des Clients vergleicht strikt gegen die eigene Version — es gibt
@@ -191,7 +202,10 @@ t('RingOut 1v1 bleibt ein Zweispielerraum',
 t('ein v3-Raum wird abgelehnt', P.validateRoom(room({ v: 3 })).ok === false);
 t('ein v4-Raum wird abgelehnt — kein gemischter Lockstep',
   P.validateRoom(room({ v: 4 })).ok === false);
-t('ein v6-Raum wird abgelehnt', P.validateRoom(room({ v: 6 })).ok === false);
+t('ein v5-Raum wird ebenso abgelehnt', P.validateRoom(room({ v: 5 })).ok === false);
+t('ein v8-Raum wird abgelehnt', P.validateRoom(room({ v: 8 })).ok === false);
+t('und ein v6-Raum ebenso — die verbrannte Nummer teilt sich keinen Raum mit v7',
+  P.validateRoom(room({ v: 6 })).ok === false);
 t('ein Raum ohne Typ wird abgelehnt',
   P.validateRoom(room({ config: { winTarget: 3, fmt: 'single', visibility: 'private' } })).ok === false);
 t('Football mit RingOut-Format wird abgelehnt',
@@ -227,8 +241,11 @@ t('Rejoin: v3 wird abgelehnt', P.validateRejoinRoom(room({ v: 3 })).ok === false
 // abgewiesen — sonst haenge sich der neue Client an eine fremde Simulation.
 t('Rejoin: ein gemerkter v4-Raum wird abgelehnt',
   P.validateRejoinRoom(room({ v: 4, state: 'playing' })).ok === false);
+t('Rejoin: ein gemerkter v5-Raum ebenso',
+  P.validateRejoinRoom(room({ v: 5, state: 'playing' })).ok === false);
 t('Rejoin: und meldet das als noRoom, nicht als Fehler',
-  P.validateRejoinRoom(room({ v: 4, state: 'playing' })).reason === 'noRoom');
+  P.validateRejoinRoom(room({ v: 4, state: 'playing' })).reason === 'noRoom' &&
+  P.validateRejoinRoom(room({ v: 5, state: 'playing' })).reason === 'noRoom');
 t('Rejoin: fehlender Typ wird abgelehnt',
   P.validateRejoinRoom(room({ config: { winTarget: 3, fmt: 'single', visibility: 'private' } })).ok === false);
 t('Rejoin: die Ablehnung ist lokalisierbar (Schluessel statt Rohtext)',
@@ -394,7 +411,10 @@ t('Beitritt: die Ablehnung nennt die Versionsunvertraeglichkeit',
     P.publicListingView(pub(P.VER), Date.now()).show === true);
   t('die oeffentliche Liste zeigt keinen v4-Raum',
     P.publicListingView(pub(4), Date.now()).show === false);
-  t('und raeumt seinen Eintrag weg', P.publicListingView(pub(4), Date.now()).remove === true);
+  t('und keinen v5-Raum', P.publicListingView(pub(5), Date.now()).show === false);
+  t('und raeumt deren Eintraege weg',
+    P.publicListingView(pub(4), Date.now()).remove === true &&
+    P.publicListingView(pub(5), Date.now()).remove === true);
 }
 
 console.log('\nOnline-Protokoll: ' + pass + ' passed, ' + fail + ' failed');

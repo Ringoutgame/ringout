@@ -582,7 +582,10 @@ const ARENEN = [
       paare++;
       if (p.tor !== q.tor) { torUnterschied++; continue; }
       const d = Math.max(Math.abs(p.end.x + q.end.x), Math.abs(p.end.y + q.end.y));
-      if (d > 1e-9) { abweichend.push(Math.abs(off)); maxAbw = Math.max(maxAbw, d); }
+      // Rauschgrenze 1e-6, nicht 1e-9: die Rueckfaltung ueber (cx, cy) sammelt auf langen
+      // Bahnen Rundung. Die einzige ECHTE Abweichung liegt Groessenordnungen darueber
+      // (die Korridorkante, unten ausdruecklich ausgenommen).
+      if (d > 1e-6) { abweichend.push(Math.abs(off)); maxAbw = Math.max(maxAbw, d); }
     }
   ok(paare > 700, 'gespiegelte Schusspaare geprueft (' + paare + ')');
   ok(torUnterschied === 0,

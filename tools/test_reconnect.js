@@ -49,7 +49,8 @@ const SRC = [
   // Aufrufhuellen. Damit fuehrt diese Suite genau denselben Code aus wie der Browser und
   // kann nicht daran vorbeilaufen, wenn einer der Haken spaeter Spielzustand anfasst.
   //   applyFootballHud -> fbHudOn, fbClearHudFx, fbScoreBox, fbElim4
-  //   footballResetMatchState -> fbClearSelection, fbElimReset, footballClearGoalFx
+  //   footballResetMatchState -> fbClearSelection, fbElimReset, fbClockReset,
+  //                              footballClearGoalFx
   //   cancelAimDrag (ohne weitere Aufrufe)
   grab(/let menuVisible=[^\n]*/, 'menuVisible'),
   grab(/let dragging=false,dragShooter[^\n]*/, 'Drag-Zustand'),
@@ -73,6 +74,24 @@ const SRC = [
   grab(/const FB_ELIM_LIVES=2;[\s\S]*?\nfunction fbElimReset\(\)\{[\s\S]*?\n\}/, 'Elimination-Zustand + Reset'),
   fn('fbElimPlayers'),
   fn('fbClearSelection'),
+  // Zeitmodus Classic: die Matchuhr gehoert zum Matchzustand und wird beim Rematch
+  // mit zurueckgesetzt. Reine Zustandsfunktion ohne DOM.
+  grab(/const FOOTBALL_SIM_HZ=[^\n]*/, 'FOOTBALL_SIM_HZ'),
+  grab(/const FOOTBALL_BANK_SECONDS=[^\n]*/, 'FOOTBALL_BANK_SECONDS'),
+  grab(/const FOOTBALL_BANK_TICKS=[^\n]*/, 'FOOTBALL_BANK_TICKS'),
+  grab(/let fbBank=[^\n]*/, 'fbBank'),
+  grab(/let fbGolden=[^\n]*/, 'fbGolden'),
+  // Seit die Uhr Bedenkzeit statt Simulationszeit misst, gehoeren drei weitere Groessen
+  // zum Matchzustand, den fbClockReset zuruecksetzt. Sie werden woertlich uebernommen,
+  // damit der Reset hier derselbe ist wie im Produkt.
+  grab(/const FOOTBALL_SHOT_SECONDS=[^\n]*/, 'FOOTBALL_SHOT_SECONDS'),
+  grab(/const FOOTBALL_SHOT_TICKS=[^\n]*/, 'FOOTBALL_SHOT_TICKS'),
+  grab(/const FOOTBALL_TROUBLE_SECONDS=[^\n]*/, 'FOOTBALL_TROUBLE_SECONDS'),
+  grab(/const FOOTBALL_TROUBLE_TICKS=[^\n]*/, 'FOOTBALL_TROUBLE_TICKS'),
+  grab(/let fbShotTicks=[^\n]*/, 'fbShotTicks'),
+  grab(/let fbShotFor=[^\n]*/, 'fbShotFor'),
+  grab(/let fbCoverOpen=[^\n]*/, 'fbCoverOpen'),
+  fn('fbClockReset'),
   fn('footballClearGoalFx'),
   fn('footballResetMatchState'),
   fn('fbHudOn'),

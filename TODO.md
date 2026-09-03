@@ -1,6 +1,6 @@
 # TODO.md — RingOut
 
-**Zuletzt aktualisiert:** 2026-09-02 (**Arena Football Online ist ueber das normale Produktmenue erreichbar**; Online-Sitze gehören der Firebase-`auth.uid`; Arena Football: **Elimination startet mit fuenf Spielern** auf dem Broad Rounded Pentagon, Umbau 5 → 4 animiert, fuenfte Spielerfarbe ohne Nebenwirkung auf die uebrigen Modi; offen bleiben Online-Elimination, Online-Tactical, Kamera-Framing-Politur und die bekannten P2s)
+**Zuletzt aktualisiert:** 2026-09-03 (**Querformat-HUD korrigiert** — Leiste oben, Arena 70 → 82 %, Hochformat unverändert; Meldungen 1,5 s / 1,7 s, LETZTE AKTION größer; Regeln unverändert; FIRST TO 3 unverändert; **Protokoll v7**; offen bleiben Online-Elimination, Online-Tactical, Kamera-Framing und die bekannten P2s)
 
 Offene Aufgaben nach Priorität. Abgeschlossene Aufgaben werden nach `CHANGELOG.md` verschoben.
 
@@ -27,6 +27,23 @@ Offene Aufgaben nach Priorität. Abgeschlossene Aufgaben werden nach `CHANGELOG.
 ---
 
 ## P1 — Hoch (Codequalität / Architektur)
+
+- [ ] **Spieltest HUD-Politur (2026-09-03):** Reichen die reinen Zahlen ohne Etiketten, oder fehlt der Bezug? Sind beide Zeitkonten und der zentrale Countdown auf dem Telefon gut lesbar (320 px, 360 px, Hoch- und Querformat)? Sind die beiden Meldungen (~1 s) lang genug, um gelesen zu werden, und kurz genug, um nicht zu stören? Und sind die zwei neuen Klangakzente angenehm — sie sind bewusst tief und leise gehalten.
+- [ ] **Musik-Reset (2026-09-03, eigener Pass):** Der Spieler findet Teile der bestehenden Musik ermüdend. In diesem Pass wurde die Musik ausdrücklich **nicht** angefasst; die zwei neuen UI-Akzente sind Sinus mit Tiefpass bei 900 Hz und bewusst leise.
+
+- [x] ~~**Spieltest Speed Match**~~ → **angenommen (2026-09-03)**, mit einer Korrektur: die Zwölf-Runden-Grenze ist entfallen, die Konten sind jetzt allein die Regulärzeit.
+- [ ] **Spieltest Speed Match final (2026-09-03):** Zu beurteilen sind die drei verbliebenen Spieltestwerte: **45 s** persönliche Zeit, **6 s** je Commit, **2 s** in Zeitnot. Wie lang dauert eine Partie jetzt, wo nur noch die Konten sie begrenzen? Ist die 30-s-Übergabefrist passend? Und sind die groß gesetzten Konten auf dem Telefon gut lesbar, ohne die Statusleiste zu sprengen?
+- [ ] **Golden-Goal-Präsentation (2026-09-03, späterer Pass):** Der Zustand ist funktional (Restkonten bleiben, nächstes gültiges Tor gewinnt), aber optisch noch unauffällig — der Untertitel trägt lediglich GOLDEN GOAL. Audio bekommt ohnehin einen eigenen Pass.
+
+- [x] ~~**Taktisches Warten an der gemeinsamen Uhr**~~ → **erledigt (2026-09-03)**: die gemeinsame Uhr ist ersatzlos weg. Speed Match rechnet mit zwei persönlichen Konten und einer festen Rundenzahl — Warten kann die Angriffe des Gegners strukturell nicht mehr verkürzen.
+
+- [ ] **Spieltest Bedenkzeit-Uhr (2026-09-03):** Zu beurteilen ist, ob die Uhr sich jetzt richtig anfühlt — läuft sie sichtbar beim Zielen, steht sie sichtbar beim Zusehen? — und ob **8 Sekunden je Commit** die richtige Größe sind. Der Wert ist ausdrücklich ein Spieltestwert (`FOOTBALL_DECISION_SECONDS`). Ebenfalls zu prüfen: fühlt sich der Auto-Commit bei Ablauf fair an, wenn gerade ein Zug anliegt?
+- [ ] **Lesbarkeit der Bankroute (2026-09-03, aus der Bankschuss-Messung):** Die Eckroute über die lange Bande existiert mit 9.0° Fenster, aber ein Spieler, der die Schulregel „Einfallswinkel = Ausfallswinkel“ anwendet, zielt **systematisch falsch** — die Bande gibt nur 0.60 zurück. Das ist ein Vermittlungsproblem, kein Geometrieproblem. Ein späterer Pass könnte die Bandenfläche visuell so gestalten, dass sie ihren Charakter zeigt. **Nicht** durch Zielhilfe oder unsichtbare Führung.
+- [ ] **Schulterflächen sind endgültig kein Angriffshebel (2026-09-03, Befund, keine Aufgabe):** über den ganzen Entwurfsraum (Winkel 20–60°, Torwandhöhe, Eckradius) erreicht die Schulterroute empirisch höchstens 7.0° und kostet jenseits von 50° Trichter. Messreihen: `artifacts/football-bank-routes/`.
+
+- [x] **Spieltest 2P-Arena-Offensive (2026-09-03):** durchgeführt — die +10-%-Toröffnung ist **abgelehnt** (im 1v1 zu leicht zu treffen). Classic steht wieder auf 227,84 px, die Classic-eigene Modellstreckung ist entfernt, Classic und Elimination-Finale teilen sich wieder dieselbe Arenainstanz.
+- [ ] **Spieltest Classic-Torbreite-Rücknahme (2026-09-03):** Zu beurteilen ist, ob sich Classic 1v1 mit der ursprünglichen Öffnung wieder richtig anfühlt und ob der Tormarmor (Bogen, Wappen, Gold-Keyline) sichtbar wieder seine ursprünglichen Proportionen hat.
+- [ ] **Schulterflaechen sind kein Angriffshebel (2026-09-03, Befund, keine Aufgabe):** Über 25–45° sind direkte Tore (668) und Bandenbank-Tore (636) Stück für Stück identisch; die Schulter liefert 10–84 Tore von 8640 in 2–5°-Fenstern. Wer die 2P-Offensive weiter verbessern will, sollte an Toroeffnung, Abschusskurve oder Spielerkontrolle ansetzen — nicht an der Schultergeometrie. Messreihen: `artifacts/football-arena-offense/`.
 
 - [x] ~~**Test-Rettung: Scratchpad-Suiten ins Repo + zentraler Runner (Systemanalyse-Sofortplan Schritt 2)**~~ → **abgeschlossen (2026-07-09)**: 8 Suiten + Live-Skript nach `tools/` versioniert (`test_syntax`, `test_sanitize`, `test_validateroom`, `test_lockstep`, `test_ffa`, `test_ffa_online`, `test_ffa_flow`, `test_rules`, `rest_verify_v2`), repo-relative Pfade, neuer zentraler Runner `tools/run_all_tests.js` (10 Offline-Suiten, eine Zeile pro Suite, voller Output nur bei Fehlschlag, Exit 1 bei Fehler). Live-REST-Verify bleibt bewusst manuell (`--live`-Pflichtflag, nicht im Runner). Alle Suiten einzeln und über den Runner grün. Siehe CHANGELOG.
 - [x] ~~**CI-Pipeline (Systemanalyse-Sofortplan Schritt 3)**~~ → **abgeschlossen (2026-07-09)**: `.github/workflows/tests.yml` führt bei `push`/`pull_request`/`workflow_dispatch` automatisch `node tools/run_all_tests.js` aus (Node 20, kein `npm install` — keine Dependencies). Reiner Sicherheitscheck, kein Build/Deploy, kein Firebase-Zugriff; Live-REST-Verify bleibt bewusst manuell und läuft nie in CI. Siehe CHANGELOG.

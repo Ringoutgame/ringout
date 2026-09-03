@@ -58,7 +58,7 @@ const stepSimSrc         = grab(/function stepSim\(\)\{[\s\S]*?\n\}/, 'stepSim')
 // Der Elimination4-Abschnitt als Ganzes - Grundlage der Struktur-Assertions weiter unten.
 const elimBlockSrc       = grab(/ARENA FOOTBALL ELIMINATION [\s\S]*?\nfunction footballElimResetBall\(\)\{[\s\S]*?\n\}/, 'Elimination-Block');
 const renderBarSrc       = grab(/function renderElimBar\(\)\{[\s\S]*?\n\}/, 'renderElimBar');
-const startFootballSrc   = grab(/function startFootball\(variant\)\{[\s\S]*?\n\}/, 'startFootball');
+const startFootballSrc   = grab(/function startFootball\(variant,rules\)\{[\s\S]*?\n\}/, 'startFootball');
 const ctaSrc             = grab(/\$\('ctaBtn'\)\.onclick=\(\)=>\{[\s\S]*?\n\};/, 'CTA-Handler');
 const foldSrc            = grab(/const fbFold=\{[\s\S]*?\nfunction footballCanPassGoal\(b\)\{[\s\S]*?\n\}/, 'Seitenfaltung');
 const fxRenderSrc        = grab(/const goalFxParts=\[\];[\s\S]*?\n    \};/, 'Renderer-Goal-FX-Block');

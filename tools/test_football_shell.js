@@ -246,6 +246,21 @@ const goalAudio={plays:0,matchPoints:0,preloads:0,stops:0};   // Tor-Audio: Aufr
       // ── Gameplayphase 3 ──
       winner(){ return footballWinner; },
       winScore: FOOTBALL_WIN_SCORE,
+      // ── Classic-Regelvarianten ──
+      simHz: FOOTBALL_SIM_HZ,
+      bankTicks: FOOTBALL_BANK_TICKS,
+      shotTicks: FOOTBALL_SHOT_TICKS,
+      troubleTicks: FOOTBALL_TROUBLE_TICKS,
+      setRules(r){ fbRules=r; },
+      rules(){ return fbRules; },
+      speed(){ return fbSpeed(); },
+      classic(){ return fbClassic(); },
+      bank(w){ return fbBank[w]; },
+      setBank(w,t){ fbBank[w]=t; },
+      regOver(){ return fbRegulationOver(); },
+      golden(){ return fbGolden; },
+      trouble(w){ return fbTrouble(w); },
+      setVariant(v){ fbVariant=v; },
       overCalls(){ return gameOverCalls.slice(); },
       resetMatchState(){ footballResetMatchState(); },
       setGoalState(s){ fbGoalState=s; },
@@ -275,6 +290,10 @@ const goalAudio={plays:0,matchPoints:0,preloads:0,stops:0};   // Tor-Audio: Aufr
       pick(who,p){ return pickOwnBall(who,p); },
       setBalls(list){ balls=list.map(b=>({x:b.x,y:b.y,vx:b.vx||0,vy:b.vy||0,sx:b.x,sy:b.y,owner:b.owner,alive:true,spin:0})); phase='sim'; outBall=-1; },
       step(){ stepSim(); },
+      // Phase frei setzen und lesen: der Zeitmodus muss beweisen, dass die Uhr NUR in
+      // 'sim' laeuft — dafuer braucht die Suite Zugriff auf die anderen Phasen.
+      setPhaseRaw(p){ phase=p; },
+      phase(){ return phase; },
       get(){ return { phase, balls: balls.map(b=>({x:b.x,y:b.y,vx:b.vx,vy:b.vy,alive:b.alive,owner:b.owner})) }; }
     };
   `;
@@ -324,16 +343,16 @@ ok(fAfter.balls.every(b => b.alive), 'Football eliminiert keine Kugel (kein Ring
 // 2*FB_GOAL_HALF_DEPTH = 2.368*BR. Der neutrale Ball hat den eigenen Produktivradius
 // fbBallR() = 25 (FOOTBALL_BALL_RADIUS), die Spieler bleiben BR = 32.
 const near = (a, b, eps) => Math.abs(a - b) < (eps == null ? 1e-9 : eps);
-ok(near(F.clearHalf(), 3.560 * F.BR), 'Lichte Halbbreite auf Ballhoehe = 3.560*BR = ' + (3.56 * F.BR).toFixed(2) + ' LOGICAL (Sockel-Innenkante 1.780 Blender)');
+ok(near(F.clearHalf(), 3.5600 * F.BR), 'Lichte Halbbreite auf Ballhoehe = 3.560*BR = ' + (3.560 * F.BR).toFixed(3) + ' LOGICAL (Sockel-Innenkante 1.780 Blender)');
 ok(near(F.neutralR(), 25), 'Neutraler Ball traegt den Produktivradius FOOTBALL_BALL_RADIUS = 25');
-ok(near(F.centerHalf(), 3.560 * F.BR - F.neutralR()), 'Nutzbare Zentrums-Halbbreite = 3.560*BR - fbBallR = ' + (3.56 * F.BR - 25).toFixed(2));
+ok(near(F.centerHalf(), 3.5600 * F.BR - F.neutralR()), 'Nutzbare Zentrums-Halbbreite = 3.560*BR - fbBallR = ' + (3.560 * F.BR - 25).toFixed(3));
 ok(near(F.clearHalf() - F.centerHalf(), F.neutralR()), 'Reduktion ist exakt der Radius des NEUTRALEN Balls (keine erfundene Clearance)');
 // Sockel-Fussabdruck als Rechteck: tangential aus den gemessenen Sockelkanten des geraden
 // Tors, in Torrichtung postFront==halfLen (Sockelvorderkante auf der Bandeninnenflaeche)
 // bis postBack = halfLen + 2*FB_GOAL_HALF_DEPTH.
 { const bx = F.box();
-  ok(near(bx.y0, 3.560 * F.BR), 'Sockel-Innenkante = 3.560*BR = ' + bx.y0.toFixed(2) + ' (1.780 Blender)');
-  ok(near(bx.y1, 5.282 * F.BR), 'Sockel-Aussenkante = 5.282*BR = ' + bx.y1.toFixed(2) + ' (2.641 Blender)');
+  ok(near(bx.y0, 3.5600 * F.BR), 'Sockel-Innenkante = 3.560*BR = ' + bx.y0.toFixed(3) + ' (1.780 Blender)');
+  ok(near(bx.y1, 5.2820 * F.BR), 'Sockel-Aussenkante = 5.282*BR = ' + bx.y1.toFixed(3) + ' (2.641 Blender)');
   ok(near(bx.x0, 15.60 * F.BR), 'Sockel-Vorderkante = halfLen = 15.60*BR = ' + bx.x0.toFixed(1));
   ok(near(bx.x1, (15.60 + 2 * 1.184) * F.BR), 'Sockel-Hinterkante = halfLen + 2*1.184 = 17.968*BR = ' + bx.x1.toFixed(3));
   ok(bx.x0 < bx.x1 && bx.y0 < bx.y1, 'Sockel-Rechteck ist nicht degeneriert');
@@ -362,7 +381,8 @@ ok(/BR/.test(goalClearHalfSrc) && /\*BR/.test(postProbeSrc), 'Alle Torgroessen a
 // Keine rohen LOGICAL-Pixelwerte im Physikcode — nur asset-dokumentierte Blender-Verhaeltnisse.
 ok(!/\b(128|256|96|105\.6|73\.6|142\.8|37\.2|180)\b/.test(goalPhysSrc),
   'Keine rohen LOGICAL-Magic-Numbers in der Tor-/Pfostenphysik');
-ok(/3\.560/.test(arenaSrc) && /5\.282/.test(arenaSrc) && /1\.184/.test(halfDepthSrc),
+ok(/FB_GOAL_ASSET_INNER/.test(arenaSrc) && /FB_GOAL_ASSET_OUTER/.test(arenaSrc) &&
+   /const FB_GOAL_ASSET_INNER=3\.560, FB_GOAL_ASSET_OUTER=5\.282;/.test(HTML) && /1\.184/.test(halfDepthSrc),
   'Sockelkanten dokumentiert aus dem eingefrorenen Blender-Build abgeleitet (3.560/5.282/1.184)');
 ok(/postBack:18\.00\+2\*FB_GOAL_HALF_DEPTH/.test(arenaSrc),
   'Sockel-Hinterkante als Formel aus halfLen + Sockeltiefe (keine zweite Zahl)');
@@ -579,24 +599,67 @@ ok(/footballResolvePost\(fb,false\)/.test(HTML),
   'die Nachkorrektur meldet nichts');
 
 // ── C. SPIELERBÄLLE: Barriere an beiden Toren ──
+// WORAN die Sperre gemessen wird. Frueher stand hier die Bandenlinie der Ballmitte
+// (halfLen - BR). Das war zu grob: ein Spieler DARF in die Torrettungstasche laufen —
+// sie existiert genau dafuer, eine hinter die Linie geratene Kugel einzufangen und
+// zurueckzugeben. Die Zusage ist nicht "der Spieler kommt nie ueber die Bandenlinie",
+// sondern die schaerfere und richtige: er verlaesst NIE die Rettungshuelle und wird NIE
+// als durchgetreten gewertet. Genau das wird jetzt Schritt fuer Schritt geprueft.
+//
+// Dass die alte, zu grobe Fassung gruen war, lag an einem Nebeneffekt: die Regulaeruhr
+// tickte damals waehrend der Simulation, lief im Verlauf dieser Suite auf null, beendete
+// das Match — und footballFreezePlayers() fror die Spielerkugeln ein. Sie kamen gar nicht
+// erst bis zur Tasche. Seit die Uhr Bedenkzeit misst, faellt dieser Schleier weg.
+function shootP(owner, dirX, offY, speed, vy) {
+  // Das Match muss LAUFEN, sonst friert footballFreezePlayers die Spielerkugeln ein und
+  // die Probe misst nichts. Genau daran war die alte, zu grobe Fassung dieses Abschnitts
+  // jahrelang gruen: irgendwann in der Suite fiel das dritte Tor, das Match endete, und
+  // der Spieler kam gar nicht erst bis zur Rettungstasche.
+  F.resetMatchState(); F.setScore(0, 0);
+  F.setBalls([{ x: F.cx + dirX * F.halfLen() * 0.55, y: F.cy + offY,
+                vx: dirX * speed, vy: vy || 0, owner }]);
+  let ueber = -Infinity, durch = false, maxDx = 0;
+  for (let i = 0; i < 300; i++) {
+    F.step();
+    const b = F.get().balls[0];
+    maxDx = Math.max(maxDx, Math.abs(b.x - F.cx));
+    ueber = Math.max(ueber, F.boundSD(b).sd - F.rescueLimitAt(b.x, b.y, b.owner));
+    if (F.passedFlags()[0]) durch = true;
+  }
+  const b = F.get().balls[0];
+  return { ueber, durch, maxDx, alive: b.alive, b };
+}
 for (const owner of [0, 1]) for (const dir of [+1, -1]) {
-  const r = shoot(owner, dir, 0, 5);
-  ok(r.dist <= PLAYER_LIM + 1e-6,
-    (owner === 0 ? 'Blauer' : 'Roter') + ' Spieler wird am ' + (dir > 0 ? '+X' : '-X') + '-Tor blockiert (dist ' + r.dist.toFixed(1) + ')');
+  const r = shootP(owner, dir, 0, 5);
+  const seite = (owner === 0 ? 'Blauer' : 'Roter') + ' Spieler am ' + (dir > 0 ? '+X' : '-X') + '-Tor';
+  ok(r.ueber <= 1e-6, seite + ': bleibt in der Rettungshuelle (Ueberschuss ' + r.ueber.toFixed(3) + ')');
+  ok(!r.durch, seite + ': wird nie als durchgetreten gewertet');
 }
-// Spieler exakt im Torzentrum-Fenster -> trotzdem blockiert (Barriere deckt die volle Oeffnung).
+// Spieler exakt im Torzentrum-Fenster -> auch dort keine Passage.
 for (const owner of [0, 1]) {
-  const r = shoot(owner, +1, F.centerHalf() - 1, 5);
-  ok(r.dist <= PLAYER_LIM + 1e-6, (owner === 0 ? 'Blauer' : 'Roter') + ' Spieler wird auch mitten in der Toroeffnung blockiert');
+  const r = shootP(owner, +1, F.centerHalf() - 1, 5);
+  ok(r.ueber <= 1e-6 && !r.durch,
+    (owner === 0 ? 'Blauer' : 'Roter') + ' Spieler kommt auch mitten in der Toroeffnung nicht hindurch');
 }
-// Diagonaler Spielerimpuls in die Oeffnung -> blockiert.
+// Diagonaler Spielerimpuls in die Oeffnung -> keine Passage.
+F.resetMatchState(); F.setScore(0, 0);
 F.setBalls([{ x: F.cx + F.halfLen() * 0.30, y: F.cy - F.halfWid() * 0.30, vx: 5, vy: 2.6, owner: 0 }]);
-let pDiagMax = 0;
-for (let i = 0; i < 300; i++) { F.step(); pDiagMax = Math.max(pDiagMax, Math.abs(F.get().balls[0].x - F.cx)); }
-ok(pDiagMax <= PLAYER_LIM + 1e-6, 'Diagonaler Spielerimpuls in die Toroeffnung wird blockiert');
-// Schneller Spielerball tunnelt nicht durch die Oeffnung.
-const pFast = shoot(1, +1, 0, 12);
-ok(pFast.dist <= PLAYER_LIM + 1e-6, 'Schneller Spielerball tunnelt nicht durch die Toroeffnung');
+let pDiagUe = -Infinity, pDiagDurch = false;
+for (let i = 0; i < 300; i++) {
+  F.step();
+  const b = F.get().balls[0];
+  pDiagUe = Math.max(pDiagUe, F.boundSD(b).sd - F.rescueLimitAt(b.x, b.y, b.owner));
+  if (F.passedFlags()[0]) pDiagDurch = true;
+}
+ok(pDiagUe <= 1e-6 && !pDiagDurch, 'Diagonaler Spielerimpuls in die Toroeffnung kommt nicht hindurch');
+// Schneller Spielerball tunnelt nicht durch die Oeffnung — auch mit 12 px je Schritt nicht.
+const pFast = shootP(1, +1, 0, 12);
+ok(pFast.ueber <= 1e-6 && !pFast.durch, 'Schneller Spielerball tunnelt nicht durch die Toroeffnung');
+// Und die grobe Bandenlinie? Sie wird sehr wohl ueberschritten — in der Tasche, wie
+// vorgesehen. Der Wert wird festgehalten, damit ein spaeterer Umbau der Tasche auffaellt.
+ok(pFast.maxDx > PLAYER_LIM && pFast.maxDx < F.halfLen() + F.BR,
+   'der Spieler laeuft in die Rettungstasche (max ' + pFast.maxDx.toFixed(1) + ' px, Bandenlinie ' +
+   PLAYER_LIM.toFixed(1) + ', Sockelhinterkante ' + (F.halfLen() + F.BR).toFixed(1) + ')');
 // Die Laengsbande bleibt fuer Spieler geschlossen (quer zur Torachse).
 F.setBalls([{ x: F.cx, y: F.cy + 300, vx: 0, vy: 6, owner: 0 }]);
 let pUpMax = 0;
@@ -835,7 +898,10 @@ ok(!/setTimeout\([^)]*fbGoal/.test(HTML) && !/setInterval\([^)]*fbGoal/.test(HTM
   ok(I2.goalState() === 'fall', 'Zweites Tor wird nach dem Reset erneut erkannt');
   ok(I2.score()[0] === scoreBefore[0] + 1, 'Zweites Tor erhoeht den Score erneut (' + JSON.stringify(scoreBefore) + ' -> ' + JSON.stringify(I2.score()) + ')');
   // Drittes Tor: kein First-to-3-Abbruch, Ablauf bleibt identisch.
-  while (I2.goalState() !== 'play') I2.step();
+  // Gedeckelt: eine unbegrenzte Schleife haengt sich auf, sobald ein Match wider Erwarten
+  // im Endzustand landet und nie nach 'play' zurueckkehrt - genau das passiert unter einer
+  // Mutation der Matchregel. Ein Testlauf muss auch dann enden und rot melden.
+  { let g = 0; while (I2.goalState() !== 'play' && g++ < 800) I2.step(); }
   kickToGoal(I2, -1);
   ok(I2.goalState() === 'fall' && I2.score()[1] >= 1, 'Drittes Tor laeuft regulaer weiter (kein Matchende)');
   ok(JSON.stringify(I2.score()) === '[2,2]', 'Stand 2:2 — noch niemand hat FOOTBALL_WIN_SCORE erreicht');
@@ -860,30 +926,64 @@ function matchAfterGoal(a, b, dir) {
   return M;
 }
 
-// ── F1. FIRST-TO-3-REGEL ──
+// ── F1. MATCHREGEL: ZWEI CLASSIC-REGELN, TACTICAL WEITER FIRST-TO-3 ──
+// Classic wird vor dem Start gewaehlt. FIRST TO 3 ist die Standardregel und identisch mit
+// dem Bestand: erster Score >= FOOTBALL_WIN_SCORE gewinnt. SPEED MATCH kennt kein
+// Punktelimit — dort entscheiden zwoelf Regulaerrunden. Tactical behaelt First-to-3.
 ok(/const FOOTBALL_WIN_SCORE=3;/.test(HTML), 'FOOTBALL_WIN_SCORE ist als benannte Konstante = 3 definiert');
 ok(buildEnv('football', 'single').winScore === 3, 'FOOTBALL_WIN_SCORE traegt zur Laufzeit den Wert 3');
-ok((HTML.match(/score\[side\]>=FOOTBALL_WIN_SCORE/g) || []).length === 1, 'Genau EINE zentrale First-to-3-Pruefung');
+ok((HTML.match(/score\[side\]>=FOOTBALL_WIN_SCORE/g) || []).length === 1, 'Genau EINE zentrale First-to-3-Pruefung (Tactical)');
 ok(!/score\[side\]>=3|score\[0\]>=3|score\[1\]>=3/.test(HTML), 'Keine verstreute Magic Number 3 in der Matchlogik');
-ok(!/overtime|goldenGoal|extraTime|timeLimit|matchClock/i.test(HTML), 'Kein Overtime-/Zeitlimit-Code');
+// Die Regulaerzeit ist eine benannte Groesse in festen Ticks, keine Wanduhr.
+// Alle Zeiten sind benannte Groessen in FESTEN Ticks, keine Wanduhr.
+{ const E = buildEnv('football', 'single');
+  ok(E.simHz === 60, 'der Gameplay-Takt ist 60 Hz');
+  // Es gibt KEINE feste Rundenzahl mehr: die persoenlichen Konten SIND die Regulaerzeit.
+  ok(!/FOOTBALL_ROUNDS/.test(HTML), 'keine Rundenkonstante mehr im Quelltext');
+  ok(!/ROUND \{a\} \/ \{b\}|RUNDE \{a\} \/ \{b\}/.test(HTML), 'und kein Rundenzaehler im HUD');
+  ok(E.bankTicks === 45 * 60 && E.shotTicks === 6 * 60 && E.troubleTicks === 2 * 60,
+     '45 s / 6 s / 2 s sind exakt 2700 / 360 / 120 feste Ticks bei 60 Hz (' +
+     E.bankTicks + '/' + E.shotTicks + '/' + E.troubleTicks + ')');
+  ok(E.classic() === true && E.speed() === false,
+     'Classic startet in der Standardregel FIRST TO 3, nicht im Speed Match');
+  E.setRules('speed');
+  ok(E.speed() === true, 'und laesst sich auf Speed Match stellen');
+  E.setVariant('tactical');
+  ok(E.classic() === false && E.speed() === false,
+     'Tactical ist weder Classic noch Speed Match — es behaelt seine Bestandsregel'); }
+// CLASSIC FIRST TO 3: die Bestandsregel, unveraendert.
 { const M = matchAfterGoal(2, 0, +1);
   ok(JSON.stringify(M.score()) === '[3,0]', 'Stand 2:0 -> naechstes Tor fuer Blau ergibt 3:0');
-  ok(M.winner() === 0, 'Stand 2:0 -> naechstes Tor gewinnt (Blau)');
-  ok(M.goalState() === 'result', 'Stand 2:0 -> entscheidendes Tor beendet das Match'); }
-{ const M = matchAfterGoal(2, 2, -1);
-  ok(JSON.stringify(M.score()) === '[2,3]', 'Stand 2:2 -> naechstes Tor fuer Rot ergibt 2:3');
-  ok(M.winner() === 1, 'Stand 2:2 -> naechstes Tor gewinnt (keine Zwei-Tore-Differenz noetig)');
-  ok(M.goalState() === 'result', 'Stand 2:2 -> entscheidendes Tor beendet das Match'); }
+  ok(M.winner() === 0, 'First to 3: 3:0 beendet das Match');
+  ok(M.goalState() === 'result', 'First to 3: danach steht der Endzustand'); }
 { const M = matchAfterGoal(1, 2, +1);
   ok(JSON.stringify(M.score()) === '[2,2]', 'Stand 1:2 -> Tor fuer Blau ergibt 2:2');
   ok(M.winner() === null, 'Ausgleich auf 2:2 beendet das Match NICHT');
   ok(M.goalState() === 'spawn', 'Ohne Sieg laeuft der normale Rundenreset weiter'); }
-// Eigentore zaehlen regulaer und koennen genauso entscheiden — die Seite entscheidet, nicht der Schuetze.
+// CLASSIC SPEED MATCH: kein Punktelimit — es entscheiden die Runden.
+{ const M = buildEnv('football', 'single');
+  M.setRules('speed'); M.resetMatchState(); M.setScore(2, 0);
+  kickToGoal(M, +1); runFall(M);
+  ok(JSON.stringify(M.score()) === '[3,0]', 'Speed Match: Stand 2:0 -> 3:0');
+  ok(M.winner() === null, 'Speed Match: 3:0 beendet das Match NICHT — es zaehlen die Runden');
+  M.resetMatchState(); M.setScore(7, 6); kickToGoal(M, +1); runFall(M);
+  ok(JSON.stringify(M.score()) === '[8,6]', 'Speed Match: der Punktestand darf 3 weit ueberschreiten (8:6)');
+  ok(M.winner() === null, 'und auch 8:6 beendet das Match nicht'); }
+// TACTICAL: unveraendert First-to-3.
+{ const M = buildEnv('football', 'single');
+  M.setVariant('tactical'); M.setScore(2, 0); kickToGoal(M, +1); runFall(M);
+  ok(JSON.stringify(M.score()) === '[3,0]' && M.winner() === 0,
+     'Tactical: das dritte Tor entscheidet weiterhin');
+  ok(M.goalState() === 'result', 'Tactical: und beendet das Match'); }
+// Eigentore zaehlen regulaer — die Seite entscheidet, nicht der Schuetze.
 { const M = matchAfterGoal(0, 2, -1);
-  ok(M.winner() === 1 && JSON.stringify(M.score()) === '[0,3]', 'Auch ein Tor ins eigene Tor kann das Match entscheiden'); }
+  ok(JSON.stringify(M.score()) === '[0,3]', 'Auch ein Tor ins eigene Tor wird regulaer gewertet'); }
 
 // ── F2. ENTSCHEIDENDES TOR: genau einmal werten, voller Ballfall, dann result ──
 { const M = buildEnv('football', 'single');
+  // Das entscheidende Tor kommt seit dem Zeitmodus-Pass aus TACTICAL: dort gilt
+  // First-to-3 unveraendert. Classic laeuft auf Zeit und endet nicht mehr bei 3.
+  M.setVariant('tactical');
   M.setScore(2, 0);
   kickToGoal(M, +1);
   ok(JSON.stringify(M.score()) === '[3,0]', 'Entscheidendes Tor wird genau einmal gewertet');
@@ -920,6 +1020,9 @@ ok(!/setTimeout|setInterval/.test(tickGoalSrc + tryGoalSrc + matchEndSrc), 'Matc
 
 // ── F3. RESULT-ZUSTAND: stabil, gesperrt, unveraenderlich ──
 { const M = buildEnv('football', 'single');
+  // Das entscheidende Tor kommt seit dem Zeitmodus-Pass aus TACTICAL: dort gilt
+  // First-to-3 unveraendert. Classic laeuft auf Zeit und endet nicht mehr bei 3.
+  M.setVariant('tactical');
   M.setScore(2, 0); kickToGoal(M, +1); runFall(M);
   ok(M.goalState() === 'result', 'Setup: Resultzustand erreicht');
   ok(M.get().phase === 'over', 'Setup: bestehende Result-Phase aktiv');
@@ -949,7 +1052,11 @@ ok((HTML.match(/function gameOver\(/g) || []).length === 1, 'Genau eine Result-/
 // ausscheidet - und seit C4B der dauerhafte Austritt: verlassen die letzten Teilnehmer
 // das Match, endet es ueber DENSELBEN Weg. Der Aufrufer bleibt bewusst zaehlbar, damit
 // keine zweite Ergebnisschicht entsteht.
-ok((HTML.match(/footballMatchEnd\(/g) || []).length === 4, 'footballMatchEnd: eine Definition, genau drei Aufrufer');
+// Vierter Aufrufer seit dem Zeitmodus: fbClockDecide beendet Classic am Ende der
+// Regulaerzeit — ueber DENSELBEN Weg, keine zweite Ergebnisschicht.
+ok((HTML.match(/footballMatchEnd\(/g) || []).length === 5, 'footballMatchEnd: eine Definition, genau vier Aufrufer');
+ok(/if\(typeof fbClockDecide==='function'&&fbClockDecide\(\)\)return;/.test(HTML),
+   'und der neue Aufrufer haengt an genau den beiden Uebergabepunkten an die Spieler');
 ok(/function fbApplyPendingRemovals/.test(HTML) && /footballMatchEnd\(\);/.test(HTML),
   'der dritte Aufrufer ist der dauerhafte Austritt (C4B), keine neue Ergebnisschicht');
 ok(/gameOver\(footballWinner\);/.test(matchEndSrc), 'Matchende uebergibt den KANONISCHEN Gewinner (kein DOM-Text, keine Farbe)');
@@ -969,10 +1076,23 @@ ok(!/confetti|particleWin|cameraShake/i.test(HTML), 'Keine Konfetti-/Partikel-/K
 
 // ── F5. NEUES MATCH ──
 { const M = buildEnv('football', 'single');
-  M.setScore(2, 0); kickToGoal(M, +1); runFall(M);
-  ok(M.goalState() === 'result' && M.winner() === 0, 'Setup: Match ist beendet');
+  // Beendet wird dieses Match im SPEED MATCH ueber den Weg, der den meisten Zustand
+  // hinterlaesst: verbrauchte Zeitkonten, gelaufene Runden und ein offenes Golden Goal.
+  // Genau daran muss der Rematch-Reset sich messen lassen.
+  M.setRules('speed'); M.resetMatchState();
+  M.setScore(2, 2);
+  M.setBank(0, 0); M.setBank(1, 0);             // beide Konten leer -> Regulaerzeit vorbei
+  kickToGoal(M, +1); runFall(M);                // der letzte Zyklus loest sich vollstaendig auf
+  ok(M.golden() === true || M.winner() !== null, 'Setup: der letzte Zyklus ist gewertet');
+  if (M.winner() === null) { kickToGoal(M, +1); runFall(M); }
+  ok(M.goalState() === 'result' && M.winner() !== null, 'Setup: Match ist beendet');
   M.setAim();                                   // Aim-/Commit-Reste aus dem alten Match
   M.newMatch();
+  ok(M.bank(0) === M.bankTicks && M.bank(1) === M.bankTicks,
+     'Neues Match: beide Zeitkonten stehen wieder auf 45 s (' + M.bank(0) + '/' + M.bank(1) + ')');
+  ok(M.golden() === false && M.regOver() === false,
+     'Neues Match: Golden Goal weg und die Regulaerzeit laeuft wieder');
+  ok(M.rules() === 'speed', 'Neues Match: die gewaehlte Regel bleibt erhalten');
   ok(JSON.stringify(M.score()) === '[0,0]', 'Neues Match startet bei 0:0');
   ok(M.winner() === null, 'Neues Match: Gewinner auf null zurueckgesetzt');
   ok(M.goalState() === 'play', 'Neues Match: fbGoalState zurueck auf play');
@@ -1002,6 +1122,9 @@ ok(/\$\('rematchBtn'\)\.onclick=\(\)=>\{if\(online\)[\s\S]*?newGame\(\);\};/.tes
 
 // ── F6. MODUSWECHSEL / MENUE ──
 { const M = buildEnv('football', 'single');
+  // Das entscheidende Tor kommt seit dem Zeitmodus-Pass aus TACTICAL: dort gilt
+  // First-to-3 unveraendert. Classic laeuft auf Zeit und endet nicht mehr bei 3.
+  M.setVariant('tactical');
   M.setScore(2, 0); kickToGoal(M, +1); runFall(M);
   ok(M.goalState() === 'result', 'Setup: Football-Result aktiv');
   M.resetMatchState();                          // == showMenu()- bzw. newGame()-Pfad
@@ -1112,8 +1235,14 @@ if (glb) {
       }
     }
     const bx = F.box();
-    ok(near(2 * inner, bx.y0 / F.BR, 2e-3), 'Gemessene Sockel-Innenkante 2*' + inner.toFixed(4) + ' == FOOTBALL_ARENA.postInner ' + (bx.y0 / F.BR));
-    ok(near(2 * outer, bx.y1 / F.BR, 2e-3), 'Gemessene Sockel-Aussenkante 2*' + outer.toFixed(4) + ' == FOOTBALL_ARENA.postOuter ' + (bx.y1 / F.BR));
+    // Die Torkonstanten SIND die Asset-Vermessung — unskaliert, in jedem Modus. Genau
+    // diese Gleichung schliesst aus, dass die Physik weiter oeffnet als der sichtbare
+    // Marmor: es gibt keinen Faktor, der zwischen beide treten koennte.
+    ok(!/FB_CLASSIC_GOAL_K/.test(HTML), 'kein modusabhaengiger Torbreitenfaktor im Quelltext');
+    ok(near(2 * inner, bx.y0 / F.BR, 2e-3), 'Gemessene Sockel-Innenkante 2*' + inner.toFixed(4) + ' == postInner ' + (bx.y0 / F.BR));
+    ok(near(2 * outer, bx.y1 / F.BR, 2e-3), 'Gemessene Sockel-Aussenkante 2*' + outer.toFixed(4) + ' == postOuter ' + (bx.y1 / F.BR));
+    ok(/g\.scale\.setScalar\(goalScale\)/.test(HTML) && !/goalK/.test(HTML),
+       'und der Renderer skaliert das Modell uniform (keine Torbreite ohne passende Optik)');
     ok(near(2 * (2 * zHalf), (bx.x1 - bx.x0) / F.BR, 2e-3), 'Gemessene Sockeltiefe 2*2*' + zHalf.toFixed(4) + ' == 2*FB_GOAL_HALF_DEPTH ' + ((bx.x1 - bx.x0) / F.BR).toFixed(3));
     // Beide Sockel exakt spiegelsymmetrisch aufgestellt.
     const t0x = bases[0].translation[0], t1x = bases[1].translation[0];
@@ -1814,7 +1943,19 @@ const fbCssSrc = grab(/#game\.fb \.status\{[\s\S]*?\n\.arena-wrap\{/, 'Football-
     .map((l) => l.slice(0, l.indexOf('{')).trim()).filter(Boolean);
   const NEUTRAL = ['@keyframes fbgoal0', '@keyframes fbgoal1', '@keyframes fbsheen',
                    '@keyframes fbglow0', '@keyframes fbglow1',
-                   '@media(prefers-reduced-motion:reduce)', '@media(max-width:380px)', '.arena-wrap'];
+                   // fbnot: der ruhige Puls der ZEITNOT im Speed Match.
+                   '@keyframes fbnot',
+                   // fbpulse: der EINE Puls beim Eintritt in die Zeitnot.
+                   '@keyframes fbpulse',
+                   // fbfinal: der spuerbarere Eintritt der LETZTEN AKTION.
+                   '@keyframes fbfinal',
+                   // Querformat: die Statusleiste rueckt nach oben, weil die Kopfzeile
+                   // dort den Fluss verlaesst.
+                   '@media(orientation:landscape) and (max-height:520px)',
+                   '@media(prefers-reduced-motion:reduce)', '@media(max-width:380px)',
+                   // 360 px: sehr schmale Geraete duerfen die Statusleiste nicht
+                   // abschneiden, seit der Punktestand im Speed Match offen ist.
+                   '@media(max-width:360px)', '.arena-wrap'];
   ok(rules.length > 10, 'HUD-CSS-Block gefunden (' + rules.length + ' Regeln)');
   ok(rules.every((s) => s.startsWith('#game.fb') || NEUTRAL.includes(s)),
      'jede HUD-Regel haengt an #game.fb (Ausnahmen nur: Keyframes, Media-Query)');
@@ -1837,8 +1978,12 @@ const fbCssSrc = grab(/#game\.fb \.status\{[\s\S]*?\n\.arena-wrap\{/, 'Football-
 {
   ok(/function fbFirstToText\(\)\{return I18N\.de\.fbFirstTo\.replace\('\{n\}',FOOTBALL_WIN_SCORE\);\}/.test(HTML),
      'die Zahl im Untertitel stammt aus FOOTBALL_WIN_SCORE');
-  ok(/\$\('rinfo'\)\.textContent=mode==='football'\?fbFirstToText\(\)/.test(updateHudSrc),
-     'der Football-Untertitel kommt aus genau dieser Funktion');
+  // Es gibt ZWEI Classic-Regeln (First to 3, Speed Match) plus Tactical First-to-3.
+  // fbModeText waehlt zwischen ihnen und benutzt dafuer dieselben Konstanten wie die Regel.
+  ok(/\$\('rinfo'\)\.textContent=mode==='football'\?fbModeText\(\)/.test(updateHudSrc),
+     'der Football-Untertitel kommt aus genau einer Funktion');
+  ok(/function fbModeText\(\)\{[\s\S]*?fbFirstToText\(\)[\s\S]*?I18N\.de\.fbSpeedT/.test(HTML),
+     'und diese waehlt zwischen Speed Match und First-to-3, ohne einen Text zu wiederholen');
   // URSACHE des englischen Textes: LANG faellt ohne gespeicherte Auswahl auf 'en' zurueck,
   // waehrend die gesamte In-Game-Ebene ('Runde N', 'zielt…', 'BLAU'/'ROT') hart Deutsch ist.
   // Der Untertitel folgt deshalb seinen Nachbarn statt der Menue-i18n.
@@ -2339,6 +2484,9 @@ const fbCssSrc = grab(/#game\.fb \.status\{[\s\S]*?\n\.arena-wrap\{/, 'Football-
 // ── H3. Matchpunkt: Goal-FX vor dem Result-Overlay ──
 {
   const W = buildEnv('football', 'single');
+  // Das entscheidende Tor kommt seit dem Zeitmodus-Pass aus TACTICAL: dort gilt
+  // First-to-3 unveraendert. Classic laeuft auf Zeit und endet nicht mehr bei 3.
+  W.setVariant('tactical');
   W.setScore(2, 0);
   kickToGoal(W, +1);
   ok(W.winner() === 0 && W.overCalls().length === 0, 'Gewinner steht fest, Overlay noch nicht');
@@ -2381,6 +2529,9 @@ const fbCssSrc = grab(/#game\.fb \.status\{[\s\S]*?\n\.arena-wrap\{/, 'Football-
   }
   {
     const E = buildEnv('football', 'single');
+  // Das entscheidende Tor kommt seit dem Zeitmodus-Pass aus TACTICAL: dort gilt
+  // First-to-3 unveraendert. Classic laeuft auf Zeit und endet nicht mehr bei 3.
+    E.setVariant('tactical');
     E.setScore(2, 0); kickToGoal(E, +1);
     let g = 0; while (E.goalState() !== 'celebrate' && g++ < 500) E.step();
     E.resetMatchState();                       // == showMenu()-Pfad
@@ -2715,19 +2866,25 @@ const fbCssSrc = grab(/#game\.fb \.status\{[\s\S]*?\n\.arena-wrap\{/, 'Football-
   const E = buildEnv('football', 'single');
   const VM = E.launchV(1);
   E.setBalls([{ x: E.cx, y: E.cy, vx: VM * 0.6, vy: VM * 0.8, owner: NEU }]);
-  let frames = 0, maxSD = -Infinity, postOk = true, finite = true;
+  let frames = 0, maxSD = -Infinity, postOk = true, finite = true, letztSchnell = 0;
   for (let i2 = 1; i2 <= 3600; i2++) {
     E.step();
     const g2 = E.get(), b = g2.balls[0];
     if (!Number.isFinite(b.x) || !Number.isFinite(b.y) || !Number.isFinite(b.vx) || !Number.isFinite(b.vy)) finite = false;
     maxSD = Math.max(maxSD, E.boundSD(b).sd);
     if (E.boxGap(b) < 25 - PEN_EPS) postOk = false;   // 25 = Radius des neutralen Balls
+    if (Math.hypot(b.vx, b.vy) >= 1) letztSchnell = i2;   // letzter Frame oberhalb 1 px/Frame
     if (g2.phase !== 'sim') { frames = i2; break; }
   }
   ok(finite, 'keine NaN- oder Infinity-Werte bei voller Abschussgeschwindigkeit');
   ok(maxSD <= 1e-6, 'kein Bandendurchbruch bei voller Geschwindigkeit (max SD ' + maxSD.toFixed(6) + ')');
   ok(postOk, 'kein Pfostendurchbruch bei voller Geschwindigkeit');
-  ok(frames > 0 && frames / 60 <= 7.0, 'Auslauf ' + (frames / 60).toFixed(2) + ' s bleibt unter 7 s');
+  // Der Ball muss zur Ruhe kommen, und der KRIECHSCHWANZ unterhalb 1 px/Frame muss dabei
+  // kurz bleiben - er ist die aussagekraeftigere Groesse als die blosse Gesamtdauer.
+  ok(frames > 0 && frames / 60 <= 7.0,
+     'der Ball kommt zur Ruhe (' + (frames / 60).toFixed(2) + ' s)');
+  ok((frames - letztSchnell) / 60 <= 2.0,
+     'und der langsame Ausrollschwanz bleibt kurz (' + ((frames - letztSchnell) / 60).toFixed(2) + ' s)');
   ok(E.get().balls.every((b) => b.vx === 0 && b.vy === 0), 'nach dem Settlement ist alles exakt 0');
 
   // ── Spieler -> Ball und Spieler -> Spieler: der Uebertrag haengt NUR an der Restitution ──

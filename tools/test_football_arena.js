@@ -1,6 +1,6 @@
 // Arena-Football — Regressionssuite fuer den FINALEN Produktivstand:
-//   Classic-Arena SHOULDERED WIDE (998.4 x 742.4, Eckradius 83.2) - dieselbe
-//   Objektinstanz wie das Elimination-Finale (FOOTBALL_ARENA_CLASSIC)
+//   Classic-Arena SHOULDERED WIDE (998.4 x 742.4, Eckradius 83.2) - DIESELBE Instanz
+//   wie das Elimination-Finale (FOOTBALL_ARENA_CLASSIC === FOOTBALL_ARENA_ELIM2)
 //   buendige Torintegration (postFront == halfLen, lichte Torbreite 227.84)
 //   Movement M1 (getrennte Spieler-/Ball-Daempfung)
 //   neutraler Ballradius 25 (Spieler bleiben BR = 32)
@@ -77,7 +77,16 @@ function buildEnv(mode0) {
     ${stepSimSrc}
     return {
       arena(){ return fbArena(); },          // Classic == FOOTBALL_ARENA_CLASSIC
-      arenaShared(){ return fbArena()===FOOTBALL_ARENA_ELIM2; },
+      // Die Grenze ist Feld fuer Feld dieselbe wie im Elimination-Finale. Verglichen
+      // werden die Formfelder EINZELN - die Instanzgleichheit prueft torGeteilt().
+      grenzeGeteilt(){ const c=fbArena(), e=FOOTBALL_ARENA_ELIM2;
+        return c.halfLen===e.halfLen && c.halfWid===e.halfWid && c.corner===e.corner
+            && c.spawn===e.spawn && c.poly===e.poly
+            && c.postFront===e.postFront && c.postBack===e.postBack
+            && c.goalAnchor===e.goalAnchor; },
+      torGeteilt(){ const c=fbArena(), e=FOOTBALL_ARENA_ELIM2;
+        return {cIn:c.postInner,cOut:c.postOuter,eIn:e.postInner,eOut:e.postOuter,
+                same:c===e,assetIn:FB_GOAL_ASSET_INNER,assetOut:FB_GOAL_ASSET_OUTER}; },
       arenaTactical(){ return FOOTBALL_ARENA; },
       hx(){ return fbHalfLen(); }, hz(){ return fbHalfWid(); }, rc(){ return fbCorner(); },
       shapeSD(dx,dz,hx,hz,rc){ const s=footballShapeSD(dx,dz,hx,hz,rc); return {sd:s.sd,nx:s.nx,nz:s.nz}; },
@@ -125,9 +134,27 @@ const BR = 32, A = F.arena();
 ok(A.halfLen === 15.60 && F.hx() === 499.2, 'Innenlaenge 998.4 (halfLen 15.60 BR = 499.2)');
 ok(A.halfWid === 11.60 && Math.abs(F.hz() - 371.2) < 1e-9, 'Innenbreite 742.4 (halfWid 11.60 BR = 371.2)');
 ok(A.corner === 2.60 && Math.abs(F.rc() - 83.2) < 1e-9, 'Eckradius 83.2 (2.60 BR)');
-// KANONISCHE ZWEI-FIGUREN-ARENA: Classic und das Elimination-Finale benutzen DIESELBE
-// Objektinstanz - es gibt keine zweite Beschreibung derselben Form.
-ok(F.arenaShared(), 'Classic teilt sich die Arenainstanz mit dem Elimination-Finale');
+// KANONISCHE ZWEI-FIGUREN-ARENA: Classic und das Elimination-Finale stehen auf DERSELBEN
+// Grenze - dieselben Masse, dasselbe poly-Array, derselbe Spawn UND dieselbe Toroeffnung.
+// Der 2P-Offense-Pass hatte Classic versuchsweise ein eigenes, um 10 % weiteres Tor
+// gegeben; der Spieltest hat das verworfen, weil im 1v1 zu leicht getroffen wurde. Damit
+// entfaellt auch der Grund fuer ein eigenes Classic-Arenaobjekt.
+ok(F.grenzeGeteilt(), 'Classic teilt die Arenagrenze Feld fuer Feld mit dem Elimination-Finale');
+{ const t = F.torGeteilt();
+  ok(t.eIn === t.assetIn && t.eOut === t.assetOut,
+     'das Elimination-Finale steht auf den gemessenen Sockelkanten des Assets (3.560/5.282)');
+  ok(t.cIn === t.eIn && t.cOut === t.eOut,
+     'Classic hat exakt dieselbe Toroeffnung wie das Finale (' +
+     t.cIn.toFixed(4) + '/' + t.cOut.toFixed(4) + ')');
+  ok(t.same === true, 'Classic IST dasselbe Arenaobjekt — keine doppelte Geometrie, kein zweiter Zustand');
+  ok(!/FB_CLASSIC_GOAL_K/.test(SRC), 'kein Classic-eigener Torbreitenfaktor mehr im Quelltext');
+  // Kein modusabhaengiger Streckfaktor am Modell: die Optik kann der Physik nicht nachlaufen.
+  ok(/g\.scale\.setScalar\(goalScale\)/.test(SRC) && !/goalK/.test(SRC),
+     'das Tormodell wird uniform skaliert — keine Classic-eigene Streckung');
+  // endHalf der flachen Torwand muss groesser bleiben als die Sockelaussenkante.
+  ok(/fbShoulderRect\(15\.60,11\.60,2\.60,35,6\.10\)/.test(SRC) && 6.10 > t.cOut,
+     'die flache Torwand (endHalf 6.10) bleibt breiter als die Sockelaussenkante ' +
+     t.cOut.toFixed(4)); }
 ok(Array.isArray(A.poly) && A.poly.length === 8, 'Shouldered Wide: achteckiges Kernpolygon (2 Banden, 2 Torwaende, 4 Schultern)');
 ok(F.arenaTactical().halfLen === 18.00 && F.arenaTactical().corner === 6.85,
    'Tactical behaelt unveraendert die alte Rounded-Rectangle-Arena');
@@ -181,7 +208,7 @@ ok(!/FOOTBALL_MOVE_PRESETS|footballMoveKey/.test(SRC), 'keine Movement-Presets m
 
 // ── TOR: buendige Integration, Masse, Passage ──────────────────────────────────
 ok(A.postFront === A.halfLen, 'Tor buendig: Sockelvorderkante exakt auf der Bandeninnenflaeche');
-ok(Math.abs(F.clearHalf() * 2 - 227.84) < 1e-9, 'lichte Torbreite 227.84');
+ok(Math.abs(F.clearHalf() * 2 - 227.84) < 1e-9, 'lichte Torbreite Classic 227.84 (3.560*BR*2)');
 ok(Math.abs(A.postBack * BR - 574.976) < 1e-9, 'Torlinie (Sockelhinterkante) bei 574.976');
 // Keine Ballfang-Tasche: kein Punkt INNERHALB der Ballmitten-Grenze kommt dem
 // Sockelrechteck naeher als der Ballradius (geprueft fuer Ball 25 und Spieler 32).

@@ -65,7 +65,7 @@ const stepSimSrc         = grab(/function stepSim\(\)\{[\s\S]*?\n\}/, 'stepSim')
 // Der Tactical-Abschnitt als Ganzes — Grundlage der Struktur-Assertions weiter unten.
 const tacticalBlockSrc   = grab(/\/\/ ══ ARENA FOOTBALL TACTICAL[\s\S]*?\nfunction fbTacticalRingLevel\(i\)\{[\s\S]*?\n\}/, 'Tactical-Block');
 // Menue-/Startpfad: Modusauswahl, Dev-Direktlink und der einzige Football-Startpunkt.
-const startFootballSrc   = grab(/function startFootball\(variant\)\{[\s\S]*?\n\}/, 'startFootball');
+const startFootballSrc   = grab(/function startFootball\(variant,rules\)\{[\s\S]*?\n\}/, 'startFootball');
 const devFbVariantSrc    = grab(/const DEV_FB_VARIANT=[^\n]*/, 'DEV_FB_VARIANT');
 const ctaSrc             = grab(/\$\('ctaBtn'\)\.onclick=\(\)=>\{[\s\S]*?\n\};/, 'CTA-Handler');
 
@@ -321,16 +321,25 @@ console.log('ARENA FOOTBALL — Produktsuite: Classic 1v1 (Standard) + Tactical 
      'der Zurueck-Button schliesst das Modal unveraendert');
   // Jede Option ruft denselben einzigen Startpfad mit ihrer Variante auf — kein zweiter Pfad,
   // keine Zwischenbestaetigung, dieselbe Haptik wie die Bestandsoptionen.
-  for (const [id, arg] of [['fbClassicBtn', "'classic'"],
-                           ['fbTacticalBtn', 'FOOTBALL_VARIANT_TACTICAL'],
+  for (const [id, arg] of [['fbTacticalBtn', 'FOOTBALL_VARIANT_TACTICAL'],
                            ['fbElimBtn', 'FOOTBALL_VARIANT_ELIM']]) {
     ok(HTML.includes("$('" + id + "').onclick=()=>{if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);startFootball(" + arg + ");};"),
        id + ' startet ueber startFootball() mit der eigenen Variante und derselben Haptik');
   }
-  // Eine Definition, drei Menue-Aufrufer, der Dev-Direktlink — und eine Kommentarerwaehnung.
-  // ONLINE ist bewusst NICHT darunter: es startet kein lokales Match, sondern uebergibt
-  // an den bestehenden Onlinebildschirm.
-  ok((HTML.match(/startFootball\(/g) || []).length === 6,
+  // CLASSIC startet seit dem Regelpass NICHT sofort, sondern oeffnet die Regelwahl —
+  // dieselbe Bauweise wie die Modusauswahl darueber. Gestartet wird erst aus ihr heraus,
+  // und zwar mit der GEWAEHLTEN Regel als zweitem Argument.
+  ok(/\$\('fbClassicBtn'\)\.onclick=\(\)=>\{[^\n]*\n[^\n]*fbRuleOv'\)\.classList\.add\('show'\);\};/.test(HTML),
+     'fbClassicBtn oeffnet die Regelwahl statt sofort zu starten');
+  for (const [id, rules] of [['fbFirst3Btn', 'FOOTBALL_RULES_FIRST3'],
+                             ['fbSpeedBtn', 'FOOTBALL_RULES_SPEED']]) {
+    ok(HTML.includes("startFootball('classic'," + rules + ");"),
+       id + ' startet Classic mit ' + rules);
+  }
+  // Eine Definition, vier Menue-Aufrufer (Regelwahl zaehlt zwei), der Dev-Direktlink —
+  // und eine Kommentarerwaehnung. ONLINE ist bewusst NICHT darunter: es startet kein
+  // lokales Match, sondern uebergibt an den bestehenden Onlinebildschirm.
+  ok((HTML.match(/startFootball\(/g) || []).length === 7,
      'kein zweiter Startpfad neben startFootball() (erhalten: ' + (HTML.match(/startFootball\(/g) || []).length + ')');
   const onlineHandler = grab(/\$\('fbOnlineBtn'\)\.onclick=\(\)=>\{[\s\S]*?\n\};/, 'fbOnlineBtn-Handler');
   ok(!/startFootball/.test(onlineHandler), 'ONLINE startet kein lokales Match');
@@ -526,7 +535,13 @@ console.log('ARENA FOOTBALL — Produktsuite: Classic 1v1 (Standard) + Tactical 
      'keine Tactical-eigenen Physikparameter');
   ok(/const FOOTBALL_BALL_RADIUS=25;/.test(HTML), 'Ballradius 25 unveraendert');
   ok(/halfLen:18\.00,halfWid:12\.70,corner:6\.85/.test(HTML), 'Arena B unveraendert');
-  ok(/postInner:3\.560,postOuter:5\.282,postFront:18\.00/.test(HTML), 'Torgeometrie unveraendert');
+  // Die Zahlen stehen unter einem Namen (FB_GOAL_ASSET_*) und werden nirgends skaliert.
+  // Geprueft wird beides: die Herkunft im Quelltext und der Wert zur Laufzeit.
+  ok(/const FB_GOAL_ASSET_INNER=3\.560, FB_GOAL_ASSET_OUTER=5\.282;/.test(HTML) &&
+     /postInner:FB_GOAL_ASSET_INNER,postOuter:FB_GOAL_ASSET_OUTER,postFront:18\.00/.test(HTML),
+     'Torgeometrie unveraendert: Tactical steht auf den gemessenen Asset-Kanten 3.560/5.282');
+  ok(!/FB_CLASSIC_GOAL_K/.test(HTML),
+     'es gibt keinen modusabhaengigen Torbreitenfaktor mehr — auch nicht fuer Classic');
 }
 
 // ══════════════════════════════════════════════════════════════════════════════════
@@ -573,18 +588,37 @@ console.log('ARENA FOOTBALL — Produktsuite: Classic 1v1 (Standard) + Tactical 
   const ref = buildEnv('classic').place();
   ok(G.snapshot().every((b, i) => near(b.x, ref[i].x) && near(b.y, ref[i].y) && speed(b) === 0),
      'Classic: nach dem Tor stehen alle 3 Bodies wieder auf Startposition');
+  // MATCHZIEL. Classic laeuft seit dem Zeitmodus-Pass auf Zeit und endet NICHT mehr beim
+  // dritten Tor; TACTICAL behaelt First-to-3 unveraendert. Beides wird hier nebeneinander
+  // geprueft, damit die Trennung nicht unbemerkt verrutscht.
   const W = buildEnv('classic');
-  ok(W.winScore === 3, 'Classic: Matchziel bleibt First to 3');
+  ok(W.winScore === 3, 'FOOTBALL_WIN_SCORE bleibt 3 — es gilt fuer Classic FIRST TO 3 und Tactical');
+  // CLASSIC FIRST TO 3 (die Standardregel): das dritte Tor entscheidet, wie eh und je.
   W.place(); W.resetMatchState(); W.setScore(2, 0); W.setPhase('sim');
   W.setPos(2, W.cx + hl - 60, W.cy); W.setVel(2, 9, 0);
   for (let i = 0; i < 400 && W.goalState() === 'play'; i++) W.step();
-  ok(W.score()[0] === 3 && W.winner() === 0, 'Classic: das dritte Tor entscheidet das Match');
+  ok(W.score()[0] === 3 && W.winner() === 0,
+     'Classic FIRST TO 3: das dritte Tor entscheidet das Match');
+  const WT = buildEnv('tactical');
+  WT.place(); WT.resetMatchState(); WT.setScore(2, 0); WT.setPhase('sim');
+  // Tactical hat vier Figuren; der neutrale Ball ist Koerper 4, nicht 2.
+  WT.setPos(4, WT.cx + hl - 60, WT.cy); WT.setVel(4, 9, 0);
+  for (let i = 0; i < 400 && WT.goalState() === 'play'; i++) WT.step();
+  ok(WT.score()[0] === 3 && WT.winner() === 0,
+     'Tactical: das dritte Tor entscheidet das Match — unveraendert');
 }
 
 // ══════════════════════════════════════════════════════════════════════════════════
 // B — AUFSTELLUNG: 2+2+1, eindeutige IDs, symmetrisch, kollisionsfrei
 // ══════════════════════════════════════════════════════════════════════════════════
 const T = buildEnv();
+// Die Quelltextpruefung oben zeigt, dass Tactical die Asset-Kanten unveraendert benutzt.
+// Hier derselbe Nachweis zur Laufzeit: 227.84 px — dieselbe Oeffnung wie in Classic und
+// im Elimination-Finale.
+{ T.setMode('football'); T.setVariant('tactical');
+  ok(Math.abs(T.arena().clearHalf - 3.560 * T.BR) < 1e-9,
+     'Tactical-Toroeffnung misst zur Laufzeit unveraendert 227.84 px (' +
+     (2 * T.arena().clearHalf).toFixed(2) + ')'); }
 T.setVariant('tactical');
 const S = T.place();
 {

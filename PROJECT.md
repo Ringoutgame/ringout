@@ -1,6 +1,6 @@
 # PROJECT.md — RingOut
 
-**Zuletzt aktualisiert:** 2026-09-02 (**Action Core — massenbehaftete Energieübertragung Spieler → Ball**, ein Volltreffer gibt dem Ball 96,7 % statt 71,4 %; **Online-Protokoll v5** — Verträglichkeitsriegel für die massenbehaftete Football-Physik aus Action Core 04, v4-Räume laufen serverseitig aus; **das sichtbar offene Tormaul ist auch physisch offen** — im Torfenster weist allein die Sockelgeometrie zurueck, keine Bandenlinie; **Arena Football Online ist ueber das normale Produktmenue erreichbar** — `?dev=1` ist fuer Spieler nicht mehr noetig; Online-Protokoll v4 mit Football-Raumtyp; Online-Sitze gehoeren der Firebase-`auth.uid`; Arena Football: **Elimination startet mit fuenf Spielern** auf dem Broad Rounded Pentagon, Ablauf 5P → 4P → 3P → 2P → Sieger; **zwei Leben** in der Elimination, Classic auf der kanonischen Shouldered-Wide-Arena, **fester 60-Hz-Gameplay-Takt** unabhaengig von der Bildwiederholrate, neu abgestimmte Daempfung und dynamischere Abschusskurve; finale adaptive Elimination-Arenaformen — Rounded Square / Broad Rounded Triangle / Shouldered Wide; **beide** Arenawechsel 4→3 und 3→2 sind animiert und tragen Gold-Kantenfeedback plus Transitionsklang; **drei** sichtbare Modi — Classic 1v1 als Standard, Tactical 1v1, Elimination; Elimination ist jetzt regulaer ueber die Modusauswahl startbar, weiterhin lokal/Hotseat)
+**Zuletzt aktualisiert:** 2026-09-03 (**Speed-Match-HUD im Querformat korrigiert**: die Statusleiste rückt an den oberen Rand, die Arena gewinnt 70 → 82 % der Höhe, Hochformat unverändert; Meldungen stehen länger (1,5 s / 1,7 s), LETZTE AKTION wiegt schwerer; die Regeln bleiben unverändert — persönliche 45-s-Konten als Regulärzeit, 6 s je Commit, 2 s in Zeitnot; **Online-Protokoll v7**)
 
 - **Aktueller stabiler Projekt-HEAD:** `5a23dc424fb3126c33c29543b7c6571b87a65ec7`
 - **Implementierungs-Commit UX-Phase 3:** `babbbe78ee388489321d1f0cb3e032bbaabd0725`
@@ -159,11 +159,233 @@ je Teilschritt** (149 % des Abschusstempos) gegen eine kleinste Kontaktdistanz v
 ein Deckel würde starke Schüsse beschneiden, ohne etwas zu sichern. Gemessen statt
 gedeckelt: `tools/test_football_action_core.js`.
 
-### Online-Protokoll v5
+### 2P-Arena-Offensive — die Toroeffnung ist der Hebel, nicht die Schulter (2026-09-03)
 
-`ONLINE_PROTOCOL_VERSION = 5`. Ein Raum mit einer anderen Version wird sauber abgelehnt
+**Ausgangsfrage.** Classic 1v1 sollte offensiver werden. Die Vermutung war, die vier
+**Schulterflaechen** der Shouldered-Wide-Arena liessen sich zum Angriffswerkzeug machen:
+`Spieler → Ball → Schulter → Tor` als erlernbare Fertigkeit.
+
+**Die Messung hat die Vermutung widerlegt** (`artifacts/football-arena-offense/`, 24
+Angriffslagen × 360° in 1°-Schritten, Maximalschuss, echte Physik):
+
+| Schulterwinkel | direkte Tore | Schulterbank | Bandenbank | bestes Fenster |
+|---|---|---|---|---|
+| 25° | 668 | 10 | 636 | 2° |
+| **35° (Bestand)** | **668** | **38** | **636** | **3°** |
+| 45° | 668 | 84 | 632 | 4° |
+
+Die beiden Routen, die tatsaechlich Tore erzeugen — direkter Schuss (668) und Bank über die
+Längsbande (636) — sind über **jeden** getesteten Winkel und beide Torwandhöhen Stück für
+Stück identisch. Die Schulter berührt sie nicht. Sie liefert 10–84 Tore von 8640, in
+Winkelfenstern von 2–5° — zu schmal, um als Fertigkeit zu taugen. **Die Schulter bleibt
+unverändert bei 35°/6.10.**
+
+**Der wirksame Hebel ist die Toroeffnung.** Bei sonst gleicher Geometrie:
+
+| lichte Weite | direkte Tore | Bank (≤ 2 Kontakte) | Geklapper (≥ 3) | Zielfenster | Trichter |
+|---|---|---|---|---|---|
+| 227,84 px | 668 | 1076 | 132 | 28° | 22,2 % |
+| 250,62 px (+10 %) | 780 | 1178 | 164 | 32° | 24,4 % |
+| 262,0 px (+15 %) | 830 | 1226 | 188 | 34° | 26,0 % |
+| 273,4 px (+20 %) | 896 | 1278 | 190 | 36° | 28,4 % |
+
+Erprobt wurde **+10 %**: der zurückhaltendste Schritt mit messbarer Wirkung. Der
+**Spieltest hat ihn verworfen** — im 1v1 wurde das Tor damit zu leicht getroffen, während
+dieselbe Öffnung in Elimination/FFA als passend empfunden wird. Classic steht deshalb
+wieder auf der ursprünglichen **227,84 px**. Die Messreihe bleibt als Beleg stehen: der
+Hebel ist die Toröffnung, nicht die Schulter — nur ist die Öffnung bereits richtig
+eingestellt.
+
+**Umsetzung — eine Zahl für Physik und Optik.** Das Tor ist ein festes GLB-Asset; die
+Konstanten `postInner`/`postOuter` sind die **gemessenen Sockelkanten dieses Assets**
+(`FB_GOAL_ASSET_INNER` 3.560, `FB_GOAL_ASSET_OUTER` 5.282 BR) — unskaliert, in **jedem**
+Modus und in jeder Phase. `mkGoal` skaliert das Modell wieder **uniform**
+(`g.scale.setScalar(goalScale)`); es gibt keinen modusabhängigen Streckfaktor, also auch
+keine Optik, die der Physik nachlaufen könnte. Der während des Versuchs eingeführte
+`FB_CLASSIC_GOAL_K` und die tangentiale Modellstreckung sind vollständig entfernt.
+
+**Classic und das Finale sind wieder dieselbe Arenainstanz.** Für den Versuch war Classic
+in ein eigenes Objekt abgespalten worden, damit das Tor nicht mitten im Elimination-Match
+beim Übergang 3P→2P wächst. Mit der Rücknahme entfällt der Grund: `FOOTBALL_ARENA_CLASSIC
+= FOOTBALL_ARENA_ELIM2` — eine Instanz, keine doppelte Geometrie, kein zweiter Zustand.
+Bande, Torachse, Toröffnung und Spawnabstand können damit gar nicht auseinanderlaufen.
+
+**Fairness und Symmetrie, gemessen** (am erprobten +10-%-Stand; nach der Rücknahme gilt
+wieder die ursprüngliche Kante von 98,4 px unter der sichtbaren 113,92 px, geprüft in
+`test_football_goal_mouth.js`). Die Physik öffnet **nie** weiter als
+der Marmor. Über 576 Schuss: kein Austritt, kein NaN, keine Fahrt durch den Marmor. Eine
+**Spielerkugel tritt an keiner Breite durch** (Überschuss 0,00 px). Die Spiegelprobe über
+sechs Winkelraster und 12 672 Schusspaare zeigt in **jedem** Raster **null** Paare mit
+unterschiedlichem Tor-Ausgang. Die 7 von 1728 Paaren mit abweichender *Bahn* sind
+Messerschneidenfälle an der Naht Torwand/Schulter: einen Schritt vor der Trennung beträgt
+die Spiegelabweichung 2,8·10⁻¹³ bis 5,2·10⁻¹³ — reine Rundung über 28–57 Schritte —, die
+Trennung setzt nie *vor* dem ersten Kontakt ein, und derselbe Effekt tritt bei
+**unveränderter** Toroeffnung ebenso auf (1 von 1728 bei 2°-Versatz). Er wird von der
+Verbreiterung nicht erzeugt.
+
+**Nicht angefasst.** Tactical (227,84 px), Elimination-Phasen 5/4/3/2 (227,84 px), die
+Morph-Geometrie, alle Spawns, die Ballphysik (bitgleich zu v5) und Timed Classic.
+
+### Classic 1v1: zwei Regeln (2026-09-03)
+
+Classic wird vor dem Start gewählt — zwei Regeln, die sich in der Sache unterscheiden und
+deshalb **beide** erhalten bleiben.
+
+**FIRST TO 3** ist die Bestandsregel, unverändert: erster Score >= `FOOTBALL_WIN_SCORE`
+gewinnt. Keine Zeitkonten, keine Rundengrenze, kein Golden Goal. Sie ist die Vorgabe; ein
+unbekannter oder fehlender Regelwert fällt auf sie zurück.
+
+**SPEED MATCH** ist die schnelle Variante: je Spieler ein **persönliches** Zeitkonto von
+45 Sekunden, höchstens 6 Sekunden Bedenkzeit je Commit. **Die Konten sind die
+Regulärzeit** — es gibt keine feste Rundenzahl.
+
+#### Warum zwei Konten statt einer gemeinsamen Uhr
+
+Der Spieltest der gemeinsamen 90-Sekunden-Bedenkzeituhr fand einen strategischen Fehler:
+wer führte, konnte seine Bedenkzeit ausschöpfen und damit die **gemeinsame** Uhr
+verbrennen. Der Gegner verlor dadurch künftige Angriffe, ohne selbst etwas falsch gemacht
+zu haben. Zwei getrennte Konten schliessen das aus: es sinkt immer nur das Konto dessen,
+der gerade zielt. Wer trödelt, verbraucht ausschliesslich seine eigene Zeit und landet in
+der Zeitnot — die Züge des Gegners werden dadurch weder weniger noch kürzer.
+
+#### Warum keine feste Rundenzahl
+
+Der zweite Spieltest hat die Zwölf-Runden-Grenze verworfen: sie war eine **zweite**
+Regulärzeit neben den Konten und konnte ein Match beenden, obwohl beide Spieler noch Zeit
+hatten. Jetzt bestimmt nur noch **eine** Größe das Ende — die persönliche Zeit.
+
+#### Die Groessen
+
+| Groesse | Wert | Ticks bei 60 Hz |
+|---|---|---|
+| `FOOTBALL_BANK_SECONDS` | 45 s persönlich | 2700 |
+| `FOOTBALL_SHOT_SECONDS` | 6 s je Commit | 360 |
+| `FOOTBALL_TROUBLE_SECONDS` | 2 s in Zeitnot | 120 |
+| `FOOTBALL_HANDOFF_SECONDS` | 30 s Übergabefrist | 1800 |
+
+Alle Zeiten sind **feste Ticks** — kein `Date.now`, kein `setTimeout`, keine
+Bildwiederholrate. Die Tickzahlen sind abgeleitet, nicht getippt.
+
+#### Wo die Zeit hängt
+
+`fbClockStep()` läuft einmal je `simStep`, also in **jeder** Phase mit denselben festen
+60 Hz. Das Gate steht in der Uhr selbst (`fbDecisionWho()`), nicht beim Aufrufer: Flug,
+Settlement, Torablauf, Reset, Spawn, Reveal, Übergabeschirm, Menü, Orbit-Testmodus und ein
+verdeckter Browser-Tab halten alles an.
+
+#### Zeitnot
+
+Ein leeres Konto beendet nichts — kein Ausscheiden, kein geschenktes Tor, kein
+übersprungener Zug. Der Spieler zieht weiter, nur mit 2 statt 6 Sekunden. Leert sich das
+Konto **während** eines Commits, friert es auf exakt 0 ein und der laufende Countdown wird
+sofort auf höchstens zwei Sekunden gekappt.
+
+#### Das Ende der Regulärzeit
+
+`fbRegulationOver()` ist genau `fbBank[0] <= 0 && fbBank[1] <= 0`. Solange auch nur einer
+noch Zeit hat, läuft das Match weiter — der andere zieht dann in der Zeitnot mit zwei
+Sekunden, wird aber weder übersprungen noch bestraft.
+
+**Der letzte Zyklus bleibt ganz.** Geprüft wird an genau den zwei Stellen, an denen die
+Eingabe wieder freigegeben würde: am Ende des Torablaufs und im Settlement eines Schusses
+ohne Tor. Beide liegen **nach** Reveal, Abschuss, Flug, Banden- und Sockelkontakten und der
+vollständigen Torabwicklung. Leert sich das zweite Konto mitten im Zug, wird dieser Zug
+deshalb nicht abgeschnitten: er kommt zustande, fliegt aus, und ein Tor daraus zählt. Erst
+danach fällt die Entscheidung.
+
+Gleichstand führt ins **Golden Goal**. Weil dort beide Konten auf 0 stehen, ziehen **beide**
+mit zwei Sekunden je Commit.
+
+#### Das HUD
+
+Drei Zahlen, keine Etiketten. Der **Punktestand** in der Mitte, links und rechts davon das
+**persönliche Zeitkonto** des jeweiligen Spielers (15 px, fett, feste Ziffernbreite, in
+seiner Teamfarbe), und zwischen den Punktzahlen der **Schuss-Countdown** in
+Zehntelsekunden. Die früheren Wörter `ZEIT`/`BANK` sind entfallen: Position, Farbe und
+Größe tragen die Bedeutung, ein wiederholtes Wort daneben sagt nichts Zusätzliches.
+
+Zwei Ereignisse bekommen eine **kurze** Meldung über der Leiste (~1 s, danach spurlos weg):
+das erste leergelaufene Konto (`BLAU — ZEITNOT`) und das zweite (`LETZTE AKTION`). Sie sind
+**rein anzeigend** — `fbNotice` wird von keiner Zeile der Wertung gelesen —, liegen
+absolut über der Leiste und verschieben deshalb keine Zahl. Der Riegel `fbTroubleSeen`
+sorgt dafür, dass jede höchstens einmal je Ereignis feuert; leert sich das zweite Konto,
+erscheint `LETZTE AKTION` **statt** einer zweiten Zeitnot-Meldung.
+
+Der Dauerzustand Zeitnot spricht danach allein über die Darstellung der **0:00** — kein
+Banner bleibt stehen.
+
+Die Meldung hängt an der **Statusleiste**, nicht am Bildschirmrand: `#game.fb .status` ist
+ihr Bezugsrahmen, sie sitzt mit `top:100%` direkt darunter. Damit sitzt sie in beiden
+Ausrichtungen richtig, braucht keine geratene Pixelzahl und wird oben nicht angeschnitten —
+vorher rechnete sie sich auf `y = −2 px`. Dauer: Zeitnot 90 Ticks (1,5 s), letzte Aktion
+102 Ticks (1,7 s); letztere ist rund 15 % größer gesetzt, weil sie den Ausgang betrifft.
+
+#### Querformat
+
+Der Spieltest fand die Leiste im Querformat zu tief. Die Ursache war die **Kopfzeile**, nicht
+die Leiste: im Hochformat ist für den RINGOUT-Schriftzug Platz, im Querformat kostet er rund
+ein Achtel der Höhe. `@media(orientation:landscape) and (max-height:520px)` nimmt ihn deshalb
+dort heraus und setzt die beiden Knöpfe absolut in die obere rechte Ecke; die Statusleiste
+rückt an den oberen Rand. **Keine Zahl wird dabei kleiner** — korrigiert ist die Position,
+nicht die Lesbarkeit.
+
+| Lage | Leiste endet | Arena | Anteil |
+|---|---|---|---|
+| 844×390 vorher | 107 px | 271 px | 70 % |
+| 844×390 **nachher** | **61 px** | **319 px** | **82 %** |
+| 800×360 **nachher** | **61 px** | **289 px** | **80 %** |
+| 390×844 hoch (unverändert) | 107 px | 725 px | 86 % |
+
+Notch und Systemleiste über `env(safe-area-inset-top/right)` mit Mindestabstand — kein
+Festwert, der nur zu einem Gerät passt. Belege: `artifacts/football-hud-landscape/`
+(`vorher/`, `nachher/`, erzeugt mit `shot.js` aus dem **echten** Stilblock und Markup).
+
+#### Online bleibt unberührt
+
+`fbDecisionWho()` liefert bei `online` sofort −1, und `fbSpeed()` verlangt `fbClassic()`.
+Online-Football ist ausschliesslich Elimination (`FOOTBALL_FMTS = ['elimination']`), wo
+`fbClassic()` false ist. Die Zeitregel ist dort strukturell unerreichbar; die
+Online-Simulation bleibt bitgleich, `ONLINE_PROTOCOL_VERSION` bleibt 7.
+
+### 2P-Bankschuss: gemessen, nicht geaendert (2026-09-03)
+
+Die Vermutung, die 2P-Arena biete keine erlernbaren Bankrouten, ist **widerlegt**. Die
+Eckroute existiert im Bestand — tiefe Ecke → lange Bande → Tormuendung, **9.0°**
+Zielfenster, exakt gespiegelt; die Seitenbahn liefert 8.8°. Beides liegt im Zielkorridor
+8–15°.
+
+Was nicht existiert, ist eine **Schulter**route: null Treffer aus jeder Lage. Der Grund ist
+gerechnet und gemessen: die Bande gibt nur `restBand = 0.60` zurueck, der Ball kommt also
+flacher zurueck als die Spiegelregel verspricht. Der Bandenroute hilft das (sie wird
+weiter), der Schulterroute nimmt es die Grundlage.
+
+Der volle Entwurfsraum (Winkel 20–60°, Torwandhoehe, Eckradius) wurde abgesucht: das
+Schulterfenster waechst monoton mit dem Winkel, erreicht empirisch aber hoechstens 7.0° —
+unter dem Korridor — und alles jenseits von 50° bezahlt mit Trichter (23,2 → 26,4 %) und
+Geklapper (+12 %). Deshalb bleibt die Geometrie unveraendert. Messreihen und Kandidaten:
+`artifacts/football-bank-routes/BEFUND.md`.
+
+### Online-Protokoll v7
+
+`ONLINE_PROTOCOL_VERSION = 7`. Ein Raum mit einer anderen Version wird sauber abgelehnt
 (Versionsmeldung beim Beitritt, `noRoom` beim Rejoin) — keine stille Teilinterpretation,
 keine Live-Migration.
+
+**Warum v7 (2026-09-03).** Wie v5 ist auch v7 **keine Schemaänderung**, sondern eine
+**Simulationsrevision**: sie trägt **Timed Classic** (90 s aktive Simulation, Golden Goal)
+und damit einen anderen Rundenablauf als v5. Die zwischenzeitlich unter v7 erprobte
+breitere Classic-Toröffnung ist nach dem Spieltest **zurückgenommen** — die Geometrie ist
+wieder die von v5 —, die **Nummer bleibt trotzdem v7**: sie war öffentlich im Umlauf, und
+ein Raum aus dem Zwischenstand darf nie für den heutigen gehalten werden.
+
+**v6 ist verbrannt.** Die Nummer markierte die Sustained-Energy-Abstimmung (Action Core
+05), die der Spieltest **abgelehnt** hat; sie ist vollständig aus dem Produktivcode
+entfernt, die Physik ist wieder bitgleich zu v5. Die Nummer wird trotzdem **nicht
+wiederverwendet** — sie kann bei Testern im Umlauf gewesen sein, und ein v6-Raum darf nie
+für den heutigen Stand gehalten werden. Die Übergangsregeln akzeptieren **v4, v5, v6 und
+v7**, damit noch offene Räume auslaufen statt zu sterben; alles andere — Client-Trennung,
+Unveränderlichkeit der Raumversion, Vergleichsschreiben beim Sitzclaim, versionsgebundener
+Zugslot — gilt unverändert weiter.
 
 **Warum v5 (2026-09-02).** v5 ist **keine Schemaänderung** — das Raumformat ist Feld für
 Feld dasselbe wie v4. v5 markiert eine **Simulationsrevision**: seit Action Core 04 kennt
@@ -183,8 +405,8 @@ Wiederverbindung nach einem Abriss — geprüft, **bevor** irgendetwas geschrieb
 Angelegt wird ein Raum an genau **einer** Stelle, die `v: ONLINE_PROTOCOL_VERSION` setzt;
 öffentlicher und Dev-Einstieg laufen beide durch sie.
 
-**Übergangsregeln (Firebase).** Die Rules akzeptieren während der Umstellung **v4 und
-v5**, wo Protokollgültigkeit verlangt wird — sonst wäre jeder noch offene v4-Raum sofort
+**Übergangsregeln (Firebase).** Die Rules akzeptieren während der Umstellung **v4, v5, v6
+und v7**, wo Protokollgültigkeit verlangt wird — sonst wäre jeder noch offene v4-Raum sofort
 tot, obwohl die alten Clients dort völlig legitim weiterspielen. Bestehende v4-Räume
 laufen aus, es gibt **keine** Migration und kein Umschreiben. Neu und ausdrücklich: die
 Raumversion ist **unveränderlich** (`(!data.exists() || newData.val() === data.val())`) —

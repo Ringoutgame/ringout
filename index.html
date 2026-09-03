@@ -250,6 +250,7 @@ header{width:100%;max-width:460px;display:flex;align-items:center;justify-conten
 
 /* Oberes HUD: Player-Cards + Score als Premium-Panels im Menue-Look (Navy-Glass, Gold) */
 .status{width:100%;max-width:460px;display:grid;grid-template-columns:1fr auto 1fr;gap:7px;margin-bottom:6px;flex-shrink:0}
+
 .pcard{background:linear-gradient(180deg,rgba(24,33,54,.88),rgba(14,21,36,.92));border-radius:14px;padding:8px 12px;border:1px solid rgba(122,142,180,.3);box-shadow:0 8px 22px rgba(5,9,18,.35);backdrop-filter:blur(6px);transition:border-color .2s,box-shadow .2s}
 /* Eigener Spieler (online): dezenter heller Rand, unabhaengig vom "am Zug"-Highlight
    act0/act1 (die weiter unten stehen und bei Bedarf ueberschreiben). */
@@ -275,6 +276,16 @@ header{width:100%;max-width:460px;display:flex;align-items:center;justify-conten
 .scorebox{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;background:linear-gradient(180deg,rgba(24,33,54,.82),rgba(14,21,36,.9));border:1px solid rgba(255,201,64,.32);border-radius:14px;padding:5px 14px;box-shadow:0 8px 22px rgba(5,9,18,.3);backdrop-filter:blur(6px)}
 .score{font-size:20px;font-weight:900;letter-spacing:.04em}
 .score .s0{color:var(--p1)}.score .s1{color:var(--p2)}.score .sep{color:rgba(255,201,64,.75);margin:0 5px;font-size:14px}
+/* Zeitmodus: der Trenner traegt die Restzeit. Feste Ziffernbreite, damit die Punktzahlen
+   beim Sekundenwechsel nicht wandern. */
+.score .sep.clk{font-variant-numeric:tabular-nums;letter-spacing:.02em}
+/* ANGEHALTEN braucht keinen eigenen Zustand: steht der Countdown, zeigt der Trenner
+   wieder den schlichten Doppelpunkt und traegt die Klasse clk gar nicht erst. Eine
+   zusaetzlich gedaempfte Ziffernanzeige waere nur eine zweite Art, dasselbe zu sagen. */
+/* Letzte ZWEI Sekunden des Commit-Countdowns: heller und ein ruhiger Puls im Sekundentakt.
+   Kein Blinken — und nur, solange der Countdown wirklich laeuft. */
+.score .sep.clk.urgent{color:rgba(255,222,120,.98);animation:fbclk 1s ease-in-out infinite}
+@keyframes fbclk{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.82;transform:scale(1.06)}}
 .rinfo{font-size:7.5px;color:#8b99b4;text-transform:uppercase;letter-spacing:.22em;text-align:center;font-weight:800}
 
 /* ── Arena Football: Match-HUD ────────────────────────────────────────────────
@@ -295,6 +306,9 @@ header{width:100%;max-width:460px;display:flex;align-items:center;justify-conten
 #game.fb .score{font-size:30px;letter-spacing:.01em;line-height:1.06;font-variant-numeric:tabular-nums}
 #game.fb .score .s0,#game.fb .score .s1{display:inline-block;min-width:.66em;text-align:center}
 #game.fb .score .sep{font-size:18px;margin:0 6px;color:rgba(255,201,64,.62)}
+/* Der Commit-Countdown steht mittig zwischen den Punktzahlen und hat feste Ziffernbreite,
+   damit die Punktzahlen beim Zehntelwechsel nicht wandern. */
+#game.fb.fbspeed .score .sep.clk{font-size:15px;min-width:34px;display:inline-block;text-align:center}
 #game.fb .rinfo{font-size:8px;letter-spacing:.24em;color:#93a3bd}
 /* Teamakzent als schmale Kante — blau nur links, rot nur rechts, keine bunten Flaechen.
    Ueber die IDs adressiert (nicht ueber :first-child/:last-child), damit die Zuordnung
@@ -310,6 +324,105 @@ header{width:100%;max-width:460px;display:flex;align-items:center;justify-conten
 #game.fb .pcard{padding:9px 12px;display:grid;align-content:center}
 #game.fb .pcard .pn{font-size:11px;letter-spacing:.13em}
 #game.fb .pcard .pw{display:none}
+/* SPEED MATCH: die Spielerkarte traegt das persoenliche Zeitkonto. Es ist ein ANDERER
+   Begriff als der Commit-Countdown in der Mitte und steht deshalb an anderer Stelle,
+   in anderem Format (M:SS statt Zehntelsekunden) und in anderer Farbe.
+
+   GROESSE: seit dem Spieltest deutlich prominenter. Das Konto ist im Speed Match die
+   Groesse, die das MATCH beendet — es hat den Rang eines Punktestands und nicht den einer
+   Fussnote. 15 px statt 8.5, feste Ziffernbreite, und die Zahl traegt die Teamfarbe, damit
+   auf einen Blick klar ist, WESSEN Zeit da steht. Der Name darueber bleibt klein; die
+   Karte waechst dadurch nicht ueber die Statusleiste hinaus. */
+#game.fb.fbspeed .pcard .pw{display:block;font-size:15px;font-weight:900;line-height:1.05;
+  margin-top:1px;letter-spacing:.02em;font-variant-numeric:tabular-nums;color:#8fa0bd}
+/* Die Teamfarbe gilt nur im RUHIGEN Zustand. Ohne die beiden :not() gewaennen diese
+   Regeln jeden Spezifitaetsvergleich gegen .act und .trouble (zwei IDs gegen eine) — die
+   Zeitnot bliebe blau und der aktive Spieler unmarkiert. */
+#game.fb.fbspeed #card0 .pw:not(.act):not(.trouble){color:var(--p1)}
+#game.fb.fbspeed #card1 .pw:not(.act):not(.trouble){color:var(--p2)}
+/* Der Spieler, der GERADE zieht: heller, damit die aktive Uhr sofort auffaellt. */
+#game.fb.fbspeed .pcard .pw.act{color:rgba(255,222,120,.98)}
+/* ZEITNOT: unmissverstaendlich, aber ohne die Arena zu verdecken. Die Zahl behaelt ihre
+   volle Groesse — sie ist in diesem Zustand die WICHTIGSTE des HUD und darf gerade dann
+   nicht kleiner werden. Unterschieden wird ueber Farbe und einen ruhigen Puls.
+   (Die frueher hier stehende Verkleinerung stammte aus der Zeit, als hier das Wort
+   ZEITNOT stand; das Wort ist entfallen, der Grund damit auch.) */
+#game.fb.fbspeed .pcard .pw.trouble{color:rgba(255,138,120,.98);
+  animation:fbnot 1.6s ease-in-out infinite}
+@keyframes fbnot{0%,100%{opacity:1}50%{opacity:.72}}
+/* Schmale Telefone: die Zahl bleibt lesbar, ruecken aber enger zusammen. */
+@media(max-width:380px){
+  #game.fb.fbspeed .pcard .pw{font-size:13px}
+}
+/* KURZMELDUNG. Eine schmale Zeile UNTER der Statusleiste, absolut positioniert — sie
+   belegt keine eigene Zeile im Layout und verschiebt deshalb keine der drei wichtigen
+   Zahlen (Stand, beide Konten, Countdown). Sie liegt ueber dem oberen Rand des
+   Spielfelds und blendet weich ein und aus. Nach 1.5 s (Zeitnot) bzw. 1.7 s (letzte
+   Aktion) ist sie spurlos weg. */
+/* Bezugsrahmen der Kurzmeldung ist die STATUSLEISTE selbst. Damit sitzt sie in beiden
+   Ausrichtungen richtig — im Hochformat darueber, im Querformat darunter — und braucht
+   dafuer keine geratene Pixelzahl, die nur auf einem Geraet passt. */
+#game.fb{position:relative}
+#game.fb .status{position:relative}
+#game.fb .fbnote{position:absolute;left:50%;top:100%;margin-top:5px;
+  transform:translate(-50%,-4px);z-index:60;
+  pointer-events:none;opacity:0;transition:opacity .18s ease,transform .18s ease;
+  font-size:9.5px;font-weight:900;letter-spacing:.16em;white-space:nowrap;
+  padding:4px 12px;border-radius:999px;
+  background:linear-gradient(180deg,rgba(24,33,54,.94),rgba(16,23,40,.94));
+  border:1px solid rgba(255,201,64,.30);color:rgba(255,222,120,.98);
+  box-shadow:0 6px 18px rgba(0,0,0,.42)}
+#game.fb .fbnote.show{opacity:1;transform:translate(-50%,0)}
+#game.fb .fbnote.p0{border-color:color-mix(in srgb,var(--p1) 55%,transparent);color:var(--p1)}
+#game.fb .fbnote.p1{border-color:color-mix(in srgb,var(--p2) 55%,transparent);color:var(--p2)}
+/* LETZTE AKTION traegt bewusst die neutrale Goldfarbe: sie gehoert keinem Spieler — und
+   sie wiegt SCHWERER als die Zeitnot, weil sie den Ausgang des Matches betrifft. Deshalb
+   rund 15 % groesser, etwas mehr Kontrast und ein spuerbarerer Eintritt. Kein
+   Vollbild, kein Blinken, keine Verdeckung des Spielfelds. */
+#game.fb .fbnote.final{font-size:11px;letter-spacing:.20em;padding:5px 15px;
+  border-color:rgba(255,201,64,.55);color:#fff3d0;
+  box-shadow:0 6px 20px rgba(0,0,0,.5),0 0 14px rgba(255,201,64,.16)}
+#game.fb .fbnote.final.show{animation:fbfinal .38s cubic-bezier(.25,1.3,.4,1)}
+@keyframes fbfinal{0%{transform:translate(-50%,0) scale(.90)}
+                   55%{transform:translate(-50%,0) scale(1.06)}
+                   100%{transform:translate(-50%,0) scale(1)}}
+/* "Bewegung reduzieren": weder die Blende noch der Eintritt der letzten Aktion laufen
+   dann. Die Meldung erscheint und verschwindet schlicht — Inhalt und Dauer bleiben. */
+@media(prefers-reduced-motion:reduce){
+  #game.fb .fbnote{transition:none}
+  #game.fb .fbnote.final.show{animation:none}
+}
+/* Der EINE zurueckhaltende Puls beim Eintritt in die Zeitnot. Danach traegt die
+   Darstellung der 0:00 den Dauerzustand allein — kein Banner bleibt stehen. */
+#game.fb.fbspeed .pcard .pw.pulse{animation:fbpulse .5s ease-out 2}
+@keyframes fbpulse{0%,100%{transform:scale(1)}45%{transform:scale(1.13)}}
+/* QUERFORMAT. Der Spieltest fand die Leiste hier zu tief: sie verdeckte einen Teil des
+   Spielfelds. Die Ursache ist nicht ihre Groesse, sondern eine ganze Zeile darueber — die
+   Kopfzeile mit dem RINGOUT-Schriftzug. Im Hochformat ist dafuer Platz, im Querformat
+   kostet sie rund ein Achtel der gesamten Hoehe.
+   Korrigiert wird deshalb die POSITION, nicht die Lesbarkeit: der Schriftzug entfaellt
+   hier, und die beiden Knoepfe verlassen den Fluss in die obere rechte Ecke. Die
+   Statusleiste rueckt damit an den oberen Rand, alle Zahlen behalten ihre Groesse.
+   env(safe-area-inset-*) haelt sie aus Notch und Systemleiste heraus — kein geratener
+   Festwert, der nur zu einem Geraet passt. */
+@media(orientation:landscape) and (max-height:520px){
+  #game.fb{padding-top:max(2px,env(safe-area-inset-top,0px))}
+  #game.fb header{position:absolute;z-index:70;width:auto;max-width:none;margin:0;
+    top:max(4px,env(safe-area-inset-top,0px));
+    right:max(8px,env(safe-area-inset-right,0px))}
+  #game.fb header .gtitle{display:none}
+  #game.fb .status{margin-bottom:4px}
+}
+/* Sehr schmale Geraete (320 px). Der Punktestand ist seit dem Wegfall der Rundengrenze
+   nach oben offen — zweistellige Staende auf beiden Seiten plus der Countdown in der Mitte
+   sprengen dort sonst die Leiste, und html/body stehen auf overflow:hidden, der Rand
+   waere also abgeschnitten statt scrollbar. Die drei Spalten duerfen deshalb schrumpfen. */
+@media(max-width:360px){
+  #game.fb.fbspeed .pcard,#game.fb.fbspeed .scorebox{min-width:0}
+  #game.fb.fbspeed .scorebox{padding:6px 9px}
+  #game.fb.fbspeed .pcard .pw{font-size:12px}
+  #game.fb.fbspeed .score .sep.clk{min-width:28px;font-size:13px}
+}
 /* Toranzeige (UX-3): der Punkt bekommt einen kurzen Gold-Impuls, der in die Teamfarbe
    zurueckfaellt. Gold traegt den Treffermoment, die Teamfarbe traegt die ZUORDNUNG —
    exakt dieselbe Farblogik wie am Tor selbst. Genau EINE Seite animiert, die andere
@@ -714,6 +827,11 @@ body:not(.r3d) .ohero{height:12px}
     </div>
     <div class="pcard" id="card1"><div class="pn" id="n1">BOT</div><div class="pw" id="ready1">zielt…</div></div>
     <div class="ffabar" id="ffaBar"></div>
+    <!-- SPEED MATCH: schmale Kurzmeldung. Sie haengt an der STATUSLEISTE und sitzt
+         direkt DARUNTER — dadurch in beiden Ausrichtungen richtig, ohne geratene
+         Pixelzahl, ohne Kollision mit Schriftzug oder Knoepfen, und nie angeschnitten.
+         Frueher rechnete sie sich auf y = -2 px und war oben abgeschnitten. -->
+    <div class="fbnote" id="fbNote"></div>
   </div>
   <div class="arena-wrap"><canvas id="cv"></canvas></div>
   <!-- Ring-Collapse-Timer (nur lokales Bot Training): kleine Matchzeit + grosser 5..1-Countdown -->
@@ -811,6 +929,28 @@ body:not(.r3d) .ohero{height:12px}
       <span class="vopt-s" id="fbOnlineS">2–5 PLAYERS · PLAY WITH FRIENDS</span>
     </button>
     <button class="wbtn" id="fbModeBack">↩ Back</button>
+  </div>
+</div>
+
+<!-- CLASSIC-REGELWAHL. Zwei Regeln, die sich in der Sache unterscheiden und deshalb
+     BEIDE erhalten bleiben: First to 3 ist die kurze, offene Partie ohne Zeitdruck;
+     Speed Match ist die schnelle mit persoenlichen Zeitkonten, die zugleich die
+     Regulaerzeit sind — das Match endet, wenn BEIDE Konten leer sind.
+     Der Untertitel nennt jeweils genau das, was die Regel ausmacht — niemand soll erst
+     im Spiel merken, worauf er sich eingelassen hat. "First to 3" heisst bewusst NICHT
+     "Best-of-3" — das waere ein anderes Wettkampfformat. -->
+<div class="ov" id="fbRuleOv">
+  <div class="wb vswb">
+    <div class="wt" id="fbRuleTitle">CLASSIC 1V1</div>
+    <button class="vopt rec" id="fbFirst3Btn">
+      <span class="vopt-t" id="fbFirst3T">FIRST TO 3</span>
+      <span class="vopt-s" id="fbFirst3S">FIRST PLAYER TO SCORE 3 GOALS WINS</span>
+    </button>
+    <button class="vopt" id="fbSpeedBtn">
+      <span class="vopt-t" id="fbSpeedT">SPEED MATCH</span>
+      <span class="vopt-s" id="fbSpeedS">45 s PERSONAL TIME · 6 s PER SHOT · TIME TROUBLE</span>
+    </button>
+    <button class="wbtn" id="fbRuleBack">↩ Back</button>
   </div>
 </div>
 
@@ -1730,6 +1870,15 @@ en:{tagline:'PULL BACK · RELEASE · KNOCK THEM OUT',chip:'FEATURED',
   leaveT:'Leave online match?',leaveS:'Your opponent can’t continue without you.',leaveNo:'Cancel',leaveYes:'Leave match',
   rematch:'🔄 Rematch',replayB:'🎬 Watch replay',menuB:'↩ Menu',fbNewMatch:'🔄 New match',
   fbFirstTo:'FIRST TO {n}',   // {n} kommt aus FOOTBALL_WIN_SCORE — keine zweite Matchregel
+  // Speed Match: der Untertitel traegt die gewaehlte Regel, die Spielerkarte das
+  // persoenliche Zeitkonto. Zwei verschiedene Begriffe, zwei verschiedene Stellen.
+  fbFirst3T:'FIRST TO 3',
+  fbFirst3S:'FIRST PLAYER TO SCORE 3 GOALS WINS',
+  fbSpeedT:'SPEED MATCH',
+  fbSpeedS:'45 s PERSONAL TIME · 6 s PER SHOT · TIME TROUBLE',
+  fbTrouble:'TIME TROUBLE',
+  fbFinal:'FINAL PLAY',
+  fbGolden:'GOLDEN GOAL',
   creating:'Creating room…',ffaShare:'FFA · Share the code with 1–4 friends.',shareCode:'Share the code with your friend.',
   code4:'Please enter the 4-letter code.',joining:'Joining…',noRoom:'Room not found.',roomFull:'Room is already full.',
   connWait:'Connected! Waiting for the host…',connStart:'Connected! Game starting…',
@@ -1778,6 +1927,15 @@ de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'FEATURED',
   leaveT:'Online-Match verlassen?',leaveS:'Dein Gegner kann dann nicht weiterspielen.',leaveNo:'Abbrechen',leaveYes:'Match verlassen',
   rematch:'🔄 Rematch',replayB:'🎬 Replay ansehen',menuB:'↩ Menü',fbNewMatch:'🔄 Neues Match',
   fbFirstTo:'ERSTER BIS {n}',
+  // Speed Match: der Untertitel traegt die gewaehlte Regel, die Spielerkarte das
+  // persoenliche Zeitkonto. Zwei verschiedene Begriffe, zwei verschiedene Stellen.
+  fbFirst3T:'FIRST TO 3',
+  fbFirst3S:'WER ZUERST DREI TORE HAT, GEWINNT',
+  fbSpeedT:'SPEED MATCH',
+  fbSpeedS:'45 s EIGENE ZEIT · 6 s JE SCHUSS · ZEITNOT',
+  fbTrouble:'ZEITNOT',
+  fbFinal:'LETZTE AKTION',
+  fbGolden:'GOLDEN GOAL',
   creating:'Erstelle Raum…',ffaShare:'FFA · Schick den Code an 1–4 Freunde.',shareCode:'Schick den Code an deinen Kumpel.',
   code4:'Bitte 4-stelligen Code eingeben.',joining:'Trete bei…',noRoom:'Raum nicht gefunden.',roomFull:'Raum ist schon voll.',
   connWait:'Verbunden! Warte auf den Host…',connStart:'Verbunden! Spiel startet…',
@@ -1826,6 +1984,15 @@ tr:{tagline:'GERİ ÇEK · BIRAK · DIŞARI İT',chip:'FEATURED',
   leaveT:'Online maçtan çıkılsın mı?',leaveS:'Rakibin sensiz devam edemez.',leaveNo:'İptal',leaveYes:'Maçtan çık',
   rematch:'🔄 Rövanş',replayB:'🎬 Tekrarı izle',menuB:'↩ Menü',fbNewMatch:'🔄 Yeni maç',
   fbFirstTo:'İLK {n}',
+  // Speed Match: der Untertitel traegt die gewaehlte Regel, die Spielerkarte das
+  // persoenliche Zeitkonto. Zwei verschiedene Begriffe, zwei verschiedene Stellen.
+  fbFirst3T:'FIRST TO 3',
+  fbFirst3S:'ÜÇ GOLE ULAŞAN İLK OYUNCU KAZANIR',
+  fbSpeedT:'SPEED MATCH',
+  fbSpeedS:'45 s KİŞİSEL SÜRE · 6 s ŞUT BAŞINA · ZAMAN DARLIĞI',
+  fbTrouble:'ZAMAN DARLIĞI',
+  fbFinal:'SON HAMLE',
+  fbGolden:'ALTIN GOL',
   creating:'Oda kuruluyor…',ffaShare:'FFA · Kodu 1–4 arkadaşına gönder.',shareCode:'Kodu arkadaşına gönder.',
   code4:'Lütfen 4 haneli kodu gir.',joining:'Katılınıyor…',noRoom:'Oda bulunamadı.',roomFull:'Oda zaten dolu.',
   connWait:'Bağlandı! Host bekleniyor…',connStart:'Bağlandı! Oyun başlıyor…',
@@ -1878,6 +2045,10 @@ function applyLang(){
   $('fbTacticalT').textContent=T('fbTacticalT');$('fbTacticalS').textContent=T('fbTacticalS');
   $('fbElimT').textContent=T('fbElimT');$('fbElimS').textContent=T('fbElimS');
   $('fbOnlineT').textContent=T('fbOnlineT');$('fbOnlineS').textContent=T('fbOnlineS');
+  // Regelwahl: derselbe Weg wie die Modusauswahl darueber — ein Ort fuer alle Texte.
+  $('fbRuleTitle').textContent=T('fbClassicT');$('fbRuleBack').textContent=T('back');
+  $('fbFirst3T').textContent=T('fbFirst3T');$('fbFirst3S').textContent=T('fbFirst3S');
+  $('fbSpeedT').textContent=T('fbSpeedT');$('fbSpeedS').textContent=T('fbSpeedS');
   $('onInput').placeholder=T('enterCode');
   $('nameLbl').textContent=T('nameLbl');$('nameInput').placeholder=T('namePh');$('rejoinBtn').textContent=T('rejoinBtn');
   {const bt=$('bootTxt');if(bt)bt.textContent=T('loading');}   // Boot-Overlay existiert nur bis zum First-Frame
@@ -1959,7 +2130,7 @@ $('botBack').onclick=()=>$('botOv').classList.remove('show');
 // Arena Football: EINZIGER Startpfad aller drei Produktmodi. Er setzt die Variante und laeuft
 // danach durch exakt denselben Bestandsablauf wie zuvor (lokales Match, nie online).
 // Torsound wird aus dieser Nutzergeste vorgeladen.
-function startFootball(variant){
+function startFootball(variant,rules){
   // Drei Produktmodi (Classic, Tactical, Elimination) plus der Dev-Einstieg auf die
   // Vier-Spieler-Elimination; jeder andere Wert faellt auf den Standardmodus zurueck.
   // Die drei Produktmodi sind ueber die sichtbare Modusauswahl erreichbar, der Dev-Einstieg
@@ -1967,12 +2138,26 @@ function startFootball(variant){
   fbElimStartN=0;   // lokale Partie: die Variante bestimmt die Teilnehmerzahl
   const dev4=variant===FOOTBALL_VARIANT_ELIM4&&typeof DEV_MENU!=='undefined'&&DEV_MENU;
   fbVariant=(variant===FOOTBALL_VARIANT_TACTICAL||variant===FOOTBALL_VARIANT_ELIM||dev4)?variant:'classic';
-  $('fbModeOv').classList.remove('show');
+  // Die Classic-Regel wird HIER festgelegt und nirgends sonst. Ein unbekannter oder
+  // fehlender Wert faellt auf die Bestandsregel zurueck; Tactical und Elimination
+  // ignorieren sie ohnehin (fbSpeed verlangt fbClassic).
+  fbRules=(rules===FOOTBALL_RULES_SPEED)?FOOTBALL_RULES_SPEED:FOOTBALL_RULES_FIRST3;
+  $('fbModeOv').classList.remove('show');$('fbRuleOv').classList.remove('show');
   mode=menuMode='football';fmt='single';online=false;
   SFX.footballGoalPreload();showGame();newGame();
   if(DEV_MENU)console.log('[football] Modus: '+fbVariant);
 }
-$('fbClassicBtn').onclick=()=>{if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);startFootball('classic');};
+// CLASSIC oeffnet die Regelwahl statt sofort zu starten — dieselbe Bauweise wie die
+// Modusauswahl darueber. Ein Dev-Direktlink (?dev=1&fb=classic) ueberspringt sie bewusst
+// und benutzt die Bestandsregel First to 3.
+$('fbClassicBtn').onclick=()=>{if(SFX.click())vibrateMs(VIBE_CLICK_MS);
+  $('fbModeOv').classList.remove('show');$('fbRuleOv').classList.add('show');};
+$('fbFirst3Btn').onclick=()=>{if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);
+  $('fbRuleOv').classList.remove('show');startFootball('classic',FOOTBALL_RULES_FIRST3);};
+$('fbSpeedBtn').onclick=()=>{if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);
+  $('fbRuleOv').classList.remove('show');startFootball('classic',FOOTBALL_RULES_SPEED);};
+// Zurueck fuehrt zur Modusauswahl, nicht ins Hauptmenue — der Weg, den man gekommen ist.
+$('fbRuleBack').onclick=()=>{$('fbRuleOv').classList.remove('show');$('fbModeOv').classList.add('show');};
 $('fbTacticalBtn').onclick=()=>{if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);startFootball(FOOTBALL_VARIANT_TACTICAL);};
 $('fbElimBtn').onclick=()=>{if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);startFootball(FOOTBALL_VARIANT_ELIM);};
 // ARENA FOOTBALL ONLINE - der normale Produktweg. Er setzt NUR den Kontext (Raumtyp,
@@ -2584,6 +2769,29 @@ const SFX=(()=>{
       const wn=c.createBufferSource();wn.buffer=noise(c);wn.loop=true;wn.connect(wg);wn.start(t);wn.stop(t+.5);});},
     round(pi){go(c=>{const a=pi===0?[523,784,1047]:[440,659,880];a.forEach((f,i)=>{const d=i*.07,g=c.createGain();g.gain.setValueAtTime(0,c.currentTime+d);g.gain.linearRampToValueAtTime(.25,c.currentTime+d+.03);g.gain.exponentialRampToValueAtTime(.001,c.currentTime+d+.4);g.connect(c.destination);const o=c.createOscillator();o.type='sine';o.frequency.value=f;o.connect(g);o.start(c.currentTime+d);o.stop(c.currentTime+d+.4);});});},
     win(){go(c=>{[523,659,784,1047,1318].forEach((f,i)=>{const d=i*.09,g=c.createGain();g.gain.setValueAtTime(0,c.currentTime+d);g.gain.linearRampToValueAtTime(.22,c.currentTime+d+.04);g.gain.exponentialRampToValueAtTime(.001,c.currentTime+d+.6);g.connect(c.destination);const o=c.createOscillator();o.type='sine';o.frequency.value=f;o.connect(g);o.start(c.currentTime+d);o.stop(c.currentTime+d+.6);});});},
+    // SPEED MATCH: zwei kurze, weiche Akzente. Sie sind reine Rueckmeldung auf einen
+    // Zustandswechsel und duerfen nicht stechen — deshalb Sinus (kein Saegezahn, kein
+    // Rechteck), Tiefpass bei 900 Hz und deutlich leiser als Tor oder Abschuss.
+    // Gesamtdauer: Zeitnot 0.33 s, letzte Aktion 0.40 s — beide klingen aus, bevor der
+    // naechste Zug beginnt.
+    // Zeitnot: zwei fallende Toene (weich, "es wird enger").
+    fbTimeTrouble(){go(c=>{const t=c.currentTime;
+      const lp=c.createBiquadFilter();lp.type='lowpass';lp.frequency.value=900;lp.connect(c.destination);
+      [[330,0],[247,.10]].forEach(([hz,d])=>{
+        const g=c.createGain();g.gain.setValueAtTime(.0001,t+d);
+        g.gain.linearRampToValueAtTime(.075,t+d+.02);
+        g.gain.exponentialRampToValueAtTime(.0005,t+d+.20);g.connect(lp);
+        const o=c.createOscillator();o.type='sine';o.frequency.setValueAtTime(hz,t+d);
+        o.connect(g);o.start(t+d);o.stop(t+d+.23);});});},
+    // Letzte Aktion: zwei steigende Toene (weich, "jetzt zaehlt es").
+    fbFinal(){go(c=>{const t=c.currentTime;
+      const lp=c.createBiquadFilter();lp.type='lowpass';lp.frequency.value=900;lp.connect(c.destination);
+      [[262,0],[392,.12]].forEach(([hz,d])=>{
+        const g=c.createGain();g.gain.setValueAtTime(.0001,t+d);
+        g.gain.linearRampToValueAtTime(.085,t+d+.025);
+        g.gain.exponentialRampToValueAtTime(.0005,t+d+.24);g.connect(lp);
+        const o=c.createOscillator();o.type='sine';o.frequency.setValueAtTime(hz,t+d);
+        o.connect(g);o.start(t+d);o.stop(t+d+.28);});});},
     // Ring-Collapse-Timer (synthetisch, keine externen Assets):
     // warn = dezentes 10s-Vorwarnsignal, tick = klarer 5..1-Countdown-Beep, collapse = kurzer Alarm.
     warn(){go(c=>{const t=c.currentTime;const g=c.createGain();g.gain.setValueAtTime(.0001,t);g.gain.linearRampToValueAtTime(.08,t+.02);g.gain.exponentialRampToValueAtTime(.0006,t+.5);g.connect(c.destination);const o=c.createOscillator();o.type='triangle';o.frequency.setValueAtTime(430,t);o.frequency.exponentialRampToValueAtTime(300,t+.45);o.connect(g);o.start(t);o.stop(t+.5);});},
@@ -3110,11 +3318,13 @@ function wireMenuClickFeedback(){
     'homeViewAll','homeCreate','homeJoinCode','pubRefresh','onVisPriv','onVisPub',
     'menuSet','setClose','langEn','langDe','langTr','vibeOnBtn','vibeOffBtn','musicOnBtn','musicOffBtn','envDawnBtn','envDayBtn','menuBtn',
     'fbClassicBtn','fbTacticalBtn','fbElimBtn','fbOnlineBtn','fbModeBack',
+    'fbFirst3Btn','fbSpeedBtn','fbRuleBack',
     'startBtn','rematchBtn','ovMenuBtn','leaveCancel','leaveGo'];
   // Diese Knoepfe rufen SFX.click() SELBST (sie brauchen dessen Rueckgabe fuer die
   // staerkere Bestaetigungsvibration). Sie bekommen hier deshalb nur die sichtbare
   // Druckreaktion - ein zweiter Klang waere ein doppelter Anschlag.
-  const EIGENER_KLANG=new Set(['ctaBtn','fbClassicBtn','fbTacticalBtn','fbElimBtn','fbOnlineBtn']);
+  const EIGENER_KLANG=new Set(['ctaBtn','fbClassicBtn','fbTacticalBtn','fbElimBtn','fbOnlineBtn',
+                              'fbFirst3Btn','fbSpeedBtn']);
   const SOUND_IDS=new Set(IDS.filter(id=>!EIGENER_KLANG.has(id)));
   for(const id of IDS){ const el=$(id); if(el)wireBtnFx(el,SOUND_IDS.has(id)); }
 }
@@ -3528,7 +3738,16 @@ function startRound(){placeBalls();resetCommits();roundWinner=-1;
   setPhaseText();}
 
 function ballDots(owner){const n=aliveCount(owner),cap=teamCap();return '●'.repeat(n)+'○'.repeat(Math.max(0,cap-n));}
-function readyText(p){const base=aimSet[p]?'✓ bereit':'zielt…';return fmt==='double'?ballDots(p)+' '+base:base;}
+function readyText(p){
+  // SPEED MATCH: die Spielerkarte traegt das persoenliche Zeitkonto statt "zielt…".
+  // Es ist die wichtigere Information und steht damit dort, wo der Spieler ohnehin
+  // hinsieht — und getrennt vom Commit-Countdown in der Mitte.
+  // Kein Wort davor: die Zahl steht auf der Karte des Spielers, in seiner Farbe, gross.
+  // Wessen Zeit das ist und was sie bedeutet, sagt die Position — nicht ein Etikett.
+  // Ein leeres Konto zeigt 0:00; die Zeitnot spricht dann die Darstellung aus.
+  if(typeof fbSpeed==='function'&&fbSpeed())return fbBankText(p);
+  const base=aimSet[p]?'✓ bereit':'zielt…';return fmt==='double'?ballDots(p)+' '+base:base;
+}
 function renderFfaBar(){
   let h='<span class="frnd">R'+roundNo+'</span>';
   for(let p=0;p<ffaN;p++){
@@ -3611,6 +3830,9 @@ function applyFootballHud(){
   // Elimination4 zeigt statt der zwei Spielerkarten vier Chips — die schmale Football-
   // Statusleiste wuerde sie umbrechen. Eigene Klasse, damit Classic/Tactical unveraendert bleiben.
   g.classList.toggle('fbelim',on&&typeof fbElim4==='function'&&fbElim4());
+  // SPEED MATCH blendet die Spielerzeile wieder ein — sie traegt dort das persoenliche
+  // Zeitkonto. First to 3 und Tactical bleiben unveraendert ohne sie.
+  g.classList.toggle('fbspeed',on&&typeof fbSpeed==='function'&&fbSpeed());
   if(!on)fbClearHudFx();
 }
 function fbClearHudFx(){
@@ -3631,6 +3853,113 @@ function fbScoreBox(){return document.querySelector('.scorebox');}
 // nimmt den deutschen Eintrag; en/tr bleiben gepflegt, damit die Zeile beim spaeteren
 // Lokalisieren des HUDs ohne Codeaenderung einrastet.
 function fbFirstToText(){return I18N.de.fbFirstTo.replace('{n}',FOOTBALL_WIN_SCORE);}
+// Untertitel im Zeitmodus. Waehrend der Regulaerzeit die Matchlaenge, danach GOLDEN GOAL —
+// beides aus denselben Konstanten wie die Regel selbst, nirgends ein zweites Mal gepflegt.
+function fbModeText(){
+  if(!fbSpeed())return fbFirstToText();
+  if(fbGolden)return I18N.de.fbGolden;
+  // Kein Rundenzaehler mehr — es gibt keine feste Rundenzahl. Der Untertitel nennt
+  // schlicht die gewaehlte Regel; die Restzeit steht dort, wo sie hingehoert: bei den
+  // Spielerkarten.
+  return I18N.de.fbSpeedT;
+}
+// Anzeige der Restzeit je Bild. Rein lesend: die Uhr selbst laeuft ausschliesslich in
+// simStep. Aktualisiert wird nur, wenn sich der angezeigte Zustand wirklich aendert —
+// sonst schriebe jeder Frame ins DOM.
+let fbClockShown='';
+// Laeuft die Uhr in DIESEM Augenblick? Genau dann, wenn jemand handeln kann — dieselbe
+// Frage, die auch der Tick stellt. Eine zweite Bedingung daneben koennte auseinanderlaufen.
+function fbClockRunning(){
+  return typeof fbDecisionWho==='function'&&fbDecisionWho()>=0;
+}
+// Der Countdown, wie er ANGEZEIGT gehoert. Der Tick setzt fbShotTicks erst im naechsten
+// festen Schritt auf die Obergrenze des neuen Entscheiders; dazwischen liegt mindestens
+// ein gezeichnetes Bild. Ohne diese Frage zeigte es dort den Rest des VORIGEN Spielers
+// oder eine dringliche 0.0 — genau die Ueberraschung, die der Countdown verhindern soll.
+function fbShotShown(){
+  const who=fbDecisionWho();
+  if(who<0)return -1;
+  return fbShotFor===who?fbShotTicks:fbShotCap(who);
+}
+function fbClockPaint(){
+  // Die Kurzmeldung ZUERST und IMMER — sie hat ihren eigenen Lebenslauf und darf nicht
+  // davon abhaengen, ob sich der Countdown geaendert hat. Sonst bliebe sie waehrend eines
+  // langen Ballflugs stehen, obwohl ihre Zeit laengst abgelaufen ist.
+  fbNoticePaint();
+  if(typeof fbSpeed!=='function'||!fbSpeed())return;
+  const sep=document.querySelector('.scorebox .sep');
+  if(!sep)return;
+  const rest=fbShotShown();
+  const laeuft=rest>=0;
+  // Der Trenner traegt den COMMIT-Countdown, nicht das Zeitkonto. Beides nebeneinander an
+  // derselben Stelle waere die eine Verwechslung, die der Auftrag ausdruecklich verbietet:
+  // die Konten stehen bei den Spielerkarten, der Countdown in der Mitte.
+  const txt=laeuft?fbShotText(rest):':';
+  const dringlich=laeuft&&rest<=FOOTBALL_SHOT_URGENT_TICKS;
+  // Der Schluessel traegt AUCH den Laufzustand: die Ziffern stehen im Halt still, der
+  // Zustandswechsel muss trotzdem ankommen.
+  const key=txt+(laeuft?'r':'h')+(dringlich?'!':'');
+  if(key===fbClockShown){fbBankPaint();return;}
+  fbClockShown=key;
+  sep.textContent=txt;
+  sep.classList.toggle('clk',laeuft);
+  sep.classList.toggle('urgent',dringlich);
+  fbBankPaint();
+}
+// Die persoenlichen Zeitkonten stehen bei den SPIELERKARTEN — dort, wo ohnehin steht, wer
+// gerade zielt. Sie sind ein anderer Begriff als der Commit-Countdown und duerfen nie mit
+// ihm verwechselt werden; deshalb eine andere Stelle, ein anderes Format (M:SS statt
+// Zehntelsekunden) und in Zeitnot ein eigener, unmissverstaendlicher Text.
+// Die Kurzmeldung. Sie ist ein kleines Ereignis, keine Unterbrechung: eine schmale Zeile
+// unter der Statusleiste, 1.5 s (Zeitnot) bzw. 1.7 s (letzte Aktion) lang, danach spurlos
+// weg. Sie haelt weder Physik noch Eingabe an.
+let fbNoticeShown='';
+function fbNoticeText(){
+  if(fbNotice==='final')return I18N.de.fbFinal;
+  if(fbNotice==='trouble0')return I18N.de.col0+' — '+I18N.de.fbTrouble;
+  if(fbNotice==='trouble1')return I18N.de.col1+' — '+I18N.de.fbTrouble;
+  return '';
+}
+function fbNoticePaint(){
+  const el=$('fbNote'); if(!el)return;
+  // Ausserhalb des Speed Match gibt es keine Meldung — auch keine stehengebliebene aus
+  // einem vorigen Match. Dieser Zweig raeumt sie ab, statt frueh zurueckzukehren.
+  const an=typeof fbSpeed==='function'&&fbSpeed()&&!!fbNotice;
+  const key=an?fbNotice:'';
+  if(key===fbNoticeShown)return;
+  const neu=an&&fbNoticeShown!==key;      // echter Wechsel auf eine SICHTBARE Meldung
+  fbNoticeShown=key;
+  el.textContent=an?fbNoticeText():'';
+  el.classList.toggle('show',an);
+  el.classList.toggle('final',an&&fbNotice==='final');
+  el.classList.toggle('p0',an&&fbNotice==='trouble0');
+  el.classList.toggle('p1',an&&fbNotice==='trouble1');
+  // Der weiche Akzent klingt GENAU EINMAL je Meldung. Er haengt am Wechsel des
+  // ANGEZEIGTEN Zustands, und dieser Zustand wird nirgends mehr blind zurueckgesetzt —
+  // sonst haette ein updateHud() mitten in der Meldung sie ein zweites Mal angeschlagen.
+  if(neu&&typeof SFX!=='undefined'&&SFX)SFX[fbNotice==='final'?'fbFinal':'fbTimeTrouble']();
+}
+let fbBankShown=['',''];
+function fbBankPaint(){
+  if(typeof fbSpeed!=='function'||!fbSpeed())return;
+  for(let p=0;p<2;p++){
+    const el=$('ready'+p); if(!el)continue;
+    const not=fbTrouble(p);
+    const txt=fbBankText(p);
+    const aktiv=fbShotFor===p&&fbClockRunning();
+    // Der eine zurueckhaltende Puls beim Eintritt in die Zeitnot — danach traegt die
+    // Darstellung der 0:00 den Dauerzustand allein, ohne Textbanner.
+    const puls=not&&fbNotice==='trouble'+p;
+    const key=txt+(aktiv?'*':'')+(not?'!':'')+(puls?'p':'');
+    if(key===fbBankShown[p])continue;
+    fbBankShown[p]=key;
+    el.textContent=txt;
+    el.classList.toggle('bank',true);
+    el.classList.toggle('trouble',not);
+    el.classList.toggle('act',aktiv);
+    el.classList.toggle('pulse',puls);
+  }
+}
 // Kurze Reaktion auf einen Torstand-Wechsel. Vergleicht nur den ZULETZT ANGEZEIGTEN Wert
 // mit score[] — keine eigene Zaehlung, keine Rueckwirkung auf die Wertung.
 function fbScorePulse(){
@@ -3665,9 +3994,28 @@ function updateHud(){
   // Online 1v1/2v2: show the durable roster names (textContent — never innerHTML).
   if(online){ $('n0').textContent=pName(0); $('n1').textContent=pName(1); }
   $('sc0').textContent=score[0];$('sc1').textContent=score[1];
-  // Untertitel: im Football die Matchregel, und zwar aus FOOTBALL_WIN_SCORE abgeleitet —
-  // die Zahl ist nirgends ein zweites Mal hinterlegt.
-  $('rinfo').textContent=mode==='football'?fbFirstToText():'Runde '+roundNo;
+  // Untertitel: im Football die Matchregel, aus denselben Konstanten wie die Regel selbst.
+  $('rinfo').textContent=mode==='football'?fbModeText():'Runde '+roundNo;
+  // ZEITMODUS: die Restzeit steht zwischen den Punktzahlen, wo sonst der Doppelpunkt
+  // steht — BLAU  1:14  ROT. Im Golden Goal gibt es keine Uhr mehr; dort bleibt der
+  // Doppelpunkt, und der Untertitel traegt GOLDEN GOAL.
+  {
+    const sep=document.querySelector('.scorebox .sep');
+    if(sep){
+      const speed=typeof fbSpeed==='function'&&fbSpeed();
+      const rest=speed&&typeof fbShotShown==='function'?fbShotShown():-1;
+      const laeuft=rest>=0;
+      sep.textContent=laeuft?fbShotText(rest):':';
+      sep.classList.toggle('clk',laeuft);
+      // Letzte zwei Sekunden des COMMIT-Countdowns: heller und mit ruhigem Puls. Kein
+      // Blinken — und nur, solange der Countdown wirklich laeuft.
+      sep.classList.toggle('urgent',laeuft&&rest<=FOOTBALL_SHOT_URGENT_TICKS);
+      // Countdown und Konten werden hier neu aufgebaut, ihre Dedup-Schluessel duerfen
+      // deshalb fallen. Der Meldungsschluessel NICHT: eine laufende Meldung wuerde sonst
+      // als neu behandelt und ihr Klang ein zweites Mal angeschlagen.
+      fbClockShown='';fbBankShown=['',''];
+    }
+  }
   if(mode==='football')fbScorePulse();
   $('ready0').textContent=readyText(0);
   $('ready1').textContent=readyText(1);
@@ -3731,8 +4079,15 @@ function setPhaseText(){const p=$('phase');
 
 let toastT;function toast(m){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove('show'),2200);}
 
-function openCover(pi){const c=$('cover');$('coverWho').textContent='Spieler '+(pi+1);$('coverWho').className='who';$('coverWho').style.color=pcol(pi).ui;c.classList.add('show');}
-$('coverBtn').onclick=()=>{$('cover').classList.remove('show');setPhaseText();updateHud();};
+function openCover(pi){if(typeof fbSetCover==='function')fbSetCover(true);const c=$('cover');$('coverWho').textContent='Spieler '+(pi+1);$('coverWho').className='who';$('coverWho').style.color=pcol(pi).ui;c.classList.add('show');}
+// EIN Schliessweg fuer den Uebergabeschirm — der Knopf und die Uebergabefrist benutzen
+// denselben. Zwei Wege koennten auseinanderlaufen.
+function fbCloseCover(){
+  if(typeof fbSetCover==='function')fbSetCover(false);
+  const c=$('cover'); if(c)c.classList.remove('show');
+  setPhaseText();updateHud();
+}
+$('coverBtn').onclick=()=>fbCloseCover();
 
 $('actBtn').onclick=()=>{if(r3dOrbit)return;if(phase!=='aim')return;const who=online?myPlayer:(mode==='bot'?0:curAimer);if(aimSet[who]||!aliveCount(who))return;
   const own=aliveBalls(who);let idx=own.length?balls.indexOf(own[0]):-1;
@@ -3858,6 +4213,16 @@ window.addEventListener('pointermove',e=>{
     if(d0>1&&d1>1)r3d.cam.zoom(d0/d1);
     cam2LX=e.clientX;cam2LY=e.clientY;
   }});
+// Der Zugvektor aus dem LAUFENDEN Drag. Eine Quelle fuer beide Ausloeser: den
+// menschlichen Release und den Ablauf der Bedenkzeit. "weak" ist der Tipp unterhalb der
+// Schussschwelle — er ist kein Schuss, sondern ein Nullzug (in Tactical: nur Auswahl).
+function aimVectorFromDrag(){
+  const mp=maxPull();let px=dragPull.x,py=dragPull.y;
+  const pl=Math.sqrt(px*px+py*py);
+  const weak=pl<BR*0.4;
+  if(pl>mp){px*=mp/pl;py*=mp/pl;}
+  return {weak,fx:weak?0:-px,fy:weak?0:-py,spin:weak?0:dragSpin};
+}
 window.addEventListener('pointerup',e=>{
   if(r3dActive&&e.pointerId===camPid){               // Kamera-Finger los (2. Finger uebernimmt ggf.)
     if(cam2Pid>=0){camPid=cam2Pid;camLX=cam2LX;camLY=cam2LY;cam2Pid=-1;}else camPid=-1;return;}
@@ -3865,15 +4230,12 @@ window.addEventListener('pointerup',e=>{
   if(e.pointerId===spinPid){spinPid=-1;return;}      // Drall-Finger los: Wert bleibt gelatcht, KEIN Schuss
   if(e.pointerId!==aimPid)return;
   const who=dragOwner,sh=dragShooter;
+  const v=aimVectorFromDrag();                       // VOR dem Aufraeumen lesen
   dragging=false;aimPid=-1;spinPid=-1;dragShooter=-1;dragOwner=-1;SFX.charge.stop();
-  let px=dragPull.x,py=dragPull.y;const mp=maxPull(),pl=Math.sqrt(px*px+py*py);
-  if(pl>mp){px*=mp/pl;py*=mp/pl;}
-  let fx=-px,fy=-py,spin=0;
   // TACTICAL: ein Tipp ohne echten Zug WAEHLT nur die Figur. Er darf den einzigen Zug des
   // Spielers nicht als "stehen bleiben" verbrauchen — die Auswahl steht bereits (pointerdown).
-  if(pl<BR*0.4&&typeof fbTactical==='function'&&fbTactical()){updateHud();return;}
-  if(pl<BR*0.4){fx=0;fy=0;spin=0;}else{spin=dragSpin;}   // dragSpin ist bereits -1..+1
-  commit(who,sh,fx,fy,spin);});
+  if(v.weak&&typeof fbTactical==='function'&&fbTactical()){updateHud();return;}
+  commit(who,sh,v.fx,v.fy,v.spin);});
 window.addEventListener('pointercancel',e=>{
   if(r3dActive&&e.pointerId===camPid){camPid=-1;cam2Pid=-1;return;}
   if(r3dActive&&e.pointerId===cam2Pid){cam2Pid=-1;return;}
@@ -4456,13 +4818,17 @@ const FOOTBALL_NEUTRAL_OWNER=5;                       // neutraler Ball (Footbal
 // neben dem Tor, die Grenze bleibt das reine Rounded Rectangle. Der Sockel bleibt als
 // Kollider erhalten und faengt einen bereits durchgetretenen Ball hinter der Linie ab.
 const FB_GOAL_HALF_DEPTH=1.184;                       // halbe Sockeltiefe des geraden Tors in BR (0.592 Blender-Einheiten)
+// Die tangentialen Sockelkanten DESSELBEN Assets, in BR — die quellenechten Werte, aus
+// denen jede Toroeffnung im Spiel besteht. Es gibt genau EINE Torbreite, und sie gilt
+// unveraendert in allen Modi und Phasen: 2*3.560*BR = 227.84 px lichte Weite.
+const FB_GOAL_ASSET_INNER=3.560, FB_GOAL_ASSET_OUTER=5.282;
 // GELTUNGSBEREICH: ab dem Shouldered-Wide-Schritt benutzt nur noch TACTICAL 1v1 diese
 // Form. Classic 1v1 laeuft auf der kanonischen Zwei-Figuren-Arena (FOOTBALL_ARENA_CLASSIC,
 // weiter unten) — derselben, die auch das Elimination-Finale traegt. Tactical bleibt
 // bewusst unveraendert: Arena, Spawns und Wertung sind dort abgestimmt.
 const FOOTBALL_ARENA={
   halfLen:18.00,halfWid:12.70,corner:6.85,spawn:7.65,
-  postInner:3.560,postOuter:5.282,postFront:18.00,
+  postInner:FB_GOAL_ASSET_INNER,postOuter:FB_GOAL_ASSET_OUTER,postFront:18.00,
   postBack:18.00+2*FB_GOAL_HALF_DEPTH,goalAnchor:18.00+FB_GOAL_HALF_DEPTH};
 // ── ARENA FOOTBALL: ELIMINATION-ARENEN (adaptiv je Phase) ─────────────────────────
 // Die Elimination-Arena hat vier Phasen — eine je aktiver Spielerzahl. Sie ist die EINZIGE
@@ -4474,9 +4840,9 @@ const FOOTBALL_ARENA={
 //   2 Spieler  ELIM_ARENA_2  Rounded Rectangle mit zwei GEGENUEBERLIEGENDEN Toren (Classic-Achse)
 //   1 Spieler  WIN           kein Umbau mehr
 //
-// Die Torwerte (postInner/postOuter und damit die lichte Breite 227.84) sind in ALLEN Phasen
-// unveraendert aus der Produktivarena uebernommen — in diesem Auftrag wird keine Torbreite
-// retuned und keine Physik angefasst.
+// Die Torwerte (postInner/postOuter und damit die lichte Breite 227.84) sind in ALLEN
+// Phasen und Modi unveraendert die gemessenen Sockelkanten des Assets — es wird keine
+// Torbreite retuned und keine Physik angefasst.
 //
 // V3-ECKENGEOMETRIE: der Eckradius der Vier-Spieler-Arena faellt von 9.00 BR auf 3.50 BR.
 // Befund aus dem V2-Spieltest: die starke Squircle-Rundung trug den Ball tangential um die
@@ -4530,7 +4896,7 @@ const FB_P5_VERT=[[FB_P5_C2,-FB_P5_S2],[FB_P5_C1,FB_P5_S1],[0,1],
                   [-FB_P5_C1,FB_P5_S1],[-FB_P5_C2,-FB_P5_S2]];
 const FOOTBALL_ARENA_ELIM4={
   halfLen:17.50,halfWid:17.50,corner:3.50,spawn:11.50,sides:4,tri:false,dirs:FOOTBALL_ELIM4_DIRS,
-  postInner:3.560,postOuter:5.282,postFront:17.50,
+  postInner:FB_GOAL_ASSET_INNER,postOuter:FB_GOAL_ASSET_OUTER,postFront:17.50,
   postBack:17.50+2*FB_GOAL_HALF_DEPTH,goalAnchor:17.50+FB_GOAL_HALF_DEPTH};
 // ── KERNPOLYGON-GENERATOREN DER ELIMINATION-ARENEN ─────────────────────────
 // Jede Phase behaelt Torbreite, Physik und Spawnregel; sie unterscheiden sich nur in der
@@ -4594,7 +4960,7 @@ const fbShoulderRect=(halfLen,halfWid,rc,thDeg,endHalf)=>{
 };
 const fbShape=(halfLen,halfWid,corner,spawn,sides,tri,dirs)=>({
   halfLen,halfWid,corner,spawn,sides,tri,apothem:tri?halfLen:undefined,dirs,
-  postInner:3.560,postOuter:5.282,postFront:halfLen,
+  postInner:FB_GOAL_ASSET_INNER,postOuter:FB_GOAL_ASSET_OUTER,postFront:halfLen,
   postBack:halfLen+2*FB_GOAL_HALF_DEPTH,goalAnchor:halfLen+FB_GOAL_HALF_DEPTH});
 // PHASE 3 - BROAD ROUNDED TRIANGLE. Das gleichseitige Dreieck mit gekappten Spitzen: drei
 // LANGE Torseiten, drei KURZE Kappflaechen, 120-Grad-Symmetrie. Gegenueber der klassischen
@@ -4622,6 +4988,14 @@ const FOOTBALL_ARENA_ELIM2=Object.assign(
 // Die Zusatzfelder sides/dirs des Elimination-Objekts sind fuer Classic wirkungslos:
 // footballFold ist ausserhalb Elimination die Identitaet, goalDefs baut die beiden Tore
 // dort fest aus [1,0]/[-1,0], und av.sides===2 trifft dieselbe Mittellinie wie bisher.
+//
+// TORBREITE: 227.84 px, unveraendert. Der 2P-Offense-Pass hatte die Classic-Oeffnung
+// versuchsweise um 10 % auf 250.62 px gestreckt (Modell und Physik mit demselben Faktor)
+// und dafuer ein eigenes Classic-Arenaobjekt abgespalten. Der Spieltest hat das
+// VERWORFEN: im 1v1 wurde das Tor zu leicht getroffen. Damit entfaellt auch der Grund
+// fuer die Abspaltung — Classic ist wieder dieselbe Objektinstanz wie das Finale.
+// Der Schulterwinkel bleibt bei 35 Grad: die Messung ueber 24 Angriffslagen mal 360 Grad
+// hat ihn als Angriffshebel widerlegt (artifacts/football-arena-offense/WINKEL.txt).
 const FOOTBALL_ARENA_CLASSIC=FOOTBALL_ARENA_ELIM2;
 // PHASE 5 - BROAD ROUNDED PENTAGON. Startform jedes Elimination-Matches: fuenf gleichwertige
 // Torseiten im 72-Grad-Raster, an den fuenf Spitzen gekappt (zehn Kernecken). Die Kappung ist
@@ -4868,8 +5242,6 @@ function curRestBand(){const c=footballPhys();return c?c.restBand:REST;}
 // Konstanten — dort ist der Zweig ohnehin unerreichbar (siehe NEU in stepSim).
 function curFRBall(){const c=footballPhys();return c?c.frictionBall:FRICTION;}
 function curFEBall(){const c=footballPhys();return c?c.fendBall:FEND;}
-// Umschaltschwelle zwischen Gleit- und Auslaufdaempfung. Ausserhalb Football exakt die
-// globale Konstante — die Bestandsmodi rechnen damit unveraendert.
 function curSLOWV(){const c=footballPhys();return c?c.slowv:SLOWV;}
 // Mittleres Band der SPIELERKUGELN (Action-Feel 01). Ausserhalb Football gibt es kein
 // zweites Band: curFMID liefert dort denselben Wert wie curFR und curFASTV unendlich, der
@@ -5345,10 +5717,234 @@ const FOOTBALL_GOAL_CELEBRATE_TICKS=51;      // ~0.85 s bei 60 fps: Zeit, den Tr
 // aber nur so viel, dass keine spuerbare Leere entsteht (der Torimpuls endet bei 1.5 s).
 const FOOTBALL_GOAL_WIN_CELEBRATE_TICKS=66;  // ~1.1 s bei 60 fps
 function footballSpawnHeight(){return BR*10;}   // rein visuelle Starthoehe des Spawn-Drops
-// FIRST-TO-3: Arena Football 1v1 laeuft bis zum ersten Score >= FOOTBALL_WIN_SCORE.
-// Keine Zwei-Tore-Differenz, kein Zeitlimit, keine Verlaengerung, kein Unentschieden.
+// FIRST-TO-3: die Regel von Classic FIRST TO 3 und von Tactical. Erster Score >=
+// FOOTBALL_WIN_SCORE gewinnt — keine Zwei-Tore-Differenz, keine Verlaengerung, kein
+// Unentschieden. Classic SPEED MATCH kennt sie NICHT: dort entscheidet der Stand, sobald
+// BEIDE persoenlichen Zeitkonten leer sind (s. fbClockDecide); der Punktestand ist bis
+// dahin nach oben offen.
 // Eigentore zaehlen regulaer (entscheidend ist allein das ueberquerte Tor, s. footballGoalSide).
 const FOOTBALL_WIN_SCORE=3;
+// ── CLASSIC: ZWEI REGELVARIANTEN ───────────────────────────────────────
+// Classic 1v1 wird vor dem Start zwischen zwei Regeln gewaehlt:
+//
+//   FIRST TO 3   Die Bestandsregel, unveraendert: wer zuerst drei Tore hat, gewinnt.
+//                Keine Zeitkonten, kein Golden Goal noetig.
+//   SPEED MATCH  Je Spieler ein persoenliches Zeitkonto von 45 Sekunden, hoechstens
+//                6 Sekunden Bedenkzeit je Commit. DIE KONTEN SIND DIE REGULAERZEIT:
+//                das Match endet, wenn BEIDE leer sind — nicht nach einer festen
+//                Rundenzahl.
+//
+// WARUM ZWEI PERSOENLICHE KONTEN STATT EINER GEMEINSAMEN UHR. Der Spieltest der
+// gemeinsamen 90-Sekunden-Uhr fand einen strategischen Fehler: wer fuehrte, konnte seine
+// Bedenkzeit absichtlich ausschoepfen und damit die GEMEINSAME Uhr verbrennen — der
+// Gegner verlor dadurch kuenftige Angriffe, ohne selbst etwas falsch gemacht zu haben.
+// Mit getrennten Konten ist das ausgeschlossen: es sinkt IMMER nur das Konto dessen, der
+// gerade zielt. Wer troedelt, verbraucht ausschliesslich seine eigene Zeit und landet in
+// der Zeitnot — die Zuege des Gegners werden dadurch weder weniger noch kuerzer.
+//
+// WARUM KEINE FESTE RUNDENZAHL MEHR. Der Spieltest hat die Zwoelf-Runden-Grenze verworfen:
+// sie war eine ZWEITE Regulaerzeit neben den Konten und konnte ein Match beenden, obwohl
+// beide Spieler noch Zeit hatten. Jetzt gibt es nur noch EINE Groesse, die das Ende
+// bestimmt — die persoenliche Zeit. Das Match laeuft, solange irgendjemand noch welche hat.
+//
+// ALLE Zeiten sind feste Ticks bei 60 Hz — kein Date.now, kein setTimeout, keine
+// Bildwiederholrate. 45 s = 2700, 6 s = 360, 2 s = 120 Ticks.
+const FOOTBALL_SIM_HZ=60;                 // fester Gameplay-Takt; identisch mit SIM_HZ (Test pinnt das)
+const FOOTBALL_RULES_FIRST3='first3';
+const FOOTBALL_RULES_SPEED='speed';
+let fbRules=FOOTBALL_RULES_FIRST3;        // gewaehlte Classic-Regel; Tactical/Elimination ignorieren sie
+// Classic ist alles, was weder Elimination noch Tactical ist — dieselbe Weichenlogik wie
+// ueberall sonst, keine zweite Variantenliste.
+function fbClassic(){return mode==='football'&&!fbElim4()&&!fbTactical();}
+// Speed Match ist Classic MIT der Zeitregel. Ueberall, wo frueher "Classic auf Zeit" stand,
+// steht jetzt genau diese Frage — First to 3 faellt damit sauber heraus.
+function fbSpeed(){return fbClassic()&&fbRules===FOOTBALL_RULES_SPEED;}
+const FOOTBALL_BANK_SECONDS=45;
+const FOOTBALL_BANK_TICKS=FOOTBALL_BANK_SECONDS*FOOTBALL_SIM_HZ;        // 2700
+const FOOTBALL_SHOT_SECONDS=6;            // Bedenkzeit je Commit, solange das Konto traegt
+const FOOTBALL_SHOT_TICKS=FOOTBALL_SHOT_SECONDS*FOOTBALL_SIM_HZ;        // 360
+const FOOTBALL_TROUBLE_SECONDS=2;         // Bedenkzeit je Commit in Zeitnot
+const FOOTBALL_TROUBLE_TICKS=FOOTBALL_TROUBLE_SECONDS*FOOTBALL_SIM_HZ;  // 120
+const FOOTBALL_SHOT_URGENT_TICKS=2*FOOTBALL_SIM_HZ;   // letzte zwei Sekunden: HUD wird dringlich
+let fbBank=[FOOTBALL_BANK_TICKS,FOOTBALL_BANK_TICKS];  // persoenliche Zeitkonten, in Ticks
+let fbShotTicks=0;                        // Rest des laufenden Commit-Countdowns
+let fbShotFor=-1;                         // WEM dieser Countdown gehoert (-1: kein offenes Fenster)
+let fbGolden=false;                       // Golden Goal laeuft: naechstes gueltiges Tor entscheidet
+let fbCoverOpen=false;                    // Uebergabeschirm liegt ueber dem Spiel
+// UEBERGABEFRIST. Hinter dem Schirm steht alles still — richtig, denn der Naechste hat das
+// Feld noch gar nicht gesehen. Genau das machte den Schirm frueher zu einem Loch: nach der
+// letzten Regulaerrunde liess er sich offen lassen, und das Match endete nie (Befund des
+// unabhaengigen Reviews). Er bekommt deshalb eine EIGENE, grosszuegige Frist — keine
+// Bedenkzeit, sondern die Frist zum Weiterreichen des Geraets.
+// KURZMELDUNGEN. Zwei Ereignisse verdienen einen Hinweis, weil sie die Bedingungen des
+// Spiels aendern, ohne dass am Ball etwas passiert: das erste leergelaufene Zeitkonto
+// (der Betroffene zieht ab jetzt mit zwei Sekunden) und das zweite (die laufende Aktion
+// ist die letzte der Regulaerzeit). Beide sind AUSSCHLIESSLICH Anzeige — keine Zeile der
+// Wertung liest sie, und sie halten weder Physik noch Eingabe an.
+// Zwei Dauern, weil die beiden Ereignisse nicht gleich wichtig sind. Die letzte Aktion
+// aendert den Ausgang des Matches und braucht deshalb einen Moment laenger, bis sie
+// bewusst gelesen ist; die Zeitnot ist eine Randbedingung.
+const FOOTBALL_NOTICE_TROUBLE_TICKS=90;   // 1.5 s bei 60 Hz
+const FOOTBALL_NOTICE_FINAL_TICKS=102;    // 1.7 s bei 60 Hz
+let fbNotice='';                          // '' | 'trouble0' | 'trouble1' | 'final'
+let fbNoticeTicks=0;
+function fbNoticeFire(kind){
+  fbNotice=kind;
+  fbNoticeTicks=(kind==='final')?FOOTBALL_NOTICE_FINAL_TICKS:FOOTBALL_NOTICE_TROUBLE_TICKS;
+}
+const FOOTBALL_HANDOFF_SECONDS=30;
+const FOOTBALL_HANDOFF_TICKS=FOOTBALL_HANDOFF_SECONDS*FOOTBALL_SIM_HZ;   // 1800
+let fbCoverTicks=0;
+// Der Uebergabeschirm ist ein DOM-Overlay; die Uhr darf ihn nicht per DOM abfragen, sonst
+// waere sie weder testbar noch vom Rendering unabhaengig. openCover/fbCloseCover melden
+// ihn stattdessen hier an.
+function fbSetCover(open){fbCoverOpen=!!open;fbCoverTicks=open?FOOTBALL_HANDOFF_TICKS:0;}
+// ZEITNOT: das persoenliche Konto ist leer. Das ist KEIN Ausscheiden und kein Punktverlust —
+// der Spieler zieht weiter, nur mit 2 statt 6 Sekunden Bedenkzeit.
+function fbTrouble(w){return fbSpeed()&&fbBank[w]<=0;}
+// Die Obergrenze des naechsten Commits dieses Spielers.
+function fbShotCap(w){return fbTrouble(w)?FOOTBALL_TROUBLE_TICKS:FOOTBALL_SHOT_TICKS;}
+// WER kann gerade wirklich handeln? Genau dann laeuft die Zeit. Bewusst aus denselben
+// Grundgroessen gebaut wie whoCanAim() — Phase, Eingabesperre, aimSet, curAimer — und
+// nicht als zweite Wahrheit daneben; zusaetzlich faellt der Uebergabeschirm heraus.
+function fbDecisionWho(){
+  if(!fbSpeed()||online)return -1;             // First to 3 kennt keine Zeit; online laeuft Elimination
+  // Orbit-Testmodus: die Kamera laesst sich frei drehen, JEDE Eingabe ist gesperrt
+  // (whoCanAim gibt dort -1 zurueck). Wer nicht zielen kann, darf auch keine Bedenkzeit
+  // verbrauchen — und erst recht keinen automatischen Zug bekommen.
+  if(typeof r3dOrbit!=='undefined'&&r3dOrbit)return -1;
+  // Verdeckter Tab: der Browser drosselt requestAnimationFrame, der Akkumulator erzwingt
+  // aber weiterhin mindestens einen Schritt je Rueckruf. Ohne diese Zeile sickerte die
+  // Bedenkzeit im Hintergrund weg — und koennte am Ende sogar auto-committen.
+  if(typeof document!=='undefined'&&document&&document.hidden)return -1;
+  if(phase!=='aim')return -1;                  // Flug, Settlement, Reveal, Ergebnis: keine Zeit
+  if(fbCoverOpen)return -1;                    // Uebergabeschirm: der Naechste hat noch nichts gesehen
+  if(typeof menuVisible!=='undefined'&&menuVisible)return -1;
+  if(typeof inputLocked==='function'&&inputLocked())return -1;   // Torablauf/Collapse
+  if(fbGoalState!=='play'||footballWinner!==null)return -1;
+  const who=(mode==='bot')?0:curAimer;
+  if(who<0||aimSet[who])return -1;             // schon committet: nichts mehr zu entscheiden
+  if(aliveCount(who)<=0)return -1;
+  return who;
+}
+// Ein Tick der Zeitregel. Aufgerufen genau einmal je simStep, also in JEDER Phase — die
+// Gates stehen hier, nicht beim Aufrufer.
+function fbClockStep(){
+  // Die Kurzmeldung laeuft VOR jedem Gate ab — sie soll auch dann noch zu Ende blenden,
+  // wenn der Ball inzwischen fliegt oder der Uebergabeschirm liegt.
+  if(fbNoticeTicks>0){fbNoticeTicks--;if(fbNoticeTicks===0)fbNotice='';}
+  // Zuerst die Uebergabefrist: sie laeuft GENAU dann, wenn alles andere steht.
+  if(fbCoverOpen&&fbSpeed()&&!online&&phase==='aim'&&fbCoverTicks>0){
+    fbCoverTicks--;
+    if(fbCoverTicks===0&&typeof fbCloseCover==='function')fbCloseCover();
+    // Dieses Bild gehoert der Uebergabe, nicht der Entscheidung — auch das letzte, in dem
+    // der Schirm faellt. Sonst kostete der Wegfall des Schirms schon Bedenkzeit.
+    return;
+  }
+  const who=fbDecisionWho();
+  if(who<0){
+    // Kein offenes Fenster: alles steht. Der EIGENTUEMER des Countdowns bleibt dabei
+    // stehen, solange die Zielphase laeuft — sonst wuerde jedes Zwischenfenster
+    // (Uebergabeschirm auf und wieder zu) den Countdown neu starten.
+    if(phase!=='aim')fbShotFor=-1;
+    return;
+  }
+  // Neuer Entscheider — frischer Countdown, dessen Laenge sein EIGENES Konto bestimmt.
+  if(who!==fbShotFor){fbShotFor=who;fbShotTicks=fbShotCap(who);}
+  // 1. DAS PERSOENLICHE KONTO. Es sinkt ausschliesslich beim gerade Zielenden. Der Gegner
+  //    verliert dabei keine einzige Zehntelsekunde — das ist der Kern der Korrektur.
+  if(fbBank[who]>0){
+    fbBank[who]--;
+    // Genau jetzt leer: das Konto friert auf 0 ein, und der LAUFENDE Commit faellt sofort
+    // in die Zeitnot. Er bekommt von hier an hoechstens noch zwei Sekunden — nicht die
+    // vollen sechs, die er vielleicht noch uebrig haette.
+    if(fbBank[who]===0){
+      // GENAU EINMAL je Spieler: fbTroubleSeen ist der Riegel. Leert dieses Konto als
+      // ZWEITES, endet mit dem laufenden Zyklus die Regulaerzeit — dann ist "letzte
+      // Aktion" die richtige und einzige Meldung; zwei Hinweise uebereinander waeren
+      // genau die Ueberfrachtung, die dieser Pass beseitigt.
+      if(!fbTroubleSeen[who]){
+        fbTroubleSeen[who]=true;
+        fbNoticeFire(fbRegulationOver()?'final':('trouble'+who));
+      }
+      if(fbShotTicks>FOOTBALL_TROUBLE_TICKS)fbShotTicks=FOOTBALL_TROUBLE_TICKS;
+    }
+  }
+  // 2. DER COMMIT-COUNTDOWN. Er laeuft auch in Zeitnot weiter — sonst bliebe ein Zug
+  //    beliebig lange offen und das Match endete nie.
+  if(fbShotTicks>0){
+    fbShotTicks--;
+    if(fbShotTicks===0)fbDecisionExpire(who);
+  }
+}
+// Ablauf des Commit-Countdowns. KEIN erfundener Schuss: liegt ein gueltiger Zugvektor an,
+// wird GENAU dieser abgegeben — derselbe, den ein Loslassen in dieser Sekunde erzeugt
+// haette (aimVectorFromDrag ist die gemeinsame Quelle). Liegt keiner an, ist es ein
+// Nullzug, also dasselbe wie der Stehen-bleiben-Knopf. Keine Zufallsrichtung, keine
+// Zufallsstaerke, keine Zielhilfe.
+function fbDecisionExpire(who){
+  if(online)return;
+  // typeof-Guard wie ueberall an dieser Naht: simStep laeuft auch in Harnessen, die den
+  // Zugweg gar nicht geladen haben. Ohne Commit-Pfad gibt es nichts zu bestaetigen.
+  if(typeof applyCommit!=='function')return;
+  if(fbDecisionWho()!==who)return;             // Fenster inzwischen zu: nichts tun
+  const live=(typeof dragging!=='undefined')&&dragging&&dragOwner===who&&dragShooter>=0;
+  const v=live&&typeof aimVectorFromDrag==='function'?aimVectorFromDrag():null;
+  const sh=live?dragShooter:-1;
+  // Den laufenden Drag hart beenden, BEVOR committet wird — sonst koennte ein spaetes
+  // pointerup den soeben bestaetigten Zug ueberschreiben.
+  if(typeof cancelAimDrag==='function')cancelAimDrag();
+  if(v&&!v.weak){fbAutoShots++;applyCommit(who,sh,v.fx,v.fy,v.spin);return;}
+  fbAutoSkips++;
+  const own=(typeof aliveBalls==='function')?aliveBalls(who):[];
+  applyCommit(who,own.length?balls.indexOf(own[0]):-1,0,0,0);
+}
+// ── DAS ENDE DER REGULAERZEIT ──────────────────────────────────────────────────
+// Die Regulaerzeit ist zu Ende, wenn BEIDE persoenlichen Konten leer sind. Solange auch
+// nur einer noch Zeit hat, laeuft das Match weiter — der andere zieht dann in der Zeitnot
+// mit zwei Sekunden je Commit, wird aber weder uebersprungen noch bestraft.
+//
+// DER LETZTE ZYKLUS BLEIBT GANZ. Geprueft wird an GENAU den beiden Stellen, an denen die
+// Eingabe wieder freigegeben wuerde: am Ende des Torablaufs und im Settlement eines
+// Schusses ohne Tor. Beide liegen NACH Reveal, Abschuss, Flug, Banden- und Sockelkontakten
+// und der vollstaendigen Torabwicklung. Leert sich das zweite Konto mitten im Zug, wird
+// dieser Zug deshalb nicht abgeschnitten: er kommt zustande, fliegt aus, und ein Tor
+// daraus zaehlt. Erst danach faellt die Entscheidung.
+//
+// Rueckgabe true heisst: das Match ist entschieden, der Aufrufer gibt nichts mehr frei.
+function fbRegulationOver(){return fbBank[0]<=0&&fbBank[1]<=0;}
+function fbClockDecide(){
+  if(!fbSpeed()||fbGolden||footballWinner!==null)return false;
+  if(!fbRegulationOver())return false;               // irgendjemand hat noch Zeit
+  // Gleichstand heisst Golden Goal: der Punktestand bleibt stehen, es gibt keine
+  // Regulaerzeit mehr — und weil beide Konten leer sind, ziehen beide dort mit zwei
+  // Sekunden je Commit.
+  if(score[0]===score[1]){fbGolden=true;updateHud();return false;}
+  footballWinner=score[0]>score[1]?0:1;
+  fbGoalState='result';fbGoalTick=0;footballMatchEnd();return true;
+}
+// Vollstaendiger Zustand der Zeitregel fuer ein neues Match. Es darf NICHTS aus dem
+// vorigen Match ueberleben — weder Kontostaende noch Runden noch ein offenes Golden Goal.
+// Das gilt auch beim Wechsel der Regelvariante: First to 3 darf keine Konten erben und
+// Speed Match keinen Endzustand.
+function fbClockReset(){
+  fbBank=[FOOTBALL_BANK_TICKS,FOOTBALL_BANK_TICKS];
+  fbShotTicks=0;fbShotFor=-1;fbGolden=false;
+  fbCoverOpen=false;fbCoverTicks=0;
+  fbAutoShots=0;fbAutoSkips=0;fbTroubleSeen=[false,false];
+  fbNotice='';fbNoticeTicks=0;
+}
+// Anzeigeform eines Zeitkontos: M:SS, aufgerundet auf die angefangene Sekunde.
+function fbBankText(w){
+  const sek=Math.ceil(Math.max(0,fbBank[w])/FOOTBALL_SIM_HZ);
+  return Math.floor(sek/60)+':'+String(sek%60).padStart(2,'0');
+}
+// Anzeigeform des Commit-Countdowns: EINE Nachkommastelle, damit der Spieler die Null
+// kommen SIEHT und nie von einem automatischen Zug ueberrascht wird.
+function fbShotText(ticks){
+  const t=(ticks===undefined)?fbShotTicks:ticks;
+  return (Math.max(0,t)/FOOTBALL_SIM_HZ).toFixed(1);
+}
 let fbGoalState='play';               // 'play' -> 'fall' -> 'celebrate' -> 'spawn' -> 'play'; entscheidendes Tor: 'play' -> 'fall' -> 'celebrate' -> 'result' (Endzustand)
 let fbGoalTick=0;                     // deterministischer Tickzaehler (kein setTimeout, keine Wanduhr)
 let footballWinner=null;              // 0=Blau, 1=Rot, null=Match laeuft — KANONISCHE Quelle, nie aus DOM-Text/Farbe abgeleitet
@@ -5454,7 +6050,19 @@ function fbMorphFromArena(){
 // Nur-lesende Dev-Sonde fuer reproduzierbare Previews der Arena-Transition. Sie schreibt
 // nichts, existiert ausschliesslich mit ?dev=1 und haengt keine UI in die Seite — das
 // Produktverhalten ist ohne Dev-Flag Byte fuer Byte dasselbe.
+// Zaehler ausschliesslich fuer die Spieltest-Auswertung. Sie sind KEINE Spielautoritaet:
+// nichts liest sie, ausser der Dev-Sonde unten. Ein automatischer Commit ist einer, den
+// nicht der Mensch ausgeloest hat — mit liegendem Zug ein "Auto-Schuss", ohne ein "Skip".
+let fbAutoShots=0, fbAutoSkips=0, fbTroubleSeen=[false,false];
 if(typeof DEV_MENU!=='undefined'&&DEV_MENU)window.__fbDev={
+  // §25: der Stand einer Speed-Match-Partie in einer Zeile. Rein lesend.
+  speed:()=>({rules:fbRules,score:score.slice(0,2),
+              regOver:fbRegulationOver(),
+              bankBlue:+(fbBank[0]/FOOTBALL_SIM_HZ).toFixed(2),
+              bankRed:+(fbBank[1]/FOOTBALL_SIM_HZ).toFixed(2),
+              autoShots:fbAutoShots,autoSkips:fbAutoSkips,
+              troubleBlue:fbTroubleSeen[0],troubleRed:fbTroubleSeen[1],
+              golden:fbGolden,winner:footballWinner}),
   state:()=>({goal:fbGoalState,tick:fbGoalTick,phase:fbElimPhaseN,body:fbMorphBodyLevel(),
               lives:fbElimLives.slice(0,fbElimPlayers()),active:fbElimActive.slice(0,fbElimPlayers()),
               e:fbMorphActive()?fbMorphE():null,
@@ -5670,10 +6278,22 @@ function footballTryGoal(b){
   const side=footballGoalSide(b);
   if(side<0)return;
   score[side]=(score[side]||0)+1;
-  // First-to-3 wird GENAU HIER geprueft — an der einzigen Stelle, die den Football-Score
-  // erhoeht. Der Gewinner steht damit bereits fest, das Matchende folgt aber erst nach dem
-  // vollstaendigen Ballfall (footballTickGoal): 'play' -> 'fall' -> 'result'.
-  if(score[side]>=FOOTBALL_WIN_SCORE)footballWinner=side;
+  // MATCHENDE AN DER EINZIGEN STELLE, DIE DEN SCORE ERHOEHT. Der Gewinner steht damit
+  // bereits fest, das Matchende folgt aber erst nach dem vollstaendigen Ballfall
+  // (footballTickGoal): 'play' -> 'fall' -> 'result'.
+  // Nach Ablauf der Regulaerzeit entscheidet jedes Tor, das den Gleichstand aufhebt. Das
+  // ist EIN Satz fuer beide Faelle: das Tor aus dem letzten Schuss der Regulaerzeit und
+  // jedes Tor im Golden Goal (das nur aus einem Gleichstand heraus beginnt, weshalb dort
+  // jedes Tor den Stand aufhebt). Bleibt es gleich - etwa 4:5 wird zu 5:5 -, entscheidet
+  // niemand, und fbClockDecide schickt das Match ins Golden Goal.
+  if(fbSpeed()){
+    // SPEED MATCH: waehrend der Regulaerzeit gibt es KEIN Punktelimit — es entscheidet
+    // der Stand, sobald beide Zeitkonten leer sind (fbClockDecide). Nur im Golden Goal
+    // beendet das naechste gueltige Tor das Match sofort.
+    if(fbGolden)footballWinner=side;
+  }
+  // TACTICAL behaelt seine Bestandsregel unveraendert: erster Score >= FOOTBALL_WIN_SCORE.
+  else if(score[side]>=FOOTBALL_WIN_SCORE)footballWinner=side;
   fbGoalState='fall';fbGoalTick=0;
   cancelAimDrag();                    // laufende Eingabe sauber abbrechen
   footballFreezePlayers();
@@ -5718,6 +6338,10 @@ function footballTickGoal(){
     // davor ist die Arena bewusst leer. Beim entscheidenden Tor wird 'spawn' uebersprungen:
     // nach dem Sieg gibt es keinen Rundenreset und faellt kein neuer Ball in die Arena.
     if(footballWinner!==null){fbGoalState='result';fbGoalTick=0;footballMatchEnd();return;}
+    // Regulaerzeit abgelaufen und dieses Tor hat sie nicht entschieden: entweder das
+    // Match endet hier, oder es geht ins Golden Goal weiter. Vor der Wiederaufstellung,
+    // damit nie eine Runde mit abgelaufener Uhr beginnt.
+    if(typeof fbClockDecide==='function'&&fbClockDecide())return;
     // Elimination 4 -> 3 und 3 -> 2: erst die sichtbare Arena-Transition, dann der Umbau.
     // Waehrend 'morph' bleibt alles eingefroren; Phase, Spawns und Ball wechseln erst an
     // ihrem Ende. Der letzte Wechsel 2 -> 1 ist der Sieg und laeuft nicht mehr hier durch.
@@ -6071,7 +6695,7 @@ function footballElimResetBall(){
 }
 // ZENTRALE Initialisierung des Football-Matchzustands: neues Match, Moduswechsel, Menue.
 // Score/Kugeln/Aim-Zustaende setzt der bestehende Pfad newGame() -> startRound() -> placeBalls().
-function footballResetMatchState(){fbGoalState='play';fbGoalTick=0;footballWinner=null;fbClearSelection();fbElimReset();footballClearGoalFx();fbMorphPlan=null;fbMorphSpawn=false;SFX.fbTransitionStop();}
+function footballResetMatchState(){fbGoalState='play';fbGoalTick=0;footballWinner=null;fbClearSelection();fbElimReset();fbClockReset();footballClearGoalFx();fbMorphPlan=null;fbMorphSpawn=false;SFX.fbTransitionStop();}
 function stepSim(){
   // Restitution nach Kontaktart (4B-2). Ohne aktives Football-Preset liefern alle drei
   // Funktionen den bestehenden REST-Wert — Bestandsmodi rechnen unveraendert weiter.
@@ -6256,6 +6880,9 @@ function stepSim(){
     // Settlement verarbeitet — sonst laege dazwischen ein Frame mit freigegebener Aim-Phase.
     // typeof-Guard: stepSim laeuft auch im Golden-Physics-Harness ohne Collapse-Modul.
     if(typeof settleCollapse==='function'&&settleCollapse())return;
+    // Der letzte Schuss der Regulaerzeit hat sich ohne Tor aufgeloest: jetzt entscheiden,
+    // BEVOR die Eingabe wieder freigegeben wird. Kein neuer Schuss der Regulaerzeit.
+    if(typeof fbClockDecide==='function'&&fbClockDecide())return;
     setPhase('aim');updateHud();setPhaseText();
     if(online){curAimer=myPlayer;onlineArmTurn();}
     else if(mode==='pvp'||mode==='football'){curAimer=(typeof fbElimFirstAimer==='function')?fbElimFirstAimer():0;openCover(curAimer);}
@@ -6644,7 +7271,23 @@ function joinPublicRoom(code){
 // Kompatibilitaetsschicht: ein v5-Client betritt keinen v4-Raum, ein v4-Client keinen
 // v5-Raum. Bestehende v4-Raeume laufen serverseitig weiter aus (die Rules akzeptieren
 // waehrend der Umstellung beide Versionen), sie sterben natuerlich.
-const ONLINE_PROTOCOL_VERSION=5;
+// v6 ist VERBRANNT. Die Nummer markierte die Abstimmung auf anhaltende Ballenergie
+// (Action Core 05);
+// der Spieltest hat sie abgelehnt, und sie ist vollstaendig aus dem Produktivcode
+// entfernt - die Physik ist wieder bitgleich zu v5. Die Nummer wird trotzdem NICHT
+// wiederverwendet: sie kann bei Testern in Umlauf gewesen sein, und ein v6-Raum darf
+// niemals fuer den heutigen Stand gehalten werden. Die Rules bedienen sie waehrend der
+// Umstellung weiter, damit ein noch offener v6-Raum sauber auslaeuft statt sofort zu
+// sterben; ein v7-Client betritt ihn nicht.
+// v7 ist ebenfalls KEINE Schemaaenderung, sondern die naechste SIMULATIONSREVISION: sie
+// traegt Timed Classic (90 s BEDENKZEIT, Golden Goal) und damit einen anderen
+// Rundenablauf als v5. Die zwischenzeitlich unter v7 erprobte breitere Classic-Toroeffnung
+// ist nach dem Spieltest zurueckgenommen — die Geometrie ist wieder die von v5 —, die
+// NUMMER bleibt trotzdem v7: sie war oeffentlich im Umlauf, und ein Raum aus dem
+// Zwischenstand darf niemals fuer den heutigen gehalten werden. Es gibt bewusst KEINE
+// Kompatibilitaetsschicht. Bestehende Raeume laufen serverseitig aus (die Rules akzeptieren
+// waehrend der Umstellung v4, v5, v6 und v7).
+const ONLINE_PROTOCOL_VERSION=7;
 const FFA_MAX_SEATS=5;   // Online-FFA: Seats 0-4 (Host=0), Farben aus PCOLS
 // ── RAUMTYP (v4) ──────────────────────────────────────────────────────────────────
 // config.game trennt die beiden Produktfamilien serverseitig. Bewusst NICHT 'mode':
@@ -9188,6 +9831,9 @@ async function initR3D(){
         const rectLineX=AV.halfLen*BR*FB_U-FB_PLAY_INSET;
         const rectLineHalf=AV.postInner*BR*FB_U;
         const g=goalProto.clone(true);                       // jede Instanz ein Clone desselben Assets (geteilte Ressourcen)
+        // Das Modell wird UNIFORM skaliert. Die Sockelkanten der Physik (AV.postInner/
+        // postOuter) sind die gemessenen Kanten genau dieses Assets — es gibt keinen
+        // modusabhaengigen Streckfaktor, also auch keine Optik, die der Physik nachlaeuft.
         g.scale.setScalar(goalScale);
         g.position.set(d[0]*AV.goalAnchor*BR*FB_U,GOAL_WALK_Y,d[1]*AV.goalAnchor*BR*FB_U);   // Sockelvorderkante exakt auf der Bandeninnenflaeche (postFront == halfLen)
         g.rotation.set(0,GOAL_ROT(d),0);                     // Oeffnung zeigt zur Arenamitte
@@ -10368,6 +11014,11 @@ function simResetClock(){if(online)return;simPrev=0;simAcc=0;}
 // Wanduhr und waren damit schon vorher unabhaengig von der Bildwiederholrate.
 function simStep(now){
   if(replaying){repTick();return;}
+  // MATCHUHR. Sie haengt bewusst HIER und nicht mehr in stepSim: stepSim laeuft nur in der
+  // Simulationsphase, simStep dagegen in JEDER Phase mit denselben festen 60 Hz. Genau das
+  // braucht eine Uhr, die Bedenkzeit misst statt Ballzeit. Welche Zustaende zaehlen,
+  // entscheidet fbClockStep selbst (fbDecisionWho) — nicht dieser Aufrufer.
+  if(typeof fbClockStep==='function')fbClockStep();
   if(phase==='reveal'&&now-phaseStart>REVEAL_MS)applyLaunch();
   else if(phase==='sim')stepSim();
   else if(phase==='result'){resultDrift();if(now-phaseStart>RESULT_MS)afterResult();}
@@ -10407,6 +11058,7 @@ function loop(now){
   // RINGOUT-Feedback + Dev-Sync-Log: reiner Phasen-Watcher (stepSim/Physik unangetastet)
   if(phase!==prevPhaseFx){if(phase==='result')showRingout();devSync('phase->'+phase);prevPhaseFx=phase;}
   SFX.rollUpdate(balls,phase==='sim');
+  fbClockPaint();   // Restzeit im HUD nachziehen: reine Ausgabe, die Uhr laeuft in simStep
   draw();
   if(r3dActive)r3d.render();
   if(r3dActive&&!bootDone)finishBoot();   // erster gerenderter 3D-Frame -> Menue einblenden
