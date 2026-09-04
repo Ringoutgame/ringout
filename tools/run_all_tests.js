@@ -25,7 +25,7 @@ const SUITES = [
   { name: 'Football-Action',  file: 'test_football_action_core.js', expectPassed: 59 },  // Action Core 04: der Stossimpuls kennt Massen — ein sauberer Volltreffer gibt dem Ball 96.7 % statt 71.4 %, Winkel und Staerke bleiben taktische Groessen, die Daempfung beider Kugelarten ist unangetastet
   { name: 'Football-Tormund', file: 'test_football_goal_mouth.js', expectPassed: 263 },  // sichtbar offen heisst physisch offen: im Torfenster keine Bande, der Sockel besitzt die Zurueckweisung, das Tor wird nie breiter als es aussieht
   { name: 'Football-FX',      file: 'test_football_fx.js',     expectPassed: 112 },    // Action-Feel 02: gedeckelte Effektliste, kurzlebige Formen, keine Spielzustandsberuehrung, RingOut unberuehrt  // Produktmodus Elimination: 5 -> 4 -> 3 -> 2 -> Sieger, dieselbe Architektur
-  { name: 'Football-Musik',   file: 'test_football_music.js',  expectPassed: 345 },   // Action-Feel 03C: durchlaufendes Thema mit Signaturfigur, Entsperrung bei jeder Geste, eine Besetzung mit drei Pegeln, Signatur-Torklang
+  { name: 'Football-Musik',   file: 'test_football_music.js',  expectPassed: 376 },   // Menue-/Lobbymusik als Asset (Energiekurve leicht -> voll, Schleife nur ueber die volle Phase, Menuepegel 0,30, Matchblende, ein Kontext); das prozedurale Thema bleibt liegen, wird aber in jedem Bild auf 'off' gehalten
   { name: 'Fixed-Timestep',  file: 'test_fixed_timestep.js', expectPassed: 202 },  // Gameplay laeuft in festen 60-Hz-Schritten, unabhaengig von der Bildwiederholrate
   { name: 'r3d-Mapping',      file: 'test_r3d_mapping.js',    expectPassed: 52 },
   { name: 'Sanitize',         file: 'test_sanitize.js',       expectPassed: 24 },

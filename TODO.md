@@ -1,6 +1,6 @@
 # TODO.md — RingOut
 
-**Zuletzt aktualisiert:** 2026-09-03 (**Querformat-HUD korrigiert** — Leiste oben, Arena 70 → 82 %, Hochformat unverändert; Meldungen 1,5 s / 1,7 s, LETZTE AKTION größer; Regeln unverändert; FIRST TO 3 unverändert; **Protokoll v7**; offen bleiben Online-Elimination, Online-Tactical, Kamera-Framing und die bekannten P2s)
+**Zuletzt aktualisiert:** 2026-09-04 (**Menümusik: Pegel 0,30 und Energiekurve leicht → voll**, Schleife nur über die volle Phase; **offen: zweiter menschlicher Hörtest im Produkt**, danach erst Commit; Match-Atmosphäre bleibt ein eigener Durchgang; Regeln, Physik und Protokoll v7 unverändert)
 
 Offene Aufgaben nach Priorität. Abgeschlossene Aufgaben werden nach `CHANGELOG.md` verschoben.
 
@@ -142,6 +142,8 @@ Offene Aufgaben nach Priorität. Abgeschlossene Aufgaben werden nach `CHANGELOG.
 ---
 
 ## P3 — Niedrig (Nice to have)
+
+- [ ] **`fbMusicIntensity()` hat seit der Musikintegration keinen Aufrufer mehr.** Der Bildlauf fragt die Intensität nicht mehr ab, weil das abgelöste prozedurale Thema nur noch `off` bekommt. Die Funktion steht bewusst noch da: die Match-Atmosphäre (eigener Durchgang) braucht genau diese Ableitung, und die Musiksuite prüft sie. Entweder sie wird dort wiederverwendet — oder sie fällt zusammen mit `FBMUSIC` weg, sobald feststeht, dass das prozedurale Thema nicht zurückkommt. Vorher nicht löschen.
 
 - [ ] **Mehrsprachigkeit vorbereiten:** Alle deutschen Strings in ein Übersetzungs-Objekt auslagern (`de`, `en`), um i18n später ohne Refaktorierung des Markups zu ermöglichen.
 - [ ] **PWA-Manifest hinzufügen:** `manifest.json` mit App-Name, Icon, Themenfarbe, damit das Spiel auf Mobile als App installierbar ist.

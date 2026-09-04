@@ -3259,11 +3259,144 @@ const FBMUSIC=(()=>{
     }
   };
 })();
-// Hintergrundtab: das Thema darf nicht weiterlaufen. Ein einziger Listener, keine eigene
+// ════ ARENA FOOTBALL — MENUE-/LOBBYMUSIK ══════════════════════════════════════
+// Loest das prozedurale Thema oben ab. Es wird nicht geloescht, aber es wird nie wieder
+// gestartet: fbMusicSync() haelt FBMUSIC in JEDEM Bild auf 'off'. Weil das Modul nur
+// ueber set() mit einer anderen Szene lebendig wird, koennen damit auch seine Akzente
+// (launch/hero/goal/result) nicht mehr klingen - akzentOk() verlangt `alive`. Doppelte
+// Musik ist dadurch nicht unwahrscheinlich, sondern strukturell ausgeschlossen.
+//
+// Hier laeuft ein ASSET, kein Generator: genau EINE Quelle, genau EIN Ladeversuch je
+// Seitenladen, und derselbe AudioContext wie Tor- und Rollklang (SFX.ctxRunning) - kein
+// zweiter Context, kein Audio-Element.
+//
+// FORM. Das Stueck steigt an, es faellt nie:
+//
+//     Phase A   0,000 - 11,250 s   leichter Einstieg
+//     Phase B  11,250 - 28,125 s   Aufbau
+//     Phase C  28,125 - 65,625 s   volle Energie   <- die Schleife
+//
+// SCHLEIFE. Einstieg und Aufbau laufen genau EINMAL je Menuebesuch; danach kreist
+// ausschliesslich Phase C zwischen 28,125 s und 65,625 s. Beides sind Taktgrenzen bei
+// 128 BPM (Takt 15 und Takt 35), und BEIDE Schleifenenden liegen in der vollen Phase -
+// der Sprung geht also von voller Energie auf volle Energie, und der leichte Einstieg
+// kommt nicht alle vierzig Sekunden wieder. Der Nachhall des Schleifenendes ist IM
+// ASSET bereits auf den Schleifenanfang gefaltet; deshalb braucht der Sprung weder
+// Blende noch Ueberlappung, und es entsteht weder Klick noch Loch. Hinter dem
+// Schleifenende liegen 2 s Nachlauf, die nie gespielt werden - sie fangen die Kuerzung
+// ab, die jeder Encoder am Dateiende hinterlaesst (gemessen: 5-55 ms).
+//
+// MATCH. Beim Matchbeginn blendet das Stueck aus und wird angehalten; waehrend des
+// Spiels laeuft bewusst KEINE Musik, nur der vorhandene Spielklang. Bei der Rueckkehr
+// ins Menue beginnt es neu, mit kurzer Blende - der Spieler hoert dann wieder den
+// leichten Einstieg und den Aufbau.
+const FB_MENU_SRCS=['assets/audio/arena-football-menu.m4a','assets/audio/arena-football-menu.webm'];
+const FB_MENU_LOOP_IN=28.125, FB_MENU_LOOP_OUT=65.625;   // Taktgrenzen bei 128 BPM
+// Menuepegel. 0.50 war im Hoertest deutlich zu laut ("es stoert mich"). Das Asset liegt
+// bei -20,4 dBFS RMS und -3,3 dBFS Spitze; mit 0.30 spielt es bei rund -30,8 dBFS, also
+// gut 4 dB leiser als vorher und weit unter dem Spielklang (Tor ~0.69). Das ist der EINE
+// Wert, an dem die Lautstaerke geregelt wird - die Musik wird NICHT ueber die
+// Arrangementdichte lauter gemacht.
+const FB_MENU_GAIN=0.30;
+const FB_MENU_FADE_IN=0.40;    // s - Rueckkehr ins Menue
+const FB_MENU_FADE_OUT=0.70;   // s - Matchbeginn (Vorgabe 0,5 bis 0,9 s)
+const FB_MENU_FADE_HARD=0.12;  // s - Musik aus / Klang aus: sofort still
+const FBTRACK=(()=>{
+  let buf=null,load=0;                 // 0=nie versucht 1=laedt 2=bereit 3=fehlt -> still
+  let c=null,master=null;              // gemeinsamer Ausgang; traegt nur die Dunkelschaltung
+  let stimme=null;                     // {src,g} - JEDE Wiedergabe hat ihr eigenes Gain
+  let scene='off',dark=false;
+  function laden(cc){
+    if(load!==0)return;
+    load=1;
+    (async()=>{
+      for(const s of FB_MENU_SRCS){
+        try{
+          const r=await fetch(s);if(!r.ok)continue;              // 404 -> naechstes Format
+          buf=await cc.decodeAudioData(await r.arrayBuffer());   // Decodefehler -> naechstes
+          load=2;return;
+        }catch(e){}
+      }
+      load=3;                          // kein Asset -> bewusst still, kein weiterer Versuch
+    })();                              // kein await nach aussen: Laden darf nie blockieren
+  }
+  function bauen(cc){
+    if(master&&c===cc)return;
+    c=cc;master=cc.createGain();master.gain.value=dark?0.0001:1;master.connect(cc.destination);
+  }
+  // Jede Wiedergabe bekommt ihr EIGENES Gain. Mit einem gemeinsamen wuerde eine noch
+  // laufende Ausblendung die Einblendung der naechsten mitziehen - beim schnellen Wechsel
+  // Menue -> Match -> Menue haetten zwei Quellen an derselben Regelung gehangen.
+  function starten(){
+    if(stimme||!buf||!c)return;
+    const g=c.createGain();g.gain.value=0.0001;g.connect(master);
+    const src=c.createBufferSource();
+    src.buffer=buf;src.loop=true;
+    src.loopStart=FB_MENU_LOOP_IN;
+    src.loopEnd=Math.min(FB_MENU_LOOP_OUT,buf.duration);
+    src.connect(g);
+    const t=c.currentTime;
+    g.gain.setValueAtTime(0.0001,t);
+    g.gain.linearRampToValueAtTime(FB_MENU_GAIN,t+FB_MENU_FADE_IN);
+    src.start();
+    stimme={src,g};
+  }
+  function anhalten(fade){
+    const v=stimme;if(!v||!c)return;
+    stimme=null;                       // sofort loesen -> ein zweiter Aufruf trifft nichts
+    const t=c.currentTime;
+    try{
+      v.g.gain.cancelScheduledValues(t);
+      v.g.gain.setValueAtTime(Math.max(v.g.gain.value,0.0001),t);
+      v.g.gain.linearRampToValueAtTime(0.0001,t+fade);
+      v.src.stop(t+fade+0.03);
+    }catch(e){}
+    setTimeout(()=>{try{v.src.disconnect();}catch(e){}try{v.g.disconnect();}catch(e){}},
+               Math.round((fade+0.25)*1000));
+  }
+  // Kontext holen, Aufbau sichern, laden, und starten sobald beides bereit ist. Vor der
+  // ersten Nutzergeste gibt SFX.ctxRunning() nichts zurueck - dann passiert nichts und
+  // der naechste Bildlauf versucht es erneut.
+  function ensure(){
+    const cc=(typeof SFX!=='undefined'&&SFX.ctxRunning)?SFX.ctxRunning():null;
+    if(!cc)return;
+    bauen(cc);laden(cc);
+    if(load===2&&!dark)starten();
+  }
+  return{
+    // Der einzige Eingang aus dem Spiel, einmal je Bild. Billig: aendert sich nichts,
+    // passiert nichts - ausser dem Nachholen dessen, was der Browser vorher verweigert hat.
+    set(sc){
+      const soll=(sc==='menu'||sc==='lobby');
+      if(sc===scene){if(soll&&!stimme)ensure();return;}
+      scene=sc;
+      if(soll)ensure();else anhalten(FB_MENU_FADE_OUT);
+    },
+    // Musik aus oder Klang aus: sofort still, nicht erst nach der Matchblende.
+    stop(){scene='off';anhalten(FB_MENU_FADE_HARD);},
+    // Hintergrundtab: still, aber die Wiedergabe laeuft weiter - bei der Rueckkehr steigt
+    // das Stueck dort wieder ein, wo es inzwischen steht. Dieselbe Regel wie beim
+    // abgeloesten Thema, und deshalb entsteht auch hier keine zweite Quelle.
+    setDark(v){
+      dark=!!v;
+      if(!c||!master)return;
+      const t=c.currentTime;
+      master.gain.cancelScheduledValues(t);
+      master.gain.setValueAtTime(master.gain.value,t);
+      master.gain.linearRampToValueAtTime(dark?0.0001:1,t+0.12);
+    },
+    // Nur fuer die Dev-Sonde: read-only.
+    state(){return{scene,load,playing:!!stimme,dark,
+                   loop:buf?[FB_MENU_LOOP_IN,Math.min(FB_MENU_LOOP_OUT,buf.duration)]:null,
+                   duration:buf?buf.duration:0};},
+  };
+})();
+// Hintergrundtab: die Musik darf nicht weiterlaufen. Ein einziger Listener, keine eigene
 // Zustandsableitung - dieselbe Sichtbarkeitspruefung wie der Collapse-Timer.
 document.addEventListener('visibilitychange',()=>{
   const h=(typeof collapseHidden==='function')?collapseHidden()
          :(document.hidden===true||(document.visibilityState!=null&&document.visibilityState!=='visible'));
+  try{FBTRACK.setDark(h);}catch(e){}
   try{FBMUSIC.setDark(h);}catch(e){}
 });
 // Dev-Hoerprobe des Torsounds (?dev=1): G = normales Tor, Shift+G = Matchpunkt. Ruft
@@ -4697,9 +4830,13 @@ function fbMusicIntensity(){
 // Einmal je Bild aus loop(). Der Aufruf ist billig: FBMUSIC.set() vergleicht Szene und
 // Intensitaet und tut nichts, solange sich nichts geaendert hat.
 function fbMusicSync(){
-  if(typeof FBMUSIC==='undefined')return;
   const sc=fbMusicScene();
-  FBMUSIC.set(sc,sc==='match'?fbMusicIntensity():0);
+  // Das Stueck: Menue und Lobby spielen, das Match blendet aus, 'off' haelt an.
+  if(typeof FBTRACK!=='undefined')FBTRACK.set(sc);
+  // Und das abgeloeste prozedurale Thema wird in JEDEM Bild auf 'off' gehalten - nicht
+  // einmalig beim Start. Das ist die Garantie gegen doppelte Musik: FBMUSIC wird
+  // ausschliesslich ueber set() mit einer anderen Szene lebendig.
+  if(typeof FBMUSIC!=='undefined')FBMUSIC.set('off',0);
 }
 // Akzente gehoeren dem Match. Im Menue und in der Lobby gibt es nichts zu quittieren.
 function fbMusicAccentOk(){
@@ -4721,7 +4858,10 @@ function fbMusicResult(win){
   FBMUSIC.result(!!win);
 }
 // Der einzige Weg, der die Uhr des Stuecks beendet: Musik aus oder Klang aus.
-function fbMusicStop(){ if(typeof FBMUSIC!=='undefined')FBMUSIC.stop(); }
+function fbMusicStop(){
+  if(typeof FBTRACK!=='undefined')FBTRACK.stop();
+  if(typeof FBMUSIC!=='undefined')FBMUSIC.stop();
+}
 function popBall(b){if(r3dActive)fx3Dust(b.x,b.y,b.vx,b.vy);else spawn(b.x,b.y,26,[pcol(colorSlot(b.owner)).ui,'#ffffff'],Math.max(5,Math.hypot(b.vx,b.vy))*0.9,1.1);}
 
 // ── RING-OUT: positionsreine Ermittlung + gemeinsame Verarbeitung ──
@@ -6083,6 +6223,7 @@ if(typeof DEV_MENU!=='undefined'&&DEV_MENU)window.__fbDev={
   // lebende Stimmen, laufender Zeitgeber und ob ueberhaupt ein Graph steht. Damit laesst
   // sich am ECHTEN Geraet pruefen, was ein Sandkasten nicht beweisen kann: dass nach dem
   // Verlassen des Modus kein Zeitgeber und keine Stimme uebrig bleibt.
+  track:()=>{try{return FBTRACK.state();}catch(e){return null;}},
   music:()=>{try{const p=FBMUSIC.pos();return{scene:FBMUSIC.scene(),intensity:FBMUSIC.intensity(),
               voices:FBMUSIC.voices(),running:FBMUSIC.running(),live:FBMUSIC.live(),
               form:FBMUSIC.formSeconds(),

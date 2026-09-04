@@ -1,5 +1,83 @@
 # Audio-Assets — Lizenzen & Quellen
 
+## arena-football-menu.m4a / arena-football-menu.webm
+
+| | |
+|---|---|
+| **Verwendung im Spiel** | Menü-/Lobbymusik in Arena Football (geladen von `FBTRACK` in `index.html`; Format-Präferenz m4a → webm) |
+| **Urheber** | **Eigenproduktion.** Vollständig prozedural erzeugt, ohne fremdes Klangmaterial, ohne Sample-Bibliothek und ohne Stockaufnahme. |
+| **Lizenz** | Keine Fremdlizenz. Es besteht keine Attributionspflicht und keine Weitergabebeschränkung. |
+| **Quelle im Repository** | `artifacts/audio-reset-05/render.js` (Komposition) und `artifacts/audio-reset-06/master.js` (Loop-Master) — die Datei lässt sich jederzeit bitgenau neu erzeugen. |
+
+### Herkunft
+
+Ergebnis von sieben Hördurchgängen (`artifacts/audio-reset-01` bis `-07`). Der Spieler
+hat in Durchgang 05 die Fassung **T** ausgewählt; Durchgang 07 hat aus dem Hörtest im
+Produkt zwei Korrekturen übernommen — **leiser** und ein **ansteigender Verlauf** statt
+voller Energie ab Sekunde 0.
+
+Die musikalische Identität von T ist unverändert: dieselben Stimmen, dieselben
+Positionen, dieselbe Lage. Was sich geändert hat, ist ausschließlich, **wie viel davon
+wann spielt**.
+
+| Phase | Zeit | |
+|---|---|---|
+| **A — Einstieg** | 0,000 – 11,250 s | leicht: kein Sub, kein Klatschen bis Takt 4, Ticks nur auf den Zählzeiten, Holz auf 0–3 Positionen, Dynamik 72–82 % |
+| **B — Aufbau** | 11,250 – 28,125 s | jeder Takt bringt eine Kleinigkeit mehr; der Sub kommt ab Takt 8 und steigt bis Takt 14 auf seinen Wert |
+| **C — volle Energie** | 28,125 – 65,625 s | T in seiner dichtesten Stufe |
+
+Gemessen (`artifacts/audio-reset-07/render.js`, aus der Partitur, nicht geschätzt):
+
+| | Pegel | Anschläge/s | Stimmen | 20–120 Hz | Dauerhaftigkeit der Tiefe |
+|---|---|---|---|---|---|
+| A | −27,5 dB | 5,5 | 6 | −31,0 dB | −17,5 dB |
+| B | −21,3 dB | 14,0 | 10 | −23,7 dB | −5,4 dB |
+| C | −19,0 dB | 22,2 | 10 | −21,3 dB | −3,5 dB |
+
+Grundtöne über alle 35 Takte: **43,66 / 49,00 / 55,00 / 65,41 Hz** — kein Ton unter dem
+Vorrat der freigegebenen Eröffnung. Tiefster Flächenton **110,00 Hz**. Es gibt keinen
+dunklen Abschnitt und keine liegende Tiefe in Phase A.
+
+### Format und Pegel
+
+| | m4a | webm |
+|---|---|---|
+| Codec | AAC-LC in MP4 | Opus in WebM |
+| Bitrate | 128 kbit/s | 96 kbit/s |
+| Größe | 1 079 KB | 799 KB |
+| Dauer | 67,57 s | 67,62 s |
+| Decoder-Versatz (Chromium) | **0 Samples** | 318 Samples (7,2 ms) |
+
+Beide 44,1 kHz Stereo, Spitze −4,0 dBFS, kein Clipping. Erzeugt mit Chromiums
+`MediaRecorder` (`artifacts/audio-reset-06/encode.js`) — auf dem Entwicklungsrechner
+existiert kein anderer Audio-Encoder; das mit Playwright gelieferte `ffmpeg` ist mit
+`--disable-everything` gebaut und kann kein Audio.
+
+**m4a steht zuerst**, weil sein Decoder-Versatz gemessen 0 ist und die Schleifenpunkte
+damit auf dem Takt landen. Bei webm läge der Sprung um 7,2 ms daneben — hörbar wenig
+(ein Sechzehntel dauert 117 ms), aber es ist der schlechtere von zwei guten Wegen.
+
+### Schleife
+
+| | |
+|---|---|
+| `loopStart` | **28,125 s** (Takt 15 bei 128 BPM) |
+| `loopEnd` | **65,625 s** (Takt 35) |
+| Umlauf | 37,5 s |
+| Nachlauf hinter `loopEnd` | 2,0 s — wird nie gespielt |
+
+Einstieg und Aufbau laufen **einmal je Menübesuch**; danach kreist ausschließlich
+Phase C. **Beide Schleifenenden liegen in der vollen Phase** — der Sprung geht von voller
+Energie auf volle Energie, und der leichte Einstieg kommt nicht alle vierzig Sekunden
+wieder.
+
+Der Nachhall des Schleifenendes ist **im Asset** bereits auf den Schleifenanfang addiert
+(−17,8 dBFS Spitze, 19,7 dB unter der Musik an dieser Stelle); deshalb braucht der Sprung
+weder Blende noch Überlappung. Der Nachlauf fängt die Kürzung ab, die jeder Encoder am
+Dateiende hinterlässt (gemessen 5–55 ms).
+
+---
+
 ## arena_football_goal.ogg / arena_football_goal.mp3
 
 | | |

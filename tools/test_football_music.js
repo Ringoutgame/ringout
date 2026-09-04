@@ -175,6 +175,10 @@ const G = new Function(`
   const FBMUSIC={set:(s,i)=>calls.push(['set',s,i]),hero:(m)=>calls.push(['hero',m]),
                  launch:(p)=>calls.push(['launch',p]),goal:(m)=>calls.push(['goal',m]),
                  result:(w)=>calls.push(['result',w]),stop:()=>calls.push(['stop'])};
+  // Die abgeloeste Spur ist noch da, aber sie fuehrt nicht mehr. Beide Attrappen sammeln
+  // in dieselbe Liste, damit sichtbar wird, WELCHE Stimme was bekommt.
+  const FBTRACK={set:(s)=>calls.push(['track',s]),stop:()=>calls.push(['trackStop']),
+                 setDark:(v)=>calls.push(['trackDark',v])};
   ${glueSrc}
   const lauf=(fn)=>{bind();calls.length=0;fn();return calls.slice();};
   return {env,
@@ -279,17 +283,25 @@ function reset(over) {
   reset({ score: [0, 0] }); ok(near(G.iv(), 0, 1e-9), 'Classic 0:0 ist Grundbesetzung');
   reset({ score: [1, 0] }); ok(near(G.iv(), 0.5, 1e-9), 'Classic 1:0 zieht an');
   reset({ score: [2, 1] }); ok(near(G.iv(), 1, 1e-9), 'Classic beim Matchball ist voll');
+  // Die Intensitaet wird weiterhin abgeleitet, aber der Bildlauf fragt sie nicht mehr:
+  // das abgeloeste Thema bekommt nur noch 'off'. Die Zahl bleibt geprueft (oben), damit
+  // eine spaetere Match-Atmosphaere darauf aufsetzen kann.
   reset({ menuVisible: true, elim: true, act: [0, 1] });
   const c = G.sync();
-  ok(c[0][1] === 'menu' && c[0][2] === 0, 'im Menue wird immer Intensitaet 0 gemeldet');
+  ok(c.some(x => x[0] === 'track' && x[1] === 'menu'), 'im Menue erreicht die Szene das Stueck');
+  ok(c.every(x => x[0] !== 'set' || (x[1] === 'off' && x[2] === 0)),
+     'und das abgeloeste Thema bekommt auch dort nur "off"');
 }
 
 // ── 8. Der Bildlauf reicht genau eine Szene weiter ──────────────────────────
 {
   reset();
   const c1 = G.sync();
-  ok(c1.length === 1 && c1[0][0] === 'set', 'ein Bildlauf ruft genau EINEN Eingang');
-  ok(c1[0][1] === 'match', 'und uebergibt die abgeleitete Szene');
+  ok(c1.length === 2, 'ein Bildlauf reicht genau zwei Eingaenge weiter (' + c1.length + ')');
+  ok(c1[0][0] === 'track' && c1[0][1] === 'match',
+     'die abgeleitete Szene geht an das Stueck');
+  ok(c1[1][0] === 'set' && c1[1][1] === 'off' && c1[1][2] === 0,
+     'und das abgeloeste Thema wird in JEDEM Bild auf off gehalten - nicht einmalig');
   const lp = grabFunction(HTML, 'loop');
   const imBild = (lp.match(/fbMusicSync\(\)/g) || []).length;
   ok(imBild === 1, 'die Bildschleife ruft genau EINMAL je Bild (' + imBild + ')');
@@ -302,6 +314,85 @@ function reset(over) {
      'er steht VOR der Wiedergabe-Abkuerzung - sonst liefe die Musik im Replay weiter');
   ok(!/fbMusicStop\(\)/.test(grabFunction(HTML, 'showMenu')),
      'der Weg ins Menue beendet das Thema nicht mehr - es wechselt nur die Besetzung');
+}
+
+// ── 8b. Die Abloesung ist dicht ─────────────────────────────────────────────
+// Der Auftrag lautet: keine doppelte Musik, kein altes Motiv darunter. Das ist keine
+// Frage der Wahrscheinlichkeit, sondern eine des Aufbaus - und genau das wird hier
+// geprueft, fuer JEDE Szene und an der Quelle.
+{
+  for (const [name, over] of [['Startseite', { menuVisible: true }],
+                              ['Lobby', { menuVisible: true, lobby: true }],
+                              ['Match', {}],
+                              ['Ergebnis', { phase: 'over' }],
+                              ['RingOut-Spiel', { mode: 'ffa' }],
+                              ['Wiedergabe', { replaying: true }],
+                              ['Musik aus', { musicOn: false, menuVisible: true }]]) {
+    reset(over);
+    const c = G.sync();
+    const alt = c.filter(x => x[0] === 'set');
+    ok(alt.length === 1 && alt[0][1] === 'off' && alt[0][2] === 0,
+       name + ': das abgeloeste Thema bekommt ausschliesslich off');
+    const neu = c.filter(x => x[0] === 'track');
+    ok(neu.length === 1 && neu[0][1] === G.scene(),
+       name + ': das Stueck bekommt genau die abgeleitete Szene');
+  }
+  // Der Klangschalter haelt BEIDE an - sonst liefe die eine Spur weiter, waehrend die
+  // andere schweigt.
+  const stopSrc = grabFunction(HTML, 'fbMusicStop');
+  ok(/FBTRACK\.stop\(\)/.test(stopSrc) && /FBMUSIC\.stop\(\)/.test(stopSrc),
+     'Klang aus haelt das Stueck UND das abgeloeste Thema an');
+  // Und der Hintergrundtab ebenfalls beide.
+  ok(/FBTRACK\.setDark\(h\)/.test(HTML) && /FBMUSIC\.setDark\(h\)/.test(HTML),
+     'der Hintergrundtab schaltet beide still');
+}
+
+// ── 8c. Das Stueck: Schleife, Blenden, genau EIN Kontext ────────────────────
+// Gegen die Wellenform laesst sich hier nichts pruefen, gegen den Aufbau schon - und
+// die vier Punkte unten sind die, an denen eine Menuemusik hoerbar kaputtgeht.
+{
+  const src = grab(/const FBTRACK=\(\(\)=>\{[\s\S]*?\n\}\)\(\);/, 'Menuemusik');
+  const num = (n) => {
+    const m = HTML.match(new RegExp('const ' + n + '=([\\d.]+)'));
+    return m ? parseFloat(m[1]) : NaN;
+  };
+  const TAKT = 4 * 60 / 128;
+  const ein = parseFloat(HTML.match(/const FB_MENU_LOOP_IN=([\d.]+)/)[1]);
+  const aus = parseFloat(HTML.match(/FB_MENU_LOOP_OUT=([\d.]+)/)[1]);
+  ok(Math.abs(ein / TAKT - Math.round(ein / TAKT)) < 1e-9,
+     'der Schleifenanfang liegt auf einer Taktgrenze (Takt ' + (ein / TAKT) + ')');
+  ok(Math.abs(aus / TAKT - Math.round(aus / TAKT)) < 1e-9,
+     'das Schleifenende ebenfalls (Takt ' + (aus / TAKT) + ')');
+  ok(ein >= 28 && ein < 29,
+     'der Schleifenanfang liegt hinter dem Aufbau (' + ein + ' s) - Einstieg und Aufbau '
+     + 'laufen einmal je Menuebesuch, nicht bei jedem Umlauf');
+  ok(aus - ein >= 30,
+     'der Umlauf ist lang genug, um nicht als Schleife aufzufallen (' +
+     (aus - ein).toFixed(3) + ' s)');
+  // Der Pegel ist der eine Wert, an dem die Lautstaerke haengt. Der Hoertest hat 0.50
+  // als deutlich zu laut verworfen; die Vorgabe lautet rund 0.30.
+  const pegel = num('FB_MENU_GAIN');
+  ok(pegel >= 0.28 && pegel <= 0.32,
+     'der Menuepegel liegt in der Vorgabe 0,28-0,32 (' + pegel + ')');
+  const raus = num('FB_MENU_FADE_OUT');
+  ok(raus >= 0.5 && raus <= 0.9,
+     'die Matchblende liegt in der Vorgabe 0,5-0,9 s (' + raus + ' s)');
+  ok(num('FB_MENU_FADE_IN') > 0 && num('FB_MENU_FADE_IN') < raus,
+     'die Rueckkehr blendet kuerzer ein als das Match ausblendet');
+  ok(/SFX\.ctxRunning/.test(src) && !/new\s*\(?\s*window\.AudioContext/.test(src),
+     'es benutzt den gemeinsamen Kontext und legt keinen zweiten an');
+  ok((src.match(/createBufferSource\(\)/g) || []).length === 1,
+     'es gibt genau eine Stelle, an der eine Quelle entsteht');
+  ok(/if\(stimme\|\|!buf\|\|!c\)return;/.test(src),
+     'und sie legt keine zweite an, solange eine laeuft');
+  ok(/stimme=null;/.test(src) && src.indexOf('stimme=null;') < src.indexOf('v.src.stop'),
+     'das Anhalten loest die Quelle SOFORT - ein zweiter Aufruf trifft nichts mehr');
+  // Jede Wiedergabe braucht ihr eigenes Gain, sonst zieht eine laufende Ausblendung die
+  // naechste Einblendung mit. Genau das passiert beim schnellen Menue -> Match -> Menue.
+  ok(/const g=c\.createGain\(\);g\.gain\.value=0\.0001;g\.connect\(master\);/.test(src),
+     'jede Wiedergabe bekommt ihr eigenes Gain');
+  ok(/const FB_MENU_SRCS=\['assets\/audio\/arena-football-menu\.m4a'/.test(HTML),
+     'das Asset liegt unter assets/audio/ und wird mit Rueckfall geladen');
 }
 
 // ════════════════════════════════════════════════════════════════════════════

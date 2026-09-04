@@ -1,6 +1,6 @@
 # PROJECT.md — RingOut
 
-**Zuletzt aktualisiert:** 2026-09-03 (**Speed-Match-HUD im Querformat korrigiert**: die Statusleiste rückt an den oberen Rand, die Arena gewinnt 70 → 82 % der Höhe, Hochformat unverändert; Meldungen stehen länger (1,5 s / 1,7 s), LETZTE AKTION wiegt schwerer; die Regeln bleiben unverändert — persönliche 45-s-Konten als Regulärzeit, 6 s je Commit, 2 s in Zeitnot; **Online-Protokoll v7**)
+**Zuletzt aktualisiert:** 2026-09-04 (**Arena-Football-Menümusik mit Energiekurve**: `FBTRACK` spielt `assets/audio/arena-football-menu.m4a` — leichter Einstieg bis 11,25 s, Aufbau bis 28,125 s, danach volle Energie; die Schleife umfasst nur die volle Phase (28,125 → 65,625 s), Menüpegel 0,30, Matchblende 0,70 s; das prozedurale Thema bleibt liegen, wird aber in jedem Bild auf `off` gehalten; Regeln, Physik, HUD und **Online-Protokoll v7** unverändert)
 
 - **Aktueller stabiler Projekt-HEAD:** `5a23dc424fb3126c33c29543b7c6571b87a65ec7`
 - **Implementierungs-Commit UX-Phase 3:** `babbbe78ee388489321d1f0cb3e032bbaabd0725`

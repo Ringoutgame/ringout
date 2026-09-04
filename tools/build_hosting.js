@@ -34,6 +34,8 @@ const DATEIEN = [
   // Klang: Torton (zwei Formate wegen Safari/iOS), Arenaumbau, Rollgeraeusch
   'assets/audio/arena_football_goal.ogg',
   'assets/audio/arena_football_goal.mp3',
+  'assets/audio/arena-football-menu.m4a',
+  'assets/audio/arena-football-menu.webm',
   'assets/audio/arena_football_transition_reconfigure.wav',
   'assets/audio/arena_football_transition_lock.wav',
   'assets/sfx/marble_roll_loop.m4a'
