@@ -1,6 +1,6 @@
 # PROJECT.md — RingOut
 
-**Zuletzt aktualisiert:** 2026-09-05 (**Timed FFA ist simultan**: ein gemeinsames 6-Sekunden-Fenster fuer alle aktiven Spieler, ein gemeinsamer Start, kein Uebergabeschirm; Countdown gehoert dem Fenster (`FOOTBALL_FFA_WINDOW`), READY je Spieler im Chip. Zuvor: **Timed FFA zaehlt Bedenkzeit, nicht Ballzeit** — die Phasenuhr sinkt nur beim Zielen, dazu ein 6-Sekunden-Riegel je Zug mit Auto-Commit des anliegenden Vektors; grosser zentraler Countdown, Phasenuhr daneben. Dieselbe Uhr wie Classic Speed Match, dasselbe Gatter `fbDecisionWho()`. Zuvor: **Elimination hat zwei Regeln: LIVES und TIMED FFA** — Timed FFA ist rein lokal, zählt Gegentore in 60-s-Phasen und scheidet den Schlechtesten aus; Gleichstand führt in FFA DANGER SUDDEN DEATH. **Online bleibt ausschließlich Lives**, Protokoll v7 unverändert. Zuvor: **Arena-Football-Menümusik mit Energiekurve**: `FBTRACK` spielt `assets/audio/arena-football-menu.m4a` — leichter Einstieg bis 11,25 s, Aufbau bis 28,125 s, danach volle Energie; die Schleife umfasst nur die volle Phase (28,125 → 65,625 s), Menüpegel 0,30, Matchblende 0,70 s; das prozedurale Thema bleibt liegen, wird aber in jedem Bild auf `off` gehalten; Regeln, Physik, HUD und **Online-Protokoll v7** unverändert)
+**Zuletzt aktualisiert:** 2026-09-05 (**die lokale Lebensregel teilt sich das gemeinsame Entscheidungsfenster**: alle aktiven Spieler entscheiden im selben 6-Sekunden-Fenster (`FOOTBALL_LIVES_SHOT_SECONDS`) und starten gleichzeitig, der Übergabeschirm entfällt; übernommen wurde nur das Fenster, **nicht** Phasenuhr oder DANGER, und die Regel (2 Gegentore) ist unverändert. `fbShared()` ist jetzt das Prädikat dreier Regeln; online bleibt die Lebensregel sequentiell, Protokoll v7 unberührt. Zuvor: **kanonische Wandform B**: eine Beschreibung (`FB_TWO_GOAL_SHAPE`) für Classic, Tactical, Team 2v2 und das Zwei-Spieler-Finale, dasselbe Schulterverhältnis radial (`FB_RADIAL_SHAPE`) für 3/4/5 Tore; das A/B/C-Labor ist restlos entfernt. Zuvor: **Geometrielabor A/B/C**: `?dev=1&arenaGeom=A|B|C` tauscht rein entwicklungsseitig die Wandform der Zwei-Tor-Arenen; ohne Parameter und online ändert sich nichts. Zuvor: **neuer lokaler Modus TRUE TEAM 2V2**: vier Identitäten B1/B2/R1/R2 mit je einer eigenen Figur, zwei Teams, First to 3 nach Torseite; ein gemeinsames 6-Sekunden-Fenster und gleichzeitiger Abschuss aus Timed FFA, Arena und Spawns unverändert aus Tactical. Zuvor: **Timed FFA ist simultan**: ein gemeinsames 6-Sekunden-Fenster fuer alle aktiven Spieler, ein gemeinsamer Start, kein Uebergabeschirm; Countdown gehoert dem Fenster (`FOOTBALL_FFA_WINDOW`), READY je Spieler im Chip. Zuvor: **Timed FFA zaehlt Bedenkzeit, nicht Ballzeit** — die Phasenuhr sinkt nur beim Zielen, dazu ein 6-Sekunden-Riegel je Zug mit Auto-Commit des anliegenden Vektors; grosser zentraler Countdown, Phasenuhr daneben. Dieselbe Uhr wie Classic Speed Match, dasselbe Gatter `fbDecisionWho()`. Zuvor: **Elimination hat zwei Regeln: LIVES und TIMED FFA** — Timed FFA ist rein lokal, zählt Gegentore in 60-s-Phasen und scheidet den Schlechtesten aus; Gleichstand führt in FFA DANGER SUDDEN DEATH. **Online bleibt ausschließlich Lives**, Protokoll v7 unverändert. Zuvor: **Arena-Football-Menümusik mit Energiekurve**: `FBTRACK` spielt `assets/audio/arena-football-menu.m4a` — leichter Einstieg bis 11,25 s, Aufbau bis 28,125 s, danach volle Energie; die Schleife umfasst nur die volle Phase (28,125 → 65,625 s), Menüpegel 0,30, Matchblende 0,70 s; das prozedurale Thema bleibt liegen, wird aber in jedem Bild auf `off` gehalten; Regeln, Physik, HUD und **Online-Protokoll v7** unverändert)
 
 - **Aktueller stabiler Projekt-HEAD:** `5a23dc424fb3126c33c29543b7c6571b87a65ec7`
 - **Implementierungs-Commit UX-Phase 3:** `babbbe78ee388489321d1f0cb3e032bbaabd0725`
@@ -46,6 +46,7 @@ Stand: Arena-Finalisierung (2026-08-08), frisch gemessen mit
 | Football-Elim | `test_football_elimination4.js` | 1522/0 | grün |
 | Football-Elim5 | `test_football_elimination5.js` | 319/0 | grün |
 | Football-TimedFFA | `test_football_timed_ffa.js` | 239/0 | grün |
+| Football-Team2v2 | `test_football_team2v2.js` | 126/0 | grün |
 | r3d-Mapping | `test_r3d_mapping.js` | 52/0 | grün |
 | Sanitize | `test_sanitize.js` | 24/0 | grün |
 | Identity | `test_identity.js` | 45/0 | grün |
@@ -620,6 +621,120 @@ liegen untracked unter `artifacts/football-tactical-dual-prototype/`.
 
 ---
 
+### Arena-Football · Kanonische Wandform (Kandidat B)
+
+Nach dem A/B/C-Vergleich (Labor 01) hat der Mensch **Kandidat B** gewählt: lange gerade
+Bande → **kurze** bewusste 35-Grad-Schulter → flache Torwand. Sie ist seither die
+Wandsprache **aller** Arena-Football-Modi.
+
+**Wie eine Arenaform aufgebaut ist.** Die Grenze ist die Minkowski-Summe aus **Kernpolygon**
+(`poly`) und **Eckradius** (`corner`): jede Kernkante wird zu einer geraden Wand gleicher
+Länge, jede Kernecke zu einem Bogen. Physik (`footballPolySD` über `footballBoundSD`),
+Renderer (`fbRoundPoly`) und Zielvorschau (`fbPreviewOut`) lesen **alle drei** genau diese
+zwei Felder aus derselben Funktion `fbArena()`.
+
+**Zwei Beschreibungen, zwei Generatoren — mehr gibt es nicht.**
+
+```
+FB_TWO_GOAL_SHAPE = {rc: 2.60, shoulderDeg: 35, endHalf: 7.00}
+FB_RADIAL_SHAPE   = {rc: 2.60, vf: {3: 1.5916, 4: 1.2663, 5: 1.1559}}
+
+fbTwoGoalArena(halfLen, halfWid, spawn)
+fbRadialArena(n, apothem, spawn, dirs, verts)
+```
+
+Verschiedene Modi dürfen verschiedene **Grundflächen** haben, aber nie ein eigenes
+**Wandprofil** — genau so waren sie zuvor auseinandergedriftet.
+
+| Arena | Grundfläche | gerade Wand | Schulter | Ecken | Spawn |
+|---|---|---|---|---|---|
+| Tactical · True Team 2v2 | 36,0 × 25,4 | 26,46 | 3,78 @ 35° | 8 | 7,65 |
+| Classic · 2P-Finale | 31,2 × 23,2 | 23,20 | 2,44 @ 35° | 8 | 10,15 |
+| Elimination 3 Tore | Apothem 12,50 | 24,96 | 4,67 | 6 | 8,15 |
+| Elimination 4 Tore | Apothem 17,50 | 23,57 | 4,41 | 8 | 11,50 |
+| Elimination 5 Tore | Apothem 19,50 | 19,95 | 3,73 | 10 | 12,75 |
+
+**Radial ist ein Verhältnis übertragen, keine Koordinate.** Drei, vier und fünf Tore sind
+rotationssymmetrisch; die Kappfläche an der Winkelhalbierenden **ist** dort die Schulter.
+Übertragen wurde deshalb ihr **Anteil am Wandlauf**: in B sind das 15,8 %, und genau darauf
+sind die Kappfaktoren gesetzt. Jede Torseite ist exakt gleich lang, jede Kappfläche exakt
+gleich lang, jede Torebene liegt auf demselben Apothem — kein Spieler bekommt eine bessere
+Bande als ein anderer. Hergeleitet in `artifacts/bankshot-lab-01/radial.js`.
+
+**Torbreite unverändert.** 227,84 px (`postInner` 3,560 BR) in **jeder** Form und Phase; die
+Torlinie liegt überall auf `postFront = halfLen`. Die halbe flache Torseite bleibt in allen
+fünf Formen über `postOuter` (5,282 BR) — die Tormündung liegt nie hinter einer Schräge.
+
+**Determinismus.** Die Schulternormale steht als Literal (`FB_SHOULDER_COS`/`_SIN`), nicht
+als `Math.cos`/`Math.sin`: trigonometrische Funktionen sind in JavaScript nicht korrekt
+gerundet vorgeschrieben, die Arenageometrie muss aber auf jeder Engine bitgleich sein.
+Dieselbe Begründung wie bei `FB_P5_C1` und `FB_TRI_COS30`. **Kein** Adresszeilenparameter
+kann die Geometrie verstellen — das temporäre A/B/C-Labor ist restlos entfernt.
+
+---
+
+### Arena-Football · TRUE TEAM 2V2 (lokaler Produktmodus, 4 Spieler)
+
+Vierte Football-Variante `fbVariant === 'team2v2'`, als `TEAM 2V2` regulär über die
+Modusauswahl startbar (`#fbTeam2Btn`); Dev-Direktlink `?dev=1&fb=team2v2`.
+
+**Vier Menschen an einem Gerät, zwei Teams, ein neutraler Ball.** Das ist ausdrücklich
+**nicht** Tactical: dort steuert EIN Mensch beide Figuren seines Teams und wählt je Runde
+eine davon (`fbSel`). Hier besitzt jeder Mensch genau EINE Figur, dauerhaft.
+
+**Besitz.** Vier Identitäten mit festen Kugeln: **B1 = owner 0, B2 = 1, R1 = 2, R2 = 3**,
+dazu der neutrale Ball (owner 5). Der Besitz **ist** die bestehende `owner`-Größe der Kugel —
+es gibt keine zweite Zuordnungstabelle daneben. `np()` liefert hier 4, und damit hat jede
+Identität ihren eigenen Commit-Platz (`aimSet`/`commitIdx`/`commitAim`/`commitSpin`).
+
+**Team.** Eine reine **Ableitung**: `fbTeam2Side(o)` → 0 für 0/1 (Blau), 1 für 2/3 (Rot),
+−1 sonst. Nirgends gespeichert, kann also nicht auseinanderlaufen. Die Wertung braucht sie
+nicht einmal: `footballGoalSide()` liefert bereits die überquerte **Torseite**, und die ist
+die Teamnummer — **Eigentore sind damit ohne Sonderfall richtig.**
+
+**Sieg.** `FOOTBALL_WIN_SCORE = 3` auf den Teamstand, über den bestehenden einzigen
+Zählpfad in `footballTryGoal()`. Keine Leben, keine Phasenuhr, kein Golden Goal, keine
+Elimination.
+
+**Gemeinsames Fenster.** `FOOTBALL_TEAM2V2_SHOT_SECONDS = 6` (`_TICKS = 360`). Alle vier
+entscheiden im selben Fenster; es schließt, sobald `fbOffen()` leer ist — nicht erst bei 0,0.
+Bei Ablauf bekommt jeder noch Offene über `fbCommitFor()` seinen anliegenden Vektor **genau
+so**, sonst einen Nullzug. Der Countdown gehört dem **Fenster** (`FOOTBALL_FFA_WINDOW` in
+`fbShotFor`), nicht einem Spieler, und startet bei einer Bestätigung nicht neu.
+
+**Kein zweites Werk.** `fbShared() = fbTimed() || fbLives() || fbTeam2()` ist das **eine**
+Prädikat, das überall dort steht, wo früher „gilt die Zeitregel“ stand; `fbOffen()` ist die
+**eine** offene Menge für alle drei Regeln; `fbSharedShotTicks()` holt die Riegellänge aus der Konstante der
+jeweiligen Regel. Der gleichzeitige Abschuss ist der bestehende Weg: `applyCommit()` sammelt
+nur Absichten, `applyLaunch()` weist **alle** Geschwindigkeiten in kanonischer
+Spielerreihenfolge (owner 0..3) zu und wechselt **erst danach** in die Simulation.
+
+**Arena und Aufstellung.** Unverändert aus Tactical: dieselbe Arena (`fbArena()` liefert
+`FOOTBALL_ARENA`), dieselbe Kamerarahmung (`fbFrameKey()` → `'t'`), und in `placeBalls()`
+Zeichen für Zeichen dieselben Koordinaten aus `FOOTBALL_TACTICAL_SPAWN`. Der einzige
+Unterschied sind die vier Besitzermarken statt zweier. Es gibt **keinen** zweiten Spawn-Satz.
+
+**Eingabe (lokal).** Eine Maus kann physisch nicht vier Figuren gleichzeitig ziehen. Im
+selben Fenster darf der Nutzer deshalb nacheinander jede noch **offene** Figur greifen
+(`pickOwnBall`/`pickOwnBall3D` nehmen die offene Menge). Das ist reine Eingabeerfassung und
+weicht den Besitz nicht auf: der Zug wird an den Besitzer der **gegriffenen** Kugel gebunden
+(`startAim(balls[idx].owner, …)`), und `sanitizeMove()` verwirft jeden Zug, dessen Kugel dem
+Besitzer nicht gehört. Eine Absicht kann deshalb nie im Platz eines anderen landen — genau
+die Eigenschaft, die die spätere Online-Zuordnung (B1 → Gerät 1 …) braucht.
+**Bekannte Grenze:** die Eingabeschicht kennt genau **einen** Ziel-Zeiger (`aimPid`); echtes
+Mehrfinger-Zielen ist damit nicht abgedeckt und wurde bewusst nicht nachgerüstet.
+
+**Isolation.** `fbClassic()` schließt `fbTeam2()` ausdrücklich aus — sonst hätten hier die
+Speed-Match-Regeln gegolten. Das persönliche Zeitkonto sinkt nur unter `fbSpeed()`; ohne
+dieses Gatter hätte der Tick die Konten von Blau und Rot mitgesenkt, weil die Besitzer 0 und
+1 im Indexbereich der Konten liegen. Der Modus hält selbst **keinen** veränderlichen Zustand:
+seine gesamte Identität ist `fbVariant`, und die setzt `startFootball()` bei jedem Start.
+
+**Online.** Nicht vernetzt. Alle vier Online-Einstiege setzen `fbVariant` ausdrücklich auf
+Elimination; `ONLINE_PROTOCOL_VERSION` bleibt 7.
+
+---
+
 ### Arena-Football · Elimination (sichtbarer Produktmodus, 5 Spieler)
 
 Dritte Football-Variante `fbVariant === 'elimination'`, als `ELIMINATION` regulaer ueber die
@@ -635,8 +750,21 @@ sichtbare Modusauswahl nicht erreichbar.
 
 **Regeln**
 - 5 Spieler, je **eine** Figur, dazu **ein** neutraler Ball (6 Bodies).
-- Verdecktes Commit fuer alle noch aktiven Spieler, danach **ein** gemeinsamer Reveal —
-  alle aktiven Figuren starten simultan (derselbe `applyLaunch()`-Pfad wie Classic/Tactical).
+- **Gemeinsames Entscheidungsfenster** (lokal, seit LIVES SIMULTANEOUS 01): alle noch
+  aktiven Spieler entscheiden im **selben** 6-Sekunden-Fenster
+  (`FOOTBALL_LIVES_SHOT_SECONDS = 6`, `fbShared()`/`fbOffen()`/`fbSharedShotTicks()` —
+  dieselben Einzelstellen wie Timed FFA und True Team 2v2), danach starten **alle**
+  Figuren gleichzeitig (derselbe `applyLaunch()`-Pfad wie Classic/Tactical). Der
+  **Uebergabeschirm entfaellt** hier ersatzlos — es gibt kein „der ist dran“ mehr, nur
+  noch „wer ist noch offen“. Laeuft das Fenster ab, bekommt jeder noch Offene ueber
+  `fbCommitFor()` seinen anliegenden Vektor genau so, sonst einen Nullzug.
+  **Uebernommen wurde nur das Fenster.** Es gibt in der Lebensregel **keine Phasenuhr**
+  und **kein DANGER**: `fbFfaRunning()` fragt ausdruecklich nicht nach `fbLives()`, und
+  `fbFfaClockTick()` haengt weiterhin allein unter `fbTimed()`.
+- **Online bleibt sequentiell.** `fbLives()` enthaelt `!online` — dieselbe Grenze wie
+  `fbTimed()`. Online laeuft die Lebensregel unveraendert mit verdecktem Commit und
+  Reveal; Protokoll v7, Raumschema, MOVE-Format und Rules sind unberuehrt. Lokal und
+  online unterscheiden sich damit im **Ablauf**, nicht in der **Regel**.
 - **Zwei Leben.** Jeder Spieler startet mit **2 Leben**. Ein Gegentor kostet **ein** Leben;
   entscheidend ist allein, **wessen Tor** ueberquert wurde (kein Schuetzen-, Vorlagen- oder
   Eigentorbegriff). Kein Timer, keine Gegentor-Punkte, kein Tiebreak.

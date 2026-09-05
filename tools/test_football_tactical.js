@@ -270,10 +270,12 @@ console.log('ARENA FOOTBALL — Produktsuite: Classic 1v1 (Standard) + Tactical 
      'fbVariant kennt nur noch classic und tactical');
 
   // ── Der EINZIGE Startpfad clamped jeden fremden Wert auf den Standardmodus ──
-  // Zulaessig sind genau die drei Produktmodi plus der Dev-Einstieg auf die Vier-Spieler-
-  // Elimination; jeder andere Wert faellt auf den Standardmodus zurueck. Der Dev-Einstieg
-  // haengt zusaetzlich an ?dev=1 und ist ueber die Modusauswahl nicht erreichbar.
-  ok(/fbVariant=\(variant===FOOTBALL_VARIANT_TACTICAL\|\|variant===FOOTBALL_VARIANT_ELIM\|\|dev4\)\?variant:'classic'/.test(startFootballSrc),
+  // Zulaessig sind genau die VIER Produktmodi (Classic, Tactical, Team 2v2,
+  // Elimination) plus der Dev-Einstieg auf die Vier-Spieler-Elimination; jeder andere
+  // Wert faellt auf den Standardmodus zurueck. Der Dev-Einstieg haengt zusaetzlich an
+  // ?dev=1 und ist ueber die Modusauswahl nicht erreichbar.
+  ok(/fbVariant=\(variant===FOOTBALL_VARIANT_TACTICAL\|\|variant===FOOTBALL_VARIANT_ELIM/.test(startFootballSrc)
+     && /\|\|variant===FOOTBALL_VARIANT_TEAM2\|\|dev4\)\?variant:'classic'/.test(startFootballSrc),
      'startFootball() clamped jede unbekannte Variante auf Classic');
   ok(/const dev4=variant===FOOTBALL_VARIANT_ELIM4&&typeof DEV_MENU!=='undefined'&&DEV_MENU;/.test(startFootballSrc),
      'der Vier-Spieler-Einstieg ist an ?dev=1 gebunden und damit kein Produktmodus');
@@ -297,13 +299,13 @@ console.log('ARENA FOOTBALL — Produktsuite: Classic 1v1 (Standard) + Tactical 
   ok(/fbVariant='classic';/.test(showMenuSrc),
      'showMenu() setzt die Football-Variante auf den Standardmodus zurueck');
 
-  // ── SICHTBARE MODUSAUSWAHL: genau VIER Optionen, Classic als einzige Empfehlung ──
-  // Drei lokale Modi plus ONLINE - seit dem oeffentlichen Onlineeinstieg der vierte
-  // sichtbare Eintrag. Geprueft wird das Modal selbst (Struktur, Reihenfolge, Empfehlung)
-  // und die Verdrahtung der Buttons.
+  // ── SICHTBARE MODUSAUSWAHL: genau FUENF Optionen, Classic als einzige Empfehlung ──
+  // Vier lokale Modi (Classic, Tactical, Team 2v2, Elimination) plus ONLINE. Geprueft
+  // wird das Modal selbst (Struktur, Reihenfolge, Empfehlung) und die Verdrahtung der
+  // Buttons.
   const fbModalSrc = grab(/<div class="ov" id="fbModeOv">[\s\S]*?<button class="wbtn" id="fbModeBack">/, 'fbModeOv');
   const voptBtns = fbModalSrc.match(/<button class="vopt[^"]*" id="(\w+)">/g) || [];
-  ok(voptBtns.length === 4, 'die Modusauswahl zeigt genau vier Optionen (erhalten: ' + voptBtns.length + ')');
+  ok(voptBtns.length === 5, 'die Modusauswahl zeigt genau fuenf Optionen (erhalten: ' + voptBtns.length + ')');
   ok(/<button class="vopt rec" id="fbClassicBtn">/.test(fbModalSrc), 'Option 1 ist Classic');
   ok(/<button class="vopt" id="fbTacticalBtn">/.test(fbModalSrc), 'Option 2 ist Tactical');
   ok(/<button class="vopt" id="fbElimBtn">/.test(fbModalSrc), 'Option 3 ist Elimination');
@@ -346,11 +348,11 @@ console.log('ARENA FOOTBALL — Produktsuite: Classic 1v1 (Standard) + Tactical 
     ok(HTML.includes("startFootball('classic'," + rules + ");"),
        id + ' startet Classic mit ' + rules);
   }
-  // Eine Definition, FUENF Menue-Aufrufer (Classic-Regelwahl zwei, Elimination-Einrichtung
-  // zwei, Tactical einer), der Dev-Direktlink — und eine Kommentarerwaehnung. ONLINE ist
-  // bewusst NICHT darunter: es startet kein lokales Match, sondern uebergibt an den
-  // bestehenden Onlinebildschirm.
-  ok((HTML.match(/startFootball\(/g) || []).length === 8,
+  // Eine Definition, SECHS Menue-Aufrufer (Classic-Regelwahl zwei, Elimination-
+  // Einrichtung zwei, Tactical einer, Team 2v2 einer), der Dev-Direktlink — und eine
+  // Kommentarerwaehnung. ONLINE ist bewusst NICHT darunter: es startet kein lokales
+  // Match, sondern uebergibt an den bestehenden Onlinebildschirm.
+  ok((HTML.match(/startFootball\(/g) || []).length === 9,
      'kein zweiter Startpfad neben startFootball() (erhalten: ' + (HTML.match(/startFootball\(/g) || []).length + ')');
   const onlineHandler = grab(/\$\('fbOnlineBtn'\)\.onclick=\(\)=>\{[\s\S]*?\n\};/, 'fbOnlineBtn-Handler');
   ok(!/startFootball/.test(onlineHandler), 'ONLINE startet kein lokales Match');
@@ -555,12 +557,15 @@ console.log('ARENA FOOTBALL — Produktsuite: Classic 1v1 (Standard) + Tactical 
   ok(!/TACTICAL_PHYS|FOOTBALL_TACTICAL_(FRICTION|REST|LAUNCH)/.test(HTML),
      'keine Tactical-eigenen Physikparameter');
   ok(/const FOOTBALL_BALL_RADIUS=25;/.test(HTML), 'Ballradius 25 unveraendert');
-  ok(/halfLen:18\.00,halfWid:12\.70,corner:6\.85/.test(HTML), 'Arena B unveraendert');
+  // Grundflaeche unveraendert (18.00 x 12.70); das WANDPROFIL kommt seit der
+  // Kanonisierung aus derselben Quelle wie Classic, Team 2v2 und das Finale.
+  ok(/const FOOTBALL_ARENA=fbTwoGoalArena\(18\.00,12\.70,7\.65\);/.test(HTML),
+     'Tactical behaelt Grundflaeche und Spawn und liest das Wandprofil kanonisch');
   // Die Zahlen stehen unter einem Namen (FB_GOAL_ASSET_*) und werden nirgends skaliert.
   // Geprueft wird beides: die Herkunft im Quelltext und der Wert zur Laufzeit.
   ok(/const FB_GOAL_ASSET_INNER=3\.560, FB_GOAL_ASSET_OUTER=5\.282;/.test(HTML) &&
-     /postInner:FB_GOAL_ASSET_INNER,postOuter:FB_GOAL_ASSET_OUTER,postFront:18\.00/.test(HTML),
-     'Torgeometrie unveraendert: Tactical steht auf den gemessenen Asset-Kanten 3.560/5.282');
+     /postInner:FB_GOAL_ASSET_INNER,postOuter:FB_GOAL_ASSET_OUTER,postFront:halfLen/.test(HTML),
+     'Torgeometrie unveraendert: jede Arena steht auf den gemessenen Asset-Kanten 3.560/5.282');
   ok(!/FB_CLASSIC_GOAL_K/.test(HTML),
      'es gibt keinen modusabhaengigen Torbreitenfaktor mehr — auch nicht fuer Classic');
 }

@@ -79,7 +79,11 @@ const curFESrc = grab(/function curFE\(\)[^\n]*/, 'curFE');
 const curSTSrc = grab(/function curST\(\)[^\n]*/, 'curST');
 // Einzel-Grabs NUR fuer Quelltext-Assertions (die Sandbox laeuft ueber den Block).
 const halfDepthSrc = grab(/const FB_GOAL_HALF_DEPTH=[^\n]*/, 'FB_GOAL_HALF_DEPTH');
-const arenaSrc = grab(/const FOOTBALL_ARENA=\{[\s\S]*?\};/, 'FOOTBALL_ARENA');
+// Seit der Kanonisierung entsteht jede Zwei-Tor-Arena aus EINEM Generator; die
+// Tormasse stehen deshalb in fbShape, die Grundflaeche im Aufruf.
+const arenaSrc = grab(/const fbShape=\(halfLen,halfWid,corner,spawn,sides,tri,dirs\)=>[\s\S]*?goalAnchor:halfLen\+FB_GOAL_HALF_DEPTH\}\);/, 'fbShape')
+  + grab(/const fbTwoGoalArena=[\s\S]*?FB_TWO_GOAL_SHAPE\.endHalf\)\}\);/, 'fbTwoGoalArena')
+  + grab(/const FOOTBALL_ARENA=fbTwoGoalArena\([^\n]*/, 'FOOTBALL_ARENA');
 const presetSrc = grab(/const FOOTBALL_PHYS=\{[\s\S]*?\nfunction curRestPost\(\)[^\n]*/, 'FOOTBALL_PHYS block');
 // Abschusskurve - unveraendert aus dem Produktivcode.
 const tempoSrc = grab(/const FB_LAUNCH_SCALE=[\s\S]*?\nfunction fbLaunchMul\(len\)\{[\s\S]*?\n\}/, 'Abschusskurve');
@@ -888,7 +892,9 @@ function NOTICE_SEK(name) {
   ok(!/FOOTBALL_BALL_MAX_STEP/.test(HTML), 'AE) es gibt weiterhin keinen Tempo-Deckel');
   ok(/if\(footballGoalWindow\(fb\)\)continue;/.test(HTML), 'AF) das Torfenster ist unveraendert');
   ok(/function footballSweepPost\(b,px,py\)\{/.test(HTML), 'AF) die gefegte Sockelkollision steht');
-  ok(/fbShoulderRect\(15\.60,11\.60,2\.60,35,6\.10\)/.test(HTML), 'AF) die 2P-Arena ist unveraendert');
+  ok(/const FOOTBALL_ARENA_ELIM2=fbTwoGoalArena\(15\.60,11\.60,10\.15\);/.test(HTML)
+     && /const FB_TWO_GOAL_SHAPE=\{rc:2\.60,shoulderDeg:35,endHalf:7\.00\};/.test(HTML),
+     'AF) die 2P-Arena kommt aus der kanonischen Zwei-Tor-Wandform');
   ok(/const FB_GOAL_ASSET_INNER=3\.560, FB_GOAL_ASSET_OUTER=5\.282;/.test(HTML),
      'AF) und das Tor misst unveraendert 227.84 px');
   // Der TICK selbst fasst keinen Koerper an.
@@ -903,8 +909,8 @@ function NOTICE_SEK(name) {
 {
   ok(/function fbDecisionWho\(\)\{\s*if\(online\)return -1;/.test(HTML),
      'AI) die Zeitregel ist online sofort aus - erste Zeile, vor jeder Regelfrage');
-  ok(/if\(!fbSpeed\(\)&&!\(typeof fbTimed==='function'&&fbTimed\(\)\)\)return -1;/.test(HTML),
-     'AI) und ohne Speed Match oder Timed FFA laeuft ueberhaupt keine Zeit');
+  ok(/if\(!fbSpeed\(\)&&!\(typeof fbShared==='function'&&fbShared\(\)\)\)return -1;/.test(HTML),
+     'AI) und ohne Speed Match oder gemeinsames Fenster laeuft ueberhaupt keine Zeit');
   ok(/const FOOTBALL_FMTS=\['elimination'\];/.test(HTML),
      'AI) Online-Football kennt ausschliesslich Elimination');
   ok(/const ONLINE_PROTOCOL_VERSION=7;/.test(HTML), 'AI) die Protokollversion bleibt 7');
@@ -936,8 +942,8 @@ function NOTICE_SEK(name) {
   // Frage zeigte es dort den Rest des VORIGEN Spielers oder eine dringliche 0.0.
   // (In Timed FFA gehoert derselbe Countdown dem gemeinsamen Fenster; `eigner` ist dort
   // der Sentinel und hier immer `who` - die Zusicherung fuer Classic bleibt dieselbe.)
-  ok(/const eigner=\(typeof fbTimed==='function'&&fbTimed\(\)\)\?FOOTBALL_FFA_WINDOW:who;/.test(HTML),
-     'ausserhalb der Zeitregel gehoert der Countdown weiterhin dem Spieler selbst');
+  ok(/const eigner=\(typeof fbShared==='function'&&fbShared\(\)\)\?FOOTBALL_FFA_WINDOW:who;/.test(HTML),
+     'ausserhalb eines gemeinsamen Fensters gehoert der Countdown dem Spieler selbst');
   ok(/function fbShotShown\(\)\{[\s\S]*?return fbShotFor===eigner\?fbShotTicks:fbShotCap\(who\);/.test(HTML),
      'die Anzeige zeigt nie den Countdown eines anderen Spielers');
   ok(!/sep\.classList\.toggle\('hold'/.test(HTML),

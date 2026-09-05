@@ -488,8 +488,10 @@ console.log('ARENA FOOTBALL - ELIMINATION: ZWEI LEBEN + ADAPTIVE ARENA + FAIRER 
   const a = E.arenaCfg(), ca = C.arenaCfg();
 
   ok(a.halfLen === a.halfWid, 'die Arena ist exakt quadratisch (halfLen === halfWid)');
-  ok(a.halfLen === 17.50 && a.corner === 3.50,
-     'V3-Vier-Spieler-Arena: half 17.50 BR, Eckradius auf 3.50 BR reduziert');
+  // Seit der Kanonisierung tragen ALLE Phasen denselben Eckradius wie die
+  // Zwei-Tor-Form (2.60) und dieselbe kurze Schulter.
+  ok(a.halfLen === 17.50 && a.corner === 2.60,
+     'Vier-Spieler-Arena: half 17.50 BR, kanonischer Eckradius 2.60 BR');
   ok(a.postFront === a.halfLen, 'Sockelvorderkante liegt exakt auf der Bandeninnenflaeche');
   ok(near(a.postBack - a.postFront, ca.postBack - ca.postFront),
      'Sockeltiefe unveraendert aus der Produktivarena uebernommen');
@@ -589,7 +591,7 @@ console.log('ARENA FOOTBALL - ELIMINATION: ZWEI LEBEN + ADAPTIVE ARENA + FAIRER 
   const a4 = E.arenaCfg();
   const s4 = arcShareRect(a4.halfLen, a4.halfWid, a4.corner);
   ok(a4.sides === 4 && a4.tri === false, 'Phase 4: Rounded Square mit vier Seiten');
-  ok(a4.corner === 3.50, 'Phase 4: Eckradius 3.50 BR (V2 war 9.00 BR)');
+  ok(a4.corner === 2.60, 'Phase 4: kanonischer Eckradius 2.60 BR');
   ok(s4 < 0.20, 'Phase 4: gekruemmter Konturanteil ' + (s4 * 100).toFixed(1) + ' Prozent');
   ok(s4 < arcShareRect(17.50, 17.50, 9.00) * 0.5,
      'Phase 4: der gekruemmte Anteil ist weniger als halb so gross wie in V2');
@@ -602,7 +604,7 @@ console.log('ARENA FOOTBALL - ELIMINATION: ZWEI LEBEN + ADAPTIVE ARENA + FAIRER 
   ok(a3.sides === 3 && Array.isArray(a3.poly) && a3.poly.length === 6,
      'Phase 3: Broad Rounded Triangle - drei Torseiten, sechs Kernecken');
   ok(d3.length === 3, 'Phase 3: genau drei Tore');
-  ok(a3.halfLen === 12.50 && a3.corner === 3.50, 'Phase 3: Apothem 12.50 BR, Eckradius 3.50 BR');
+  ok(a3.halfLen === 12.50 && a3.corner === 2.60, 'Phase 3: Apothem 12.50 BR, Eckradius 2.60 BR');
   ok(s3 < 0.25, 'Phase 3: gekruemmter Konturanteil ' + (s3 * 100).toFixed(1) + ' Prozent');
   ok(goalWallLen(a3.poly, d3[0]) / 2 > a3.postOuter,
      'Phase 3: der Torsockel passt in das gerade Seitensegment');
@@ -648,7 +650,10 @@ console.log('ARENA FOOTBALL - ELIMINATION: ZWEI LEBEN + ADAPTIVE ARENA + FAIRER 
   ok(goalWallLen(a2.poly, d2[0]) / 2 > a2.postOuter, 'Phase 2: der Torsockel passt in das gerade Seitensegment');
   ok(near(E.arena().clearHalf, 3.560 * E.BR), 'Phase 2: lichte Torbreite unveraendert 227.84 (Classic-Streckung wirkt hier nicht)');
   const s2 = arcSharePoly(a2.poly, a2.corner);
-  ok(s2 < arcShareRect(18.00, 12.70, 6.85), 'Phase 2: weniger gekruemmte Aussenfuehrung als Classic');
+  // Bezug ist die ABGELOESTE Form: das Rounded Rectangle mit Eckradius 6.85, auf dem
+  // Tactical und Team 2v2 bis zur Kanonisierung liefen.
+  ok(s2 < arcShareRect(18.00, 12.70, 6.85),
+     'Phase 2: weniger gekruemmte Aussenfuehrung als die abgeloeste Rundform');
 
   E.forcePhase(4); const v4 = E.viewR();
   E.forcePhase(3); const v3 = E.viewR();
@@ -661,7 +666,8 @@ console.log('ARENA FOOTBALL - ELIMINATION: ZWEI LEBEN + ADAPTIVE ARENA + FAIRER 
      Math.round(v3) + ' -> ' + Math.round(v2) + ')');
 
   ok(C.arenaCfg().halfLen === 15.60 && C.arenaCfg().corner === 2.60, 'Classic laeuft auf der 2P-Finalarena');
-  ok(buildEnv('tactical').arenaCfg().corner === 6.85, 'Tactical behaelt die Produktivarena');
+  ok(buildEnv('tactical').arenaCfg().corner === 2.60,
+     'Tactical steht auf derselben kanonischen Wandform wie alle Zwei-Tor-Modi');
 
   console.log('Geometrie: gekruemmter Konturanteil  Phase4 ' + (s4 * 100).toFixed(1) +
               '%  Phase3 ' + (s3 * 100).toFixed(1) + '%  Phase2 ' + (s2 * 100).toFixed(1) +
@@ -1139,13 +1145,13 @@ console.log('ARENA FOOTBALL - ELIMINATION: ZWEI LEBEN + ADAPTIVE ARENA + FAIRER 
 }
 
 // =================================================================================
-// D - VERDECKTES VIER-SPIELER-COMMIT UND GEMEINSAMER START
+// D - GEMEINSAMES VIER-SPIELER-FENSTER UND GEMEINSAMER START
 // =================================================================================
 {
   const E = buildEnv('elimination4');
   E.newMatch();
   ok(E.phase() === 'aim', 'die Runde startet in der Planungsphase');
-  ok(E.curAimer() === 0, 'P1 beginnt die verdeckte Planung');
+  ok(E.curAimer() === 0, 'die Planung beginnt formal bei P1');
   ok(JSON.stringify(E.aimSet()) === JSON.stringify([false, false, false, false]),
      'alle vier Commit-Flags starten offen');
   ok(JSON.stringify(E.commitIdx()) === JSON.stringify([-1, -1, -1, -1]),
@@ -1154,22 +1160,25 @@ console.log('ARENA FOOTBALL - ELIMINATION: ZWEI LEBEN + ADAPTIVE ARENA + FAIRER 
   const before = E.snapshot();
   E.resetCoverCalls();
   E.commit(0, 0, 40, 10);
+  // SIMULTAN: kein Weiterreichen des Geraets mehr. Eine Bestaetigung schliesst das
+  // Fenster nicht und oeffnet keinen Uebergabeschirm - sie nimmt den Spieler nur aus der
+  // offenen Menge; gefuehrt wird danach der naechste OFFENE.
   ok(E.phase() === 'aim', 'P1-Commit startet keine Physik');
-  ok(E.curAimer() === 1 && JSON.stringify(E.coverCalls()) === JSON.stringify([1]),
-     'nach P1 wird verdeckt an P2 uebergeben');
+  ok(E.curAimer() === 1 && E.coverCalls().length === 0,
+     'nach P1 fuehrt das Fenster P2 - ohne Uebergabeschirm');
   E.commit(1, 1, -30, 20);
-  ok(E.curAimer() === 2 && JSON.stringify(E.coverCalls()) === JSON.stringify([1, 2]),
-     'nach P2 wird verdeckt an P3 uebergeben');
+  ok(E.curAimer() === 2 && E.coverCalls().length === 0,
+     'nach P2 fuehrt es P3 - weiterhin ohne Schirm');
   E.commit(2, 2, 15, -45);
-  ok(E.curAimer() === 3 && JSON.stringify(E.coverCalls()) === JSON.stringify([1, 2, 3]),
-     'nach P3 wird verdeckt an P4 uebergeben');
+  ok(E.curAimer() === 3 && E.coverCalls().length === 0,
+     'nach P3 fuehrt es P4 - weiterhin ohne Schirm');
   ok(JSON.stringify(E.snapshot()) === JSON.stringify(before),
      'nach drei Commits ist noch KEINE Position oder Geschwindigkeit veraendert');
 
   E.commit(3, 3, -20, -20);
   ok(E.phase() === 'reveal', 'erst der vierte Commit oeffnet den Reveal');
-  ok(JSON.stringify(E.coverCalls()) === JSON.stringify([1, 2, 3]),
-     'nach dem letzten Commit wird kein weiterer Verdeck-Screen geoeffnet');
+  ok(E.coverCalls().length === 0,
+     'im ganzen gemeinsamen Fenster wird kein einziger Verdeck-Screen geoeffnet');
   ok(JSON.stringify(E.aimSet()) === JSON.stringify([true, true, true, true]),
      'alle vier Zuege sind bestaetigt');
   ok(JSON.stringify(E.commitIdx()) === JSON.stringify([0, 1, 2, 3]),
@@ -1304,8 +1313,9 @@ console.log('ARENA FOOTBALL - ELIMINATION: ZWEI LEBEN + ADAPTIVE ARENA + FAIRER 
   ok(E.phase() === 'aim', 'nach dem Torablauf oeffnet das Settlement die neue Planungsphase');
   ok(JSON.stringify(E.aimSet()) === JSON.stringify([false, false, false, false]),
      'die neue Runde startet mit offenen Commits');
-  ok(JSON.stringify(E.coverCalls()) === JSON.stringify([0]),
-     'die neue Runde beginnt wieder verdeckt beim ersten aktiven Spieler');
+  // SIMULTAN: kein Uebergabeschirm mehr - das neue Fenster ist fuer alle zugleich offen.
+  ok(E.coverCalls().length === 0 && E.curAimer() === E.firstAimer(),
+     'die neue Runde oeffnet ein gemeinsames Fenster beim ersten aktiven Spieler');
   ok(/fbGoalState==='spawn'&&b\.owner===FOOTBALL_NEUTRAL_OWNER/.test(HTML) &&
      /footballSpawnHeight\(\)\*Math\.max\(0,1-fbGoalTick\/FOOTBALL_GOAL_SPAWN_TICKS\)/.test(HTML),
      'der neue Ball kommt ueber den bestehenden Spawn-Drop von oben herein');
@@ -1381,8 +1391,8 @@ console.log('ARENA FOOTBALL - ELIMINATION: ZWEI LEBEN + ADAPTIVE ARENA + FAIRER 
   ok(T3.phase() === 'aim' && T3.curAimer() === 0, 'mit drei Spielern beginnt wieder P1');
   T3.resetCoverCalls();
   T3.commit(0, 0, 30, 0);
-  ok(T3.curAimer() === 2 && JSON.stringify(T3.coverCalls()) === JSON.stringify([2]),
-     'der ausgeschiedene P2 wird in der Commit-Reihenfolge uebersprungen');
+  ok(T3.curAimer() === 2 && T3.coverCalls().length === 0,
+     'der ausgeschiedene P2 ist nicht im Fenster - gefuehrt wird der naechste Aktive');
   T3.commit(2, 2, -30, 0);
   ok(T3.curAimer() === 3, 'nach P3 folgt P4');
   T3.commit(3, 3, 0, 25);
@@ -1819,7 +1829,6 @@ console.log('ARENA FOOTBALL - ELIMINATION: ZWEI LEBEN + ADAPTIVE ARENA + FAIRER 
   const G = (re, n) => grab(re, n);
   const parts = [
     /const FB_TRI_VERT=.*/,
-    /const FOOTBALL_ARENA_ELIM4=\{[\s\S]*?\};/,
     /\/\/ Konvexes Kernpolygon[\s\S]*?function fbElimArena\(\)\{.*\}/,
     /const fbOutline=\(hx,hz,rc,seg\)=>\{[\s\S]*?\n    \};/,
     /const fbTriOutline=\(ap,rc,seg\)=>\{[\s\S]*?\n    \};/,
@@ -1864,7 +1873,7 @@ console.log('ARENA FOOTBALL - ELIMINATION: ZWEI LEBEN + ADAPTIVE ARENA + FAIRER 
     for (let k = 0; k < 720; k++) { const th = k * Math.PI / 360; w = Math.max(w, Math.abs(supp(P, th) - supp(Q, th))); }
     return w;
   };
-  const ref4 = R.fbOutline(R.A4.halfLen * 32, R.A4.halfWid * 32, R.A4.corner * 32, 20);
+  const ref4 = R.fbRoundPoly(R.A4.poly.map(v => [v[0] * 32, v[1] * 32]), R.A4.corner * 32, 20);
   const ref3 = R.fbRoundPoly(R.A3.poly.map(v => [v[0] * 32, v[1] * 32]), R.A3.corner * 32, 20);
   ok(devSup(R.fbMorphRing(0).ring, ref4) < 1e-6,
      'Fortschritt 0 ist die freigegebene Phase-4-Form (' + devSup(R.fbMorphRing(0).ring, ref4).toExponential(1) + ')');
@@ -1969,8 +1978,8 @@ console.log('ARENA FOOTBALL - ELIMINATION: ZWEI LEBEN + ADAPTIVE ARENA + FAIRER 
 // Die drei Formen sind manuell freigegeben und ab hier der normale Gameplaypfad - es gibt
 // keinen Dev-Formparameter mehr. Geprueft wird die Geometrie selbst: exakte Masse,
 // Symmetrie, Wandstruktur, Torsitz, Aufstellung und Dichtheit der Bande.
-//   Phase 4  Rounded Square          17.50           rc 3.50   Spawn 11.50
-//   Phase 3  Broad Rounded Triangle  Apothem 12.50   rc 3.50   Spawn  8.15
+//   Phase 4  gekapptes Quadrat        17.50           rc 2.60   Spawn 11.50
+//   Phase 3  gekapptes Dreieck        Apothem 12.50   rc 2.60   Spawn  8.15
 //   Phase 2  Shouldered Wide         15.60 x 11.60   rc 2.60   Spawn 10.15
 
 // Kernkanten einer Phase nach Wandtyp: Normale entlang einer Torachse = Torwand,
@@ -2016,9 +2025,10 @@ const fbCore = (c) => c.poly ? c.poly.map(v => v.slice())
   const E = buildEnv('elimination4');
   E.forcePhase(4);
   const a = E.arenaCfg();
-  ok(a.halfLen === 17.50 && a.halfWid === 17.50, 'Phase 4: Rounded Square 17.50 (unveraendert)');
-  ok(a.corner === 3.50 && a.spawn === 11.50, 'Phase 4: Eckradius 3.50, Spawn 11.50 (unveraendert)');
-  ok(a.sides === 4 && !a.poly, 'Phase 4: vier Seiten, kein Kernpolygon - reines Rounded Square');
+  ok(a.halfLen === 17.50 && a.halfWid === 17.50, 'Phase 4: Apothem 17.50 (unveraendert)');
+  ok(a.corner === 2.60 && a.spawn === 11.50, 'Phase 4: Eckradius 2.60, Spawn 11.50 (unveraendert)');
+  ok(a.sides === 4 && Array.isArray(a.poly) && a.poly.length === 8,
+     'Phase 4: vier Torseiten und vier Kappflaechen - achteckiges Kernpolygon');
   ok(a.postFront === 17.50 && a.goalAnchor === 17.50 + 1.184,
      'Phase 4: Torsitz unveraendert');
 }
@@ -2027,8 +2037,8 @@ const fbCore = (c) => c.poly ? c.poly.map(v => v.slice())
   const E = buildEnv('elimination4');
   E.forcePhase(3);
   const a = E.arenaCfg(), P = a.poly;
-  ok(a.halfLen === 12.50 && a.corner === 3.50 && a.spawn === 8.15,
-     'Phase 3: Apothem 12.50, Eckradius 3.50, Spawn 8.15');
+  ok(a.halfLen === 12.50 && a.corner === 2.60 && a.spawn === 8.15,
+     'Phase 3: Apothem 12.50, Eckradius 2.60, Spawn 8.15');
   ok(a.sides === 3 && Array.isArray(P) && P.length === 6,
      'Phase 3: drei Torseiten, Kernpolygon mit sechs Ecken (gekappte Spitzen)');
   ok(!a.tri, 'Phase 3: kein spitzes Dreieck mehr - die Grenze laeuft ueber das Kernpolygon');
@@ -2238,7 +2248,7 @@ const fbCore = (c) => c.poly ? c.poly.map(v => v.slice())
     return w;
   };
   // Startform: exakt die Vier-Tore-Arena. Endform: exakt das gekappte Dreieck.
-  const ref4 = R.fbOutline(R.A4.halfLen * 32, R.A4.halfWid * 32, R.A4.corner * 32, 20);
+  const ref4 = R.fbRoundPoly(R.A4.poly.map(v => [v[0] * 32, v[1] * 32]), R.A4.corner * 32, 20);
   const ref3 = R.fbRoundPoly(S[3].poly.map(v => [v[0] * 32, v[1] * 32]), S[3].corner * 32, 20);
   const m0 = R.fbMorphRing(0).ring, m1 = R.fbMorphRing(1).ring;
   ok(devSup(m0, ref4) < 1e-6,
@@ -2318,7 +2328,7 @@ const fbCore = (c) => c.poly ? c.poly.map(v => v.slice())
 // =================================================================================
 // Derselbe Transitionspfad wie 4 -> 3, nur mit anderer Ausgangs- und Zielform. Die
 // Besonderheit: 3P und 2P haben weder dieselbe Eckenzahl (6 gegen 8) noch denselben
-// Eckradius (3.50 gegen 2.60). Beides wird ueber die Stuetzfunktion mitgefuehrt.
+// Eckradius (seit der Kanonisierung beidseitig 2.60). Beides laeuft ueber dieselbe Stuetzfunktion.
 {
   // Vollstaendiger Ablauf: Phase 3 -> zweites Tor -> Transition -> Finale -> Ball-Drop.
   const E = buildEnv('elimination4');
@@ -2351,7 +2361,7 @@ const fbCore = (c) => c.poly ? c.poly.map(v => v.slice())
      'die Zuordnung folgt der aufsteigenden Spieler-ID - identisch zu fbElimApplyPhase');
 
   const view0 = E.viewR();
-  ok(Math.round(view0) === 539, 'das Framing startet auf dem Sichtradius der Drei-Tore-Arena');
+  ok(Math.round(view0) === 593, 'das Framing startet auf dem Sichtradius der Drei-Tore-Arena (' + Math.round(view0) + ')');
   const before = E.snapshot();
   const T2 = E.morphTicks();
   let gUp = true, aUp = true, finite = true, hidden = false, moved = 0, seen = 0;
@@ -2501,18 +2511,18 @@ const fbCore = (c) => c.poly ? c.poly.map(v => v.slice())
   ok(over <= 1e-9, '3 -> 2 Morph: keine Richtung laeuft ueber ihren Start- oder Endwert hinaus');
   ok(maxStep < 40, '3 -> 2 Morph: gleichmaessige Schritte (groesster ' + maxStep.toFixed(1) + ' Einheiten je 1/60)');
 
-  // Eckradius: startet auf 3.50, endet auf 2.60, laeuft dazwischen monoton und bleibt
+  // Eckradius: seit der Kanonisierung tragen ALLE Phasen 2.60 - er steht im Umbau still
   // immer zwischen beiden Werten - kein Sprung, keine kurzzeitig ueberrundete Ecke.
   let rcMono = true, rcIn = true, rcPrev = Infinity;
   for (let k = 0; k <= 60; k++) {
     const rc = coreAt(k / 60).rc / 32;
     if (rc > rcPrev + 1e-9) rcMono = false;
-    if (rc > 3.50 + 1e-9 || rc < 2.60 - 1e-9) rcIn = false;
+    if (rc > 2.60 + 1e-9 || rc < 2.60 - 1e-9) rcIn = false;
     rcPrev = rc;
   }
-  ok(Math.abs(coreAt(0).rc / 32 - 3.50) < 1e-9, 'der Eckradius startet exakt auf 3.50');
+  ok(Math.abs(coreAt(0).rc / 32 - 2.60) < 1e-9, 'der Eckradius startet exakt auf 2.60');
   ok(Math.abs(coreAt(1).rc / 32 - 2.60) < 1e-9, 'der Eckradius endet exakt auf 2.60');
-  ok(rcMono && rcIn, 'der Eckradius laeuft monoton und verlaesst das Intervall [2.60, 3.50] nie');
+  ok(rcMono && rcIn, 'der Eckradius bleibt ueber den ganzen Umbau exakt 2.60');
 
   // Die vier Schulterflaechen entstehen kontrolliert: die Wandsegmente in Schulterrichtung
   // wachsen monoton von 0 auf ihren Endwert, die dritte Torseite verschwindet monoton.
@@ -2538,7 +2548,7 @@ const fbCore = (c) => c.poly ? c.poly.map(v => v.slice())
   }
   ok(wallLen(0, SH) < 1e-6, 'bei Fortschritt 0 gibt es noch keine Schulterflaeche');
   ok(shGrow, 'die Schulterflaeche waechst monoton, sie poppt nicht auf');
-  ok(Math.abs(wallLen(1, SH) - 3.54 * 32) < 1.0,
+  ok(Math.abs(wallLen(1, SH) - 2.44 * 32) < 1.0,
      'am Ende steht die Schulter auf ihrer finalen Laenge (' + (wallLen(1, SH) / 32).toFixed(2) + ' BR)');
 
   // Die dritte Torseite (Suedwest-Normale der Drei-Tore-Arena) zieht sich monoton zurueck.
@@ -2633,7 +2643,7 @@ const fbCore = (c) => c.poly ? c.poly.map(v => v.slice())
   ok(E.morphSpawn() === false, 'Matchreset raeumt die Spawn-Markierung');
   ok(E.goalState() === 'play' && E.phaseN() === 4, 'das neue Match startet in Phase 4');
   ok(E.bodyLevel() === 1, 'die Figuren sind im neuen Match sofort voll sichtbar');
-  ok(Math.round(E.viewR()) === 746, 'das Framing steht wieder auf der Vier-Tore-Arena');
+  ok(Math.round(E.viewR()) === 691, 'das Framing steht wieder auf der Vier-Tore-Arena (' + Math.round(E.viewR()) + ')');
 
   // Und der Weg 4 -> 3 laeuft im zweiten Match unveraendert.
   E.eliminate(2);

@@ -50,6 +50,14 @@ const SRC = [
   // Die Anzeige liegt im HUD-Teil, nicht im Regelblock.
   grab(/function fbFfaHeadText\(\)\{[\s\S]*?\n\}/, 'fbFfaHeadText'),
   grab(/function fbFfaClockText\(\)\{[\s\S]*?\n\}/, 'fbFfaClockText'),
+  // Das gemeinsame Fenster gehoert seit True Team 2v2 zwei Regeln. Die Praedikate
+  // kommen deshalb mit - sonst pruefte diese Suite eine Uhr, deren Gatter fehlt.
+  grab(/const FOOTBALL_VARIANT_TEAM2='team2v2';[\s\S]*?const FOOTBALL_TEAM2V2_NAMES=\[[^\]]*\];/,
+       'Team-2v2-Konstanten'),
+  grab(/function fbTeam2\(\)\{[^\n]*/, 'fbTeam2'),
+  grab(/function fbTeam2Side\(o\)\{[^\n]*/, 'fbTeam2Side'),
+  grab(/function fbShared\(\)\{[^\n]*/, 'fbShared'),
+  grab(/function fbSharedShotTicks\(\)\{[^\n]*/, 'fbSharedShotTicks'),
   // DIE BEDENKZEITUHR SELBST. Sie gehoert Classic und Timed FFA gemeinsam; ohne sie
   // koennte diese Suite die Zeitsemantik nur behaupten statt sie laufen zu lassen.
   grab(/const FOOTBALL_RULES_FIRST3='first3';[\s\S]*?\nfunction fbShotText\(ticks\)\{[\s\S]*?\n\}/,
@@ -64,7 +72,7 @@ const SRC = [
   grab(/function sanitizeMove\(who,idx,dx,dy,sp\)\{[\s\S]*?\n\}/, 'sanitizeMove'),
   grab(/function applyCommit\(who,shooterIdx,fx,fy,spin\)\{[\s\S]*?\n\}/, 'applyCommit'),
   grab(/function applyLaunch\(\)\{[\s\S]*?\n\}/, 'applyLaunch'),
-  grab(/function fbFfaOffen\(\)\{[\s\S]*?\n\}/, 'fbFfaOffen'),
+  grab(/function fbOffen\(\)\{[\s\S]*?\n\}/, 'fbOffen'),
   grab(/let fbAutoShots=0, fbAutoSkips=0, fbTroubleSeen=\[false,false\];/, 'Zaehler der Automatik'),
 ].join('\n');
 
@@ -150,7 +158,7 @@ function build(n) {
                schuss:fbShotTicks,schussFuer:fbShotFor,zeigt:fbShotShown(),
                wer:fbDecisionWho(),bank:fbBank.slice(),
                autoSchuss:fbAutoShots,autoAus:fbAutoSkips,
-               offen:fbFfaOffen(),bereit:aimSet.map(v=>v?1:0).join(''),
+               offen:fbOffen(),bereit:aimSet.map(v=>v?1:0).join(''),
                absichten:aimSet.map((v,o)=>v?{who:o,idx:commitIdx[o],fx:commitAim[o].dx,
                                               fy:commitAim[o].dy,spin:commitSpin[o]}:null)
                               .filter(Boolean)}),
@@ -394,7 +402,7 @@ function phaseAus(G, o) {
      'die Automatik liest denselben Vektor, den ein Loslassen erzeugt haette');
   ok((HTML.match(/function fbCommitFor\(/g) || []).length === 1,
      'und es gibt genau eine solche Funktion fuer beide Regeln');
-  ok(/function fbFfaExpire\(\)\{[\s\S]*?for\(const o of fbFfaOffen\(\)\)fbCommitFor\(o\);/.test(HTML),
+  ok(/function fbWindowExpire\(\)\{[\s\S]*?for\(const o of fbOffen\(\)\)fbCommitFor\(o\);/.test(HTML),
      'der gemeinsame Ablauf benutzt sie fuer JEDEN offenen Spieler');
   ok(/function fbDecisionExpire\(who\)\{[\s\S]*?fbCommitFor\(who\);/.test(HTML),
      'und der Einzelablauf von Speed Match dieselbe');
@@ -596,12 +604,12 @@ function phaseAus(G, o) {
   ok(G.log.filter(z => z.indexOf('cover:') === 0).length === 0,
      'in der Zeitregel wird das Geraet nicht weitergereicht');
   const commitSrc = grab(/function applyCommit\(who,shooterIdx,fx,fy,spin\)\{[\s\S]*?\n\}/, 'applyCommit');
-  ok(/if\(zeit\)\{const offen=fbFfaOffen\(\);nx=offen\.length\?offen\[0\]:-1;\}/.test(commitSrc),
+  ok(/if\(gemeinsam\)\{const offen=fbOffen\(\);nx=offen\.length\?offen\[0\]:-1;\}/.test(commitSrc),
      'die Suche laeuft ueber ALLE offenen Spieler, nicht nur ueber die nachfolgenden');
-  ok(/if\(nx>=0\)\{curAimer=nx;if\(!zeit\)openCover\(nx\);/.test(commitSrc),
-     'und der Uebergabeschirm bleibt ausserhalb der Zeitregel unveraendert');
-  ok((HTML.match(/if\(!\(typeof fbTimed==='function'&&fbTimed\(\)\)\)openCover\(curAimer\);/g) || []).length === 2,
-     'auch die beiden Rundenstarts oeffnen ihn weiterhin - nur nicht in der Zeitregel');
+  ok(/if\(nx>=0\)\{curAimer=nx;if\(!gemeinsam\)openCover\(nx\);/.test(commitSrc),
+     'und der Uebergabeschirm bleibt ausserhalb des gemeinsamen Fensters unveraendert');
+  ok((HTML.match(/if\(!\(typeof fbShared==='function'&&fbShared\(\)\)\)openCover\(curAimer\);/g) || []).length === 2,
+     'auch die beiden Rundenstarts oeffnen ihn weiterhin - nur nicht im gemeinsamen Fenster');
 }
 
 // ══ S6. BESTAETIGUNG AUSSERHALB DER REIHENFOLGE ══════════════════════════
@@ -626,8 +634,8 @@ function phaseAus(G, o) {
      'derselbe Griff waehlt in Tactical weiterhin die Figur');
   ok(/function fbTactical\(\)\{/.test(HTML), 'die Tactical-Weiche ist unveraendert vorhanden');
   // Die Erweiterung der Greifzone ist auf die Zeitregel begrenzt.
-  ok((HTML.match(/const ziel=\(typeof fbTimed==='function'&&fbTimed\(\)\)\?fbFfaOffen\(\):who;/g) || []).length === 2,
-     'ausserhalb der Zeitregel bleibt genau ein Spieler greifbar (2D und 3D)');
+  ok((HTML.match(/const ziel=\(typeof fbShared==='function'&&fbShared\(\)\)\?fbOffen\(\):who;/g) || []).length === 2,
+     'ausserhalb eines gemeinsamen Fensters bleibt genau ein Spieler greifbar (2D und 3D)');
   ok(/const viele=Array\.isArray\(who\)/.test(HTML),
      'die Mehrfachauswahl ist eine Erweiterung derselben Funktion, keine zweite');
 }
@@ -652,23 +660,36 @@ function phaseAus(G, o) {
      'das Ende der Regulaerzeit in Speed Match ist unveraendert');
 }
 
-// ══ M. DIE LEBENSREGEL KENNT KEINE ZEIT ══════════════════════════════════
+// ══ M. DIE LEBENSREGEL: GEMEINSAMES FENSTER, ABER KEINE PHASENUHR ════════════
+// Seit LIVES SIMULTANEOUS 01 teilt sich die Lebensregel das Entscheidungsfenster mit
+// der Zeitregel. Was sie NICHT bekommt, ist die Phasenuhr - und ihre eigene Regel
+// (zwei Gegentore, dann raus) ist unveraendert.
 {
   const G = build(4);
   G.env({ regel: 'lives' });
   G.zielen(0, {});
   G.tick(300);
-  ok(G.st().wer === -1, 'in der Lebensregel gibt es kein Entscheidungsfenster');
-  ok(G.st().ticks === TICKS, 'also laeuft dort auch keine Phasenuhr');
-  ok(G.st().schuss === 0, 'und kein Sechs-Sekunden-Riegel');
-  ok(G.st().bereit.indexOf('1') < 0, 'nichts wird automatisch abgegeben');
+  ok(G.st().ticks === TICKS,
+     'in der Lebensregel laeuft KEINE Phasenuhr - sie steht auf dem vollen Wert');
+  ok(G.st().due === false && G.st().danger === false,
+     'und es gibt dort weder ein faelliges Phasenende noch einen Gleichstand');
+  ok(!/fbLives/.test(grab(/function fbFfaRunning\(\)\{[\s\S]*?\n\}/, 'fbFfaRunning')),
+     'die Phasenuhr fragt ausdruecklich NICHT nach der Lebensregel');
+  ok(/if\(typeof fbTimed==='function'&&fbTimed\(\)\){\s*\n?\s*if\(fbFfaClockTick\(who\)\)return;/.test(HTML),
+     'und der Tick ruft sie nur unter fbTimed auf');
+  // Die Regel selbst: zwei Gegentore, dann raus.
   G.concede(0);
   ok(G.st().lives[0] === 1 && G.st().conceded[0] === 0, 'ein Gegentor kostet ein Leben');
   G.concede(0);
   ok(G.st().aktiv.indexOf(0) < 0, 'das zweite scheidet aus - die Bestandsregel ist unberuehrt');
   ok(/const FB_ELIM_LIVES=2;/.test(HTML), 'und sie behaelt ihre zwei Leben');
+  // Aber das FENSTER teilt sie sich jetzt.
+  ok(/function fbLives\(\)\{return fbElim4\(\)&&!online&&fbElimRules===FOOTBALL_ELIM_RULES_LIVES;}/.test(HTML),
+     'die lokale Lebensregel ist ein eigener benannter Zustand');
+  ok(/\|\|\(typeof fbLives==='function'&&fbLives\(\)\)/.test(
+       grab(/function fbShared\(\)\{[^\n]*/, 'fbShared')),
+     'und sie gehoert zum gemeinsamen Fenster');
 }
-
 // ══ B. Das Phasenende unterbricht nichts ══════════════════════════════════════
 {
   const G = build(5);
@@ -869,9 +890,10 @@ function FFA_LIVES() { return 'lives'; }
   ok(!/onlineSend|rRef|firebase|MOVE|writeTurnSlot|roomCode/.test(ffaCode),
      'die Zeitregel schreibt oder liest nichts Netzwerkbezogenes');
   // Sie LIEST `online` an genau einer Stelle: um sich selbst dort abzuschalten.
-  ok((ffaCode.match(/\bonline\b/g) || []).length === 1
-     && /return fbElim4\(\)&&!online&&/.test(ffaCode),
-     'sie liest `online` genau einmal — um sich online abzuschalten');
+  ok((ffaCode.match(/\bonline\b/g) || []).length === 2
+     && (ffaCode.match(/return fbElim4\(\)&&!online&&/g) || []).length === 2,
+     'die beiden lokalen Eliminationsregeln lesen `online` je einmal - um sich dort '
+     + 'abzuschalten');
   // Sie ist an die Eliminationsregeln gebunden — Classic und Tactical erreichen sie nie.
   ok(/function fbTimed\(\)\{return fbElim4\(\)&&!online&&fbElimRules===FOOTBALL_ELIM_RULES_TIMED;\}/.test(HTML),
      'fbTimed verlangt die Eliminationsregeln UND offline — Classic, Tactical und Online '

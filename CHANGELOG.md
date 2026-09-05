@@ -7,6 +7,192 @@ Alle abgeschlossenen Änderungen am Projekt, neueste zuerst.
 ## [Unreleased]
 
 ### Features
+- feat(arena-football): **die lokale Lebensregel entscheidet jetzt simultan** (2026-09-05) —
+  bis hierher reichte die Lebensregel das Gerät reihum weiter: Verdeckschirm, ein Spieler
+  zielt, alle anderen warten, und erst nach dem letzten Commit lief die Aktion. Ab jetzt
+  entscheiden **alle noch aktiven Spieler im selben 6-Sekunden-Fenster**
+  (`FOOTBALL_LIVES_SHOT_SECONDS = 6`) und starten **gleichzeitig**. Der Übergabeschirm
+  entfällt in diesem Modus ersatzlos. **Die Regel selbst ist unverändert:** zwei Gegentore,
+  dann raus (`FB_ELIM_LIVES = 2`), Arenaumbau bei jeder Eliminierung wie bisher.
+- feat(arena-football): **keine Phasenuhr und kein DANGER in der Lebensregel** (2026-09-05) —
+  übernommen wurde ausschließlich das gemeinsame Fenster, nicht die Zeitmechanik der
+  Zeitregel. `fbFfaRunning()` fragt ausdrücklich **nicht** nach der Lebensregel, und
+  `fbFfaClockTick()` hängt weiterhin allein unter `fbTimed()`. Die Lebensregel hat damit
+  genau einen Countdown — den Zugriegel — und kein zweites Zeitkonto daneben.
+
+### Refactor
+- refactor(arena-football): **ein gemeinsames Fenster für drei Regeln statt drei Fassungen**
+  (2026-09-05) — die Lebensregel bekam **keine** eigene Simultanmechanik. Erweitert wurden die
+  bestehenden Einzelstellen: `fbShared()` ist jetzt `fbTimed() || fbLives() || fbTeam2()`,
+  `fbOffen()` bleibt die eine offene Menge, `fbSharedShotTicks()` holt die Riegellänge aus der
+  Konstante der jeweiligen Regel. Auch die HUD-Statuszeile und die READY-Markierung der
+  Chipleiste hängen jetzt am Prädikat statt an `fbTimed()`. Drei parallele Implementierungen
+  wären früher oder später auseinandergelaufen.
+- refactor(arena-football): **die lokale Lebensregel hat einen eigenen Namen** (2026-09-05) —
+  `fbLives()` (`fbElim4() && !online && fbElimRules === LIVES`). Das `!online` ist dieselbe
+  Grenze wie bei `fbTimed()`: **online bleibt die Lebensregel sequentiell**, Protokoll v7,
+  Raumschema, MOVE-Format und Firebase Rules sind unberührt. Lokal und online unterscheiden
+  sich damit im **Ablauf**, nicht in der Regel.
+
+### Fixes
+- fix(arena-football): **`renderElimBar()` warf bei jedem Bild** (2026-09-05) — Befund des
+  unabhängigen Reviews und ein echter Fehler dieses Durchgangs: beim Umstellen der
+  Chipbedingung von `fbTimed()` auf das gemeinsame Fenster ging die Deklaration von
+  `gemeinsam` verloren, während drei Zeilen sie weiter lasen. Folge: `ReferenceError` in
+  jedem Bild → **die gesamte Chipleiste blieb leer**, in allen Eliminationsmodi. Die
+  Offline-Suiten konnten das nicht sehen, weil sie `renderElimBar()` nie ausführen; der
+  Praxistest zeigte die leere Leiste, ich hatte sie zuerst fälschlich als Layout abgetan.
+  Der Praxistest prüft die Leiste jetzt ausdrücklich.
+
+- fix(arena-football): **`fbFfaPaint()` steuerte drei Dinge mit einem Schalter** (2026-09-05) —
+  die Variable war beim Team-2v2-Durchgang von `fbTimed()` auf `fbShared()` geweitet worden
+  und entschied seither gleichzeitig ueber den grossen Schuss-Countdown (richtig: den haben
+  alle simultanen Modi) **und** ueber DANGER sowie die Phasenuhr im Kopf (falsch: die hat
+  nur die Zeitregel). Mit der Lebensregel im gemeinsamen Fenster waren diese Zweige dort
+  erstmals erreichbar — ein stehengebliebenes `fbFfaDanger` aus einem frueheren
+  Zeitregel-Match haette im Kopf der Lebensregel auftauchen koennen. Die beiden Begriffe
+  sind jetzt getrennt: `gemeinsam` (Fenster) und `zeit` (Zeitregel), mit vier Zusicherungen
+  abgesichert.
+- fix(arena-football): **irrefuehrender Name in `applyCommit()`** (2026-09-05) — die lokale
+  Variable hiess `zeit`, entschied aber seit dieser Aenderung auch fuer die Lebensregel, die
+  gar keine Uhr hat. Umbenannt in `gemeinsam`; reine Umbenennung, kein Verhalten geaendert.
+
+### Docs
+- docs: `PROJECT.md`, `TODO.md` und `CHANGELOG.md` auf die simultane Lebensregel nachgezogen
+  (2026-09-05).
+
+### Features
+- feat(arena-football): **eine gemeinsame Wandform für alle Modi — Kandidat B ist kanonisch** (2026-09-05) —
+  nach dem A/B/C-Spieltest ist **B** gewählt: lange gerade Bande, eine **kurze** bewusste
+  35-Grad-Schulter davor, dann die flache Torwand. Die Beschreibung steht jetzt an **einer**
+  Stelle (`FB_TWO_GOAL_SHAPE = {rc 2.60, shoulderDeg 35, endHalf 7.00}`), und zwei Generatoren
+  bauen daraus jede Arena. Verschiedene Modi dürfen verschiedene **Grundflächen** haben — aber
+  nie ein eigenes **Wandprofil**, denn genau so waren sie auseinandergedriftet: Tactical und
+  Team 2v2 liefen noch auf einem Rounded Rectangle mit Eckradius 6.85 (nur **61,9 %** gerade
+  Bande), während Classic längst ein Schulterachteck war.
+- feat(arena-football): **Tactical und True Team 2v2 bekommen die kanonische Wandform** (2026-09-05) —
+  Grundfläche (36,0 × 25,4 BR), Tor, Torlinie, Spawns, Kamera und alle Regeln unverändert;
+  ersetzt wurde ausschließlich das Wandprofil. Gerade Bande **22,30 → 26,46** BR
+  (61,9 % → **73,5 %** der Länge), dazu vier kurze Schultern von 3,78 BR bei 35 Grad.
+- feat(arena-football): **Classic und das Zwei-Spieler-Finale lesen dieselbe Beschreibung**
+  (2026-09-05) — sie waren schon dieselbe Objektinstanz, hatten aber ihre Schulterzahlen
+  eingebaut. Jetzt kommen sie aus der kanonischen Quelle. Das ist **keine reine Umverdrahtung**:
+  die flache Torwand wächst von halb 6,10 auf **7,00**, die Schulter wird dadurch kürzer
+  (3,54 → **2,44** BR), die gerade Bande länger (21,94 → **23,20** BR). Grundfläche, Tor,
+  Torlinie und Spawn sind unverändert.
+- feat(arena-football): **dieselbe Wandsprache radial — 3, 4 und 5 Tore** (2026-09-05) —
+  radiale Arenen können die Zwei-Tor-Form nicht übernehmen (jeder Spieler hat ein eigenes Tor).
+  Übertragen wurde deshalb nicht eine Koordinate, sondern das **Verhältnis**: in B nimmt die
+  Schulter **15,8 %** des Wandlaufs ein. Genau darauf sind die Kappfaktoren gesetzt
+  (`FB_RADIAL_SHAPE = {rc 2.60, vf {3: 1.5916, 4: 1.2663, 5: 1.1559}}`), und der Eckradius
+  fällt in allen Phasen von 3,50 auf **2,60**. Die **Vier-Tore-Phase bekommt erstmals
+  Schultern** — sie war bis dahin ein gerundetes Quadrat ohne jede Kappfläche.
+- fix(arena-football): **der 3D-Formcache kannte True Team 2v2 nicht** (2026-09-05) — Befund
+  des unabhängigen Reviews, und ein echter Fehler aus dem Team-2v2-Durchgang: der
+  Layout-Schlüssel des Renderers unterschied nur `tactical` und `classic`. True Team 2v2 fiel
+  auf `classic`, benutzte aber die größere Tactical-Arena. Nach `Classic → Menü → Team 2v2`
+  blieb deshalb die **zuletzt gebaute Classic-Wand** stehen, während die Physik bereits auf der
+  größeren Arena rechnete — sichtbare Bande und Kollision lagen **2,40 BR (76,8 px)**
+  auseinander. Der Schlüssel schließt Team 2v2 jetzt ein.
+- fix(arena-football): **die Schulternormale steht als Literal** (2026-09-05) — sie kam aus
+  `Math.cos`/`Math.sin`. Trigonometrische Funktionen sind in JavaScript **nicht** korrekt
+  gerundet vorgeschrieben; die Arenageometrie muss aber auf jeder Engine bitgleich sein, sonst
+  droht im Online-Finale ein Lockstep-Desync. Dieselbe Begründung wie bei `FB_P5_C1` und
+  `FB_TRI_COS30`. Die Werte sind die heutigen — die Form ändert sich nicht.
+- fix(arena-football): **die Zielvorschau folgt der echten Wand** (2026-09-05) — sie endete an
+  einer gerundeten Rechteckgrenze, obwohl jede Football-Arena ein Kernpolygon trägt. Bei vier
+  Toren zeigte sie dadurch bis zu **70 px durch die Wand hindurch**. Sie benutzt jetzt dieselbe
+  Grenzfunktion wie Physik und Bande.
+- refactor(arena-football): **das A/B/C-Geometrielabor ist restlos entfernt** (2026-09-05) —
+  `?dev=1&arenaGeom=…`, die Kandidatentabelle, der Zwischen-Layer in `fbArena()` und der
+  Rechteckgenerator sind weg. Kein Adresszeilenparameter kann die Arenageometrie mehr
+  verstellen — weder lokal noch online. Auch `fbTruncTri` ist entfallen: die Dreiecksform ist
+  ein Sonderfall von `fbTruncPoly` und wird jetzt von ihm erzeugt.
+- test(arena-football): **eigene Suite für die kanonische Wandform, 137 Zusicherungen**
+  (2026-09-05) — `tools/test_football_arena_canonical.js` nagelt fest: Labor restlos weg; genau
+  **eine** Zwei-Tor- und **eine** radiale Beschreibung; alle vier Zwei-Tor-Modi lesen sie;
+  jede radiale Phase ist **rotationsgleich** (alle Torseiten exakt gleich lang, alle Kappflächen
+  exakt gleich lang, gleicher Abstand vom Zentrum) und trägt dasselbe Schulterverhältnis;
+  Tore, Torlinien und Spawns unverändert; Sichtbares und Kollision aus denselben zwei Feldern;
+  Physik, Regeln und Protokoll unverändert. Der Runner steht bei **32/32 Suiten grün**.
+- feat(arena-football): **Geometrielabor A/B/C für die künftige gemeinsame Zwei-Tor-Arena** (2026-09-05) —
+  ein **temporärer, rein entwicklungsseitiger** Schalter `?dev=1&arenaGeom=A|B|C` tauscht die
+  **Wandform** der Zwei-Tor-Arenen aus, damit die Formen nebeneinander gespielt werden können.
+  Grundfläche, Torbreite, Tormitte, Torlinie, Spawns und Kamerarahmung bleiben in allen drei
+  Formen **exakt** die der jeweiligen Arena — verglichen wird ausschließlich Ecken- und
+  Schultergeometrie. **Ohne den Parameter ändert sich nichts**, es gibt keinen Menüeintrag und
+  keinen gespeicherten Zustand. Es wurde **keine** Arena dauerhaft umgestellt.
+- fix(arena-football): **das Labor ist online ausnahmslos aus** (2026-09-05) — Befund des
+  unabhängigen Reviews: der Schalter ist lokaler Adresszeilenzustand und steht in keinem
+  Raumzustand und in keiner Protokollversion. Hätte der Host eine andere Wandform als der Gast,
+  liefen die Simulationen bei identischen Zügen auseinander — ein Lockstep-Desync im
+  Zwei-Spieler-Finale, das dieselbe Zwei-Tor-Form benutzt. `fbGeomApply()` prüft `online`
+  deshalb **vor** jedem Formbau.
+- fix(arena-football): **die Laborform trägt die beiden Torachsen** (2026-09-05) — der Renderer
+  setzt die Toröffnungen auf dem Polygonpfad aus `dirs` in die Bande. Die Tactical-Arena hatte
+  nie ein Kernpolygon und deshalb auch nie ein `dirs`; mit Laborform stürzte `fbBuildShape()`
+  in jedem Bild ab. Die Laborform ergänzt jetzt `[[1,0],[-1,0]]` — genau den Wert, auf den
+  `fbElimDirs()` ohnehin zurückfällt.
+- test(arena-football): **eigene Suite für das Geometrielabor, 135 Zusicherungen** (2026-09-05) —
+  `tools/test_football_arena_lab.js` nagelt fest, dass das Labor **nichts anderes** tut: ohne
+  Parameter dieselbe Objektinstanz; A/B/C ändern nur `corner`, `poly` und `dirs`; Torbreite,
+  Torlinie und Spawn identisch; die halbe flache Stirnwand liegt in allen drei Formen über
+  `postOuter`; radiale Elimination-Phasen (5/4/3 Tore) unberührt; online aus; Sichtbares und
+  Kollision lesen dieselben zwei Felder; Physik-, Regel- und Protokollkonstanten unverändert.
+  Der Runner steht bei **32/32 Suiten grün**.
+- feat(arena-football): **neuer lokaler Modus TRUE TEAM 2V2 — vier Menschen, zwei Teams** (2026-09-05) —
+  vier Spieleridentitäten (**B1, B2, R1, R2**), jede besitzt **dauerhaft genau eine** Figur, dazu
+  der neutrale Ball und die beiden Teamtore. Gespielt wird **FIRST TO 3** auf den Teamstand
+  (`BLAU 1 : 2 ROT`) — keine Leben, keine Phasenuhr, keine Elimination, kein Golden Goal.
+  Das ist **nicht** Tactical: dort steuert ein Mensch beide Figuren seines Teams und wählt je
+  Runde eine davon. **Tactical bleibt unverändert daneben bestehen.**
+- feat(arena-football): **die Wertung zählt die TORSEITE, nicht die letzte Berührung** (2026-09-05) —
+  überquert der Ball Rots Tor, punktet Blau; überquert er Blaus Tor, punktet Rot — **auch bei
+  einem Eigentor**. Das ist keine neue Sonderregel: `footballGoalSide()` liefert bereits die
+  überquerte Seite, und die **ist** die Teamnummer. Es gibt weiterhin genau **einen** Zählpfad
+  (`score[side]=(score[side]||0)+1`) und keinen zweiten Detektor aus der Ballposition.
+- feat(arena-football): **ein gemeinsames Fenster für alle vier** (2026-09-05) —
+  `FOOTBALL_TEAM2V2_SHOT_SECONDS = 6` (360 Ticks). Alle vier entscheiden im **selben** Fenster,
+  danach starten **alle vier Figuren gleichzeitig**. Wer früh bestätigt, wartet — ein einzelner
+  Commit schießt niemanden ab. Sind alle bereit, schließt das Fenster **sofort**. Bei Ablauf
+  bekommt jeder noch Offene seinen anliegenden Vektor **genau so**, sonst einen Nullzug.
+  Das ist **kein zweites Werk**: das Fenster, der Riegel, die Absichtensammlung und der
+  gleichzeitige Abschuss kommen unverändert aus der angenommenen Timed FFA. `fbShared()` ist
+  jetzt das eine Prädikat für beide Regeln, `fbOffen()` die eine offene Menge.
+- feat(arena-football): **Arena und Aufstellung kommen unverändert aus Tactical** (2026-09-05) —
+  dieselbe Arena (`FOOTBALL_ARENA`), dieselbe Torgeometrie, und Zeichen für Zeichen dieselben
+  Spawn-Koordinaten (`FOOTBALL_TACTICAL_SPAWN`). Der **einzige** Unterschied: die vier Figuren
+  tragen vier verschiedene Besitzer statt zweier. Die Spiegelsymmetrie (Blau bei −x, Rot exakt
+  gespiegelt bei +x, Ball zentral) ist damit per Konstruktion dieselbe — kein Team bekommt einen
+  geometrischen Vorteil, und es gibt keinen zweiten Spawn-Satz, der auseinanderlaufen könnte.
+- feat(arena-football): **HUD: vier Identitätschips plus Teamstand** (2026-09-05) — die
+  Chipleiste trägt `B1 B2 R1 R2` in der **Teamfarbe** (beide Blauen blau, beide Roten rot —
+  Teamkameraden dürfen nie wie Gegner aussehen), bestätigte Spieler zeigen den ruhigen
+  READY-Haken, offene bleiben hervorgehoben. Dazu bleibt der **Punktestand** sichtbar, und der
+  große zentrale Countdown zeigt **eine** Zahl — die des gemeinsamen Fensters. Alles aus den
+  bestehenden Bauteilen (`.fchip`, `.act`, `.rdy`, `#fbShot`), kein neues HUD.
+- feat(arena-football): **lokaler Maus-Ersatz für vier Spieler** (2026-09-05) — eine Maus kann
+  physisch nicht vier Figuren gleichzeitig ziehen. Im selben Fenster darf der Nutzer deshalb
+  nacheinander jede noch offene Figur greifen; **abgeschossen wird trotzdem gemeinsam**. Das ist
+  reine Eingabeerfassung und weicht den Besitz nicht auf: der Zug wird an den Besitzer der
+  **gegriffenen** Kugel gebunden (`startAim(balls[idx].owner,…)`), und `sanitizeMove` verwirft
+  jeden Zug, dessen Kugel dem Besitzer nicht gehört. Eine Absicht kann damit **nie** im Platz
+  eines anderen landen — genau die Eigenschaft, die die spätere Online-Zuordnung
+  (B1 → Gerät 1 …) braucht.
+- docs(arena-football): **Mehrfinger-Zielen ist bewusst NICHT nachgerüstet** (2026-09-05) — die
+  Eingabeschicht kennt genau **einen** Ziel-Zeiger (`aimPid`) plus einen Drall-Zeiger. Echtes
+  gleichzeitiges Ziehen von vier Fingern bräuchte einen Drag-Zustand je Zeiger — ein eigener,
+  größerer Umbau. Er ist in `TODO.md` vermerkt, nicht vorgetäuscht.
+- test(arena-football): **eigene Suite für True Team 2v2, 126 Zusicherungen** (2026-09-05) —
+  `tools/test_football_team2v2.js` prüft an der **echten** Quelle: vier Identitäten mit vier
+  eigenen Kugeln (Tactical im Vergleich: 0,0,1,1); Teamzuordnung als reine Ableitung;
+  Besitzbindung des Zugs; ein gemeinsames Fenster, das eine Bestätigung nicht neu startet;
+  kein Abschuss bei drei Bestätigten, sofortiger Abschuss bei vier; Ablauf mit und ohne
+  anliegenden Vektor; alle vier Geschwindigkeiten vor dem ersten Simulationsschritt; gleiche
+  Absichten in unterschiedlicher Eingabereihenfolge ergeben identische Geschwindigkeiten;
+  Teamwertung samt Eigentor; First to 3; deterministischer Rundenreset; Spiegelsymmetrie und
+  Koordinatengleichheit mit Tactical; und die Unberührtheit von Tactical, Classic, Lives,
+  Timed FFA und Online. Der Runner steht bei **31/31 Suiten grün**.
 - feat(arena-football): **Timed FFA ist jetzt simultan — ein gemeinsames Fenster, ein gemeinsamer Start** (2026-09-05) —
   aus dem Spieltest: der sequentielle Ablauf (P1 zielt → Physik → P2 zielt → Physik) war die falsche
   Spielform. **Alle aktiven Spieler entscheiden jetzt im SELBEN 6-Sekunden-Fenster**, danach starten

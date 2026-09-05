@@ -408,8 +408,8 @@ const untilMorph = (E) => { for (let i = 0; i < 600 && E.goalState() !== 'morph'
   ok(Array.isArray(a.poly), 'die Grenze ist ein konvexes Kernpolygon');
   ok(a.poly.length === 10,
      'der Kern des Broad Rounded Pentagon hat zehn Ecken: ' + a.poly.length);
-  ok(a.halfLen === 19.50 && a.halfWid === 19.50 && a.corner === 3.50 && a.spawn === 12.75,
-     'Basismass 19.50 BR, Eckradius 3.50 BR, Spawnradius 12.75 BR');
+  ok(a.halfLen === 19.50 && a.halfWid === 19.50 && a.corner === 2.60 && a.spawn === 12.75,
+     'Basismass 19.50 BR, kanonischer Eckradius 2.60 BR, Spawnradius 12.75 BR');
   ok(a.postInner === 3.560 && a.postOuter === 5.282, 'die Torwerte sind unveraendert uebernommen');
   ok(a.postFront === a.halfLen, 'das Tor sitzt buendig auf der Bandeninnenflaeche');
   ok(Math.abs(E.arena().clearHalf * 2 - 227.84) < 1e-9, 'die lichte Torbreite bleibt 227.84');
@@ -532,8 +532,10 @@ const untilMorph = (E) => { for (let i = 0; i < 600 && E.goalState() !== 'morph'
   E.step();
   ok(E.phase() === 'aim', 'die naechste Runde oeffnet mit vier Spielern');
   ok(E.aimSet().filter((v) => !v).length === 5, 'die Commitliste behaelt die Startlaenge des Matches');
-  ok(E.coverCalls().length > 0 && E.coverCalls()[0] === E.firstAimer(),
-     'die verdeckte Runde beginnt beim ersten noch aktiven Spieler');
+  // SIMULTAN: kein Uebergabeschirm mehr; das gemeinsame Fenster fuehrt den ersten
+  // noch aktiven Spieler.
+  ok(E.coverCalls().length === 0 && E.curAimer() === E.firstAimer(),
+     'die neue Runde oeffnet ein gemeinsames Fenster beim ersten noch aktiven Spieler');
 }
 
 // =================================================================================
@@ -694,8 +696,9 @@ const untilMorph = (E) => { for (let i = 0; i < 600 && E.goalState() !== 'morph'
   // Es gibt genau EINE Fuenf-Spieler-Arena - kein Kandidatenvergleich mehr im Produktcode.
   ok(!/DEV_S5|ELIM5_REGULAR|ELIM5_BROAD|fbRegularPoly/.test(HTML),
      'kein Rest der Kandidatenauswahl (s5 / REGULAR / BROAD) im Produktcode');
-  ok(/const FOOTBALL_ARENA_ELIM5=Object\.assign\(\s*\n\s*fbShape\(19\.50,19\.50,3\.50,12\.75,5,false,FOOTBALL_ELIM5_DIRS\),\s*\n\s*\{poly:fbTruncPoly\(FOOTBALL_ELIM5_DIRS,FB_P5_VERT,19\.50,3\.50,1\.14\)\}\);/.test(HTML),
-     'die Fuenf-Spieler-Arena ist genau der gekappte Pentagon mit Faktor 1.14');
+  ok(/const FOOTBALL_ARENA_ELIM5=fbRadialArena\(5,19\.50,12\.75,FOOTBALL_ELIM5_DIRS,FB_P5_VERT\);/.test(HTML)
+     && /const FB_RADIAL_SHAPE=\{rc:2\.60,vf:\{3:1\.5916,4:1\.2663,5:1\.1559\}\};/.test(HTML),
+     'die Fuenf-Spieler-Arena kommt aus der kanonischen radialen Wandform (vf 1.1559)');
   ok(/const FB_ELIM_ARENAS=\{5:FOOTBALL_ARENA_ELIM5,4:/.test(HTML),
      'die Fuenf-Spieler-Arena haengt in derselben Phasentabelle wie alle anderen');
   ok(/const FB_ELIM_DIRS=\{5:FOOTBALL_ELIM5_DIRS,4:/.test(HTML),
@@ -802,9 +805,12 @@ const untilMorph = (E) => { for (let i = 0; i < 600 && E.goalState() !== 'morph'
      'die Abschusskurve ist unveraendert');
   ok(/const SIM_HZ=60;/.test(HTML), 'die Zeitbasis ist unveraendert');
   // Die bestehenden Endformen sind unangetastet.
-  ok(/fbShape\(12\.50,12\.50,3\.50,8\.15,3,false,FOOTBALL_ELIM3_DIRS\)/.test(HTML), '3P-Form unveraendert');
-  ok(/fbShape\(15\.60,11\.60,2\.60,10\.15,2,false,FOOTBALL_ELIM2_DIRS\)/.test(HTML), '2P-Form unveraendert');
-  ok(/halfLen:17\.50,halfWid:17\.50,corner:3\.50,spawn:11\.50,sides:4/.test(HTML), '4P-Form unveraendert');
+  ok(/const FOOTBALL_ARENA_ELIM3=fbRadialArena\(3,12\.50,8\.15,FOOTBALL_ELIM3_DIRS,FB_TRI_VERT\);/.test(HTML),
+     '3P-Form aus der kanonischen radialen Quelle');
+  ok(/const FOOTBALL_ARENA_ELIM2=fbTwoGoalArena\(15\.60,11\.60,10\.15\);/.test(HTML),
+     '2P-Form aus der kanonischen Zwei-Tor-Quelle');
+  ok(/const FOOTBALL_ARENA_ELIM4=fbRadialArena\(4,17\.50,11\.50,FOOTBALL_ELIM4_DIRS,FB_P4_VERT\);/.test(HTML),
+     '4P-Form aus der kanonischen radialen Quelle');
 }
 
 // =================================================================================

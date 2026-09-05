@@ -152,18 +152,26 @@ ok(F.grenzeGeteilt(), 'Classic teilt die Arenagrenze Feld fuer Feld mit dem Elim
   ok(/g\.scale\.setScalar\(goalScale\)/.test(SRC) && !/goalK/.test(SRC),
      'das Tormodell wird uniform skaliert — keine Classic-eigene Streckung');
   // endHalf der flachen Torwand muss groesser bleiben als die Sockelaussenkante.
-  ok(/fbShoulderRect\(15\.60,11\.60,2\.60,35,6\.10\)/.test(SRC) && 6.10 > t.cOut,
-     'die flache Torwand (endHalf 6.10) bleibt breiter als die Sockelaussenkante ' +
+  // Seit der Kanonisierung steht das Wandprofil an EINER Stelle; Classic liest es
+  // wie jede andere Zwei-Tor-Arena aus FB_TWO_GOAL_SHAPE.
+  ok(/const FB_TWO_GOAL_SHAPE=\{rc:2\.60,shoulderDeg:35,endHalf:7\.00\};/.test(SRC) && 7.00 > t.cOut,
+     'die flache Torwand (endHalf 7.00) bleibt breiter als die Sockelaussenkante ' +
      t.cOut.toFixed(4)); }
 ok(Array.isArray(A.poly) && A.poly.length === 8, 'Shouldered Wide: achteckiges Kernpolygon (2 Banden, 2 Torwaende, 4 Schultern)');
-ok(F.arenaTactical().halfLen === 18.00 && F.arenaTactical().corner === 6.85,
-   'Tactical behaelt unveraendert die alte Rounded-Rectangle-Arena');
+// Tactical (und True Team 2v2) benutzen seit der Kanonisierung DIESELBE Wandform wie
+// Classic - nur auf groesserer Grundflaeche. Das alte Rounded Rectangle mit
+// Eckradius 6.85 ist damit abgeloest.
+ok(F.arenaTactical().halfLen === 18.00 && F.arenaTactical().corner === 2.60,
+   'Tactical steht auf der kanonischen B-Wandform (18.00, Eckradius 2.60)');
+ok(Array.isArray(F.arenaTactical().poly) && F.arenaTactical().poly.length === 8,
+   'und traegt dasselbe achteckige Kernpolygon wie Classic');
 // Classic und Tactical stehen auf VERSCHIEDENEN Arenaformen. Der 3D-Renderer baut Form und
 // Tore nur neu, wenn sich sein Layout-Schluessel aendert - der Schluessel muss die Variante
 // deshalb unterscheiden. Taete er das nicht, bliebe nach Tactical -> Menue -> Classic die
 // alte Arena stehen, waehrend die Physik bereits die neue Grenze benutzt.
-ok(/const fbPhaseWant=footballView\?\(fbElim4\(\)\?'elim'\+fbElimPhaseN:\(fbTactical\(\)\?'tac':'classic'\)\):'';/.test(SRC),
-   'der 3D-Layout-Schluessel unterscheidet Elimination-Phase, Tactical und Classic');
+ok(/const fbGross=fbTactical\(\)\|\|fbTeam2\(\);/.test(SRC)
+   && /const fbPhaseWant=footballView\?\(fbElim4\(\)\?'elim'\+fbElimPhaseN:\(fbGross\?'tac':'classic'\)\):'';/.test(SRC),
+   'der 3D-Layout-Schluessel unterscheidet Elimination-Phase, die grosse Vier-Figuren-Arena (Tactical und Team 2v2) und Classic');
 // Dieselbe Frage stellt sich fuer die KAMERA: sie rahmt aus fbArena(), wird aber nur bei
 // Groessenaenderung oder Wechsel der Ansichtsrotation neu berechnet. Ohne eigene Kennung
 // bliebe sie nach einem Variantenwechsel auf dem Rahmen der vorherigen Arena stehen.

@@ -329,6 +329,22 @@ header{width:100%;max-width:460px;display:flex;align-items:center;justify-conten
    karten und die Scorebox. Hier traegt sie stattdessen EINE Chipleiste fuer bis zu fuenf
    Spieler — also eine zentrierte Zeile ueber die volle Breite, sonst braeche der Phasenkopf um. */
 #game.fb.fbelim .status{max-width:660px;display:flex;justify-content:center}
+/* TRUE TEAM 2V2: Punktestand und vier Chips teilen sich eine Zeile. Ohne diese drei
+   Zeilen quetscht die Chipleiste (flex:1) den Punktestand so weit zusammen, dass
+   BLAU 1 : 0 ROT untereinander statt nebeneinander steht. */
+#game.fb.fbteam2 .status{max-width:760px;display:flex;justify-content:center;gap:10px}
+#game.fb.fbteam2 .scorebox{flex:0 0 auto}
+#game.fb.fbteam2 .score{white-space:nowrap}
+#game.fb.fbteam2 .ffabar{flex:0 1 auto}
+@media(max-width:760px){
+  #game.fb.fbteam2 .status{gap:6px}
+  #game.fb.fbteam2 .scorebox{padding:5px 9px;min-width:0}
+  #game.fb.fbteam2 .score{font-size:17px}
+  #game.fb.fbteam2 .rinfo{font-size:6.5px;letter-spacing:.14em}
+  #game.fb.fbteam2 .ffabar{gap:4px}
+  #game.fb.fbteam2 .fchip{padding:3px 7px}
+  #game.fb.fbteam2 .frnd{display:none}
+}
 #game.fb .scorebox{padding:6px 17px;border-color:rgba(255,201,64,.44);
   box-shadow:0 10px 26px rgba(5,9,18,.45),inset 0 1px 0 rgba(255,255,255,.055)}
 /* Score ist der visuelle Schwerpunkt: 30px gegen 11px Teamname. tabular-nums + feste
@@ -954,6 +970,10 @@ body:not(.r3d) .ohero{height:12px}
     <button class="vopt" id="fbTacticalBtn">
       <span class="vopt-t" id="fbTacticalT">TACTICAL 1V1</span>
       <span class="vopt-s" id="fbTacticalS">2 FIGURES · 1 MOVE PER ROUND</span>
+    </button>
+    <button class="vopt" id="fbTeam2Btn">
+      <span class="vopt-t" id="fbTeam2T">TEAM 2V2</span>
+      <span class="vopt-s" id="fbTeam2S">4 PLAYERS · TWO TEAMS · FIRST TO 3</span>
     </button>
     <button class="vopt" id="fbElimBtn">
       <span class="vopt-t" id="fbElimT">ELIMINATION</span>
@@ -1906,6 +1926,7 @@ en:{tagline:'PULL BACK · RELEASE · KNOCK THEM OUT',chip:'FEATURED',
   botT:'BOT TRAINING',botS:'VS AI',
   fbT:'ARENA FOOTBALL',fbClassicT:'CLASSIC 1V1',fbClassicS:'1 FIGURE PER PLAYER',
   fbTacticalT:'TACTICAL 1V1',fbTacticalS:'2 FIGURES · 1 MOVE PER ROUND',
+  fbTeam2T:'TEAM 2V2',fbTeam2S:'4 PLAYERS · TWO TEAMS · FIRST TO 3',
   fbElimT:'ELIMINATION',fbElimS:'3–5 PLAYERS · LIVES OR TIMED',
   fbElimTitle:'ELIMINATION',fbElimNLbl:'Players',
   fbLivesT:'LIVES',fbLivesS:'TWO LIVES EACH · SECOND GOAL AGAINST IS OUT',
@@ -1967,6 +1988,7 @@ de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'FEATURED',
   botT:'BOT-TRAINING',botS:'GEGEN KI',
   fbT:'ARENA FOOTBALL',fbClassicT:'CLASSIC 1V1',fbClassicS:'1 FIGUR PRO SPIELER',
   fbTacticalT:'TACTICAL 1V1',fbTacticalS:'2 FIGUREN · 1 ZUG PRO RUNDE',
+  fbTeam2T:'TEAM 2V2',fbTeam2S:'4 SPIELER · ZWEI TEAMS · ERSTER MIT 3',
   fbElimT:'ELIMINATION',fbElimS:'3–5 SPIELER · LEBEN ODER ZEIT',
   fbElimTitle:'ELIMINATION',fbElimNLbl:'Spieler',
   fbLivesT:'LEBEN',fbLivesS:'JE 2 LEBEN · DAS ZWEITE GEGENTOR SCHEIDET AUS',
@@ -2028,6 +2050,7 @@ tr:{tagline:'GERİ ÇEK · BIRAK · DIŞARI İT',chip:'FEATURED',
   botT:'BOT ANTRENMANI',botS:'YAPAY ZEKÂYA KARŞI',
   fbT:'ARENA FOOTBALL',fbClassicT:'CLASSIC 1V1',fbClassicS:'OYUNCU BAŞINA 1 FİGÜR',
   fbTacticalT:'TACTICAL 1V1',fbTacticalS:'2 FİGÜR · TUR BAŞINA 1 HAMLE',
+  fbTeam2T:'TEAM 2V2',fbTeam2S:'4 OYUNCU · İKİ TAKIM · İLK 3',
   fbElimT:'ELİMİNASYON',fbElimS:'3–5 OYUNCU · CAN VEYA SÜRE',
   fbElimTitle:'ELİMİNASYON',fbElimNLbl:'Oyuncu',
   fbLivesT:'CAN',fbLivesS:'HER BİRİNE 2 CAN · İKİNCİ GOL ELENME',
@@ -2114,6 +2137,7 @@ function applyLang(){
   $('fbModeTitle').textContent=T('fbT');$('fbModeBack').textContent=T('back');
   $('fbClassicT').textContent=T('fbClassicT');$('fbClassicS').textContent=T('fbClassicS');
   $('fbTacticalT').textContent=T('fbTacticalT');$('fbTacticalS').textContent=T('fbTacticalS');
+  $('fbTeam2T').textContent=T('fbTeam2T');$('fbTeam2S').textContent=T('fbTeam2S');
   $('fbElimT').textContent=T('fbElimT');$('fbElimS').textContent=T('fbElimS');
   $('fbElimTitle').textContent=T('fbElimTitle');$('fbElimNLbl').textContent=T('fbElimNLbl');
   $('fbLivesT').textContent=T('fbLivesT');$('fbLivesS').textContent=T('fbLivesS');
@@ -2183,7 +2207,8 @@ $('ctaBtn').onclick=()=>{
   // (?dev=1&fb=classic|tactical|elimination|elimination4) ueberspringt die Auswahl bewusst.
   if(menuSel==='football'){if(SFX.click())vibrateMs(VIBE_CLICK_MS);   // oeffnet nur die Auswahl — wie beim Bot-Dialog
     if(!r3dActive){toast(T('fbNo3d'));return;}
-    if(DEV_FB_VARIANT==='classic'||DEV_FB_VARIANT===FOOTBALL_VARIANT_TACTICAL||DEV_FB_VARIANT===FOOTBALL_VARIANT_ELIM||DEV_FB_VARIANT===FOOTBALL_VARIANT_ELIM4){startFootball(DEV_FB_VARIANT);return;}
+    if(DEV_FB_VARIANT==='classic'||DEV_FB_VARIANT===FOOTBALL_VARIANT_TACTICAL||DEV_FB_VARIANT===FOOTBALL_VARIANT_ELIM
+     ||DEV_FB_VARIANT===FOOTBALL_VARIANT_TEAM2||DEV_FB_VARIANT===FOOTBALL_VARIANT_ELIM4){startFootball(DEV_FB_VARIANT);return;}
     $('fbModeOv').classList.add('show');return;}
   if(menuSel==='bot'){if(SFX.click())vibrateMs(VIBE_CLICK_MS);$('botOv').classList.add('show');return;}       // Format-Auswahl: 1v1 / 2v2 Duo vs Bot
   if(TUNE){if(SFX.click())vibrateMs(VIBE_CLICK_MS);toast('Tuning aktiv — Online deaktiviert');return;}
@@ -2211,7 +2236,8 @@ function startFootball(variant,rules){
   // ausschliesslich ueber ?dev=1&fb=elimination4.
   fbElimStartN=0;   // lokale Partie: die Variante bestimmt die Teilnehmerzahl
   const dev4=variant===FOOTBALL_VARIANT_ELIM4&&typeof DEV_MENU!=='undefined'&&DEV_MENU;
-  fbVariant=(variant===FOOTBALL_VARIANT_TACTICAL||variant===FOOTBALL_VARIANT_ELIM||dev4)?variant:'classic';
+  fbVariant=(variant===FOOTBALL_VARIANT_TACTICAL||variant===FOOTBALL_VARIANT_ELIM
+           ||variant===FOOTBALL_VARIANT_TEAM2||dev4)?variant:'classic';
   // Die Classic-Regel wird HIER festgelegt und nirgends sonst. Ein unbekannter oder
   // fehlender Wert faellt auf die Bestandsregel zurueck; Tactical und Elimination
   // ignorieren sie ohnehin (fbSpeed verlangt fbClassic).
@@ -2242,6 +2268,7 @@ $('fbSpeedBtn').onclick=()=>{if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);
 // Zurueck fuehrt zur Modusauswahl, nicht ins Hauptmenue — der Weg, den man gekommen ist.
 $('fbRuleBack').onclick=()=>{$('fbRuleOv').classList.remove('show');$('fbModeOv').classList.add('show');};
 $('fbTacticalBtn').onclick=()=>{if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);startFootball(FOOTBALL_VARIANT_TACTICAL);};
+$('fbTeam2Btn').onclick=()=>{if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);startFootball(FOOTBALL_VARIANT_TEAM2);};
 // ELIMINATION oeffnet die Einrichtung statt sofort zu starten - dieselbe Bauweise wie
 // die Classic-Regelwahl. Die Auswahl lebt in genau diesen zwei Variablen; startFootball
 // liest sie und sonst niemand.
@@ -3545,14 +3572,14 @@ function wireMenuClickFeedback(){
     'bot1v1','bot2v2','botBack','ffaOnline','onCreate','onJoin','onBack','onBack2','lobbyStart',
     'homeViewAll','homeCreate','homeJoinCode','pubRefresh','onVisPriv','onVisPub',
     'menuSet','setClose','langEn','langDe','langTr','vibeOnBtn','vibeOffBtn','musicOnBtn','musicOffBtn','envDawnBtn','envDayBtn','menuBtn',
-    'fbClassicBtn','fbTacticalBtn','fbElimBtn','fbOnlineBtn','fbModeBack',
+    'fbClassicBtn','fbTacticalBtn','fbTeam2Btn','fbElimBtn','fbOnlineBtn','fbModeBack',
     'fbLivesBtn','fbTimedBtn','fbElimBack','fbElimN3','fbElimN4','fbElimN5',
     'fbFirst3Btn','fbSpeedBtn','fbRuleBack',
     'startBtn','rematchBtn','ovMenuBtn','leaveCancel','leaveGo'];
   // Diese Knoepfe rufen SFX.click() SELBST (sie brauchen dessen Rueckgabe fuer die
   // staerkere Bestaetigungsvibration). Sie bekommen hier deshalb nur die sichtbare
   // Druckreaktion - ein zweiter Klang waere ein doppelter Anschlag.
-  const EIGENER_KLANG=new Set(['ctaBtn','fbClassicBtn','fbTacticalBtn','fbElimBtn','fbOnlineBtn',
+  const EIGENER_KLANG=new Set(['ctaBtn','fbClassicBtn','fbTacticalBtn','fbTeam2Btn','fbElimBtn','fbOnlineBtn',
     'fbLivesBtn','fbTimedBtn',
                               'fbFirst3Btn','fbSpeedBtn']);
   const SOUND_IDS=new Set(IDS.filter(id=>!EIGENER_KLANG.has(id)));
@@ -3872,7 +3899,7 @@ function aliveCount(owner){let n=0;for(const b of balls)if(b.alive&&b.owner===ow
 // im Football-Modus; wie viele Spieler sie startet, sagt fbElimPlayers(). Der typeof-Guard
 // haelt die Offline-Harnesse ohne Football-Block unveraendert lauffaehig (dort greift der
 // Bestandszweig).
-function np(){return mode==='ffa'?ffaN:(typeof fbElim4==='function'&&fbElim4()?fbElimPlayers():2);}
+function np(){return mode==='ffa'?ffaN:(typeof fbElim4==='function'&&fbElim4()?fbElimPlayers():((typeof fbTeam2==='function'&&fbTeam2())?FOOTBALL_TEAM2V2_PLAYERS:2));}
 // Kugeln pro Spieler: 2 im 2v2-Doppel UND im TRIPLE FFA (fmt 'triple_ffa' —
 // FFA-Variante mit exakt 3 Spielern, laeuft komplett ueber die FFA-Systeme).
 function teamCap(){if(typeof fbTactical==='function'&&fbTactical())return 2;return (mode!=='ffa'&&fmt==='double')||fmt==='triple_ffa'?2:1;}
@@ -3887,7 +3914,10 @@ function ffaSeatCap(){return fmt==='triple_ffa'?3:fmt==='team_duel'?4:fmt===FB_O
 // TEAM DUEL: Team eines Seats (0=Blau: Seats 0/2, 1=Rot: Seats 1/3). Zugleich der
 // PCOLS-Farbslot — beide Teamkugeln tragen die Teamfarbe, Ownership bleibt pro Seat.
 function teamOf(s){return s%2;}
-function colorSlot(owner){return fmt==='team_duel'?teamOf(owner):owner;}
+// Farbslot einer Kugel. In True Team 2v2 tragen BEIDE Blauen Blau und beide Roten Rot -
+// Teamkameraden duerfen nie wie Gegner aussehen. Wer von beiden es ist, sagt die
+// Chipleiste (B1/B2/R1/R2), nicht die Kugelfarbe.
+function colorSlot(owner){if(typeof fbTeam2==='function'&&fbTeam2()){const t=fbTeam2Side(owner);if(t>=0)return t;}return fmt==='team_duel'?teamOf(owner):owner;}
 
 function placeBalls(){
   balls=[];
@@ -3919,6 +3949,17 @@ function placeBalls(){
     // (fbElimSpawnBodies) — es gibt nur EINE Beschreibung der fairen Startaufstellung.
     for(let o=0;o<fbElimPlayers();o++)balls.push(mkBall(fbElimSpawnX(o),fbElimSpawnY(o),o));
     balls.push(mkBall(cx,cy,FOOTBALL_NEUTRAL_OWNER));
+  }else if(mode==='football'&&typeof fbTeam2==='function'&&fbTeam2()){
+    // TRUE TEAM 2V2: dieselbe Aufstellung wie Tactical - Zeichen fuer Zeichen dieselben
+    // Koordinaten aus FOOTBALL_TACTICAL_SPAWN - nur tragen die vier Figuren VIER
+    // verschiedene Besitzer statt zweier. Die Spiegelsymmetrie (Blau bei -x, Rot exakt
+    // gespiegelt bei +x) ist damit per Konstruktion dieselbe wie dort, und kein Team
+    // bekommt einen geometrischen Vorteil.
+    // Reihenfolge B1,B2,R1,R2,Ball haelt die Ballindizes ueber alle Runden stabil.
+    const S=FOOTBALL_TACTICAL_SPAWN;
+    balls.push(mkBall(cx-S.frontX*BR,cy-S.frontY*BR,0),mkBall(cx-S.backX*BR,cy+S.backY*BR,1),
+               mkBall(cx+S.frontX*BR,cy-S.frontY*BR,2),mkBall(cx+S.backX*BR,cy+S.backY*BR,3),
+               mkBall(cx,cy,FOOTBALL_NEUTRAL_OWNER));
   }else if(mode==='football'&&typeof fbTactical==='function'&&fbTactical()){
     // TACTICAL: 2 Figuren je Team + neutraler Ball (FOOTBALL_NEUTRAL_OWNER). Blau bei -x, Rot exakt daran
     // gespiegelt bei +x. Reihenfolge B1,B2,R1,R2,Ball haelt die Ballindizes ueber alle
@@ -3940,9 +3981,13 @@ function newGame(){resize();R=R0;score=[];for(let p=0;p<np();p++)score.push(0);r
   const ffa=mode==='ffa';                            // FFA: kompakte Chip-Leiste statt der 2 Spielerkarten
   // Elimination4 nutzt DIESELBE Chip-Leiste (vier Spieler passen nicht in die zwei
   // Spielerkarten) — kein zweites HUD-Bauteil, nur ein zweiter Nutzer des bestehenden.
-  const chips=ffa||(typeof fbElim4==='function'&&fbElim4());
+  // True Team 2v2 zeigt die Chipleiste UND den Punktestand: vier Identitaeten passen
+  // nicht in die zwei Spielerkarten, aber BLAU 1 : 2 ROT ist dort die Siegbedingung.
+  const team2=typeof fbTeam2==='function'&&fbTeam2();
+  const chips=ffa||(typeof fbElim4==='function'&&fbElim4())||team2;
+  const punkte=!(ffa||(typeof fbElim4==='function'&&fbElim4()));
   $('card0').style.display=chips?'none':'';$('card1').style.display=chips?'none':'';
-  document.querySelector('.scorebox').style.display=chips?'none':'';
+  document.querySelector('.scorebox').style.display=punkte?'':'none';
   $('ffaBar').style.display=chips?'flex':'none';
   if(online&&!ffa){
     $('card0').querySelector('.pn').textContent = (myPlayer===0)?'DU':'GEGNER';
@@ -3964,9 +4009,9 @@ function startRound(){placeBalls();resetCommits();roundWinner=-1;
   if(online){curAimer=myPlayer;onlineArmTurn();}
   // fbElimFirstAimer(): nur Elimination4 weicht von "Spieler 0 beginnt" ab (Eliminierte
   // werden uebersprungen). typeof-Guard wie bei fbClearSelection — ohne Football-Block 0.
-  // Zeitregel: kein Uebergabeschirm - alle entscheiden im selben Fenster (s. fbFfaOffen).
+  // Zeitregel: kein Uebergabeschirm - alle entscheiden im selben Fenster (s. fbOffen).
   else if(mode==='pvp'||mode==='ffa'||mode==='football'){curAimer=(typeof fbElimFirstAimer==='function')?fbElimFirstAimer():0;
-    if(!(typeof fbTimed==='function'&&fbTimed()))openCover(curAimer);}else curAimer=0;
+    if(!(typeof fbShared==='function'&&fbShared()))openCover(curAimer);}else curAimer=0;
   setPhaseText();}
 
 function ballDots(owner){const n=aliveCount(owner),cap=teamCap();return '●'.repeat(n)+'○'.repeat(Math.max(0,cap-n));}
@@ -4015,9 +4060,36 @@ function renderTeamBar(){
 // ELIMINATION: dieselbe Chip-Leiste wie FFA/Team Duel, nur mit der
 // Elimination-Wahrheit. V2 kennt weder Punkte noch Zeit — angezeigt wird deshalb NUR, wer
 // noch im Match ist, wer gerade verdeckt zielt und wie viele Spieler uebrig sind.
+// Chipleiste von True Team 2v2. Sie benutzt dieselben Bauteile wie die Elimination -
+// `.fchip`, `.act`, `.rdy`, dieselbe Farbvariable - und unterscheidet sich nur im Inhalt:
+// vier feste Identitaeten in ihrer TEAMfarbe, mit dem Namen als Unterscheidung. Kein
+// zweites HUD-Bauteil, keine zweite Bildsprache.
+function renderTeam2Bar(){
+  const bar=$('ffaBar');bar.textContent='';
+  const kopf=document.createElement('span');
+  kopf.className='frnd';
+  kopf.textContent=footballWinner!==null?(footballWinner===0?'BLAU':'ROT')+' GEWINNT':'2V2';
+  bar.appendChild(kopf);
+  for(let o=0;o<FOOTBALL_TEAM2V2_PLAYERS;o++){
+    const offen=phase==='aim'&&!aimSet[o]&&aliveCount(o)>0&&footballWinner===null;
+    const rdy=phase==='aim'&&aimSet[o];
+    const chip=document.createElement('span');
+    chip.className='fchip'+(offen?' act':'')+(rdy?' rdy':'');
+    // Die Farbvariable ist die TEAMfarbe - beide Blauen tragen Blau, beide Roten Rot.
+    chip.style.setProperty('--fc',pcol(colorSlot(o)).ui);
+    chip.appendChild(document.createElement('i'));
+    const nm=document.createElement('b');
+    nm.textContent=FOOTBALL_TEAM2V2_NAMES[o];
+    chip.appendChild(nm);
+    bar.appendChild(chip);
+  }
+}
 function renderElimBar(){
   const bar=$('ffaBar');bar.textContent='';
   const zeit=typeof fbTimed==='function'&&fbTimed();
+  // Simultan: Zeitregel ODER Lebensregel. Beide teilen sich das Entscheidungsfenster und
+  // damit auch die Chipdarstellung - offene Spieler hervorgehoben, bestaetigte mit READY.
+  const gemeinsam=typeof fbShared==='function'&&fbShared();
   const hdTxt=fbElimHeadText();
   const hdUhr=zeit&&!fbFfaDanger&&hdTxt===fbFfaClockText();
   const hd=document.createElement('span');
@@ -4038,13 +4110,14 @@ function renderElimBar(){
   }
   for(let o=0;o<fbElimPlayers();o++){
     const out=!fbElimActive[o];
-    // Zeitregel: es gibt kein "der ist dran". Handlungsfaehig sind ALLE noch offenen
-    // Spieler des gemeinsamen Fensters; bestaetigte tragen stattdessen READY. Das ist die
-    // zurueckhaltende Bestaetigung, die der Spieler braucht, um zu sehen, wer schon steht.
-    const zeitAim=zeit&&phase==='aim'&&!out;
-    const rdy=zeitAim&&aimSet[o];
-    const act=zeit?(zeitAim&&!aimSet[o])
-                 :(phase==='aim'&&curAimer===o&&!aimSet[o]&&!out);
+    // Simultan (Zeitregel ODER Lebensregel): es gibt kein "der ist dran".
+    // Handlungsfaehig sind ALLE noch offenen Spieler des gemeinsamen Fensters;
+    // bestaetigte tragen stattdessen READY - die zurueckhaltende Bestaetigung, die der
+    // Spieler braucht, um zu sehen, wer schon steht.
+    const offenAim=gemeinsam&&phase==='aim'&&!out;
+    const rdy=offenAim&&aimSet[o];
+    const act=gemeinsam?(offenAim&&!aimSet[o])
+                      :(phase==='aim'&&curAimer===o&&!aimSet[o]&&!out);
     const dgr=!out&&inGefahr.indexOf(o)>=0;
     const chip=document.createElement('span');
     chip.className='fchip'+(out?' out':'')+(act?' act':'')+(rdy?' rdy':'')+(dgr?' dgr':'');
@@ -4095,6 +4168,9 @@ function applyFootballHud(){
   // Elimination4 zeigt statt der zwei Spielerkarten vier Chips — die schmale Football-
   // Statusleiste wuerde sie umbrechen. Eigene Klasse, damit Classic/Tactical unveraendert bleiben.
   g.classList.toggle('fbelim',on&&typeof fbElim4==='function'&&fbElim4());
+  // True Team 2v2 zeigt Punktestand UND Chipleiste in derselben Zeile - eigene Klasse,
+  // damit die noetige Layoutanpassung keinen anderen Modus beruehrt.
+  g.classList.toggle('fbteam2',on&&typeof fbTeam2==='function'&&fbTeam2());
   // SPEED MATCH blendet die Spielerzeile wieder ein — sie traegt dort das persoenliche
   // Zeitkonto. First to 3 und Tactical bleiben unveraendert ohne sie.
   g.classList.toggle('fbspeed',on&&typeof fbSpeed==='function'&&fbSpeed());
@@ -4121,6 +4197,9 @@ function fbFirstToText(){return I18N.de.fbFirstTo.replace('{n}',FOOTBALL_WIN_SCO
 // Untertitel im Zeitmodus. Waehrend der Regulaerzeit die Matchlaenge, danach GOLDEN GOAL —
 // beides aus denselben Konstanten wie die Regel selbst, nirgends ein zweites Mal gepflegt.
 function fbModeText(){
+  // True Team 2v2 spielt First to 3 wie Classic - der Untertitel nennt zusaetzlich die
+  // Teamform, damit niemand die vier Chips fuer vier Einzelspieler haelt.
+  if(typeof fbTeam2==='function'&&fbTeam2())return 'TEAM 2V2 · '+fbFirstToText();
   if(!fbSpeed())return fbFirstToText();
   if(fbGolden)return I18N.de.fbGolden;
   // Kein Rundenzaehler mehr — es gibt keine feste Rundenzahl. Der Untertitel nennt
@@ -4144,7 +4223,7 @@ function fbClockRunning(){
 function fbShotShown(){
   const who=fbDecisionWho();
   if(who<0)return -1;
-  const eigner=(typeof fbTimed==='function'&&fbTimed())?FOOTBALL_FFA_WINDOW:who;
+  const eigner=(typeof fbShared==='function'&&fbShared())?FOOTBALL_FFA_WINDOW:who;
   return fbShotFor===eigner?fbShotTicks:fbShotCap(who);
 }
 function fbClockPaint(){
@@ -4179,14 +4258,21 @@ function fbClockPaint(){
 // Der Schluessel verhindert, dass jedes Bild dieselbe Zeichenkette in den Baum schreibt.
 let fbFfaShown='',fbFfaShotShown='';
 function fbFfaPaint(){
-  // ZUERST der grosse Countdown, und zwar VOR jedem vorzeitigen Ausstieg: verlaesst der
-  // Spieler die Zeitregel, muss die Zahl verschwinden, nicht stehenbleiben.
+  // ZWEI Begriffe, die nicht dasselbe sind und deshalb nicht dieselbe Variable teilen:
+  //   `gemeinsam` - der grosse Schuss-Countdown. Den haben ALLE drei simultanen Modi.
+  //   `zeit`      - Phasenuhr und DANGER. Die hat NUR die Zeitregel.
+  // Die Lebensregel hat seit LIVES SIMULTANEOUS 01 das Fenster, aber ausdruecklich keine
+  // Phasenuhr und kein DANGER. Haengte der Kopf weiter am gemeinsamen Fenster, koennte
+  // ein stehengebliebenes fbFfaDanger aus einem vorherigen Zeitregel-Match dort wieder
+  // auftauchen. Der Countdown wird zuerst gezeichnet, VOR jedem vorzeitigen Ausstieg:
+  // verlaesst der Spieler den Modus, muss die Zahl verschwinden, nicht stehenbleiben.
+  const gemeinsam=typeof fbShared==='function'&&fbShared();
   const zeit=typeof fbTimed==='function'&&fbTimed();
   const el=document.getElementById('fbShot');
   if(el){
     // Dieselbe Quelle wie der Classic-Countdown: fbShotShown() beantwortet auch den
     // Uebergang zum naechsten Spieler richtig, in dem fbShotTicks noch dem vorigen gehoert.
-    const rest=zeit?fbShotShown():-1;
+    const rest=gemeinsam?fbShotShown():-1;
     const laeuft=rest>=0;
     const dringlich=laeuft&&rest<=FOOTBALL_SHOT_URGENT_TICKS;
     const txt=laeuft?fbShotText(rest):'';
@@ -4297,6 +4383,10 @@ function updateHud(){
   // Elimination4 zuerst: vier Spieler passen nicht in die Zwei-Karten-Ansicht, und die
   // Football-Scorebox (First-to-3) hat in diesem Modus keine Bedeutung.
   if(typeof fbElim4==='function'&&fbElim4()){renderElimBar();return;}
+  // True Team 2v2 braucht BEIDES: die vier Identitaetschips UND den Teamstand. Deshalb
+  // kein `return` - die Zeilen darunter fuellen Punktestand, Untertitel und Countdown
+  // unveraendert weiter.
+  if(typeof fbTeam2==='function'&&fbTeam2())renderTeam2Bar();
   if(mode==='ffa'){if(fmt==='team_duel')renderTeamBar();else renderFfaBar();return;}
   // Online 1v1/2v2: show the durable roster names (textContent — never innerHTML).
   if(online){ $('n0').textContent=pName(0); $('n1').textContent=pName(1); }
@@ -4339,11 +4429,25 @@ function setPhaseText(){const p=$('phase');
     // Elimination hat keine Spielerkarten — alle Spieler laufen ueber die
     // Chipleiste. Deshalb traegt hier die Statuszeile, wer gerade verdeckt zielt; Classic und
     // Tactical bleiben unveraendert leer.
+    // True Team 2v2: kein Weiterreichen, deshalb dieselbe Zeile wie in der Zeitregel.
+    if(typeof fbTeam2==='function'&&fbTeam2()){
+      if(phase==='aim'){
+        const offen=fbOffen();
+        p.textContent=offen.length?('Alle zielen gleichzeitig – '+offen.length+' offen')
+                                  :'Alle bereit…';
+      }
+      else if(phase==='reveal')p.textContent='Alle aufgedeckt…';
+      else if(phase==='sim')p.textContent='💥';
+      else p.textContent='';
+      return;
+    }
     if(typeof fbElim4==='function'&&fbElim4()){
-      // Zeitregel: kein Weiterreichen, deshalb auch kein "Spieler N zielt". Die Zeile
-      // sagt, was wirklich gilt: alle entscheiden gleichzeitig, und wie viele fehlen.
-      if(phase==='aim'&&typeof fbTimed==='function'&&fbTimed()){
-        const offen=fbFfaOffen();
+      // Gemeinsames Fenster (Zeitregel ODER Lebensregel): kein Weiterreichen, deshalb auch
+      // kein "Spieler N zielt". Die Zeile sagt, was wirklich gilt: alle entscheiden
+      // gleichzeitig, und wie viele fehlen. Online bleibt die Lebensregel sequentiell und
+      // faellt hier auf die verdeckte Zeile zurueck.
+      if(phase==='aim'&&typeof fbShared==='function'&&fbShared()){
+        const offen=fbOffen();
         p.textContent=offen.length?('Alle zielen gleichzeitig – '+offen.length+' offen')
                                   :'Alle bereit…';
       }
@@ -4439,10 +4543,10 @@ function devAimBlock(){
 function whoCanAim(){if(r3dOrbit)return -1;if(phase!=='aim')return -1;
   if(inputLocked())return -1;   // Timer abgelaufen: kein neuer Zug, bis der Collapse ausgewertet ist
   if(online)return (aimSet[myPlayer]||!aliveCount(myPlayer))?-1:myPlayer;if(mode==='bot')return aimSet[0]?-1:0;
-  // Zeitregel: gemeinsames Fenster. Gezielt werden darf, solange irgendein aktiver
-  // Spieler offen ist; bevorzugt bleibt der, den das HUD gerade fuehrt.
-  if(typeof fbTimed==='function'&&fbTimed()){
-    const offen=fbFfaOffen();
+  // Gemeinsames Fenster: gezielt werden darf, solange irgendein aktiver Spieler offen
+  // ist; bevorzugt bleibt der, den das HUD gerade fuehrt.
+  if(typeof fbShared==='function'&&fbShared()){
+    const offen=fbOffen();
     if(!offen.length)return -1;
     return offen.indexOf(curAimer)>=0?curAimer:offen[0];
   }
@@ -4484,10 +4588,11 @@ cv.addEventListener('pointerdown',e=>{
   if(!r3dActive){                                   // ── 2D: Originalverhalten, unveraendert ──
     const who=whoCanAim();if(who<0){devAimBlock();return;}const p=localPt(e);
     if(aimPid<0){                                   // 1. Finger: eigene Kugel greifen + zuruekziehen
-      // Zeitregel: greifbar ist JEDE in diesem Fenster noch offene Figur, nicht nur die
-      // des gefuehrten Spielers. Auf dem Desktop ist das der Ersatz fuer mehrere Finger:
-      // eine Maus, mehrere Figuren, EIN Fenster - abgeschossen wird trotzdem gemeinsam.
-      const ziel=(typeof fbTimed==='function'&&fbTimed())?fbFfaOffen():who;
+      // Gemeinsames Fenster: greifbar ist JEDE darin noch offene Figur, nicht nur die des
+      // gefuehrten Spielers. Auf dem Desktop ist das der Ersatz fuer mehrere Finger: eine
+      // Maus, mehrere Figuren, EIN Fenster - abgeschossen wird trotzdem gemeinsam. Die
+      // Filterung laeuft ueber `owner`, deshalb kann B1 die Figur von B2 nicht greifen.
+      const ziel=(typeof fbShared==='function'&&fbShared())?fbOffen():who;
       const idx=pickOwnBall(ziel,p);if(idx<0)return;
       startAim(balls[idx].owner,idx,p,e);
     }else if(spinPid<0&&e.pointerId!==aimPid){      // 2. Finger: NUR Drall (kein Ladeton, greift keine Kugel)
@@ -4500,8 +4605,8 @@ cv.addEventListener('pointerdown',e=>{
   const who=whoCanAim();
   if(who<0)devAimBlock();                           // Dev-Diagnose: der Grund, nicht nur das -1
   if(who>=0&&aimPid<0&&camPid<0){                   // Aim nur, wenn KEIN Kamera-Drag aktiv
-    // Zeitregel: dieselbe Erweiterung wie in 2D - jede noch offene Figur ist greifbar.
-    const ziel=(typeof fbTimed==='function'&&fbTimed())?fbFfaOffen():who;
+    // Gemeinsames Fenster: dieselbe Erweiterung wie in 2D - jede offene Figur ist greifbar.
+    const ziel=(typeof fbShared==='function'&&fbShared())?fbOffen():who;
     const idx=pickOwnBall3D(ziel,e);
     // Tactical: derselbe Griff waehlt die Figur UND startet den Zug — pickOwnBall3D laesst
     // ohnehin nur eigene Figuren zu, Gegner und neutraler Ball sind nie greifbar.
@@ -4622,15 +4727,18 @@ function applyCommit(who,shooterIdx,fx,fy,spin){
   commitIdx[who]=m.idx;commitAim[who]={dx:m.dx,dy:m.dy};commitSpin[who]=m.sp;aimSet[who]=true;updateHud();
   if(mode==='bot'){const bm=botMove();commitIdx[1]=bm.idx;commitAim[1]={dx:bm.dx,dy:bm.dy};commitSpin[1]=0;aimSet[1]=true;beginReveal();}
   else{ // pvp/ffa/football: naechster lebender Spieler ohne Commit zielt verdeckt, sonst Reveal
-    // ZEITREGEL: kein Weiterreichen des Geraets. Alle entscheiden im SELBEN Fenster, die
-    // Suche laeuft deshalb ueber ALLE noch offenen Spieler (auch die vor `who`) und nicht
-    // nur ueber die nachfolgenden - sonst haette eine Bestaetigung ausserhalb der
-    // Reihenfolge den Reveal ausgeloest, obwohl noch jemand offen war.
-    const zeit=typeof fbTimed==='function'&&fbTimed();
+    // GEMEINSAMES FENSTER: kein Weiterreichen des Geraets. Alle entscheiden im SELBEN
+    // Fenster, die Suche laeuft deshalb ueber ALLE noch offenen Spieler (auch die vor
+    // `who`) und nicht nur ueber die nachfolgenden - sonst haette eine Bestaetigung
+    // ausserhalb der Reihenfolge den Reveal ausgeloest, obwohl noch jemand offen war.
+    // Der Name sagt bewusst nicht "Zeit": die Lebensregel teilt sich das Fenster, hat
+    // aber keine Phasenuhr.
+    const gemeinsam=typeof fbShared==='function'&&fbShared();
     let nx=-1;
-    if(zeit){const offen=fbFfaOffen();nx=offen.length?offen[0]:-1;}
+    if(gemeinsam){const offen=fbOffen();nx=offen.length?offen[0]:-1;}
     else for(let p=who+1;p<np();p++){if(!aimSet[p]&&aliveCount(p)>0){nx=p;break;}}
-    if(nx>=0){curAimer=nx;if(!zeit)openCover(nx);setPhaseText();updateHud();}else beginReveal();
+    if(nx>=0){curAimer=nx;if(!gemeinsam)openCover(nx);setPhaseText();updateHud();}
+    else beginReveal();
   }
 }
 
@@ -5174,10 +5282,8 @@ const FB_GOAL_ASSET_INNER=3.560, FB_GOAL_ASSET_OUTER=5.282;
 // Form. Classic 1v1 laeuft auf der kanonischen Zwei-Figuren-Arena (FOOTBALL_ARENA_CLASSIC,
 // weiter unten) — derselben, die auch das Elimination-Finale traegt. Tactical bleibt
 // bewusst unveraendert: Arena, Spawns und Wertung sind dort abgestimmt.
-const FOOTBALL_ARENA={
-  halfLen:18.00,halfWid:12.70,corner:6.85,spawn:7.65,
-  postInner:FB_GOAL_ASSET_INNER,postOuter:FB_GOAL_ASSET_OUTER,postFront:18.00,
-  postBack:18.00+2*FB_GOAL_HALF_DEPTH,goalAnchor:18.00+FB_GOAL_HALF_DEPTH};
+// Die Definition steht weiter unten bei den uebrigen Arenen - sie braucht die
+// Formgeneratoren, die dort erst entstehen (s. FOOTBALL_ARENA = fbTwoGoalArena(...)).
 // ── ARENA FOOTBALL: ELIMINATION-ARENEN (adaptiv je Phase) ─────────────────────────
 // Die Elimination-Arena hat vier Phasen — eine je aktiver Spielerzahl. Sie ist die EINZIGE
 // Quelle fuer Grenze, Torrichtungen, Rendering und Kamera; es gibt keine verstreuten
@@ -5242,10 +5348,7 @@ const FOOTBALL_ELIM5_DIRS=[[0,-1],[FB_P5_C1,-FB_P5_S1],[FB_P5_C2,FB_P5_S2],
 // Kappebenen der breiten Variante - dieselbe Konstruktion wie FB_TRI_VERT beim Dreieck.
 const FB_P5_VERT=[[FB_P5_C2,-FB_P5_S2],[FB_P5_C1,FB_P5_S1],[0,1],
                   [-FB_P5_C1,FB_P5_S1],[-FB_P5_C2,-FB_P5_S2]];
-const FOOTBALL_ARENA_ELIM4={
-  halfLen:17.50,halfWid:17.50,corner:3.50,spawn:11.50,sides:4,tri:false,dirs:FOOTBALL_ELIM4_DIRS,
-  postInner:FB_GOAL_ASSET_INNER,postOuter:FB_GOAL_ASSET_OUTER,postFront:17.50,
-  postBack:17.50+2*FB_GOAL_HALF_DEPTH,goalAnchor:17.50+FB_GOAL_HALF_DEPTH};
+
 // ── KERNPOLYGON-GENERATOREN DER ELIMINATION-ARENEN ─────────────────────────
 // Jede Phase behaelt Torbreite, Physik und Spawnregel; sie unterscheiden sich nur in der
 // Form der Spielflaeche. Der Spawnabstand folgt in jeder Phase dem Verhaeltnis ~0.65 zur
@@ -5261,20 +5364,6 @@ const fbHalfPlanePoly=(N)=>{
     p.push([(A.d*B.n[1]-B.d*A.n[1])/det,(A.n[0]*B.d-B.n[0]*A.d)/det]);
   }
   return p;
-};
-// BROAD ROUNDED TRIANGLE: gleichseitiges Dreieck, dessen drei Spitzen von einer Ebene
-// gekappt sind. Ergebnis ist ein Sechseck mit drei LANGEN Torseiten und drei KURZEN
-// Kappflaechen — die Silhouette wird breiter und weicher, ohne den Eckradius zu erhoehen
-// (mehr Eckradius verschlechtert nachweislich das Aussen-Circling).
-//   vf = Abstand der Kappebene / Kernapothem. 2.0 = ungekappt, 1.0 = regelmaessiges Sechseck.
-const fbTruncTri=(ap,rc,vf)=>{
-  const a=ap-rc,d=vf*a,N=[];
-  for(let k=0;k<3;k++){
-    N.push({n:FOOTBALL_ELIM3_DIRS[k],d:a});
-    const v=FB_TRI_VERT[k],L=Math.hypot(v[0],v[1]);
-    N.push({n:[v[0]/L,v[1]/L],d:d});
-  }
-  return fbHalfPlanePoly(N);
 };
 // WIDE ROUNDED RECTANGLE WITH SHOULDERS: langes Rechteck, dessen vier Ecken von diagonalen
 // Ebenen gekappt sind. Ergebnis ist ein Achteck aus zwei langen Hauptbanden, zwei flachen
@@ -5298,33 +5387,89 @@ const fbTruncPoly=(dirs,verts,ap,rc,vf)=>{
   }
   return fbHalfPlanePoly(N);
 };
+// Die Schulternormale steht als LITERAL da und wird nicht aus Math.cos/Math.sin
+// berechnet: die Arenageometrie muss auf jeder Engine bitgleich sein, und
+// trigonometrische Funktionen sind in JS nicht korrekt gerundet vorgeschrieben - dieselbe
+// Begruendung wie bei FB_P5_C1 und FB_TRI_COS30. Die Werte sind cos/sin von 35 Grad.
+const FB_SHOULDER_COS={35:0.8191520442889918}, FB_SHOULDER_SIN={35:0.573576436351046};
 const fbShoulderRect=(halfLen,halfWid,rc,thDeg,endHalf)=>{
-  const a=halfLen-rc,b=halfWid-rc,t=thDeg*Math.PI/180;
-  const d=a*Math.cos(t)+endHalf*Math.sin(t),N=[];
+  const a=halfLen-rc,b=halfWid-rc;
+  const c=FB_SHOULDER_COS[thDeg],sn=FB_SHOULDER_SIN[thDeg];
+  const d=a*c+endHalf*sn,N=[];
   N.push({n:[1,0],d:a},{n:[-1,0],d:a},{n:[0,1],d:b},{n:[0,-1],d:b});
   for(const sx of [1,-1])for(const sz of [1,-1])
-    N.push({n:[sx*Math.cos(t),sz*Math.sin(t)],d:d});
+    N.push({n:[sx*c,sz*sn],d:d});
   return fbHalfPlanePoly(N);
 };
+// ══ KANONISCHE WANDFORM (Kandidat B, vom Spieltest gewaehlt) ══════════════════
+// Aus dem Geometrielabor 01 ging Kandidat B als Sieger hervor: lange gerade Bande, eine
+// KURZE bewusste Schulter davor, dann die flache Torwand. Die Werte stehen HIER und nur
+// hier - Classic, Tactical, True Team 2v2 und das Elimination-Finale lesen alle dieselbe
+// Beschreibung. Zwei Modi duerfen verschiedene Grundflaechen haben, aber nie ein eigenes
+// Wandprofil: sonst driften sie mit der Zeit auseinander, und genau das war der Zustand
+// vor dieser Zusammenfuehrung (Tactical/Team 2v2 lief auf einem Rounded Rectangle mit
+// Eckradius 6.85, waehrend Classic laengst ein Schulterachteck war).
+//
+//   rc           Eckradius. 2.60 statt 3.50: bei groesserem Radius waere die Schulter
+//                kuerzer als die Boegen daneben und damit wirkungslos.
+//   shoulderDeg  Normalenwinkel der Schulter gegen die Torachse. 35 Grad wirft einen
+//                aussen laufenden Ball nach hinten-quer ins offene Feld; 40-50 Grad
+//                warfen ihn nach vorne-quer und zu oft direkt in die Tormuendung.
+//   endHalf      halbe Hoehe der FLACHEN Torwand. Sie MUSS ueber postOuter (5.282)
+//                bleiben, sonst reichte das Tor in die Schulter hinein. 7.00 haelt die
+//                Schulter kurz - genau der Unterschied zu Kandidat C (5.60).
+const FB_TWO_GOAL_SHAPE={rc:2.60,shoulderDeg:35,endHalf:7.00};
+// ══ KANONISCHE WANDFORM DER RADIALEN PHASEN ═══════════════════════════════════
+// Drei, vier und fuenf Tore koennen die Zwei-Tor-Form nicht uebernehmen: dort hat JEDER
+// Spieler ein eigenes Tor, und die Form ist rotationssymmetrisch. Uebertragen wird deshalb
+// nicht eine Koordinate, sondern das VERHAELTNIS von B: welchen Anteil die Schulter am
+// Wandlauf einnimmt. In B sind das je Viertel der Kontur 3.78 von 24.01, also 15.8 %.
+//
+// Radial ist die Kappflaeche an der Winkelhalbierenden die Schulter. `vf` (Abstand der
+// Kappebene / Kernapothem) ist ihr Laengenregler - gross heisst kurze Kappe. Die Werte
+// unten sind genau die, bei denen jede Phase auf denselben Schulteranteil von 15.8 %
+// kommt (hergeleitet in artifacts/bankshot-lab-01/radial.js). Sie sind LITERALE, weil die
+// Arenageometrie auf jeder Engine bitgleich sein muss.
+//
+//   3 Tore  vf 1.5916  Torseite 24.96  Kappe 4.67
+//   4 Tore  vf 1.2663  Torseite 23.57  Kappe 4.41   (bekommt erstmals Schultern)
+//   5 Tore  vf 1.1559  Torseite 19.95  Kappe 3.73
+const FB_RADIAL_SHAPE={rc:2.60,vf:{3:1.5916,4:1.2663,5:1.1559}};
+// Die Diagonalen des Quadrats als Winkelhalbierende der Vier-Tore-Phase - dieselbe Rolle
+// wie FB_TRI_VERT beim Dreieck und FB_P5_VERT beim Fuenfeck. Literal aus demselben Grund.
+const FB_P4_R2=0.7071067811865476;
+const FB_P4_VERT=[[FB_P4_R2,-FB_P4_R2],[FB_P4_R2,FB_P4_R2],
+                  [-FB_P4_R2,FB_P4_R2],[-FB_P4_R2,-FB_P4_R2]];
 const fbShape=(halfLen,halfWid,corner,spawn,sides,tri,dirs)=>({
   halfLen,halfWid,corner,spawn,sides,tri,apothem:tri?halfLen:undefined,dirs,
   postInner:FB_GOAL_ASSET_INNER,postOuter:FB_GOAL_ASSET_OUTER,postFront:halfLen,
   postBack:halfLen+2*FB_GOAL_HALF_DEPTH,goalAnchor:halfLen+FB_GOAL_HALF_DEPTH});
+// EINZIGE Quelle jeder Zwei-Tor-Arena. Grundflaeche und Spawnabstand kommen vom Aufrufer,
+// das WANDPROFIL ausnahmslos aus FB_TWO_GOAL_SHAPE.
+const fbTwoGoalArena=(halfLen,halfWid,spawn)=>Object.assign(
+  fbShape(halfLen,halfWid,FB_TWO_GOAL_SHAPE.rc,spawn,2,false,FOOTBALL_ELIM2_DIRS),
+  {poly:fbShoulderRect(halfLen,halfWid,FB_TWO_GOAL_SHAPE.rc,
+                       FB_TWO_GOAL_SHAPE.shoulderDeg,FB_TWO_GOAL_SHAPE.endHalf)});
+// EINZIGE Quelle jeder radialen Arena. Torzahl und Apothem kommen vom Aufrufer, das
+// Wandprofil ausnahmslos aus FB_RADIAL_SHAPE.
+const fbRadialArena=(n,ap,spawn,dirs,verts)=>Object.assign(
+  fbShape(ap,ap,FB_RADIAL_SHAPE.rc,spawn,n,false,dirs),
+  {poly:fbTruncPoly(dirs,verts,ap,FB_RADIAL_SHAPE.rc,FB_RADIAL_SHAPE.vf[n])});
 // PHASE 3 - BROAD ROUNDED TRIANGLE. Das gleichseitige Dreieck mit gekappten Spitzen: drei
 // LANGE Torseiten, drei KURZE Kappflaechen, 120-Grad-Symmetrie. Gegenueber der klassischen
 // spitzen Dreiecksform laeuft der Ball weniger aussen herum und die drei Figuren stehen
 // weiter auseinander, ohne dass der Eckradius erhoeht werden muesste.
-const FOOTBALL_ARENA_ELIM3=Object.assign(
-  fbShape(12.50,12.50,3.50,8.15,3,false,FOOTBALL_ELIM3_DIRS),
-  {poly:fbTruncTri(12.50,3.50,1.45)});
+const FOOTBALL_ARENA_ELIM3=fbRadialArena(3,12.50,8.15,FOOTBALL_ELIM3_DIRS,FB_TRI_VERT);
+// PHASE 4 - vier gleichwertige Torseiten im 90-Grad-Raster, an den vier Ecken gekappt.
+// Bis zur Kanonisierung war dies ein gerundetes Quadrat OHNE Kappflaechen; sie kommen
+// jetzt aus derselben Beschreibung wie die der drei- und fuenfeckigen Phase.
+const FOOTBALL_ARENA_ELIM4=fbRadialArena(4,17.50,11.50,FOOTBALL_ELIM4_DIRS,FB_P4_VERT);
 // PHASE 2 - SHOULDERED WIDE. Das Finale ist ein breites Achteck: zwei lange Hauptbanden,
 // zwei flache Torwaende und vier Schulterflaechen davor. Die Schultern brechen den
 // Aussenlauf auf, aus dem im reinen Rounded Rectangle zu oft eine geschenkte
 // Abschlussposition entstand. Der Eckradius liegt bei 2.60 statt 3.50 - bei 3.50 waere die
 // Schulter kuerzer als die Boegen daneben und damit wirkungslos.
-const FOOTBALL_ARENA_ELIM2=Object.assign(
-  fbShape(15.60,11.60,2.60,10.15,2,false,FOOTBALL_ELIM2_DIRS),
-  {poly:fbShoulderRect(15.60,11.60,2.60,35,6.10)});
+const FOOTBALL_ARENA_ELIM2=fbTwoGoalArena(15.60,11.60,10.15);
 // ── CLASSIC 1V1: DIESELBE ZWEI-FIGUREN-ARENA ─────────────────────────────────────
 // Classic und das Elimination-Finale sind geometrisch dasselbe Spiel: zwei Figuren, zwei
 // gegenueberliegende Tore auf der +-X-Achse, ein neutraler Ball. Sie teilen sich deshalb
@@ -5345,6 +5490,11 @@ const FOOTBALL_ARENA_ELIM2=Object.assign(
 // Der Schulterwinkel bleibt bei 35 Grad: die Messung ueber 24 Angriffslagen mal 360 Grad
 // hat ihn als Angriffshebel widerlegt (artifacts/football-arena-offense/WINKEL.txt).
 const FOOTBALL_ARENA_CLASSIC=FOOTBALL_ARENA_ELIM2;
+// TACTICAL 1V1 und TRUE TEAM 2V2: dieselbe Wandform, groessere Grundflaeche. Vier Figuren
+// brauchen mehr Platz als zwei, das WANDPROFIL ist aber ausnahmslos dasselbe wie in
+// Classic und im Finale - eine Beschreibung, drei Grundflaechen.
+//   halfLen 18.00 - halfWid 12.70 - Spawn 7.65, Wandprofil aus FB_TWO_GOAL_SHAPE
+const FOOTBALL_ARENA=fbTwoGoalArena(18.00,12.70,7.65);
 // PHASE 5 - BROAD ROUNDED PENTAGON. Startform jedes Elimination-Matches: fuenf gleichwertige
 // Torseiten im 72-Grad-Raster, an den fuenf Spitzen gekappt (zehn Kernecken). Die Kappung ist
 // nicht kosmetisch - sie hat im Trajektorientest den Anteil aussen an der Bande kreisender
@@ -5352,9 +5502,7 @@ const FOOTBALL_ARENA_CLASSIC=FOOTBALL_ARENA_ELIM2;
 // Apothem 19.50 BR haelt die Flaeche je Spieler (274784 px^2) in derselben Groessenordnung
 // wie 4P; der Spawnabstand folgt dem in allen Phasen gleichen Verhaeltnis ~0.65 zur
 // Bandeninnenflaeche. Dieselbe Bauweise wie der Broad Rounded Triangle der Drei-Spieler-Phase.
-const FOOTBALL_ARENA_ELIM5=Object.assign(
-  fbShape(19.50,19.50,3.50,12.75,5,false,FOOTBALL_ELIM5_DIRS),
-  {poly:fbTruncPoly(FOOTBALL_ELIM5_DIRS,FB_P5_VERT,19.50,3.50,1.14)});
+const FOOTBALL_ARENA_ELIM5=fbRadialArena(5,19.50,12.75,FOOTBALL_ELIM5_DIRS,FB_P5_VERT);
 // EINZIGE Arenaquelle je Phase. Elimination4 waehlt nach der aktiven Phase; Tactical
 // behaelt FOOTBALL_ARENA, Classic teilt sich die 2P-Form mit dem Finale.
 // Phase 1 ist der Sieg - kein Umbau mehr.
@@ -5365,14 +5513,17 @@ const FB_ELIM_DIRS={5:FOOTBALL_ELIM5_DIRS,4:FOOTBALL_ELIM4_DIRS,3:FOOTBALL_ELIM3
 function fbElimArena(){return FB_ELIM_ARENAS[fbElimPhaseN]||FOOTBALL_ARENA_ELIM4;}
 function fbArena(){
   if(fbElim4())return fbElimArena();
-  return fbTactical()?FOOTBALL_ARENA:FOOTBALL_ARENA_CLASSIC;
+  // True Team 2v2 benutzt dieselbe Arena wie Tactical: vier Figuren, zwei Tore, ein
+  // neutraler Ball. Ihre WANDFORM kommt seit der Kanonisierung wie ueberall aus
+  // FB_TWO_GOAL_SHAPE - es gibt keinen Schalter und keine modusspezifische Ausnahme.
+  return (fbTactical()||fbTeam2())?FOOTBALL_ARENA:FOOTBALL_ARENA_CLASSIC;
 }
 // Kennung der aktuell zu rahmenden Arenaform. Sie aendert sich mit der Football-Variante
 // (Classic und Tactical stehen auf verschiedenen Formen) und in Elimination mit der Phase.
 // Der 3D-Adapter rahmt die Kamera neu, sobald sich diese Kennung aendert.
 function fbFrameKey(){
   if(mode!=='football'||menuVisible)return '';
-  return fbElim4()?'e'+fbElimPhaseN:(fbTactical()?'t':'c');
+  return fbElim4()?'e'+fbElimPhaseN:((fbTactical()||fbTeam2())?'t':'c');
 }
 // Torrichtungen der AKTIVEN Arena. Ausserhalb Elimination4 gibt es die beiden Stirnseiten.
 function fbElimDirs(){return fbArena().dirs||FOOTBALL_ELIM2_DIRS;}
@@ -6103,7 +6254,8 @@ const FOOTBALL_RULES_SPEED='speed';
 let fbRules=FOOTBALL_RULES_FIRST3;        // gewaehlte Classic-Regel; Tactical/Elimination ignorieren sie
 // Classic ist alles, was weder Elimination noch Tactical ist — dieselbe Weichenlogik wie
 // ueberall sonst, keine zweite Variantenliste.
-function fbClassic(){return mode==='football'&&!fbElim4()&&!fbTactical();}
+// Classic ist alles, was weder Elimination noch Tactical noch True Team 2v2 ist.
+function fbClassic(){return mode==='football'&&!fbElim4()&&!fbTactical()&&!fbTeam2();}
 // Speed Match ist Classic MIT der Zeitregel. Ueberall, wo frueher "Classic auf Zeit" stand,
 // steht jetzt genau diese Frage — First to 3 faellt damit sauber heraus.
 function fbSpeed(){return fbClassic()&&fbRules===FOOTBALL_RULES_SPEED;}
@@ -6114,6 +6266,10 @@ const FOOTBALL_SHOT_SECONDS=6;            // Bedenkzeit je Commit, solange das K
 // FOOTBALL_SHOT_TICKS - das ist Absicht, aber die beiden Regeln sollen getrennt
 // beurteilt und getrennt verstellt werden koennen, ohne sich gegenseitig zu bewegen.
 const FOOTBALL_FFA_SHOT_SECONDS=6;
+// Die Lebensregel benutzt denselben Riegel unter EIGENEM Namen. Zahlengleich mit den
+// beiden anderen simultanen Modi - das ist Absicht, aber der Spieltest soll ihn getrennt
+// beurteilen und getrennt verstellen koennen.
+const FOOTBALL_LIVES_SHOT_SECONDS=6;
 // Der Countdown der Zeitregel gehoert nicht EINEM Spieler, sondern dem gemeinsamen
 // Fenster. Dieser Sentinel steht deshalb an der Stelle, an der sonst der Eigentuemer
 // steht: dadurch startet der Countdown genau EINMAL je Zielphase und nicht neu,
@@ -6121,6 +6277,7 @@ const FOOTBALL_FFA_SHOT_SECONDS=6;
 const FOOTBALL_FFA_WINDOW=-2;
 const FOOTBALL_SHOT_TICKS=FOOTBALL_SHOT_SECONDS*FOOTBALL_SIM_HZ;        // 360
 const FOOTBALL_FFA_SHOT_TICKS=FOOTBALL_FFA_SHOT_SECONDS*FOOTBALL_SIM_HZ; // 360
+const FOOTBALL_LIVES_SHOT_TICKS=FOOTBALL_LIVES_SHOT_SECONDS*FOOTBALL_SIM_HZ; // 360
 const FOOTBALL_TROUBLE_SECONDS=2;         // Bedenkzeit je Commit in Zeitnot
 const FOOTBALL_TROUBLE_TICKS=FOOTBALL_TROUBLE_SECONDS*FOOTBALL_SIM_HZ;  // 120
 const FOOTBALL_SHOT_URGENT_TICKS=2*FOOTBALL_SIM_HZ;   // letzte zwei Sekunden: HUD wird dringlich
@@ -6163,7 +6320,7 @@ function fbTrouble(w){return fbSpeed()&&fbBank[w]<=0;}
 // Die Obergrenze des naechsten Commits dieses Spielers. Die Zeitregel kennt keine
 // persoenlichen Konten und damit keine Zeitnot - dort gilt immer der volle Riegel.
 function fbShotCap(w){
-  if(typeof fbTimed==='function'&&fbTimed())return FOOTBALL_FFA_SHOT_TICKS;
+  if(typeof fbShared==='function'&&fbShared())return fbSharedShotTicks();
   return fbTrouble(w)?FOOTBALL_TROUBLE_TICKS:FOOTBALL_SHOT_TICKS;
 }
 // WER kann gerade wirklich handeln? Genau dann laeuft die Zeit. Bewusst aus denselben
@@ -6171,12 +6328,16 @@ function fbShotCap(w){
 // nicht als zweite Wahrheit daneben; zusaetzlich faellt der Uebergabeschirm heraus.
 function fbDecisionWho(){
   if(online)return -1;                         // online laeuft die Lebensregel ohne Zeit
-  // Zwei Regeln teilen sich dieses Fenster: Speed Match (persoenliche Konten) und
-  // Timed FFA (gemeinsame Phasenuhr). Beide zaehlen NUR Bedenkzeit, und beide sollen
-  // dieselbe Antwort auf "wer kann jetzt handeln" bekommen - eine zweite Fassung
-  // daneben wuerde frueher oder spaeter auseinanderlaufen. First to 3, Tactical und
-  // die Lebensregel kennen keine Zeit und fallen hier heraus.
-  if(!fbSpeed()&&!(typeof fbTimed==='function'&&fbTimed()))return -1;
+  // Dieses Gatter beantwortet "wer kann jetzt handeln" fuer JEDE Regel mit einer Uhr:
+  // Speed Match (persoenliche Konten) und die drei simultanen Modi (Timed FFA, die
+  // Lebensregel, True Team 2v2), die sich ein gemeinsames Fenster teilen. Eine zweite
+  // Fassung daneben wuerde frueher oder spaeter auseinanderlaufen. Tactical und das
+  // klassische Match kennen keine Uhr und fallen hier heraus.
+  //
+  // Lebensregel und Timed FFA haben beide eine Uhr, aber NICHT dieselbe: die Zeitregel
+  // hat zusaetzlich die Phasenuhr, die Lebensregel nur den Zugriegel. Das trennt nicht
+  // dieses Gatter, sondern fbFfaRunning() - dort steht fbTimed(), nicht fbShared().
+  if(!fbSpeed()&&!(typeof fbShared==='function'&&fbShared()))return -1;
   // Orbit-Testmodus: die Kamera laesst sich frei drehen, JEDE Eingabe ist gesperrt
   // (whoCanAim gibt dort -1 zurueck). Wer nicht zielen kann, darf auch keine Bedenkzeit
   // verbrauchen — und erst recht keinen automatischen Zug bekommen.
@@ -6190,12 +6351,12 @@ function fbDecisionWho(){
   if(typeof menuVisible!=='undefined'&&menuVisible)return -1;
   if(typeof inputLocked==='function'&&inputLocked())return -1;   // Torablauf/Collapse
   if(fbGoalState!=='play'||footballWinner!==null)return -1;
-  // Zeitregel: EIN gemeinsames Fenster fuer alle. Es ist offen, solange auch nur ein
-  // aktiver Spieler noch nicht bestaetigt hat - unabhaengig davon, wen das HUD gerade
-  // als "an der Reihe" fuehrt. Damit kann die Uhr weder stehenbleiben, weil curAimer
-  // veraltet ist, noch weiterlaufen, wenn in Wahrheit alle fertig sind.
-  if(typeof fbTimed==='function'&&fbTimed()){
-    const offen=fbFfaOffen();
+  // Gemeinsames Fenster: EINES fuer alle. Es ist offen, solange auch nur ein aktiver
+  // Spieler noch nicht bestaetigt hat - unabhaengig davon, wen das HUD gerade als "an der
+  // Reihe" fuehrt. Damit kann die Uhr weder stehenbleiben, weil curAimer veraltet ist,
+  // noch weiterlaufen, wenn in Wahrheit alle fertig sind.
+  if(typeof fbShared==='function'&&fbShared()){
+    const offen=fbOffen();
     return offen.length?offen[0]:-1;
   }
   const who=(mode==='bot')?0:curAimer;
@@ -6213,7 +6374,7 @@ function fbClockStep(){
   // Auch die Zeitregel braucht diese Frist: seit die Phasenuhr nur noch Bedenkzeit
   // zaehlt, steht hinter einem offen gelassenen Uebergabeschirm ALLES - ohne Frist
   // koennte ein Spieler das Match beliebig lange anhalten.
-  if(fbCoverOpen&&(fbSpeed()||(typeof fbTimed==='function'&&fbTimed()))&&!online&&phase==='aim'&&fbCoverTicks>0){
+  if(fbCoverOpen&&(fbSpeed()||(typeof fbShared==='function'&&fbShared()))&&!online&&phase==='aim'&&fbCoverTicks>0){
     fbCoverTicks--;
     if(fbCoverTicks===0&&typeof fbCloseCover==='function')fbCloseCover();
     // Dieses Bild gehoert der Uebergabe, nicht der Entscheidung — auch das letzte, in dem
@@ -6231,7 +6392,7 @@ function fbClockStep(){
   // Neuer Entscheider — frischer Countdown, dessen Laenge sein EIGENES Konto bestimmt.
   // In der Zeitregel gibt es keinen "neuen Entscheider": dort gehoert der Countdown dem
   // gemeinsamen Fenster. Er startet mit der Zielphase und laeuft fuer ALLE zusammen ab.
-  const eigner=(typeof fbTimed==='function'&&fbTimed())?FOOTBALL_FFA_WINDOW:who;
+  const eigner=(typeof fbShared==='function'&&fbShared())?FOOTBALL_FFA_WINDOW:who;
   if(eigner!==fbShotFor){fbShotFor=eigner;fbShotTicks=fbShotCap(who);}
   // 1a. TIMED FFA: an genau DIESER Stelle sinkt statt eines persoenlichen Kontos die
   //     gemeinsame Phasenuhr — dieselbe Bedingung, dieselbe Sekunde, andere Groesse.
@@ -6241,7 +6402,10 @@ function fbClockStep(){
   }
   // 1b. DAS PERSOENLICHE KONTO. Es sinkt ausschliesslich beim gerade Zielenden. Der Gegner
   //    verliert dabei keine einzige Zehntelsekunde — das ist der Kern der Korrektur.
-  else if(fbBank[who]>0){
+  //    Das fbSpeed()-Gatter ist nicht kosmetisch: in True Team 2v2 liegen die Besitzer 0
+  //    und 1 im Indexbereich der Konten, und ohne diese Frage haette der Tick dort die
+  //    Zeitkonten von Speed Match mitgesenkt.
+  else if(fbSpeed()&&fbBank[who]>0){
     fbBank[who]--;
     // Genau jetzt leer: das Konto friert auf 0 ein, und der LAUFENDE Commit faellt sofort
     // in die Zeitnot. Er bekommt von hier an hoechstens noch zwei Sekunden — nicht die
@@ -6266,7 +6430,7 @@ function fbClockStep(){
     // jeder noch offene Spieler wird genau so behandelt, wie er es einzeln wuerde - und
     // abgeschossen wird trotzdem erst, wenn der Letzte bestaetigt hat (applyLaunch).
     if(fbShotTicks===0){
-      if(typeof fbTimed==='function'&&fbTimed())fbFfaExpire();
+      if(typeof fbShared==='function'&&fbShared())fbWindowExpire();
       else fbDecisionExpire(who);
     }
   }
@@ -6312,9 +6476,9 @@ function fbCommitFor(who){
 // applyCommit sammelt nur Absichten, der Reveal faellt erst mit der letzten. Die
 // Reihenfolge hier bestimmt also nur, in welcher Folge die Absichten eingetragen werden,
 // nicht wer zuerst faehrt.
-function fbFfaExpire(){
+function fbWindowExpire(){
   if(online||typeof applyCommit!=='function')return;
-  for(const o of fbFfaOffen())fbCommitFor(o);
+  for(const o of fbOffen())fbCommitFor(o);
 }
 // ── DAS ENDE DER REGULAERZEIT ──────────────────────────────────────────────────
 // Die Regulaerzeit ist zu Ende, wenn BEIDE persoenlichen Konten leer sind. Solange auch
@@ -6500,9 +6664,37 @@ if(typeof DEV_MENU!=='undefined'&&DEV_MENU)window.__fbDev={
   // lebende Stimmen, laufender Zeitgeber und ob ueberhaupt ein Graph steht. Damit laesst
   // sich am ECHTEN Geraet pruefen, was ein Sandkasten nicht beweisen kann: dass nach dem
   // Verlassen des Modus kein Zeitgeber und keine Stimme uebrig bleibt.
+  // Geometrielabor: die aktive Wandform mit ihren gemessenen Wandlaengen - rein lesend.
+  geom:()=>{try{const a=fbArena(),k=[];
+    if(a.poly)for(let i=0;i<a.poly.length;i++){
+      const A=a.poly[i],B=a.poly[(i+1)%a.poly.length];
+      const dx=B[0]-A[0],dz=B[1]-A[1],L=Math.hypot(dx,dz);
+      if(L>1e-9){let nx=dz/L,nz=-dx/L;
+        if(nx*(A[0]+B[0])/2+nz*(A[1]+B[1])/2<0){nx=-nx;nz=-nz;}
+        k.push({laenge:+L.toFixed(4),winkel:+Math.abs(Math.atan2(nz,nx)*180/Math.PI).toFixed(2)});}}
+    return {halfLen:a.halfLen,halfWid:a.halfWid,corner:a.corner,sides:a.sides||2,
+            spawn:a.spawn,postInner:a.postInner,postOuter:a.postOuter,postFront:a.postFront,
+            ecken:a.poly?a.poly.length:0,kanten:k};}catch(e){return null;}},
+  // True Team 2v2: Besitz, Teamzuordnung, Fensterzustand und Teamstand - rein lesend.
+  team2:()=>{try{return fbTeam2()?{
+    besitzer:balls.filter(b=>b.alive&&b.owner!==FOOTBALL_NEUTRAL_OWNER).map(b=>b.owner),
+    teams:[0,1,2,3].map(o=>fbTeam2Side(o)),
+    namen:FOOTBALL_TEAM2V2_NAMES.slice(),
+    offen:fbOffen(),bereit:aimSet.slice(0,4).map(v=>v?1:0).join(''),
+    schuss:fbShotShown(),schussSek:+(Math.max(0,fbShotShown())/FOOTBALL_SIM_HZ).toFixed(2),
+    wer:fbDecisionWho(),phase:phase,
+    blau:score[0]|0,rot:score[1]|0,winner:footballWinner,goal:fbGoalState}:null;}catch(e){return null;}},
+  // Lebensregel: Leben, Fensterzustand und Aktivmenge - rein lesend.
+  lives:()=>{try{return fbLives()?{
+    leben:fbElimLives.slice(0,fbElimPlayers()),
+    aktiv:fbElimActiveOwners(),phaseN:fbElimPhaseN,
+    offen:fbOffen(),bereit:aimSet.slice(0,fbElimPlayers()).map(v=>v?1:0).join(''),
+    wer:fbDecisionWho(),schuss:fbShotShown(),
+    schussSek:+(Math.max(0,fbShotShown())/FOOTBALL_SIM_HZ).toFixed(2),
+    phase:phase,goal:fbGoalState,winner:footballWinner}:null;}catch(e){return null;}},
   ffa:()=>{try{return fbTimed()?{ticks:fbFfaTicks,sek:Math.ceil(fbFfaTicks/FOOTBALL_SIM_HZ),
     laeuft:fbFfaRunning(),wer:fbDecisionWho(),schuss:fbShotShown(),
-    offen:fbFfaOffen(),bereit:aimSet.slice(0,fbElimPlayers()).map(v=>v?1:0).join(''),
+    offen:fbOffen(),bereit:aimSet.slice(0,fbElimPlayers()).map(v=>v?1:0).join(''),
     phase:phase,
     schussSek:+(Math.max(0,fbShotShown())/FOOTBALL_SIM_HZ).toFixed(2),
     due:fbFfaDue,danger:fbFfaDanger,set:fbFfaDangerSet.slice(0,fbElimPlayers()),
@@ -6853,6 +7045,38 @@ function footballMatchEnd(){
 // Football-Block bleibt frei von Umgebungszugriffen). In den Test-Harnessen existiert die
 // Konstante nicht; der typeof-Guard laesst die Variante dann auf 'classic'.
 const FOOTBALL_VARIANT_TACTICAL='tactical';
+// ══ ARENA FOOTBALL: TRUE TEAM 2V2 ═══════════════════════════════════════════════
+// VIER Menschen an einem Geraet, zwei Teams, ein neutraler Ball. Das ist NICHT Tactical:
+// dort steuert EIN Mensch beide Figuren seines Teams und waehlt je Runde eine davon.
+// Hier besitzt jeder Mensch genau EINE Figur, dauerhaft, und alle vier entscheiden im
+// selben Fenster.
+//
+// BESITZ. Vier Identitaeten mit festen Kugeln: B1=0, B2=1, R1=2, R2=3. Der Besitz IST die
+// bestehende `owner`-Groesse der Kugel - es gibt keine zweite Zuordnungstabelle daneben,
+// und deshalb auch keine Moeglichkeit, dass B1 die Figur von B2 greift: die Auswahl
+// filtert wie ueberall sonst nach `owner`.
+//
+// TEAM. Das Team ist eine reine ABLEITUNG aus dem Besitz (0,1 -> Blau, 2,3 -> Rot). Es
+// wird nirgends gespeichert, kann also nicht auseinanderlaufen. Die Wertung braucht es
+// gar nicht: footballGoalSide() liefert bereits die TORSEITE, und die ist die Teamnummer.
+// Damit sind Eigentore ohne Sonderfall richtig - entscheidend ist das ueberquerte Tor,
+// nicht wer zuletzt beruehrt hat.
+//
+// WAS WIEDERVERWENDET WIRD. Arena, Torgeometrie und Startaufstellung kommen unveraendert
+// aus Tactical (dieselben Konstanten, dieselben Koordinaten - nur andere owner-Marken).
+// Das gemeinsame Entscheidungsfenster, der Sechs-Sekunden-Riegel, die Absichtensammlung
+// und der gleichzeitige Abschuss kommen unveraendert aus Timed FFA. Neu ist ausschliesslich
+// die Verdrahtung.
+const FOOTBALL_VARIANT_TEAM2='team2v2';
+// Der Riegel je Fenster. Eigene Konstante, weil der Spieltest ihn getrennt beurteilen
+// soll; zahlengleich mit dem der Zeitregel ist Absicht, keine Kopplung.
+const FOOTBALL_TEAM2V2_SHOT_SECONDS=6;
+const FOOTBALL_TEAM2V2_SHOT_TICKS=FOOTBALL_TEAM2V2_SHOT_SECONDS*FOOTBALL_SIM_HZ;   // 360
+const FOOTBALL_TEAM2V2_PLAYERS=4;
+// Die vier Identitaeten in KANONISCHER Reihenfolge. Sie ist die Reihenfolge der
+// Geschwindigkeitszuweisung in applyLaunch (owner 0..3) und damit die einzige Ordnung,
+// die das Spielergebnis beruehrt - die Eingabereihenfolge tut es nicht.
+const FOOTBALL_TEAM2V2_NAMES=['B1','B2','R1','R2'];
 // PRODUKTMODUS Elimination. Es gibt genau EINE Elimination-Variante; sie startet mit
 // FOOTBALL_ELIM_START_PLAYERS Spielern und laeuft ueber die internen Phasen 4 / 3 / 2 zum
 // Sieger. 4P, 3P und 2P sind KEINE eigenen Modi, sondern Zustaende desselben Matches.
@@ -6863,8 +7087,21 @@ const FOOTBALL_VARIANT_ELIM='elimination';
 // Dev-Direktlink (?dev=1&fb=elimination4); die Modusauswahl im Spiel kennt ihn nicht.
 const FOOTBALL_VARIANT_ELIM4='elimination4';
 // Jeder andere Wert (auch ein manipulierter URL-Parameter) faellt auf 'classic' zurueck.
-let fbVariant=(typeof DEV_FB_VARIANT!=='undefined'&&(DEV_FB_VARIANT===FOOTBALL_VARIANT_TACTICAL||DEV_FB_VARIANT===FOOTBALL_VARIANT_ELIM||DEV_FB_VARIANT===FOOTBALL_VARIANT_ELIM4))?DEV_FB_VARIANT:'classic';
+let fbVariant=(typeof DEV_FB_VARIANT!=='undefined'&&(DEV_FB_VARIANT===FOOTBALL_VARIANT_TACTICAL||DEV_FB_VARIANT===FOOTBALL_VARIANT_ELIM||DEV_FB_VARIANT===FOOTBALL_VARIANT_ELIM4||DEV_FB_VARIANT===FOOTBALL_VARIANT_TEAM2))?DEV_FB_VARIANT:'classic';
 function fbTactical(){return mode==='football'&&fbVariant===FOOTBALL_VARIANT_TACTICAL;}
+function fbTeam2(){return mode==='football'&&fbVariant===FOOTBALL_VARIANT_TEAM2;}
+// Team einer Spieleridentitaet: 0 = Blau (B1,B2), 1 = Rot (R1,R2). Fuer alles andere -
+// insbesondere den neutralen Ball - ist die Frage nicht gestellt und die Antwort -1.
+function fbTeam2Side(o){return (o===0||o===1)?0:((o===2||o===3)?1:-1);}
+// GEMEINSAMES FENSTER. Zwei Regeln teilen es sich: Timed FFA und True Team 2v2. Ueberall,
+// wo frueher "gilt die Zeitregel" stand, steht jetzt diese Frage - eine zweite Fassung
+// daneben wuerde frueher oder spaeter auseinanderlaufen.
+// GEMEINSAMES FENSTER. Drei Regeln teilen es sich: Timed FFA, die Lebensregel und True
+// Team 2v2. Ueberall, wo frueher "gilt die Zeitregel" stand, steht diese Frage - eine
+// zweite Fassung daneben wuerde frueher oder spaeter auseinanderlaufen.
+function fbShared(){return (typeof fbTimed==='function'&&fbTimed())||(typeof fbLives==='function'&&fbLives())||fbTeam2();}
+// Laenge des Riegels im gemeinsamen Fenster - je Regel aus IHRER eigenen Konstante.
+function fbSharedShotTicks(){return fbTeam2()?FOOTBALL_TEAM2V2_SHOT_TICKS:((typeof fbLives==='function'&&fbLives())?FOOTBALL_LIVES_SHOT_TICKS:FOOTBALL_FFA_SHOT_TICKS);}
 // EINZIGE Weiche "laeuft gerade Elimination?" - unabhaengig von der Startspielerzahl.
 // Der Name stammt aus der Zeit, als es nur die Vier-Spieler-Variante gab; jede Stelle im
 // Code fragt hier, ob die Elimination-REGELN gelten, nicht wie viele Spieler starten.
@@ -7214,16 +7451,29 @@ let fbFfaNotice='',fbFfaNoticeOwner=-1,fbFfaNoticeTicks=0;
 // Onlinematch aktiv. Diese Zeile ist die EINE Stelle, die jeder Einstiegsweg passiert -
 // auch Rejoin und Deep Link.
 function fbTimed(){return fbElim4()&&!online&&fbElimRules===FOOTBALL_ELIM_RULES_TIMED;}
+// Die LEBENSREGEL, lokal. Sie laeuft seit LIVES SIMULTANEOUS 01 ebenfalls simultan: alle
+// aktiven Spieler entscheiden im selben Fenster, danach starten alle gleichzeitig. Die
+// Regel selbst ist unveraendert - zwei Gegentore, dann raus.
+//
+// Das `!online` ist dieselbe Grenze wie bei fbTimed(): der Onlineablauf ist Teil des
+// Protokolls v7 und bleibt vorerst sequentiell. Lokal und online duerfen sich im ABLAUF
+// deshalb unterscheiden; die Regel tut es nicht.
+function fbLives(){return fbElim4()&&!online&&fbElimRules===FOOTBALL_ELIM_RULES_LIVES;}
 // Wer darf in DIESEM gemeinsamen Fenster noch entscheiden? Genau die aktiven Spieler,
 // die noch nicht bestaetigt haben - in kanonischer Spielerreihenfolge, damit jede
 // Auswertung darueber deterministisch ist und nicht von der Eingabereihenfolge abhaengt.
 //
 // Das ist der Kern der simultanen Regel: es gibt kein "wer ist dran", es gibt nur
 // "wer ist noch offen". Das Fenster schliesst, wenn diese Menge leer ist.
-function fbFfaOffen(){
+//
+// ZWEI Regeln teilen sich diese Funktion: Timed FFA (die noch nicht ausgeschiedenen
+// Spieler) und True Team 2v2 (immer alle vier). Der Unterschied ist die Ausgangsmenge -
+// alles danach ist identisch, und genau deshalb gibt es sie nur einmal.
+function fbOffen(){
   const offen=[];
-  if(typeof fbTimed!=='function'||!fbTimed())return offen;
-  for(const o of fbElimActiveOwners())
+  if(typeof fbShared!=='function'||!fbShared())return offen;
+  const alle=(typeof fbTeam2==='function'&&fbTeam2())?[0,1,2,3]:fbElimActiveOwners();
+  for(const o of alle)
     if(!aimSet[o]&&aliveCount(o)>0)offen.push(o);
   return offen;
 }
@@ -7272,7 +7522,7 @@ function fbFfaClockTick(who){
   // entscheidet fbFfaResolve im Settlement bzw. am Ende des Torablaufs. Laufende Physik
   // wird nie unterbrochen.
   fbFfaDue=true;
-  if(typeof fbFfaExpire==='function')fbFfaExpire();
+  if(typeof fbWindowExpire==='function')fbWindowExpire();
   return true;
 }
 // EIN Tick fuer die Kurzmeldung. Aufrufer ist simStep — derselbe feste Zeitschritt wie die
@@ -7522,7 +7772,7 @@ function stepSim(){
     setPhase('aim');updateHud();setPhaseText();
     if(online){curAimer=myPlayer;onlineArmTurn();}
     else if(mode==='pvp'||mode==='football'){curAimer=(typeof fbElimFirstAimer==='function')?fbElimFirstAimer():0;
-      if(!(typeof fbTimed==='function'&&fbTimed()))openCover(curAimer);}
+      if(!(typeof fbShared==='function'&&fbShared()))openCover(curAimer);}
     else if(mode==='ffa'){for(let p=0;p<ffaN;p++)if(aliveCount(p)>0){curAimer=p;openCover(p);break;}}
   }
 }
@@ -9958,6 +10208,14 @@ function drawBall(b){
     ctx.restore();
   }
 }
+// Liegt der Vorschaupunkt ausserhalb der Football-Bande? Dieselbe Fallunterscheidung wie
+// footballBoundSD - nur ohne Ballradius, weil die Vorschau eine Linie ist.
+function fbPreviewOut(x,y){
+  const av=fbArena();
+  if(av.poly)return footballPolySD(x-cx,y-cy,av.poly,fbCorner()).sd>0;
+  if(av.tri)return footballTriSD(x-cx,y-cy,av.apothem*BR,fbCorner()).sd>0;
+  return footballShapeSD(x-cx,y-cy,fbHalfLen(),fbHalfWid(),fbCorner()).sd>0;
+}
 function drawSpinPreview(b,fx,fy,spin){
   let x=b.x,y=b.y,vx=fx*LAUNCH,vy=fy*LAUNCH,sp=spin;
   const q0=OP(x,y,0);
@@ -9965,8 +10223,11 @@ function drawSpinPreview(b,fx,fy,spin){
   for(let i=0;i<70;i++){
     for(let st=0;st<2;st++){x+=vx;y+=vy;const v=Math.sqrt(vx*vx+vy*vy);const f=v<curSLOWV()?curFE():curFR();vx*=f;vy*=f;if(sp&&v>0.01){const sx=-vy/v,sy=vx/v,sa=SPIN_K*sp*v;vx+=sx*sa;vy+=sy*sa;}sp*=SPIN_DECAY;}
     const q=OP(x,y,0);ctx.lineTo(q.x,q.y);
-    // Linienende an der jeweiligen Arenagrenze: Football = Rounded Rectangle, sonst Kreis.
-    if(mode==='football'?footballShapeSD(x-cx,y-cy,fbHalfLen(),fbHalfWid(),fbCorner()).sd>0
+    // Linienende an der jeweiligen Arenagrenze. Seit der Kanonisierung traegt JEDE
+    // Football-Arena ein Kernpolygon; die Vorschau muss deshalb dieselbe Grenzfunktion
+    // benutzen wie Physik und Bande, sonst zeigte sie einen Wandkontakt an einer Stelle,
+    // an der gar keine Wand ist.
+    if(mode==='football'?fbPreviewOut(x,y)
       :Math.sqrt((x-cx)*(x-cx)+(y-cy)*(y-cy))>R)break;
   }
   if(r3dActive){ctx.strokeStyle='rgba(240,234,220,.28)';ctx.lineWidth=Math.max(1,BR*0.14*q0.s);ctx.setLineDash([BR*0.3*q0.s,BR*0.5*q0.s]);}
@@ -11378,10 +11639,14 @@ async function initR3D(){
       // sondern aus dem Fortschritt. Die Geometrie wird dabei in FB_MORPH_STEPS Schritten neu
       // gebaut (nicht pro Frame) — sichtbar fluessig, ohne die Arena 60x pro Sekunde zu bauen.
       const fbMorphOn=footballView&&fbMorphActive()&&!!fbMorphPlan&&!!fbMat.glass;
-      // Der Schluessel unterscheidet ALLE drei Varianten: Elimination traegt zusaetzlich die
-      // Phase, Classic und Tactical stehen auf verschiedenen Arenaformen und duerfen sich
-      // deshalb keinen gemeinsamen Stand teilen.
-      const fbPhaseWant=footballView?(fbElim4()?'elim'+fbElimPhaseN:(fbTactical()?'tac':'classic')):'';
+      // Der Schluessel unterscheidet ALLE Varianten: Elimination traegt zusaetzlich die
+      // Phase, und die groessere Vier-Figuren-Grundflaeche (Tactical UND True Team 2v2)
+      // steht auf einer anderen Arena als Classic - sie duerfen sich keinen gemeinsamen
+      // Stand teilen. Ohne fbTeam2() blieb beim Wechsel Classic -> Team 2v2 die zuletzt
+      // gebaute Classic-Wand stehen, waehrend die Physik bereits auf der groesseren Arena
+      // rechnete: sichtbare Bande und Kollision lagen 2.40 BR auseinander.
+      const fbGross=fbTactical()||fbTeam2();
+      const fbPhaseWant=footballView?(fbElim4()?'elim'+fbElimPhaseN:(fbGross?'tac':'classic')):'';
       const fbWant=fbMorphOn
         ?'morph'+Math.round(fbMorphGoalE()*FB_MORPH_GOAL_STEPS)+'_'+
                  Math.round(fbMorphArenaE()*FB_MORPH_ARENA_STEPS)

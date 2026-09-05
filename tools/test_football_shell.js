@@ -79,7 +79,11 @@ const curFESrc = grab(/function curFE\(\)[^\n]*/, 'curFE');
 const curSTSrc = grab(/function curST\(\)[^\n]*/, 'curST');
 // Einzel-Grabs NUR fuer Quelltext-Assertions (die Sandbox laeuft ueber den Block).
 const halfDepthSrc = grab(/const FB_GOAL_HALF_DEPTH=[^\n]*/, 'FB_GOAL_HALF_DEPTH');
-const arenaSrc = grab(/const FOOTBALL_ARENA=\{[\s\S]*?\};/, 'FOOTBALL_ARENA');
+// Seit der Kanonisierung entsteht jede Zwei-Tor-Arena aus EINEM Generator; die
+// Tormasse stehen deshalb in fbShape, die Grundflaeche im Aufruf.
+const arenaSrc = grab(/const fbShape=\(halfLen,halfWid,corner,spawn,sides,tri,dirs\)=>[\s\S]*?goalAnchor:halfLen\+FB_GOAL_HALF_DEPTH\}\);/, 'fbShape')
+  + grab(/const fbTwoGoalArena=[\s\S]*?FB_TWO_GOAL_SHAPE\.endHalf\)\}\);/, 'fbTwoGoalArena')
+  + grab(/const FOOTBALL_ARENA=fbTwoGoalArena\([^\n]*/, 'FOOTBALL_ARENA');
 const presetSrc = grab(/const FOOTBALL_PHYS=\{[\s\S]*?\nfunction curRestPost\(\)[^\n]*/, 'FOOTBALL_PHYS block');
 // Abschusskurve - unveraendert aus dem Produktivcode.
 const tempoSrc = grab(/const FB_LAUNCH_SCALE=[\s\S]*?\nfunction fbLaunchMul\(len\)\{[\s\S]*?\n\}/, 'Abschusskurve');
@@ -384,7 +388,8 @@ ok(!/\b(128|256|96|105\.6|73\.6|142\.8|37\.2|180)\b/.test(goalPhysSrc),
 ok(/FB_GOAL_ASSET_INNER/.test(arenaSrc) && /FB_GOAL_ASSET_OUTER/.test(arenaSrc) &&
    /const FB_GOAL_ASSET_INNER=3\.560, FB_GOAL_ASSET_OUTER=5\.282;/.test(HTML) && /1\.184/.test(halfDepthSrc),
   'Sockelkanten dokumentiert aus dem eingefrorenen Blender-Build abgeleitet (3.560/5.282/1.184)');
-ok(/postBack:18\.00\+2\*FB_GOAL_HALF_DEPTH/.test(arenaSrc),
+ok(/postBack:halfLen\+2\*FB_GOAL_HALF_DEPTH/.test(arenaSrc)
+   && /const FOOTBALL_ARENA=fbTwoGoalArena\(18\.00,12\.70,7\.65\);/.test(arenaSrc),
   'Sockel-Hinterkante als Formel aus halfLen + Sockeltiefe (keine zweite Zahl)');
 
 // ── B. NEUTRALER BALL: Passage ──
@@ -1955,7 +1960,10 @@ const fbCssSrc = grab(/#game\.fb \.status\{[\s\S]*?\n\.arena-wrap\{/, 'Football-
                    '@media(prefers-reduced-motion:reduce)', '@media(max-width:380px)',
                    // 360 px: sehr schmale Geraete duerfen die Statusleiste nicht
                    // abschneiden, seit der Punktestand im Speed Match offen ist.
-                   '@media(max-width:360px)', '.arena-wrap'];
+                   '@media(max-width:360px)',
+                   // 760 px: in True Team 2v2 teilen sich Punktestand und vier Chips
+                   // eine Zeile; darunter muessen sie zusammenruecken.
+                   '@media(max-width:760px)', '.arena-wrap'];
   ok(rules.length > 10, 'HUD-CSS-Block gefunden (' + rules.length + ' Regeln)');
   ok(rules.every((s) => s.startsWith('#game.fb') || NEUTRAL.includes(s)),
      'jede HUD-Regel haengt an #game.fb (Ausnahmen nur: Keyframes, Media-Query)');
