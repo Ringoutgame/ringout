@@ -682,12 +682,12 @@ const untilMorph = (E) => { for (let i = 0; i < 600 && E.goalState() !== 'morph'
   // dieses - die Variantenvorgabe. Kein zweiter Zaehlweg im Produktcode.
   ok(/function fbElimPlayers\(\)\{\s*if\(fbElimStartN>=2\)return fbElimStartN;\s*return fbVariant===FOOTBALL_VARIANT_ELIM4\?FOOTBALL_ELIM4_PLAYERS:FOOTBALL_ELIM_START_PLAYERS;\s*\}/.test(HTML),
      'die Startspielerzahl kommt aus genau einer Funktion');
-  // Gesetzt wird die Startbesetzung an genau SECHS Stellen (lokale Partie, oeffentlicher
-  // Onlineeinstieg, Dev-Einstieg, Startsignal, Rueckkehr, Verlassen); dazu die
-  // Deklaration und die zwei Lesestellen in fbElimPlayers. Der oeffentliche Einstieg
-  // setzt sie auf null - wie der Dev-Einstieg: WELCHE Besetzung gilt, entscheidet erst
-  // das kanonische Startsignal des Raums.
-  ok((HTML.match(/fbElimStartN/g) || []).length === 9,
+  // Gesetzt wird die Startbesetzung an genau SIEBEN Stellen (lokale Partie zweimal —
+  // einmal auf null, einmal aus der Einrichtung —, oeffentlicher Onlineeinstieg,
+  // Dev-Einstieg, Startsignal, Rueckkehr, Verlassen); dazu die Deklaration und die zwei
+  // Lesestellen in fbElimPlayers. Der oeffentliche Einstieg setzt sie auf null - wie der
+  // Dev-Einstieg: WELCHE Besetzung gilt, entscheidet erst das kanonische Startsignal.
+  ok((HTML.match(/fbElimStartN/g) || []).length === 10,
      'die Startbesetzung wird nur an den benannten Stellen gesetzt');
   ok((HTML.match(/fmt=FB_ONLINE_FMT; fbElimStartN=0;/g) || []).length === 2,
      'und beide Onlineeinstiege ueberlassen sie dem Startsignal');

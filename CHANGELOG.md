@@ -7,6 +7,163 @@ Alle abgeschlossenen Änderungen am Projekt, neueste zuerst.
 ## [Unreleased]
 
 ### Features
+- feat(arena-football): **Timed FFA ist jetzt simultan — ein gemeinsames Fenster, ein gemeinsamer Start** (2026-09-05) —
+  aus dem Spieltest: der sequentielle Ablauf (P1 zielt → Physik → P2 zielt → Physik) war die falsche
+  Spielform. **Alle aktiven Spieler entscheiden jetzt im SELBEN 6-Sekunden-Fenster**, danach starten
+  **alle Figuren gleichzeitig**, die Aktion läuft vollständig aus, dann folgt das nächste gemeinsame
+  Fenster. Der Abschuss selbst war schon vorher gleichzeitig — `applyCommit` sammelt nur Absichten,
+  `applyLaunch()` weist **alle** Geschwindigkeiten in kanonischer Spielerreihenfolge zu und wechselt
+  erst danach in die Simulation. Sequentiell war nur die **Eingabe**, und genau die ist jetzt
+  gemeinsam. Belegt am laufenden Werk: mit drei und mit vier Bestätigten fährt niemand los, mit dem
+  fünften starten alle fünf.
+- feat(arena-football): **ein geteilter Countdown statt fünf hintereinander** (2026-09-05) —
+  `FOOTBALL_FFA_SHOT_SECONDS = 6` gehört jetzt dem **Fenster**, nicht einem Spieler: der neue
+  Sentinel `FOOTBALL_FFA_WINDOW = -2` steht dort, wo sonst der Eigentümer steht, und verhindert
+  damit den Neustart bei jedem Wechsel. Sind alle bereit, schließt das Fenster **sofort** — es wird
+  nicht bis 6,0 gewartet. Damit kostet ein Aktionszyklus höchstens **6 s** Phasenzeit statt bisher
+  bis zu **5 × 6 s**; im Test gemessen: 3, 4 und 5 Spieler verbrauchen bei voll ausgeschöpftem
+  Fenster **identisch 360 Ticks**.
+- feat(arena-football): **kein Weiterreichen des Geräts mehr in Timed FFA** (2026-09-05) — der
+  Übergabeschirm entfällt in dieser Regel ersatzlos; alle Entscheidungen gehören einem Fenster.
+  **Classic behält seinen Übergabeschirm unverändert** (zwei Rundenstarts und `applyCommit` sind
+  ausschließlich für die Zeitregel gesondert). Die Statuszeile sagt jetzt, was gilt: „Alle zielen
+  gleichzeitig – N offen".
+- feat(arena-football): **READY je Spieler im HUD** (2026-09-05) — wer bestätigt hat, trägt im
+  bestehenden Chip einen ruhigen Haken und ist gedämpft; wer noch offen ist, bleibt hervorgehoben.
+  Kein neues HUD-Bauteil, kein Blinken. Der große zentrale Countdown zeigt weiterhin **genau eine**
+  Zahl — die des gemeinsamen Fensters.
+- feat(arena-football): **eine Maus, mehrere Figuren, ein Fenster** (2026-09-05) — die bestehende
+  Eingabearchitektur kennt **einen** Ziel-Zeiger (`aimPid`) plus einen Drall-Zeiger; echtes
+  gleichzeitiges Mehrfinger-Zielen ist damit nicht abgedeckt. Statt die Eingabeschicht umzubauen,
+  ist die **Greifzone** erweitert: `pickOwnBall`/`pickOwnBall3D` nehmen jetzt wahlweise **eine Liste**
+  von Spielern, und in der Zeitregel ist das die Menge der noch offenen. Der Nutzer setzt die Vektoren
+  im selben Fenster nacheinander — abgeschossen wird trotzdem gemeinsam. Außerhalb der Zeitregel ist
+  weiterhin genau eine Figur greifbar.
+- fix(arena-football): **Bestätigung außerhalb der Reihenfolge löst keinen vorzeitigen Start aus**
+  (2026-09-05) — die bestehende Suche nahm den nächsten Spieler mit **höherem** Index. Bestätigt in
+  einem gemeinsamen Fenster zuerst P5, wäre danach keiner mehr gefolgt und der Start wäre gefallen,
+  obwohl vier Spieler noch offen waren. In der Zeitregel läuft die Suche jetzt über **alle** offenen
+  Spieler.
+- fix(arena-football): **der anliegende Zug überlebt die gemeinsame Ablaufschleife** (2026-09-05) —
+  aus dem unabhängigen Review, ein echter Fund: `fbCommitFor()` räumte den laufenden Zug
+  **bedingungslos** ab. Im gemeinsamen Ablauf über alle offenen Spieler hätte damit der erste
+  Bestätigte den anliegenden Zug eines **späteren** Spielers gelöscht — dieser hätte am Fensterende
+  einen Nullzug bekommen, ohne erkennbaren Grund. Abgeräumt wird jetzt nur der **eigene** Zug.
+  Regressionsabschnitt S0 deckt beide Fälle ab (Riegelablauf und Phasenende).
+- test(arena-football): **die Timed-FFA-Suite lädt jetzt auch den Commit- und Abschussweg**
+  (2026-09-05) — 177 → **239 Zusicherungen**. Neu extrahiert: `applyCommit`, `applyLaunch`,
+  `sanitizeMove`, `fbFfaOffen`. Damit wird „gleichzeitig" nicht mehr behauptet, sondern gemessen:
+  zwischen den Bestätigungen findet **kein** Simulationsschritt statt; nach `applyLaunch` tragen
+  **alle** Figuren eine Geschwindigkeit und **erst danach** beginnt die Simulation; dieselben
+  Absichten in unterschiedlicher Eingabereihenfolge ergeben **exakt** dieselben Geschwindigkeiten;
+  ein neues Fenster erbt **keine** alte Absicht; das Zweierfinale bleibt simultan; Classic, Tactical,
+  Lives und Online werden im selben Sandkasten mitgeprüft.
+- fix(arena-football): **die Timed-FFA-Uhr zaehlt jetzt Bedenkzeit statt Ballzeit** (2026-09-05) —
+  aus dem Spieltest, und die Semantik war schlicht verkehrt herum: die 60-Sekunden-Phase lief,
+  waehrend der Spieler nur zusehen konnte, wie die Kugeln ausrollen, und stand still, waehrend
+  er ueberlegte. Genau die Sekunden, die Druck erzeugen sollen, gehoerten niemandem. Jetzt gilt
+  dasselbe Prinzip wie im laengst angenommenen Classic **Speed Match**: **die Phasenuhr sinkt
+  ausschliesslich, solange ein Mensch den Schuss noch aendern kann.** Flug, Settlement,
+  Torablauf, Reset, Umbau, Ausscheidungsmeldung, Uebergabeschirm, Menue, Ergebnisschirm und ein
+  verdeckter Tab kosten keine Zehntelsekunde. **Simulationszeit ist frei, bezahlt wird
+  Entscheidung.** Technisch ist das kein zweites Werk: die Uhr haengt jetzt in `fbClockStep()`
+  an genau der Stelle, an der Speed Match sein persoenliches Konto senkt, und ihr Gatter ist
+  **dieselbe** Funktion `fbDecisionWho()`. Eine zweite Fassung derselben Frage waere frueher
+  oder spaeter auseinandergelaufen.
+- feat(arena-football): **Sechs-Sekunden-Riegel je Zug in Timed FFA** (2026-09-05) — weil die
+  Uhr jetzt beim Zielen laeuft, koennte ein Spieler das Geraet sonst einfach halten. Jeder Zug
+  beginnt mit **6,0 Sekunden** (`FOOTBALL_FFA_SHOT_SECONDS`, in festen Ticks), Riegel und
+  Phasenuhr sinken **gemeinsam**; beim Loslassen stehen **beide** sofort. Bei Ablauf entsteht
+  **kein erfundener Schuss**: liegt ein gueltiger Zugvektor an, wird **genau dieser** abgegeben
+  — derselbe, den ein Loslassen in dieser Sekunde erzeugt haette; liegt keiner an, ist es ein
+  Nullzug wie der Stehen-bleiben-Knopf. Das ist nicht nachgebaut, sondern **dieselbe** Funktion
+  `fbDecisionExpire()` und **dieselbe** Vektorquelle `aimVectorFromDrag()`, die Classic benutzt.
+- feat(arena-football): **erreicht die Phasenuhr beim Zielen null, gibt es keine Nachspielzeit**
+  (2026-09-05) — der anliegende Zug wird sofort genau so abgegeben (sonst ausgesetzt), und erst
+  **danach** laeuft die Aktion vollstaendig aus. Ausgewertet wird die Phase unveraendert im
+  Settlement bzw. am Ende des Torablaufs: **laufende Physik wird nie unterbrochen.** Neu ist
+  allein, dass es nach dem Ablauf auch keine freie Bedenkzeit mehr gibt.
+- feat(arena-football): **grosser zentraler Countdown, lesbare Phasenuhr** (2026-09-05) — der
+  Spieltest fand die bisherige Zeitanzeige zu klein. Der Schuss-Countdown steht jetzt **gross
+  und mittig** unter der Chipleiste (30 px, feste Ziffernbreite, Goldton, in den letzten zwei
+  Sekunden heller mit dem bestehenden ruhigen Puls `fbclk`) — dieselbe Bildsprache wie der
+  Countdown in Speed Match, nur in der Groesse, die seiner Rolle entspricht. Die **Phasenuhr**
+  bleibt daneben sichtbar und ist von 11 auf **15 px** gewachsen, ebenfalls mit fester
+  Ziffernbreite: klar lesbar, aber sichtbar die zweite Groesse. Zwei Zahlen, zwei Stellen, zwei
+  Formate — sie duerfen nie verwechselt werden.
+- fix(arena-football): **die Uebergabefrist gilt jetzt auch in Timed FFA** (2026-09-05) — Folge
+  der Korrektur oben: seit die Phasenuhr nur noch Bedenkzeit zaehlt, steht hinter einem offen
+  gelassenen Uebergabeschirm **alles**. Die bestehende 30-Sekunden-Frist aus Speed Match gilt
+  deshalb auch hier — kein neuer Mechanismus, nur ein zweiter Nutzer des vorhandenen.
+- feat(arena-football): **im Gleichstand bleibt der Riegel, die Phasenuhr geht** (2026-09-05) —
+  in `FFA DANGER SUDDEN DEATH` laeuft keine Regulaerphase mehr, also auch keine Phasenuhr. Der
+  Sechs-Sekunden-Riegel bleibt aber bestehen: sonst koennte man den Zustand beliebig lange
+  offen halten.
+- test(arena-football): **die Timed-FFA-Suite prueft die Zeitsemantik am laufenden Werk**
+  (2026-09-05) — 99 → **177 Zusicherungen**. Die Suite laedt jetzt die **echte** Classic-
+  Bedenkzeituhr aus `index.html` mit und laesst beide Regeln durch dasselbe Werk laufen: Uhr
+  sinkt beim Zielen, sinkt **nicht** in der Simulation und in keinem von neun weiteren
+  Zustaenden; Riegel startet je Zug bei 6,0 und stoppt beim Loslassen; Ablauf mit Zug gibt
+  **exakt** den anliegenden Vektor ab, ohne Zug einen Nullzug, ein zu schwacher Zug zaehlt wie
+  keiner; Phasenuhr auf null mit und ohne Zug; Gleichstand mit Riegel und ohne Phasenuhr;
+  verdeckter Tab verbraucht nichts. **Classic Speed Match und die Lebensregel werden dabei im
+  selben Sandkasten mitgeprueft** — Konto sinkt nur beim Zielenden, Gegner verliert nichts,
+  Lebensregel kennt weder Fenster noch Riegel. Die Classic-Suite (256) belegt zusaetzlich, dass
+  das Gatter online weiterhin als erste Zeile herausfaellt.
+- feat(arena-football): **Elimination hat zwei Regeln — LIVES und TIMED FFA** (2026-09-04) — die
+  bestehende Lebensregel bleibt **unveraendert und Standard**; daneben steht neu **Timed FFA**,
+  eine rein lokale Variante. `#fbElimBtn` oeffnet jetzt ein Einrichtungs-Overlay `#fbElimOv`
+  statt sofort zu starten: dort werden Regel (LIVES hervorgehoben / TIMED FFA) und
+  **Spielerzahl 3, 4 oder 5** gewaehlt. Die Startspielerzahl war bisher fest verdrahtet.
+  **Timed FFA:** 60-Sekunden-Phasen, gezaehlt werden **Gegentore**; am Phasenende scheidet der
+  Spieler mit den meisten aus, danach starten alle Zaehler wieder bei 0. Die Reduktion laeuft
+  5 → 4 → 3 → 2 → Sieger und benutzt den **bestehenden** Arena-Umbau; die letzten zwei spielen
+  **dieselbe** Regel weiter, es wird nicht auf Classic oder Speed Match umgeschaltet.
+  **Bei Gleichstand scheidet niemand aus:** `FFA DANGER SUDDEN DEATH` haelt die Uhr an, laesst
+  alle Zaehler und alle Spieler stehen und macht ausschliesslich die eingefrorene
+  Gleichstandsmenge angreifbar — das naechste Gegentor eines dieser Spieler scheidet ihn
+  sofort aus. Die Menge wird bewusst nicht nachgefuehrt: sie ist der Preis fuer die verpasste
+  Phase.
+- perf(arena-football): **die Phasenuhr laeuft nur waehrend echter Simulation** (2026-09-04) —
+  gezaehlt werden **Ticks**, nicht Wanduhr: `FOOTBALL_FFA_PHASE_TICKS = 60 × FOOTBALL_SIM_HZ`,
+  kein `Date.now()`, kein Timer. `fbFfaRunning()` verlangt Simulationsphase, freies Spielfeld,
+  kein Menue, keinen Gewinner und keinen Gleichstandszustand — Zielen, Uebergabeschirm, Menue,
+  Lobby, Ergebnisschirm, Torablauf und Umbau kosten keine Zehntelsekunde. Ein **verdeckter
+  Tab** ebenfalls nicht, und zwar schon eine Ebene tiefer: offline verwirft `simAdvance()` den
+  Rueckstand, es entstehen gar keine Ticks zum Nachholen. **Das Phasenende unterbricht nichts:**
+  bei 0 wird nur ein Flag gesetzt, ausgewertet wird es an genau zwei Stellen — im Settlement
+  und im Torablauf —, beide dort, wo die Aktion ohnehin zu Ende ist. Ein laufender Ballflug
+  wird nie abgeschnitten, ein Tor aus dem laufenden Zyklus zaehlt vollstaendig.
+- refactor(arena-football): **ein einziger Buchungspunkt fuer Gegentore** (2026-09-04) — Timed FFA
+  bekommt **keinen** zweiten Zaehlpfad. Beide Regeln haengen an `footballElimConcede(o)`, der
+  Funktion, die in der Lebensregel das Leben abzieht; Timed FFA erhoeht dort den Zaehler statt
+  ein Leben zu nehmen. Es gibt keine Ableitung aus der Ballposition und keine zweite Stelle,
+  an der ein Tor verbucht werden koennte — Doppelzaehlung ist strukturell ausgeschlossen,
+  nicht bloss unwahrscheinlich.
+- fix(arena-football): **Timed FFA kann nicht in Online lecken** (2026-09-04) — aus dem
+  unabhaengigen Review: beide Online-Einstiege setzen `fbVariant` **direkt**, ohne ueber
+  `startFootball()` zu gehen — ein in einem lokalen Match gewaehltes `fbElimRules = 'timed'`
+  waere danach im Online-Match noch aktiv gewesen und haette dort eine Phasenuhr und eine
+  fremde Ausscheidungsregel mitgebracht, die der Gegner nicht hat. Korrigiert am **einen**
+  Gatter, das jeder Einstiegspfad passiert: `fbTimed()` enthaelt jetzt `!online`. Zusaetzlich
+  setzen beide Online-Einstiege `fbElimRules` explizit zurueck. Online-Football bleibt
+  `FOOTBALL_FMTS = ['elimination']` mit der Lebensregel; `ONLINE_PROTOCOL_VERSION = 7`,
+  Firebase-Rules, Raumschema und MOVE-Format sind unberuehrt.
+- feat(arena-football): **HUD fuer Timed FFA** (2026-09-04) — links neben den Spieler-Chips steht
+  die Phasenuhr in `M:SS`, jeder Chip traegt statt der Lebenspunkte ein kompaktes `GA 0`
+  (DE `GT`, TR `YG`). Gefaehrdete Chips bekommen eine zurueckhaltende Markierung, kein Blinken;
+  der Kopftext meldet rund 2,2 s lang `DANGER` bzw. `P3 OUT`. Bewusst **nicht** die
+  Golden-Goal-Darstellung — das ist ein anderer Zustand und darf nicht gleich aussehen.
+  Die Lebensregel zeigt unveraendert ihre zwei Lebenspunkte.
+- test(arena-football): **eigene Suite fuer Timed FFA, 99 Zusicherungen** (2026-09-04) —
+  `tools/test_football_timed_ffa.js` prueft an der **echten** Quelle: Uhr laeuft nur in der
+  Simulation und in keinem der acht anderen Zustaende; das Phasenende unterbricht nichts und
+  wird an genau zwei Stellen ausgewertet; eindeutig Schlechtester scheidet aus und alle Zaehler
+  starten neu; die Verlaeufe 5→4→3→2 und 4→3→2 und 3→2; die eingefrorene
+  Gleichstandsmenge; sicher gegen angreifbar im Gleichstand; das Zwei-Spieler-Finale unter
+  derselben Regel; Reset beim Rematch; Regelwechsel ohne Rueckstand; ein Tor zaehlt genau
+  einmal; Classic, Tactical und Online unveraendert — samt Rueckfallprobe fuer das
+  Online-Leck. Der Runner steht bei **30/30 Suiten gruen**.
 - fix(arena-football): **die Menümusik ist deutlich leiser und steigt an, statt sofort loszulegen** (2026-09-04) — beides aus dem Hörtest im Produkt. **Pegel `FB_MENU_GAIN` 0,50 → 0,30** (rund −30,8 dBFS statt −25,5): 0,50 war „so laut, dass es stört". **Verlauf:** Phase A 0–11,25 s leichter Einstieg, Phase B 11,25–28,125 s Aufbau, Phase C ab 28,125 s volle T-Energie. In Phase A fehlen Sub, Klatschen (bis Takt 4) und die Achtel-Ticks; Holz spielt 0–3 statt 7 Positionen, der Bass 1–4 statt 9 Noten, und die Dynamik liegt bei 72–82 %. Gemessen aus der Partitur: **5,5 → 22,2 Anschläge/s** und **6 → 10 Stimmen**, Pegel **−27,5 → −19,0 dB**. Es kommt keine neue Stimme, keine neue Figur und keine neue Klangfarbe hinzu — es spielen anfangs nur weniger davon. **Die Schleife umfasst jetzt nur Phase C** (`loopStart` 16,875 → 28,125 s, `loopEnd` 54,375 → 65,625 s): Einstieg und Aufbau laufen einmal je Menübesuch, beide Schleifenenden liegen in der vollen Phase, und der Sprung geht von voller Energie auf volle Energie. Kein tiefer Abschnitt: Grundtöne nur 43,66/49,00/55,00/65,41 Hz, tiefster Flächenton 110 Hz, in Phase A steht unten nichts Dauerhaftes (−17,5 dB). **Unverändert:** Matchblende 0,70 s, keine Musik im Match, Rückkehr mit 0,40 s, der Schutz gegen doppelte Wiedergabe und alle Spiel-SFX.
 - feat(arena-football): **die Menü- und Lobbymusik ist jetzt ein Stück, kein Generator** (2026-09-04) — das prozedurale Thema wurde nach sechs Hördurchgängen verworfen; ausgewählt wurde Fassung **T** aus `artifacts/audio-reset-05`. Es liegt als `assets/audio/arena-football-menu.m4a` (AAC 128 kbit/s, 900 KB) mit `.webm`-Rückfall (Opus 96 kbit/s) unter `assets/audio/` und wird von `FBTRACK` über **denselben AudioContext** wie Tor- und Rollklang geladen — kein zweiter Context, kein Audio-Element, genau ein Ladeversuch je Seitenladen. **Schleife auf Taktgrenzen:** die freigegebene Eröffnung (0–16,875 s = Takt 9) läuft einmal, danach kreist die Fortsetzung bis 54,375 s (Takt 29). Der Nachhall des Schleifenendes ist im Asset auf den Schleifenanfang gefaltet, deshalb ist der Sprung ohne Blende klickfrei; 2 s Nachlauf hinter `loopEnd` fangen die Kürzung der Encoder ab (gemessen 15–67 ms). Beim **Matchbeginn** blendet die Musik in 0,70 s aus, während des Spiels läuft bewusst keine Musik, bei der Rückkehr ins Menü beginnt sie mit 0,40 s Blende neu. Das alte Thema bleibt im Code, wird aber in **jedem Bild** auf `off` gehalten — dadurch bleiben auch seine Akzente stumm, weil `akzentOk()` `alive` verlangt: doppelte Musik ist strukturell ausgeschlossen, nicht bloß unwahrscheinlich. Rauchtest im echten Produkt (`artifacts/audio-reset-06/rauchtest.js`): Asset lädt und spielt, Schleife bei Takt 9,000 → 29,000, altes Thema mit 0 Stimmen, nach mehrfachem Szenenwechsel keine zusätzliche Wiedergabe, keine Seitenfehler.
 - test(arena-football): **die Musiksuite prüft jetzt die Ablösung** (2026-09-04) — 345 → 374 Zusicherungen. Neu: für **jede** Szene (Startseite, Lobby, Match, Ergebnis, RingOut-Spiel, Wiedergabe, Musik aus) bekommt das abgelöste Thema ausschließlich `off` und das Stück genau die abgeleitete Szene; die Schleifenpunkte liegen nachweislich auf Taktgrenzen; die Matchblende liegt in der Vorgabe 0,5–0,9 s; das Modul legt keinen zweiten AudioContext an und kann keine zweite Quelle starten, solange eine läuft.

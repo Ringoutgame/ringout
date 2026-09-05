@@ -833,7 +833,7 @@ function NOTICE_SEK(name) {
 // DAS GATE UND DER DETERMINISMUS
 // ══════════════════════════════════════════════════════════════════════════════
 {
-  ok(/function fbClockStep\(\)\{[\s\S]{0,900}?const who=fbDecisionWho\(\);/.test(HTML),
+  ok(/function fbClockStep\(\)\{[\s\S]{0,1600}?const who=fbDecisionWho\(\);/.test(HTML),
      'das Gate steht in der Uhr selbst, nicht beim Aufrufer');
   ok(/function fbDecisionWho\(\)\{[\s\S]*?if\(phase!=='aim'\)return -1;/.test(HTML),
      'es verlangt ausdruecklich die Zielphase');
@@ -901,8 +901,10 @@ function NOTICE_SEK(name) {
 // AI. ONLINE BLEIBT UNBERUEHRT
 // ══════════════════════════════════════════════════════════════════════════════
 {
-  ok(/function fbDecisionWho\(\)\{[\s\S]{0,200}?if\(!fbSpeed\(\)\|\|online\)return -1;/.test(HTML),
-     'AI) die Zeitregel ist online sofort aus');
+  ok(/function fbDecisionWho\(\)\{\s*if\(online\)return -1;/.test(HTML),
+     'AI) die Zeitregel ist online sofort aus - erste Zeile, vor jeder Regelfrage');
+  ok(/if\(!fbSpeed\(\)&&!\(typeof fbTimed==='function'&&fbTimed\(\)\)\)return -1;/.test(HTML),
+     'AI) und ohne Speed Match oder Timed FFA laeuft ueberhaupt keine Zeit');
   ok(/const FOOTBALL_FMTS=\['elimination'\];/.test(HTML),
      'AI) Online-Football kennt ausschliesslich Elimination');
   ok(/const ONLINE_PROTOCOL_VERSION=7;/.test(HTML), 'AI) die Protokollversion bleibt 7');
@@ -929,10 +931,14 @@ function NOTICE_SEK(name) {
   ok(/sep\.classList\.toggle\('urgent',dringlich\)/.test(HTML) &&
      /const dringlich=laeuft&&rest<=FOOTBALL_SHOT_URGENT_TICKS;/.test(HTML),
      'der dringliche Zustand haengt an derselben Konstante');
-  // Der Countdown gehoert EINEM Spieler. Zwischen dem Oeffnen des Fensters und dem
-  // naechsten festen Schritt liegt mindestens ein gezeichnetes Bild — ohne diese Frage
-  // zeigte es dort den Rest des VORIGEN Spielers oder eine dringliche 0.0.
-  ok(/function fbShotShown\(\)\{[\s\S]*?return fbShotFor===who\?fbShotTicks:fbShotCap\(who\);/.test(HTML),
+  // Der Countdown gehoert in Speed Match EINEM Spieler. Zwischen dem Oeffnen des Fensters
+  // und dem naechsten festen Schritt liegt mindestens ein gezeichnetes Bild - ohne diese
+  // Frage zeigte es dort den Rest des VORIGEN Spielers oder eine dringliche 0.0.
+  // (In Timed FFA gehoert derselbe Countdown dem gemeinsamen Fenster; `eigner` ist dort
+  // der Sentinel und hier immer `who` - die Zusicherung fuer Classic bleibt dieselbe.)
+  ok(/const eigner=\(typeof fbTimed==='function'&&fbTimed\(\)\)\?FOOTBALL_FFA_WINDOW:who;/.test(HTML),
+     'ausserhalb der Zeitregel gehoert der Countdown weiterhin dem Spieler selbst');
+  ok(/function fbShotShown\(\)\{[\s\S]*?return fbShotFor===eigner\?fbShotTicks:fbShotCap\(who\);/.test(HTML),
      'die Anzeige zeigt nie den Countdown eines anderen Spielers');
   ok(!/sep\.classList\.toggle\('hold'/.test(HTML),
      'der tote Halt-Zustand ist entfernt — im Halt steht schlicht der Doppelpunkt');

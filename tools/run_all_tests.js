@@ -18,10 +18,11 @@ const SUITES = [
   { name: 'Football-Shell',   file: 'test_football_shell.js', expectPassed: 954 },   // Arena-Finalisierung + Review-Fixes: Rounded Rectangle B, gerades Tor, M1, Ballradius 25
   { name: 'Football-Flow',    file: 'test_football_flow.js',  expectPassed: 155 },   // Arena-Finalisierung 2026-08-07: M1-Wirkungsmessung, Rechteckgrenze, Ballradius 25
   { name: 'Football-Arena',   file: 'test_football_arena.js', expectPassed: 79 },    // Classic auf der kanonischen Shouldered-Wide-Arena, buendiges Tor, M1, Ballradius 25
-  { name: 'Football-Tactical', file: 'test_football_tactical.js', expectPassed: 287 },   // Tactical 1v1 (2 Figuren, 1 Zug je Team/Runde) + sichtbare Modusauswahl der drei Produktmodi
-  { name: 'Football-Elim',    file: 'test_football_elimination4.js', expectPassed: 1520 },  // Dev-Einstieg auf vier Startspieler: ZWEI LEBEN + adaptive Arena 4 -> 3 -> 2 -> 1 + fairer Respawn
+  { name: 'Football-Tactical', file: 'test_football_tactical.js', expectPassed: 291 },   // Tactical 1v1 (2 Figuren, 1 Zug je Team/Runde) + sichtbare Modusauswahl der drei Produktmodi
+  { name: 'Football-Elim',    file: 'test_football_elimination4.js', expectPassed: 1522 },  // Dev-Einstieg auf vier Startspieler: ZWEI LEBEN + adaptive Arena 4 -> 3 -> 2 -> 1 + fairer Respawn
   { name: 'Football-Elim5',   file: 'test_football_elimination5.js', expectPassed: 319 },
-  { name: 'Football-Zeit',    file: 'test_football_timed_classic.js', expectPassed: 255 },  // Classic 1v1 auf Zeit: 90 s BEDENKZEIT in festen Ticks, Golden Goal bei Gleichstand, Tactical und Elimination unberuehrt
+  { name: 'Football-TimedFFA', file: 'test_football_timed_ffa.js', expectPassed: 239 },   // Elimination 2.0: Phasenuhr nur waehrend gespielter Zeit, Gegentore je Phase, Gleichstand ohne Los; Leben, Classic, Tactical und Online unberuehrt
+  { name: 'Football-Zeit',    file: 'test_football_timed_classic.js', expectPassed: 257 },  // Classic 1v1 auf Zeit: 90 s BEDENKZEIT in festen Ticks, Golden Goal bei Gleichstand, Tactical und Elimination unberuehrt
   { name: 'Football-Action',  file: 'test_football_action_core.js', expectPassed: 59 },  // Action Core 04: der Stossimpuls kennt Massen — ein sauberer Volltreffer gibt dem Ball 96.7 % statt 71.4 %, Winkel und Staerke bleiben taktische Groessen, die Daempfung beider Kugelarten ist unangetastet
   { name: 'Football-Tormund', file: 'test_football_goal_mouth.js', expectPassed: 263 },  // sichtbar offen heisst physisch offen: im Torfenster keine Bande, der Sockel besitzt die Zurueckweisung, das Tor wird nie breiter als es aussieht
   { name: 'Football-FX',      file: 'test_football_fx.js',     expectPassed: 112 },    // Action-Feel 02: gedeckelte Effektliste, kurzlebige Formen, keine Spielzustandsberuehrung, RingOut unberuehrt  // Produktmodus Elimination: 5 -> 4 -> 3 -> 2 -> Sieger, dieselbe Architektur

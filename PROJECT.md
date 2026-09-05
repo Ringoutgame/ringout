@@ -1,6 +1,6 @@
 # PROJECT.md — RingOut
 
-**Zuletzt aktualisiert:** 2026-09-04 (**Arena-Football-Menümusik mit Energiekurve**: `FBTRACK` spielt `assets/audio/arena-football-menu.m4a` — leichter Einstieg bis 11,25 s, Aufbau bis 28,125 s, danach volle Energie; die Schleife umfasst nur die volle Phase (28,125 → 65,625 s), Menüpegel 0,30, Matchblende 0,70 s; das prozedurale Thema bleibt liegen, wird aber in jedem Bild auf `off` gehalten; Regeln, Physik, HUD und **Online-Protokoll v7** unverändert)
+**Zuletzt aktualisiert:** 2026-09-05 (**Timed FFA ist simultan**: ein gemeinsames 6-Sekunden-Fenster fuer alle aktiven Spieler, ein gemeinsamer Start, kein Uebergabeschirm; Countdown gehoert dem Fenster (`FOOTBALL_FFA_WINDOW`), READY je Spieler im Chip. Zuvor: **Timed FFA zaehlt Bedenkzeit, nicht Ballzeit** — die Phasenuhr sinkt nur beim Zielen, dazu ein 6-Sekunden-Riegel je Zug mit Auto-Commit des anliegenden Vektors; grosser zentraler Countdown, Phasenuhr daneben. Dieselbe Uhr wie Classic Speed Match, dasselbe Gatter `fbDecisionWho()`. Zuvor: **Elimination hat zwei Regeln: LIVES und TIMED FFA** — Timed FFA ist rein lokal, zählt Gegentore in 60-s-Phasen und scheidet den Schlechtesten aus; Gleichstand führt in FFA DANGER SUDDEN DEATH. **Online bleibt ausschließlich Lives**, Protokoll v7 unverändert. Zuvor: **Arena-Football-Menümusik mit Energiekurve**: `FBTRACK` spielt `assets/audio/arena-football-menu.m4a` — leichter Einstieg bis 11,25 s, Aufbau bis 28,125 s, danach volle Energie; die Schleife umfasst nur die volle Phase (28,125 → 65,625 s), Menüpegel 0,30, Matchblende 0,70 s; das prozedurale Thema bleibt liegen, wird aber in jedem Bild auf `off` gehalten; Regeln, Physik, HUD und **Online-Protokoll v7** unverändert)
 
 - **Aktueller stabiler Projekt-HEAD:** `5a23dc424fb3126c33c29543b7c6571b87a65ec7`
 - **Implementierungs-Commit UX-Phase 3:** `babbbe78ee388489321d1f0cb3e032bbaabd0725`
@@ -42,9 +42,10 @@ Stand: Arena-Finalisierung (2026-08-08), frisch gemessen mit
 | Football-Shell | `test_football_shell.js` | 818/0 | grün |
 | Football-Flow | `test_football_flow.js` | 148/0 | grün |
 | Football-Arena | `test_football_arena.js` | 61/0 | grün |
-| Football-Tactical | `test_football_tactical.js` | 243/0 | grün |
-| Football-Elim | `test_football_elimination4.js` | 1229/0 | grün |
-| Football-Elim5 | `test_football_elimination5.js` | 285/0 | grün |
+| Football-Tactical | `test_football_tactical.js` | 291/0 | grün |
+| Football-Elim | `test_football_elimination4.js` | 1522/0 | grün |
+| Football-Elim5 | `test_football_elimination5.js` | 319/0 | grün |
+| Football-TimedFFA | `test_football_timed_ffa.js` | 239/0 | grün |
 | r3d-Mapping | `test_r3d_mapping.js` | 52/0 | grün |
 | Sanitize | `test_sanitize.js` | 24/0 | grün |
 | Identity | `test_identity.js` | 45/0 | grün |
@@ -653,6 +654,125 @@ sichtbare Modusauswahl nicht erreichbar.
 - Das Tor eines ausgeschiedenen Spielers wird physikalisch zur Bande und optisch als totes
   Tor dargestellt.
 - Der letzte verbliebene Spieler gewinnt; nach dem entscheidenden Tor faellt kein neuer Ball.
+
+**Zweite Regel: TIMED FFA (lokal, seit 2026-09-04).** Elimination hat jetzt zwei Regelwerke.
+`fbElimRules` (`'lives'` | `'timed'`) ist die einzige Weiche, `fbTimed()` der einzige Konsument.
+**Der Standard bleibt LIVES** — die Regel oben ist unveraendert und wird durch Timed FFA weder
+ersetzt noch beruehrt. Die Wahl trifft ein eigenes Einrichtungs-Overlay `#fbElimOv`, das
+`#fbElimBtn` oeffnet: LIVES (empfohlen, hervorgehoben) oder TIMED FFA, dazu die Spielerzahl
+**3, 4 oder 5**. Die Startspielerzahl ist damit waehlbar geworden (`fbElimSetupN` →
+`fbElimStartN`); `FOOTBALL_ELIM_START_PLAYERS = 5` bleibt der Vorgabewert.
+
+- **Phasenuhr.** `FOOTBALL_FFA_PHASE_SECONDS = 60`, umgerechnet in
+  `FOOTBALL_FFA_PHASE_TICKS = 60 × FOOTBALL_SIM_HZ = 3600`. Gezaehlt werden **Ticks, keine
+  Wanduhr** — kein `Date.now()`, kein `setInterval`, keine Abhaengigkeit von der
+  Bildwiederholrate. Der Wert ist ausdruecklich ein Spieltestwert, keine eingefrorene Konstante.
+- **DIE UHR ZAEHLT BEDENKZEIT, NICHT BALLZEIT** (korrigiert 2026-09-05 nach dem Spieltest).
+  Sie sinkt genau dann, wenn ein Mensch den Schuss noch aendern kann. Flug, Settlement,
+  Torablauf, Reset, Umbau, Ausscheidungsmeldung, Uebergabeschirm, Menue, Lobby,
+  Ergebnisschirm und ein **verdeckter Tab** kosten keine Zehntelsekunde — **Simulationszeit
+  ist frei, bezahlt wird Entscheidung.** Das ist dieselbe Semantik wie in Classic Speed Match,
+  und sie kommt aus derselben Quelle: `fbFfaRunning()` fragt **`fbDecisionWho()`**, und der
+  Tick haengt in **`fbClockStep()`** an genau der Stelle, an der Speed Match sein
+  persoenliches Konto senkt (`fbFfaClockTick(who)`). Es gibt keine zweite Fassung der Frage
+  "wer kann jetzt handeln" — zwei davon waeren frueher oder spaeter auseinandergelaufen.
+  Der verdeckte Tab faellt zusaetzlich schon eine Ebene tiefer weg: offline verwirft
+  `simAdvance()` den Rueckstand, es entstehen gar keine Ticks zum Nachholen.
+- **SIMULTAN: ein gemeinsames Fenster fuer alle** (korrigiert 2026-09-05 nach dem
+  Spieltest). Es gibt kein "wer ist dran", es gibt nur **wer ist noch offen**
+  (`fbFfaOffen()` — aktive Spieler ohne Commit, in kanonischer Reihenfolge). Alle
+  entscheiden im **selben** Fenster, danach starten **alle** Figuren gleichzeitig, die
+  Aktion laeuft vollstaendig aus, dann folgt das naechste Fenster.
+  - **Der Abschuss war schon immer gleichzeitig.** `applyCommit()` sammelt nur Absichten
+    (`commitIdx`/`commitAim`/`commitSpin`/`aimSet`); `applyLaunch()` weist **alle**
+    Geschwindigkeiten in kanonischer Spielerreihenfolge zu und ruft **erst danach**
+    `setPhase('sim')`. Zwischen zwei Bestaetigungen laeuft kein Simulationsschritt, und die
+    Eingabereihenfolge kann das Ergebnis nicht beeinflussen. Sequentiell war nur die
+    **Eingabe** — genau die ist jetzt gemeinsam.
+  - **Das Fenster schliesst, sobald die offene Menge leer ist** — nicht erst bei 6,0. Sind
+    alle nach 2,7 s bereit, wird sofort abgeschossen.
+  - **Kein Uebergabeschirm.** In der Zeitregel wird das Geraet nicht weitergereicht; die
+    beiden Rundenstarts und `applyCommit` ueberspringen `openCover()` ausschliesslich hier.
+    **Classic behaelt seinen Uebergabeschirm unveraendert.**
+  - **Bestaetigung ausserhalb der Reihenfolge** ist zulaessig: die Suche nach dem naechsten
+    Offenen laeuft ueber **alle** offenen Spieler, nicht nur ueber die nachfolgenden. Sonst
+    haette ein Commit des hoechsten Index den Start ausgeloest, obwohl noch jemand offen war.
+- **Sechs-Sekunden-Riegel — EINER, geteilt.** `FOOTBALL_FFA_SHOT_SECONDS = 6`
+  (`FOOTBALL_FFA_SHOT_TICKS = 360`). Weil die Uhr beim Zielen laeuft, koennte ein Spieler das
+  Geraet sonst einfach halten. Der Countdown gehoert dem **Fenster**, nicht einem Spieler:
+  der Sentinel `FOOTBALL_FFA_WINDOW = -2` steht in `fbShotFor` und verhindert damit, dass
+  der Wechsel des gefuehrten Spielers ihn neu startet. Riegel und Phasenuhr sinken
+  **gemeinsam**, beim Loslassen des Letzten stehen **beide** sofort. Ein Aktionszyklus
+  kostet damit hoechstens 6 s Phasenzeit — nicht das Fuenffache bei fuenf Spielern.
+  Bei Ablauf bekommt **jeder** noch offene Spieler seine eigene Behandlung
+  (`fbFfaExpire()` → `fbCommitFor(o)`): anliegender Zug → genau dieser, sonst Nullzug.
+  Abgeraeumt wird dabei nur der **eigene** laufende Zug — ein bedingungsloses Abraeumen
+  haette den anliegenden Zug eines spaeteren Spielers geloescht (Befund aus dem
+  unabhaengigen Review). Bei Ablauf entsteht **kein erfundener Schuss**: liegt ein gueltiger
+  Zugvektor an, wird **genau dieser** abgegeben — derselbe, den ein Loslassen in dieser
+  Sekunde erzeugt haette; sonst ein Nullzug. Dafuer wird **dieselbe** Funktion
+  `fbDecisionExpire()` und **dieselbe** Vektorquelle `aimVectorFromDrag()` benutzt wie in
+  Classic; die Automatik kann gar nicht anders rechnen als die Hand.
+- **Erreicht die Phasenuhr beim Zielen null, gibt es keine Nachspielzeit.** Der anliegende Zug
+  wird sofort abgegeben (sonst ausgesetzt); ausgewertet wird die Phase unveraendert erst nach
+  der Aktion.
+- **Uebergabefrist.** Die 30-Sekunden-Frist aus Speed Match (`FOOTBALL_HANDOFF_TICKS`) gilt
+  jetzt auch hier — kein neuer Mechanismus, sondern ein zweiter Nutzer des vorhandenen. Ohne
+  sie stuende hinter einem offen gelassenen Uebergabeschirm alles still.
+- **Das Phasenende unterbricht nichts.** `fbFfaStep()` setzt bei 0 nur das Flag `fbFfaDue`.
+  Ausgewertet wird es an genau **zwei** Stellen, und beide liegen dort, wo die Aktion ohnehin
+  zu Ende ist: im Settlement von `stepSim()` (`if(!moving)`) und im Torablauf
+  `footballTickGoal()`. Ein laufender Ballflug wird nie abgeschnitten, ein Tor aus dem
+  laufenden Zyklus zaehlt vollstaendig.
+- **Gezaehlt werden Gegentore, nicht Tore.** Buchungsstelle ist `footballElimConcede(o)` —
+  **dieselbe** Funktion, die in der Lebensregel ein Leben abzieht, und der einzige Ort, an dem
+  ein Tor verbucht wird. Es gibt keinen zweiten Zaehlpfad und keine Ableitung aus der
+  Ballposition. Am Phasenende scheidet der Spieler mit den **meisten** Gegentoren aus, danach
+  werden alle Zaehler auf 0 gesetzt (`fbFfaBeginPhase()`).
+- **FFA DANGER SUDDEN DEATH.** Haben mehrere aktive Spieler gleich viele Gegentore, scheidet
+  **niemand** aus. Die Uhr steht (`fbFfaRunning()` ist falsch), die Zaehler bleiben stehen,
+  **alle** Spieler bleiben auf dem Feld und die Arena wird nicht umgebaut. Verwundbar ist
+  ausschliesslich die **eingefrorene** Gleichstandsmenge `fbFfaDangerSet`: das naechste
+  Gegentor eines dieser Spieler scheidet ihn sofort aus. Wer nicht in der Menge steht, kann in
+  diesem Zustand nicht ausscheiden, auch wenn er kassiert — das ist die Spezifikation, nicht
+  ein Nebeneffekt: die Menge ist der Preis fuer die verpasste Phase und wird bewusst **nicht**
+  nachgefuehrt.
+- **Die letzten zwei spielen dieselbe Regel weiter** — kein Wechsel auf Classic oder Speed
+  Match. Auch das Finale laeuft in 60-s-Phasen mit Gegentorzaehlung.
+- **Im Gleichstand bleibt der Riegel, die Phasenuhr geht.** In Sudden Death gibt es keine
+  Regulaerphase mehr und damit keine Phasenuhr; der Sechs-Sekunden-Riegel bleibt, sonst
+  koennte man den Zustand beliebig lange offen halten. Auch Sudden Death laeuft in
+  **gemeinsamen** Fenstern — alle aktiven Spieler entscheiden zusammen und starten zusammen.
+- **Auch das Zweierfinale bleibt simultan** — es wird nicht auf abwechselnde Zuege
+  umgeschaltet.
+- **Eingabe (lokal).** Die bestehende Eingabearchitektur kennt genau **einen** Ziel-Zeiger
+  (`aimPid`) plus einen Drall-Zeiger; echtes gleichzeitiges Mehrfinger-Zielen ist damit
+  **nicht** abgedeckt, und die Eingabeschicht wurde dafuer bewusst **nicht** umgebaut.
+  Erweitert ist stattdessen die **Greifzone**: `pickOwnBall()` und `pickOwnBall3D()` nehmen
+  wahlweise **eine Liste** von Spielern statt eines einzelnen, und in der Zeitregel ist das
+  die Menge der offenen. Der Nutzer setzt die Vektoren im selben Fenster nacheinander —
+  abgeschossen wird trotzdem gemeinsam. Ausserhalb der Zeitregel bleibt genau eine Figur
+  greifbar; Tactical waehlt mit demselben Griff unveraendert seine Figur.
+- **Anzeige.** Der **Schuss-Countdown** steht **gross und mittig** unter der Chipleiste
+  (`#fbShot`, 30 px, feste Ziffernbreite, Goldton, in den letzten zwei Sekunden heller mit dem
+  bestehenden Puls `fbclk`) — dieselbe Bildsprache wie der Countdown in Speed Match, nur in
+  der Groesse, die seiner Rolle entspricht. Die **Phasenuhr** steht daneben im Kopf der
+  Chipleiste in `M:SS` (`fbFfaClockText()`, Klasse `.frnd.fclk`, 15 px): klar lesbar, aber
+  sichtbar die zweite Groesse. Jeder Chip traegt statt der Lebenspunkte ein
+  kompaktes `GA 0` (`ffaGa`, DE `GT`, TR `YG`). Wer im laufenden Fenster **bestaetigt** hat,
+  traegt zusaetzlich `.rdy` — ein ruhiger Haken, gedaempft, ohne Puls; wer noch offen ist,
+  bleibt hervorgehoben (`.act` gilt in der Zeitregel fuer **alle** Offenen, weil dort auch
+  alle handeln duerfen). Die Statuszeile nennt die Zahl der noch Offenen. Gefaehrdete Chips bekommen die Klasse `.dgr` —
+  eine zurueckhaltende Markierung, kein Blinken. Der Kopftext meldet kurz `DANGER` bzw.
+  `P3 OUT` (`FOOTBALL_FFA_NOTICE_TICKS`, rund 2,2 s). Bewusst **nicht** die
+  Golden-Goal-Darstellung: das ist ein anderer Zustand und darf nicht gleich aussehen.
+- **Online ist nicht betroffen.** `fbTimed()` enthaelt `!online`; das ist das eine Gatter, das
+  **jeder** Einstiegspfad passiert, auch die beiden Online-Einstiege, die `fbVariant` direkt
+  setzen statt ueber `startFootball()` zu gehen. Zusaetzlich setzen beide Einstiege
+  `fbElimRules` explizit auf `'lives'`. Online-Football bleibt
+  `FOOTBALL_FMTS = ['elimination']` mit der Lebensregel, `ONLINE_PROTOCOL_VERSION = 7`
+  unveraendert, Firebase-Rules, Raumschema und MOVE-Format unberuehrt. Timed FFA ist
+  **rein lokal**.
 
 **Adaptive Arena 5 → 4 → 3 → 2 → 1.** Die Arenaform folgt der Spielerzahl. Einzige Quelle sind
 `FOOTBALL_ARENA_ELIM5/4/3/2`, ausgewaehlt ueber `fbArena()` aus der Phasentabelle

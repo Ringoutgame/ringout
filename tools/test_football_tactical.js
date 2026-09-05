@@ -321,9 +321,19 @@ console.log('ARENA FOOTBALL — Produktsuite: Classic 1v1 (Standard) + Tactical 
      'der Zurueck-Button schliesst das Modal unveraendert');
   // Jede Option ruft denselben einzigen Startpfad mit ihrer Variante auf — kein zweiter Pfad,
   // keine Zwischenbestaetigung, dieselbe Haptik wie die Bestandsoptionen.
+  // TACTICAL startet direkt. ELIMINATION oeffnet seine Einrichtung und startet von dort
+  // ueber DIESELBE Funktion - der Startpfad ist derselbe, nur der Weg dorthin ist einen
+  // Schirm laenger (Regel und Teilnehmerzahl muessen vorher feststehen).
+  // Geprueft wird ueber den ausgeschnittenen Handler statt ueber einen zusammengesetzten
+  // regulaeren Ausdruck: der Handler darf umgebrochen sein, und ein Muster mit vier
+  // Escape-Ebenen prueft am Ende nur noch sich selbst.
   for (const [id, arg] of [['fbTacticalBtn', 'FOOTBALL_VARIANT_TACTICAL'],
-                           ['fbElimBtn', 'FOOTBALL_VARIANT_ELIM']]) {
-    ok(HTML.includes("$('" + id + "').onclick=()=>{if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);startFootball(" + arg + ");};"),
+                           ['fbLivesBtn', 'FOOTBALL_VARIANT_ELIM'],
+                           ['fbTimedBtn', 'FOOTBALL_VARIANT_ELIM']]) {
+    const at = HTML.indexOf("$('" + id + "').onclick=");
+    const src = at >= 0 ? HTML.slice(at, HTML.indexOf('};', at) + 2) : '';
+    ok(src.includes('if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);')
+       && src.includes('startFootball(' + arg + ');'),
        id + ' startet ueber startFootball() mit der eigenen Variante und derselben Haptik');
   }
   // CLASSIC startet seit dem Regelpass NICHT sofort, sondern oeffnet die Regelwahl —
@@ -336,10 +346,11 @@ console.log('ARENA FOOTBALL — Produktsuite: Classic 1v1 (Standard) + Tactical 
     ok(HTML.includes("startFootball('classic'," + rules + ");"),
        id + ' startet Classic mit ' + rules);
   }
-  // Eine Definition, vier Menue-Aufrufer (Regelwahl zaehlt zwei), der Dev-Direktlink —
-  // und eine Kommentarerwaehnung. ONLINE ist bewusst NICHT darunter: es startet kein
-  // lokales Match, sondern uebergibt an den bestehenden Onlinebildschirm.
-  ok((HTML.match(/startFootball\(/g) || []).length === 7,
+  // Eine Definition, FUENF Menue-Aufrufer (Classic-Regelwahl zwei, Elimination-Einrichtung
+  // zwei, Tactical einer), der Dev-Direktlink — und eine Kommentarerwaehnung. ONLINE ist
+  // bewusst NICHT darunter: es startet kein lokales Match, sondern uebergibt an den
+  // bestehenden Onlinebildschirm.
+  ok((HTML.match(/startFootball\(/g) || []).length === 8,
      'kein zweiter Startpfad neben startFootball() (erhalten: ' + (HTML.match(/startFootball\(/g) || []).length + ')');
   const onlineHandler = grab(/\$\('fbOnlineBtn'\)\.onclick=\(\)=>\{[\s\S]*?\n\};/, 'fbOnlineBtn-Handler');
   ok(!/startFootball/.test(onlineHandler), 'ONLINE startet kein lokales Match');
@@ -353,13 +364,23 @@ console.log('ARENA FOOTBALL — Produktsuite: Classic 1v1 (Standard) + Tactical 
      'und es gelten dieselben Vorbedingungen wie fuer die lokalen Modi (Tuning, 3D-Szene)');
   // Der Produktweg ist NICHT an ?dev=1 gebunden - genau das ist der Zweck.
   ok(!/DEV_MENU/.test(onlineHandler), 'der Produktweg verlangt kein ?dev=1');
-  // Keine Zwischenbestaetigung und kein zweites Elimination-Modal.
-  ok(!/fbElimOv|fbElimConfirm|elimConfirm/.test(HTML), 'Elimination hat keinen zweiten Bestaetigungsschritt');
+  // Elimination hat jetzt EINEN Einrichtungsschritt — gebaut wie die Classic-Regelwahl,
+  // weil dort zwei Entscheidungen zusammengehoeren, die beide vor dem Anpfiff fallen
+  // muessen: nach welcher Regel ausgeschieden wird und mit wie vielen Leuten.
+  const elimOv = grab(/<div class="ov" id="fbElimOv">[\s\S]*?id="fbElimBack"[\s\S]*?<\/div>/, 'Elimination-Einrichtung');
+  ok(/id="fbLivesBtn"/.test(elimOv) && /id="fbTimedBtn"/.test(elimOv),
+     'die Einrichtung bietet beide Regeln an — die Leben bleiben erreichbar');
+  ok(/<button class="vopt rec" id="fbLivesBtn">/.test(elimOv) && !/id="fbTimedBtn"[^>]*rec/.test(elimOv),
+     'die Leben bleiben die empfohlene Regel, Timed FFA wird nicht empfohlen');
+  ok(/id="fbElimN3"/.test(elimOv) && /id="fbElimN4"/.test(elimOv) && /id="fbElimN5"/.test(elimOv),
+     'und sie bietet drei Teilnehmerzahlen an: 3, 4 und 5');
+  ok(!/fbElimConfirm|elimConfirm/.test(HTML),
+     'dahinter kommt aber keine weitere Bestaetigung — ein Schirm, dann Anpfiff');
 
   // ── i18n: die neuen Strings existieren in allen drei Sprachen ──
-  for (const [lang, title, sub] of [['EN', 'ELIMINATION', '5 PLAYERS · TWO LIVES EACH'],
-                                    ['DE', 'ELIMINATION', '5 SPIELER · JE 2 LEBEN'],
-                                    ['TR', 'ELİMİNASYON', '5 OYUNCU · HER BİRİNE 2 CAN']]) {
+  for (const [lang, title, sub] of [['EN', 'ELIMINATION', '3–5 PLAYERS · LIVES OR TIMED'],
+                                    ['DE', 'ELIMINATION', '3–5 SPIELER · LEBEN ODER ZEIT'],
+                                    ['TR', 'ELİMİNASYON', '3–5 OYUNCU · CAN VEYA SÜRE']]) {
     ok(HTML.includes("fbElimT:'" + title + "',fbElimS:'" + sub + "'"),
        lang + ': Elimination-Titel und Kurztext vorhanden');
   }

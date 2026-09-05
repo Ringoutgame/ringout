@@ -1524,7 +1524,13 @@ console.log('ARENA FOOTBALL - ELIMINATION: ZWEI LEBEN + ADAPTIVE ARENA + FAIRER 
      'die Wertung geht ueber genau EINE Stelle: footballElimConcede');
   ok(/if\(fbElimLives\[o\]>0\)fbElimLives\[o\]--;\s*\n\s*if\(fbElimLives\[o\]<=0\)footballElimEliminate\(o\);/.test(elimBlockSrc),
      'ein Gegentor kostet ein Leben; erst bei 0 laeuft die bestehende Eliminierung');
-  ok(!/fbElimConceded|Gegentor/.test(renderBarSrc), 'die Chipleiste zeigt keine Gegentore mehr');
+  // Die LEBENSREGEL zeigt weiterhin keine Gegentorzahl — nur die zwei Punkte. Die Zahl
+  // gehoert ausschliesslich der Zeitregel, und beide Zweige stehen sichtbar getrennt.
+  const lebenZweig = renderBarSrc.slice(renderBarSrc.indexOf('}else{'));
+  ok(lebenZweig.length > 40 && !/fbFfaConceded/.test(lebenZweig) && /fpip/.test(lebenZweig),
+     'die Lebensregel zeigt weiterhin nur die zwei Lebenspunkte, keine Gegentore');
+  ok(/if\(zeit\)\{[\s\S]*?fbFfaConceded\[o\]/.test(renderBarSrc),
+     'die Gegentorzahl haengt ausschliesslich an der Zeitregel');
   ok(/' out'/.test(renderBarSrc), 'Ausgeschiedene werden in der Leiste gedimmt markiert');
   ok(!/innerHTML/.test(renderBarSrc), 'die Chipleiste baut ausschliesslich ueber DOM-Knoten');
   ok(/fbElimHeadText\(\)/.test(renderBarSrc), 'die Kopfzeile kommt aus fbElimHeadText()');
@@ -1629,8 +1635,14 @@ console.log('ARENA FOOTBALL - ELIMINATION: ZWEI LEBEN + ADAPTIVE ARENA + FAIRER 
   ok(/id="fbElimBtn"/.test(modeOv), 'die sichtbare Modusauswahl hat einen Elimination-Eintrag');
   ok(/<button class="vopt rec" id="fbClassicBtn">/.test(modeOv) && !/id="fbElimBtn"[^>]*rec/.test(modeOv),
      'Classic bleibt die empfohlene Option, Elimination wird nicht empfohlen');
-  ok(HTML.includes("$('fbElimBtn').onclick=()=>{if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);startFootball(FOOTBALL_VARIANT_ELIM);};"),
-     'der Menuebutton startet den PRODUKTMODUS ueber denselben startFootball()-Pfad');
+  // Der Menuebutton oeffnet die Einrichtung, statt sofort zu starten — dieselbe Bauweise
+  // wie CLASSIC mit seiner Regelwahl. Gestartet wird weiterhin ausschliesslich ueber
+  // startFootball(), von beiden Regelknoepfen aus.
+  ok(/\$\('fbElimBtn'\)\.onclick=\(\)=>\{if\(SFX\.click\(\)\)vibrateMs\(VIBE_CLICK_MS\);\s*\n\s*\$\('fbModeOv'\)\.classList\.remove\('show'\);\$\('fbElimOv'\)\.classList\.add\('show'\);\};/.test(HTML),
+     'der Menuebutton oeffnet die Einrichtung — wie CLASSIC seine Regelwahl');
+  ok(/\$\('fbLivesBtn'\)\.onclick=[\s\S]{0,200}?startFootball\(FOOTBALL_VARIANT_ELIM\);/.test(HTML)
+     && /\$\('fbTimedBtn'\)\.onclick=[\s\S]{0,200}?startFootball\(FOOTBALL_VARIANT_ELIM\);/.test(HTML),
+     'und beide Regeln starten den PRODUKTMODUS ueber denselben startFootball()-Pfad');
   // Der Vier-Spieler-Einstieg ist bewusst NICHT sichtbar: er haengt am Dev-Guard.
   ok(/const dev4=variant===FOOTBALL_VARIANT_ELIM4&&typeof DEV_MENU!=='undefined'&&DEV_MENU;/.test(HTML),
      'der Vier-Spieler-Einstieg ist an ?dev=1 gebunden');
