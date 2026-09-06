@@ -19,12 +19,12 @@
 //   - Es kann daher ein formal gueltiges Reveal in r/ stehen, dessen Vorlage NICHT zum
 //     Hash seines Commits passt. Die Rules nehmen es an. Erst die Clientlogik in V9.3
 //     muss es erkennen und bei ALLEN Teilnehmern gleich verwerfen.
-//   - Die Eroeffnung des naechsten Turns ist noch nicht simulationssicher: ist der
-//     Vorgaenger protokollarisch fertig, darf sofort geoeffnet werden - auch waehrend
-//     ehrliche Clients die Physik der Vorrunde noch rechnen. Das schliesst erst V9.4
-//     mit einer Settled/Ready-Barriere je Sitz.
-//   - Turn 0 haengt weiterhin nur an state/seats. Eine Ready-Barriere zum
-//     Generationsstart fehlt und gehoert ebenfalls zu V9.4.
+//   - SEIT V9.4B1 ist die Voreroeffnung geschlossen: d/<turn> verlangt zusaetzlich zur
+//     Protokollvollstaendigkeit des Vorgaengers den Abschlussanker z und eine
+//     vollstaendige Bereitschaftsbarriere q je Sitz. Turn 0 haengt am Generationsstart s.
+//     Was die Regeln weiterhin NICHT wissen: ob ein Client seine Physik wirklich
+//     gerechnet hat. Sie wissen nur, dass er es selbst erklaert hat - und genau deshalb
+//     ist die Bereitschaft besitzergebunden: ein Sitz kann nur sich selbst melden.
 //   - Was ein ausgebliebenes Reveal SPIELERISCH bedeutet, ist NICHT entschieden. Das
 //     Protokoll haelt hier nur fest, dass nichts kam.
 //   - WebCrypto, Salzerzeugung, Hashvorlage und jede Spielwirkung gehoeren nicht hierher.
@@ -51,13 +51,32 @@ function raum(opt) {
   const cap = opt.cap === undefined ? 3 : opt.cap;
   const offline = opt.offline || [], evicted = opt.evicted || [];
   const p = {}, players = {};
+  // `flackern` nennt Sitze, deren Praesenz zwar auf false steht, aber NOCH NICHT
+  // lange genug fuer eine Austragung. Genau daran scheitert ein Flackern.
+  const flackern = opt.flackern || [];
   for (let i = 0; i < cap; i++) {
-    const weg = offline.indexOf(i) >= 0;
-    p[i] = { s: 'V9TAB0' + i, on: !weg, t: weg ? NOW - GRACE - 1 : NOW };
+    const weg = offline.indexOf(i) >= 0, kurz = flackern.indexOf(i) >= 0;
+    p[i] = { s: 'V9TAB0' + i, on: !(weg || kurz),
+             t: weg ? NOW - GRACE - 1 : (kurz ? NOW - GRACE + 1 : NOW) };
     players[i] = { id: 'V9PID0' + i, name: 'P' + i, tab: 'V9TAB0' + i, uid: UID[i] };
   }
   const g = { 0: {} };
   if (evicted.length) { g[0].e = {}; for (const s of evicted) g[0].e[s] = true; }
+  // V9.4: Generationsstart, Protokollabschluesse, Bereitschaft, Disqualifikation.
+  // Die drei neuen Tore sind hier STANDARDMAESSIG ERFUELLT. Sonst muesste jeder
+  // aeltere Test sie mitschleppen und pruefte am Ende nicht mehr das, wofuer er
+  // geschrieben wurde. Jeder neue Test schaltet gezielt genau EIN Tor ab.
+  if (opt.s !== false) g[0].s = { ts: opt.sTs === undefined ? NOW - 60000 : opt.sTs };
+  const zListe = opt.z === undefined ? [0, 1, 2] : opt.z;
+  if (zListe.length) { g[0].z = {}; for (const n of zListe) g[0].z[n] = { ts: opt.zTs === undefined ? NOW - 60000 : opt.zTs }; }
+  if (opt.q) g[0].q = opt.q;
+  else {
+    const bListe = opt.bereit === undefined ? [0, 1, 2] : opt.bereit;
+    if (bListe.length) { g[0].q = {};
+      for (const n of bListe) { g[0].q[n] = {};
+        for (let i = 0; i < cap; i++) g[0].q[n][i] = { k: 'ready', n: Number(n), ts: NOW - 1000 }; } }
+  }
+  if (opt.x) { g[0].x = {}; for (const k in opt.x) g[0].x[k] = opt.x[k]; }
   if (opt.d) g[0].d = opt.d;
   if (opt.c) g[0].c = opt.c;
   if (opt.ro) g[0].ro = opt.ro;
@@ -88,6 +107,15 @@ const barriere = (turn, n) => { const c = {}, e = {};
 
 const O_MOVE = { k: 'move', h: HEX64, ts: SV };
 const O_PASS = { k: 'pass', ts: SV };
+// V9.4-Bausteine.
+const O_TS = { ts: SV };
+const bereitSatz = (turn, n, aus) => { const q = {}; q[turn] = {};
+  for (let i = 0; i < n; i++) if (!aus || aus.indexOf(i) < 0) q[turn][i] = { k: 'ready', n: Number(turn), ts: NOW - 1000 };
+  return q; };
+const O_READY = (n) => ({ k: 'ready', n: n, ts: SV });
+const O_TIMEOUT = (n) => ({ k: 'timeout', n: n, ts: SV });
+const O_X = (n) => ({ k: 'ready_timeout', n: n, ts: SV });
+const ergSatz = (turn, m) => { const r = {}; r[turn] = m; return r; };
 
 console.log('=== V9.1/V9.2: Turn-Eroeffnung, Commit-Terminal, Reveal ===');
 
@@ -569,12 +597,12 @@ abschnitt('Vollstaendigkeit des Vorgaengers: zu jedem move gehoert ein Ergebnis'
        naechster({ d: offen('0'), c: terminals('0', ['move', 'pass', 'pass']),
                    ro: revOffen('0'), r: ergebnisse('0', { 1: REVEAL }) }));
 
-  // OFFEN UND AUSDRUECKLICH SO BENANNT: das loest die Voreroeffnung NICHT vollstaendig.
-  // Ist der Vorgaenger protokollarisch fertig, darf der naechste Turn sofort oeffnen -
-  // auch waehrend die ehrlichen Clients die Physik der Vorrunde noch rechnen. Dieses
-  // Fenster schliesst erst V9.4 mit einer Settled/Ready-Barriere je Sitz.
-  OK('ANMERKUNG: unmittelbar nach der Vollstaendigkeit darf sofort geoeffnet werden -'
-     + ' das Simulationsfenster bleibt bis V9.4 offen',
+  // Die Protokollvollstaendigkeit allein oeffnet den naechsten Turn NICHT mehr: seit
+  // V9.4B1 muessen Abschlussanker und Bereitschaftsbarriere dazukommen. Dieser Test
+  // haelt nur noch fest, dass die Vorgaengerbedingung fuer sich genommen erfuellt ist -
+  // die Fixture stellt die beiden neuen Tore bereit (s. raum()).
+  OK('ANMERKUNG: die Vorgaengerbedingung allein ist erfuellt - die Voreroeffnung'
+     + ' verhindern jetzt zusaetzlich z und die Bereitschaftsbarriere',
      naechster({ d: offen('0'), c: terminals('0', ['move', 'pass', 'pass']),
                  ro: revOffen('0'), r: ergebnisse('0', { 0: REVEAL }) }));
 }
@@ -643,11 +671,12 @@ abschnitt('Die uebrigen Fristschliesser');
         raum({ offline: [2], evicted: [2], d: offen('0', 6001) }),
         'rooms/V9RM/g/0/c/0/2', O_REM, UID[1]);
   {
-    // Der Marker selbst wird von diesem Weg NIE gesetzt - er gehoert der
-    // Austragungsmaschinerie und verlangt fuenfzehn Sekunden Abwesenheit.
-    const r = raum({ offline: [2], d: offen('0', 6001) });
+    // Der Marker gehoert der Austragungsmaschinerie und verlangt die volle
+    // Abwesenheitsfrist. Ein blosses Flackern setzt ihn nicht - erst danach.
     deny('ein Schreiber kann den Austragungsmarker nicht nebenbei setzen',
-         r, 'rooms/V9RM/g/0/e/2', true, UID[1]);
+         raum({ flackern: [2], d: offen('0', 6001) }), 'rooms/V9RM/g/0/e/2', true, UID[1]);
+    allow('erst nach der vollen Abwesenheitsfrist traegt er',
+          raum({ offline: [2], d: offen('0', 6001) }), 'rooms/V9RM/g/0/e/2', true, UID[1]);
   }
   // noreveal: nur nach der Reveal-Frist, nur zu einem verborgenen Zug.
   const mitAnker = (alt) => raum({ d: offen('0'), c: terminals('0', ['move', 'move', 'pass']),
@@ -681,5 +710,270 @@ abschnitt('Regression: v8 kennt auch die Reveal-Pfade nicht');
         { k: 'move', idx: 1, dx: 10, dy: -10, sp: 0 }, UID[1]);
 }
 
+// ══ V9.4B1: GENERATIONSSTART, PROTOKOLLABSCHLUSS, BEREITSCHAFT ══════════
+abschnitt('Generationsstart  g/<gen>/s');
+{
+  allow('ein Teilnehmer legt den Generationsstart an',
+        raum({ s: false }), 'rooms/V9RM/g/0/s', O_TS, UID[1]);
+  deny('write-once: ein zweites Mal geht nicht',
+       raum(), 'rooms/V9RM/g/0/s', O_TS, UID[1]);
+  for (const paar of [['now-1', NOW - 1], ['now+1', NOW + 1], ['0', 0]])
+    deny('ein selbstgesetzter Zeitstempel (' + paar[0] + ') wird abgewiesen',
+         raum({ s: false }), 'rooms/V9RM/g/0/s', { ts: paar[1] }, UID[1]);
+  deny('ein Fremder ohne Sitz legt ihn nicht an',
+       raum({ s: false }), 'rooms/V9RM/g/0/s', O_TS, UID_ATTACK);
+  deny('eine fremde Generation wird abgewiesen',
+       raum({ s: false }), 'rooms/V9RM/g/1/s', O_TS, UID[1]);
+  deny('ein zusaetzliches Feld macht ihn ungueltig',
+       raum({ s: false }), 'rooms/V9RM/g/0/s', { ts: SV, x: 1 }, UID[1]);
+}
+
+abschnitt('Protokollabschluss  g/<gen>/z/<turn>');
+{
+  const zAuf = (opt) => tryWrite(raum(Object.assign({ z: [] }, opt)), 'rooms/V9RM/g/0/z/0', O_TS, UID[1]);
+  const OKz = (n, b) => t('[ALLOW] ' + n, b === true);
+  const NEINz = (n, b) => t('[DENY]  ' + n, b === false);
+  NEINz('vor der Commit-Barriere gibt es keinen Abschluss',
+        zAuf({ d: offen('0'), c: barriere('0', 2) }));
+  NEINz('ein committeter, aber unenthuellter Zug haelt ihn auf',
+        zAuf({ d: offen('0'), c: terminals('0', ['move', 'pass', 'pass']) }));
+  OKz('nach vollstaendiger Ergebnisbarriere darf er entstehen',
+      zAuf({ d: offen('0'), c: terminals('0', ['move', 'pass', 'pass']),
+             ro: revOffen('0'), r: ergSatz('0', { 0: REVEAL }) }));
+  OKz('lauter Nullterminals brauchen kein Ergebnis',
+      zAuf({ d: offen('0'), c: terminals('0', ['pass', 'skip', 'late']) }));
+  deny('write-once: ein zweiter Abschluss derselben Runde',
+       raum({ z: [0], d: offen('0'), c: barriere('0', 3) }), 'rooms/V9RM/g/0/z/0', O_TS, UID[1]);
+  deny('ein selbstgesetzter Zeitstempel wird abgewiesen',
+       raum({ z: [], d: offen('0'), c: barriere('0', 3) }), 'rooms/V9RM/g/0/z/0', { ts: NOW - 1 }, UID[1]);
+  deny('ein Fremder ohne Sitz schliesst nichts ab',
+       raum({ z: [], d: offen('0'), c: barriere('0', 3) }), 'rooms/V9RM/g/0/z/0', O_TS, UID_ATTACK);
+}
+
+abschnitt('Bereitschaft  g/<gen>/q/<turn>/<seat>');
+{
+  deny('ohne Generationsstart gibt es keine Bereitschaft fuer Runde 0',
+       raum({ s: false, q: {} }), 'rooms/V9RM/g/0/q/0/1', O_READY(0), UID[1]);
+  allow('mit Generationsstart meldet sich der Sitz selbst bereit',
+        raum({ q: {} }), 'rooms/V9RM/g/0/q/0/1', O_READY(0), UID[1]);
+  deny('ein Mitspieler kann einen fremden Sitz NICHT bereitmelden',
+       raum({ q: {} }), 'rooms/V9RM/g/0/q/0/1', O_READY(0), UID[2]);
+  deny('und ein Fremder ohne Sitz erst recht nicht',
+       raum({ q: {} }), 'rooms/V9RM/g/0/q/0/1', O_READY(0), UID_ATTACK);
+  deny('write-once: eine zweite Bereitschaft desselben Sitzes',
+       raum({ q: bereitSatz('0', 3) }), 'rooms/V9RM/g/0/q/0/1', O_READY(0), UID[1]);
+  deny('ohne Protokollabschluss der Vorrunde gibt es keine Bereitschaft fuer Runde 1',
+       raum({ z: [], q: {} }), 'rooms/V9RM/g/0/q/1/1', O_READY(1), UID[1]);
+  allow('mit Abschluss der Vorrunde schon',
+        raum({ z: [0], q: {} }), 'rooms/V9RM/g/0/q/1/1', O_READY(1), UID[1]);
+  deny('die Rundenzahl muss zum Pfad passen',
+       raum({ q: {} }), 'rooms/V9RM/g/0/q/0/1', O_READY(1), UID[1]);
+  deny('ein Sitz jenseits der Sollbesetzung meldet nichts',
+       raum({ cap: 2, q: {} }), 'rooms/V9RM/g/0/q/0/2', O_READY(0), UID[2]);
+  deny('ein selbstgesetzter Zeitstempel wird abgewiesen',
+       raum({ q: {} }), 'rooms/V9RM/g/0/q/0/1', { k: 'ready', n: 0, ts: NOW - 1 }, UID[1]);
+  deny('ein unbekanntes k wird abgewiesen',
+       raum({ q: {} }), 'rooms/V9RM/g/0/q/0/1', { k: 'settled', n: 0, ts: SV }, UID[1]);
+}
+
+abschnitt('Zeitueberschreitung der Bereitschaft - 30 Sekunden');
+{
+  const beiAlter = (ms, uid) => tryWrite(raum({ sTs: NOW - ms, q: {} }),
+                                         'rooms/V9RM/g/0/q/0/2', O_TIMEOUT(0), uid || UID[1]);
+  t('[DENY]  vor der Frist ist die Zeitueberschreitung unzulaessig', beiAlter(29999) === false);
+  t('[DENY]  genau AUF der Frist ebenso - erst danach', beiAlter(30000) === false);
+  t('[ALLOW] eine Millisekunde danach traegt sie', beiAlter(30001) === true);
+  t('[DENY]  ein Fremder ohne Sitz schliesst nichts', beiAlter(30001, UID_ATTACK) === false);
+  t('[ALLOW] auch der Sitz selbst darf seinen Slot nach der Frist schliessen',
+    tryWrite(raum({ sTs: NOW - 30001, q: {} }), 'rooms/V9RM/g/0/q/0/2', O_TIMEOUT(0), UID[2]) === true);
+  t('[DENY]  auch der Sitz selbst nicht VOR der Frist',
+    tryWrite(raum({ sTs: NOW - 29999, q: {} }), 'rooms/V9RM/g/0/q/0/2', O_TIMEOUT(0), UID[2]) === false);
+  deny('eine Zeitueberschreitung ueberschreibt keine Bereitschaft',
+       raum({ sTs: NOW - 30001, q: bereitSatz('0', 3) }), 'rooms/V9RM/g/0/q/0/2', O_TIMEOUT(0), UID[1]);
+  {
+    const r = raum({ sTs: NOW - 30001, q: { 0: { 2: { k: 'timeout', n: 0, ts: NOW - 500 } } } });
+    deny('und eine Bereitschaft ueberschreibt keine Zeitueberschreitung',
+         r, 'rooms/V9RM/g/0/q/0/2', O_READY(0), UID[2]);
+  }
+  deny('ein missgebildetes Terminal wird abgewiesen',
+       raum({ sTs: NOW - 30001, q: {} }), 'rooms/V9RM/g/0/q/0/2', { k: 'timeout', ts: SV }, UID[1]);
+  deny('ein bereits ausgetragener Sitz bekommt keine Zeitueberschreitung',
+       raum({ sTs: NOW - 30001, q: {}, evicted: [2], offline: [2] }),
+       'rooms/V9RM/g/0/q/0/2', O_TIMEOUT(0), UID[1]);
+  deny('ein bereits disqualifizierter Sitz ebenso wenig',
+       raum({ sTs: NOW - 30001, q: {}, x: { 2: { k: 'ready_timeout', n: 0, ts: NOW - 100 } } }),
+       'rooms/V9RM/g/0/q/0/2', O_TIMEOUT(0), UID[1]);
+  // Fuer Runde 1 haengt die Frist am Abschluss der Vorrunde, NICHT am Generationsstart.
+  deny('Runde 1: am Abschluss der Vorrunde gemessen - vorher nein',
+       raum({ zTs: NOW - 29999, q: {} }), 'rooms/V9RM/g/0/q/1/2', O_TIMEOUT(1), UID[1]);
+  allow('Runde 1: danach ja',
+        raum({ zTs: NOW - 30001, q: {} }), 'rooms/V9RM/g/0/q/1/2', O_TIMEOUT(1), UID[1]);
+}
+
+abschnitt('Dauerhafte Protokoll-Disqualifikation  g/<gen>/x/<seat>');
+{
+  const mitTimeout = (opt) => raum(Object.assign({ sTs: NOW - 30001,
+    q: { 0: { 2: { k: 'timeout', n: 0, ts: NOW - 500 } } } }, opt || {}));
+  deny('ohne vorausgegangene Zeitueberschreitung gibt es keine Disqualifikation',
+       raum({ q: bereitSatz('0', 3) }), 'rooms/V9RM/g/0/x/2', O_X(0), UID[1]);
+  allow('nach der Zeitueberschreitung darf sie geschrieben werden',
+        mitTimeout(), 'rooms/V9RM/g/0/x/2', O_X(0), UID[1]);
+  deny('mit falscher Rundenzahl nicht',
+       mitTimeout(), 'rooms/V9RM/g/0/x/2', O_X(1), UID[1]);
+  deny('und nicht fuer einen anderen Sitz',
+       mitTimeout(), 'rooms/V9RM/g/0/x/1', O_X(0), UID[1]);
+  deny('write-once: ein zweites Mal geht nicht',
+       mitTimeout({ x: { 2: { k: 'ready_timeout', n: 0, ts: NOW - 100 } } }),
+       'rooms/V9RM/g/0/x/2', O_X(0), UID[1]);
+  deny('ein missgebildeter Datensatz wird abgewiesen',
+       mitTimeout(), 'rooms/V9RM/g/0/x/2', { k: 'raus', n: 0, ts: SV }, UID[1]);
+  deny('ein zusaetzliches Feld ebenso',
+       mitTimeout(), 'rooms/V9RM/g/0/x/2', { k: 'ready_timeout', n: 0, ts: SV, w: 1 }, UID[1]);
+  deny('ein selbstgesetzter Zeitstempel ebenso',
+       mitTimeout(), 'rooms/V9RM/g/0/x/2', { k: 'ready_timeout', n: 0, ts: NOW - 1 }, UID[1]);
+  deny('ein Fremder ohne Sitz schreibt sie nicht',
+       mitTimeout(), 'rooms/V9RM/g/0/x/2', O_X(0), UID_ATTACK);
+  // DIE TRENNSCHAERFE: eine BEREITSCHAFT ist keine Zeitueberschreitung.
+  deny('aus einer gemeldeten Bereitschaft laesst sich keine Disqualifikation bauen',
+       raum({ q: bereitSatz('0', 3) }), 'rooms/V9RM/g/0/x/2', O_X(0), UID[1]);
+  // Und ein blosses Praesenzflackern ebenso wenig: ohne q-timeout kein x.
+  deny('ein kurzzeitig abwesender Sitz allein ergibt keine Disqualifikation',
+       raum({ offline: [2], q: bereitSatz('0', 3, [2]) }), 'rooms/V9RM/g/0/x/2', O_X(0), UID[1]);
+}
+
+abschnitt('Bereitschaftsbarriere vor d/<turn>');
+{
+  const D0 = { n: 0, o: SV };
+  deny('ohne Generationsstart oeffnet Runde 0 nicht',
+       raum({ s: false }), 'rooms/V9RM/g/0/d/0', D0, UID[1]);
+  deny('mit unvollstaendiger Bereitschaft ebenso wenig',
+       raum({ q: bereitSatz('0', 2) }), 'rooms/V9RM/g/0/d/0', D0, UID[1]);
+  allow('sind alle Sitze bereit, oeffnet sie',
+        raum({ q: bereitSatz('0', 3) }), 'rooms/V9RM/g/0/d/0', D0, UID[1]);
+  allow('ein disqualifizierter Sitz ist befreit',
+        raum({ q: bereitSatz('0', 3, [2]), x: { 2: { k: 'ready_timeout', n: 0, ts: NOW - 100 } } }),
+        'rooms/V9RM/g/0/d/0', D0, UID[1]);
+  allow('und ein ausgetragener Sitz ebenfalls',
+        raum({ q: bereitSatz('0', 3, [2]), evicted: [2], offline: [2] }),
+        'rooms/V9RM/g/0/d/0', D0, UID[1]);
+  // Eine blosse Zeitueberschreitung befreit NICHT - erst die Disqualifikation.
+  {
+    const q = bereitSatz('0', 3, [2]); q['0'][2] = { k: 'timeout', n: 0, ts: NOW - 100 };
+    deny('eine Zeitueberschreitung allein befreit den Sitz nicht',
+         raum({ q: q }), 'rooms/V9RM/g/0/d/0', D0, UID[1]);
+    const r2 = raum({ q: q, x: { 2: { k: 'ready_timeout', n: 0, ts: NOW - 50 } } });
+    allow('erst zusammen mit der Disqualifikation',
+          r2, 'rooms/V9RM/g/0/d/0', D0, UID[1]);
+  }
+  const D1 = { n: 1, o: SV };
+  const fertig = { d: offen('0'), c: terminals('0', ['move', 'pass', 'pass']),
+                   ro: revOffen('0'), r: ergSatz('0', { 0: REVEAL }) };
+  deny('Runde 1: vollstaendige Bereitschaft ersetzt keinen unfertigen Vorgaenger',
+       raum(Object.assign({}, fertig, { c: terminals('0', ['move', 'pass', 'pass']), r: {} })),
+       'rooms/V9RM/g/0/d/1', D1, UID[1]);
+  deny('Runde 1: ein fertiger Vorgaenger ohne Abschlussanker reicht nicht',
+       raum(Object.assign({}, fertig, { z: [] })), 'rooms/V9RM/g/0/d/1', D1, UID[1]);
+  deny('Runde 1: Abschlussanker ohne vollstaendige Bereitschaft reicht nicht',
+       raum(Object.assign({}, fertig, { q: bereitSatz('1', 2) })), 'rooms/V9RM/g/0/d/1', D1, UID[1]);
+  allow('Runde 1: Vorgaenger fertig, Anker da, alle bereit',
+        raum(Object.assign({}, fertig, { q: bereitSatz('1', 3) })), 'rooms/V9RM/g/0/d/1', D1, UID[1]);
+  // Die Disqualifikation wirkt DAUERHAFT: in spaeteren Runden verlangt sie keine
+  // Bereitschaft mehr. Ein normal ausgeschiedener Sitz (Leben auf 0) hat kein x -
+  // er bleibt Synchronisationsteilnehmer und meldet weiter.
+  allow('ein frueher disqualifizierter Sitz braucht spaeter keine Bereitschaft',
+        raum(Object.assign({}, fertig, { q: bereitSatz('1', 3, [2]),
+          x: { 2: { k: 'ready_timeout', n: 0, ts: NOW - 100 } } })),
+        'rooms/V9RM/g/0/d/1', D1, UID[1]);
+  deny('ein aktiver Sitz ohne x dagegen sehr wohl',
+       raum(Object.assign({}, fertig, { q: bereitSatz('1', 3, [2]) })),
+       'rooms/V9RM/g/0/d/1', D1, UID[1]);
+}
+
+abschnitt('remove schliesst auch den dauerhaft disqualifizierten Sitz');
+{
+  const O_REM = { k: 'remove', ts: SV };
+  deny('ohne Marker und ohne Disqualifikation kein remove',
+       raum({ offline: [2], d: offen('0') }), 'rooms/V9RM/g/0/c/0/2', O_REM, UID[1]);
+  allow('mit Austragungsmarker wie bisher',
+        raum({ offline: [2], evicted: [2], d: offen('0') }),
+        'rooms/V9RM/g/0/c/0/2', O_REM, UID[1]);
+  allow('und jetzt auch mit gueltiger Disqualifikation',
+        raum({ d: offen('0'), x: { 2: { k: 'ready_timeout', n: 0, ts: NOW - 100 } } }),
+        'rooms/V9RM/g/0/c/0/2', O_REM, UID[1]);
+  deny('ein Fremder ohne Sitz schliesst ihn auch dann nicht',
+       raum({ d: offen('0'), x: { 2: { k: 'ready_timeout', n: 0, ts: NOW - 100 } } }),
+       'rooms/V9RM/g/0/c/0/2', O_REM, UID_ATTACK);
+}
+// ══ PRAESENZ-AUSTRAGUNG e UNTER v9 ═══════════════════════════════
+abschnitt('Austragungsmarker e - derselbe Vertrag, jetzt auch fuer v9');
+{
+  // WAS HIER BEHOBEN IST: der e-Zweig galt nur fuer v4..v8. In einem v9-Raum
+  // konnte der Marker gar nicht entstehen - damit waren die Befreiung eines
+  // getrennten Sitzes von der Bereitschaftsbarriere UND der bestehende
+  // e-gestuetzte remove-Pfad unerreichbar. Geaendert wurde AUSSCHLIESSLICH die
+  // Fassungsliste; jede andere Bedingung steht unveraendert.
+  allow('ein anwesender Mitspieler traegt einen lange abwesenden Sitz aus',
+        raum({ offline: [2] }), 'rooms/V9RM/g/0/e/2', true, UID[1]);
+  deny('vor Ablauf der Abwesenheitsfrist nicht',
+       raum({ flackern: [2] }), 'rooms/V9RM/g/0/e/2', true, UID[1]);
+  deny('und gegen einen anwesenden Sitz erst recht nicht',
+       raum(), 'rooms/V9RM/g/0/e/2', true, UID[1]);
+  deny('ein anderer Wert als true ist kein Marker',
+       raum({ offline: [2] }), 'rooms/V9RM/g/0/e/2', false, UID[1]);
+  deny('und ein Datensatz ebenso wenig',
+       raum({ offline: [2] }), 'rooms/V9RM/g/0/e/2', { k: 'evicted', ts: SV }, UID[1]);
+  deny('write-once: ein gesetzter Marker wird nicht neu geschrieben',
+       raum({ offline: [2], evicted: [2] }), 'rooms/V9RM/g/0/e/2', true, UID[1]);
+  deny('eine fremde Generation wird abgewiesen',
+       raum({ offline: [2] }), 'rooms/V9RM/g/1/e/2', true, UID[1]);
+  deny('ein Fremder ohne Sitz traegt niemanden aus',
+       raum({ offline: [2] }), 'rooms/V9RM/g/0/e/2', true, UID_ATTACK);
+  deny('ein selbst bereits ausgetragener Sitz traegt niemanden mehr aus',
+       raum({ offline: [1, 2], evicted: [1] }), 'rooms/V9RM/g/0/e/2', true, UID[1]);
+  // Unveraendert gilt auch fuer v8 - dieselbe Regel, dieselbe Antwort.
+  allow('v8: derselbe Vorgang bleibt erlaubt',
+        raum({ v: 8, offline: [2] }), 'rooms/V9RM/g/0/e/2', true, UID[1]);
+  deny('v8: und vor der Frist bleibt er verboten',
+       raum({ v: 8, flackern: [2] }), 'rooms/V9RM/g/0/e/2', true, UID[1]);
+
+  // ── DIE TRENNSCHAERFE ZWISCHEN e UND x ───────────────────────
+  deny('eine Austragung erzeugt KEINE Protokoll-Disqualifikation',
+       raum({ offline: [2], evicted: [2], q: bereitSatz('0', 3, [2]) }),
+       'rooms/V9RM/g/0/x/2', O_X(0), UID[1]);
+  deny('und eine Disqualifikation erzeugt keine Austragung',
+       raum({ x: { 2: { k: 'ready_timeout', n: 0, ts: NOW - 100 } } }),
+       'rooms/V9RM/g/0/e/2', true, UID[1]);
+
+  // ── BEREITSCHAFTSBARRIERE: WAS BEFREIT WIRKLICH ────────────────
+  const D0 = { n: 0, o: SV };
+  deny('A: ein aktiver Sitz ohne Bereitschaft, ohne e und ohne x haelt die Runde auf',
+       raum({ q: bereitSatz('0', 3, [2]) }), 'rooms/V9RM/g/0/d/0', D0, UID[1]);
+  allow('B: eine gueltige Bereitschaft erfuellt ihn',
+        raum({ q: bereitSatz('0', 3) }), 'rooms/V9RM/g/0/d/0', D0, UID[1]);
+  allow('C: ein autoritativ ausgetragener Sitz braucht keine Bereitschaft',
+        raum({ offline: [2], evicted: [2], q: bereitSatz('0', 3, [2]) }),
+        'rooms/V9RM/g/0/d/0', D0, UID[1]);
+  allow('D: ein disqualifizierter Sitz ebenso wenig',
+        raum({ q: bereitSatz('0', 3, [2]), x: { 2: { k: 'ready_timeout', n: 0, ts: NOW - 100 } } }),
+        'rooms/V9RM/g/0/d/0', D0, UID[1]);
+  deny('E: blosse Abwesenheit OHNE den autoritativen Marker befreit nicht',
+       raum({ offline: [2], q: bereitSatz('0', 3, [2]) }), 'rooms/V9RM/g/0/d/0', D0, UID[1]);
+  {
+    const q = bereitSatz('0', 3, [2]); q['0'][2] = { k: 'timeout', n: 0, ts: NOW - 100 };
+    deny('F: eine Zeitueberschreitung ohne x befreit nicht',
+         raum({ q: q }), 'rooms/V9RM/g/0/d/0', D0, UID[1]);
+  }
+
+  // ── remove: BEIDE Berechtigungen, und nur diese ────────────────
+  const O_REM2 = { k: 'remove', ts: SV };
+  allow('remove gegen einen ausgetragenen Sitz',
+        raum({ offline: [2], evicted: [2], d: offen('0') }),
+        'rooms/V9RM/g/0/c/0/2', O_REM2, UID[1]);
+  allow('remove gegen einen disqualifizierten Sitz',
+        raum({ d: offen('0'), x: { 2: { k: 'ready_timeout', n: 0, ts: NOW - 100 } } }),
+        'rooms/V9RM/g/0/c/0/2', O_REM2, UID[1]);
+  deny('und gegen keinen von beiden gar nicht',
+       raum({ offline: [2], d: offen('0') }), 'rooms/V9RM/g/0/c/0/2', O_REM2, UID[1]);
+}
 console.log('\nOnline-V9: ' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

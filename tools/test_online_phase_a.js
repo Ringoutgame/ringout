@@ -642,13 +642,14 @@ const R = new Function(`
   for (const w of ['fbCommitHash', 'commitSalt', 'revealPath', 'deadlineAt', 'windowOpenAt'])
     ok(HTML.indexOf(w) < 0, 'kein v9-Rest im Client: ' + w);
   const rooms = JSON.parse(RULES).rules.rooms.$code;
-  // Seit V9.1 traegt eine Generation zusaetzlich die v9-GRUNDLAGE: d (autoritative
-  // Turn-Eroeffnung) und c (Commit-Terminal). Beide sind an `v === 9` gebunden und
+  // Seit V9.1 traegt eine Generation zusaetzlich die v9-GRUNDLAGE d/c/ro/r, seit
+  // V9.4B1 ausserdem s/z/q/x (Generationsstart, Protokollabschluss, Bereitschaft,
+  // Protokoll-Disqualifikation). Jeder dieser Zweige ist an `v === 9` gebunden und
   // damit fuer jeden v8-Raum unerreichbar - die Aussage dieser Suite bleibt also
   // dieselbe, sie wird nur genauer: Phase A wird von v9 nicht angefasst.
-  ok(Object.keys(rooms.g.$gen).sort().join(',') === 'c,d,e,r,ro,t',
-     'eine Generation traegt Zughistorie, Eviction und die v9-Grundlage d/c/ro/r');
-  for (const zweig of ['d', 'c', 'ro', 'r'])
+  ok(Object.keys(rooms.g.$gen).sort().join(',') === 'c,d,e,q,r,ro,s,t,x,z',
+     'eine Generation traegt Zughistorie, Eviction und die v9-Grundlage d/c/ro/r/s/z/q/x');
+  for (const zweig of ['d', 'c', 'ro', 'r', 's', 'z', 'q', 'x'])
     ok(JSON.stringify(rooms.g.$gen[zweig]).indexOf("child('v').val() === 9") >= 0,
        'der Zweig ' + zweig + ' ist an v9 gebunden und damit in einem v8-Raum unerreichbar');
   const slotRegel = rooms.g.$gen.t.$turn.$pl;

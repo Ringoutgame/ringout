@@ -346,13 +346,14 @@ t('Beitritt: die Ablehnung nennt die Versionsunvertraeglichkeit',
     room$.hostUid['.validate'].indexOf("newData.val() === auth.uid") >= 0
     && room$.hostUid['.write'] === undefined, Object.keys(room$.hostUid));
   const g$ = JSON.parse(rules).rules.rooms.$code.g.$gen;
-  // Seit der V9.1-Grundlage kommen d (autoritative Turn-Eroeffnung) und c (Commit-
-  // Terminal) dazu. Beide haengen an `v === 9`; ein v8-Raum erreicht sie nicht. Die
-  // Aussage bleibt deshalb dieselbe - fuer das freigegebene Protokoll traegt eine
-  // Generation weiterhin genau Zughistorie und Eviction.
+  // Seit der V9.1-Grundlage kommen d und c dazu, seit V9.4B1 zusaetzlich s
+  // (Generationsstart), z (Protokollabschluss), q (Bereitschaft) und x (dauerhafte
+  // Protokoll-Disqualifikation). ALLE haengen an `v === 9`; ein v8-Raum erreicht
+  // keinen davon. Die Aussage bleibt deshalb dieselbe - fuer das freigegebene
+  // Protokoll traegt eine Generation weiterhin genau Zughistorie und Eviction.
   t('eine Generation traegt Zughistorie, Eviction und die v9-Grundlage',
-    JSON.stringify(Object.keys(g$).sort()) === JSON.stringify(['c', 'd', 'e', 'r', 'ro', 't']), Object.keys(g$));
-  for (const zweig of ['d', 'c', 'ro', 'r'])
+    JSON.stringify(Object.keys(g$).sort()) === JSON.stringify(['c', 'd', 'e', 'q', 'r', 'ro', 's', 't', 'x', 'z']), Object.keys(g$));
+  for (const zweig of ['d', 'c', 'ro', 'r', 's', 'z', 'q', 'x'])
     t('der Zweig ' + zweig + ' gilt ausschliesslich fuer v9-Raeume',
       JSON.stringify(g$[zweig]).indexOf("child('v').val() === 9") >= 0);
   t('und der v8-Zugslot bleibt an v4 bis v8 gebunden',
