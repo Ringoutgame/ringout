@@ -346,8 +346,17 @@ t('Beitritt: die Ablehnung nennt die Versionsunvertraeglichkeit',
     room$.hostUid['.validate'].indexOf("newData.val() === auth.uid") >= 0
     && room$.hostUid['.write'] === undefined, Object.keys(room$.hostUid));
   const g$ = JSON.parse(rules).rules.rooms.$code.g.$gen;
-  t('eine Generation traegt nur Zughistorie und Eviction',
-    JSON.stringify(Object.keys(g$).sort()) === JSON.stringify(['e', 't']), Object.keys(g$));
+  // Seit der V9.1-Grundlage kommen d (autoritative Turn-Eroeffnung) und c (Commit-
+  // Terminal) dazu. Beide haengen an `v === 9`; ein v8-Raum erreicht sie nicht. Die
+  // Aussage bleibt deshalb dieselbe - fuer das freigegebene Protokoll traegt eine
+  // Generation weiterhin genau Zughistorie und Eviction.
+  t('eine Generation traegt Zughistorie, Eviction und die v9-Grundlage',
+    JSON.stringify(Object.keys(g$).sort()) === JSON.stringify(['c', 'd', 'e', 't']), Object.keys(g$));
+  for (const zweig of ['d', 'c'])
+    t('der Zweig ' + zweig + ' gilt ausschliesslich fuer v9-Raeume',
+      JSON.stringify(g$[zweig]).indexOf("child('v').val() === 9") >= 0);
+  t('und der v8-Zugslot bleibt an v4 bis v8 gebunden',
+    JSON.stringify(g$.t).indexOf("child('v').val() === 9") < 0);
 }
 
 // ── (8) Generationstrennung der Eviction ────────────────────────────────────────

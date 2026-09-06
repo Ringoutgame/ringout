@@ -1687,5 +1687,12 @@ deny('team move pl 4 (seat gate, presence pre-seeded)', playing({ p: { 0: P(H_TA
        pubRoom(3), 'publicRooms/KX7P', LISTING, UID_HOST);
 }
 
-console.log('\nRules-Suite (lokal, echte firebase.rules.json): ' + pass + ' passed, ' + fail + ' failed');
-process.exit(fail ? 1 : 0);
+// Der Auswerter ist ab hier auch von aussen benutzbar. Die v9-Suite prueft DIESELBE
+// firebase.rules.json mit DERSELBEN Semantik - eine zweite Nachbildung daneben waere
+// die Sorte Doppelung, die frueher oder spaeter auseinanderlaeuft.
+module.exports = { tryWrite, NOW, AUTH, UID_HOST, UID_GUEST, UID_ATTACK, GRACE, P };
+// Beim Nachladen aus einer anderen Suite darf diese hier weder berichten noch beenden.
+if (require.main === module) {
+  console.log('\nRules-Suite (lokal, echte firebase.rules.json): ' + pass + ' passed, ' + fail + ' failed');
+  process.exit(fail ? 1 : 0);
+}

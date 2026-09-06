@@ -642,15 +642,32 @@ const R = new Function(`
   for (const w of ['fbCommitHash', 'commitSalt', 'revealPath', 'deadlineAt', 'windowOpenAt'])
     ok(HTML.indexOf(w) < 0, 'kein v9-Rest im Client: ' + w);
   const rooms = JSON.parse(RULES).rules.rooms.$code;
-  ok(Object.keys(rooms.g.$gen).sort().join(',') === 'e,t',
-     'eine Generation traegt weiterhin nur Zughistorie und Eviction - kein d, r oder ph');
+  // Seit V9.1 traegt eine Generation zusaetzlich die v9-GRUNDLAGE: d (autoritative
+  // Turn-Eroeffnung) und c (Commit-Terminal). Beide sind an `v === 9` gebunden und
+  // damit fuer jeden v8-Raum unerreichbar - die Aussage dieser Suite bleibt also
+  // dieselbe, sie wird nur genauer: Phase A wird von v9 nicht angefasst.
+  ok(Object.keys(rooms.g.$gen).sort().join(',') === 'c,d,e,t',
+     'eine Generation traegt Zughistorie, Eviction und die v9-Grundlage d/c');
+  for (const zweig of ['d', 'c'])
+    ok(JSON.stringify(rooms.g.$gen[zweig]).indexOf("child('v').val() === 9") >= 0,
+       'der Zweig ' + zweig + ' ist an v9 gebunden und damit in einem v8-Raum unerreichbar');
+  ok(JSON.stringify(rooms.g.$gen.r || null) === 'null',
+     'ein Reveal-Pfad existiert weiterhin NICHT - er gehoert zu V9.2');
   const slotRegel = rooms.g.$gen.t.$turn.$pl;
   ok(Object.keys(slotRegel).filter(k => !k.startsWith('.') && k !== '$other').sort().join(',')
      === 'dx,dy,idx,k,sp',
      'der Zugslot traegt weiterhin genau k, idx, dx, dy, sp');
   ok(!/"h"|"ts"|"n"/.test(JSON.stringify(slotRegel)),
      'und kein Hash-, Zeitstempel- oder Salzfeld');
-  ok(RULES.indexOf("=== 9") < 0, 'die Rules kennen v9 noch nicht');
+  // Die Rules tragen seit V9.1 die v9-Grundlage. Der CLIENT tut es ausdruecklich nicht:
+  // er steht auf Protokoll 8, kennt keinen der neuen Pfade und kann folglich keinen
+  // v9-Raum anlegen oder betreten. Genau das ist die Trennung, die diese Stufe schuetzt.
+  ok(/const ONLINE_PROTOCOL_VERSION=8;/.test(HTML),
+     'der freigegebene Client steht unveraendert auf Protokoll 8');
+  for (const pfad of ["/d/'", "/c/'", "'d/'", "'c/'"])
+    ok(HTML.indexOf("g/'+ctx.gen+'" + pfad) < 0,
+       'der Client schreibt keinen v9-Pfad: ' + pfad);
+  ok(!/crypto\.subtle/.test(HTML), 'und benutzt noch keine Hashfunktion');
 }
 
 // ══ H. DIE SOLLBESETZUNG IST UNVERAENDERLICH ═════════════════════════════════
