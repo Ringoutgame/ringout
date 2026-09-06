@@ -454,9 +454,19 @@ abschnitt('Waechter: der Adapter ruht');
     t('der Bereich beruehrt ' + w + ' nicht', ohneText.indexOf(w) < 0);
   // B2C1 bringt die Schreiber - aber keinen Zeitgeber, keine Speicherung und keine
   // Spielfolge. Das kommt mit B2C2, B2C3 und der Aktivierung.
+  // Der ADAPTER traegt weder Zeitgeber noch Speicherung. Die Weckrufe liegen seit
+  // B2C2 in der Steuerung darueber - dort schaetzen sie, wann ein Versuch Aussicht
+  // hat, und entscheiden nichts. Geprueft wird deshalb der Adapter fuer sich.
+  const adapterEnde = HTML.indexOf('// ════ ENDE V9-NETZADAPTER ════');
+  t('der Adapter ist fuer sich abgegrenzt', adapterEnde > start);
+  // Erst am ROHTEXT schneiden, dann die Kommentare entfernen - die Endemarke ist
+  // selbst ein Kommentar und waere sonst mit weggefallen.
+  const adapterRoh = HTML.slice(start, adapterEnde);
+  const adapter = adapterRoh.split(NL).map(zl => { const k = zl.indexOf('//');
+    return k >= 0 ? zl.slice(0, k) : zl; }).join(NL);
   for (const w of ['setTimeout', 'setInterval', 'Date.now', 'serverNow',
                    'sessionStorage', 'localStorage', 'indexedDB'])
-    t('kein ' + w + ' im ruhenden Bereich', ohneText.indexOf(w) < 0);
+    t('kein ' + w + ' im Adapter', adapter.indexOf(w) < 0);
   for (const fn of ['fbV9NetWriteLate', 'fbV9NetWriteSkip', 'fbV9NetWriteRemove',
                     'fbV9NetWriteNoReveal'])
     t('der Schreiber ' + fn + ' liegt im ruhenden Bereich', bereich.indexOf(fn) > 0);

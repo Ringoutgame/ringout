@@ -27,7 +27,7 @@ function grab(re, was) {
 
 // ── Attrappe: nur die vier benutzten Bausteine ───────────────────────────────
 const SENTINEL = { '.sv': 'timestamp' };
-function attrappe(vorbelegt) {
+function attrappe(vorbelegt, uhr) {
   const log = { schreib: [], hoert: [] };
   const stand = Object.assign({}, vorbelegt || {});
   const fehler = {};                       // Pfad -> Fehler, den runTransaction wirft
@@ -44,14 +44,19 @@ function attrappe(vorbelegt) {
       ref: (db, pfad) => ({ pfad: pfad }),
       serverTimestamp: () => SENTINEL,
       runTransaction: async (ref, fn, opts) => {
-        if (fehler[ref.pfad]) throw fehler[ref.pfad];
         const vorher = Object.prototype.hasOwnProperty.call(stand, ref.pfad) ? stand[ref.pfad] : null;
-        const vorschlag = fn(vorher);
+        const vorschlag = fehler[ref.pfad] ? null : fn(vorher);
+        // Auch ein abgewiesener Versuch IST ein Versuch - er gehoert ins Protokoll,
+        // sonst laesst sich die Begrenzung der Wiederholungen gar nicht zaehlen.
         log.schreib.push({ pfad: ref.pfad, vorschlag: vorschlag });
+        if (fehler[ref.pfad]) throw fehler[ref.pfad];
         if (vorschlag === undefined) return { committed: false, snapshot: { val: () => vorher } };
         // Der Serversentinel wird beim Speichern zu einer Zahl - wie in Firebase.
+        // Wie der echte Server: der Sentinel wird beim Speichern zu der Zeit, die
+        // DIESE Laufzeit fuer die Serverzeit haelt - in den Tests die gestellte Uhr.
+        const jetzt = uhr ? uhr.jetzt() : 1788700000000;
         const gespeichert = JSON.parse(JSON.stringify(vorschlag,
-          (k, v) => (v && v['.sv'] === 'timestamp') ? 1788700000000 : v));
+          (k, v) => (v && v['.sv'] === 'timestamp') ? jetzt : v));
         stand[ref.pfad] = gespeichert;
         // Wie das echte Firebase: ein erfolgreicher Schreibvorgang erreicht die
         // Zuhoerer. Ohne das waere die Attrappe unehrlich - der Ablauf haengt genau
@@ -74,21 +79,57 @@ function attrappe(vorbelegt) {
   return api;
 }
 
+// ── Gestellte Zeit und gestellte Zeitgeber ───────────────────────────────────
+// Kein Test wartet sechs echte Sekunden. Die Steuerung bekommt ihre Serverzeit und
+// ihre Zeitgeber als Parameter; die Tests ruecken die Uhr vor und loesen die faelligen
+// Weckrufe von Hand aus. Damit ist auch pruefbar, WANN sie geplant wurden - was mit
+// echten Zeitgebern nur zufaellig sichtbar waere.
+// Ohne ausdrueckliche Uhr bekommt ein Bau eine STILLE: Wecker werden gestellt, aber
+// nie ausgeloest. So bleiben die Abschnitte, die den guten Fall pruefen, von den
+// Fristen unberuehrt - und kein echter Zeitgeber haelt den Prozess am Leben.
+function uhrwerk(start) {
+  let jetzt = start === undefined ? 1000000 : start, id = 1;
+  const offen = new Map();
+  return {
+    jetzt: () => jetzt,
+    anzahl: () => offen.size,
+    geplant: () => [...offen.values()].map(e => e.faellig - jetzt).sort((x, y) => x - y),
+    serverNow: () => jetzt,
+    setTimeout: (fn, ms) => { const k = id++; offen.set(k, { faellig: jetzt + ms, fn: fn }); return k; },
+    clearTimeout: (k) => { offen.delete(k); },
+    // Die Uhr vorruecken und alles ausloesen, was dabei faellig wird.
+    vor: async (ms) => {
+      jetzt += ms;
+      for (let runde = 0; runde < 40; runde++) {
+        const faellig = [...offen.entries()].filter(e => e[1].faellig <= jetzt)
+          .sort((x, y) => x[1].faellig - y[1].faellig);
+        if (!faellig.length) break;
+        for (const e of faellig) { offen.delete(e[0]); e[1].fn(); }
+        await settle(6);
+      }
+      await settle(6);
+    },
+  };
+}
 // ── Den echten Quelltext in eine Sandbox holen ───────────────────────────────
 const START = HTML.indexOf('const FB_V9_PREIMAGE_BYTES=60');
 const ENDE = HTML.indexOf('// ════ ENDE V9-ABLAUFSTEUERUNG ════');
 if (START < 0 || ENDE < START) throw new Error('der ruhende v9-Bereich fehlt');
 const BEREICH = HTML.slice(START, ENDE);
-const baue = (a) => new Function('window', 'crypto', 'GEN_MAX', 'FB_ONLINE_SEATS',
-                                'FB_ONLINE_BALL_IDX', `
+const STILL = uhrwerk(1000);
+const baue = (a, uhr) => new Function('window', 'crypto', 'GEN_MAX', 'FB_ONLINE_SEATS',
+                                'FB_ONLINE_BALL_IDX', 'serverNow', 'setTimeout',
+                                'clearTimeout', `
   ${BEREICH}
   return { fbV9Start, fbV9CtxOk, fbV9MakeCommit, fbV9MakeReveal, fbV9SecretFor,
+           fbV9Marke,
            fbV9SecretClear, fbV9Hash, fbV9Hex, fbV9AcceptedSet, fbV9EngineCtx,
            FB_V9_IDLE, FB_V9_OPENING, FB_V9_COMMITTING, FB_V9_WAIT_COMMITS,
            FB_V9_OPENING_REVEAL, FB_V9_REVEALING, FB_V9_WAIT_RESULTS,
            FB_V9_COMPLETE, FB_V9_FAILED, FB_V9_STOPPED,
            FB_V9_VALID, FB_V9_MISMATCH, FB_V9_MALFORMED, FB_V9_NO_REVEAL };
-`)({ FB: a.FB }, globalThis.crypto, 10000, 5, 5);
+`)({ FB: a.FB }, globalThis.crypto, 10000, 5, 5,
+   (uhr || STILL).serverNow, (uhr || STILL).setTimeout, (uhr || STILL).clearTimeout);
 
 const H64 = 'ab12'.repeat(16), H32 = '0123456789abcdef'.repeat(2);
 const CTX = { v: 9, code: 'RN2K', gen: 7, turn: 42, seat: 1, cap: 3 };
@@ -488,6 +529,366 @@ abschnitt('Ungueltiger Start');
   t('ein unbaubarer Zug ebenso', l3.stufe === M.FB_V9_FAILED, l3.grund);
 }
 
+// ══ WECKRUFE AN DEN FRISTEN ══════════════════════════════════════════════════
+abschnitt('Weckrufe: einer je Frist, hoechstens drei Versuche');
+{
+  // Aufbau: Runde offen, eigener pass geschrieben, ein Sitz fehlt. Die Uhr steht
+  // dicht hinter der Oeffnung - der Wecker muss also fast die volle Frist warten.
+  const aufbau = async (opt) => {
+    opt = opt || {};
+    const u = uhrwerk(2000000);
+    const a = attrappe({ [P('d/42')]: { n: 42, o: u.jetzt() } }, u);
+    const M = baue(a, u);
+    M.fbV9SecretClear();
+    const l = M.fbV9Start(CTX, { pass: true });
+    await settle();
+    if (opt.commits) { a.zustellen(P('c/42'), opt.commits(a)); await settle(); }
+    return { u: u, a: a, M: M, l: l };
+  };
+
+  // (1) Genau ein Wecker, und zwar auf die Frist.
+  {
+    const g = await aufbau();
+    t('ein Wecker ist gestellt', g.u.anzahl() === 1, g.u.anzahl());
+    const p = g.u.geplant()[0];
+    t('er liegt bei Frist plus Sicherheitsabstand', p === 6000 + 250, p);
+    // Fuenf identische Schnappschuesse duerfen keinen zweiten Wecker erzeugen.
+    for (let i = 0; i < 5; i++) { g.a.zustellen(P('c/42'), { 1: g.a.stand[P('c/42/1')] }); await settle(4); }
+    t('fuenf gleiche Schnappschuesse ergeben trotzdem EINEN Wecker',
+      g.u.anzahl() === 1, g.u.anzahl());
+    // Vor der Frist wird nichts geschrieben.
+    const vorher = g.a.log.schreib.length;
+    await g.u.vor(3000);
+    t('vor der Frist wird kein Terminal geschlossen',
+      g.a.log.schreib.length === vorher, g.a.log.schreib.length - vorher);
+  }
+
+  // (2) Nach der Frist: die fehlenden Sitze werden aufsteigend geschlossen.
+  {
+    const g = await aufbau();
+    await g.u.vor(6300);
+    const spaet = g.a.log.schreib.filter(w => w.vorschlag && w.vorschlag.k === 'late');
+    t('die beiden fehlenden Sitze bekommen late', spaet.length === 2, spaet.length);
+    t('und zwar aufsteigend nach Sitz',
+      spaet.map(w => w.pfad.slice(-1)).join(',') === '0,2',
+      spaet.map(w => w.pfad).join(' '));
+    t('der eigene, bereits belegte Slot wird nicht angefasst',
+      spaet.every(w => w.pfad !== P('c/42/1')));
+    // Der Schreibvorgang allein bewegt die Barriere NICHT.
+    t('die Stufe bleibt WAIT_COMMITS, bis der Raum es bestaetigt',
+      g.l.stufe === g.M.FB_V9_WAIT_COMMITS, g.l.stufe);
+    // Erst der autoritative Schnappschuss traegt weiter.
+    g.a.zustellen(P('c/42'), { 0: { k: 'late', ts: 1 }, 1: g.a.stand[P('c/42/1')],
+                               2: { k: 'late', ts: 1 } });
+    await settle();
+    t('dann erst wird die Enthuellung eroeffnet',
+      g.a.log.schreib.filter(w => w.pfad === P('ro/42')).length === 1);
+    t('und der Wecker ist geraeumt', g.u.geplant().every(ms => ms !== 6250));
+  }
+
+  // (3) Nichts fehlt: kein Schreibvorgang.
+  {
+    const g = await aufbau({ commits: (a) => ({ 0: NULLT('pass'), 1: a.stand[P('c/42/1')],
+                                                2: NULLT('pass') }) });
+    const vorher = g.a.log.schreib.length;
+    await g.u.vor(9000);
+    t('bei vollstaendiger Barriere weckt nichts einen Sentinel',
+      !g.a.log.schreib.slice(vorher).some(w => w.vorschlag && w.vorschlag.k === 'late'));
+  }
+
+  // (4) Ein belegter Slot wird nie ueberschrieben.
+  {
+    const g = await aufbau({ commits: (a) => ({ 0: NULLT('pass'), 1: a.stand[P('c/42/1')] }) });
+    await g.u.vor(6300);
+    const spaet = g.a.log.schreib.filter(w => w.vorschlag && w.vorschlag.k === 'late');
+    t('nur der wirklich fehlende Sitz bekommt late',
+      spaet.length === 1 && spaet[0].pfad === P('c/42/2'), spaet.map(w => w.pfad).join(' '));
+  }
+}
+
+abschnitt('Begrenzte Wiederholung - und kein vierter Versuch');
+{
+  // Der Server weist ab, weil wir eine Spur zu frueh geklopft haben. Dann zweimal
+  // nachfassen - und dann Ruhe, bis neue Daten kommen. Das ist ausdruecklich keine
+  // Abfrageschleife: ohne neuen Schnappschuss passiert nichts mehr.
+  const bauAbweisend = async (fehler) => {
+    const u = uhrwerk(3000000);
+    const a = attrappe({ [P('d/42')]: { n: 42, o: u.jetzt() } }, u);
+    a.setzeFehler(P('c/42/0'), fehler);
+    a.setzeFehler(P('c/42/2'), fehler);
+    const M = baue(a, u); M.fbV9SecretClear();
+    const l = M.fbV9Start(CTX, { pass: true });
+    await settle();
+    return { u: u, a: a, M: M, l: l };
+  };
+  const zaehl = (g) => g.a.log.schreib.filter(w => w.pfad === P('c/42/0')).length;
+  {
+    const g = await bauAbweisend(new Error('permission_denied'));
+    await g.u.vor(6300);
+    t('erster Versuch nach der Frist', zaehl(g) === 1, zaehl(g));
+    await g.u.vor(500);
+    t('nach 500 ms die erste Wiederholung', zaehl(g) === 2, zaehl(g));
+    await g.u.vor(1500);
+    t('nach weiteren 1500 ms die zweite', zaehl(g) === 3, zaehl(g));
+    await g.u.vor(60000);
+    t('danach KEIN weiterer Versuch - auch nicht nach einer Minute',
+      zaehl(g) === 3, zaehl(g));
+    t('und kein Wecker bleibt haengen', g.u.anzahl() === 0, g.u.anzahl());
+    t('eine Abweisung wird nie zum Erfolg',
+      g.l.stufe === g.M.FB_V9_WAIT_COMMITS, g.l.stufe);
+  }
+  {
+    // Ein Netzfehler wird genauso begrenzt behandelt.
+    const g = await bauAbweisend(new Error('network down'));
+    await g.u.vor(6300); await g.u.vor(500); await g.u.vor(1500); await g.u.vor(60000);
+    t('auch ein Netzfehler ergibt hoechstens drei Versuche', zaehl(g) === 3, zaehl(g));
+  }
+}
+
+abschnitt('Der Reveal-Wecker');
+{
+  // Aufbau bis zur Enthuellungsphase: eigener Zug committet und enthuellt, ein
+  // fremder Zug bleibt ohne Ergebnis.
+  const bauReveal = async () => {
+    const u = uhrwerk(4000000);
+    const a = attrappe({ [P('d/42')]: { n: 42, o: u.jetzt() - 100 } }, u);
+    const M = baue(a, u); M.fbV9SecretClear();
+    const l = M.fbV9Start(CTX, { move: ZUG });
+    await settle();
+    a.zustellen(P('c/42'), { 0: { k: 'move', h: H64, ts: 1 }, 1: a.stand[P('c/42/1')],
+                             2: NULLT('pass') });
+    await settle();
+    return { u: u, a: a, M: M, l: l };
+  };
+  {
+    const g = await bauReveal();
+    t('die Enthuellung ist eroeffnet', typeof g.a.stand[P('ro/42')] === 'number');
+    t('genau ein Reveal-Wecker steht', g.u.anzahl() === 1, g.u.anzahl());
+    // Fuenf gleiche Anker-Schnappschuesse ergeben keinen zweiten.
+    for (let i = 0; i < 5; i++) { g.a.zustellen(P('ro/42'), g.a.stand[P('ro/42')]); await settle(4); }
+    t('und fuenf gleiche Anker aendern daran nichts', g.u.anzahl() === 1, g.u.anzahl());
+    const vorher = g.a.log.schreib.length;
+    await g.u.vor(3000);
+    t('vor der Reveal-Frist kein noreveal',
+      !g.a.log.schreib.slice(vorher).some(w => w.vorschlag && w.vorschlag.k === 'noreveal'));
+    await g.u.vor(3500);
+    const nr = g.a.log.schreib.filter(w => w.vorschlag && w.vorschlag.k === 'noreveal');
+    t('danach genau ein noreveal - fuer den einen offenen Zug',
+      nr.length === 1, nr.length);
+    t('und zwar auf dem Ergebnispfad des fremden Sitzes',
+      nr[0].pfad === P('r/42/0'), nr[0].pfad);
+    t('fuer pass wird KEIN Ergebnis erzwungen',
+      !nr.some(w => w.pfad === P('r/42/2')));
+    t('und fuer den eigenen, laengst enthuellten Zug auch nicht',
+      !nr.some(w => w.pfad === P('r/42/1')));
+    t('der Lauf wartet weiter auf den Raum',
+      g.l.stufe === g.M.FB_V9_WAIT_RESULTS, g.l.stufe);
+    // Erst der autoritative Schnappschuss schliesst die Runde ab.
+    g.a.zustellen(P('r/42'), { 0: { k: 'noreveal', ts: 1 }, 1: g.a.stand[P('r/42/1')] });
+    await g.l.fertig;
+    t('dann wird der Lauf COMPLETE', g.l.stufe === g.M.FB_V9_COMPLETE, g.l.stufe);
+    t('und die Menge nennt NO_REVEAL', g.l.menge[0].status === g.M.FB_V9_NO_REVEAL,
+      g.l.menge[0].status);
+    t('ohne Zug und ohne Strafe', g.l.menge[0].move === null);
+    t('alle Wecker sind geraeumt', g.u.anzahl() === 0, g.u.anzahl());
+  }
+  {
+    // Nullterminals brauchen kein Ergebnis - dann weckt auch nichts.
+    const u = uhrwerk(5000000);
+    const a = attrappe({ [P('d/42')]: { n: 42, o: u.jetzt() - 100 } }, u);
+    const M = baue(a, u); M.fbV9SecretClear();
+    const l = M.fbV9Start(CTX, { pass: true });
+    await settle();
+    a.zustellen(P('c/42'), { 0: NULLT('skip'), 1: a.stand[P('c/42/1')], 2: NULLT('remove') });
+    await settle();
+    await l.fertig;
+    t('lauter Nullterminals: der Lauf endet ohne jeden Wecker',
+      l.stufe === M.FB_V9_COMPLETE, l.stufe + ' ' + l.grund);
+    t('und ohne ein einziges noreveal',
+      !a.log.schreib.some(w => w.vorschlag && w.vorschlag.k === 'noreveal'));
+  }
+}
+
+abschnitt('Wecker enden mit dem Lauf');
+{
+  const bauOffen = async () => {
+    const u = uhrwerk(6000000);
+    const a = attrappe({ [P('d/42')]: { n: 42, o: u.jetzt() } }, u);
+    const M = baue(a, u); M.fbV9SecretClear();
+    const l = M.fbV9Start(CTX, { pass: true });
+    await settle();
+    return { u: u, a: a, M: M, l: l };
+  };
+  {
+    const g = await bauOffen();
+    t('ein Wecker steht', g.u.anzahl() === 1);
+    g.l.stop();
+    t('nach stop() ist keiner mehr da', g.u.anzahl() === 0, g.u.anzahl());
+    const vorher = g.a.log.schreib.length;
+    await g.u.vor(60000);
+    t('und es wird nichts mehr geschrieben',
+      g.a.log.schreib.length === vorher, g.a.log.schreib.length - vorher);
+    let heil = true; try { g.l.stop(); g.l.stop(); } catch (e) { heil = false; }
+    t('mehrfaches Anhalten bleibt gefahrlos', heil === true);
+  }
+  {
+    // Auch mitten in der Wiederholungskette.
+    const u = uhrwerk(7000000);
+    const a = attrappe({ [P('d/42')]: { n: 42, o: u.jetzt() } }, u);
+    a.setzeFehler(P('c/42/0'), new Error('permission_denied'));
+    a.setzeFehler(P('c/42/2'), new Error('permission_denied'));
+    const M = baue(a, u); M.fbV9SecretClear();
+    const l = M.fbV9Start(CTX, { pass: true });
+    await settle();
+    await u.vor(6300);
+    const nach1 = a.log.schreib.filter(w => w.pfad === P('c/42/0')).length;
+    l.stop();
+    await u.vor(60000);
+    t('ein Anhalten mitten in der Wiederholung beendet sie',
+      a.log.schreib.filter(w => w.pfad === P('c/42/0')).length === nach1, nach1);
+    t('und laesst keinen Wecker zurueck', u.anzahl() === 0, u.anzahl());
+  }
+  {
+    // Ein gescheiterter Lauf raeumt ebenfalls.
+    const u = uhrwerk(8000000);
+    const a = attrappe(null, u);
+    a.setzeFehler(P('d/42'), new Error('permission_denied'));
+    const M = baue(a, u); M.fbV9SecretClear();
+    const l = M.fbV9Start(CTX, { pass: true });
+    await l.fertig;
+    t('ein gescheiterter Lauf hinterlaesst keinen Wecker',
+      l.stufe === M.FB_V9_FAILED && u.anzahl() === 0, l.stufe + ' / ' + u.anzahl());
+  }
+}
+// ══ LEBENDIGKEIT OHNE BRAUCHBARE SERVERZEIT ══════════════════════════════════
+abschnitt('Ohne Serverzeit: lieber zu spaet als zu frueh');
+{
+  // DER FEHLER, der hier behoben ist: der Rueckfall war 250 ms. Damit lagen alle
+  // drei Versuche - 250, 750, 2250 ms - VOR der echten Frist bei 6000 ms. Das
+  // Budget war verbraucht, bevor der Server die Frist ueberhaupt erreichte, und
+  // ohne neuen Schnappschuss haette danach nie wieder etwas angeklopft: die Runde
+  // waere stehengeblieben. Jetzt wird vom BEOBACHTUNGSZEITPUNKT an die volle Frist
+  // gewartet - die Eroeffnung lag zwangslaeufig davor, also kann der Wecker nie zu
+  // frueh kommen.
+  const ohneUhr = (start) => {
+    const u = uhrwerk(start === undefined ? 9000000 : start);
+    u.serverNow = () => NaN;          // unbrauchbar - genau der Pruefungsfall
+    return u;
+  };
+  {
+    const u = ohneUhr();
+    // Die Runde wurde VOR unserer Beobachtung eroeffnet - hier eine Sekunde vorher.
+    const a = attrappe({ [P('d/42')]: { n: 42, o: u.jetzt() - 1000 } }, u);
+    const M = baue(a, u); M.fbV9SecretClear();
+    const l = M.fbV9Start(CTX, { pass: true });
+    await settle();
+    t('ein Wecker ist gestellt', u.anzahl() === 1, u.anzahl());
+    t('und zwar auf die VOLLE Frist ab jetzt, nicht auf 250 ms',
+      u.geplant()[0] === 6000 + 250, u.geplant()[0]);
+    // Der springende Punkt: bis zur echten Frist - hier noch 5000 ms - darf kein
+    // einziger Versuch fallen, sonst waere das Budget zu frueh verbraucht.
+    await u.vor(5000);
+    const frueh = a.log.schreib.filter(w => w.vorschlag && w.vorschlag.k === 'late');
+    t('bis zur echten Frist faellt KEIN Versuch', frueh.length === 0, frueh.length);
+    await u.vor(1300);
+    const spaet = a.log.schreib.filter(w => w.vorschlag && w.vorschlag.k === 'late');
+    t('danach wird geschlossen - ohne dass ein neuer Schnappschuss noetig war',
+      spaet.length === 2, spaet.length);
+    t('die Stufe bleibt WAIT_COMMITS - der Wecker traegt die Barriere nicht',
+      l.stufe === M.FB_V9_WAIT_COMMITS, l.stufe);
+  }
+  {
+    // Dasselbe fuer die Enthuellung.
+    const u = ohneUhr(9500000);
+    const a = attrappe({ [P('d/42')]: { n: 42, o: u.jetzt() - 1000 } }, u);
+    const M = baue(a, u); M.fbV9SecretClear();
+    const l = M.fbV9Start(CTX, { move: ZUG });
+    await settle();
+    a.zustellen(P('c/42'), { 0: { k: 'move', h: H64, ts: 1 }, 1: a.stand[P('c/42/1')],
+                             2: NULLT('pass') });
+    await settle();
+    t('der Reveal-Wecker steht ebenfalls auf die volle Frist',
+      u.geplant().indexOf(6000 + 250) >= 0, u.geplant().join(','));
+    await u.vor(5000);
+    t('vorher kein noreveal',
+      !a.log.schreib.some(w => w.vorschlag && w.vorschlag.k === 'noreveal'));
+    await u.vor(1300);
+    t('danach genau eines - ohne neuen Schnappschuss',
+      a.log.schreib.filter(w => w.vorschlag && w.vorschlag.k === 'noreveal').length === 1);
+  }
+}
+
+// ══ DAS BUDGET WIRD NICHT VON RAUSCHEN ZURUECKGESETZT ════════════════════════
+abschnitt('Erschoepfte Wiederholungen bleiben erschoepft');
+{
+  // Die Marke sagt, was an einem Schnappschuss WESENTLICH ist: welche Sitze ein
+  // erkanntes Terminal tragen - und, wo gefragt, ein erkanntes Ergebnis. Gleiche
+  // Marke heisst gleicher Zustand, egal wie oft er eintrifft.
+  {
+    const M0 = baue(attrappe());
+    const c1 = { 0: { k: 'move', h: H64, ts: 1 }, 1: { k: 'pass', ts: 1 } };
+    t('zwei gleiche Karten ergeben dieselbe Marke',
+      M0.fbV9Marke(3, c1) === M0.fbV9Marke(3, JSON.parse(JSON.stringify(c1))));
+    t('ein gefuellter Sitz aendert sie',
+      M0.fbV9Marke(3, c1) !== M0.fbV9Marke(3, Object.assign({}, c1, { 2: { k: 'late', ts: 1 } })));
+    t('ein missgebildeter Eintrag zaehlt nicht als gefuellt',
+      M0.fbV9Marke(3, c1) === M0.fbV9Marke(3, Object.assign({}, c1, { 2: { k: 'quatsch' } })));
+    t('und ein Ergebnis aendert die Marke der zweiten Barriere',
+      M0.fbV9Marke(3, c1, {}) !== M0.fbV9Marke(3, c1, { 0: { k: 'noreveal', ts: 1 } }));
+  }
+  const bauErschoepft = async () => {
+    const u = uhrwerk(11000000);
+    const a = attrappe({ [P('d/42')]: { n: 42, o: u.jetzt() } }, u);
+    a.setzeFehler(P('c/42/0'), new Error('permission_denied'));
+    a.setzeFehler(P('c/42/2'), new Error('permission_denied'));
+    const M = baue(a, u); M.fbV9SecretClear();
+    const l = M.fbV9Start(CTX, { pass: true });
+    await settle();
+    // Die Karte EINMAL zustellen, bevor das Budget verbraucht wird - erst danach sind
+    // weitere Zustellungen derselben Karte wirklich identisch. Die erste Zustellung
+    // ist selbst eine wesentliche Aenderung und darf neu bewerten.
+    a.zustellen(P('c/42'), { 1: a.stand[P('c/42/1')] });
+    await settle();
+    await u.vor(6300); await u.vor(500); await u.vor(1500);
+    return { u: u, a: a, M: M, l: l };
+  };
+  const zaehl = (g) => g.a.log.schreib.filter(w => w.pfad === P('c/42/0')).length;
+  {
+    const g = await bauErschoepft();
+    t('drei Versuche sind gefallen', zaehl(g) === 3, zaehl(g));
+    t('und kein Wecker steht mehr', g.u.anzahl() === 0, g.u.anzahl());
+    // Zehn identische Schnappschuesse - das Budget bleibt erschoepft.
+    for (let i = 0; i < 10; i++) {
+      g.a.zustellen(P('c/42'), { 1: g.a.stand[P('c/42/1')] });
+      await settle(4);
+    }
+    t('zehn identische Schnappschuesse setzen nichts zurueck', zaehl(g) === 3, zaehl(g));
+    t('und stellen keinen Wecker', g.u.anzahl() === 0, g.u.anzahl());
+    await g.u.vor(120000);
+    t('auch nach zwei Minuten kein vierter Versuch', zaehl(g) === 3, zaehl(g));
+    // Ein Schnappschuss auf einem ANDEREN Knoten ist ebenfalls kein Anlass.
+    for (let i = 0; i < 5; i++) { g.a.zustellen(P('ro/42'), null); await settle(4); }
+    t('ein belangloser Schnappschuss auf einem anderen Knoten auch nicht',
+      zaehl(g) === 3, zaehl(g));
+  }
+  {
+    // Eine WESENTLICHE Aenderung darf neu bewerten - hier fuellt ein Mitspieler
+    // einen der beiden offenen Sitze.
+    const g = await bauErschoepft();
+    t('vorher drei Versuche', zaehl(g) === 3, zaehl(g));
+    g.a.zustellen(P('c/42'), { 1: g.a.stand[P('c/42/1')], 2: { k: 'late', ts: 1 } });
+    await settle();
+    t('eine wesentliche Aenderung stellt einen neuen Wecker',
+      g.u.anzahl() === 1, g.u.anzahl());
+    await g.u.vor(6300);
+    t('und erlaubt einen weiteren Versuch fuer den noch offenen Sitz',
+      zaehl(g) === 4, zaehl(g));
+    // Aber wieder begrenzt: hoechstens drei ab dieser Marke.
+    await g.u.vor(500); await g.u.vor(1500); await g.u.vor(120000);
+    t('auch der neue Durchgang endet nach drei Versuchen', zaehl(g) === 6, zaehl(g));
+    t('und laesst keinen Wecker zurueck', g.u.anzahl() === 0, g.u.anzahl());
+  }
+}
 // ══ QUELLTEXT-WAECHTER ═══════════════════════════════════════════════════════
 abschnitt('Waechter: die Steuerung ruht');
 {
@@ -513,12 +914,34 @@ abschnitt('Waechter: die Steuerung ruht');
   const stStart = BEREICH.indexOf('function fbV9EngineCtx(ctx)');
   const stCode = ohneText.slice(ohneText.indexOf('function fbV9EngineCtx(ctx)'));
   t('die Steuerung ist abgegrenzt', stStart > 0);
-  for (const w of ['setTimeout', 'setInterval', 'Date.now', 'serverNow', '6000'])
+  // B2C2 bringt Weckrufe - und genau dort verlaeuft die Grenze: setTimeout und
+  // serverNow SCHAETZEN, wann ein Versuch Aussicht hat. Sie entscheiden nichts.
+  // Verboten bleibt, was eine Abfrageschleife oder eine Clientbefugnis waere.
+  for (const w of ['setInterval', 'Date.now'])
     t('kein ' + w + ' in der Steuerung', stCode.indexOf(w) < 0);
-  for (const w of ["fbV9NetWriteLate", "fbV9NetWriteSkip",
-                   "fbV9NetWriteRemove", "fbV9NetWriteNoReveal"])
-    t('die Steuerung ruft ' + w + ' noch nicht - das ist B2C2',
-      stCode.indexOf(w) < 0);
+  t('setTimeout wird benutzt - einmalig, nicht wiederholend',
+    stCode.indexOf('setTimeout') > 0 && stCode.indexOf('setInterval') < 0);
+  t('und serverNow nur zur Schaetzung der Wartezeit',
+    /frist-jetzt\+FB_V9_WAKE_MARGIN_MS/.test(stCode));
+  t('die Frist selbst ist eine benannte Konstante, keine gestreute Zahl',
+    /const FB_V9_DEADLINE_MS=6000;/.test(BEREICH));
+  // Die Wiederholung ist ENDLICH - das ist der Kern der Zusage.
+  t('die Wiederholungen sind auf zwei begrenzt',
+    /const FB_V9_RETRY_MS=\[500,1500\];/.test(BEREICH));
+  t('und werden gegen diese Grenze geprueft',
+    /w\.versuche>=FB_V9_RETRY_MS\.length/.test(stCode));
+  // Die Steuerung schliesst offene Slots jetzt selbst - aber nur mit late und
+  // noreveal. skip verlangte zusaetzlich die Abwesenheit und braeuchte dafuer einen
+  // Praesenzlauscher; remove setzt einen Austragungsmarker voraus, den sie nicht
+  // liest. Beide bleiben der Maschinerie, der sie gehoeren.
+  for (const w of ['fbV9NetWriteLate', 'fbV9NetWriteNoReveal'])
+    t('die Steuerung benutzt ' + w, stCode.indexOf(w) > 0);
+  for (const w of ['fbV9NetWriteSkip', 'fbV9NetWriteRemove'])
+    t('die Steuerung benutzt ' + w + ' ausdruecklich NICHT', stCode.indexOf(w) < 0);
+  // Und sie erzwingt keine Barriere aus einem eigenen Schreibergebnis.
+  t('nur der autoritative Schnappschuss traegt die Barriere',
+    stCode.indexOf('FB_V9_OPENING_REVEAL;') < 0
+    || /fbV9CommitsComplete\(lauf\.ctx\.cap,st\.commits\)/.test(stCode));
   t('kein Produktweg legt einen v9-Raum an', HTML.indexOf('v:9') < 0 && HTML.indexOf('v: 9') < 0);
   const regeln = fs.readFileSync(path.join(__dirname, '..', 'firebase.rules.json'), 'utf8');
   t('die Regeldatei traegt weiterhin die v9-Zweige aus V9.1/V9.2',

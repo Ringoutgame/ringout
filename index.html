@@ -9127,6 +9127,7 @@ function fbV9Scheitern(lauf,grund){
   fbV9Aufloesen(lauf);
 }
 function fbV9Aufloesen(lauf){
+  fbV9WakeStopAll(lauf);   // jedes Ende raeumt jeden Wecker
   if(lauf.abmelden){ try{ lauf.abmelden(); }catch(e){} lauf.abmelden=null; }
   if(lauf.fertigNun){ const f=lauf.fertigNun; lauf.fertigNun=null; f(lauf); }
 }
@@ -9148,6 +9149,123 @@ function fbV9RevealPasst(erwartet,vorhanden){
   if(!vorhanden||typeof vorhanden!=='object'||vorhanden.k!=='reveal')return false;
   return vorhanden.idx===erwartet.idx&&vorhanden.dx===erwartet.dx
       &&vorhanden.dy===erwartet.dy&&vorhanden.sp===erwartet.sp&&vorhanden.n===erwartet.n;
+}
+
+// ── Begrenzte Weckrufe an den Fristen ────────────────────────────────────────
+// Ein Wecker sagt NICHT, dass eine Frist abgelaufen ist. Er sagt nur: "versuch es
+// jetzt". Ob die Frist wirklich vorbei ist, entscheiden allein die Rules - der Wecker
+// schaetzt bloss, wann ein Versuch Aussicht hat. Deshalb `serverNow()` fuer die
+// Schaetzung und ein kleiner Sicherheitsabstand, damit wir nicht regelmaessig eine
+// Millisekunde zu frueh klopfen.
+const FB_V9_DEADLINE_MS=6000;      // dieselbe Frist, die die Rules erzwingen
+const FB_V9_WAKE_MARGIN_MS=250;    // lieber knapp zu spaet als staendig zu frueh
+// Nach einer Abweisung hoechstens ZWEI Wiederholungen - insgesamt also drei Versuche
+// je Fristdurchgang. Danach ist Schluss, bis ein NEUER autoritativer Schnappschuss
+// den Zustand veraendert. Das ist ausdruecklich keine Abfrageschleife: ohne neue
+// Daten passiert nichts mehr.
+const FB_V9_RETRY_MS=[500,1500];
+
+function fbV9WakeStop(lauf,art){
+  const w=lauf.wecker&&lauf.wecker[art];
+  if(!w)return;
+  if(w.timer!==null){ clearTimeout(w.timer); w.timer=null; }
+  w.frist=null; w.marke=null; w.versuche=0; w.laeuft=false;
+}
+function fbV9WakeStopAll(lauf){ fbV9WakeStop(lauf,'commits'); fbV9WakeStop(lauf,'results'); }
+
+// Einen Wecker fuer GENAU diese Frist stellen. Steht er schon auf derselben Frist,
+// passiert nichts - fuenf gleiche Schnappschuesse ergeben einen Wecker, nicht fuenf.
+// Aendert sich die Frist (anderer Turn, andere Runde), wird der alte verworfen.
+// Was ist an einem Schnappschuss WESENTLICH? Nur, welche Sitze ein erkanntes Terminal
+// und - wo gefragt - ein erkanntes Ergebnis tragen. Zwei Schnappschuesse mit derselben
+// Marke sind fuer diese Entscheidung derselbe Zustand, gleichgueltig wie oft sie
+// eintreffen. Genau das trennt ein erneutes Nachdenken von blossem Rauschen.
+function fbV9Marke(cap,c,r){
+  let m='';
+  for(let i=0;i<cap;i++){
+    const t=c&&c[i];
+    m+=fbV9TerminalOk(t)?(t.k==='move'?'m':'n'):'-';
+    if(r!==undefined)m+=fbV9ResultOk(r&&r[i])?'r':'.';
+  }
+  return m;
+}
+function fbV9WakePlan(lauf,art,frist,marke,tun){
+  if(fbV9Aus(lauf)||!Number.isFinite(frist))return;
+  if(!lauf.wecker[art])lauf.wecker[art]={timer:null,frist:null,marke:null,versuche:0,laeuft:false};
+  const w=lauf.wecker[art];
+  // Gleiche Frist UND gleiche Marke: nichts Neues. Ein bereits erschoepftes Budget
+  // (versuche>0) bleibt erschoepft - fuenf identische Schnappschuesse duerfen keine
+  // fuenfzehn Versuche ergeben.
+  if(w.frist===frist&&w.marke===marke&&(w.timer!==null||w.laeuft||w.versuche>0))return;
+  if(w.frist!==frist||w.marke!==marke)fbV9WakeStop(lauf,art);
+  w.frist=frist; w.marke=marke; w.versuche=0;
+  fbV9WakeArm(lauf,art,fbV9WakeDelay(frist),tun);
+}
+// Ohne brauchbare Serverzeit wird NICHT aus Date.now eine Befugnis gebastelt - dann
+// gilt ein kurzer, begrenzter Vorstoss, und die Rules entscheiden wie immer.
+function fbV9WakeDelay(frist){
+  const jetzt=(typeof serverNow==='function')?serverNow():NaN;
+  if(Number.isFinite(jetzt))return Math.max(0,frist-jetzt+FB_V9_WAKE_MARGIN_MS);
+  // Ohne brauchbare Serverzeit wird VOM BEOBACHTUNGSZEITPUNKT AN die volle Frist
+  // gewartet. Das ist bewusst zu lang: die Eroeffnung ist zwangslaeufig VOR unserem
+  // Schnappschuss geschehen, ein volles Fenster ab hier kann also nie vor der echten
+  // Frist liegen. Ein kurzer Rueckfall waere ein Lebendigkeitsfehler gewesen - die
+  // drei Versuche waeren verbraucht, bevor der Server die Frist ueberhaupt erreicht,
+  // und ohne neuen Schnappschuss haette danach nichts mehr angeklopft.
+  return FB_V9_DEADLINE_MS+FB_V9_WAKE_MARGIN_MS;
+}
+function fbV9WakeArm(lauf,art,ms,tun){
+  const w=lauf.wecker[art];
+  if(w.timer!==null)clearTimeout(w.timer);
+  w.timer=setTimeout(()=>{
+    w.timer=null;
+    if(fbV9Aus(lauf))return;          // angehalten, gescheitert, fertig: nichts mehr
+    w.laeuft=true;
+    Promise.resolve(tun()).then(abgewiesen=>{
+      w.laeuft=false;
+      if(fbV9Aus(lauf))return;
+      // Erneut versuchen NUR, wenn der Server uns zu frueh fand - und nur zweimal.
+      if(!abgewiesen)return;
+      if(w.versuche>=FB_V9_RETRY_MS.length)return;   // erschoepft: kein vierter Versuch
+      const ms2=FB_V9_RETRY_MS[w.versuche]; w.versuche++;
+      fbV9WakeArm(lauf,art,ms2,tun);
+    }).catch(()=>{ w.laeuft=false; });
+  },ms);
+}
+
+// Offene Terminals schliessen. Genommen wird `late`: es gilt nach der Frist unabhaengig
+// davon, ob die Praesenz gerade flackert. `skip` waere hier die schlechtere Wahl - es
+// verlangt zusaetzlich die Abwesenheit und braeuchte dafuer einen Praesenzlauscher, den
+// diese Stufe nicht aufmacht. `remove` setzt einen Austragungsmarker voraus, den wir
+// hier ebenfalls nicht lesen; es bleibt der Maschinerie, die ihn erzeugt.
+// Rueckgabe: true, wenn mindestens ein Versuch abgewiesen wurde - dann lohnt ein
+// begrenzter zweiter Anlauf.
+async function fbV9CloseCommits(lauf){
+  const st=lauf.stand, c=st.commits||{};
+  let nochmal=false;
+  for(let s=0;s<lauf.ctx.cap;s++){          // aufsteigend - die Reihenfolge ist fest
+    if(fbV9Aus(lauf))return false;
+    if(fbV9TerminalOk(c[s]))continue;       // steht schon: nichts zu tun
+    const r=await fbV9NetWriteLate(lauf.ctx,s);
+    // COMMITTED und EXISTS sind beide in Ordnung - aber KEINES davon bewegt die
+    // Barriere. Das tut allein der naechste autoritative Schnappschuss.
+    if(r.status===FB_V9_DENIED||r.status===FB_V9_ERROR)nochmal=true;
+  }
+  return nochmal;
+}
+// Dasselbe fuer die Enthuellung: nur zu einem verborgenen Zug gehoert ein Ergebnis.
+// pass, skip, remove und late tragen nichts Verborgenes und brauchen keines.
+async function fbV9CloseResults(lauf){
+  const st=lauf.stand, c=st.commits||{}, r0=st.results||{};
+  let nochmal=false;
+  for(let s=0;s<lauf.ctx.cap;s++){
+    if(fbV9Aus(lauf))return false;
+    if(!fbV9TerminalOk(c[s])||c[s].k!=='move')continue;
+    if(fbV9ResultOk(r0[s]))continue;
+    const r=await fbV9NetWriteNoReveal(lauf.ctx,s);
+    if(r.status===FB_V9_DENIED||r.status===FB_V9_ERROR)nochmal=true;
+  }
+  return nochmal;
 }
 
 // Ein Schritt je Zustandsaenderung. Wieder eintretbar: `beschaeftigt` verhindert, dass
@@ -9183,7 +9301,14 @@ async function fbV9Schritt(lauf){
     }
     // (3) Warten, bis JEDER Sitz der Sollbesetzung ein Terminal hat.
     fbV9Stufe(lauf,FB_V9_WAIT_COMMITS);
-    if(!fbV9CommitsComplete(lauf.ctx.cap,st.commits))return;
+    if(!fbV9CommitsComplete(lauf.ctx.cap,st.commits)){
+      // Warten - aber nicht endlos. Der Wecker klopft kurz nach der geschaetzten
+      // Frist einmal an; ob sie wirklich vorbei ist, sagen die Rules.
+      fbV9WakePlan(lauf,'commits',st.turnOpen.o+FB_V9_DEADLINE_MS,
+                   fbV9Marke(lauf.ctx.cap,st.commits),()=>fbV9CloseCommits(lauf));
+      return;
+    }
+    fbV9WakeStop(lauf,'commits');   // die Barriere steht: der Wecker ist gegenstandslos
     // (4) Die Enthuellungsphase eroeffnen. Mehrere duerfen es gleichzeitig versuchen -
     //     massgeblich ist allein, was danach im Raum steht.
     if(!st.revealOpen){
@@ -9222,7 +9347,14 @@ async function fbV9Schritt(lauf){
     }
     // (6) Warten, bis zu jedem Abschuss ein Ergebnis vorliegt.
     fbV9Stufe(lauf,FB_V9_WAIT_RESULTS);
-    if(!fbV9ResultsComplete(lauf.ctx.cap,st.commits,st.results))return;
+    if(!fbV9ResultsComplete(lauf.ctx.cap,st.commits,st.results)){
+      if(Number.isFinite(st.revealOpen))
+        fbV9WakePlan(lauf,'results',st.revealOpen+FB_V9_DEADLINE_MS,
+                     fbV9Marke(lauf.ctx.cap,st.commits,st.results),
+                     ()=>fbV9CloseResults(lauf));
+      return;
+    }
+    fbV9WakeStop(lauf,'results');
     if(lauf.finaleLaeuft)return;
     lauf.finaleLaeuft=true;
     const menge=await fbV9AcceptedSet(fbV9EngineCtx(lauf.ctx),lauf.ctx.cap,st.commits,st.results);
@@ -9247,6 +9379,7 @@ function fbV9Start(ctx,aktion){
   const lauf={ctx:ctx,stufe:FB_V9_IDLE,grund:'',menge:null,terminal:null,
               stand:{turnOpen:null,commits:null,revealOpen:null,results:null},
               abmelden:null,fertigNun:null,beschaeftigt:false,nochmal:false,
+              wecker:{},
               commitLaeuft:false,commitFertig:false,roVersucht:false,
               revealLaeuft:false,revealFertig:false,finaleLaeuft:false};
   lauf.fertig=new Promise(aufl=>{ lauf.fertigNun=aufl; });
