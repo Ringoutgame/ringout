@@ -9084,6 +9084,163 @@ async function fbV9NetWriteNoReveal(ctx,ziel){
   return await fbV9WriteOnce(fbV9Ref(ctx,'r/'+ctx.turn+'/'+ziel),
                              {k:'noreveal',ts:window.FB.serverTimestamp()});
 }
+
+// ── V9.4 BEREITSCHAFT: ANKER, MELDUNG, FRISTSCHLUSS (RUHEND) ─────────────
+// Bis V9.3 durfte die naechste Runde oeffnen, sobald der Vorgaenger PROTOKOLLARISCH
+// fertig war - auch waehrend ehrliche Clients dessen Physik noch rechneten. Deren
+// Entscheidungsfrist lief dann bereits, bevor sie eingabebereit waren. Die B1-Rules
+// schliessen das mit vier Knoten; hier stehen ausschliesslich die Schreib- und
+// Lesebausteine dafuer.
+//
+// WAS DIESE SCHICHT NICHT WEISS - und nicht wissen darf: ob die Physik ausgelaufen
+// ist, ob ein Spieler noch Leben hat, ob das Match zu Ende ist, ob eine Frist
+// abgelaufen ist. Sie stellt keinen Zeitgeber und liest keine Uhr. Wann geschrieben
+// wird, entscheidet eine spaetere Stufe; OB es zulaessig war, entscheiden allein die
+// Rules. Eine lokale Vorpruefung waere eine zweite Wahrheit neben der einzigen, die
+// zaehlt - und im Zweifel die falsche.
+//
+// AUSDRUECKLICH NICHT BENUTZT: Date.now, serverNow, onlineTab, onlinePid, p/<seat>/s,
+// sessionStorage. Die Bereitschaft haengt am Sitzbesitz players/<seat>/uid, und das
+// prueft der Server.
+
+// Der Generationsstart. Er ist der Fristanker der Runde 0 und sonst nichts. Jeder
+// Teilnehmer darf um ihn rennen; write-once entscheidet.
+async function fbV9NetOpenStart(ctx){
+  if(!fbV9CtxOk(ctx))return {status:FB_V9_INVALID,wert:null};
+  return await fbV9WriteOnce(fbV9Ref(ctx,'s'),{ts:window.FB.serverTimestamp()});
+}
+// Der Protokollabschluss EINER Runde: die verifizierte Eingabemenge liegt vollstaendig
+// vor. Ueber Physik sagt er nichts. Ob die Barriere wirklich geschlossen ist, prueft
+// der Server - der Client bildet diese Bedingung hier bewusst NICHT nach.
+async function fbV9NetMarkComplete(ctx){
+  if(!fbV9CtxOk(ctx))return {status:FB_V9_INVALID,wert:null};
+  return await fbV9WriteOnce(fbV9Ref(ctx,'z/'+ctx.turn),{ts:window.FB.serverTimestamp()});
+}
+// Die eigene Bereitschaft - und NUR die eigene. Diese Funktion nimmt mit Absicht kein
+// Zielargument: gaebe es eines, entstuende eine Client-Schnittstelle, die so aussieht,
+// als koennte man einen Mitspieler bereitmelden. Kann man nicht, und es soll auch
+// niemand danach greifen.
+async function fbV9NetWriteReady(ctx){
+  if(!fbV9CtxOk(ctx))return {status:FB_V9_INVALID,wert:null};
+  return await fbV9WriteOnce(fbV9Ref(ctx,'q/'+ctx.turn+'/'+ctx.seat),
+                             {k:'ready',n:ctx.turn,ts:window.FB.serverTimestamp()});
+}
+// Der Fristschluss auf einem fremden (oder dem eigenen) Slot. Das ist KEINE
+// vorgetaeuschte Bereitschaft, sondern die ausdrueckliche Feststellung, dass binnen
+// der Frist nichts kam. Zu frueh gerufen antwortet der Server mit ABGEWIESEN - und
+// genau so soll es sein.
+async function fbV9NetWriteReadyTimeout(ctx,ziel){
+  if(!fbV9CtxOk(ctx)||!fbV9ZielOk(ctx,ziel))return {status:FB_V9_INVALID,wert:null};
+  return await fbV9WriteOnce(fbV9Ref(ctx,'q/'+ctx.turn+'/'+ziel),
+                             {k:'timeout',n:ctx.turn,ts:window.FB.serverTimestamp()});
+}
+// Die dauerhafte Protokoll-Disqualifikation. Sie setzt einen bereits festgestellten
+// Fristschluss voraus - das prueft der Server. Der Client nimmt hier NICHT an, dass er
+// ihn selbst gesehen hat. Eine Spielfolge hat dieser Schreibvorgang nicht.
+async function fbV9NetWriteDisqualify(ctx,ziel){
+  if(!fbV9CtxOk(ctx)||!fbV9ZielOk(ctx,ziel))return {status:FB_V9_INVALID,wert:null};
+  return await fbV9WriteOnce(fbV9Ref(ctx,'x/'+ziel),
+                             {k:'ready_timeout',n:ctx.turn,ts:window.FB.serverTimestamp()});
+}
+
+// Zuhoeren auf einer AUSDRUECKLICH genannten Wegeliste. Dieselbe Form wie
+// fbV9NetListen: ein Rueckruf je Schnappschuss mit dem vollstaendigen Stand, und ein
+// Abmelden, das mehrfach gefahrlos ist.
+//
+// ZUR DOPPELUNG, die hier bewusst stehenbleibt: fbV9NetListen koennte auf diesen
+// Baustein zurueckgefuehrt werden. Es wird woertlich von drei abgeschlossenen
+// Pruefstaenden herausgeschnitten (Netz, SDK, E2E); eine Zusammenlegung wuerde alle
+// drei anfassen, ohne dass sich am Verhalten etwas aendert. Das gehoert in einen
+// eigenen Aufraeumschritt, nicht hierher.
+function fbV9NetWatch(ctx,wege,rueckruf){
+  if(!fbV9CtxOk(ctx)||!Array.isArray(wege)||!wege.length||typeof rueckruf!=='function')return null;
+  const stand={};
+  for(const w of wege)stand[w[1]]=null;
+  let aus=[],offen=true;
+  for(const w of wege){
+    aus.push(window.FB.onValue(fbV9Ref(ctx,w[0]),snap=>{
+      if(!offen)return;
+      stand[w[1]]=snap?snap.val():null;
+      rueckruf(Object.assign({},stand));
+    }));
+  }
+  return function abmelden(){
+    if(!offen)return;
+    offen=false;
+    for(const u of aus){ try{ if(typeof u==='function')u(); }catch(e){} }
+    aus=[];
+  };
+}
+// Die Bereitschaftslage einer Runde. Der Vorgaengeranker wird nur dort beobachtet, wo
+// es ihn ueberhaupt geben kann - Runde 0 haengt am Generationsstart.
+function fbV9NetListenReady(ctx,rueckruf){
+  if(!fbV9CtxOk(ctx))return null;
+  const wege=[['s','start'],['q/'+ctx.turn,'bereit'],['x','raus'],['e','weg']];
+  if(ctx.turn>0)wege.push(['z/'+(ctx.turn-1),'vorher']);
+  return fbV9NetWatch(ctx,wege,rueckruf);
+}
+
+// ── REINE PRUEFUNGEN ─ was ein AUTORITATIVER Datensatz tragen darf ──────────
+// Genau die Formen, die die Rules durchlassen - kein Feld mehr, keines weniger. Ein
+// Datensatz mit einem zusaetzlichen Feld kann autoritativ nicht existieren; taucht er
+// hier trotzdem auf, ist er nicht vertrauenswuerdig und zaehlt nicht.
+function fbV9AnkerOk(v){
+  return !!v&&typeof v==='object'&&Number.isFinite(v.ts)&&Object.keys(v).length===1;
+}
+function fbV9StartAnchorOk(v){ return fbV9AnkerOk(v); }
+function fbV9CompleteAnchorOk(v){ return fbV9AnkerOk(v); }
+function fbV9ReadyTerminalOk(v,turn){
+  if(!v||typeof v!=='object')return false;
+  if(v.k!=='ready'&&v.k!=='timeout')return false;
+  if(!Number.isInteger(turn)||!Number.isInteger(v.n)||v.n!==turn)return false;
+  if(!Number.isFinite(v.ts))return false;
+  return Object.keys(v).length===3;
+}
+function fbV9DisqualifyOk(v){
+  if(!v||typeof v!=='object')return false;
+  if(v.k!=='ready_timeout')return false;
+  if(!Number.isInteger(v.n)||v.n<0||v.n>GEN_MAX)return false;
+  if(!Number.isFinite(v.ts))return false;
+  return Object.keys(v).length===3;
+}
+
+// ── REINE AUSWERTUNG ──────────────────────────────────────────
+// Diese Namen sind LOKALE Auskunft. Keiner von ihnen wird je gespeichert.
+const FB_V9_RS_READY='READY', FB_V9_RS_TIMEOUT='TIMEOUT_PENDING_X',
+      FB_V9_RS_EVICTED='EVICTED', FB_V9_RS_DISQUALIFIED='DISQUALIFIED',
+      FB_V9_RS_MISSING='MISSING', FB_V9_RS_MALFORMED='MALFORMED';
+// Reihenfolge mit Absicht: eine gueltige Disqualifikation und ein Austragungsmarker
+// befreien den Sitz, unabhaengig davon, was sonst noch herumliegt. Erst danach wird
+// die Meldung selbst betrachtet.
+function fbV9ReadySeatState(turn,q,e,x){
+  if(fbV9DisqualifyOk(x))return FB_V9_RS_DISQUALIFIED;
+  if(e===true)return FB_V9_RS_EVICTED;
+  if(x!==null&&x!==undefined)return FB_V9_RS_MALFORMED;   // etwas steht da, aber nichts Gueltiges
+  if(q===null||q===undefined)return FB_V9_RS_MISSING;
+  if(!fbV9ReadyTerminalOk(q,turn))return FB_V9_RS_MALFORMED;
+  return q.k==='ready'?FB_V9_RS_READY:FB_V9_RS_TIMEOUT;
+}
+// Die Barriere. Gezaehlt wird ueber die UNVERAENDERLICHE Sollbesetzung in kanonischer
+// Sitzreihenfolge - nie ueber die Zahl der Kinder eines Schnappschusses. Ein
+// Fristschluss OHNE Disqualifikation befreit ausdruecklich NICHT: sonst waere eine
+// einzelne Zeitueberschreitung eine stille Dauerbefreiung.
+function fbV9ReadyComplete(cap,turn,q,e,x){
+  if(!Number.isInteger(cap)||cap<2||cap>FB_ONLINE_SEATS)return false;
+  if(!Number.isInteger(turn)||turn<0)return false;
+  for(let s=0;s<cap;s++){
+    const z=fbV9ReadySeatState(turn,q&&q[s],e&&e[s],x&&x[s]);
+    if(z!==FB_V9_RS_READY&&z!==FB_V9_RS_EVICTED&&z!==FB_V9_RS_DISQUALIFIED)return false;
+  }
+  return true;
+}
+// Der Fristanker einer Runde - der SERVERzeitstempel, von dem eine spaetere Stufe
+// rechnen darf. Hier wird nichts gerechnet und keine Uhr gelesen: die Funktion sagt
+// nur, WELCHER autoritative Wert gilt, oder dass es keinen gibt.
+function fbV9ReadyAnchor(turn,s,zPrev){
+  if(!Number.isInteger(turn)||turn<0)return null;
+  if(turn===0)return fbV9StartAnchorOk(s)?s.ts:null;
+  return fbV9CompleteAnchorOk(zPrev)?zPrev.ts:null;
+}
 // ════ ENDE V9-NETZADAPTER ════
 // ════ V9-GEHEIMNISSPEICHER (RUHEND) ════
 // Zwischen Commit und Enthuellung ist der Client der Einzige, der weiss, was er vorhat.
