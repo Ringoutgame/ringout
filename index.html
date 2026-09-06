@@ -9042,6 +9042,212 @@ function fbV9NetListen(ctx,rueckruf){
   };
 }
 // ════ ENDE V9-NETZADAPTER ════
+// ════ V9-ABLAUFSTEUERUNG (RUHEND) ════
+// Sie setzt die fertigen Teile zusammen und erfindet nichts nach: Codec und Hash aus
+// V9.3A, Bauer, Geheimnis und Barrieren aus V9.3B1, Pfade und Schreibvorgaenge aus
+// V9.3B2A. Ihr ganzer Beitrag ist die REIHENFOLGE - und die Frage, wann ein Schritt
+// wirklich getan ist.
+//
+// Sie ist ruhend: kein freigegebener Weg ruft sie, ONLINE_PROTOCOL_VERSION bleibt 8,
+// und sie fasst keinen Spielzustand an. Sie endet bei der geprueften Zugmenge; was
+// daraus fuer das Spiel folgt, entscheidet eine spaetere Stufe.
+//
+// AUSDRUECKLICH NUR DER GUTE FALL. Es gibt hier keine Fristen, keine Zeitgeber und
+// keine Sentinel-Schreiber (skip/remove/late/noreveal). Committet ein anderer Sitz nie,
+// bleibt die Steuerung im Wartezustand - das ist in dieser Stufe die richtige Antwort
+// und keine Luecke.
+const FB_V9_IDLE='IDLE', FB_V9_OPENING='OPENING', FB_V9_COMMITTING='COMMITTING',
+      FB_V9_WAIT_COMMITS='WAIT_COMMITS', FB_V9_OPENING_REVEAL='OPENING_REVEAL',
+      FB_V9_REVEALING='REVEALING', FB_V9_WAIT_RESULTS='WAIT_RESULTS',
+      FB_V9_COMPLETE='COMPLETE', FB_V9_FAILED='FAILED', FB_V9_STOPPED='STOPPED';
+// Die Reihenfolge ist eine Einbahnstrasse. Ein Schnappschuss, der spaet eintrifft, darf
+// den Ablauf nie zurueckdrehen - sonst entschiede die Zustelldauer ueber den Verlauf.
+const FB_V9_STUFEN=[FB_V9_IDLE,FB_V9_OPENING,FB_V9_COMMITTING,FB_V9_WAIT_COMMITS,
+                    FB_V9_OPENING_REVEAL,FB_V9_REVEALING,FB_V9_WAIT_RESULTS,FB_V9_COMPLETE];
+
+// Der Netzadapter nennt den Raum `code`, die Protokollmaschine `room`. Beide sind
+// abgenommen; uebersetzt wird deshalb hier, an einer einzigen Stelle.
+function fbV9EngineCtx(ctx){
+  return {room:ctx.code,gen:ctx.gen,turn:ctx.turn,seat:ctx.seat};
+}
+function fbV9Stufe(lauf,neu){
+  if(lauf.stufe===FB_V9_FAILED||lauf.stufe===FB_V9_STOPPED)return;
+  const a=FB_V9_STUFEN.indexOf(lauf.stufe), b=FB_V9_STUFEN.indexOf(neu);
+  if(b>a)lauf.stufe=neu;
+}
+function fbV9Scheitern(lauf,grund){
+  if(lauf.stufe===FB_V9_STOPPED||lauf.stufe===FB_V9_FAILED)return;
+  lauf.stufe=FB_V9_FAILED; lauf.grund=grund;
+  // Das Geheimnis bleibt BEWUSST liegen. Es ist das Einzige, womit sich ein
+  // gescheiterter Versuch spaeter noch erklaeren oder fortsetzen liesse; es hier
+  // wegzuwerfen waere eine Entscheidung, die zu dieser Stufe nicht gehoert.
+  fbV9Aufloesen(lauf);
+}
+function fbV9Aufloesen(lauf){
+  if(lauf.abmelden){ try{ lauf.abmelden(); }catch(e){} lauf.abmelden=null; }
+  if(lauf.fertigNun){ const f=lauf.fertigNun; lauf.fertigNun=null; f(lauf); }
+}
+// Nach dem Anhalten darf nichts mehr wirken - weder ein spaeter Rueckruf noch das
+// Ergebnis eines laengst abgeschickten Schreibvorgangs.
+function fbV9Aus(lauf){ return !lauf||lauf.stufe===FB_V9_STOPPED||lauf.stufe===FB_V9_FAILED
+                        ||lauf.stufe===FB_V9_COMPLETE; }
+
+// Passt ein bereits vorhandenes eigenes Terminal zu dem, was dieser Lauf vorhatte?
+// Ein doppelter Tab oder ein alter Versuch kann dort etwas anderes hinterlassen haben -
+// und dann ist Weitermachen gefaehrlicher als Anhalten.
+function fbV9EigenesPasst(erwartet,vorhanden){
+  if(!vorhanden||typeof vorhanden!=='object')return false;
+  if(vorhanden.k!==erwartet.k)return false;
+  if(erwartet.k==='move')return vorhanden.h===erwartet.h;
+  return true;
+}
+function fbV9RevealPasst(erwartet,vorhanden){
+  if(!vorhanden||typeof vorhanden!=='object'||vorhanden.k!=='reveal')return false;
+  return vorhanden.idx===erwartet.idx&&vorhanden.dx===erwartet.dx
+      &&vorhanden.dy===erwartet.dy&&vorhanden.sp===erwartet.sp&&vorhanden.n===erwartet.n;
+}
+
+// Ein Schritt je Zustandsaenderung. Wieder eintretbar: `beschaeftigt` verhindert, dass
+// zwei gleichzeitig eintreffende Schnappschuesse denselben Schreibvorgang zweimal
+// ausloesen, und jede Nebenwirkung haengt zusaetzlich an einem eigenen Merker.
+async function fbV9Schritt(lauf){
+  if(fbV9Aus(lauf))return;
+  // Trifft ein Schnappschuss ein, WAEHREND ein Schreibvorgang laeuft, darf der Anstoss
+  // nicht verlorengehen - sonst bliebe der Ablauf stehen, obwohl der Zustand ihn
+  // weitertragen wuerde. Er wird gemerkt und am Ende einmal nachgeholt.
+  if(lauf.beschaeftigt){ lauf.nochmal=true; return; }
+  lauf.beschaeftigt=true;
+  try{
+    const st=lauf.stand;
+    // (1) Der Rundenbeginn muss AUTORITATIV dastehen - der eigene Schreibvorgang allein
+    //     beweist nichts, er kann von einem anderen ueberholt worden sein.
+    if(!st.turnOpen){ fbV9Stufe(lauf,FB_V9_OPENING); return; }
+    // (2) Genau ein eigenes Terminal.
+    if(!lauf.commitFertig){
+      if(lauf.commitLaeuft)return;
+      lauf.commitLaeuft=true;
+      fbV9Stufe(lauf,FB_V9_COMMITTING);
+      const r=await fbV9NetWriteCommit(lauf.ctx,lauf.terminal);
+      lauf.commitLaeuft=false;
+      if(fbV9Aus(lauf))return;
+      if(r.status===FB_V9_COMMITTED)lauf.commitFertig=true;
+      else if(r.status===FB_V9_EXISTS){
+        // Belegt heisst NICHT erledigt: dort koennte etwas anderes stehen.
+        if(!fbV9EigenesPasst(lauf.terminal,r.wert))
+          return fbV9Scheitern(lauf,'eigenes Terminal weicht ab');
+        lauf.commitFertig=true;
+      }else return fbV9Scheitern(lauf,'Commit: '+r.status);
+    }
+    // (3) Warten, bis JEDER Sitz der Sollbesetzung ein Terminal hat.
+    fbV9Stufe(lauf,FB_V9_WAIT_COMMITS);
+    if(!fbV9CommitsComplete(lauf.ctx.cap,st.commits))return;
+    // (4) Die Enthuellungsphase eroeffnen. Mehrere duerfen es gleichzeitig versuchen -
+    //     massgeblich ist allein, was danach im Raum steht.
+    if(!st.revealOpen){
+      if(lauf.roVersucht)return;
+      lauf.roVersucht=true;
+      fbV9Stufe(lauf,FB_V9_OPENING_REVEAL);
+      const r=await fbV9NetOpenReveal(lauf.ctx);
+      if(fbV9Aus(lauf))return;
+      if(r.status!==FB_V9_COMMITTED&&r.status!==FB_V9_EXISTS){
+        // Eine Abweisung ist nur dann das Ende, wenn auch NIEMAND anders eroeffnet hat.
+        // Sonst hat ein Mitspieler die Phase laengst geoeffnet und unser Versuch war
+        // schlicht ueberfluessig.
+        if(!lauf.stand.revealOpen)return fbV9Scheitern(lauf,'Reveal-Anker: '+r.status);
+      }
+      // Weiter geht es NICHT mit dem eigenen Ergebnis, sondern mit dem des Raums:
+      // der Zuhoerer bringt den Anker, und dann laeuft dieser Schritt erneut.
+      return;
+    }
+    // (5) Nur ein Abschuss wird enthuellt; eine Nullhandlung hat nichts zu zeigen.
+    if(lauf.terminal.k==='move'&&!lauf.revealFertig){
+      if(lauf.revealLaeuft)return;
+      lauf.revealLaeuft=true;
+      fbV9Stufe(lauf,FB_V9_REVEALING);
+      let rev;
+      try{ rev=fbV9MakeReveal(fbV9EngineCtx(lauf.ctx)); }
+      catch(e){ lauf.revealLaeuft=false; return fbV9Scheitern(lauf,'kein Geheimnis'); }
+      const r=await fbV9NetWriteReveal(lauf.ctx,rev);
+      lauf.revealLaeuft=false;
+      if(fbV9Aus(lauf))return;
+      if(r.status===FB_V9_COMMITTED)lauf.revealFertig=true;
+      else if(r.status===FB_V9_EXISTS){
+        if(!fbV9RevealPasst(rev,r.wert))
+          return fbV9Scheitern(lauf,'eigenes Ergebnis weicht ab');
+        lauf.revealFertig=true;
+      }else return fbV9Scheitern(lauf,'Reveal: '+r.status);
+    }
+    // (6) Warten, bis zu jedem Abschuss ein Ergebnis vorliegt.
+    fbV9Stufe(lauf,FB_V9_WAIT_RESULTS);
+    if(!fbV9ResultsComplete(lauf.ctx.cap,st.commits,st.results))return;
+    if(lauf.finaleLaeuft)return;
+    lauf.finaleLaeuft=true;
+    const menge=await fbV9AcceptedSet(fbV9EngineCtx(lauf.ctx),lauf.ctx.cap,st.commits,st.results);
+    if(fbV9Aus(lauf))return;
+    if(!menge)return fbV9Scheitern(lauf,'Zugmenge unvollstaendig');
+    lauf.menge=menge;
+    lauf.stufe=FB_V9_COMPLETE;
+    // Erst JETZT ist das Geheimnis dieser Runde gegenstandslos - und geraeumt wird
+    // genau diese Runde, nicht blind alles.
+    fbV9SecretDone(lauf.ctx.code,lauf.ctx.gen,lauf.ctx.turn);
+    fbV9Aufloesen(lauf);
+  }finally{
+    lauf.beschaeftigt=false;
+    if(lauf.nochmal&&!fbV9Aus(lauf)){ lauf.nochmal=false; fbV9Schritt(lauf); }
+  }
+}
+
+// Ein Durchlauf fuer EINEN Raum, EINE Generation, EINEN Turn. `aktion` ist entweder
+// {move:{idx,dx,dy,sp}} oder {pass:true}. Zurueck kommt der Lauf mit `fertig` als
+// Zusage auf sein Ende - erfuellt bei COMPLETE, FAILED oder STOPPED.
+function fbV9Start(ctx,aktion){
+  const lauf={ctx:ctx,stufe:FB_V9_IDLE,grund:'',menge:null,terminal:null,
+              stand:{turnOpen:null,commits:null,revealOpen:null,results:null},
+              abmelden:null,fertigNun:null,beschaeftigt:false,nochmal:false,
+              commitLaeuft:false,commitFertig:false,roVersucht:false,
+              revealLaeuft:false,revealFertig:false,finaleLaeuft:false};
+  lauf.fertig=new Promise(aufl=>{ lauf.fertigNun=aufl; });
+  // Anhalten ist mehrfach gefahrlos und schneidet jede kuenftige Wirkung ab.
+  lauf.stop=function(){
+    if(lauf.stufe===FB_V9_COMPLETE||lauf.stufe===FB_V9_FAILED){ fbV9Aufloesen(lauf); return; }
+    if(lauf.stufe===FB_V9_STOPPED)return;
+    lauf.stufe=FB_V9_STOPPED;
+    fbV9Aufloesen(lauf);
+  };
+  if(!fbV9CtxOk(ctx)){ lauf.stufe=FB_V9_FAILED; lauf.grund='Zusammenhang ungueltig';
+                       fbV9Aufloesen(lauf); return lauf; }
+  // Der ganze Ablauf haengt an einem Zuhoerer: jeder Schnappschuss stoesst den
+  // naechsten Schritt an. Ohne ihn gibt es keinen Fortschritt - und mit dem Abmelden
+  // hoert jeder Fortschritt auf.
+  const start=async()=>{
+    lauf.terminal=aktion&&aktion.pass?fbV9MakePass():null;
+    if(!lauf.terminal){
+      if(!aktion||!aktion.move){ lauf.stufe=FB_V9_FAILED; lauf.grund='keine Handlung';
+                                 fbV9Aufloesen(lauf); return; }
+      try{ lauf.terminal=await fbV9MakeCommit(fbV9EngineCtx(ctx),aktion.move); }
+      catch(e){ return fbV9Scheitern(lauf,'Commit nicht baubar'); }
+      if(fbV9Aus(lauf))return;
+    }
+    lauf.abmelden=fbV9NetListen(ctx,(st)=>{
+      if(fbV9Aus(lauf))return;         // spaeter Rueckruf nach dem Ende: wirkungslos
+      lauf.stand=st;
+      fbV9Schritt(lauf);
+    });
+    if(!lauf.abmelden)return fbV9Scheitern(lauf,'kein Zuhoerer');
+    fbV9Stufe(lauf,FB_V9_OPENING);
+    const r=await fbV9NetOpenTurn(ctx);
+    if(fbV9Aus(lauf))return;
+    if(r.status!==FB_V9_COMMITTED&&r.status!==FB_V9_EXISTS){
+      // Wie beim Reveal-Anker: eine Abweisung zaehlt nur, solange der Raum den Beginn
+      // nicht ohnehin schon traegt.
+      if(!lauf.stand.turnOpen)return fbV9Scheitern(lauf,'Rundenbeginn: '+r.status);
+    }
+    fbV9Schritt(lauf);
+  };
+  start();
+  return lauf;
+}
+// ════ ENDE V9-ABLAUFSTEUERUNG ════
 // ════ ONLINE-MODUSREGISTER (v8) ════
 // EINE Quelle fuer Modusnamen, Sollbesetzung, Beschriftung und Freigabestand. Jede
 // Stelle, die Kapazitaet oder Moduslabel braucht, fragt hier - es gibt bewusst keine

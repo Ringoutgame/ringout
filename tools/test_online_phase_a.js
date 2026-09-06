@@ -673,7 +673,7 @@ const R = new Function(`
   // Der ruhende v9-Bereich umfasst seit V9.3B1 zwei Bloecke: den Codec und die
   // Protokollmaschine darunter. Die Aussage bleibt dieselbe - ausserhalb dieses
   // Bereichs nennt nichts eine v9-Funktion, also ruft ihn auch nichts auf.
-  const codecEnde = HTML.indexOf('// ════ ENDE V9-NETZADAPTER ════');
+  const codecEnde = HTML.indexOf('// ════ ENDE V9-ABLAUFSTEUERUNG ════');
   ok(codecStart > 0 && codecEnde > codecStart, 'der ruhende v9-Bereich ist abgegrenzt');
   const codec = HTML.slice(codecStart, codecEnde);
   ok(HTML.split(codec).join('').indexOf('crypto.subtle') < 0,

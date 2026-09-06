@@ -333,7 +333,8 @@ abschnitt('Waechter: der Adapter ruht');
   t('der freigegebene Client steht auf Protokoll 8',
     /const ONLINE_PROTOCOL_VERSION=8;/.test(HTML));
   const start = HTML.indexOf('const FB_V9_PREIMAGE_BYTES=60');
-  const ende = HTML.indexOf('// ════ ENDE V9-NETZADAPTER ════');
+  // Der ruhende v9-Bereich endet seit V9.3B2B hinter der Ablaufsteuerung.
+  const ende = HTML.indexOf('// ════ ENDE V9-ABLAUFSTEUERUNG ════');
   t('der ruhende v9-Bereich ist abgegrenzt', start > 0 && ende > start);
   const bereich = HTML.slice(start, ende);
   t('er enthaelt den Netzadapter', bereich.indexOf('function fbV9NetOpenTurn') > 0);
