@@ -9085,6 +9085,153 @@ async function fbV9NetWriteNoReveal(ctx,ziel){
                              {k:'noreveal',ts:window.FB.serverTimestamp()});
 }
 // ════ ENDE V9-NETZADAPTER ════
+// ════ V9-GEHEIMNISSPEICHER (RUHEND) ════
+// Zwischen Commit und Enthuellung ist der Client der Einzige, der weiss, was er vorhat.
+// Bisher lag das nur im Arbeitsspeicher - ein Neuladen zerstoerte es, und ohne Salz kann
+// niemand mehr ehrlich enthuellen. Diese Schicht legt es in den `sessionStorage`: er
+// ueberlebt das Neuladen desselben Tabs und wird von einem anderen Tab nicht gesehen.
+//
+// WAS HIER NICHT GEPRUEFT WIRD: ob das Geheimnis zu dem Commit gehoert, der wirklich in
+// Firebase steht. Diese Schicht kennt Firebase nicht. Sie prueft nur, ob der Datensatz
+// IN SICH stimmig ist - der Abgleich mit `c/<turn>/<seat>.h` ist die zweite Ebene und
+// gehoert zur Steuerung.
+//
+// WORAN DAS GEHEIMNIS GEBUNDEN IST: Raum, Generation, Runde, Sitz, Konto und der eigene
+// Hash. AUSDRUECKLICH NICHT an onlineTab, onlinePid oder p/<seat>/s. onlineTab entsteht
+// bei jedem Seitenaufruf neu und waere nach jedem Neuladen falsch; onlinePid ist in allen
+// Tabs derselbe und truege gar nichts bei. Und ein Wechsel des Praesenztokens bedeutet
+// NICHT, dass der Sitz verloren ist - der haengt an players/<seat>/uid.
+//
+// ZUM DOPPELTEN TAB: ein kopierter sessionStorage laesst sich lokal nicht von einem
+// Neuladen unterscheiden. Das wird hier auch nicht versucht. Es schadet nicht: ein
+// zweiter Tab mit demselben Geheimnis enthuellt denselben richtigen Zug, und write-once
+// laesst ohnehin nur einen durch. Gefaehrlich waere allein ein VERALTETES Geheimnis zu
+// einem anderen Commit - dagegen steht die Schluesselbindung und, eine Ebene hoeher,
+// der Abgleich mit dem gespeicherten Hash.
+const FB_V9_STORE_PREFIX='ro9:', FB_V9_STORE_V=1;
+const FB_V9_SAVED='SAVED', FB_V9_NOT_FOUND='NOT_FOUND', FB_V9_UNAVAILABLE='UNAVAILABLE',
+      FB_V9_DROPPED='DROPPED', FB_V9_OK='OK';
+
+// Der Speicher kann aus mehreren Gruenden fehlen - abgeschaltet, Sicherheitsrichtlinie,
+// Kontingent. Jeder Zugriff geht deshalb durch diese eine Stelle, und ein Fehlschlag
+// wird GEMELDET, nicht verschwiegen. Kein Rueckfall auf localStorage oder IndexedDB:
+// beides waere langlebiger und tabuebergreifend, also genau falsch.
+function fbV9Store(){
+  try{
+    if(typeof sessionStorage==='undefined'||!sessionStorage)return null;
+    return sessionStorage;
+  }catch(e){ return null; }
+}
+function fbV9SecretKey(ctx){
+  if(!fbV9CtxOk(ctx))return null;
+  return FB_V9_STORE_PREFIX+FB_V9_STORE_V+':'+ctx.code+':'+ctx.gen+':'+ctx.turn+':'+ctx.seat;
+}
+// Die Felder, die ein Datensatz tragen darf - genau diese, nicht mehr. Raum, Generation,
+// Runde und Sitz stehen im Schluessel; sie noch einmal im Wert zu fuehren waere Doppelung
+// ohne Gewinn.
+const FB_V9_SECRET_FIELDS=['v','uid','salt','idx','dx','dy','sp','h'];
+function fbV9SecretShapeOk(ctx,uid,rec){
+  if(!rec||typeof rec!=='object')return false;
+  if(rec.v!==FB_V9_STORE_V)return false;
+  if(typeof uid!=='string'||!uid||rec.uid!==uid)return false;
+  if(typeof rec.salt!=='string'||!FB_V9_HEX_SALT_RE.test(rec.salt))return false;
+  if(typeof rec.h!=='string'||!FB_V9_HEX_HASH_RE.test(rec.h))return false;
+  // Ein Abschuss gehoert der eigenen Figur - dieselbe Zuordnung wie ueberall sonst.
+  if(!Number.isInteger(rec.idx)||rec.idx!==ctx.seat)return false;
+  if(!Number.isFinite(rec.dx)||!Number.isFinite(rec.dy)||!Number.isFinite(rec.sp))return false;
+  const k=Object.keys(rec);
+  if(k.length!==FB_V9_SECRET_FIELDS.length)return false;
+  for(const f of k)if(FB_V9_SECRET_FIELDS.indexOf(f)<0)return false;
+  return true;
+}
+// Aus dem gespeicherten Datensatz wieder die Felder machen, die der Codec erwartet.
+function fbV9SecretFelder(ctx,rec){
+  return {room:ctx.code,gen:ctx.gen,turn:ctx.turn,seat:ctx.seat,kind:FB_V9_KIND_MOVE,
+          idx:rec.idx,dx:rec.dx,dy:rec.dy,sp:rec.sp};
+}
+
+// Ablegen. Geprueft wird VOR dem Schreiben - ein halb gueltiger Datensatz hat im
+// Speicher nichts verloren.
+//
+// ZUR REIHENFOLGE, die spaeter gilt: der Commit darf erst NACH dem erfolgreichen
+// Speichern an Firebase gehen. Andersherum kann ein Absturz einen unveraenderlichen
+// Commit hinterlassen, zu dem es kein Salz mehr gibt - der Zug waere nie mehr
+// enthuellbar. Ein Geheimnis ohne Commit ist dagegen harmlos: es faellt bei der
+// Pruefung durch und wird verworfen.
+function fbV9SecretSave(ctx,uid,rec){
+  if(!fbV9CtxOk(ctx)||!fbV9SecretShapeOk(ctx,uid,rec))return FB_V9_INVALID;
+  const st=fbV9Store(); if(!st)return FB_V9_UNAVAILABLE;
+  const k=fbV9SecretKey(ctx); if(!k)return FB_V9_INVALID;
+  try{
+    st.setItem(k,JSON.stringify({v:FB_V9_STORE_V,uid:uid,salt:rec.salt,idx:rec.idx,
+                                 dx:rec.dx,dy:rec.dy,sp:rec.sp,h:rec.h}));
+  }catch(e){ return FB_V9_ERROR; }   // Kontingent, Richtlinie: gescheitert ist gescheitert
+  return FB_V9_SAVED;
+}
+
+// Lesen und lokal nachrechnen. Der gespeicherte Hash wird NICHT geglaubt: er wird aus
+// den gespeicherten Feldern neu berechnet und verglichen. Eine veraenderte Zahl, ein
+// veraendertes Salz - alles faellt hier auf.
+async function fbV9SecretLoad(ctx,uid){
+  if(!fbV9CtxOk(ctx))return {status:FB_V9_INVALID,secret:null};
+  const st=fbV9Store(); if(!st)return {status:FB_V9_UNAVAILABLE,secret:null};
+  const k=fbV9SecretKey(ctx);
+  let roh=null;
+  try{ roh=st.getItem(k); }catch(e){ return {status:FB_V9_UNAVAILABLE,secret:null}; }
+  if(roh===null||roh===undefined)return {status:FB_V9_NOT_FOUND,secret:null};
+  let rec=null;
+  try{ rec=JSON.parse(roh); }catch(e){ return {status:FB_V9_INVALID,secret:null}; }
+  if(!fbV9SecretShapeOk(ctx,uid,rec))return {status:FB_V9_INVALID,secret:null};
+  try{
+    const h=await fbV9Hash(fbV9SecretFelder(ctx,rec),fbV9SaltFromHex(rec.salt));
+    if(h!==rec.h)return {status:FB_V9_INVALID,secret:null};
+  }catch(e){ return {status:FB_V9_INVALID,secret:null}; }
+  return {status:FB_V9_OK,secret:{room:ctx.code,gen:ctx.gen,turn:ctx.turn,seat:ctx.seat,
+          idx:rec.idx,dx:rec.dx,dy:rec.dy,sp:rec.sp,salt:fbV9SaltFromHex(rec.salt),h:rec.h}};
+}
+
+// Genau diesen einen Datensatz entfernen - nie einen anderen Sitz, nie eine andere Runde.
+// Mehrfach gefahrlos: was nicht da ist, ist auch nicht zu loeschen.
+function fbV9SecretDrop(ctx){
+  const st=fbV9Store(); if(!st)return FB_V9_UNAVAILABLE;
+  const k=fbV9SecretKey(ctx); if(!k)return FB_V9_INVALID;
+  try{ st.removeItem(k); }catch(e){ return FB_V9_ERROR; }
+  return FB_V9_DROPPED;
+}
+
+// Aufraeumen in einem AUSDRUECKLICH genannten Bereich. Es gibt hier bewusst kein
+// automatisches Grossreinemachen beim Seitenstart: solange nicht feststeht, in welchen
+// Raum der Client zurueckkehrt, koennte das genau das Geheimnis wegwerfen, das gleich
+// gebraucht wird.
+//   opt.room   - nur Datensaetze dieses Raums
+//   opt.gen    - zusaetzlich nur diese Generation
+//   opt.behalte- ein Zusammenhang, dessen Datensatz stehenbleibt
+// Offensichtlich missgebildete ro9-Schluessel werden mitgenommen; alles Fremde bleibt
+// unberuehrt.
+function fbV9SecretPurge(opt){
+  const st=fbV9Store(); if(!st)return FB_V9_UNAVAILABLE;
+  opt=opt||{};
+  const schutz=opt.behalte?fbV9SecretKey(opt.behalte):null;
+  let raus=[];
+  try{
+    for(let i=0;i<st.length;i++){
+      const k=st.key(i);
+      if(typeof k!=='string'||k.indexOf(FB_V9_STORE_PREFIX)!==0)continue;   // Fremdes: nie anfassen
+      if(k===schutz)continue;
+      const teile=k.split(':');
+      // ro9 : v : room : gen : turn : seat
+      if(teile.length!==6||teile[1]!==String(FB_V9_STORE_V)||!FB_V9_CODE_RE.test(teile[2])){
+        raus.push(k); continue;                       // erkennbar unbrauchbar
+      }
+      if(opt.room&&teile[2]!==opt.room)continue;
+      if(opt.gen!==undefined&&teile[3]!==String(opt.gen))continue;
+      raus.push(k);
+    }
+    for(const k of raus)st.removeItem(k);
+  }catch(e){ return FB_V9_ERROR; }
+  return FB_V9_DROPPED;
+}
+// ════ ENDE V9-GEHEIMNISSPEICHER ════
 // ════ V9-ABLAUFSTEUERUNG (RUHEND) ════
 // Sie setzt die fertigen Teile zusammen und erfindet nichts nach: Codec und Hash aus
 // V9.3A, Bauer, Geheimnis und Barrieren aus V9.3B1, Pfade und Schreibvorgaenge aus
