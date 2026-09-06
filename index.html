@@ -183,6 +183,8 @@ body.r3d #menu{z-index:2;background:linear-gradient(180deg,rgba(6,10,18,.55) 0%,
 @media(hover:hover){
   .mcard:not(.on):hover{border-color:rgba(255,201,64,.45);transform:translateY(-3px)}
   .mcta:hover,.cbtn:hover,.pr-join:hover,.start:hover{filter:brightness(1.07)}
+  .cbtn[disabled],.cbtn:disabled{filter:grayscale(.85);opacity:.45;cursor:not-allowed;box-shadow:none}
+  .cbtn[disabled]:hover,.cbtn:disabled:hover{filter:grayscale(.85)}
   .mico:hover,.ibtn:hover,.obk:hover{border-color:rgba(255,201,64,.55);color:#ffd97a}
   .ghostbtn:hover,.proom:hover,.qbtn:hover,.howrow:hover{border-color:rgba(255,201,64,.45)}
   .pr-join:hover{background:rgba(255,201,64,.16);border-color:rgba(255,201,64,.8)}
@@ -582,6 +584,10 @@ body.booting #menu{opacity:0;visibility:hidden}
 .cover .cbtn{border:0;border-radius:14px;padding:14px 28px;font:inherit;font-size:15px;font-weight:900;letter-spacing:.08em;cursor:pointer;color:#2b1c00;background:linear-gradient(180deg,#ffe197 0%,#f7ba3e 52%,#dd961e 100%);box-shadow:0 8px 28px rgba(255,185,50,.3),inset 0 1.5px 0 rgba(255,255,255,.6),inset 0 -3px 8px rgba(150,85,0,.35)}
 
 .ov{position:fixed;inset:0;background:rgba(4,7,12,.92);backdrop-filter:blur(6px);display:none;place-items:center;z-index:100}
+  /* Die Teamwahl erscheint UEBER dem Onlinebildschirm (.cover, z-index 120) - sie
+     wird von dort aus geoeffnet. Ohne diese Zeile liegt sie dahinter und ist zwar
+     sichtbar, aber nicht anklickbar. */
+  #fbOnTeamOv{z-index:140}
 .ov.show{display:grid}
 /* Match-End-/Modal-Panel im Premium-Look (Navy-Glass, Gold-Rand, weiche Entrance) */
 .wb{background:linear-gradient(180deg,rgba(19,27,45,.97),rgba(10,15,26,.98));border-radius:22px;padding:28px 22px;text-align:center;width:300px;max-width:88vw;border:1px solid rgba(255,201,64,.28);box-shadow:0 24px 60px rgba(4,8,16,.6),0 0 50px rgba(255,190,60,.08);animation:wp .4s cubic-bezier(.2,1.4,.4,1);
@@ -1032,6 +1038,69 @@ body:not(.r3d) .ohero{height:12px}
   </div>
 </div>
 
+<!-- ONLINE-MODUSWAHL (Protokoll v8). Der Onlineraum traegt seit v8 seinen Modus und
+     seine Sollbesetzung; beides wird HIER gewaehlt und ist danach unveraenderlich.
+     Nicht freigegebene Modi (siehe FB_ONLINE_MODES.released) sind ausgeblendet - sie
+     haben zwar Raum und Lobby, aber ihr Onlinespiel ist noch nicht fertig. -->
+<div class="ov" id="fbOnModeOv">
+  <div class="wb vswb">
+    <div class="wt" id="fbOnModeTitle">ONLINE</div>
+    <button class="vopt" id="fbOnClassicBtn">
+      <span class="vopt-t" id="fbOnClassicT">CLASSIC 1V1</span>
+      <span class="vopt-s" id="fbOnClassicS">2 PLAYERS · FIRST TO 3</span>
+    </button>
+    <button class="vopt" id="fbOnSpeedBtn">
+      <span class="vopt-t" id="fbOnSpeedT">SPEED MATCH</span>
+      <span class="vopt-s" id="fbOnSpeedS">2 PLAYERS · 45 s TIME BANKS</span>
+    </button>
+    <button class="vopt" id="fbOnTeam2Btn">
+      <span class="vopt-t" id="fbOnTeam2T">TEAM 2V2</span>
+      <span class="vopt-s" id="fbOnTeam2S">4 PLAYERS · TWO TEAMS · FIRST TO 3</span>
+    </button>
+    <button class="vopt rec" id="fbOnLivesBtn">
+      <span class="vopt-t" id="fbOnLivesT">LIVES FFA</span>
+      <span class="vopt-s" id="fbOnLivesS">3–5 PLAYERS · TWO LIVES EACH</span>
+    </button>
+    <button class="vopt" id="fbOnTimedBtn">
+      <span class="vopt-t" id="fbOnTimedT">TIMED FFA</span>
+      <span class="vopt-s" id="fbOnTimedS">3–5 PLAYERS · 60 s PHASES</span>
+    </button>
+    <button class="wbtn" id="fbOnModeBack">↩ Back</button>
+  </div>
+</div>
+
+<!-- SOLLBESETZUNG. Nur fuer Modi mit mehr als einer zulaessigen Spielerzahl. Die Wahl
+     legt config.cap fest - der Raum verlangt danach GENAU diese Zahl. -->
+<div class="ov" id="fbOnCapOv">
+  <div class="wb vswb">
+    <div class="wt" id="fbOnCapTitle">PLAYERS</div>
+    <div class="lbl" id="fbOnCapLbl" style="text-align:left;margin-top:6px">Players</div>
+    <div class="pills" id="fbOnCapGrp" style="margin-bottom:16px">
+      <button id="fbOnCap3">3</button><button id="fbOnCap4">4</button><button id="fbOnCap5" class="on">5</button>
+    </div>
+    <button class="cbtn" id="fbOnCapGo">▶ Continue</button>
+    <button class="wbtn" id="fbOnCapBack">↩ Back</button>
+  </div>
+</div>
+
+<!-- TEAM-WAHL (Team 2v2 online). Wer beitritt, waehlt eine SEITE - nicht eine von vier
+     Farben. Derselbe Schirm dient dem Ersteller und dem Beitretenden; beim Beitritt
+     zeigt er zusaetzlich die Belegung und sperrt ein volles Team. -->
+<div class="ov" id="fbOnTeamOv">
+  <div class="wb vswb">
+    <div class="wt" id="fbOnTeamTitle">TEAM</div>
+    <button class="vopt" id="fbOnTeamBlueBtn">
+      <span class="vopt-t" id="fbOnTeamBlueT">JOIN BLUE TEAM</span>
+      <span class="vopt-s" id="fbOnTeamBlueS">B1 · B2</span>
+    </button>
+    <button class="vopt" id="fbOnTeamRedBtn">
+      <span class="vopt-t" id="fbOnTeamRedT">JOIN RED TEAM</span>
+      <span class="vopt-s" id="fbOnTeamRedS">R1 · R2</span>
+    </button>
+    <button class="wbtn" id="fbOnTeamBack">↩ Back</button>
+  </div>
+</div>
+
 <!-- Settings-Modal (⚙ im Hauptmenue): v1-Localization EN/DE/TR, in localStorage persistiert -->
 <div class="ov" id="setOv">
   <div class="wb">
@@ -1137,6 +1206,7 @@ body:not(.r3d) .ohero{height:12px}
   <!-- FFA-Lobby (live seit M8-T3c; gefuettert vom Presence-Listener) -->
   <div id="onLobby" style="display:none">
     <div style="font-size:10px;color:var(--muted);letter-spacing:.18em"><span id="lobbyLbl">LOBBY</span> <span id="lobbyCount"></span></div>
+    <div id="lobbyMode" style="display:none;font-size:11px;font-weight:900;letter-spacing:.14em;color:var(--gold);margin-top:4px"></div>
     <div id="lobbySeats" style="display:flex;gap:10px;justify-content:center;margin:12px 0"></div>
     <div id="lobbyNames" style="display:flex;flex-direction:column;gap:3px;align-items:center;margin-bottom:10px">
       <!-- TEAM DUEL: Team-Header, nur in diesem Format sichtbar; die Namenszeilen darunter
@@ -1341,6 +1411,25 @@ let ffaN=3;         // FFA: Spieleranzahl 2-5 (lokal aus dem Menue; online = sea
 let ffaNMenu=3;     // Menue-Auswahl fuer FFA lokal — leaveOnline() stellt ffaN darauf zurueck
 // ── ONLINE-State ──
 let online=false, roomCode='', myPlayer=0, gen=0, runningGen=-1, turnNo=-1;
+// ════ HOST IST NICHT DER SITZ ════
+// Bis v7 galt: wer auf Sitz 0 sitzt, ist Host. In einem Team-2v2-Raum ist Sitz 0 aber
+// kanonisch B1 - der Ersteller haette damit nie Rot waehlen koennen. v8 traegt deshalb
+// eine eigene, unveraenderliche Hostkennung im Raum (rooms/<code>/hostUid).
+//
+// `roomHostUid` ist leer, solange der Raum keine traegt (v4-v7). Dann - und nur dann -
+// gilt weiterhin die alte Konvention. Das ist die gesamte Kompatibilitaetsregel.
+let roomHostUid='';
+function isHost(){ return roomHostUid?(roomHostUid===fbUid()&&!!roomHostUid):(myPlayer===0); }
+// Auf WELCHEM Sitz der Host sitzt - abgeleitet aus dem Roster, nirgends gespeichert.
+// Wird nur fuer die Lobby-Anwesenheitsfrist gebraucht ("ist der Host noch da?").
+function hostSeat(){
+  if(!roomHostUid)return 0;
+  for(let s=0;s<FFA_MAX_SEATS;s++){
+    const r=playersRoster&&playersRoster[s];
+    if(r&&r.uid===roomHostUid)return s;
+  }
+  return 0;
+}
 let turnUnsub=null, genUnsub=null, presUnsub=null, seatsUnsub=null, gameStarted=false;
 // Public-Lobby (feature/public-lobby-mvp): createVisibility ist die Host-Auswahl im
 // Erstellen-Dialog (Default 'private'); roomPublic merkt sich fuer den AKTUELLEN Raum,
@@ -1464,7 +1553,11 @@ function setOnlineName(raw){ onlineName=sanitizeName(raw); try{ localStorage.set
 // it falls back to the localized seat color name.
 // uid ist der Eigentumsbeweis des Seats (die Rules pruefen players/<seat>/uid gegen
 // auth.uid). id und tab bleiben Identitaets- bzw. Session-Metadaten.
-function playerRecord(seat){ return {id:onlinePid, name:(onlineName||T('col'+seat)), tab:onlineTab, uid:(typeof fbUid==='function'?fbUid():'')}; }
+// `team2` sagt, ob der Sitz zu einem Team-2v2-Raum gehoert. Dann ist der Ersatzname die
+// TEAMfarbe (Sitze 0/1 blau, 2/3 rot) statt der Spielerfarbe des Sitzes. Die Rules
+// verlangen einen Namen mit mindestens einem Zeichen - ganz weglassen geht also nicht,
+// und ein falscher Ersatzname ist im Zweiteamspiel eine Falschauskunft.
+function playerRecord(seat,team2){ return {id:onlinePid, name:(onlineName||T('col'+(team2?(fbTeam2Side(seat)===FB_TEAM2_BLUE?0:1):seat))), tab:onlineTab, uid:(typeof fbUid==='function'?fbUid():'')}; }
 // Display name for a seat: sanitized roster name, else the localized color name.
 // Callers MUST render the result via textContent (never innerHTML) — names are
 // untrusted input.
@@ -1537,8 +1630,8 @@ function seatActive(p,s){ return !!(p&&p[s]&&p[s].on===true); }
 // ever called against a seat whose p/<seat> is currently absent (fresh claim) —
 // a rules rejection here (seat taken / lobby closed in the meantime) is the
 // benign "lost" outcome, not an error.
-async function reserveSeat(code,seat){
-  const upd={}; upd['p/'+seat]={s:onlineTab,on:false,t:window.FB.serverTimestamp()}; upd['players/'+seat]=playerRecord(seat);
+async function reserveSeat(code,seat,team2){
+  const upd={}; upd['p/'+seat]={s:onlineTab,on:false,t:window.FB.serverTimestamp()}; upd['players/'+seat]=playerRecord(seat,team2);
   // VERGLEICHSSCHREIBEN auf die Protokollversion. Zwischen der Raumpruefung und
   // diesem Claim kann der Raum geloescht und unter demselben Code mit einer ANDEREN
   // Version neu angelegt worden sein — ein leerer Raum darf geloescht werden, und
@@ -1606,9 +1699,9 @@ async function releaseReservation(code,seat,dc,tok){
 // just-written data via releaseReservation and never touches foreign state.
 // Outcomes: {ok:true,dc} activated · {lost:true} reserve lost (no partial state,
 // caller tries the next seat) · {stale:true} op superseded (own writes rolled back).
-async function claimSeatSlot(code,seat,op,extra){
+async function claimSeatSlot(code,seat,op,extra,team2){
   const tok=onlineTab;   // Token DIESER Reservierung — der Rollback prueft genau dieses
-  const r=await reserveSeat(code,seat);
+  const r=await reserveSeat(code,seat,team2);
   if(!r.ok)return {ok:false,lost:true,dc:null};
   if(op!=null&&!joinOpCurrent(op)){ await releaseReservation(code,seat,null,tok); return {ok:false,stale:true,dc:null}; }
   let dc=null;
@@ -1629,8 +1722,8 @@ async function claimSeatSlot(code,seat,op,extra){
 // seats are rules-rejected: this path can never change players/<seat>/id.
 // keepName restores the roster name the seat already carries when no locally
 // persisted name exists (rules require name length>=1).
-async function reclaimSeat(code,seat,keepName,legacy){
-  const rec=playerRecord(seat);
+async function reclaimSeat(code,seat,keepName,legacy,team2){
+  const rec=playerRecord(seat,team2);
   if(!onlineName&&keepName)rec.name=keepName;
   // Ein bestehender uid-loser Seat wird NICHT inplace auf Eigentum migriert — die
   // Rules lehnen das ab, und ein halb migrierter Claim waere schlimmer als gar keiner.
@@ -1739,8 +1832,8 @@ function stopPresenceWatch(){ if(connUnsub){ try{ connUnsub(); }catch(e){} connU
 // claimSeatSlot. Outcomes: {ok:true,dc} re-activated · {lost:true} rules denied
 // (foreign tab active / stale window not open / seat re-assigned) · {stale:true}
 // op superseded (own presence dropped again, records kept).
-async function reclaimSeatSlot(code,seat,op,keepName,legacy){
-  const r=await reclaimSeat(code,seat,keepName,legacy);
+async function reclaimSeatSlot(code,seat,op,keepName,legacy,team2){
+  const r=await reclaimSeat(code,seat,keepName,legacy,team2);
   if(!r.ok)return {ok:false,lost:true,dc:null};
   if(op!=null&&!joinOpCurrent(op)){ await releaseReclaim(code,seat,null); return {ok:false,stale:true,dc:null}; }
   let dc=null;
@@ -1763,9 +1856,10 @@ async function reclaimSeatSlot(code,seat,op,keepName,legacy){
 // discovery listing (never read from the mutable global createVisibility): only then
 // is the listing compensated, and only AFTER the host anchors are gone (which the
 // rules require before a listing delete is permitted).
-async function abortFreshRoom(code,dc,listed){
+async function abortFreshRoom(code,dc,listed,seat){
+  seat=Number.isInteger(seat)?seat:0;   // v8: der Ersteller kann auf Sitz 2 sitzen
   if(dc){ try{ await dc.cancel(); }catch(e){ console.error('[online] onDisconnect cancel (create abort):',e); } }
-  try{ const upd={}; upd['p/0']=null; upd['players/0']=null; await window.FB.update(window.FB.ref(window.FB.db,'rooms/'+code),upd); }catch(e){ console.error('[online] fresh room seat cleanup failed:',e); }
+  try{ const upd={}; upd['p/'+seat]=null; upd['players/'+seat]=null; await window.FB.update(window.FB.ref(window.FB.db,'rooms/'+code),upd); }catch(e){ console.error('[online] fresh room seat cleanup failed:',e); }
   // Listing removed BEFORE the whole-room delete: with p/0 + players/0 already gone the
   // room is objectively host-less, so the rules permit the listing delete here. Best-
   // effort, never throws. Only for a create that actually wrote its own listing.
@@ -1792,8 +1886,8 @@ function startLobbyHostGrace(){
   lobbyHostGraceTimer=setTimeout(()=>{
     lobbyHostGraceTimer=null;
     if(ctx.sid!==onlineSessionId||ctx.room!==roomCode)return;
-    if(gameStarted||!ffaRoom()||myPlayer===0)return;
-    if(seatActive(lobbyP,0))return;   // host came back within the grace
+    if(gameStarted||!ffaRoom()||isHost())return;
+    if(seatActive(lobbyP,hostSeat()))return;   // host came back within the grace
     onLobbyClosed();
   },LOBBY_HOST_GRACE_MS);
 }
@@ -1802,9 +1896,12 @@ function startLobbyHostGrace(){
 //   host record gone (left) -> close the lobby immediately
 //   host record kept (reload)-> start/keep the grace and wait for the return
 function evalLobbyHostPresence(){
-  if(!(online&&ffaRoom()&&!gameStarted&&myPlayer!==0))return;
-  if(seatActive(lobbyP,0)){ clearLobbyHostGrace(); return; }
-  if(!(playersRoster&&playersRoster[0])){ clearLobbyHostGrace(); onLobbyClosed(); return; }
+  if(!(online&&ffaRoom()&&!gameStarted&&!isHost()))return;
+  // Beobachtet wird der SITZ DES HOSTS - in einem v8-Raum kann das Sitz 2 sein. Wer auf
+  // Sitz 0 sitzt, ist dort ein gewoehnlicher Mitspieler; sein Weggang schliesst nichts.
+  const hs=hostSeat();
+  if(seatActive(lobbyP,hs)){ clearLobbyHostGrace(); return; }
+  if(!(playersRoster&&playersRoster[hs])){ clearLobbyHostGrace(); onLobbyClosed(); return; }
   startLobbyHostGrace();
 }
 loadOnlineIdentity();   // stable pid + fresh tab token + persisted name, once per load
@@ -1861,9 +1958,7 @@ $('w5').onclick=()=>{winTarget=5;setOn('winGrp','w5');};
 $('devFbOnlineBtn').onclick=()=>{
   if(!DEV_MENU)return;
   if(TUNE){toast('Tuning aktiv — Online deaktiviert');return;}
-  mode='football'; fbVariant=FOOTBALL_VARIANT_ELIM; fmt=FB_ONLINE_FMT; fbElimStartN=0;
-  fbElimRules=FOOTBALL_ELIM_RULES_LIVES;   // online gilt ausschliesslich die Lebensregel
-  openOnline();
+  fbOnModeShow();
 };
 $('ffaOnline').onclick=()=>{SFX.unlock();fmt='ffa';openOnline();};
 // Public-Lobby: Sichtbarkeits-Auswahl beim Erstellen (Default privat).
@@ -1924,6 +2019,19 @@ en:{tagline:'PULL BACK · RELEASE · KNOCK THEM OUT',chip:'FEATURED',
   teamBlue:'TEAM BLUE',teamRed:'TEAM RED',teamBlueWins:'TEAM BLUE WINS',teamRedWins:'TEAM RED WINS',teamDraw:'DRAW',
   vsT:'ONLINE VERSUS',vsS:'2 PLAYERS · 2 BALLS EACH',
   botT:'BOT TRAINING',botS:'VS AI',
+  // ONLINE-MODUSWAHL (v8): Moduslabel, Kurzbeschreibung, Hinweis auf unfertige Modi.
+  onModeTitle:'ONLINE',onCapTitle:'PLAYERS',onCapLbl:'Players',onCapGo:'▶ Continue',
+  onModeClassic:'CLASSIC 1V1',onModeClassicS:'2 PLAYERS · FIRST TO 3',
+  onModeSpeed:'SPEED MATCH',onModeSpeedS:'2 PLAYERS · 45 s TIME BANKS',
+  onModeTeam2:'TEAM 2V2',onModeTeam2S:'4 PLAYERS · TWO TEAMS · FIRST TO 3',
+  onModeLives:'LIVES FFA',onModeLivesS:'3–5 PLAYERS · TWO LIVES EACH',
+  onModeTimed:'TIMED FFA',onModeTimedS:'3–5 PLAYERS · 60 s PHASES',
+  onModeDev:'NOT RELEASED ONLINE YET',onModeBad:'This mode does not allow that player count.',
+  onModeLocked:'This online mode is not released yet.',
+  onModeNoPlay:'TEAM 2V2 ONLINE GAMEPLAY NOT ENABLED YET',
+  onTeamTitle:'CHOOSE YOUR TEAM',onTeamBlue:'JOIN BLUE TEAM',onTeamRed:'JOIN RED TEAM',
+  seatFree:'FREE',teamFull:'FULL',onTeamMissing:'Please choose a team first.',playersWord:'PLAYERS',teamFullMsg:'That team is already full.',
+  teamHost:'you open the room here',teamHostNo:'the room creator always opens Blue',
   fbT:'ARENA FOOTBALL',fbClassicT:'CLASSIC 1V1',fbClassicS:'1 FIGURE PER PLAYER',
   fbTacticalT:'TACTICAL 1V1',fbTacticalS:'2 FIGURES · 1 MOVE PER ROUND',
   fbTeam2T:'TEAM 2V2',fbTeam2S:'4 PLAYERS · TWO TEAMS · FIRST TO 3',
@@ -1966,7 +2074,7 @@ en:{tagline:'PULL BACK · RELEASE · KNOCK THEM OUT',chip:'FEATURED',
   creating:'Creating room…',ffaShare:'FFA · Share the code with 1–4 friends.',shareCode:'Share the code with your friend.',
   code4:'Please enter the 4-letter code.',joining:'Joining…',noRoom:'Room not found.',roomFull:'Room is already full.',
   connWait:'Connected! Waiting for the host…',connStart:'Connected! Game starting…',
-  noFb:'⚠ No connection to Firebase. Check internet & config.',noAuth:'⚠ Sign-in failed. Please reload the page.',err:'Error: ',noOnlineReset:'Not available in online mode.',loading:'Loading arena...',
+  noFb:'⚠ No connection to Firebase. Check internet & config.',noAuth:'⚠ Sign-in failed. Please reload the page.',err:'Error: ',errRules:'The server rules are older than this client — please deploy the database rules.',noOnlineReset:'Not available in online mode.',loading:'Loading arena...',
   victory:'VICTORY',defeat:'DEFEAT',wins:'WINS',finalScore:'FINAL SCORE',elimDone:'ELIMINATION COMPLETE',ringout:'RINGOUT',round:'ROUND',
   col0:'BLUE',col1:'RED',col2:'GREEN',col3:'YELLOW',col4:'GRAY',col5:'VIOLET',
   nameYou:'YOU',nameOpp:'OPPONENT',namePlayer:'Player',youAre:'YOU ARE',
@@ -1986,6 +2094,19 @@ de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'FEATURED',
   teamBlue:'TEAM BLAU',teamRed:'TEAM ROT',teamBlueWins:'TEAM BLAU GEWINNT',teamRedWins:'TEAM ROT GEWINNT',teamDraw:'UNENTSCHIEDEN',
   vsT:'ONLINE VERSUS',vsS:'2 SPIELER · 2 KUGELN PRO SPIELER',
   botT:'BOT-TRAINING',botS:'GEGEN KI',
+  // ONLINE-MODUSWAHL (v8).
+  onModeTitle:'ONLINE',onCapTitle:'SPIELER',onCapLbl:'Spieler',onCapGo:'▶ Weiter',
+  onModeClassic:'CLASSIC 1V1',onModeClassicS:'2 SPIELER · ERSTER MIT 3',
+  onModeSpeed:'SPEED MATCH',onModeSpeedS:'2 SPIELER · 45 s ZEITKONTEN',
+  onModeTeam2:'TEAM 2V2',onModeTeam2S:'4 SPIELER · ZWEI TEAMS · ERSTER MIT 3',
+  onModeLives:'LIVES FFA',onModeLivesS:'3–5 SPIELER · JE ZWEI LEBEN',
+  onModeTimed:'TIMED FFA',onModeTimedS:'3–5 SPIELER · 60-s-PHASEN',
+  onModeDev:'ONLINE NOCH NICHT FREIGEGEBEN',onModeBad:'Dieser Modus erlaubt diese Spielerzahl nicht.',
+  onModeLocked:'Dieser Onlinemodus ist noch nicht freigegeben.',
+  onModeNoPlay:'TEAM 2V2 ONLINE GAMEPLAY NOT ENABLED YET',
+  onTeamTitle:'TEAM WÄHLEN',onTeamBlue:'TEAM BLAU BEITRETEN',onTeamRed:'TEAM ROT BEITRETEN',
+  seatFree:'FREI',teamFull:'VOLL',onTeamMissing:'Bitte zuerst ein Team wählen.',playersWord:'SPIELER',teamFullMsg:'Dieses Team ist bereits voll.',
+  teamHost:'hier eröffnest du den Raum',teamHostNo:'der Ersteller eröffnet immer in Blau',
   fbT:'ARENA FOOTBALL',fbClassicT:'CLASSIC 1V1',fbClassicS:'1 FIGUR PRO SPIELER',
   fbTacticalT:'TACTICAL 1V1',fbTacticalS:'2 FIGUREN · 1 ZUG PRO RUNDE',
   fbTeam2T:'TEAM 2V2',fbTeam2S:'4 SPIELER · ZWEI TEAMS · ERSTER MIT 3',
@@ -2028,7 +2149,7 @@ de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'FEATURED',
   creating:'Erstelle Raum…',ffaShare:'FFA · Schick den Code an 1–4 Freunde.',shareCode:'Schick den Code an deinen Kumpel.',
   code4:'Bitte 4-stelligen Code eingeben.',joining:'Trete bei…',noRoom:'Raum nicht gefunden.',roomFull:'Raum ist schon voll.',
   connWait:'Verbunden! Warte auf den Host…',connStart:'Verbunden! Spiel startet…',
-  noFb:'⚠ Keine Verbindung zu Firebase. Internet & Config prüfen.',noAuth:'⚠ Anmeldung fehlgeschlagen. Bitte Seite neu laden.',err:'Fehler: ',noOnlineReset:'Im Online-Modus nicht verfügbar.',loading:'Arena wird geladen...',
+  noFb:'⚠ Keine Verbindung zu Firebase. Internet & Config prüfen.',noAuth:'⚠ Anmeldung fehlgeschlagen. Bitte Seite neu laden.',err:'Fehler: ',errRules:'Die Regeln am Server sind älter als dieser Client — bitte die Datenbankregeln veröffentlichen.',noOnlineReset:'Im Online-Modus nicht verfügbar.',loading:'Arena wird geladen...',
   victory:'SIEG',defeat:'NIEDERLAGE',wins:'GEWINNT',finalScore:'ENDSTAND',elimDone:'ELIMINATION BEENDET',ringout:'RINGOUT',round:'RUNDE',
   col0:'BLAU',col1:'ROT',col2:'GRÜN',col3:'GELB',col4:'GRAU',col5:'VIOLETT',
   nameYou:'DU',nameOpp:'GEGNER',namePlayer:'Spieler',youAre:'DU BIST',
@@ -2048,6 +2169,19 @@ tr:{tagline:'GERİ ÇEK · BIRAK · DIŞARI İT',chip:'FEATURED',
   teamBlue:'MAVİ TAKIM',teamRed:'KIRMIZI TAKIM',teamBlueWins:'MAVİ TAKIM KAZANDI',teamRedWins:'KIRMIZI TAKIM KAZANDI',teamDraw:'BERABERE',
   vsT:'ONLINE VERSUS',vsS:'2 OYUNCU · KİŞİ BAŞI 2 TOP',
   botT:'BOT ANTRENMANI',botS:'YAPAY ZEKÂYA KARŞI',
+  // ONLINE-MODUSWAHL (v8).
+  onModeTitle:'ONLINE',onCapTitle:'OYUNCULAR',onCapLbl:'Oyuncular',onCapGo:'▶ Devam',
+  onModeClassic:'CLASSIC 1V1',onModeClassicS:'2 OYUNCU · İLK 3',
+  onModeSpeed:'SPEED MATCH',onModeSpeedS:'2 OYUNCU · 45 s SÜRE BANKASI',
+  onModeTeam2:'TEAM 2V2',onModeTeam2S:'4 OYUNCU · İKİ TAKIM · İLK 3',
+  onModeLives:'LIVES FFA',onModeLivesS:'3–5 OYUNCU · İKİŞER CAN',
+  onModeTimed:'TIMED FFA',onModeTimedS:'3–5 OYUNCU · 60 s EVRE',
+  onModeDev:'ÇEVRİMİÇİ HENÜZ YAYINDA DEĞİL',onModeBad:'Bu mod bu oyuncu sayısına izin vermiyor.',
+  onModeLocked:'Bu çevrimiçi mod henüz yayında değil.',
+  onModeNoPlay:'TEAM 2V2 ONLINE GAMEPLAY NOT ENABLED YET',
+  onTeamTitle:'TAKIM SEÇ',onTeamBlue:'MAVİ TAKIMA KATIL',onTeamRed:'KIRMIZI TAKIMA KATIL',
+  seatFree:'BOŞ',teamFull:'DOLU',onTeamMissing:'Lütfen önce bir takım seç.',playersWord:'OYUNCU',teamFullMsg:'Bu takım zaten dolu.',
+  teamHost:'odayı burada açıyorsun',teamHostNo:'odayı kuran her zaman Mavi açar',
   fbT:'ARENA FOOTBALL',fbClassicT:'CLASSIC 1V1',fbClassicS:'OYUNCU BAŞINA 1 FİGÜR',
   fbTacticalT:'TACTICAL 1V1',fbTacticalS:'2 FİGÜR · TUR BAŞINA 1 HAMLE',
   fbTeam2T:'TEAM 2V2',fbTeam2S:'4 OYUNCU · İKİ TAKIM · İLK 3',
@@ -2090,7 +2224,7 @@ tr:{tagline:'GERİ ÇEK · BIRAK · DIŞARI İT',chip:'FEATURED',
   creating:'Oda kuruluyor…',ffaShare:'FFA · Kodu 1–4 arkadaşına gönder.',shareCode:'Kodu arkadaşına gönder.',
   code4:'Lütfen 4 haneli kodu gir.',joining:'Katılınıyor…',noRoom:'Oda bulunamadı.',roomFull:'Oda zaten dolu.',
   connWait:'Bağlandı! Host bekleniyor…',connStart:'Bağlandı! Oyun başlıyor…',
-  noFb:'⚠ Firebase bağlantısı yok. İnterneti ve yapılandırmayı kontrol et.',noAuth:'⚠ Giriş başarısız. Lütfen sayfayı yeniden yükle.',err:'Hata: ',noOnlineReset:'Online modda kullanılamaz.',loading:'Arena yükleniyor...',
+  noFb:'⚠ Firebase bağlantısı yok. İnterneti ve yapılandırmayı kontrol et.',noAuth:'⚠ Giriş başarısız. Lütfen sayfayı yeniden yükle.',err:'Hata: ',errRules:'Sunucu kuralları bu istemciden eski — lütfen veritabanı kurallarını yayınlayın.',noOnlineReset:'Online modda kullanılamaz.',loading:'Arena yükleniyor...',
   victory:'ZAFER',defeat:'MAĞLUBİYET',wins:'KAZANDI',finalScore:'SON SKOR',elimDone:'ELEME TAMAMLANDI',ringout:'RINGOUT',round:'RAUNT',
   col0:'MAVİ',col1:'KIRMIZI',col2:'YEŞİL',col3:'SARI',col4:'GRİ',col5:'MOR',
   nameYou:'SEN',nameOpp:'RAKİP',namePlayer:'Oyuncu',youAre:'RENGİN',
@@ -2136,6 +2270,22 @@ function applyLang(){
   $('bot2v2T').textContent=T('bot2v2T');$('bot2v2S').textContent=T('bot2v2S');
   $('fbModeTitle').textContent=T('fbT');$('fbModeBack').textContent=T('back');
   $('fbClassicT').textContent=T('fbClassicT');$('fbClassicS').textContent=T('fbClassicS');
+  // ONLINE-MODUSWAHL (v8)
+  $('fbOnModeTitle').textContent=T('onModeTitle');
+  $('fbOnCapTitle').textContent=T('onCapTitle');
+  $('fbOnCapLbl').textContent=T('onCapLbl');
+  $('fbOnCapGo').textContent=T('onCapGo');
+  $('fbOnModeBack').textContent=T('back');
+  $('fbOnTeamTitle').textContent=T('onTeamTitle');
+  $('fbOnTeamBlueT').textContent=T('onTeamBlue');
+  $('fbOnTeamRedT').textContent=T('onTeamRed');
+  $('fbOnTeamBack').textContent=T('back');
+  $('fbOnCapBack').textContent=T('back');
+  for(const m of FB_ONLINE_MODE_IDS){
+    const id=fbOnModeBtnId(m),d=fbModeDef(m);
+    if(id&&d&&$(id+'T'))$(id+'T').textContent=T(d.key);
+    if(id&&d&&$(id+'S'))$(id+'S').textContent=T(d.key+'S');
+  }
   $('fbTacticalT').textContent=T('fbTacticalT');$('fbTacticalS').textContent=T('fbTacticalS');
   $('fbTeam2T').textContent=T('fbTeam2T');$('fbTeam2S').textContent=T('fbTeam2S');
   $('fbElimT').textContent=T('fbElimT');$('fbElimS').textContent=T('fbElimS');
@@ -2287,14 +2437,105 @@ $('fbElimBack').onclick=()=>{$('fbElimOv').classList.remove('show');$('fbModeOv'
 // wie bisher. menuMode bleibt bewusst unberuehrt - der Zurueck-Weg stellt damit den
 // zuletzt im Menue gewaehlten Modus wieder her (wie bei Online-FFA).
 $('fbOnlineBtn').onclick=()=>{
-  if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);
+  if(SFX.click())vibrateMs(VIBE_CLICK_MS);
   if(TUNE){toast('Tuning aktiv — Online deaktiviert');return;}
   if(!r3dActive){toast(T('fbNo3d'));return;}
   $('fbModeOv').classList.remove('show');
-  mode='football'; fbVariant=FOOTBALL_VARIANT_ELIM; fmt=FB_ONLINE_FMT; fbElimStartN=0;
-  fbElimRules=FOOTBALL_ELIM_RULES_LIVES;   // online gilt ausschliesslich die Lebensregel
-  openOnline();
+  fbOnModeShow();
 };
+// ════ ONLINE-MODUSWAHL (v8) ════
+// Sichtbar ist genau, was freigegeben ist. Ein nicht freigegebener Modus hat Raum und
+// Lobby, aber sein Onlinespiel ist unfertig - solange v9 fehlt, sind Zugvektoren im
+// Klartext lesbar. Er bleibt deshalb dem Dev-Menue vorbehalten und traegt dort einen
+// deutlichen Hinweis.
+function fbOnModeShow(){
+  for(const m of FB_ONLINE_MODE_IDS){
+    const btn=$(fbOnModeBtnId(m)+'Btn'); if(!btn)continue;
+    const frei=fbModeSelectable(m);
+    btn.style.display=frei?'':'none';
+    const sub=$(fbOnModeBtnId(m)+'S');
+    if(sub&&frei)sub.textContent=T(fbModeDef(m).key+'S')+(fbModeReleased(m)?'':' · '+T('onModeDev'));
+  }
+  $('fbOnModeOv').classList.add('show');
+}
+function fbOnModeBtnId(m){return {classic:'fbOnClassic',speed:'fbOnSpeed',team2v2:'fbOnTeam2',lives:'fbOnLives',timedffa:'fbOnTimed'}[m]||'';}
+// Modus gewaehlt: hat er genau eine zulaessige Spielerzahl, geht es direkt weiter;
+// sonst folgt die Wahl der Sollbesetzung.
+function fbOnModePick(m){
+  if(!fbModeSelectable(m))return;
+  if(SFX.click())vibrateMs(VIBE_CLICK_MS);
+  fbOnlineMode=m;
+  const caps=fbModeCaps(m);
+  $('fbOnModeOv').classList.remove('show');
+  // TEAM 2V2 fragt hier NICHT nach dem Team. Die Seite gehoert zu einer konkreten
+  // Handlung - "diesen Raum anlegen" oder "diesem Raum beitreten" -, nicht zur Wahl des
+  // Modus. Vorher stand sie davor, und der Beitretende musste sich entscheiden, bevor er
+  // ueberhaupt wusste, ob es den Raum gibt und welche Seite dort noch frei ist.
+  if(caps.length===1){ fbOnlineCap=caps[0]; fbOnlineEnter(); return; }
+  fbOnlineCap=fbModeDefaultCap(m);
+  for(const c of [3,4,5]){ const b=$('fbOnCap'+c); if(b)b.style.display=caps.indexOf(c)>=0?'':'none'; }
+  setOn('fbOnCapGrp','fbOnCap'+fbOnlineCap);
+  $('fbOnCapTitle').textContent=T(fbModeDef(m).key);
+  $('fbOnCapOv').classList.add('show');
+}
+// ════ TEAM-WAHL ════
+// EIN Weg fuer beide Faelle - Ersteller wie Beitretender. `p` ist die Praesenzkarte des
+// Raums (beim Anlegen leer); daraus kommen Belegung und Sperre. `weiter(t)` bekommt das
+// gewaehlte Team, `zurueck()` den Abbruch.
+let fbTeamPickCb=null, fbTeamPickBack=null;
+// Seit der Host/Sitz-Entkopplung gibt es KEINE Ersteller-Einschraenkung mehr: die
+// Hostkennung steht als eigenes Feld im Raum, nicht im Sitz. Wer anlegt, waehlt seine
+// Seite frei und behaelt seine Hostbefugnisse auch auf Sitz 2.
+function fbTeamAsk(p,weiter,zurueck){
+  fbTeamPickCb=weiter; fbTeamPickBack=zurueck||null;
+  for(const [t,id] of [[FB_TEAM2_BLUE,'fbOnTeamBlue'],[FB_TEAM2_RED,'fbOnTeamRed']]){
+    const btn=$(id+'Btn'), sub=$(id+'S');
+    const belegt=fbTeam2Count(p,t), voll=belegt>=2;
+    const gesperrt=voll;
+    // Eine gesperrte Seite bleibt SICHTBAR - der Spieler soll sehen, warum nur eine
+    // offen ist - aber sie laesst sich nicht waehlen.
+    if(btn){ btn.disabled=gesperrt; btn.style.opacity=gesperrt?'0.4':''; }
+    if(sub)sub.textContent=fbTeam2SeatsOf(t).map(x=>FOOTBALL_TEAM2V2_NAMES[x]).join(' · ')
+                          +' — '+belegt+'/2'+(voll?' · '+T('teamFull'):'');
+  }
+  $('fbOnTeamOv').classList.add('show');
+}
+function fbTeamPicked(t){
+  if($(t===FB_TEAM2_BLUE?'fbOnTeamBlueBtn':'fbOnTeamRedBtn').disabled)return;
+  if(SFX.click())vibrateMs(VIBE_CLICK_MS);
+  $('fbOnTeamOv').classList.remove('show');
+  const cb=fbTeamPickCb; fbTeamPickCb=null; fbTeamPickBack=null;
+  if(cb)cb(t);
+}
+$('fbOnTeamBlueBtn').onclick=()=>fbTeamPicked(FB_TEAM2_BLUE);
+$('fbOnTeamRedBtn').onclick=()=>fbTeamPicked(FB_TEAM2_RED);
+$('fbOnTeamBack').onclick=()=>{ $('fbOnTeamOv').classList.remove('show');
+  const zb=fbTeamPickBack; fbTeamPickCb=null; fbTeamPickBack=null; if(zb)zb(); else fbOnModeShow(); };
+// Uebergabe an den bestehenden Onlinebildschirm. Raumformat, Sitzclaim, Lobby,
+// Host-Start, Reconnect und der kanonische Austritt sind unveraendert dieselben; neu
+// ist ausschliesslich, dass Modus und Sollbesetzung feststehen.
+function fbOnlineEnter(){
+  mode='football'; fbVariant=FOOTBALL_VARIANT_ELIM; fmt=FB_ONLINE_FMT; fbElimStartN=0;
+  fbElimRules=(fbOnlineMode===FB_ONLINE_MODE_TIMED)?FOOTBALL_ELIM_RULES_TIMED:FOOTBALL_ELIM_RULES_LIVES;
+  openOnline();
+}
+// Die Handler werden EINZELN verdrahtet und nicht ueber FB_ONLINE_MODE_IDS: die Liste
+// ist eine const, die weiter unten steht, und eine const ist vor ihrer Definition nicht
+// lesbar (temporale Todeszone). Eine Schleife hier haette das ganze Skript beim Laden
+// abgebrochen. Im Rumpf der Pfeilfunktionen ist der Zugriff dagegen unbedenklich - er
+// faellt erst beim Klick an.
+$('fbOnClassicBtn').onclick=()=>fbOnModePick(FB_ONLINE_MODE_CLASSIC);
+$('fbOnSpeedBtn').onclick=()=>fbOnModePick(FB_ONLINE_MODE_SPEED);
+$('fbOnTeam2Btn').onclick=()=>fbOnModePick(FB_ONLINE_MODE_TEAM2);
+$('fbOnLivesBtn').onclick=()=>fbOnModePick(FB_ONLINE_MODE_LIVES);
+$('fbOnTimedBtn').onclick=()=>fbOnModePick(FB_ONLINE_MODE_TIMED);
+for(const c of [3,4,5]){
+  const b=$('fbOnCap'+c); if(b)b.onclick=()=>{fbOnlineCap=c;setOn('fbOnCapGrp','fbOnCap'+c);};
+}
+$('fbOnCapGo').onclick=()=>{if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);
+  $('fbOnCapOv').classList.remove('show');fbOnlineEnter();};
+$('fbOnCapBack').onclick=()=>{$('fbOnCapOv').classList.remove('show');fbOnModeShow();};
+$('fbOnModeBack').onclick=()=>{$('fbOnModeOv').classList.remove('show');$('fbModeOv').classList.add('show');};
 $('fbModeBack').onclick=()=>$('fbModeOv').classList.remove('show');
 $('menuSnd').onclick=()=>{soundOn=!soundOn;const g=soundOn?'🔊':'🔇';$('menuSnd').textContent=g;$('sndBtn').textContent=g;if(!soundOn){SFX.charge.stop();SFX.fbTransitionStop();if(typeof fbMusicStop==='function')fbMusicStop();}};
 // ── Menue-Preview: die ECHTE 3D-Szene zeigt den gewaehlten Modus. Setzt nur den
@@ -2333,7 +2574,17 @@ $('ovMenuBtn').onclick=()=>{$('ov').classList.remove('show');leaveOnline(showMen
 $('sndBtn').onclick=()=>{soundOn=!soundOn;const g=soundOn?'🔊':'🔇';$('sndBtn').textContent=g;$('menuSnd').textContent=g;if(!soundOn){SFX.charge.stop();SFX.fbTransitionStop();if(typeof fbMusicStop==='function')fbMusicStop();}};
 $('resetBtn').onclick=()=>{if(online){toast(T('noOnlineReset'));return;}newGame();};
 $('rematchBtn').onclick=()=>{if(online){onlineRematch();return;}$('ov').classList.remove('show');newGame();};   // online: das Ergebnisfenster bleibt stehen, bis der Generationswechsel BESTAETIGT ist (startOnlineGame raeumt es ab) - wird er abgelehnt, sieht der Spieler weiter sein Ergebnis
-$('onCreate').onclick=()=>createRoom();
+// ERSTELLEN. Nur Team 2v2 schiebt eine Frage dazwischen - und zwar HIER, nachdem der
+// Mensch sich fuer "Raum anlegen" entschieden hat. Alle anderen Modi legen sofort an.
+$('onCreate').onclick=()=>{
+  if(mode==='football'&&fmt===FB_ONLINE_FMT&&fbOnlineMode===FB_ONLINE_MODE_TEAM2){
+    // Ein frischer Raum ist leer - beide Seiten stehen offen.
+    fbTeamAsk({},(t)=>{fbOnlineTeam=t;createRoom();},()=>{fbOnlineTeam=-1;});
+    return;
+  }
+  fbOnlineTeam=-1;   // andere Modi tragen keine Seite - keine Altlast stehen lassen
+  createRoom();
+};
 $('onJoin').onclick=()=>joinRoom();
 // Beide Back-Wege (Header-Pfeil + unterer Button) nehmen denselben Pfad; danach laeuft
 // die Public-Liste fuer die Home-Rooms-Vorschau weiter (startPublicListing stoppt zuerst).
@@ -2353,7 +2604,7 @@ $('onInput').addEventListener('input',e=>{e.target.value=e.target.value.toUpperC
 $('nameInput').addEventListener('input',e=>{ setOnlineName(e.target.value);
   // Live same-id refresh; a denied/failed push leaves the old (valid) record —
   // consistent state, so log only (no rollback needed).
-  if(online&&roomCode){ try{ window.FB.set(rRef('players/'+myPlayer),playerRecord(myPlayer)).catch(err=>console.warn('[online] name push failed:',err)); }catch(err){} } });
+  if(online&&roomCode){ try{ window.FB.set(rRef('players/'+myPlayer),playerRecord(myPlayer,fbTeam2Room())).catch(err=>console.warn('[online] name push failed:',err)); }catch(err){} } });
 // B2: ein fehlgeschlagener Versuch (z. B. Lobby-Stale-Fenster noch zu, siehe
 // rejoinWait) zeigt die Bar wieder — ausser der Raum ist tot (savedRoom weg).
 $('rejoinBtn').onclick=()=>{ const sr=savedRoom(); if(!sr)return; $('onRejoin').style.display='none';
@@ -3910,7 +4161,27 @@ function ffaRoom(){return fmt==='ffa'||fmt==='triple_ffa'||fmt==='team_duel'||fm
 // weder wie 1v1 noch wie FFA verhaelt.
 function fbOnlineRoom(){return mode==='football'&&fmt===FB_ONLINE_FMT;}
 // … aber TRIPLE FFA hat exakt 3, TEAM DUEL exakt 4 Sitze (Rules-gesichert), klassisches FFA 5.
-function ffaSeatCap(){return fmt==='triple_ffa'?3:fmt==='team_duel'?4:fmt===FB_ONLINE_FMT?FB_ONLINE_SEATS:FFA_MAX_SEATS;}
+function ffaSeatCap(){return fmt==='triple_ffa'?3:fmt==='team_duel'?4:fmt===FB_ONLINE_FMT?fbLobbyCap():FFA_MAX_SEATS;}
+// Sollbesetzung der AKTUELLEN Lobby. Im Raum gilt roomCap (aus config.cap des Raums,
+// gesetzt beim Anlegen oder Beitreten); ohne Raum die eigene Auswahl.
+let fbRoomCap=0, fbRoomMode='';
+function fbLobbyCap(){return fbRoomCap>0?fbRoomCap:(online?FB_ONLINE_SEATS:fbOnlineCap);}
+function fbLobbyMode(){return fbRoomMode||fbOnlineMode;}
+// TEAM 2V2: der Hinweis sagt, WELCHES Team noch jemanden braucht - "warte auf 1
+// weiteren Spieler" liesse offen, auf welcher Seite der Platz frei ist.
+function fbTeam2Hint(blau,rot){
+  const fehltB=2-blau, fehltR=2-rot;
+  if(fehltB>0&&fehltR>0)return 'Warte auf '+fehltB+'× '+T('teamBlue')+' und '+fehltR+'× '+T('teamRed')+'…';
+  if(fehltB>0)return 'Warte auf '+fehltB+'× '+T('teamBlue')+'…';
+  if(fehltR>0)return 'Warte auf '+fehltR+'× '+T('teamRed')+'…';
+  return '';
+}
+// "Warte auf N weitere Spieler" statt eines allgemeinen Hosttextes.
+function fbWaitText(n,soll){
+  const fehlt=Math.max(0,soll-n);
+  if(fehlt<=0)return '';
+  return fehlt===1?'Warte auf 1 weiteren Spieler…':('Warte auf '+fehlt+' weitere Spieler…');
+}
 // TEAM DUEL: Team eines Seats (0=Blau: Seats 0/2, 1=Rot: Seats 1/3). Zugleich der
 // PCOLS-Farbslot — beide Teamkugeln tragen die Teamfarbe, Ownership bleibt pro Seat.
 function teamOf(s){return s%2;}
@@ -6684,6 +6955,42 @@ if(typeof DEV_MENU!=='undefined'&&DEV_MENU)window.__fbDev={
     schuss:fbShotShown(),schussSek:+(Math.max(0,fbShotShown())/FOOTBALL_SIM_HZ).toFixed(2),
     wer:fbDecisionWho(),phase:phase,
     blau:score[0]|0,rot:score[1]|0,winner:footballWinner,goal:fbGoalState}:null;}catch(e){return null;}},
+  // TEAM-2V2-LOBBY, nur mit ?dev=1. Die einzige Sonde, die etwas ZEICHNET statt nur zu
+  // lesen - und zwar ausdruecklich: sie ruft die ECHTE renderLobby() mit einer
+  // synthetischen Praesenzkarte auf. Anders laesst sich die Lobby ohne Firebase-Raum
+  // nicht am Produkt zeigen, und ein nachgebauter Screenshot waere kein Beleg. Sie
+  // haengt am DEV_MENU-Gatter und existiert im Produkt nicht.
+  lobby2:(belegt,ich,sitze,ohneNamen)=>{try{
+    fbOnlineMode=FB_ONLINE_MODE_TEAM2; fbOnlineCap=4;
+    fbRoomMode=FB_ONLINE_MODE_TEAM2; fbRoomCap=4;
+    mode='football'; fmt=FB_ONLINE_FMT; online=true;
+    myPlayer=Number.isInteger(ich)?ich:0;
+    const namen=['Tunay','Mara','Jo','Rin'];
+    playersRoster={}; const p={};
+    // `sitze` ist die Belegungsreihenfolge - so laesst sich ein Raum zeigen, dessen
+    // ERSTELLER auf Sitz 2 sitzt und dessen Sitz 0 einem anderen gehoert.
+    const folge=Array.isArray(sitze)?sitze.slice(0,belegt):[0,1,2,3].slice(0,belegt);
+    for(const s of folge){
+      p[s]={s:'tab'+s,on:true,t:Date.now()};
+      // `ohneNamen` bildet den Spieltest-Fall ab: niemand hat einen Namen eingegeben.
+      playersRoster[s]={id:'pid'+s,name:ohneNamen?'':namen[s],tab:'tab'+s,uid:'uid'+s};
+    }
+    // Der HOST ist der ERSTELLER, also der zuerst belegte Sitz - nicht der Sitz, aus
+    // dessen Sicht gerade gezeichnet wird. Genau diese Trennung soll das Bild zeigen.
+    roomHostUid=(playersRoster[folge[0]]||{}).uid||'';
+    window.__FB_UID=(playersRoster[myPlayer]||{}).uid||'';
+    setOnTitle(false);
+    $('online').classList.add('show');
+    $('onActions').style.display='none'; $('onWait').style.display='';
+    $('onLobby').style.display=''; $('onCode').textContent='AB7K';
+    renderLobby(p);
+    return {count:$('lobbyCount').textContent, modus:$('lobbyMode').textContent,
+            hinweis:$('lobbyHint').textContent, ich:$('lobbyMine').textContent,
+            startFrei:$('lobbyStart').disabled===false,
+            hostKnopf:$('lobbyStart').style.display!=='none', hostSitz:hostSeat(), binHost:isHost(),
+            zeilen:[0,1,2,3].map(s=>$('lobbyName'+s).textContent),
+            farben:[0,1,2,3].map(s=>$('lobbyName'+s).style.color)};
+  }catch(e){return {fehler:String(e)};}},
   // Lebensregel: Leben, Fensterzustand und Aktivmenge - rein lesend.
   lives:()=>{try{return fbLives()?{
     leben:fbElimLives.slice(0,fbElimPlayers()),
@@ -7898,6 +8205,14 @@ function fbReady(){ return window.__FB_READY && !window.__FB_ERR && !window.__FB
 function fbUid(){ return window.__FB_UID||''; }
 // Welcher Text erklaert das Scheitern? Verbindung oder Anmeldung — nie beides raten.
 function fbFailKey(){ return (window.__FB_AUTH_ERR||(window.__FB_READY&&!window.__FB_ERR&&!window.__FB_UID))?'noAuth':'noFb'; }
+// Eine Ablehnung durch die Datenbankregeln ist fuer einen Menschen nicht lesbar. Beim
+// ANLEGEN eines Raums hat sie praktisch immer eine Ursache: die veroeffentlichten Regeln
+// sind aelter als dieser Client (er legt v8-Raeume an). Der Text sagt das - der
+// technische Grund bleibt daneben stehen, damit ein Bericht ihn noch enthaelt.
+function onlineErrText(e){
+  const m=(e&&(e.message||e.code))||String(e||'');
+  return /PERMISSION_DENIED|permission[_ ]denied/i.test(m)?(T('errRules')+' ('+m+')'):(T('err')+m);
+}
 function rrand(n){let s='';const ch='ABCDEFGHJKMNPQRSTUVWXYZ23456789';for(let i=0;i<n;i++)s+=ch[Math.floor(Math.random()*ch.length)];return s;}
 function rRef(p){return window.FB.ref(window.FB.db,'rooms/'+roomCode+(p?'/'+p:''));}
 function setStatus(t){const e=$('onStatus');if(e)e.textContent=t;}
@@ -7908,50 +8223,108 @@ function setStatus(t){const e=$('onStatus');if(e)e.textContent=t;}
 function renderLobby(p){
   lobbyP=p;   // Snapshot fuer startFfaMatch (Host prueft n>=2 + Lueckenfreiheit)
   const cap=ffaSeatCap(),trip=fmt==='triple_ffa',team=fmt==='team_duel';   // TRIPLE: exakt 3/3, TEAM DUEL: exakt 4/4
+  // TEAM 2V2 (Football, v8): eigener Teambegriff neben TEAM DUEL (RingOut). Er wird
+  // HIER bestimmt, weil die Teamkopfzeilen weiter unten schon davon abhaengen.
+  const team2=fbTeam2Room();
   let n=0,h='';
   for(let s=0;s<cap;s++){
     const here=seatActive(p,s);if(here)n++;
     // pcol() ist die einzige Farbabfrage, die den Football-Modus kennt (Sitz 4 = Violett,
     // s. FB_PCOLS). Ausserhalb Football liefert sie bitgenau PCOLS[i].
-    const col=pcol(colorSlot(s)).ui;   // TEAM DUEL: Seat-Kreis in Teamfarbe (0/2 Blau, 1/3 Rot)
+    // TEAM DUEL: Teamfarbe 0/2 Blau, 1/3 Rot.  TEAM 2V2: 0/1 Blau, 2/3 Rot. In beiden
+    // Faellen sagt die Farbe das TEAM, nicht die Person - Gruen und Gelb gibt es hier nicht.
+    const col=pcol(fbLobbyColorSlot(s)).ui;
     h+='<div style="width:26px;height:26px;border-radius:50%;'+(here
       ?'background:'+col+';box-shadow:0 0 8px '+col+(s===myPlayer?';outline:2px solid #fff':'')
       :'border:2px dashed #2a3850')+'"></div>';
   }
   $('lobbySeats').innerHTML=h;$('lobbyCount').textContent=n+'/'+cap;
+  // v8: der Modus steht in der Lobby, nicht nur im Seitenkopf - wer per Raumcode
+  // hereinkommt, hat die Auswahl nie gesehen.
+  const modeEl=$('lobbyMode');
+  if(modeEl){
+    const mo=(fmt===FB_ONLINE_FMT)?fbLobbyMode():'';
+    modeEl.textContent=mo?(T(fbModeDef(mo)?fbModeDef(mo).key:'')+' · '+cap+' '+T('playersWord')):'';
+    modeEl.style.display=mo?'':'none';
+  }
   // TEAM DUEL: Team-Header einblenden und Namenszeilen per CSS order gruppieren —
   // Blau (Seats 0,2) unter den Blau-Header (order 0), Rot (1,3) unter Rot (order 3).
-  $('lobbyTeamBlue').style.display=team?'':'none';
-  $('lobbyTeamRed').style.display=team?'':'none';
+  $('lobbyTeamBlue').style.display=(team||team2)?'':'none';
+  $('lobbyTeamRed').style.display=(team||team2)?'':'none';
+  // TEAM DUEL (RingOut): Blau 0,2 / Rot 1,3.  TEAM 2V2 (Football): Blau 0,1 / Rot 2,3.
+  // Zwei Formate, zwei Sitzordnungen - deshalb zwei Tabellen und keine geratene Formel.
+  const TEAM2_ORDER=[1,2,4,5,6];
   const TEAM_ORDER=[1,4,2,5,6];   // Seat s -> Flex-order im Team-Layout
   // Names are untrusted input -> ONLY ever via textContent, never innerHTML. Each
   // seat has a fixed row; occupied seats show the roster name in the seat color.
   for(let s=0;s<FFA_MAX_SEATS;s++){
     const row=$('lobbyName'+s); if(!row)continue;
-    row.style.order=team?TEAM_ORDER[s]:'';
-    if(s<cap&&seatActive(p,s)){ row.textContent=nameForSeat(s); row.style.display=''; row.style.color=pcol(colorSlot(s)).ui; }
-    else { row.textContent=''; row.style.display='none'; }
+    row.style.order=team2?TEAM2_ORDER[s]:team?TEAM_ORDER[s]:'';
+    // TEAM 2V2: die Sitzidentitaet steht VOR dem Namen. B1/B2/R1/R2 ist die Sprache
+    // des Modus - "Spieler 3" sagt niemandem, in welchem Team er steht.
+    if(team2&&s<cap){
+      // TEAM 2V2: BEIDE Sitze jedes Teams stehen immer da - ein freier Platz ist eine
+      // Auskunft ("hier fehlt noch wer"), kein Nichts. Die Identitaet steht vor dem
+      // Namen, die Farbe sagt das Team.
+      row.textContent=FOOTBALL_TEAM2V2_NAMES[s]+' · '+(seatActive(p,s)?fbTeam2NameForSeat(s):T('seatFree'));
+      row.style.display='';
+      row.style.color=pcol(fbTeam2Side(s)).ui;
+      row.style.opacity=seatActive(p,s)?'':'0.45';
+    }
+    else if(s<cap&&seatActive(p,s)){ row.textContent=nameForSeat(s); row.style.display=''; row.style.color=pcol(fbLobbyColorSlot(s)).ui; row.style.opacity=''; }
+    else { row.textContent=''; row.style.display='none'; row.style.opacity=''; }
   }
-  $('lobbyMine').textContent=T('youAre')+' '+nameForSeat(myPlayer);
-  const host=myPlayer===0,gap=!seatsContiguous(p,n);
-  // Arena Football Elimination startet mit zwei bis fuenf Teilnehmern; der Raum fasst
-  // fuenf und zeigt das auch (n/5). Ab zwei darf der Host starten - die Arena und der
-  // Ablauf ergeben sich aus der Startbesetzung (2 = Shouldered Wide, 3 = Dreieck,
-  // 4 = Quadrat, 5 = Fuenfeck). Der Server erzwingt dasselbe: seats 2-5, alle
-  // gezaehlten Sitze verbunden, darueber kein belegter Sitz.
+  // "DU BIST GELB" waere in einem Teamspiel eine Falschauskunft: Gelb ist dort kein
+  // Team. Team 2v2 nennt deshalb Sitzidentitaet UND Team.
+  $('lobbyMine').textContent=T('youAre')+' '+(team2
+    ?FOOTBALL_TEAM2V2_NAMES[myPlayer]+' · '+T(fbTeam2Side(myPlayer)===FB_TEAM2_BLUE?'teamBlue':'teamRed')
+    :nameForSeat(myPlayer));
+  const host=isHost(),gap=!seatsContiguous(p,n);   // v8: Host ist nicht mehr "Sitz 0"
+  // v8-FOOTBALL: der Raum verlangt eine EXAKTE Besetzung, und die Lobby sagt das auch.
+  // Kein "ab zwei darf der Host" mehr - wer einen Fuenf-Spieler-Raum aufmacht, startet
+  // mit fuenf. Der Server erzwingt dasselbe (seats === config/cap).
   const fbo=fmt===FB_ONLINE_FMT;
   $('lobbyStart').style.display=host?'':'none';
-  $('lobbyStart').disabled=fbo?(n<2||gap):team?(n!==4||gap):trip?(n!==3||gap):(n<2||gap);
-  $('lobbyHint').textContent=host?(fbo&&n<2?'Mindestens 2 Spieler erforderlich.':team&&n<4?'TEAM DUEL braucht genau 4 Spieler.':trip&&n<3?'TRIPLE FFA braucht genau 3 Spieler.':'Sitzlücke: Warte auf freien Sitz / Spieler soll neu beitreten.'):'Warte auf Host…';
-  $('lobbyHint').style.display=(host?((gap&&n>=2)||(trip&&n<3)||(team&&n<4)||(fbo&&n<2)):true)?'':'none';
+  if(fbo){
+    const soll=fbLobbyCap();
+    // TEAM 2V2: "lueckenfrei" ist hier das falsche Mass. Blau 0 plus Rot 2 und 3 sind die
+    // Sitze 0,2,3 - eine Luecke bei 1, und trotzdem ein voellig regulaerer Zwischenstand.
+    // Massgeblich sind ZWEI VOLLE TEAMS.
+    const blau=team2?fbTeam2Count(p,FB_TEAM2_BLUE):0, rot=team2?fbTeam2Count(p,FB_TEAM2_RED):0;
+    const bereit=team2?(blau===2&&rot===2):(n===soll&&!gap);
+    // Solange das Onlinespiel dieses Modus nicht fertig ist, bleibt der Start zu - auch
+    // bei voller Besetzung. Sonst fiele Team 2v2 in die generische Vier-Tore-Partie.
+    const spielbar=fbModeReleased(fbLobbyMode());
+    $('lobbyStart').disabled=!(bereit&&spielbar);
+    // Reihenfolge mit Bedacht: solange die Lobby noch fuellt, ist die BELEGUNG die
+    // nuetzliche Auskunft. Erst wenn alle da sind - also dort, wo man starten wuerde -
+    // tritt der Freigabehinweis an ihre Stelle. Umgekehrt haette er den ganzen
+    // Fuellvorgang ueberdeckt.
+    $('lobbyHint').textContent=
+      !bereit?(team2?fbTeam2Hint(blau,rot)
+                    :(n<soll?fbWaitText(n,soll)
+                      :'Sitzlücke: Warte auf freien Sitz / Spieler soll neu beitreten.'))
+      :!spielbar?T('onModeNoPlay')
+      :host?'Bereit — Match starten.':'Warte auf Host…';
+    $('lobbyHint').style.display='';
+    return;
+  }
+  $('lobbyStart').disabled=team?(n!==4||gap):trip?(n!==3||gap):(n<2||gap);
+  $('lobbyHint').textContent=host?(team&&n<4?'TEAM DUEL braucht genau 4 Spieler.':trip&&n<3?'TRIPLE FFA braucht genau 3 Spieler.':'Sitzlücke: Warte auf freien Sitz / Spieler soll neu beitreten.'):'Warte auf Host…';
+  $('lobbyHint').style.display=(host?((gap&&n>=2)||(trip&&n<3)||(team&&n<4)):true)?'':'none';
 }
 // Kopfbereich der Online-Seite: zweifarbiger Titel (ONLINE · FFA/1v1/2v2), Untertitel,
 // Spielerzahl-Badge — eine Stelle fuer openOnline UND attemptRejoin.
 function setOnTitle(ffa){
   const trip=ffa&&fmt==='triple_ffa',team=ffa&&fmt==='team_duel',fbo=fmt===FB_ONLINE_FMT;
-  $('onTitleMode').textContent=fbo?'ARENA FOOTBALL':team?'TEAM DUEL':trip?'TRIPLE FFA':ffa?'FFA':(fmt==='double'?'2v2':'1v1');
-  $('onCtxt').textContent=fbo?T('onSubFb'):team?T('onSubTeam'):trip?T('onSubTriple'):ffa?T('onSubFfa'):T('onSubVs');
-  $('onBadgeN').textContent=fbo?'2–5':team?'4':trip?'3':ffa?'2–5':'2';
+  // v8: der Football-Kopf nennt den MODUS und die genaue Sollbesetzung - nicht mehr
+  // ein pauschales "2-5".
+  const mo=fbo?fbLobbyMode():'', md=mo?fbModeDef(mo):null;
+  $('onTitleMode').textContent=fbo?(md?T(md.key):'ARENA FOOTBALL'):team?'TEAM DUEL':trip?'TRIPLE FFA':ffa?'FFA':(fmt==='double'?'2v2':'1v1');
+  // Der Untertitel folgt dem MODUS. Das pauschale "2 bis 5 Spieler" war richtig,
+  // solange jeder Football-Raum fuenf Sitze hatte und nahm, wer kam.
+  $('onCtxt').textContent=fbo?(md?T(md.key+'S'):T('onSubFb')):team?T('onSubTeam'):trip?T('onSubTriple'):ffa?T('onSubFfa'):T('onSubVs');
+  $('onBadgeN').textContent=fbo?String(fbLobbyCap()):team?'4':trip?'3':ffa?'2–5':'2';
 }
 function openOnline(){
   if(TUNE){toast('Tuning aktiv — Online deaktiviert');return;}
@@ -7989,7 +8362,13 @@ function createRoom(){
   const op=newJoinOp();
   whenFB(()=>{ if(!joinOpCurrent(op))return;
     if(!fbReady()){setStatus(T(fbFailKey()));return;}
-    (async()=>{ let dc=null, code='', created=false, listed=false;
+    // Client und Rules pruefen DIESELBE Paarung. Scheitert sie hier, waere der Raum am
+    // Server ohnehin abgelehnt worden - besser eine klare Meldung als ein Fehlschlag
+    // mitten in der Anlage.
+    if(fbo&&!fbModeCapOk(fbOnlineMode,fbOnlineCap)){setStatus(T('onModeBad'));return;}
+    (async()=>{ let dc=null, code='', created=false, listed=false, wirtSitz=0;
+    // wirtSitz steht HIER und nicht im try: der Aufraeumpfad im catch raeumt genau
+    // diesen Sitz ab und muss ihn deshalb sehen.
     // Snapshot the visibility ONCE, validated, at the start of the operation. From here
     // on the create uses only this immutable local value — a UI toggle flip during an
     // await can no longer change this operation's path, listing decision or cleanup.
@@ -7999,50 +8378,72 @@ function createRoom(){
       for(let t=0;t<6;t++){ code=rrand(4); const s=await window.FB.get(window.FB.ref(window.FB.db,'rooms/'+code)); if(!joinOpCurrent(op))return; if(!s.exists())break; }
       // FFA-Kontext traegt das konkrete Format im fmt-Global: 'triple_ffa' bleibt
       // erhalten (TRIPLE-Karte/CTA), jedes andere Rest-fmt wird zu 'ffa' normalisiert.
-      const fmtNew=fbo?FB_ONLINE_FMT:ffa?(fmt==='triple_ffa'||fmt==='team_duel'?fmt:'ffa'):fmt, rec=playerRecord(0);
+      const fmtNew=fbo?FB_ONLINE_FMT:ffa?(fmt==='triple_ffa'||fmt==='team_duel'?fmt:'ffa'):fmt;
       // Einheitlicher Room-State (Paket A, letzte Blocker): ALLE Modi starten in
       // 'lobby'. Der explizite State ersetzt die frueheren indirekten Nicht-FFA-
       // Heuristiken (fehlende Presence/players/g) als alleinige Wahrheit fuer
       // Rejoin-/Claim-/Recycling-Erlaubnis. FFA bleibt bis zum Host-Start in 'lobby';
       // 1v1/2v2 schaltet der atomare Gastclaim auf 'playing' (siehe joinRoom).
       // RESERVE: Raum inkl. Host-Reservierung (p/0.on=false) + players/0 anlegen.
-      const room={v:ONLINE_PROTOCOL_VERSION, config:{game:fbo?ROOM_GAME_FOOTBALL:ROOM_GAME_RINGOUT,winTarget:winTarget,fmt:fmtNew,visibility:visibility}, gen:0, state:'lobby',
-        p:{0:{s:onlineTab,on:false,t:window.FB.serverTimestamp()}}, players:{0:rec}, created:window.FB.serverTimestamp()};
+      // v8: ein Football-Raum traegt Modus und Sollbesetzung. Beide sind ab hier
+      // unveraenderlich - die Rules erlauben unterhalb eines bestehenden Raums keinen
+      // Schreibzugriff auf config, weder dem Host noch sonst jemandem.
+      const cfg={game:fbo?ROOM_GAME_FOOTBALL:ROOM_GAME_RINGOUT,winTarget:winTarget,fmt:fmtNew,visibility:visibility};
+      if(fbo){ cfg.mode=fbOnlineMode; cfg.cap=fbOnlineCap; }
+      // TEAM 2V2: der Ersteller sitzt auf dem ERSTEN SITZ SEINER GEWAEHLTEN SEITE - Blau
+      // auf 0 (B1), Rot auf 2 (R1). In einem frischen Raum ist dieser Sitz immer frei.
+      // Sonst bleibt es beim Sitz 0.
+      // Die Seite kommt aus der Wahl, die unmittelbar vor DIESER Anlage getroffen wurde.
+      // Fehlt sie (was nur bei einem Programmfehler vorkommen kann), bricht die Anlage ab,
+      // statt jemanden stillschweigend nach Blau zu setzen.
+      wirtSitz=0;
+      if(fbo&&fbOnlineMode===FB_ONLINE_MODE_TEAM2){
+        if(fbOnlineTeam!==FB_TEAM2_BLUE&&fbOnlineTeam!==FB_TEAM2_RED){ setStatus(T('onTeamMissing')); return; }
+        wirtSitz=fbTeam2SeatsOf(fbOnlineTeam)[0];
+      }
+      const rec0=playerRecord(wirtSitz,fbo&&fbOnlineMode===FB_ONLINE_MODE_TEAM2);
+      const room={v:ONLINE_PROTOCOL_VERSION, config:cfg, gen:0, state:'lobby', hostUid:fbUid(),
+        p:{}, players:{}, created:window.FB.serverTimestamp()};
+      room.p[wirtSitz]={s:onlineTab,on:false,t:window.FB.serverTimestamp()};
+      room.players[wirtSitz]=rec0;
       await window.FB.set(window.FB.ref(window.FB.db,'rooms/'+code), room);
       created=true;   // room exists from here on -> abortFreshRoom(code,...) below is now safe to call
-      if(!joinOpCurrent(op)){ await abortFreshRoom(code,null,listed); return; }
+      if(!joinOpCurrent(op)){ await abortFreshRoom(code,null,listed,wirtSitz); return; }
       // ARM: tokengebundener onDisconnect erst NACH der Reservierung.
-      try{ dc=await armPresence(code,0); }
-      catch(e){ await abortFreshRoom(code,null,listed); if(joinOpCurrent(op))setStatus(T('err')+(e.message||e)); return; }
-      if(!joinOpCurrent(op)){ await abortFreshRoom(code,dc,listed); return; }
+      try{ dc=await armPresence(code,wirtSitz); }
+      catch(e){ await abortFreshRoom(code,null,listed,wirtSitz); if(joinOpCurrent(op))setStatus(onlineErrText(e)); return; }
+      if(!joinOpCurrent(op)){ await abortFreshRoom(code,dc,listed,wirtSitz); return; }
       // ACTIVATE: Host auf on:true — Raumcode/UI erst danach freigeben.
-      try{ await activateSeat(code,0); }
-      catch(e){ await abortFreshRoom(code,dc,listed); if(joinOpCurrent(op))setStatus(T('err')+(e.message||e)); return; }
-      if(!joinOpCurrent(op)){ await abortFreshRoom(code,dc,listed); return; }
+      try{ await activateSeat(code,wirtSitz); }
+      catch(e){ await abortFreshRoom(code,dc,listed,wirtSitz); if(joinOpCurrent(op))setStatus(onlineErrText(e)); return; }
+      if(!joinOpCurrent(op)){ await abortFreshRoom(code,dc,listed,wirtSitz); return; }
       // Public-Discovery-Index: write ONLY after a successful host activation (no ghost
       // listings), and only when THIS operation was started as public. Failure compensates
       // the whole create (room + seat + index) so a "public" room is never silently
       // undiscoverable. `listed` records the write operation-locally for the cleanup paths.
-      if(visibility==='public'){
+      if(visibility==='public'&&!fbo){
         try{ await writePublicListing(code); listed=true; }
-        catch(e){ await abortFreshRoom(code,dc,listed); if(joinOpCurrent(op))setStatus(T('err')+(e.message||e)); return; }
-        if(!joinOpCurrent(op)){ await abortFreshRoom(code,dc,listed); return; }
+        catch(e){ await abortFreshRoom(code,dc,listed,wirtSitz); if(joinOpCurrent(op))setStatus(onlineErrText(e)); return; }
+        if(!joinOpCurrent(op)){ await abortFreshRoom(code,dc,listed,wirtSitz); return; }
       }
       // remote flow complete -> NOW commit the globals + UI + listeners
       fmt=fmtNew;
-      roomCode=code; myPlayer=0; online=true; gen=0; runningGen=-1; gameStarted=false; seatLeft=[]; seatGone=[];
+      roomCode=code; myPlayer=wirtSitz; online=true; gen=0; runningGen=-1; gameStarted=false; seatLeft=[]; seatGone=[];
+      roomHostUid=fbUid();   // v8: die Hostkennung ist die eigene - unabhaengig vom Sitz
+      fbOnlineTeam=-1;       // die Wahl hat ihren Zweck erfuellt und gilt fuer keinen weiteren Raum
+      fbRoomMode=fbo?fbOnlineMode:''; fbRoomCap=fbo?fbOnlineCap:0;   // v8: Sollbesetzung des angelegten Raums
       roomPublic=(visibility==='public');   // committed room reflects the snapshotted visibility
-      playersRoster={0:rec};
-      rememberRoom(code,0);
+      playersRoster={}; playersRoster[wirtSitz]=rec0;
+      rememberRoom(code,wirtSitz);
       hidePublicUI();   // entered a room -> stop the listener, hide the public UI
       $('onActions').style.display='none';$('onWait').style.display='';
       $('onCode').textContent=code;
-      if(ffa||fbo){ $('onLobby').style.display=''; renderLobby({0:{s:onlineTab,on:true,t:Date.now()}}); setStatus(fbo?('ARENA FOOTBALL · '+T('shareCode')):T(fmtNew==='team_duel'?'teamShare':fmtNew==='triple_ffa'?'tripleShare':'ffaShare')); }
+      if(ffa||fbo){ $('onLobby').style.display=''; const lp={}; lp[wirtSitz]={s:onlineTab,on:true,t:Date.now()}; renderLobby(lp); setStatus(fbo?('ARENA FOOTBALL · '+T('shareCode')):T(fmtNew==='team_duel'?'teamShare':fmtNew==='triple_ffa'?'tripleShare':'ffaShare')); }
       else setStatus((fmt==='double'?'2v2 · ':'1v1 · ')+T('shareCode'));
       attachRoomListeners();
     }catch(e){
-      if(created) await abortFreshRoom(code,dc,listed);   // never touch 'rooms/'+code before the room actually exists
-      if(joinOpCurrent(op))setStatus(T('err')+(e.message||e));
+      if(created) await abortFreshRoom(code,dc,listed,wirtSitz);   // never touch 'rooms/'+code before the room actually exists
+      if(joinOpCurrent(op))setStatus(onlineErrText(e));
     } })();
   });
 }
@@ -8174,7 +8575,20 @@ function joinPublicRoom(code){
 // Zwischenstand darf niemals fuer den heutigen gehalten werden. Es gibt bewusst KEINE
 // Kompatibilitaetsschicht. Bestehende Raeume laufen serverseitig aus (die Rules akzeptieren
 // waehrend der Umstellung v4, v5, v6 und v7).
-const ONLINE_PROTOCOL_VERSION=7;
+// PROTOKOLL v8 - MODUS UND SOLLBESETZUNG.
+//   v7 und aelter: Altbestand. Raum kennt nur game+fmt; die Teilnehmerzahl ergab sich
+//                  daraus, wer zufaellig beigetreten war (seats beim Start).
+//   v8:            der Raum traegt seinen MODUS und seine SOLLBESETZUNG (config.mode,
+//                  config.cap), beide unveraenderlich ab Anlage. Die Zugkodierung ist
+//                  BYTEGLEICH zu v7 - Phase A aendert am Zugpfad nichts.
+//   v9 (spaeter):  autoritative Frist und Hash-Commit/Reveal. Erst dort aendert sich
+//                  die Bedeutung von g/<gen>/t/<turn>/<seat>. Deshalb zwei Stufen und
+//                  nicht eine: eine Nummer darf nie zwei Zugbauformen bedeuten.
+//
+// Beitrittspolitik gegenueber Altbestand: STRIKTE GLEICHHEIT, wie bei jedem frueheren
+// Versionssprung dieses Projekts. Ein v7-Raum wird mit der Versionsmeldung abgelehnt,
+// nicht als v8 gelesen - ein v8-Weg ohne mode/cap gaebe es sonst still zurueck.
+const ONLINE_PROTOCOL_VERSION=8;
 const FFA_MAX_SEATS=5;   // Online-FFA: Seats 0-4 (Host=0), Farben aus PCOLS
 // ── RAUMTYP (v4) ──────────────────────────────────────────────────────────────────
 // config.game trennt die beiden Produktfamilien serverseitig. Bewusst NICHT 'mode':
@@ -8193,6 +8607,84 @@ const FB_ONLINE_SEATS=5, FB_ONLINE_BALL_IDX=5;
 // fmt='single' - nur ein Online-Football-Raum setzt diesen Wert. Damit ist fmt allein
 // schon die eindeutige Weiche, ohne einen zweiten Zustand einzufuehren.
 const FB_ONLINE_FMT=FOOTBALL_FMTS[0];
+// ════ ONLINE-MODUSREGISTER (v8) ════
+// EINE Quelle fuer Modusnamen, Sollbesetzung, Beschriftung und Freigabestand. Jede
+// Stelle, die Kapazitaet oder Moduslabel braucht, fragt hier - es gibt bewusst keine
+// zweite Tabelle daneben, denn genau so waren Raumtyp und Format frueher auseinander-
+// gelaufen.
+//
+// `released` ist das AUSDRUECKLICHE FREIGABETOR (Phase A, Punkt 9): ein Modus kann
+// einen Raum und eine Lobby haben, ohne dass sein Onlinespiel fertig ist. Solange
+// v9 fehlt, sind Zugvektoren im Klartext lesbar (bekanntes P0) - neue simultane
+// Wettbewerbsmodi duerfen deshalb NICHT als fertig angeboten werden. Nicht
+// freigegebene Modi sind ausschliesslich im Dev-Menue sichtbar.
+const FB_ONLINE_MODE_CLASSIC='classic', FB_ONLINE_MODE_SPEED='speed',
+      FB_ONLINE_MODE_TEAM2='team2v2', FB_ONLINE_MODE_LIVES='lives',
+      FB_ONLINE_MODE_TIMED='timedffa';
+const FB_ONLINE_MODES={
+  classic: {caps:[2],     released:false, key:'onModeClassic'},
+  speed:   {caps:[2],     released:false, key:'onModeSpeed'},
+  team2v2: {caps:[4],     released:false, key:'onModeTeam2'},
+  lives:   {caps:[3,4,5], released:true,  key:'onModeLives'},
+  timedffa:{caps:[3,4,5], released:false, key:'onModeTimed'}
+};
+const FB_ONLINE_MODE_IDS=['classic','speed','team2v2','lives','timedffa'];
+// Rein lesende Abfragen auf das Register. Eigene Funktionen statt verstreuter
+// Objektzugriffe, damit die Suiten EINE Stelle pruefen koennen.
+function fbModeDef(m){return Object.prototype.hasOwnProperty.call(FB_ONLINE_MODES,m)?FB_ONLINE_MODES[m]:null;}
+function fbModeValid(m){return !!fbModeDef(m);}
+function fbModeCaps(m){const d=fbModeDef(m);return d?d.caps.slice():[];}
+function fbModeCapOk(m,c){const d=fbModeDef(m);return !!d&&Number.isInteger(c)&&d.caps.indexOf(c)>=0;}
+function fbModeDefaultCap(m){const d=fbModeDef(m);return d?d.caps[d.caps.length-1]:0;}
+// Freigabetor. Ein nicht freigegebener Modus ist im Produkt unsichtbar und laesst sich
+// nur mit DEV_MENU erreichen - Raum und Lobby sind fertig, das Spiel ist es nicht.
+function fbModeReleased(m){const d=fbModeDef(m);return !!d&&d.released;}
+function fbModeSelectable(m){const d=fbModeDef(m);return !!d&&(d.released||(typeof DEV_MENU!=='undefined'&&DEV_MENU));}
+// Auswahl fuer den NAECHSTEN Onlineraum. Sie lebt in genau diesen zwei Variablen;
+// createRoom liest sie, sonst niemand. Beim Beitritt sind sie bedeutungslos - dort gelten
+// Modus und Sollbesetzung des RAUMS.
+//
+// Die Deklaration steht bewusst HIER und nicht oben bei den uebrigen Onlinevariablen:
+// der Startwert liest FB_ONLINE_MODE_LIVES, und eine const ist vor ihrer Definition
+// nicht lesbar (temporale Todeszone). Weiter oben haette diese Zeile das ganze Skript
+// beim Laden abgebrochen.
+// ════ TEAM 2V2 ONLINE: DER SITZVERTRAG ════
+// ZWEI Teams, nicht vier Spieler. Blau sitzt auf 0 und 1, Rot auf 2 und 3 - das ist
+// dieselbe Zuordnung wie lokal (fbTeam2Side) und die einzige Stelle, an der sie steht.
+// Das Team ist eine ABLEITUNG aus dem Sitz; es gibt kein Teamfeld im Raum und keines
+// in den Rules.
+const FB_TEAM2_BLUE=0, FB_TEAM2_RED=1;
+const FB_TEAM2_SEATS=[[0,1],[2,3]];
+function fbTeam2SeatsOf(t){return (t===FB_TEAM2_BLUE||t===FB_TEAM2_RED)?FB_TEAM2_SEATS[t].slice():[];}
+// Belegte Sitze eines Teams (Presence-Sicht - wer wirklich da ist).
+function fbTeam2Count(p,t){let n=0;for(const x of fbTeam2SeatsOf(t))if(seatActive(p,x))n++;return n;}
+// Erster beanspruchbarer Sitz eines Teams, deterministisch von unten. Beanspruchbar
+// heisst: KEIN Praesenzrecord - dieselbe Bedingung wie in pickFreeSeat, damit ein
+// reservierter, aber noch nicht aktivierter Sitz nicht doppelt vergeben wird.
+function fbTeam2FreeSeat(p,t){for(const x of fbTeam2SeatsOf(t))if(!p||!p[x])return x;return -1;}
+// Ist dieser Onlineraum ein Team-2v2-Raum? Die Frage haengt am MODUS DES RAUMS, nicht an
+// fbVariant: online laeuft die Football-Variante immer als Elimination, weshalb fbTeam2()
+// dort false ist. Genau daran lag die Vier-Farben-Lobby.
+function fbTeam2Room(){return fmt===FB_ONLINE_FMT&&fbLobbyMode()===FB_ONLINE_MODE_TEAM2;}
+// Farbslot eines Sitzes in der LOBBY. In einem Team-2v2-Raum tragen beide Blauen Blau
+// und beide Roten Rot; sonst gilt die gewohnte Zuordnung.
+function fbLobbyColorSlot(s){return fbTeam2Room()?fbTeam2Side(s):colorSlot(s);}
+// Anzeigename einer Team-2v2-Zeile. Ein eingegebener Name gewinnt immer; fehlt er, steht
+// dort die TEAMfarbe. nameForSeat() faellt auf die SPIELERfarbe des Sitzes zurueck
+// (col0..col4) - in einem Zweiteamspiel ergibt das "B2 - ROT", "R1 - GRUEN", "R2 - GELB",
+// also drei falsche Auskuenfte von vieren. Gruen und Gelb gibt es hier gar nicht.
+function fbTeam2NameForSeat(s){
+  const r=playersRoster&&playersRoster[s];
+  const n=r&&typeof r.name==='string'?sanitizeName(r.name):'';
+  return n||T('col'+(fbTeam2Side(s)===FB_TEAM2_BLUE?0:1));
+}
+let fbOnlineMode=FB_ONLINE_MODE_LIVES, fbOnlineCap=5;
+// Die gewaehlte Seite gehoert zu GENAU EINER Handlung: der gerade laufenden Raumanlage.
+// -1 heisst "keine Wahl offen". Sie wird vor der Anlage gesetzt, danach sofort wieder
+// zurueckgenommen - eine stehengebliebene Wahl duerfte nie in einen anderen Raum
+// hineinwirken. Der Beitritt benutzt sie gar nicht: dort lebt die Wahl als lokale
+// Variable innerhalb des einen Beitrittsversuchs.
+let fbOnlineTeam=-1;
 // Zugereignisse. Sie sind AUSDRUECKLICH typisiert, damit nie wieder eine Ersatzbedeutung
 // in einen Nullvektor oder einen fremden Koerperindex hineingelesen werden muss:
 //   move    ein echter Abschuss des Sitzeigentuemers
@@ -8212,10 +8704,42 @@ function validGamePair(game,fmt){
   if(game===ROOM_GAME_FOOTBALL)return FOOTBALL_FMTS.indexOf(fmt)>=0;
   return false;
 }
-// Teilnehmerzahl eines Raumtyps. Football hat exakt fuenf Sitze; der Ball zaehlt nicht mit.
+// Sollbesetzung eines Raums. v8 traegt sie ausdruecklich in config.cap - das ist die
+// einzige Wahrheit, sobald sie da ist. Ohne sie gilt die alte Herleitung aus dem Format
+// (RingOut-Raeume, die kein cap tragen).
 function roomSeatCap(cfg){
+  if(cfg&&Number.isInteger(cfg.cap))return cfg.cap;
   if(roomIsFootball(cfg))return FB_ONLINE_SEATS;
   return cfg&&cfg.fmt==='triple_ffa'?3:cfg&&cfg.fmt==='team_duel'?4:cfg&&cfg.fmt==='ffa'?FFA_MAX_SEATS:2;
+}
+// Gueltige v8-Football-Raumkonfiguration: Modus bekannt, Sollbesetzung zum Modus passend.
+// Beides ist ab Anlage unveraenderlich (config wird nie neu geschrieben - die Rules
+// erlauben unterhalb eines bestehenden Raums keinen Schreibzugriff auf config).
+function validModeCap(cfg){
+  if(!cfg||!roomIsFootball(cfg))return true;   // RingOut-Raeume tragen kein Modusfeld
+  return fbModeValid(cfg.mode)&&fbModeCapOk(cfg.mode,cfg.cap);
+}
+// Das FREIGABETOR gilt nicht nur fuer die Auswahl, sondern fuer JEDEN Weg in einen Raum.
+// Sonst waere ein geteilter Raumcode die Hintertuer in einen Modus, dessen Onlinespiel
+// noch nicht fertig ist - und genau davor soll das Tor schuetzen. Wer mit ?dev=1 testet,
+// kommt weiterhin ueberall hin; ohne ihn nur in freigegebene Modi.
+// Auf WELCHEM Sitz sitzt der Host DIESES Raumschnappschusses? Abgeleitet aus hostUid
+// und dem Roster - gespeichert wird der Sitz nirgends. Ohne Hostkennung (v4-v7) gilt
+// unveraendert Sitz 0.
+//
+// Diese Funktion schliesst eine Luecke, die der echte Mehrbrowser-Test aufgedeckt hat:
+// die Verwaisungspruefung fragte fest nach p/0. In einem Team-2v2-Raum, den ein
+// ROT-Ersteller angelegt hat, sitzt der Host aber auf Sitz 2 - p/0 existiert dort gar
+// nicht, und JEDER Beitritt wurde als "Raum ist verwaist" abgewiesen.
+function roomHostSeat(d){
+  const h=d&&d.hostUid, pl=d&&d.players;
+  if(typeof h!=='string'||!h||!pl||typeof pl!=='object')return 0;
+  for(let s=0;s<FFA_MAX_SEATS;s++)if(pl[s]&&pl[s].uid===h)return s;
+  return 0;
+}
+function modeReachable(cfg){
+  if(!cfg||!roomIsFootball(cfg))return true;
+  return (typeof fbModeSelectable==='function')?fbModeSelectable(cfg.mode):true;
 }
 // ── KANONISCHE ZUGDATENSAETZE (v4, Football) ─────────────────────────────────────
 // Genau eine Bauform je Ereignis. skip und remove tragen zwingend den Nullvektor: ein
@@ -8258,6 +8782,15 @@ function validateRoom(d){
     return{ok:false,reason:'Raum-Konfiguration ungültig.'};
   // v4: Raumtyp ist Pflicht und muss zum Format passen. Kein stiller Default.
   if(!validGamePair(cfg.game,cfg.fmt))return{ok:false,reason:'Raum-Konfiguration ungültig.'};
+  // v8: ein Football-Raum traegt Modus UND Sollbesetzung. Fehlt eines oder passen sie
+  // nicht zusammen, ist der Raum ungueltig - er faellt ausdruecklich NICHT auf die alte
+  // Herleitung zurueck. Ein stiller Rueckfall waere genau die Verwechslung, die die
+  // Versionsstufe verhindern soll.
+  if(!validModeCap(cfg))return{ok:false,reason:'Raum-Konfiguration ungültig.'};
+  if(!modeReachable(cfg))return{ok:false,reason:'Dieser Onlinemodus ist noch nicht freigegeben.'};
+  // v8: der Raum traegt eine ausdrueckliche Hostkennung. Fehlt sie, ist er ungueltig -
+  // ohne sie waere unbestimmt, wer den Lebenszyklus fuehrt.
+  if(typeof d.hostUid!=='string'||!d.hostUid)return{ok:false,reason:'Raum-Konfiguration ungültig.'};
   // Public-Lobby (feature/public-lobby-mvp): visibility ist Pflicht und exakt
   // 'private' | 'public'. Fehlend/ungueltig -> Ablehnung (kein stiller Default).
   // Der Wert ist nach Erstellung unveraenderlich (config wird nie neu geschrieben).
@@ -8266,22 +8799,37 @@ function validateRoom(d){
   if(!Number.isSafeInteger(d.gen)||d.gen<0||d.gen>GEN_MAX)
     return{ok:false,reason:'Raum-Konfiguration ungültig.'};
   const p=d.p;
-  if(!p||typeof p!=='object'||!(p[0]&&p[0].on===true))return{ok:false,reason:'Raum ist verwaist.'};
+  // Verwaist heisst: der HOST ist nicht da - nicht "Sitz 0 ist leer". Seit der
+  // Host/Sitz-Entkopplung sind das zwei verschiedene Aussagen.
+  const hs=roomHostSeat(d);
+  if(!p||typeof p!=='object'||!(p[hs]&&p[hs].on===true))return{ok:false,reason:'Raum ist verwaist.'};
   // Mehrsitzige Raeume (FFA / TRIPLE FFA / TEAM DUEL / Football-Elimination): Beitritt
   // nur solange die Lobby offen ist und ein Gastsitz frei ist. Die Sitzzahl kommt aus
   // roomSeatCap() - ein Football-Raum hat fuenf Sitze und ist KEIN Zweispielerraum.
-  if(roomSeatCap(cfg)>2){
+  // Die Weiche haengt am RAUMTYP, nicht an der Sitzzahl: ein Football-Raum laeuft immer
+  // ueber den atomaren write-once-Sitzclaim - auch als Zwei-Spieler-Raum (v8: classic,
+  // speed). Frueher konnte er das nicht sein, weil jeder Football-Raum fuenf Sitze
+  // hatte; seit die Sollbesetzung im Raum steht, muss die Weiche das ausdruecklich
+  // sagen. Sonst faellt ein Zwei-Sitz-Football-Raum in den RingOut-1v1-Zweig und
+  // verliert dort den Raumtyp.
+  if(roomSeatCap(cfg)>2||roomIsFootball(cfg)){
     if(d.state!=='lobby')return{ok:false,reason:'Match läuft bereits.'};
-    const seat=pickFreeSeat(p,roomSeatCap(cfg));
+    const cap=roomSeatCap(cfg);
+    const seat=pickFreeSeat(p,cap);
     if(seat<0)return{ok:false,reason:'Raum ist schon voll.'};
-    return{ok:true,winTarget:cfg.winTarget,fmt:cfg.fmt,game:roomGame(cfg),gen:d.gen,freeSeat:seat};
+    return{ok:true,winTarget:cfg.winTarget,fmt:cfg.fmt,game:roomGame(cfg),gen:d.gen,
+           freeSeat:seat,cap:cap,mode:cfg.mode||'',hostUid:d.hostUid};
   }
   // 1v1/2v2: Beitritt nur solange die Lobby offen ist (einheitlicher Room-State).
   // Der erfolgreiche Gastclaim schaltet danach atomar auf state:'playing'.
   if(d.state!=='lobby')return{ok:false,reason:'Match läuft bereits.'};
   if(p[1])return{ok:false,reason:'Raum ist schon voll.'};
-  return{ok:true,winTarget:cfg.winTarget,fmt:cfg.fmt,gen:d.gen};
+  return{ok:true,winTarget:cfg.winTarget,fmt:cfg.fmt,game:roomGame(cfg),gen:d.gen,cap:roomSeatCap(cfg),mode:cfg.mode||'',hostUid:d.hostUid};
 }
+// Niedrigster beanspruchbarer Sitz aus einer VORGEGEBENEN Kandidatenliste. Team 2v2
+// benutzt sie, um den Anspruch auf die Sitze des gewaehlten Teams zu begrenzen; die
+// Reihenfolge der Liste ist die Vergabereihenfolge.
+function pickSeatFrom(p,seats){for(const s of seats||[])if(!p||!p[s])return s;return -1;}
 // Niedrigster freier Gast-Seat (1..max-1); -1 = voll. Pure Funktion (Node-getestet).
 function pickFreeSeat(p,max){for(let s=1;s<max;s++)if(!p||!p[s])return s;return -1;}
 // B2: pure validator for a room snapshot the REJOINER is about to trust. Unlike
@@ -8295,6 +8843,9 @@ function validateRejoinRoom(d){
   const cfg=d.config;
   if(!cfg||typeof cfg!=='object'||(cfg.winTarget!==3&&cfg.winTarget!==5))return{ok:false,reason:'noRoom'};
   if(!validGamePair(cfg.game,cfg.fmt))return{ok:false,reason:'noRoom'};
+  if(!validModeCap(cfg))return{ok:false,reason:'noRoom'};   // v8: Modus/Sollbesetzung Pflicht
+  if(!modeReachable(cfg))return{ok:false,reason:'noRoom'};   // Freigabetor gilt auch hier
+  if(typeof d.hostUid!=='string'||!d.hostUid)return{ok:false,reason:'noRoom'};   // v8: Hostkennung ist Pflicht
   if(cfg.visibility!=='private'&&cfg.visibility!=='public')return{ok:false,reason:'noRoom'};
   if(!Number.isSafeInteger(d.gen)||d.gen<0||d.gen>GEN_MAX)return{ok:false,reason:'noRoom'};
   if(d.state!=='lobby'&&d.state!=='playing')return{ok:false,reason:'rejoinNoLobby'};
@@ -8309,8 +8860,12 @@ function validateRejoinRoom(d){
     if(cfg.fmt==='triple_ffa'&&seats!==3)return{ok:false,reason:'noRoom'};
     if(cfg.fmt==='team_duel'&&seats!==4)return{ok:false,reason:'noRoom'};
     if(cfg.game===ROOM_GAME_FOOTBALL&&(seats<2||seats>FB_ONLINE_SEATS))return{ok:false,reason:'noRoom'};
+    // v8: das Startsignal MUSS die Sollbesetzung des Raums tragen. Ein laufendes Match
+    // mit abweichender Besetzung ist kein Raum, in den man zurueckkehren kann.
+    if(Number.isInteger(cfg.cap)&&seats!==cfg.cap)return{ok:false,reason:'noRoom'};
   }
-  return{ok:true,fmt:cfg.fmt,winTarget:cfg.winTarget,gen:d.gen,state:d.state,seats:seats};
+  return{ok:true,fmt:cfg.fmt,winTarget:cfg.winTarget,gen:d.gen,state:d.state,seats:seats,
+         cap:roomSeatCap(cfg),mode:cfg.mode||'',hostUid:d.hostUid};
 }
 const ROOM_MAX_AGE_MS=7200000;   // 2h — older public rooms are never shown or listed
 // Public-Lobby (feature/public-lobby-mvp): pure decision for ONE discovery listing,
@@ -8356,22 +8911,30 @@ function seatsContiguous(p,n){for(let s=0;s<n;s++)if(!seatActive(p,s))return fal
 // versuchen. Ein fehlgeschlagener Roster-Write nach dem Presence-Gewinn rollt den
 // Sitz zurueck und bricht den Join ab (claimSeatSlot wirft — kein Ghost-Seat).
 // Rueckgabe: {seat,dc} bei Erfolg, {seat:-1} wenn kein Raum/kein freier Sitz.
-async function claimSeat(code,op,maxSeats){
+// `kandidaten` begrenzt den Anspruch auf eine Sitzmenge (Team 2v2: die Sitze des
+// gewaehlten Teams). Ohne sie gilt der bisherige Bereich 1..maxSeats-1. Am ATOMAREN
+// write-once-Claim aendert das nichts - die Kandidatenmenge sagt nur, WELCHE Sitze
+// ueberhaupt versucht werden; wer ihn bekommt, entscheidet weiterhin allein die
+// Transaction. Zwei gleichzeitige Beitritte in dasselbe Team laufen deshalb genauso
+// sicher wie bisher: der Verlierer sieht `lost`, holt einen frischen Schnappschuss und
+// versucht den naechsten freien Sitz SEINES Teams.
+async function claimSeat(code,op,maxSeats,kandidaten,team2){
   maxSeats=maxSeats||FFA_MAX_SEATS;   // TRIPLE FFA: exakt 3 Sitze (Rules-gesichert)
-  for(let t=0;t<maxSeats;t++){
+  const runden=kandidaten?kandidaten.length:maxSeats;
+  for(let t=0;t<runden;t++){
     if(!joinOpCurrent(op))return {seat:-1,dc:null,stale:true};
     const s=await window.FB.get(window.FB.ref(window.FB.db,'rooms/'+code));
     if(!joinOpCurrent(op))return {seat:-1,dc:null,stale:true};
     if(!s.exists())return {seat:-1,dc:null};
     const d=s.val()||{};
     if(d.state!=='lobby')return {seat:-1,dc:null};   // Lobby geschlossen -> Match laeuft bereits
-    const seat=pickFreeSeat(d.p,maxSeats);
+    const seat=kandidaten?pickSeatFrom(d.p,kandidaten):pickFreeSeat(d.p,maxSeats);
     if(seat<0)return {seat:-1,dc:null};
     // KEIN Vorab-Loeschen fremder Records: ein verwaister Fremd-Record wird
     // ausschliesslich INNERHALB des atomaren Claims (Multi-Path p+players) recycelt.
     // Die Write-once-Presence bleibt der alleinige Schiedsrichter, der atomare Claim
     // gewinnt oder scheitert vollstaendig — kein Zwischenzustand, kein fremder Verlust.
-    const r=await claimSeatSlot(code,seat,op);
+    const r=await claimSeatSlot(code,seat,op,undefined,team2);
     if(r.stale)return {seat:-1,dc:null,stale:true};
     if(r.lost)continue;   // Presence-Race verloren / Lobby geschlossen -> frischer Snapshot
     return {seat:seat,dc:r.dc};
@@ -8415,11 +8978,55 @@ function joinRoom(){
       // kommt (bis Frist und REMOVE greifen).
       if(joinFb&&!r3dActive){ setStatus(T('fbNo3d')); return; }
       if(joinFb||v.fmt==='ffa'||v.fmt==='triple_ffa'||v.fmt==='team_duel'){   // M8-T3c: Seat per atomaren write-once-Claim statt fix p/1
-        const c=await claimSeat(code,op,joinFb?FB_ONLINE_SEATS:v.fmt==='triple_ffa'?3:v.fmt==='team_duel'?4:FFA_MAX_SEATS);   // rolls its own writes back if the op goes stale
+        // v8: die Sollbesetzung des RAUMS begrenzt den Claim. Ein fuenfter Spieler kann
+        // einem Team-2v2-Raum damit nicht beitreten - der Sitzindex existiert dort nicht,
+        // und die Rules weisen ihn zusaetzlich ab.
+        //
+        // TEAM 2V2: der Beitretende waehlt zuerst eine SEITE. Die Wahl ist KEINE
+        // Zuteilung - sie begrenzt nur die Kandidatensitze; wer welchen bekommt,
+        // entscheidet weiterhin allein der atomare write-once-Claim. Zwei gleichzeitige
+        // Beitritte ins selbe Team laufen deshalb genauso sicher wie bisher.
+        // TEAM 2V2: die Seite wird ERST JETZT gefragt - der Raum ist gelesen und geprueft,
+        // die Belegung steht fest. Vorher waere die Frage eine Zumutung: der Mensch wuesste
+        // weder, ob es den Raum gibt, noch welche Seite dort ueberhaupt noch offen ist.
+        //
+        // Bis zur Bestaetigung wird NICHTS beansprucht: kein Sitz, keine Praesenz, kein
+        // Rosterrecord. Ein Abbruch hinterlaesst deshalb nichts.
+        const cap=Number.isInteger(v.cap)?v.cap:(joinFb?FB_ONLINE_SEATS:v.fmt==='triple_ffa'?3:v.fmt==='team_duel'?4:FFA_MAX_SEATS);
+        let c=null;
+        if(joinFb&&v.mode===FB_ONLINE_MODE_TEAM2){
+          // Der Anspruch kann das Rennen gegen einen gleichzeitigen Beitritt verlieren.
+          // Dann wird die Belegung frisch gelesen und die Wahl erneut gestellt - immer
+          // innerhalb DERSELBEN Seite. Niemand wird stillschweigend ins andere Team
+          // geschoben. Die Schleife ist begrenzt: mehr als vier Sitze gibt es nicht.
+          for(let versuch=0;versuch<4;versuch++){
+            const frisch=await window.FB.get(window.FB.ref(window.FB.db,'rooms/'+code));
+            if(!joinOpCurrent(op))return;
+            if(!frisch.exists()){ setStatus(T('noRoom')); return; }
+            const pJetzt=(frisch.val()||{}).p||{};
+            const blauFrei=fbTeam2FreeSeat(pJetzt,FB_TEAM2_BLUE)>=0;
+            const rotFrei=fbTeam2FreeSeat(pJetzt,FB_TEAM2_RED)>=0;
+            if(!blauFrei&&!rotFrei){ setStatus(T('roomFull')); return; }
+            const wahl=await new Promise(r=>fbTeamAsk(pJetzt,(t)=>r(t),()=>r(-1)));
+            if(!joinOpCurrent(op))return;
+            if(wahl<0){ setStatus(''); return; }   // abgebrochen - kein Anspruch, kein Rest
+            c=await claimSeat(code,op,cap,fbTeam2SeatsOf(wahl),true);
+            if(c.stale)return;
+            if(c.seat>=0)break;
+            // Die gewaehlte Seite ist inzwischen voll: sagen und erneut fragen.
+            setStatus(T('teamFullMsg'));
+            c=null;
+          }
+          if(!c||c.seat<0){ setStatus(T('roomFull')); return; }
+        }else{
+          c=await claimSeat(code,op,cap);   // rolls its own writes back if the op goes stale
+        }
         if(c.stale)return;                  // op superseded -> globals stay untouched (offline)
         if(c.seat<0){ setStatus(T('roomFull')); return; }
         // remote claim complete -> NOW commit the globals + UI + listeners
         roomCode=code; myPlayer=c.seat; online=true; runningGen=-1; gameStarted=false; seatLeft=[]; seatGone=[]; playersRoster=d.players||{};
+        fbRoomMode=v.mode||''; fbRoomCap=Number.isInteger(v.cap)?v.cap:0; roomHostUid=v.hostUid||'';
+        // v8: Modus, Sollbesetzung UND Hostkennung kommen aus dem RAUM.
         // Football: Modus UND Variante setzen, bevor irgendetwas np()/fbElim4() fragt.
         if(joinFb){ mode='football'; fbVariant=FOOTBALL_VARIANT_ELIM; } else mode='ffa';
         winTarget=v.winTarget; fmt=v.fmt; gen=v.gen; roomPublic=isPublic;
@@ -8438,6 +9045,7 @@ function joinRoom(){
       if(r.lost){ setStatus(T('roomFull')); return; }
       mode='online';   // Gast kann aus dem FFA-Menue heraus auch einem 1v1/2v2-Raum beitreten
       roomCode=code; myPlayer=1; online=true; runningGen=-1; gameStarted=false; seatLeft=[]; seatGone=[]; playersRoster=d.players||{};
+      fbRoomMode=v.mode||''; fbRoomCap=Number.isInteger(v.cap)?v.cap:0; roomHostUid=v.hostUid||'';
       winTarget=v.winTarget; fmt=v.fmt; gen=v.gen; roomPublic=isPublic;
       rememberRoom(code,1);
       hidePublicUI();   // entered a room -> stop the listener, hide the public UI
@@ -8460,6 +9068,30 @@ function joinRoom(){
 // Austritt (Praesenz + Rosteranker + Eviction-Marker in einem Update, live bestaetigt).
 function startFfaMatch(){
   const n=seatCount(lobbyP);
+  // PRODUKTSCHUTZ: ein Modus, dessen Onlinespiel noch nicht fertig ist, darf NICHT in
+  // den generischen Ablauf durchfallen. Team 2v2 hat in Phase A Raum und Lobby, aber
+  // keine eigene Onlinepartie - ein Start wuerde die falsche Partie oeffnen (vier Tore,
+  // vier Einzelspieler) statt zwei Teams auf zwei Tore. Deshalb hier ein sauberer Halt
+  // mit klarer Meldung, nicht der Rueckfall.
+  if(fbOnlineRoom()&&!fbModeReleased(fbLobbyMode())){
+    toast(T('onModeNoPlay'));
+    return;
+  }
+  // v8-FOOTBALL: der Raum verlangt eine EXAKTE Besetzung. Nicht "mindestens zwei", nicht
+  // "der Host entscheidet frueher" - wer einen Fuenf-Spieler-Raum aufmacht, startet mit
+  // fuenf. Die Rules verlangen dasselbe (seats === config/cap).
+  const soll=fbOnlineRoom()?fbLobbyCap():0;
+  if(soll>0){
+    if(n!==soll){toast(fbWaitText(n,soll));return;}
+    if(!seatsContiguous(lobbyP,n)){toast('Warte auf freien Sitz / Spieler soll neu beitreten.');return;}
+    $('lobbyStart').disabled=true;
+    (async()=>{ try{
+      const start={}; start['state']='playing'; start['seats']=soll;
+      await window.FB.update(rRef(''),start);
+      if(roomPublic){removePublicListing(roomCode);roomPublic=false;}
+    }catch(e){ setStatus('Start fehlgeschlagen: '+(e.message||e)); $('lobbyStart').disabled=false; } })();
+    return;
+  }
   // Arena Football Elimination startet mit zwei bis fuenf Teilnehmern; der Raum fasst
   // hoechstens fuenf. Es braucht dafuer KEINE eigene Schranke mehr - die gemeinsame
   // Mindestzahl weiter unten (n<2) ist genau diese Bedingung. Der Server verlangt
@@ -8535,7 +9167,7 @@ async function attemptRejoin(code){
     if(d.p&&seatActive(d.p,seat)){ setStatus(T('rejoinTab')); return false; }
     const oldRec=d.players&&d.players[seat];
     const claim=await reclaimSeatSlot(code,seat,op,oldRec&&typeof oldRec.name==='string'?sanitizeName(oldRec.name):'',
-      !(oldRec&&oldRec.uid));   // Seat ohne uid -> Legacy-Reclaim, keine Migration
+      !(oldRec&&oldRec.uid), v.mode===FB_ONLINE_MODE_TEAM2);   // Seat ohne uid -> Legacy-Reclaim, keine Migration
     if(claim.stale)return false;   // op superseded -> own presence already dropped again
     if(claim.lost){
       // Reclaim denied by the rules: another tab re-took the seat, the lobby
@@ -8550,6 +9182,7 @@ async function attemptRejoin(code){
     // room config: fmt is never normalized (triple_ffa/team_duel keep their
     // format, seats/teams/ball counts all derive from it).
     roomCode=code; myPlayer=seat; online=true; gen=v.gen; runningGen=-1; gameStarted=false;
+    fbRoomMode=v.mode||''; fbRoomCap=Number.isInteger(v.cap)?v.cap:0; roomHostUid=v.hostUid||'';
     seatLeft=[]; seatGone=[]; playersRoster=d.players||{};
     // Football: Modus UND Variante stehen, BEVOR irgendetwas np()/fbElim4() fragt.
     winTarget=v.winTarget; fmt=v.fmt; mode=rjFb?'football':ffa?'ffa':'online';
@@ -8946,7 +9579,7 @@ function attachRoomListeners(){
     maybeStart();
   });
 }
-function maybeStart(){ if(gameStarted)return; gameStarted=true; if(roomPublic&&myPlayer===0){removePublicListing(roomCode);roomPublic=false;} $('online').classList.remove('show'); showGame(); startOnlineGame(); toast(T('youAre')+' '+(fmt==='team_duel'?T(teamOf(myPlayer)===0?'teamBlue':'teamRed'):T('col'+colSlot4Name(myPlayer)))); }
+function maybeStart(){ if(gameStarted)return; gameStarted=true; if(roomPublic&&isHost()){removePublicListing(roomCode);roomPublic=false;} $('online').classList.remove('show'); showGame(); startOnlineGame(); toast(T('youAre')+' '+(fmt==='team_duel'?T(teamOf(myPlayer)===0?'teamBlue':'teamRed'):T('col'+colSlot4Name(myPlayer)))); }
 function startOnlineGame(){ replaying=false;repPlaying=false;$('replay').classList.remove('show'); runningGen=gen; turnNo=-1; if(turnUnsub){turnUnsub();turnUnsub=null;} $('ov').classList.remove('show'); newGame(); }
 // ════ B2 canonical match rehydration ════
 // Rebuilds a RUNNING match purely from the turn history under
@@ -9531,7 +10164,7 @@ function leaveOnline(after){
   // rejected. The whole-room cleanup only runs after that update settles (the
   // cleanup rule needs no seat present).
   try{ if(window.FB && roomCode){
-    const code=roomCode, wasPublic=roomPublic, wasHost=(myPlayer===0);   // snapshot before the globals below reset them
+    const code=roomCode, wasPublic=roomPublic, wasHost=isHost();   // snapshot before the globals below reset them
     const rootRef=window.FB.ref(window.FB.db,'rooms/'+code);
     // C4B: Im laufenden Football-Match hat fbCanonicalLeave den Sitz bereits samt
     // Eviction-Marker gegen die autoritative Generation zurueckgenommen - dann bleibt
@@ -9556,6 +10189,7 @@ function leaveOnline(after){
   fbLeaveRetired=false; fbLeaveBusy=false;   // C4B: der Auftrag ist abgeschlossen
   fbElimStartN=0;                            // die Startbesetzung gehoert dem verlassenen Raum
   online=false; gameStarted=false; roomPublic=false; roomCode=''; lobbyP={}; seatLeft=[]; seatGone=[]; playersRoster={};
+  fbRoomMode=''; fbRoomCap=0; roomHostUid='';   // v8: kein Raum -> keine Sollbesetzung, kein Host
   mode=menuMode; ffaN=ffaNMenu;   // Online-FFA stellt mode/ffaN um — Menue-Auswahl wiederherstellen
   if(typeof after==='function')after();
 }

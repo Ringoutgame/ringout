@@ -356,9 +356,17 @@ console.log('ARENA FOOTBALL — Produktsuite: Classic 1v1 (Standard) + Tactical 
      'kein zweiter Startpfad neben startFootball() (erhalten: ' + (HTML.match(/startFootball\(/g) || []).length + ')');
   const onlineHandler = grab(/\$\('fbOnlineBtn'\)\.onclick=\(\)=>\{[\s\S]*?\n\};/, 'fbOnlineBtn-Handler');
   ok(!/startFootball/.test(onlineHandler), 'ONLINE startet kein lokales Match');
-  ok(/mode='football'; fbVariant=FOOTBALL_VARIANT_ELIM; fmt=FB_ONLINE_FMT; fbElimStartN=0;/.test(onlineHandler),
-     'es setzt nur den Kontext - Raumtyp, Variante, freie Startbesetzung');
-  ok(/openOnline\(\);/.test(onlineHandler),
+  // Seit Protokoll v8 traegt der Onlineraum seinen MODUS und seine SOLLBESETZUNG. Der
+  // Einstieg setzt den Kontext deshalb nicht mehr selbst, sondern fuehrt zuerst in die
+  // Moduswahl; erst fbOnlineEnter() setzt ihn - an genau einer Stelle.
+  ok(/fbOnModeShow\(\);/.test(onlineHandler),
+     'es fuehrt in die Online-Moduswahl statt sofort in den Raumschirm');
+  ok(!/openOnline\(\);/.test(onlineHandler),
+     'und uebergibt erst nach der Wahl - der Bildschirm selbst ist derselbe wie bisher');
+  const enterSrc = grab(/function fbOnlineEnter\(\)\{[\s\S]*?\n\}/, 'fbOnlineEnter');
+  ok(/mode='football'; fbVariant=FOOTBALL_VARIANT_ELIM; fmt=FB_ONLINE_FMT; fbElimStartN=0;/.test(enterSrc),
+     'fbOnlineEnter setzt den Kontext - Raumtyp, Variante, freie Startbesetzung');
+  ok(/openOnline\(\);/.test(enterSrc),
      'und uebergibt an den BESTEHENDEN Onlinebildschirm - kein zweiter Ablauf');
   ok(/\$\('fbModeOv'\)\.classList\.remove\('show'\);/.test(onlineHandler),
      'die Modusauswahl schliesst sich dabei');
@@ -404,12 +412,20 @@ console.log('ARENA FOOTBALL — Produktsuite: Classic 1v1 (Standard) + Tactical 
   //    Zahl ist bewusst gepinnt - eine sechste waere eine neue Tuer in den Modus und
   //    muss auffallen:
   //      1. startFootball        - der lokale Produktweg, pinnt online=false
-  //      2. fbOnlineBtn          - der oeffentliche Onlineeinstieg aus der Modusauswahl
-  //      3. der Dev-Einstieg     - derselbe Kontext, nur ohne den Umweg ueber die Auswahl
-  //      4. joinRoom             - Beitritt zu einem bestehenden Football-Raum
-  //      5. attemptRejoin        - Rueckkehr auf den eigenen Sitz
+  //      2. fbOnlineEnter        - der EINE Onlineeinstieg hinter der Moduswahl. Beide
+  //                                Tueren (Produkt und Dev) fuehren hierher; frueher stand
+  //                                derselbe Satz zweimal im Quelltext.
+  //      3. joinRoom             - Beitritt zu einem bestehenden Football-Raum
+  //      4. attemptRejoin        - Rueckkehr auf den eigenen Sitz
+  //      5. __fbDev.lobby2       - die Dev-Sonde, die die Team-2v2-Lobby am ECHTEN
+  //                                Produkt zeichnet. Sie ist KEINE Tuer in den Modus:
+  //                                sie haengt am DEV_MENU-Gatter und existiert im
+  //                                Produkt nicht. Sie steht hier, damit eine SECHSTE
+  //                                Stelle weiterhin auffaellt.
   const fbAssignments = (HTML.match(/mode=menuMode='football'|mode='football'/g) || []).length;
   ok(fbAssignments === 5, 'mode="football" wird an genau fuenf Stellen gesetzt (erhalten: ' + fbAssignments + ')');
+  ok(/lobby2:\(belegt,ich,sitze,ohneNamen\)=>/.test(HTML) && /if\(typeof DEV_MENU!=='undefined'&&DEV_MENU\)window\.__fbDev=\{/.test(HTML),
+     'und die fuenfte ist die DEV_MENU-gebundene Lobbysonde, keine Produkttuer');
   // Der DEV-Einstieg bleibt vollstaendig erhalten und bleibt an ?dev=1 gebunden.
   ok(/\$\('devFbOnlineBtn'\)\.onclick=\(\)=>\{\s*if\(!DEV_MENU\)return;/.test(HTML),
      'der Dev-Einstieg ist im Handler selbst weiterhin an ?dev=1 gebunden');
@@ -418,9 +434,12 @@ console.log('ARENA FOOTBALL — Produktsuite: Classic 1v1 (Standard) + Tactical 
   // Und beide Einstiege setzen WOERTLICH denselben Kontext - es gibt keinen zweiten Weg.
   const devHandler = grab(/\$\('devFbOnlineBtn'\)\.onclick=\(\)=>\{[\s\S]*?\n\};/, 'devFbOnlineBtn-Handler');
   const KONTEXT = "mode='football'; fbVariant=FOOTBALL_VARIANT_ELIM; fmt=FB_ONLINE_FMT; fbElimStartN=0;";
-  ok(devHandler.includes(KONTEXT) && onlineHandler.includes(KONTEXT),
-     'Produktweg und Dev-Einstieg setzen denselben Kontext');
-  ok(/openOnline\(\);/.test(devHandler), 'und beide rufen denselben Onlinebildschirm');
+  ok(devHandler.includes('fbOnModeShow();') && onlineHandler.includes('fbOnModeShow();'),
+     'Produktweg und Dev-Einstieg fuehren in dieselbe Moduswahl');
+  ok(!devHandler.includes(KONTEXT) && !onlineHandler.includes(KONTEXT),
+     'und keiner von beiden setzt den Kontext selbst - das tut nur fbOnlineEnter');
+  ok((HTML.match(new RegExp(KONTEXT.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')) || []).length === 1,
+     'der Onlinekontext steht damit an genau EINER Stelle im Quelltext');
   // Die sichtbare Auswahl fuehrt jetzt selbst dorthin - ohne Entwicklerbegriffe.
   ok(!/devFbOnlineBtn|DEV|\?dev=1/.test(fbModalSrc),
      'die Modusauswahl nennt keinen Entwicklerbegriff');
@@ -438,12 +457,18 @@ console.log('ARENA FOOTBALL — Produktsuite: Classic 1v1 (Standard) + Tactical 
   // Der Raum fasst fuenf, gestartet wird ab zwei. Ein Kopf, der "5" verspricht, waere
   // eine Falschauskunft an genau der Stelle, an der der Spieler entscheidet.
   const titelSrc = grab(/function setOnTitle\(ffa\)\{[\s\S]*?\n\}/, 'setOnTitle');
-  ok(/\$\('onTitleMode'\)\.textContent=fbo\?'ARENA FOOTBALL'/.test(titelSrc),
-     'der Onlinebildschirm nennt Arena Football beim Namen');
-  ok(/\$\('onBadgeN'\)\.textContent=fbo\?'2–5'/.test(titelSrc),
-     'und zeigt die Spielerzahl als 2–5, nicht als feste 5');
-  ok(/\$\('onCtxt'\)\.textContent=fbo\?T\('onSubFb'\)/.test(titelSrc),
+  // v8: der Kopf nennt den gewaehlten MODUS und die genaue Sollbesetzung. Das pauschale
+  // "2-5" war richtig, solange der Raum nahm, wer kam - jetzt verlangt er eine Zahl.
+  ok(/\$\('onTitleMode'\)\.textContent=fbo\?\(md\?T\(md\.key\):'ARENA FOOTBALL'\)/.test(titelSrc),
+     'der Onlinebildschirm nennt den gewaehlten Modus beim Namen');
+  ok(/\$\('onBadgeN'\)\.textContent=fbo\?String\(fbLobbyCap\(\)\)/.test(titelSrc),
+     'und zeigt die genaue Sollbesetzung statt einer Spanne');
+  // v8: auch der Untertitel folgt dem MODUS - und kommt weiterhin aus der Sprachtabelle.
+  ok(/\$\('onCtxt'\)\.textContent=fbo\?\(md\?T\(md\.key\+'S'\):T\('onSubFb'\)\)/.test(titelSrc),
      'der Untertitel kommt aus der Sprachtabelle - dreisprachig wie alles andere');
+  for (const m of ['Classic', 'Speed', 'Team2', 'Lives', 'Timed'])
+    ok((HTML.match(new RegExp('onMode' + m + "S:'", 'g')) || []).length === 3,
+       'der Kurztext von onMode' + m + ' steht in genau drei Sprachtabellen');
   ok(!/Elimination · 5 Spieler/.test(HTML),
      'der fest verdrahtete Fuenf-Spieler-Text ist verschwunden');
 

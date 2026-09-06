@@ -851,14 +851,21 @@ for (const start of [5, 4, 3]) {
   ok(/fbElimRules=\(fbElimSetupRules===FOOTBALL_ELIM_RULES_TIMED\)\?FOOTBALL_ELIM_RULES_TIMED:FOOTBALL_ELIM_RULES_LIVES;/.test(startSrc),
      'und die Elimination uebernimmt sie aus der Einrichtung — an genau einer Stelle');
   // Nur ZUWEISUNGEN zaehlen - fbElimRules=== in fbTimed() ist ein Vergleich.
-  // Fuenf Stellen: Deklaration, zwei Zweige in startFootball, und die beiden
-  // Onlineeinstiege. Die letzten beiden sind das Ergebnis des unabhaengigen Reviews:
-  // sie laufen NICHT ueber startFootball und haetten die Regel sonst stehen lassen.
+  // VIER Stellen: Deklaration, zwei Zweige in startFootball, und fbOnlineEnter. Der
+  // Onlineeinstieg steht seit v8 nur noch EINMAL im Quelltext - beide Tueren fuehren
+  // durch dieselbe Funktion, und genau dort wird die Regel gesetzt.
   const setzt = (HTML.match(/fbElimRules=[^=]/g) || []).length;
-  ok(setzt === 5, 'fbElimRules wird an genau fuenf Stellen gesetzt (' + setzt + ')');
-  const onlineStellen = (HTML.match(/fbElimRules=FOOTBALL_ELIM_RULES_LIVES;   \/\/ online/g) || []).length;
-  ok(onlineStellen === 2,
-     'beide Onlineeinstiege setzen ausdruecklich auf die Lebensregel zurueck (' + onlineStellen + ')');
+  ok(setzt === 4, 'fbElimRules wird an genau vier Stellen gesetzt (' + setzt + ')');
+  // Und der Onlineeinstieg setzt sie ausdruecklich - nicht als Rest aus einem vorigen
+  // lokalen Match. Seit v8 haengt sie am gewaehlten Onlinemodus: timedffa fuehrt zur
+  // Zeitregel, alles andere zur Lebensregel.
+  const enterSrc = grab(/function fbOnlineEnter\(\)\{[\s\S]*?\n\}/, 'fbOnlineEnter');
+  ok(/fbElimRules=\(fbOnlineMode===FB_ONLINE_MODE_TIMED\)\?FOOTBALL_ELIM_RULES_TIMED:FOOTBALL_ELIM_RULES_LIVES;/.test(enterSrc),
+     'der Onlineeinstieg setzt die Regel ausdruecklich aus dem gewaehlten Modus');
+  // Der Onlinemodus timedffa ist angelegt, aber noch nicht freigegeben - sein
+  // Onlinespiel braucht die v9-Vertraulichkeit.
+  ok(/timedffa:\{caps:\[3,4,5\], released:false,/.test(HTML),
+     'timedffa hat Raum und Lobby, ist online aber nicht freigegeben');
 }
 function FFA_LIVES() { return 'lives'; }
 
@@ -882,7 +889,7 @@ function FFA_LIVES() { return 'lives'; }
 // ══ N. Classic, Tactical und Online bleiben unberuehrt ══════════════════════
 {
   ok(/const FOOTBALL_FMTS=\['elimination'\];/.test(HTML), 'FOOTBALL_FMTS unveraendert');
-  ok(/const ONLINE_PROTOCOL_VERSION=7;/.test(HTML), 'Protokollversion unveraendert');
+  ok(/const ONLINE_PROTOCOL_VERSION=8;/.test(HTML), 'Protokollversion ist v8 (Modus/Sollbesetzung; Zugpfad unveraendert)');
   const ffaBlock = grab(/const FOOTBALL_ELIM_RULES_LIVES='lives';[\s\S]*?\nfunction fbFfaResolve\(imTor\)\{[\s\S]*?\n\}/, 'Timed-FFA-Block');
   // Kommentare zaehlen nicht: der Block ERWAEHNT online, um zu sagen, dass es dort diese
   // Regel nicht gibt. Geprueft wird der Code.

@@ -498,7 +498,7 @@ const SHOT = 6 * 60;
 
 // ══ W. ONLINE, PROTOKOLL UND RULES UNBERUEHRT ════════════════════════════════
 {
-  ok(/const ONLINE_PROTOCOL_VERSION=7;/.test(HTML), 'Protokollversion unveraendert');
+  ok(/const ONLINE_PROTOCOL_VERSION=8;/.test(HTML), 'Protokollversion ist v8 (Modus/Sollbesetzung; Zugpfad unveraendert)');
   ok(/const FOOTBALL_FMTS=\['elimination'\];/.test(HTML), 'FOOTBALL_FMTS unveraendert');
   const src = grab(/const FOOTBALL_VARIANT_TEAM2='team2v2';[\s\S]*?const FOOTBALL_TEAM2V2_NAMES=\[[^\]]*\];/, 'Team-2v2-Block');
   const code = src.split('\n').filter(z => !/^\s*\/\//.test(z)).join('\n');
@@ -508,11 +508,17 @@ const SHOT = 6 * 60;
   // Elimination, und fbTeam2 verlangt genau die Team-2v2-Variante.
   ok(/function fbTeam2\(\)\{return mode==='football'&&fbVariant===FOOTBALL_VARIANT_TEAM2;\}/.test(HTML),
      'fbTeam2 verlangt ausdruecklich die Team-2v2-Variante');
-  // Alle VIER Onlineeinstiege (Erstellen, Beitreten, Deep Link, Rejoin) setzen die
-  // Variante ausdruecklich auf Elimination - keiner von ihnen kann in True Team 2v2
-  // landen, weder absichtlich noch als Rest aus einem vorigen lokalen Match.
-  ok((HTML.match(/fbVariant=FOOTBALL_VARIANT_ELIM/g) || []).length === 4,
-     'die vier Onlineeinstiege setzen die Variante ausdruecklich auf Elimination');
+  // Alle DREI Onlineeinstiege (fbOnlineEnter hinter der Moduswahl, Beitreten, Rejoin)
+  // setzen die Variante ausdruecklich auf Elimination - keiner von ihnen kann in True
+  // Team 2v2 landen, weder absichtlich noch als Rest aus einem vorigen lokalen Match.
+  // Vorher waren es vier: Produkt- und Dev-Tuer trugen denselben Satz doppelt.
+  ok((HTML.match(/fbVariant=FOOTBALL_VARIANT_ELIM/g) || []).length === 3,
+     'die drei Onlineeinstiege setzen die Variante ausdruecklich auf Elimination');
+  // Der Onlinemodus team2v2 EXISTIERT im Register, ist aber nicht freigegeben: er hat
+  // Raum und Lobby, sein Onlinespiel kommt erst mit v9. Bis dahin ist er ausschliesslich
+  // ueber das Dev-Menue erreichbar.
+  ok(/team2v2: \{caps:\[4\],     released:false,/.test(HTML),
+     'der Onlinemodus team2v2 ist angelegt, aber ausdruecklich nicht freigegeben');
   // Und die neue Variante taucht ausschliesslich lokal auf: Deklaration, Weiche,
   // startFootball-Clamp, Menueknopf, Dev-Direktlink und die fbVariant-Vorbelegung.
   ok((HTML.match(/FOOTBALL_VARIANT_TEAM2/g) || []).length === 6,

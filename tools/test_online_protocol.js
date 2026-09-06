@@ -41,7 +41,7 @@ const P = new Function(`
     MOVE: TURN_MOVE, SKIP: TURN_SKIP, REMOVE: TURN_REMOVE,
     roomGame, roomIsFootball, validGamePair, roomSeatCap,
     fbTurnMove, fbTurnSkip, fbTurnRemove, validateTurnRecord,
-    validateRoom, validateRejoinRoom, publicListingView
+    validateRoom, validateRejoinRoom, publicListingView, validModeCap, modeReachable
   };
 `)();
 
@@ -66,19 +66,22 @@ console.log('ONLINE-PROTOKOLL v' + P.VER + ' — Schema und kanonische Zugereign
 //     im Umlauf war und ein Raum aus dem Zwischenstand nie fuer den heutigen gelten darf.
 // Zwei Clients mit unterschiedlichem Stand rechnen ab dem ersten schnellen Ball
 // auseinander und duerfen sich nie einen Raum teilen.
-t('die Protokollversion ist 7', P.VER === 7, P.VER);
+// v8 traegt MODUS und SOLLBESETZUNG. Die Zugkodierung ist bytegleich zu v7 - erst v9
+// aendert sie (Frist, Hash-Commit/Reveal). Zwei Stufen, weil eine Nummer nie zwei
+// Zugbauformen bedeuten darf.
+t('die Protokollversion ist 8', P.VER === 8, P.VER);
 const RULES = require('fs').readFileSync(
   require('path').join(__dirname, '..', 'firebase.rules.json'), 'utf8');
 // WAEHREND DER UMSTELLUNG akzeptiert der Server beide Versionen — sonst waere jeder noch
 // offene v4-Raum sofort tot, obwohl die alten Clients dort legitim weiterspielen. Die
 // TRENNUNG leistet der Client, nicht der Server (die drei Raumpruefungen unten).
-t('die Rules lassen waehrend der Umstellung v4, v5, v6 UND v7 zu',
-  /\(newData\.val\(\) === 4 \|\| newData\.val\(\) === 5 \|\| newData\.val\(\) === 6 \|\| newData\.val\(\) === 7\)/.test(RULES));
+t('die Rules lassen waehrend der Umstellung v4 bis v8 zu',
+  /\(newData\.val\(\) === 4 \|\| newData\.val\(\) === 5 \|\| newData\.val\(\) === 6 \|\| newData\.val\(\) === 7 \|\| newData\.val\(\) === 8\)/.test(RULES));
 const V_REGEL = (RULES.match(/"v": \{[^}]*\}/) || [''])[0];
 t('und keine andere Protokollversion — geprueft am v-Validator selbst',
   /=== 4/.test(V_REGEL) && /=== 5/.test(V_REGEL) && /=== 6/.test(V_REGEL) &&
-  /=== 7/.test(V_REGEL) &&
-  !/=== 3|=== 8|=== 2|=== 1/.test(V_REGEL), V_REGEL);
+  /=== 7/.test(V_REGEL) && /=== 8/.test(V_REGEL) &&
+  !/=== 3|=== 9|=== 2|=== 1/.test(V_REGEL), V_REGEL);
 // Die Protokollnummer eines bestehenden Raums ist unveraenderlich — ein v4-Raum kann
 // nicht zu einem v5-Raum umgeschrieben werden und umgekehrt.
 // Der Zugslot ist die Schreibstelle, die den Lockstep-Strom traegt. Er war bisher als
@@ -86,7 +89,7 @@ t('und keine andere Protokollversion — geprueft am v-Validator selbst',
 // auch er den Riegel: ein Bug im Client kann damit keinen fremdversionigen Raum mehr
 // mit Zuegen beschreiben.
 t('auch der Zugslot ist versionsgebunden',
-  /\.child\('v'\)\.val\(\) === 4 \|\| root\.child\('rooms'\)\.child\(\$code\)\.child\('v'\)\.val\(\) === 5 \|\| root\.child\('rooms'\)\.child\(\$code\)\.child\('v'\)\.val\(\) === 6 \|\| root\.child\('rooms'\)\.child\(\$code\)\.child\('v'\)\.val\(\) === 7\) && \(\(!root/.test(RULES));
+  /\.child\('v'\)\.val\(\) === 4 \|\| root\.child\('rooms'\)\.child\(\$code\)\.child\('v'\)\.val\(\) === 5 \|\| root\.child\('rooms'\)\.child\(\$code\)\.child\('v'\)\.val\(\) === 6 \|\| root\.child\('rooms'\)\.child\(\$code\)\.child\('v'\)\.val\(\) === 7 \|\| root\.child\('rooms'\)\.child\(\$code\)\.child\('v'\)\.val\(\) === 8\) && \(\(!root/.test(RULES));
 t('die Rules machen die Raumversion unveraenderlich',
   /\(!data\.exists\(\) \|\| newData\.val\(\) === data\.val\(\)\)/.test(RULES));
 // Jede Raumpruefung des Clients vergleicht strikt gegen die eigene Version — es gibt
@@ -180,14 +183,26 @@ t('leere und fremde Werte werden abgelehnt',
 
 // ── (6) Raumvalidierung ─────────────────────────────────────────────────────────
 const P_ON = { s: 'HOSTTAB0', on: true, t: 1 };
+// v8: jeder Raum traegt eine ausdrueckliche HOSTKENNUNG. Sie ist nicht mehr aus dem Sitz
+// ableitbar - genau das erlaubt einem Team-2v2-Ersteller, Rot zu waehlen und trotzdem
+// Host zu bleiben.
 const room = (over) => Object.assign({
-  v: P.VER, config: { game: 'ringout', winTarget: 3, fmt: 'single', visibility: 'private' },
+  v: P.VER, hostUid: 'UID_HOST_FIXTURE',
+  config: { game: 'ringout', winTarget: 3, fmt: 'single', visibility: 'private' },
   gen: 0, state: 'lobby', p: { 0: P_ON }, players: { 0: { id: 'HOST0000', name: 'H', tab: 'HOSTTAB0' } },
   created: 1,
 }, over);
+// v8: ein Football-Raum traegt Modus UND Sollbesetzung. Beides ist Pflicht - ein Raum
+// ohne sie faellt ausdruecklich nicht auf die alte Herleitung zurueck.
 const fbRoom = (over) => room(Object.assign({
-  config: { game: 'football', winTarget: 3, fmt: 'elimination', visibility: 'private' },
+  config: { game: 'football', winTarget: 3, fmt: 'elimination', visibility: 'private',
+            mode: 'lives', cap: 5 },
 }, over));
+// Football-Raum mit frei waehlbarem Modus und frei waehlbarer Sollbesetzung.
+const fbCfg = (mode, cap, over) => room(Object.assign({
+  config: { game: 'football', winTarget: 3, fmt: 'elimination', visibility: 'private',
+            mode: mode, cap: cap },
+}, over || {}));
 
 t('gueltiger RingOut-v4-Raum wird angenommen', P.validateRoom(room({})).ok === true);
 t('gueltiger Football-v4-Raum wird angenommen (Schema, nicht Produktweg)',
@@ -203,9 +218,59 @@ t('ein v3-Raum wird abgelehnt', P.validateRoom(room({ v: 3 })).ok === false);
 t('ein v4-Raum wird abgelehnt — kein gemischter Lockstep',
   P.validateRoom(room({ v: 4 })).ok === false);
 t('ein v5-Raum wird ebenso abgelehnt', P.validateRoom(room({ v: 5 })).ok === false);
-t('ein v8-Raum wird abgelehnt', P.validateRoom(room({ v: 8 })).ok === false);
-t('und ein v6-Raum ebenso — die verbrannte Nummer teilt sich keinen Raum mit v7',
+t('ein v7-Raum wird abgelehnt — der Altbestand kennt weder Modus noch Sollbesetzung',
+  P.validateRoom(room({ v: 7 })).ok === false);
+t('ein v9-Raum wird abgelehnt — dort aendert sich die Zugbauform',
+  P.validateRoom(room({ v: 9 })).ok === false);
+t('und ein v6-Raum ebenso — die verbrannte Nummer teilt sich keinen Raum mit v8',
   P.validateRoom(room({ v: 6 })).ok === false);
+
+// ══ v8: MODUS UND SOLLBESETZUNG SIND PFLICHT ═════════════════════════════════
+// Der Client prueft dieselbe Paarung wie die Rules. Ein Raum, dem eines von beiden
+// fehlt oder dessen Paarung nicht stimmt, ist ungueltig - nicht "irgendwie noch v7".
+// Die PAARUNG selbst - unabhaengig davon, ob der Modus schon freigegeben ist.
+for (const [mode, cap] of [['classic', 2], ['speed', 2], ['team2v2', 4],
+                           ['lives', 3], ['lives', 4], ['lives', 5],
+                           ['timedffa', 3], ['timedffa', 4], ['timedffa', 5]])
+  t('v8: ' + mode + ' mit ' + cap + ' Sitzen ist eine gueltige Paarung',
+    P.validModeCap({ game: 'football', mode: mode, cap: cap }) === true);
+// Und der BEITRITT: die Lebensregel ist heute der einzige freigegebene Onlinemodus.
+// Ohne DEV_MENU - die Sandbox dieser Suite hat keines - ist alles andere gesperrt.
+for (const cap of [3, 4, 5])
+  t('v8: ein Lives-Raum mit ' + cap + ' Sitzen laesst sich betreten',
+    P.validateRoom(fbCfg('lives', cap)).ok === true);
+// Das FREIGABETOR gilt fuer jeden Weg in einen Raum, nicht nur fuer die Auswahl:
+// ein geteilter Raumcode waere sonst die Hintertuer in einen unfertigen Modus.
+for (const [mode, cap] of [['classic', 2], ['speed', 2], ['team2v2', 4], ['timedffa', 5]]) {
+  const r = P.validateRoom(fbCfg(mode, cap));
+  t('v8: ' + mode + ' ist per Raumcode nicht betretbar', r.ok === false);
+  t('v8: und die Ablehnung nennt die fehlende Freigabe',
+    /nicht freigegeben/.test(r.reason || ''), r.reason);
+  t('v8: auch die Rueckkehr wird abgewiesen',
+    P.validateRejoinRoom(fbCfg(mode, cap, { state: 'playing', seats: cap })).ok === false);
+}
+t('modeReachable laesst RingOut-Raeume unberuehrt',
+  P.modeReachable({ game: 'ringout', fmt: 'single' }) === true && P.modeReachable(null) === true);
+for (const [mode, cap] of [['classic', 4], ['speed', 5], ['team2v2', 3],
+                           ['lives', 2], ['timedffa', 6], ['lives', 0],
+                           ['team2v2', 5], ['classic', 3], ['timedffa', 2]]) {
+  t('v8: ' + mode + ' mit ' + cap + ' Sitzen ist keine gueltige Paarung',
+    P.validModeCap({ game: 'football', mode: mode, cap: cap }) === false);
+  t('v8: und ein solcher Raum wird abgelehnt', P.validateRoom(fbCfg(mode, cap)).ok === false);
+}
+t('v8: unbekannter Modus wird abgelehnt', P.validateRoom(fbCfg('elimination', 5)).ok === false);
+t('v8: fehlender Modus wird abgelehnt', P.validateRoom(fbCfg(undefined, 5)).ok === false);
+t('v8: fehlende Sollbesetzung wird abgelehnt', P.validateRoom(fbCfg('lives', undefined)).ok === false);
+t('v8: eine Sollbesetzung als Text wird abgelehnt', P.validateRoom(fbCfg('lives', '5')).ok === false);
+// Die Sollbesetzung ist die Kapazitaet des Raums - sie bestimmt den freien Sitz.
+t('v8: der freie Sitz liegt unterhalb der Sollbesetzung',
+  P.validateRoom(fbCfg('lives', 3)).freeSeat === 1);
+t('v8: ein voller Drei-Spieler-Raum hat keinen freien Sitz',
+  P.validateRoom(fbCfg('lives', 3, { p: { 0: { s: 'a', on: true, t: 1 }, 1: { s: 'b', on: true, t: 1 },
+    2: { s: 'c', on: true, t: 1 } } })).ok === false);
+t('v8: die Pruefung gibt die Sollbesetzung zurueck',
+  P.validateRoom(fbCfg('lives', 3)).cap === 3 && P.validateRoom(fbCfg('lives', 5)).cap === 5);
+t('v8: und den Modus', P.validateRoom(fbCfg('lives', 5)).mode === 'lives');
 t('ein Raum ohne Typ wird abgelehnt',
   P.validateRoom(room({ config: { winTarget: 3, fmt: 'single', visibility: 'private' } })).ok === false);
 t('Football mit RingOut-Format wird abgelehnt',
@@ -226,10 +291,16 @@ t('Rejoin: laufender Football-Raum OHNE Startsignal wird abgelehnt',
   P.validateRejoinRoom(fbRoom({ state: 'playing' })).ok === false);
 // Ein Football-Match startet mit zwei bis fuenf Teilnehmern; die Zahl steht im
 // Startsignal und ist damit auch fuer den Rueckkehrer eindeutig.
-t('Rejoin: laufender Football-Raum mit zwei bis fuenf Sitzen wird angenommen',
-  [2, 3, 4, 5].every(n => P.validateRejoinRoom(fbRoom({ state: 'playing', seats: n })).ok === true));
+// v8: das Startsignal MUSS die Sollbesetzung des Raums treffen. Ein laufendes Match
+// mit abweichender Besetzung ist kein Raum, in den man zurueckkehren kann.
+t('Rejoin: laufender Football-Raum mit drei bis fuenf Sitzen wird angenommen',
+  [3, 4, 5].every(n => P.validateRejoinRoom(fbCfg('lives', n, { state: 'playing', seats: n })).ok === true));
 t('Rejoin: die gemeldete Sitzzahl ist die des Startsignals',
-  [2, 3, 4, 5].every(n => P.validateRejoinRoom(fbRoom({ state: 'playing', seats: n })).seats === n));
+  [3, 4, 5].every(n => P.validateRejoinRoom(fbCfg('lives', n, { state: 'playing', seats: n })).seats === n));
+t('Rejoin: ein Startsignal unterhalb der Sollbesetzung wird abgelehnt',
+  P.validateRejoinRoom(fbCfg('lives', 5, { state: 'playing', seats: 4 })).ok === false);
+t('Rejoin: ein Startsignal oberhalb der Sollbesetzung ebenso',
+  P.validateRejoinRoom(fbCfg('lives', 3, { state: 'playing', seats: 4 })).ok === false);
 t('Rejoin: ein Football-Raum mit nur einem Sitz wird abgelehnt',
   P.validateRejoinRoom(fbRoom({ state: 'playing', seats: 1 })).ok === false);
 t('Rejoin: mehr Sitze als der Raum fasst wird abgelehnt',
@@ -257,13 +328,23 @@ t('Beitritt: die Ablehnung nennt die Versionsunvertraeglichkeit',
 {
   const fs = require('fs');
   const rules = fs.readFileSync(require('path').join(__dirname, '..', 'firebase.rules.json'), 'utf8');
-  for (const forbidden of ['fbElimLives', 'fbElimActive', 'lives', 'phase', 'morph', 'arena'])
+  // 'lives' steht seit v8 als MODUSNAME in den Rules - unveraenderliche Raumkonfiguration,
+  // vor dem Match gewaehlt. Das ist kein Spielzustand: Leben, Phase und Arena entstehen
+  // weiterhin ausschliesslich aus der Zughistorie und werden nie geschrieben.
+  for (const forbidden of ['fbElimLives', 'fbElimActive', 'phase', 'morph', 'arena'])
     t('das Netzschema serialisiert kein "' + forbidden + '"', rules.indexOf(forbidden) < 0);
+  t('"lives" kommt nur als Modusname vor, nicht als Zustandsfeld',
+    /=== 'lives'/.test(rules) && rules.indexOf('fbElimLives') < 0);
   // Der Raum kennt genau diese Aeste - Spielzustand entsteht ausschliesslich aus der Historie.
   const room$ = JSON.parse(rules).rules.rooms.$code;
   const keys = Object.keys(room$).filter(k => !k.startsWith('.') && k !== '$other').sort();
+  // hostUid kommt mit v8 dazu: eine IDENTITAET, kein Spielzustand. Sie sagt, wer den
+  // Lebenszyklus fuehrt - unabhaengig davon, auf welchem Sitz dieser Mensch spielt.
   t('der Raum traegt nur Version, Identitaet, Praesenz, Konfiguration, Historie und Eviction',
-    JSON.stringify(keys) === JSON.stringify(['config', 'created', 'g', 'gen', 'p', 'players', 'seats', 'state', 'v']), keys);
+    JSON.stringify(keys) === JSON.stringify(['config', 'created', 'g', 'gen', 'hostUid', 'p', 'players', 'seats', 'state', 'v']), keys);
+  t('und die Hostkennung ist an die Anlage gebunden, nicht beschreibbar',
+    room$.hostUid['.validate'].indexOf("newData.val() === auth.uid") >= 0
+    && room$.hostUid['.write'] === undefined, Object.keys(room$.hostUid));
   const g$ = JSON.parse(rules).rules.rooms.$code.g.$gen;
   t('eine Generation traegt nur Zughistorie und Eviction',
     JSON.stringify(Object.keys(g$).sort()) === JSON.stringify(['e', 't']), Object.keys(g$));
@@ -311,11 +392,22 @@ t('Beitritt: die Ablehnung nennt die Versionsunvertraeglichkeit',
     src.indexOf("const rjFb=roomIsFootball(d.config);") >= 0);
   // ZWEI Einstiege, EIN Kontext, EIN Bildschirm. Der Dev-Einstieg bleibt vollstaendig
   // erhalten und bleibt an ?dev=1 gebunden.
+  // Seit v8 fuehren BEIDE Einstiege in dieselbe Modusauswahl, und der Kontext wird an
+  // GENAU EINER Stelle gesetzt (fbOnlineEnter). Das ist strenger als vorher: frueher
+  // stand derselbe Satz zweimal im Quelltext und konnte auseinanderlaufen.
   const KONTEXT = "mode='football'; fbVariant=FOOTBALL_VARIANT_ELIM; fmt=FB_ONLINE_FMT; fbElimStartN=0;";
-  t('beide Einstiege setzen woertlich denselben Kontext',
-    (src.match(new RegExp(KONTEXT.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')) || []).length === 2);
-  t('und beide rufen denselben Onlinebildschirm',
-    (src.match(/openOnline\(\);/g) || []).length >= 2);
+  t('der Onlinekontext wird an genau EINER Stelle gesetzt',
+    (src.match(new RegExp(KONTEXT.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')) || []).length === 1);
+  // Beide Einstiegs-Handler fuehren in die Modusauswahl. Geprueft wird JEDER Handler
+  // einzeln, nicht die Gesamtzahl der Aufrufe - der Zurueck-Weg aus der Spielerzahl
+  // ruft dieselbe Funktion und darf die Zusicherung nicht verwaessern.
+  const handler = (id) => (src.match(new RegExp("\\$\\('" + id + "'\\)\\.onclick=\\(\\)=>\\{[\\s\\S]*?\\n\\};")) || [''])[0];
+  t('der Produkteinstieg fuehrt in die Modusauswahl',
+    handler('fbOnlineBtn').indexOf('fbOnModeShow();') >= 0);
+  t('und der Dev-Einstieg in dieselbe',
+    handler('devFbOnlineBtn').indexOf('fbOnModeShow();') >= 0);
+  t('die Modusauswahl uebergibt an den bestehenden Onlinebildschirm',
+    /function fbOnlineEnter\(\)\{[\s\S]*?openOnline\(\);/.test(src));
   t('der Dev-Einstieg prueft ?dev=1 weiterhin selbst',
     /\$\('devFbOnlineBtn'\)\.onclick=\(\)=>\{\s*if\(!DEV_MENU\)return;/.test(src));
   t('und das Dev-Panel wird ohne ?dev=1 weiterhin nicht eingeblendet',

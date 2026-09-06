@@ -105,6 +105,13 @@ function tryWrite(db, path, value, uid, alsoWrites) {
 const V = Number(require('fs')
   .readFileSync(require('path').join(__dirname, '..', 'index.html'), 'utf8')
   .split('const ONLINE_PROTOCOL_VERSION=')[1].split(';')[0]);
+// v8 verlangt eine Hostkennung, die der uid des Erstellers entspricht. In den Fixtures
+// ist das der Rosterkopf; wo ein Test den Host bewusst woanders sitzen laesst, setzt er
+// hostUid ausdruecklich selbst.
+const mitHost = (r) => { if (r && r.v === 8 && r.hostUid === undefined) {
+    const k = r.players && (r.players[0] || r.players[2]);
+    if (k && k.uid) r.hostUid = k.uid; } return r; };
+
 // Waehrend der Umstellung laufen DREI Vorgaengerversionen weiter: v4, v5 und die
 // verbrannte v6 (Action Core 05, im Spieltest abgelehnt — die Nummer bleibt vergeben,
 // damit ein noch offener v6-Raum nicht faelschlich fuer den heutigen Stand gehalten
@@ -134,17 +141,26 @@ const FB_ATTACK = (() => {
     p[i] = { s: 'FBTAB00' + i, on: i !== 3, t: i === 3 ? NOW - GRACE - 1 : NOW };
     players[i] = { id: 'FBPID00' + i, name: 'P' + i, tab: 'FBTAB00' + i, uid: FB_UID[i] };
   }
-  return { v: V, config: { game: 'football', winTarget: 3, fmt: 'elimination', visibility: 'private' },
-           gen: 0, state: 'playing', seats: 5, p, players, created: NOW - 5000 };
+  return mitHost({ v: V, config: { game: 'football', winTarget: 3, fmt: 'elimination', visibility: 'private', mode: 'lives', cap: 5 },
+           gen: 0, state: 'playing', seats: 5, p, players, created: NOW - 5000 });
 })();
 // Presence object. t must equal `now` on any real write; fixtures may pre-seed
 // an older t to model a seat that has been offline for a while.
 const P = (s, on, t) => ({ s, on: !!on, t: (t === undefined ? NOW : t) });
 // Unified room-state: EVERY mode is created with state:'lobby' and an OFFLINE
 // host presence (p/0.on === false) — the host ACTIVATEs right after create.
-const mkRoom = (fmt, over = {}) => Object.assign(
-  { v: V, config: { game: 'ringout', winTarget: 3, fmt, visibility: 'private' }, gen: 0, state: 'lobby', p: { 0: P(H_TAB, false) }, players: { 0: HOST }, created: NOW },
-  over);
+// v8: der Raum traegt eine ausdrueckliche HOSTKENNUNG. Sie ist bei der Anlage an
+// auth.uid gebunden und danach unveraenderlich - der Host ist damit nicht mehr
+// "wer auf Sitz 0 sitzt". Aeltere Versionen tragen sie NICHT (und duerfen es nicht).
+const mkRoom = (fmt, over = {}) => {
+  const r = Object.assign(
+    { v: V, config: { game: 'ringout', winTarget: 3, fmt, visibility: 'private' }, gen: 0, state: 'lobby', p: { 0: P(H_TAB, false) }, players: { 0: HOST }, created: NOW },
+    over);
+  if (r.v === 8 && r.hostUid === undefined)
+    r.hostUid = (r.players && r.players[0] && r.players[0].uid) || UID_GUEST;
+  if (r.v !== 8) delete r.hostUid;
+  return r;
+};
 const db1 = (roomOver = {}, fmt = 'single') => ({ rooms: { KX7P: mkRoom(fmt, Object.assign({ created: NOW - 5000 }, roomOver)) } });
 const MOVE = { idx: 0, dx: 100, dy: -50, sp: 0.5 };
 
@@ -374,8 +390,12 @@ const fbLobby = (n, over = {}) => {
     p[i] = { s: 'FBTAB00' + i, on: true, t: NOW };
     players[i] = { id: 'FBPID00' + i, name: 'P' + i, tab: 'FBTAB00' + i, uid: FB_UID[i] };
   }
-  const room = { v: V, config: { game: 'football', winTarget: 3, fmt: 'elimination', visibility: 'private' },
-                 gen: 0, state: 'playing', p, players, created: NOW - 5000 };
+  // v8: der Raum traegt seine Sollbesetzung. Sie ist hier gleich der Besetzung, damit
+  // die bestehenden Startsignal-Faelle genau das pruefen, was sie immer geprueft haben;
+  // die Abweichung seats !== cap bekommt weiter unten eigene Faelle.
+  const room = mitHost({ v: V, config: { game: 'football', winTarget: 3, fmt: 'elimination', visibility: 'private',
+                                 mode: n === 2 ? 'classic' : 'lives', cap: n },
+                 gen: 0, state: 'playing', p, players, created: NOW - 5000 });
   return { rooms: { KX7P: Object.assign(room, over) } };
 };
 for (const n of [2, 3, 4, 5]) {
@@ -383,6 +403,14 @@ for (const n of [2, 3, 4, 5]) {
   deny('football start signal ' + n + ' written by a guest', fbLobby(n), 'rooms/KX7P/seats', n, FB_UID[1]);
 }
 deny('football start signal with a single participant', fbLobby(1), 'rooms/KX7P/seats', 1, FB_UID[0]);
+// v8: die Sollbesetzung ist bindend. Ein Startsignal, das sie verfehlt, faellt - auch
+// wenn alle gezaehlten Sitze verbunden sind. Genau das ersetzt das alte "ab zwei".
+for (const [besetzt, soll] of [[3, 5], [4, 5], [3, 4], [5, 4], [4, 3]]) {
+  const db = fbLobby(besetzt);
+  db.rooms.KX7P.config.cap = soll;
+  deny('v8: Startsignal ' + besetzt + ' in einem ' + soll + '-Spieler-Raum',
+    db, 'rooms/KX7P/seats', besetzt, FB_UID[0]);
+}
 deny('football start signal above the room capacity', fbLobby(5), 'rooms/KX7P/seats', 6, FB_UID[0]);
 deny('football start signal of zero', fbLobby(2), 'rooms/KX7P/seats', 0, FB_UID[0]);
 // Jeder gezaehlte Sitz muss verbunden sein - in JEDER Besetzung und fuer JEDEN dieser
@@ -438,8 +466,8 @@ const FB3 = (over) => {
     p[i] = { s: 'FBTAB00' + i, on: i !== 2, t: i === 2 ? NOW - GRACE - 1 : NOW };
     players[i] = { id: 'FBPID00' + i, name: 'P' + i, tab: 'FBTAB00' + i, uid: FB_UID[i] };
   }
-  return { rooms: { KX7P: Object.assign({ v: V, config: { game: 'football', winTarget: 3, fmt: 'elimination', visibility: 'private' },
-    gen: 0, state: 'playing', seats: 3, p, players, created: NOW - 5000 }, over || {}) } };
+  return { rooms: { KX7P: mitHost(Object.assign({ v: V, config: { game: 'football', winTarget: 3, fmt: 'elimination', visibility: 'private', mode: 'lives', cap: 5 },
+    gen: 0, state: 'playing', seats: 3, p, players, created: NOW - 5000 }, over || {})) } };
 };
 allow('three-player match: a move by the seat owner', FB3(), 'rooms/KX7P/g/0/t/0/0',
   { k: 'move', idx: 0, dx: 100, dy: -50, sp: 0.5 }, FB_UID[0]);
@@ -833,7 +861,7 @@ deny('team move pl 4 (seat gate, presence pre-seeded)', playing({ p: { 0: P(H_TA
   // Football-Raum: fuenf Sitze, alle online, laufendes Match.
   const fbRoom = (over = {}) => ({
     rooms: { KX7P: Object.assign({
-      v: V, config: { game: 'football', winTarget: 3, fmt: 'elimination', visibility: 'private' },
+      v: V, config: { game: 'football', winTarget: 3, fmt: 'elimination', visibility: 'private', mode: 'lives', cap: 5 },
       gen: 0, state: 'playing', seats: 5,
       p: { 0: P(TAB[0], true), 1: P(TAB[1], true), 2: P(TAB[2], true), 3: P(TAB[3], true), 4: P(TAB[4], true) },
       players: { 0: REC5(0), 1: REC5(1), 2: REC5(2), 3: REC5(3), 4: REC5(4) },
@@ -846,8 +874,8 @@ deny('team move pl 4 (seat gate, presence pre-seeded)', playing({ p: { 0: P(H_TA
   const RM = (seat) => ({ k: 'remove', idx: seat, dx: 0, dy: 0, sp: 0 });
 
   // -- Raumanlage --------------------------------------------------------------
-  const fbNew = { v: V, config: { game: 'football', winTarget: 3, fmt: 'elimination', visibility: 'private' },
-    gen: 0, state: 'lobby', p: { 0: P(TAB[0], false) }, players: { 0: REC5(0) }, created: NOW };
+  const fbNew = mitHost({ v: V, config: { game: 'football', winTarget: 3, fmt: 'elimination', visibility: 'private', mode: 'lives', cap: 5 },
+    gen: 0, state: 'lobby', p: { 0: P(TAB[0], false) }, players: { 0: REC5(0) }, created: NOW });
   allow('v4 Football room create', { rooms: {} }, 'rooms/KX7P', fbNew, UID[0]);
   deny('Football room with a RingOut fmt', { rooms: {} }, 'rooms/KX7P',
     Object.assign({}, fbNew, { config: { game: 'football', winTarget: 3, fmt: 'ffa', visibility: 'private' } }), UID[0]);
@@ -1399,12 +1427,12 @@ deny('team move pl 4 (seat gate, presence pre-seeded)', playing({ p: { 0: P(H_TA
     const p = {}, players = {};
     for (let i = 0; i < n; i++) { p[i] = P(TABF[i], true); players[i] = RECF(i); }
     return { rooms: { KX7P: {
-      v: ver, config: { game: 'football', winTarget: 3, fmt: 'elimination', visibility: 'private' },
+      v: ver, config: { game: 'football', winTarget: 3, fmt: 'elimination', visibility: 'private', mode: 'lives', cap: 5 },
       gen: 0, state: 'playing', seats: n, p, players, created: NOW - 5000 } } };
   };
   const MVF = (seat) => ({ k: 'move', idx: seat, dx: 100, dy: -50, sp: 0.5 });
 
-  t('die Fixtures fahren auf der aktuellen Client-Version', V === 7);
+  t('die Fixtures fahren auf der aktuellen Client-Version', V === 8);
 
   // (a) ANLEGEN — waehrend des Uebergangs sind alle vier Versionen gueltig.
   allow('create v7 (aktueller Client)', { rooms: {} }, 'rooms/KX7P', mkRoom('single', { v: 7 }));
@@ -1412,7 +1440,8 @@ deny('team move pl 4 (seat gate, presence pre-seeded)', playing({ p: { 0: P(H_TA
   allow('create v5 (alter Client, noch im Umlauf)', { rooms: {} }, 'rooms/KX7P', mkRoom('single', { v: 5 }));
   allow('create v4 (noch aelterer Client)', { rooms: {} }, 'rooms/KX7P', mkRoom('single', { v: 4 }));
   deny('create v3 (zu alt)', { rooms: {} }, 'rooms/KX7P', mkRoom('single', { v: 3 }));
-  deny('create v8 (gibt es nicht)', { rooms: {} }, 'rooms/KX7P', mkRoom('single', { v: 8 }));
+  allow('create v8 (aktueller Client)', { rooms: {} }, 'rooms/KX7P', mkRoom('single', { v: 8 }));
+  deny('create v9 (gibt es noch nicht)', { rooms: {} }, 'rooms/KX7P', mkRoom('single', { v: 9 }));
 
   // (b) UNVERAENDERLICHKEIT — die Version laesst sich weder heben noch senken.
   deny('v5 -> v6 umschreiben', db1({ v: 5 }), 'rooms/KX7P/v', 6, UID_HOST);
@@ -1441,7 +1470,176 @@ deny('team move pl 4 (seat gate, presence pre-seeded)', playing({ p: { 0: P(H_TA
   }
   // Eine Version, die es nicht gibt, spielt in keinem Fall mit.
   deny('v3-Raum: kein Zug', fbVer(3, 5), 'rooms/KX7P/g/0/t/0/0', MVF(0), UIDF[0]);
-  deny('v8-Raum: kein Zug', fbVer(8, 5), 'rooms/KX7P/g/0/t/0/0', MVF(0), UIDF[0]);
+  deny('v9-Raum: kein Zug', fbVer(9, 5), 'rooms/KX7P/g/0/t/0/0', MVF(0), UIDF[0]);
+
+  // ══ v8: MODUS UND SOLLBESETZUNG ══════════════════════════════════════════════
+  // Der Zugpfad ist in v8 unveraendert; hinzu kommt allein die Kapazitaetsschranke.
+  {
+    const v8 = (mode, cap, n) => {
+      const db = fbVer(8, n);
+      db.rooms.KX7P.config.mode = mode;
+      db.rooms.KX7P.config.cap = cap;
+      db.rooms.KX7P.seats = cap;
+      return db;
+    };
+    const cfg = (mode, cap) => mitHost({ v: 8, config: { game: 'football', winTarget: 3, fmt: 'elimination',
+      visibility: 'private', mode: mode, cap: cap }, gen: 0, state: 'lobby',
+      p: { 0: P(TABF[0], false) }, players: { 0: RECF(0) }, created: NOW });
+
+    // (a) GUELTIGE PAARUNGEN - genau die des Registers, keine andere.
+    for (const [mode, cap] of [['classic', 2], ['speed', 2], ['team2v2', 4],
+                               ['lives', 3], ['lives', 4], ['lives', 5],
+                               ['timedffa', 3], ['timedffa', 4], ['timedffa', 5]])
+      allow('v8 anlegen: ' + mode + ' mit cap ' + cap, { rooms: {} }, 'rooms/KX7P', cfg(mode, cap), UIDF[0]);
+
+    // (b) UNGUELTIGE PAARUNGEN - die aus dem Auftrag benannten und ihre Nachbarn.
+    for (const [mode, cap] of [['classic', 4], ['classic', 3], ['classic', 5],
+                               ['speed', 5], ['speed', 3], ['speed', 4],
+                               ['team2v2', 3], ['team2v2', 2], ['team2v2', 5],
+                               ['lives', 2], ['lives', 6], ['lives', 0],
+                               ['timedffa', 6], ['timedffa', 2], ['timedffa', 1]])
+      deny('v8 anlegen: ' + mode + ' mit cap ' + cap + ' ist ungueltig',
+        { rooms: {} }, 'rooms/KX7P', cfg(mode, cap), UIDF[0]);
+
+    deny('v8 anlegen: unbekannter Modus', { rooms: {} }, 'rooms/KX7P', cfg('elimination', 5), UIDF[0]);
+    deny('v8 anlegen: Modus fehlt', { rooms: {} }, 'rooms/KX7P',
+      { v: 8, config: { game: 'football', winTarget: 3, fmt: 'elimination', visibility: 'private', cap: 5 },
+        gen: 0, state: 'lobby', p: { 0: P(TABF[0], false) }, players: { 0: RECF(0) }, created: NOW }, UIDF[0]);
+    deny('v8 anlegen: Sollbesetzung fehlt', { rooms: {} }, 'rooms/KX7P',
+      { v: 8, config: { game: 'football', winTarget: 3, fmt: 'elimination', visibility: 'private', mode: 'lives' },
+        gen: 0, state: 'lobby', p: { 0: P(TABF[0], false) }, players: { 0: RECF(0) }, created: NOW }, UIDF[0]);
+    deny('v8 anlegen: Modus in einem RingOut-Raum', { rooms: {} }, 'rooms/KX7P',
+      Object.assign(mkRoom('single', { v: 8 }), { config: { game: 'ringout', winTarget: 3, fmt: 'single',
+        visibility: 'private', mode: 'lives', cap: 5 } }), UIDF[0]);
+    deny('v7 anlegen: Modus gibt es dort noch nicht', { rooms: {} }, 'rooms/KX7P',
+      Object.assign(cfg('lives', 5), { v: 7 }), UIDF[0]);
+
+    // (c) UNVERAENDERLICH. config liegt unterhalb eines bestehenden Raums, und die
+    //     Raumregel erlaubt dort nur Anlage oder Loeschung - also gar keinen Schreibweg.
+    deny('v8: Modus nachtraeglich aendern', v8('lives', 5, 5), 'rooms/KX7P/config/mode', 'timedffa', UIDF[0]);
+    deny('v8: Sollbesetzung nachtraeglich aendern', v8('lives', 5, 5), 'rooms/KX7P/config/cap', 3, UIDF[0]);
+    deny('v8: Sollbesetzung senken, um frueher zu starten', v8('lives', 5, 5), 'rooms/KX7P/config/cap', 2, UIDF[0]);
+    deny('v8: ganzes config ersetzen', v8('lives', 5, 5), 'rooms/KX7P/config',
+      { game: 'football', winTarget: 3, fmt: 'elimination', visibility: 'private', mode: 'timedffa', cap: 3 }, UIDF[0]);
+
+    // (d) SITZINDEX UNTERHALB DER SOLLBESETZUNG. Ein fuenfter Spieler hat in einem
+    //     Team-2v2-Raum keinen Sitz - weder in der Praesenz noch im Zugpfad.
+    {
+      const db = v8('team2v2', 4, 4);
+      db.rooms.KX7P.state = 'lobby';
+      deny('v8: Sitz 4 in einem Vier-Spieler-Raum reservieren',
+        db, 'rooms/KX7P/p/4', { s: TABF[4], on: false, t: NOW }, UIDF[4]);
+    }
+    deny('v8: Zug von Sitz 4 in einem Vier-Spieler-Raum',
+      v8('team2v2', 4, 5), 'rooms/KX7P/g/0/t/0/4', MVF(4), UIDF[4]);
+    allow('v8: Zug von Sitz 3 in einem Vier-Spieler-Raum',
+      v8('team2v2', 4, 4), 'rooms/KX7P/g/0/t/0/3', MVF(3), UIDF[3]);
+    deny('v8: Zug von Sitz 2 in einem Zwei-Spieler-Raum',
+      v8('classic', 2, 5), 'rooms/KX7P/g/0/t/0/2', MVF(2), UIDF[2]);
+    allow('v8: Zug von Sitz 1 in einem Zwei-Spieler-Raum',
+      v8('classic', 2, 2), 'rooms/KX7P/g/0/t/0/1', MVF(1), UIDF[1]);
+
+    // ══ HOST / SITZ SIND GETRENNT (v8) ═══════════════════════════════════════
+    // Bis v7 galt: wer auf Sitz 0 sitzt, ist Host. In einem Team-2v2-Raum ist Sitz 0
+    // aber kanonisch B1 - der Ersteller haette damit nie Rot waehlen koennen. v8 traegt
+    // deshalb eine eigene, unveraenderliche Hostkennung.
+    {
+      const HOST_A = UIDF[0], BLAU0 = UIDF[1], FREMD = UIDF[4];
+      // Ein Raum, dessen ERSTELLER auf Sitz 2 (R1) sitzt und dessen Sitz 0 (B1) einem
+      // anderen Menschen gehoert. Genau der Fall, den es vorher nicht geben konnte.
+      const rotWirt = (over) => {
+        const p = {}, players = {};
+        for (const i of [0, 1, 2, 3]) {
+          p[i] = P(TABF[i], true);
+          players[i] = { id: 'TPID000' + i, name: 'P' + i, tab: TABF[i],
+                         uid: (i === 2 ? HOST_A : (i === 0 ? BLAU0 : UIDF[i])) };
+        }
+        return { rooms: { KX7P: Object.assign({
+          v: 8, hostUid: HOST_A,
+          config: { game: 'football', winTarget: 3, fmt: 'elimination', visibility: 'private',
+                    mode: 'team2v2', cap: 4 },
+          gen: 0, state: 'lobby', p, players, created: NOW - 5000 }, over || {}) } };
+      };
+      // (A)+(B) Die Kennung gehoert zur Anlage und muss der uid des Erstellers sein.
+      const anlage = (uid, hostUid, seat) => {
+        const r = { v: 8, hostUid: hostUid,
+          config: { game: 'football', winTarget: 3, fmt: 'elimination', visibility: 'private',
+                    mode: 'team2v2', cap: 4 },
+          gen: 0, state: 'lobby', p: {}, players: {}, created: NOW };
+        r.p[seat] = P(TABF[seat], false);
+        r.players[seat] = { id: 'TPID000' + seat, name: 'P', tab: TABF[seat], uid: uid };
+        return r;
+      };
+      allow('v8: Anlage mit Ersteller auf Sitz 0 (Blau)', { rooms: {} }, 'rooms/KX7P',
+        anlage(HOST_A, HOST_A, 0), HOST_A);
+      allow('v8: Anlage mit Ersteller auf Sitz 2 (Rot)', { rooms: {} }, 'rooms/KX7P',
+        anlage(HOST_A, HOST_A, 2), HOST_A);
+      deny('v8: Anlage ohne Hostkennung', { rooms: {} }, 'rooms/KX7P',
+        (() => { const r = anlage(HOST_A, HOST_A, 2); delete r.hostUid; return r; })(), HOST_A);
+      deny('v8: eine fremde Hostkennung ist keine', { rooms: {} }, 'rooms/KX7P',
+        anlage(HOST_A, FREMD, 2), HOST_A);
+      deny('v8: Anlage auf Sitz 1 gibt es nicht', { rooms: {} }, 'rooms/KX7P',
+        anlage(HOST_A, HOST_A, 1), HOST_A);
+      deny('v8: Anlage auf Sitz 3 ebenso wenig', { rooms: {} }, 'rooms/KX7P',
+        anlage(HOST_A, HOST_A, 3), HOST_A);
+      // (C) Niemand schreibt die Kennung nachtraeglich - auch der Host nicht.
+      deny('v8: der Host kann seine Kennung nicht aendern',
+        rotWirt(), 'rooms/KX7P/hostUid', HOST_A, HOST_A);
+      deny('v8: ein Sitz-0-Spieler kann sich nicht zum Host machen',
+        rotWirt(), 'rooms/KX7P/hostUid', BLAU0, BLAU0);
+      deny('v8: ein Fremder erst recht nicht',
+        rotWirt(), 'rooms/KX7P/hostUid', FREMD, FREMD);
+      deny('v8: die Kennung laesst sich auch nicht loeschen',
+        rotWirt(), 'rooms/KX7P/hostUid', null, HOST_A);
+      // (D) Der Altbestand verlangt sie NICHT - und darf sie nicht tragen.
+      allow('v7: Anlage ohne Hostkennung bleibt gueltig', { rooms: {} }, 'rooms/KX7P',
+        mkRoom('single', { v: 7 }), UID_GUEST);
+      deny('v7: eine Hostkennung gehoert dort nicht hin', { rooms: {} }, 'rooms/KX7P',
+        Object.assign(mkRoom('single', { v: 7 }), { hostUid: UID_GUEST }), UID_GUEST);
+
+      // (I)+(K) Der Ersteller auf Sitz 2 behaelt JEDE Hostbefugnis.
+      allow('v8: der Ersteller auf Sitz 2 schreibt das Startsignal',
+        rotWirt({ state: 'playing' }), 'rooms/KX7P/seats', 4, HOST_A);
+      allow('v8: und er schaltet den Raum auf playing',
+        rotWirt(), 'rooms/KX7P/state', 'playing', HOST_A);
+      // (J)+(L) Wer auf Sitz 0 sitzt, ist deshalb NICHT Host.
+      deny('v8: der Spieler auf Sitz 0 schreibt kein Startsignal',
+        rotWirt({ state: 'playing' }), 'rooms/KX7P/seats', 4, BLAU0);
+      deny('v8: und er schaltet den Raum nicht auf playing',
+        rotWirt(), 'rooms/KX7P/state', 'playing', BLAU0);
+      deny('v8: ein unbeteiligter Sitz ebenso wenig',
+        rotWirt({ state: 'playing' }), 'rooms/KX7P/seats', 4, UIDF[3]);
+      // Und ein Fremder ohne Sitz schon gar nicht.
+      deny('v8: ein Fremder ohne Sitz kann nichts davon',
+        rotWirt({ state: 'playing' }), 'rooms/KX7P/seats', 4, FREMD);
+
+      // (M) Die Rueckkehr beruehrt die Hostkennung nicht: sie steht im Raum, nicht im
+      // Sitz. Der Host darf seinen Sitz 2 wieder aktivieren und bleibt Host.
+      {
+        const db = rotWirt({ state: 'playing' });
+        db.rooms.KX7P.p[2] = { s: TABF[2], on: false, t: NOW - 1000 };
+        allow('v8: der Host aktiviert seinen Sitz 2 nach einer Trennung wieder',
+          db, 'rooms/KX7P/p/2', { s: TABF[2], on: true, t: NOW }, HOST_A);
+        // Die Kennung im Raum ist davon voellig unberuehrt - es gibt keinen Schreibweg.
+        deny('v8: und die Hostkennung wandert dabei nicht mit',
+          db, 'rooms/KX7P/hostUid', BLAU0, BLAU0);
+      }
+
+      // Der Zugpfad bleibt SITZgebunden - Host zu sein verleiht keine fremden Zuege.
+      allow('v8: der Host zieht auf SEINEM Sitz 2',
+        rotWirt({ state: 'playing', seats: 4 }), 'rooms/KX7P/g/0/t/0/2',
+        { k: 'move', idx: 2, dx: 100, dy: -50, sp: 0.5 }, HOST_A);
+      deny('v8: aber nicht auf dem Sitz eines anderen',
+        rotWirt({ state: 'playing', seats: 4 }), 'rooms/KX7P/g/0/t/0/0',
+        { k: 'move', idx: 0, dx: 100, dy: -50, sp: 0.5 }, HOST_A);
+    }
+
+    // (e) DER ZUGPFAD SELBST IST UNVERAENDERT. Keine v9-Bauform in einem v8-Raum.
+    deny('v8: Zugslot mit Hash statt Vektor', v8('lives', 5, 5),
+      'rooms/KX7P/g/0/t/0/0', { h: 'deadbeef', ts: NOW }, UIDF[0]);
+    deny('v8: Zugslot mit zusaetzlichem Zeitstempel', v8('lives', 5, 5),
+      'rooms/KX7P/g/0/t/0/0', { k: 'move', idx: 0, dx: 100, dy: -50, sp: 0.5, ts: NOW }, UIDF[0]);
+  }
 
   // (d) Football startet in BEIDEN Versionen mit zwei bis fuenf Sitzen — die Umstellung
   //     fasst die Startbesetzung nicht an.

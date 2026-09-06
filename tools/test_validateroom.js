@@ -15,7 +15,7 @@ const VER = new Function([verSrc, 'return ONLINE_PROTOCOL_VERSION;'].join('\n'))
 let pass = 0, fail = 0;
 const t = (name, cond) => { cond ? pass++ : (fail++, console.error('FAIL: ' + name)); };
 const room = (over = {}) => Object.assign(
-  { v: VER, config: { game: 'ringout', winTarget: 3, fmt: 'single', visibility: 'private' }, gen: 0, state: 'lobby', p: { 0: { s: 'hosttoken1', on: true, t: 1751800000000 } }, created: 1751800000000 }, over);
+  { v: VER, hostUid: 'UID_HOST_FIXTURE', config: { game: 'ringout', winTarget: 3, fmt: 'single', visibility: 'private' }, gen: 0, state: 'lobby', p: { 0: { s: 'hosttoken1', on: true, t: 1751800000000 } }, created: 1751800000000 }, over);
 
 // ── protocol version (M1-T3) ──
 const VMSG = 'Versionen stimmen nicht überein — bitte beide Seite neu laden.';

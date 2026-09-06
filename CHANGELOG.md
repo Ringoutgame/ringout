@@ -6,6 +6,175 @@ Alle abgeschlossenen Änderungen am Projekt, neueste zuerst.
 
 ## [Unreleased]
 
+### Abschluss
+- **ONLINE V8 PHASE A ist abgeschlossen** (2026-09-06) — bestätigt durch eine echte Mehrbrowser-QA gegen das Projekt `ringout-87fbb`: vier eigenständige Browser, echte Firebase-Anmeldungen, echte Räume, **40 Zusicherungen bestanden, 0 fehlgeschlagen**, keine Seitenfehler in irgendeinem Browser. Geprüft wurde der vollständige Team-2v2-Fluss (Anlage mit freier Seitenwahl, Beitritt beider Teams, Sitzvergabe 0/1 blau gegen 2/3 rot, Hostkennung, Beschriftung in Lobby **und** Datenbank, Abweisung des fünften Clients, Rückkehr von Gast und Wirt), dazu die Lebensregel als Regression. **Alle P0/P1-Funde dieser Phase sind behoben.** Offline-Gate 34/34 Suiten, darunter Online-Phase-A 305/305, Football-Online 714/714 und die Rules-Suite 591/591.
+- **Was ausdrücklich NICHT Teil dieser Phase war** (2026-09-06) — **Team 2v2 bleibt online gesperrt** (`released: false`, sichtbarer Hinweis in der Lobby); online freigegeben ist allein die **Lebensregel**. **Die Übertragung des Zugs ist unverändert**: `g/<gen>/t/<turn>/<seat>` trägt den Zug weiterhin **im Klartext** und hat exakt seine v7-Bedeutung — v8 macht den *Raum* modusbewusst, nicht den *Zug* vertraulich. Hash-Commit/Reveal und die autoritative Frist sind **v9** und **nicht begonnen**: kein Hash, kein Salt, kein Reveal, keine Frist, keine Felder `d/`, `r/`, `ph/` oder `ts`.
+
+### Features
+- feat(online): **Protokoll v8 — der Raum trägt seinen Modus und seine Sollbesetzung**
+  (2026-09-05) — `config.mode` (`classic|speed|team2v2|lives|timedffa`) und `config.cap`,
+  beide bei der Anlage gesetzt und danach unveränderlich. Bis v7 war ein Football-Raum
+  ein generischer Fünfsitzer, der nahm, wer kam; die Teilnehmerzahl entstand erst beim
+  Start. **Ein Raum verlangt jetzt eine Zahl.**
+- feat(online): **exakte Sollbesetzung statt Mindestzahl** (2026-09-05) — zulässig sind
+  genau `classic 2`, `speed 2`, `team2v2 4`, `lives 3|4|5`, `timedffa 3|4|5`. Der Start
+  öffnet erst bei `seatCount === cap`, ein Sitzanspruch oberhalb der Sollbesetzung wird
+  abgewiesen — clientseitig und in den Rules. **Verhaltensänderung:** die Online-
+  Lebensregel begann bisher schon ab zwei Teilnehmern; sie verlangt jetzt drei bis fünf.
+- feat(online): **Moduswahl vor dem Raum** (2026-09-05) — ONLINE führt in eine Auswahl der
+  fünf Modi, FFA-Modi fragen danach die Spielerzahl. Beide Einstiege (Produkt und Dev)
+  führen durch dieselbe Wahl; der Onlinekontext wird seither an **einer** Stelle gesetzt
+  statt an zwei.
+- feat(online): **modusbewusste Lobby** (2026-09-05) — Modusname, `beigetreten/erforderlich`,
+  „Warte auf N weitere Spieler“ statt eines allgemeinen Hosttextes, und bei Team 2v2 die
+  Sitzidentitäten B1/B2 gegen R1/R2 unter ihren Teamkopfzeilen. Kopf und Untertitel des
+  Onlinebildschirms nennen den Modus und die genaue Spielerzahl statt „2–5“.
+- feat(online): **ausdrückliches Freigabetor** (2026-09-05) — `FB_ONLINE_MODES[m].released`
+  trennt „hat Raum und Lobby“ von „ist online freigegeben“. Heute ist **nur die Lebensregel
+  freigegeben**; die vier anderen sind ausschließlich mit `?dev=1` erreichbar und tragen
+  dort einen sichtbaren Hinweis. Das Tor gilt für **jeden** Weg in einen Raum — auch für
+  den Beitritt per Raumcode und die Rückkehr, sonst wäre ein geteilter Code die Hintertür.
+
+### Fixes
+- fix(online): **die generischen Farbnamen wurden als Spielernamen GESPEICHERT**
+  (2026-09-06) — die eigentliche Ursache der falschen Team-2v2-Beschriftung, gefunden
+  im echten Mehrbrowser-Lauf gegen `ringout-87fbb`. `playerRecord()` schrieb bei leerem
+  Namensfeld `T('col'+seat)` **in die Datenbank**; dort stand danach wörtlich
+  `0=BLUE, 1=RED, 2=GREEN, 3=YELLOW`. Die Anzeige konnte das nicht mehr richten — sie
+  sah einen echten Namen. Der Ersatzname ist jetzt teambewusst (`playerRecord(seat,team2)`,
+  ausdrücklich durchgereicht bis zum Sitzanspruch); die Datenbank enthält nun
+  `0=BLUE, 1=BLUE, 2=RED, 3=RED`. Für Lives und Timed FFA bleibt die Sitzfarbe.
+- fix(online): **jeder Beitritt zu einem rot erstellten Raum scheiterte mit „Raum ist
+  verwaist“** (2026-09-06) — `validateRoom()` prüfte die Anwesenheit des Hosts fest an
+  `p/0`. Nach der Host/Sitz-Entkopplung sitzt der Host eines Team-2v2-Raums mit rotem
+  Ersteller aber auf Sitz 2, und `p/0` existiert dort gar nicht. Neu: `roomHostSeat(d)`
+  leitet den Hostsitz aus `hostUid` und dem Roster ab; ohne Kennung (v4–v7) bleibt es
+  bei Sitz 0.
+- fix(online): **der Spieler auf Sitz 0 bekam die Hoststeuerung** (2026-09-06) — im
+  Beitrittsweg stand `roomHostUid=v.hostUid||'';` **hinter einem Zeilenkommentar** und
+  war damit wirkungslos; `isHost()` fiel auf „Sitz 0“ zurück. Auffällig war das nur im
+  Live-Betrieb: nach einem Reload lief die Rückkehr über einen anderen Weg und war
+  korrekt. Eine Zusicherung prüft jetzt, dass keine dieser Zuweisungen im Kommentar steht.
+### Fixes
+- fix(online): **die Team-2v2-Lobby beschriftete die Zeilen mit der Spielerfarbe des
+  Sitzes** (2026-09-06) — Befund des Firebase-Spieltests. Ohne eingegebenen Namen griff
+  der Rückfall von `nameForSeat()`, und der ist `col0..col4`: „B2 · RED“, „R1 · GREEN“,
+  „R2 · YELLOW“ — drei falsche Auskünfte von vieren, mit zwei Farben, die es in einem
+  Zweiteamspiel gar nicht gibt. Die Zeile leitet ihre Farbe jetzt aus der
+  **Teamzuordnung des Sitzes** ab (`fbTeam2NameForSeat`): B1/B2 → BLAU, R1/R2 → ROT.
+  Ein eingegebener Name gewinnt unverändert. `nameForSeat()` selbst ist **unberührt** —
+  Lives und Timed FFA brauchen ihre Einzelfarben.
+### Fixes
+- fix(online): **der Team-2v2-Beitritt blieb stehen — der Teamschirm lag hinter dem
+  Onlinebildschirm** (2026-09-06) — Befund des Mehrbrowser-Spieltests, Ursache am Produkt
+  belegt: `#online` ist ein `.cover` mit `z-index: 120`, die Auswahlschirme `.ov` liegen
+  bei 100. Aus `joinRoom()` geöffnet wurde die Teamwahl zwar gezeichnet, aber **jeder
+  Klick landete auf dem Onlinebildschirm** — gemessen: `elementFromPoint` auf dem
+  BLAU-Knopf lieferte `ohero`. Das `await` in `joinRoom()` löste nie auf, es wurde kein
+  Sitz beansprucht, und der Beitritt hing lautlos. `#fbOnTeamOv` liegt jetzt bei 140.
+- fix(online): **die Teamwahl kam vor der Handlung** (2026-09-06) — wer Team 2v2 wählte,
+  musste sich sofort für eine Seite entscheiden, noch bevor er wusste, ob er einen Raum
+  anlegt oder betritt — und beim Beitritt, bevor überhaupt feststand, ob es den Raum gibt
+  und welche Seite dort frei ist. Die Frage gehört zur Handlung, nicht zum Modus.
+
+### Features
+- feat(online): **Team 2v2 führt in den normalen Onlinebildschirm** (2026-09-06) — wie
+  jeder andere Modus: Erstellen, Code eingeben, öffentliche Räume. Kein eigener
+  Team-2v2-Einstieg daneben.
+- feat(online): **die Seite wird gewählt, wenn sie gebraucht wird** (2026-09-06) — beim
+  **Erstellen** unmittelbar vor der Anlage; beim **Beitreten** erst nach Code,
+  Raumprüfung und **frisch gelesener Belegung**. Ein volles Team ist dort sichtbar
+  gesperrt, sind beide voll, meldet der Bildschirm den Raum als voll.
+- feat(online): **verlorene Rennen bleiben in der eigenen Seite** (2026-09-06) — wird der
+  bevorzugte Sitz gleichzeitig belegt, liest der Beitritt frisch und fragt erneut —
+  immer innerhalb derselben Seite. Niemand wird stillschweigend ins andere Team
+  geschoben. Bis zur Bestätigung wird **nichts** beansprucht: kein Sitz, keine Präsenz,
+  kein Rostereintrag — ein Abbruch hinterlässt keinen Waisenraum.
+- feat(online): **die gewählte Seite gehört zu genau einer Handlung** (2026-09-06) —
+  `fbOnlineTeam` startet auf `-1` („keine Wahl offen“), wird vor der Anlage gesetzt und
+  danach sofort zurückgenommen; ein Abbruch räumt sie ab. Ohne offene Wahl legt die
+  Anlage keinen Team-2v2-Raum an, statt still nach Blau zu setzen.
+
+### Features
+- feat(online): **Host und Sitz sind getrennt (v8)** (2026-09-06) — bis v7 galt „wer auf
+  Sitz 0 sitzt, ist Host“. In Team 2v2 ist Sitz 0 aber kanonisch B1, weshalb der
+  Ersteller nie Rot wählen konnte. v8-Räume tragen jetzt ein eigenes, unveränderliches
+  Feld `hostUid` an der Raumwurzel: bei der Anlage an `auth.uid` gebunden, danach ohne
+  jeden Schreibweg — auch der Host selbst kann es nicht ändern.
+- feat(online): **der Ersteller wählt seine Seite frei** (2026-09-06) — Blau setzt ihn
+  auf B1 (Sitz 0), Rot auf R1 (Sitz 2). Er behält dabei **jede** Hostbefugnis
+  (Startsignal, Zustandswechsel, Listenpflege, Aufräumen), und wer später auf Sitz 0
+  beitritt, wird dadurch **nicht** Host.
+
+### Refactor
+- refactor(online): **eine Hostfrage statt verstreuter Sitzprüfungen** (2026-09-06) —
+  `isHost()` ist der einzige Ort, an dem überhaupt gefragt wird; ohne Hostkennung fällt
+  er auf die alte Sitz-0-Konvention zurück, und **nur** dann. `hostSeat()` leitet den
+  Sitz des Hosts aus dem Roster ab — gespeichert wird er nirgends. In den Rules sind
+  `seats` und `state` versionsgetrennt: v8 fragt `hostUid`, v4–v7 unverändert `players/0`.
+- refactor(online): **kein öffentlicher Eintrag mehr für Football-Räume** (2026-09-06) —
+  die öffentliche Liste zeigt sie ohnehin nie; der Eintrag war tote Datenlage, und seine
+  Regel hängt an `p/0/on`, das bei einem Rot-Ersteller gar nicht existiert.
+
+### Fixes
+- fix(online): **`wirtSitz` lag im `try`, wurde aber im `catch` gelesen** (2026-09-06) —
+  eigener Fehler dieses Durchgangs: der Aufräumpfad einer fehlgeschlagenen Raumanlage
+  hätte einen `ReferenceError` geworfen statt aufzuräumen — und einen Waisenraum
+  hinterlassen. Die Deklaration steht jetzt im Geltungsbereich beider Zweige.
+- fix(online): **die Team-2v2-Lobby zeigte vier Einzelspieler statt zwei Teams**
+  (2026-09-05) — Befund des menschlichen Spieltests. B1 war blau, B2 rot, R1 grün,
+  R2 gelb. Ursache: `colorSlot()` leitet seinen Teambegriff aus `fbTeam2()` ab, und
+  `fbTeam2()` prüft `fbVariant` — die **online immer Elimination** ist. Die Lobby fragt
+  jetzt den **Raummodus** (`fbTeam2Room()`), nicht die lokale Variante. Beide Blauen
+  tragen Blau, beide Roten Rot; Grün und Gelb sind in diesem Modus unerreichbar.
+- fix(online): **Team 2v2 konnte in die generische Vier-Tore-Partie durchfallen**
+  (2026-09-05) — der Start hätte vier Einzelspieler auf vier Tore geschickt statt zwei
+  Teams auf zwei. `startFfaMatch()` hält jetzt sauber an, solange der Modus nicht
+  freigegeben ist, und der Startknopf bleibt auch bei 4/4 gesperrt — mit der Meldung
+  „TEAM 2V2 ONLINE GAMEPLAY NOT ENABLED YET“ statt der falschen Partie.
+- fix(ui): **ein gesperrter Startknopf sah aus wie ein bereiter** (2026-09-05) — genau
+  an der Stelle, an der die Lobby sagen soll, ob gestartet werden kann. `.cbtn` bekommt
+  einen sichtbaren Sperrzustand.
+- fix(online): **die Moduszeile der Lobby trug ein hartcodiertes „SPIELER“**
+  (2026-09-05) — in einer englischen Oberfläche schlicht falsch; jetzt aus der
+  Sprachtabelle.
+
+### Features
+- feat(online): **Teamwahl statt Zufallssitz** (2026-09-05) — wer einem Team-2v2-Raum
+  beitritt, wählt eine **Seite**: Blau (Sitze 0,1) oder Rot (Sitze 2,3). Innerhalb der
+  Seite wird der erste freie Sitz deterministisch von unten vergeben; ein volles Team
+  ist sichtbar, aber nicht wählbar. Der **atomare write-once-Sitzanspruch bleibt der
+  Schiedsrichter** — die Wahl begrenzt nur die Kandidatensitze, sie teilt nichts zu.
+  Der Raumersteller eröffnet in Blau: die Raumanlage verlangt `p/0`, und „Host“ heißt in
+  den Rules an fünf Stellen `players/0/uid` — Sitz 0 ist kanonisch B1.
+- feat(online): **die Lobby zeigt zwei Teams mit festen Plätzen** (2026-09-05) — TEAM
+  BLUE mit B1/B2, TEAM RED mit R1/R2; freie Plätze stehen als `FREI` da, statt zu
+  verschwinden. Der Wartehinweis nennt das **fehlende Team** („Warte auf 2× TEAM ROT“),
+  und die eigene Zeile lautet „DU BIST B1 · TEAM BLAU“ statt einer Farbe.
+- feat(online): **Startgatter nach Teams** (2026-09-05) — in Team 2v2 zählt nicht
+  Lückenfreiheit, sondern **zwei volle Teams**. Blau 0 plus Rot 2 und 3 ist eine Lücke
+  bei Sitz 1 und trotzdem ein regulärer Zwischenstand.
+
+### Fixes
+- fix(online): **drei Ladefehler durch verfrühten Zugriff auf Konstanten** (2026-09-05) —
+  eigene Fehler dieses Durchgangs, alle vom Produkttest gefunden: `fbOnlineMode` las das
+  Modusregister vor dessen Definition, `renderLobby` las `team2`, bevor es deklariert war,
+  und die Handler-Registrierung las `FB_ONLINE_MODE_IDS` auf oberster Ebene. Jeder einzelne
+  hätte das Skript beim Laden abgebrochen. Die Suiten konnten das nicht sehen — sie werten
+  Funktionen einzeln aus, nie das ganze Skript in seiner Reihenfolge.
+- fix(online): **das Freigabetor griff ins Leere** (2026-09-05) — `fbOnModeShow()` suchte den
+  Knopf ohne das `Btn`-Suffix, fand nichts und blendete deshalb nichts aus. Die Suite prüfte
+  die Zeile, nicht die Kennung; sie prüft jetzt beides.
+- fix(online): **ein Zwei-Sitz-Football-Raum fiel in den RingOut-Zweig** (2026-09-05) —
+  `validateRoom` wählte den Beitrittsweg nach der Sitzzahl. Mit `cap 2` verlor ein
+  Football-Raum dadurch seinen Raumtyp und damit den atomaren Sitzclaim. Die Weiche hängt
+  jetzt am **Raumtyp**.
+
+### Docs
+- docs: Errata A und B zum v9-Entwurf aufgenommen (Fristkante; Schlusszeit der Timed-FFA-
+  Phase aus den Zugstempeln statt aus einem Beobachterstempel) — [artifacts/online-v8-design/V8-HARDENING.md](artifacts/online-v8-design/V8-HARDENING.md) (2026-09-05).
+- docs: `PROJECT.md`, `TODO.md` und `CHANGELOG.md` auf Protokoll v8 nachgezogen (2026-09-05).
+
 ### Features
 - feat(arena-football): **die lokale Lebensregel entscheidet jetzt simultan** (2026-09-05) —
   bis hierher reichte die Lebensregel das Gerät reihum weiter: Verdeckschirm, ein Spieler

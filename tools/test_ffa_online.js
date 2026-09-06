@@ -23,6 +23,8 @@ const saSrc = grab(html, /function seatActive\(p,s\)\{[^\n]*/, 'seatActive');
 const scSrc = grab(html, /function seatCount\(p\)\{[^\n]*/, 'seatCount');
 const sgSrc = grab(html, /function seatsContiguous\(p,n\)\{[^\n]*/, 'seatsContiguous');
 const sfmSrc = grab(html, /function startFfaMatch\(\)\{[\s\S]*?\n\}/, 'startFfaMatch');
+const forSrc = grab(html, /function fbOnlineRoom\(\)\{[^\n]*/, 'fbOnlineRoom');
+const capSrc = grab(html, /let fbRoomCap=0, fbRoomMode='';[\s\S]*?\nfunction fbWaitText\(n,soll\)\{[\s\S]*?\n\}/, 'Sollbesetzung der Lobby (v8)');
 
 // Each snippet on its own line: an extracted const may end in a // comment,
 // which only a line break (absent on Linux/LF) terminates — never chain with ';'.
@@ -41,6 +43,11 @@ const env = new Function(`
   ${saSrc}
   ${scSrc}
   ${sgSrc}
+  // v8-Umfeld: der RingOut-FFA-Zweig faehrt hier, fbOnlineRoom() ist also false.
+  // Die Funktionen kommen trotzdem echt, damit die Weiche mitgeprueft wird.
+  let online=false;   // Register, FB_ONLINE_FMT und FB_ONLINE_SEATS kommen aus protoSrc
+  ${forSrc}
+  ${capSrc}
   // startFfaMatch runs against stubbed lobby UI + a write-recording fake FB
   let lobbyP={};
   // Public-Lobby: startFfaMatch best-effort removes the discovery listing on start.
@@ -68,9 +75,9 @@ const t = (name, cond) => { cond ? pass++ : (fail++, console.error('FAIL: ' + na
 // seatActive()/validateRoom() actually read (on); s/t are irrelevant here (the
 // rules — not the client — enforce their shape, see test_rules.js).
 const room = (over = {}) => Object.assign(
-  { v: VER, config: { game: 'ringout', winTarget: 3, fmt: 'single', visibility: 'private' }, gen: 0, state: 'lobby', p: { 0: { on: true } }, created: 1 }, over);
+  { v: VER, hostUid: 'UID_HOST_FIXTURE', config: { game: 'ringout', winTarget: 3, fmt: 'single', visibility: 'private' }, gen: 0, state: 'lobby', p: { 0: { on: true } }, created: 1 }, over);
 const ffaRoom = (over = {}) => Object.assign(
-  { v: VER, config: { game: 'ringout', winTarget: 3, fmt: 'ffa', visibility: 'private' }, gen: 0, state: 'lobby', p: { 0: { on: true } }, created: 1 }, over);
+  { v: VER, hostUid: 'UID_HOST_FIXTURE', config: { game: 'ringout', winTarget: 3, fmt: 'ffa', visibility: 'private' }, gen: 0, state: 'lobby', p: { 0: { on: true } }, created: 1 }, over);
 
 // ── (1) single/double: unified room-state, join only while state==='lobby' ──
 t('single valid', env.validateRoom(room()).ok === true);
@@ -139,7 +146,7 @@ t('sg reserved-not-active is a gap', env.seatsContiguous({ 0: A, 1: { on: false 
 
   // ── (7) triple_ffa: validateRoom-Schema + Start-Gate exakt 3 Spieler ──
   const tripleRoom = (over = {}) => Object.assign(
-    { v: VER, config: { game: 'ringout', winTarget: 3, fmt: 'triple_ffa', visibility: 'private' }, gen: 0, state: 'lobby', p: { 0: { on: true } }, created: 1 }, over);
+    { v: VER, hostUid: 'UID_HOST_FIXTURE', config: { game: 'ringout', winTarget: 3, fmt: 'triple_ffa', visibility: 'private' }, gen: 0, state: 'lobby', p: { 0: { on: true } }, created: 1 }, over);
   t('triple lobby valid -> seat 1', (() => { const v = env.validateRoom(tripleRoom()); return v.ok === true && v.freeSeat === 1 && v.fmt === 'triple_ffa'; })());
   t('triple full (3 seats) rejected', env.validateRoom(tripleRoom({ p: { 0: { on: true }, 1: true, 2: true } })).reason === 'Raum ist schon voll.');
   t('triple state playing rejected', env.validateRoom(tripleRoom({ state: 'playing' })).reason === 'Match läuft bereits.');

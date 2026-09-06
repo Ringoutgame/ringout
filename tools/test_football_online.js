@@ -151,7 +151,12 @@ const SRC = [
   grab(/function validateRejoinRoom\(d\)\{[\s\S]*?\n\}/, 'validateRejoinRoom'),
   grab(/function seatCount\(p\)\{[^\n]*/, 'seatCount'),
   grab(/function seatsContiguous\(p,n\)\{[^\n]*/, 'seatsContiguous'),
-  grab(/async function claimSeat\(code,op,maxSeats\)\{[\s\S]*?\n\}/, 'claimSeat'),
+  grab(/async function claimSeat\(code,op,maxSeats,kandidaten,team2\)\{[\s\S]*?\n\}/, 'claimSeat'),
+  grab(/function pickSeatFrom\(p,seats\)\{[^\n]*/, 'pickSeatFrom'),
+  grab(/function onlineErrText\(e\)\{[\s\S]*?\n\}/, 'onlineErrText'),
+  grab(/function isHost\(\)\{[^\n]*/, 'isHost'),
+  grab(/function hostSeat\(\)\{[\s\S]*?\n\}/, 'hostSeat'),
+  grab(/let roomHostUid='';/, 'roomHostUid'),
   grab(/function renderLobby\(p\)\{[\s\S]*?\n\}/, 'renderLobby'),
   grab(/function setOnTitle\(ffa\)\{[\s\S]*?\n\}/, 'setOnTitle'),
   grab(/function openOnline\(\)\{[\s\S]*?\n\}/, 'openOnline'),
@@ -214,14 +219,15 @@ const SRC = [
   grab(/function newJoinOp\(\)\{[^\n]*/, 'newJoinOp'),
   grab(/function joinOpCurrent\(op\)\{[^\n]*/, 'joinOpCurrent'),
   grab(/function seatActive\(p,s\)\{[^\n]*/, 'seatActive'),
-  grab(/async function reserveSeat\(code,seat\)\{[\s\S]*?\n\}/, 'reserveSeat'),
+  grab(/async function reserveSeat\(code,seat,team2\)\{[\s\S]*?\n\}/, 'reserveSeat'),
   grab(/async function armPresence\(code,seat\)\{[\s\S]*?\n\}/, 'armPresence'),
   grab(/async function activateSeat\(code,seat,extra\)\{[\s\S]*?\n\}/, 'activateSeat'),
   fn('releaseReservation'),
-  grab(/async function claimSeatSlot\(code,seat,op,extra\)\{[\s\S]*?\n\}/, 'claimSeatSlot'),
-  grab(/async function abortFreshRoom\(code,dc,listed\)\{[\s\S]*?\n\}/, 'abortFreshRoom'),
+  grab(/async function claimSeatSlot\(code,seat,op,extra,team2\)\{[\s\S]*?\n\}/, 'claimSeatSlot'),
+  grab(/async function abortFreshRoom\(code,dc,listed,seat\)\{[\s\S]*?\n\}/, 'abortFreshRoom'),
+  grab(/let fbRoomCap=0, fbRoomMode='';[\s\S]*?\nfunction fbWaitText\(n,soll\)\{[\s\S]*?\n\}/, 'Sollbesetzung der Lobby (v8)'),
   grab(/function roomRejoinableState\(d,seat\)\{[\s\S]*?\n\}/, 'roomRejoinableState'),
-  grab(/function playerRecord\(seat\)\{[^\n]*/, 'playerRecord'),
+  grab(/function playerRecord\(seat,team2\)\{[^\n]*/, 'playerRecord'),
   grab(/function nameForSeat\(s\)\{[\s\S]*?\n\}/, 'nameForSeat'),
   fn('findOwnSeat'),
   grab(/function rememberRoom\(code,seat\)\{[^\n]*/, 'rememberRoom'),
@@ -751,7 +757,11 @@ function makeClient(db, code, opts) {
     return {
       ui, uid:${JSON.stringify(uid)}, pid:onlinePid, tab:onlineTab,
       // Dev-Einstieg: exakt das, was die Schaltflaeche tut.
-      enterFootball(){ mode='football'; fbVariant=FOOTBALL_VARIANT_ELIM; fmt=FB_ONLINE_FMT; openOnline(); },
+      // v8: der Raum traegt Modus und Sollbesetzung. Beides wird VOR dem Anlegen
+      // gewaehlt - genau wie im Produkt hinter der Moduswahl. Voreinstellung ist die
+      // Lebensregel mit fuenf Sitzen, also der bisherige Fall dieser Suite.
+      enterFootball(m,c){ mode='football'; fbVariant=FOOTBALL_VARIANT_ELIM; fmt=FB_ONLINE_FMT;
+        fbOnlineMode=m||'lives'; fbOnlineCap=c||5; openOnline(); },
       create(){ createRoom(); },
       join(c){ \$('onInput').value=c; joinRoom(); },
       start(){ lobbyP=roomP&&Object.keys(roomP).length?roomP:lobbyP; startFfaMatch(); },
@@ -963,10 +973,15 @@ async function setupMatch(db, code) {
 }
 // Wie setupMatch, aber mit n Teilnehmern (2-5). Derselbe Produktweg: Dev-Einstieg,
 // Raum anlegen, beitreten, Host startet.
+// v8 + Freigabetor: ein Match kann nur in einem FREIGEGEBENEN Modus starten, und das
+// ist heute allein die Lebensregel mit drei bis fuenf Sitzen. Ein Zwei-Sitz-Raum
+// (classic/speed) laesst sich anlegen und bevoelkern, aber nicht starten - genau das
+// verhindert, dass ein unfertiger Modus in die generische Partie durchfaellt.
+const modusFuer = (n) => 'lives';
 async function setupMatchN(db, code, n) {
   const cs = [];
   for (let i = 0; i < n; i++) cs.push(makeClient(db, code, { name: 'P' + (i + 1) }));
-  cs[0].enterFootball(); cs[0].create(); await tick(db);
+  cs[0].enterFootball(modusFuer(n), n); cs[0].create(); await tick(db);
   for (let i = 1; i < n; i++) { cs[i].join(code); await tick(db); }
   cs[0].start(); await tick(db);
   return cs;
@@ -1081,18 +1096,34 @@ async function eliminateSeat(db, cs, seat, maxRounds) {
     t('A Format elimination', room && room.config.fmt === 'elimination');
     t('A der Ersteller sitzt auf Sitz 0', cs[0].st().myPlayer === 0 && room.players[0].uid === cs[0].uid);
     t('A der Raum startet in der Lobby', room.state === 'lobby' && room.seats === undefined);
-    t('A der Titel nennt Arena Football', cs[0].onTitle() === 'ARENA FOOTBALL');
+    // v8: der Kopf nennt den gewaehlten MODUS, nicht mehr pauschal das Spiel.
+    // Der Harness-T liefert den Schluessel zurueck (T = k => k). Geprueft wird damit die
+    // VERDRAHTUNG - dass der Kopf den Modusschluessel des Raums zieht. Dass der
+    // Schluessel in allen drei Sprachtabellen steht, prueft die Zeile darunter.
+    t('A der Titel nennt den gewaehlten Modus', cs[0].onTitle() === 'onModeLives');
+    t('A und der Modusschluessel steht in allen drei Sprachtabellen',
+      (HTML.match(/onModeLives:'/g) || []).length === 3);
+    t('A der Raum traegt Modus und Sollbesetzung',
+      room.config.mode === 'lives' && room.config.cap === 5);
 
     // Allein kann niemand starten - Client UND Server verweigern.
     cs[0].start(); await tick(db);
     t('A allein startet das Match nicht', db.data.rooms[CODE].state === 'lobby');
     t('A der Startknopf ist bei 1/5 gesperrt', cs[0].lobbyStartDisabled() === true);
-    // Ab zwei Teilnehmern darf der Host starten (der eigentliche Start folgt weiter
-    // unten mit voller Besetzung; die Startgruppen 2/3/4 stehen in C5).
+    // v8: der Raum verlangt seine SOLLBESETZUNG. "Ab zwei darf der Host" gibt es nicht
+    // mehr - wer einen Fuenf-Spieler-Raum aufmacht, startet mit fuenf.
     cs[1].join(CODE); await tick(db);
-    t('A ab 2/5 ist der Startknopf frei', cs[0].lobbyStartDisabled() === false);
+    t('A bei 2/5 bleibt der Startknopf gesperrt', cs[0].lobbyStartDisabled() === true);
+    cs[2].join(CODE); await tick(db);
+    t('A auch bei 3/5', cs[0].lobbyStartDisabled() === true);
+    cs[3].join(CODE); await tick(db);
+    t('A und bei 4/5', cs[0].lobbyStartDisabled() === true);
+    cs[0].start(); await tick(db);
+    t('A ein Start unterhalb der Sollbesetzung wird abgewiesen',
+      db.data.rooms[CODE].state === 'lobby' && db.data.rooms[CODE].seats === undefined);
 
-    for (let i = 2; i < 5; i++) { cs[i].join(CODE); await tick(db); }
+    for (let i = 4; i < 5; i++) { cs[i].join(CODE); await tick(db); }
+    t('A erst bei 5/5 ist der Startknopf frei', cs[0].lobbyStartDisabled() === false);
     t('A fuenf eindeutige Sitze', cs.slice(0, 5).map(c => c.st().myPlayer).join(',') === '0,1,2,3,4');
     t('A fuenf verschiedene Eigentuemer',
       new Set([0, 1, 2, 3, 4].map(i => db.data.rooms[CODE].players[i].uid)).size === 5);
@@ -1327,12 +1358,22 @@ async function eliminateSeat(db, cs, seat, maxRounds) {
     await playUntilGoal(db, cs, 1, 0, 16);
     const room = db.data.rooms[CODE];
     const flat = JSON.stringify(room);
+    // 'lives' faellt aus dieser Liste: seit v8 ist es der MODUSNAME in config.mode -
+    // unveraenderliche Raumkonfiguration, vor dem Match gewaehlt. Die LEBENSSTAENDE
+    // stehen weiterhin nirgends; sie entstehen aus der Zughistorie. Geprueft wird das
+    // unten ausdruecklich.
     const verboten = ['fbElimLives', 'fbElimActive', 'fbElimSlots', 'arenaPhase', 'morph',
-      'goalState', 'winner', 'lives', 'phaseN', 'vx', 'vy', 'spin'];
+      'goalState', 'winner', 'phaseN', 'vx', 'vy', 'spin'];
     for (const w of verboten) t0('I "' + w + '" steht NICHT in der Datenbank', flat.indexOf(w) < 0);
     t('I kein abgeleiteter Spielzustand im Netz', verboten.every(w => flat.indexOf(w) < 0), flat.slice(0, 200));
+    // "lives" kommt genau EINMAL vor, und zwar als Modusname in der Konfiguration.
+    t('I "lives" steht nur als Modusname im Raum',
+      room.config.mode === 'lives' && (flat.match(/lives/g) || []).length === 1);
+    t('I und die Lebensstaende selbst stehen nirgends',
+      flat.indexOf('fbElimLives') < 0 && !/"[0-9]":2,"[0-9]":2/.test(flat));
+    // hostUid kommt mit v8 dazu - eine Identitaet, kein Spielzustand.
     t('I der Raum traegt nur die erlaubten Zweige',
-      Object.keys(room).sort().join(',') === 'config,created,g,gen,p,players,seats,state,v',
+      Object.keys(room).sort().join(',') === 'config,created,g,gen,hostUid,p,players,seats,state,v',
       Object.keys(room).sort());
     t('I die Historie enthaelt ausschliesslich Zugereignisse',
       Object.keys(room.g[0]).join(',') === 't');
@@ -1627,11 +1668,13 @@ async function eliminateSeat(db, cs, seat, maxRounds) {
   }
 
   {
-    // Start ab ZWEI - auch das gilt fuer den oeffentlichen Weg unveraendert, und allein
-    // startet weiterhin niemand.
+    // v8: die Sollbesetzung steht bei der Anlage fest - "start ab zwei" gibt es nicht
+    // mehr. Dieser Block laeuft ausdruecklich OHNE ?dev=1 und muss deshalb einen
+    // FREIGEGEBENEN Modus benutzen; classic waere gesperrt. Geprueft wird weiter:
+    // allein startet niemand, bei voller Besetzung schon.
     const db = makeDB();
     const a = makeClient(db, 'PUB2', { name: 'A', dev: false });
-    a.enterFootball(); a.create(); await tick(db);
+    a.enterFootball('lives', 3); a.create(); await tick(db);
     t('P allein ist der Startknopf gesperrt', a.lobbyStartDisabled() === true);
     a.start(); await tick(db, 20);
     t('P und es wird kein Startsignal geschrieben', db.data.rooms.PUB2.seats === undefined,
@@ -1639,17 +1682,24 @@ async function eliminateSeat(db, cs, seat, maxRounds) {
     t('P der Raum bleibt in der Lobby', db.data.rooms.PUB2.state === 'lobby');
     const b = makeClient(db, 'PUB2', { name: 'B', dev: false });
     b.join('PUB2'); await tick(db);
-    t('P zu zweit ist er frei', a.lobbyStartDisabled() === false);
+    t('P bei 2 von 3 bleibt der Start gesperrt', a.lobbyStartDisabled() === true);
+    const c = makeClient(db, 'PUB2', { name: 'C', dev: false });
+    c.join('PUB2'); await tick(db);
+    t('P bei voller Besetzung ist er frei', a.lobbyStartDisabled() === false);
+    t('P und der Raum traegt seinen Modus', db.data.rooms.PUB2.config.mode === 'lives' &&
+      db.data.rooms.PUB2.config.cap === 3);
     a.start(); await tick(db);
-    t('P und das Match startet zu zweit', db.data.rooms.PUB2.seats === 2,
+    t('P und das Match startet mit genau der Sollbesetzung', db.data.rooms.PUB2.seats === 3,
       db.data.rooms.PUB2.seats);
     // Und danach kommt niemand mehr hinein - die Besetzung ist eingefroren.
     const spaet = makeClient(db, 'PUB2', { name: 'SPAET', dev: false });
     spaet.join('PUB2'); await tick(db);
     t('P ein spaeter Beitritt bleibt draussen', spaet.st().online === false ||
       spaet.st().myPlayer >= db.data.rooms.PUB2.seats, spaet.st());
-    t('P die eingefrorene Besetzung bleibt bei zwei', db.data.rooms.PUB2.seats === 2);
-    spaet.drop(); a.drop(); b.drop();
+    t('P die eingefrorene Besetzung bleibt bei drei', db.data.rooms.PUB2.seats === 3);
+    t('P und ein vierter haette dort ohnehin keinen Sitz',
+      db.data.rooms.PUB2.config.cap === 3 && spaet.st().myPlayer !== 3);
+    spaet.drop(); a.drop(); b.drop(); c.drop();
   }
 
   {
@@ -1658,7 +1708,7 @@ async function eliminateSeat(db, cs, seat, maxRounds) {
     const db = makeDB();
     const cs = [];
     for (let i = 0; i < 3; i++) cs.push(makeClient(db, 'PUB3', { name: 'R' + i, dev: false }));
-    cs[0].enterFootball(); cs[0].create(); await tick(db);
+    cs[0].enterFootball('lives', 3); cs[0].create(); await tick(db);
     for (let i = 1; i < 3; i++) { cs[i].join('PUB3'); await tick(db); }
     cs[0].start(); await tick(db);
     t('P Vorbedingung: ein laufendes Match zu dritt', db.data.rooms.PUB3.seats === 3);
@@ -1691,7 +1741,7 @@ async function eliminateSeat(db, cs, seat, maxRounds) {
     // bis Frist und REMOVE greifen.
     const db = makeDB();
     const wirt = makeClient(db, 'N3D1', { name: 'H', dev: false });
-    wirt.enterFootball(); wirt.create(); await tick(db);
+    wirt.enterFootball('lives', 3); wirt.create(); await tick(db);
     const blind = makeClient(db, 'N3D1', { name: 'BLIND', dev: false, no3d: true });
     blind.join('N3D1'); await tick(db);
     t('P ein Client ohne 3D-Szene bekommt keinen Sitz',
@@ -1703,8 +1753,10 @@ async function eliminateSeat(db, cs, seat, maxRounds) {
     const sehend = makeClient(db, 'N3D1', { name: 'G', dev: false });
     sehend.join('N3D1'); await tick(db);
     t('P ein spielbarer Client bekommt ihn', sehend.st().myPlayer === 1, sehend.st());
+    const dritter = makeClient(db, 'N3D1', { name: 'G2', dev: false });
+    dritter.join('N3D1'); await tick(db);
     wirt.start(); await tick(db);
-    t('P und das Match startet', db.data.rooms.N3D1.seats === 2);
+    t('P und das Match startet', db.data.rooms.N3D1.seats === 3);
 
     // Auch die RUECKKEHR auf den eigenen Sitz verlangt die Szene.
     const pid = sehend.pid, uid = sehend.uid;
@@ -1728,12 +1780,15 @@ async function eliminateSeat(db, cs, seat, maxRounds) {
     // Raum an und spielt denselben Ablauf.
     const db = makeDB();
     const cs = [];
-    for (let i = 0; i < 2; i++) cs.push(makeClient(db, 'PUB4', { name: 'D' + i }));
-    cs[0].enterFootball(); cs[0].create(); await tick(db);
+    for (let i = 0; i < 3; i++) cs.push(makeClient(db, 'PUB4', { name: 'D' + i }));
+    cs[0].enterFootball('lives', 3); cs[0].create(); await tick(db);
     cs[1].join('PUB4'); await tick(db);
+    cs[2].join('PUB4'); await tick(db);
     cs[0].start(); await tick(db);
     t('K der Dev-Weg legt denselben Raumtyp an',
-      db.data.rooms.PUB4.config.game === 'football' && db.data.rooms.PUB4.seats === 2);
+      db.data.rooms.PUB4.config.game === 'football' && db.data.rooms.PUB4.seats === 3);
+    t('K und dieselbe Sollbesetzung wie der Produktweg',
+      db.data.rooms.PUB4.config.mode === 'lives' && db.data.rooms.PUB4.config.cap === 3);
     await playRound(db, cs, () => [-50, 30]);
     t('K und spielt sich unveraendert', sameHash(cs) && cs[0].st().turnNo >= 0);
     for (const c of cs) c.drop();
@@ -3495,11 +3550,14 @@ async function eliminateSeat(db, cs, seat, maxRounds) {
 }
 
 
-// ── C5 · VARIABLER MATCHSTART: ZWEI BIS FUENF ───────────────────────────────
-// Ein Football-Raum fasst fuenf Sitze; gestartet wird ab zwei. Die Startbesetzung ist
-// die des Startsignals `seats` - sie friert mit dem Start ein und gilt fuer die ganze
-// Generation. Ungenutzte Sitze sind keine Teilnehmer: keine Leben, keine Zugpflicht,
-// kein Eintrag in der Historie.
+// ── C5 · MATCHSTART BEI GENAU DER SOLLBESETZUNG: ZWEI BIS FUENF ─────────────
+// Seit Protokoll v8 traegt der Raum seine SOLLBESETZUNG (config.cap), und gestartet wird
+// genau dann, wenn sie erreicht ist - nicht mehr "ab zwei". Die Startbesetzung `seats`
+// muss ihr entsprechen; sie friert mit dem Start ein und gilt fuer die ganze Generation.
+// Ungenutzte Sitze gibt es damit nur noch waehrend der Lobby; im laufenden Match sind
+// alle Sitze des Raums Teilnehmer. Die Zusicherungen darueber (keine Leben, keine
+// Zugpflicht, kein Eintrag in der Historie) bleiben - sie schuetzen den Fall, dass ein
+// Sitz spaeter ausscheidet.
 {
   const nextBoundary = async (db, cs) => {
     for (const c of cs) { const st = c.st(), me = st.myPlayer;
@@ -3516,8 +3574,10 @@ async function eliminateSeat(db, cs, seat, maxRounds) {
     solo.enterFootball(); solo.create(); await tick(db);
     t('C5-1 der Startknopf ist bei 1/5 gesperrt', solo.lobbyStartDisabled() === true,
       solo.lobbyStartDisabled());
-    t('C5-1 der Hinweis in der Lobby nennt die Mindestzahl',
-      solo.lobbyHint().indexOf('Mindestens 2 Spieler') >= 0, solo.lobbyHint());
+    // v8: der Hinweis nennt nicht mehr eine Mindestzahl, sondern was konkret FEHLT.
+    // Das ist die Auskunft, die der Host tatsaechlich braucht.
+    t('C5-1 der Hinweis in der Lobby nennt die fehlenden Spieler',
+      solo.lobbyHint().indexOf('Warte auf 4 weitere Spieler') >= 0, solo.lobbyHint());
     solo.start(); await tick(db, 30);
     t('C5-1 und der Raum bleibt in der Lobby', db.data.rooms.C5AA.state === 'lobby',
       db.data.rooms.C5AA.state);
@@ -3527,16 +3587,23 @@ async function eliminateSeat(db, cs, seat, maxRounds) {
     // Der Klick darf nicht wirkungslos verpuffen - der Host erfaehrt den Grund aus
     // derselben gemeinsamen Mindestzahl, die auch die uebrigen Formate schuetzt.
     t('C5-1 der Startversuch sagt dem Host, was fehlt',
-      solo.discView().toasts.some(x => x.indexOf('Mindestens 2 Spieler nötig') >= 0),
+      solo.discView().toasts.some(x => x.indexOf('Warte auf 4 weitere Spieler') >= 0),
       solo.discView().toasts);
+    // Und ein Start MIT vier von fuenf wird ebenso abgewiesen - die Sollbesetzung ist
+    // eine Gleichheit, keine Untergrenze.
+    t('C5-1 die Sollbesetzung des Raums steht fest',
+      db.data.rooms.C5AA.config.cap === 5 && db.data.rooms.C5AA.config.mode === 'lives');
   }
 
   // ── C5-2 bis C5-5: Start mit zwei, drei, vier und fuenf ──
   // Fuer jede Besetzung dasselbe Versprechen: genaue Teilnehmerliste, passende
   // Arenaform, zwei Leben je Teilnehmer, keine Zugpflicht fuer ungenutzte Sitze.
-  const ARENA = { 2: 2, 3: 3, 4: 4, 5: 5 };   // Teilnehmer -> Arenaphase (Shouldered Wide /
-                                              // Broad Rounded Triangle / Rounded Square / Pentagon)
-  for (const n of [2, 3, 4, 5]) {
+  const ARENA = { 3: 3, 4: 4, 5: 5 };   // Teilnehmer -> Arenaphase (Broad Rounded
+                                       // Triangle / Rounded Square / Pentagon)
+  // Zwei Teilnehmer fallen hier heraus: kein freigegebener Onlinemodus hat zwei Sitze.
+  // Die Zwei-Spieler-ARENA selbst bleibt unberuehrt - sie entsteht spaeter im Match,
+  // wenn drei auf zwei schrumpfen (C5-7).
+  for (const n of [3, 4, 5]) {
     const code = 'C5B' + n;
     const { db, cs } = await newMatchN(code, n);
     const raum = db.data.rooms[code];
@@ -3651,7 +3718,7 @@ async function eliminateSeat(db, cs, seat, maxRounds) {
     const db = makeDB();
     const cs = [];
     for (let i = 0; i < 3; i++) cs.push(makeClient(db, 'C5RC', { name: 'P' + (i + 1) }));
-    cs[0].enterFootball(); cs[0].create(); await tick(db);
+    cs[0].enterFootball('lives', 3); cs[0].create(); await tick(db);
     cs[1].join('C5RC'); await tick(db);
 
     // Der Host haelt seine Zaehlung fest, der Dritte tritt bei, DANN klickt der Host.
@@ -3660,7 +3727,7 @@ async function eliminateSeat(db, cs, seat, maxRounds) {
     cs[0].startWith(2); await tick(db, 40);
 
     const raum = db.data.rooms.C5RC;
-    t('C5-5c der Host hatte zwei gezaehlt', gezaehlt === '2/5', gezaehlt);
+    t('C5-5c der Host hatte zwei gezaehlt', gezaehlt === '2/3', gezaehlt);
     t('C5-5c das verlorene Rennen laesst den Raum in der Lobby',
       raum.state === 'lobby' && raum.seats === undefined, { state: raum.state, seats: raum.seats });
     t('C5-5c niemand ist gestartet', cs.every(c => c.st().gameStarted === false),
@@ -3683,13 +3750,14 @@ async function eliminateSeat(db, cs, seat, maxRounds) {
     const { db, cs } = await newMatchN('C5C3', 3);
     const raum = db.data.rooms.C5C3;
     const mit = (seats) => Object.assign({}, raum, { seats });
-    t('C5-6 Besetzung 2 bis 5 wird angenommen',
-      [2, 3, 4, 5].every(n => cs[0].rejoinCheck(mit(n)).ok === true),
-      [2, 3, 4, 5].map(n => cs[0].rejoinCheck(mit(n)).ok));
-    t('C5-6 eine Besetzung von 1 wird abgewiesen', cs[0].rejoinCheck(mit(1)).ok === false,
-      cs[0].rejoinCheck(mit(1)));
-    t('C5-6 eine Besetzung von 6 wird abgewiesen', cs[0].rejoinCheck(mit(6)).ok === false,
-      cs[0].rejoinCheck(mit(6)));
+    // v8: die Rueckkehrpruefung vergleicht nicht mehr gegen eine Spanne, sondern gegen
+    // die SOLLBESETZUNG des Raums. Der Raum hier ist ein Dreier - jede andere Zahl im
+    // Startsignal beschreibt ein Match, das es so nicht geben kann.
+    t('C5-6 die Besetzung des eigenen Raums wird angenommen',
+      cs[0].rejoinCheck(mit(3)).ok === true, cs[0].rejoinCheck(mit(3)));
+    t('C5-6 jede abweichende Besetzung wird abgewiesen',
+      [1, 2, 4, 5, 6].every(n => cs[0].rejoinCheck(mit(n)).ok === false),
+      [1, 2, 4, 5, 6].map(n => cs[0].rejoinCheck(mit(n)).ok));
   }
 
   // ── C5-7: Elimination 3 -> 2 -> Sieger ──
@@ -3725,14 +3793,23 @@ async function eliminateSeat(db, cs, seat, maxRounds) {
       cs[0].st().active);
   }
 
-  // ── C5-9: zwei Teilnehmer - der Austritt entscheidet das Match ──
+  // ── C5-9: bis auf einen ausgetreten - der Verbliebene gewinnt ──
+  // Bis Phase A begann dieser Fall mit ZWEI Startsitzen. Das geht nicht mehr: kein
+  // freigegebener Onlinemodus hat zwei Sitze. Die Zweierlage entsteht jetzt so, wie sie
+  // im Spiel auch entsteht - durch einen Austritt aus einer Dreierpartie - und der
+  // zweite Austritt entscheidet das Match. Geprueft wird unveraendert dasselbe: ein
+  // Sieger ohne Tor und ohne Lebensabzug.
   {
-    const { db, cs } = await newMatchN('C5D2', 2);
+    const { db, cs } = await newMatchN('C5D2', 3);
     db.publishOffset(); await tick(db, 20);
-    t('C5-9 Start in der Zweierarena', cs[0].st().phaseN === 2, cs[0].st().phaseN);
+    t('C5-9 Start in der Dreierarena', cs[0].st().phaseN === 3, cs[0].st().phaseN);
     const leben0 = cs[0].st().lives.join(',');
+    cs[2].leave(); await tick(db, 60);
+    await nextBoundary(db, cs); await nextBoundary(db, cs);
+    t('C5-9 nach dem ersten Austritt steht die Zweierarena',
+      cs[0].st().phaseN === 2, cs[0].st().phaseN);
     cs[1].leave(); await tick(db, 60);
-    t('C5-9 der Austritt ist vermerkt',
+    t('C5-9 der zweite Austritt ist vermerkt',
       ((db.data.rooms.C5D2.g[db.data.rooms.C5D2.gen] || {}).e || {})[1] === true,
       db.data.rooms.C5D2.g);
     await nextBoundary(db, cs); await nextBoundary(db, cs);

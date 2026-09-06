@@ -684,15 +684,19 @@ const untilMorph = (E) => { for (let i = 0; i < 600 && E.goalState() !== 'morph'
   // dieses - die Variantenvorgabe. Kein zweiter Zaehlweg im Produktcode.
   ok(/function fbElimPlayers\(\)\{\s*if\(fbElimStartN>=2\)return fbElimStartN;\s*return fbVariant===FOOTBALL_VARIANT_ELIM4\?FOOTBALL_ELIM4_PLAYERS:FOOTBALL_ELIM_START_PLAYERS;\s*\}/.test(HTML),
      'die Startspielerzahl kommt aus genau einer Funktion');
-  // Gesetzt wird die Startbesetzung an genau SIEBEN Stellen (lokale Partie zweimal —
-  // einmal auf null, einmal aus der Einrichtung —, oeffentlicher Onlineeinstieg,
-  // Dev-Einstieg, Startsignal, Rueckkehr, Verlassen); dazu die Deklaration und die zwei
-  // Lesestellen in fbElimPlayers. Der oeffentliche Einstieg setzt sie auf null - wie der
-  // Dev-Einstieg: WELCHE Besetzung gilt, entscheidet erst das kanonische Startsignal.
-  ok((HTML.match(/fbElimStartN/g) || []).length === 10,
+  // Gesetzt wird die Startbesetzung an genau SECHS Stellen (lokale Partie zweimal —
+  // einmal auf null, einmal aus der Einrichtung —, der EINE Onlineeinstieg, Startsignal,
+  // Rueckkehr, Verlassen); dazu die Deklaration und die zwei Lesestellen in
+  // fbElimPlayers. Seit v8 fuehren Produkt- und Dev-Tuer beide ueber fbOnlineEnter, es
+  // gibt dort also nur noch EINE Zuweisung statt zwei.
+  ok((HTML.match(/fbElimStartN/g) || []).length === 9,
      'die Startbesetzung wird nur an den benannten Stellen gesetzt');
-  ok((HTML.match(/fmt=FB_ONLINE_FMT; fbElimStartN=0;/g) || []).length === 2,
-     'und beide Onlineeinstiege ueberlassen sie dem Startsignal');
+  ok((HTML.match(/fmt=FB_ONLINE_FMT; fbElimStartN=0;/g) || []).length === 1,
+     'und der Onlineeinstieg ueberlaesst sie dem Startsignal');
+  // Die Sollbesetzung des RAUMS ist eine andere Groesse als die Startbesetzung der
+  // Partie: cap steht vor dem Match fest, fbElimStartN kommt aus dem Startsignal.
+  ok(/config\.cap/.test(HTML) && !/fbElimStartN=.*cap/.test(HTML),
+     'die Sollbesetzung des Raums wird nicht mit der Startbesetzung vermengt');
   // Es gibt genau EINE Fuenf-Spieler-Arena - kein Kandidatenvergleich mehr im Produktcode.
   ok(!/DEV_S5|ELIM5_REGULAR|ELIM5_BROAD|fbRegularPoly/.test(HTML),
      'kein Rest der Kandidatenauswahl (s5 / REGULAR / BROAD) im Produktcode');

@@ -18,13 +18,13 @@ const SUITES = [
   { name: 'Football-Shell',   file: 'test_football_shell.js', expectPassed: 954 },   // Arena-Finalisierung + Review-Fixes: Rounded Rectangle B, gerades Tor, M1, Ballradius 25
   { name: 'Football-Flow',    file: 'test_football_flow.js',  expectPassed: 155 },   // Arena-Finalisierung 2026-08-07: M1-Wirkungsmessung, Rechteckgrenze, Ballradius 25
   { name: 'Football-Arena',   file: 'test_football_arena.js', expectPassed: 80 },    // Classic auf der kanonischen Shouldered-Wide-Arena, buendiges Tor, M1, Ballradius 25
-  { name: 'Football-Tactical', file: 'test_football_tactical.js', expectPassed: 291 },   // Tactical 1v1 (2 Figuren, 1 Zug je Team/Runde) + sichtbare Modusauswahl der drei Produktmodi
+  { name: 'Football-Tactical', file: 'test_football_tactical.js', expectPassed: 300 },   // Tactical 1v1 (2 Figuren, 1 Zug je Team/Runde) + sichtbare Modusauswahl der drei Produktmodi
   { name: 'Football-Elim',    file: 'test_football_elimination4.js', expectPassed: 1530 },  // Dev-Einstieg auf vier Startspieler: ZWEI LEBEN + adaptive Arena 4 -> 3 -> 2 -> 1 + fairer Respawn
-  { name: 'Football-Elim5',   file: 'test_football_elimination5.js', expectPassed: 319 },
+  { name: 'Football-Elim5',   file: 'test_football_elimination5.js', expectPassed: 320 },
   { name: 'Football-ArenaKanon', file: 'test_football_arena_canonical.js', expectPassed: 137 },  // KANONISCHE ARENA B: eine Wandbeschreibung (FB_TWO_GOAL_SHAPE) fuer alle Zwei-Tor-Modi und dasselbe Schulterverhaeltnis radial (FB_RADIAL_SHAPE) fuer 3/4/5 Tore; prueft zusaetzlich, dass vom A/B/C-Labor kein Rest uebrig ist
   { name: 'Football-LivesSim', file: 'test_football_lives_sim.js', expectPassed: 117 },  // LEBENSREGEL SIMULTAN: ein gemeinsames 6-Sekunden-Fenster fuer alle aktiven Spieler, gleichzeitiger Abschuss, Lebensbuchung 2->1->raus unveraendert, keine Phasenuhr
-  { name: 'Football-Team2v2', file: 'test_football_team2v2.js', expectPassed: 126 },  // TRUE TEAM 2V2: vier Identitaeten mit eigenen Kugeln, ein gemeinsames Fenster, gleichzeitiger Abschuss, Teamwertung nach Torseite (Eigentor eingeschlossen), First to 3
-  { name: 'Football-TimedFFA', file: 'test_football_timed_ffa.js', expectPassed: 241 },   // Elimination 2.0: Phasenuhr nur waehrend gespielter Zeit, Gegentore je Phase, Gleichstand ohne Los; Leben, Classic, Tactical und Online unberuehrt
+  { name: 'Football-Team2v2', file: 'test_football_team2v2.js', expectPassed: 127 },  // TRUE TEAM 2V2: vier Identitaeten mit eigenen Kugeln, ein gemeinsames Fenster, gleichzeitiger Abschuss, Teamwertung nach Torseite (Eigentor eingeschlossen), First to 3
+  { name: 'Football-TimedFFA', file: 'test_football_timed_ffa.js', expectPassed: 242 },   // Elimination 2.0: Phasenuhr nur waehrend gespielter Zeit, Gegentore je Phase, Gleichstand ohne Los; Leben, Classic, Tactical und Online unberuehrt
   { name: 'Football-Zeit',    file: 'test_football_timed_classic.js', expectPassed: 257 },  // Classic 1v1 auf Zeit: 90 s BEDENKZEIT in festen Ticks, Golden Goal bei Gleichstand, Tactical und Elimination unberuehrt
   { name: 'Football-Action',  file: 'test_football_action_core.js', expectPassed: 59 },  // Action Core 04: der Stossimpuls kennt Massen — ein sauberer Volltreffer gibt dem Ball 96.7 % statt 71.4 %, Winkel und Staerke bleiben taktische Groessen, die Daempfung beider Kugelarten ist unangetastet
   { name: 'Football-Tormund', file: 'test_football_goal_mouth.js', expectPassed: 263 },  // sichtbar offen heisst physisch offen: im Torfenster keine Bande, der Sockel besitzt die Zurueckweisung, das Tor wird nie breiter als es aussieht
@@ -41,15 +41,16 @@ const SUITES = [
   { name: 'FFA-Online-Flow',  file: 'test_ffa_flow.js',       expectPassed: 148 },
   { name: 'FFA-Online-Race',  file: 'test_ffa_race.js',       expectPassed: 115 },
         { name: 'Reconnect-B2',     file: 'test_reconnect.js',      expectPassed: 213 },   // 53 Bestand (RC1-RC11) + 14 RC-ENV + 17 RC-UID/RC-UID2: Seat-Eigentum ueber auth.uid, Diebstahlversuch mit bekannter Spieler-ID, Zweittab, Mehrdeutigkeit und Legacy-Rueckfall
-          { name: 'Protokoll',        file: 'test_online_protocol.js', expectPassed: 134 },   // reine Schema-/Vertragsschicht: Version, Raumtyp, Sitz/Koerper, kanonische Zugereignisse
-  { name: 'Football-Online', file: 'test_football_online.js', expectPassed: 719 },   // fuenf getrennte Clients an einer Datenbank: Lobby, paralleler Commit, gleichzeitiger Abschuss, Tore/Leben, 5->4->3->2, Rehydrierung
+          { name: 'Protokoll',        file: 'test_online_protocol.js', expectPassed: 191 },
+  { name: 'Online-PhaseA',   file: 'test_online_phase_a.js', expectPassed: 305 },   // PROTOKOLL v8 PHASE A: ein Modusregister mit Sollbesetzung, Freigabetor fuer noch nicht fertige Onlinemodi, modusbewusste Lobby mit Soll/Ist - und der Nachweis, dass der Zugpfad unveraendert der v7-Pfad ist (kein v9-Mechanismus)   // reine Schema-/Vertragsschicht: Version, Raumtyp, Sitz/Koerper, kanonische Zugereignisse
+  { name: 'Football-Online', file: 'test_football_online.js', expectPassed: 714 },   // fuenf getrennte Clients an einer Datenbank: Lobby, paralleler Commit, gleichzeitiger Abschuss, Tore/Leben, 5->4->3->2, Rehydrierung
         // 719 -> 713 mit Action Core 04: der Ball traegt mehr Energie, es fallen mehr
         // Streutore, und in der Sequenz [P1>P2>P3] steht der Sieger fest, BEVOR P3 an die
         // Reihe kommt. Die Schleife bricht dann ab (das ist ihr Vertrag) und drei
         // Zusicherungen je Ansicht laufen nicht mehr. Dieselben Pruefungen laufen fuer die
         // ersten beiden Ausfaelle weiter; verloren geht nur die Zwei-Ueberlebenden-Stufe
         // in genau dieser Sequenz, die offline von der Elimination-Suite gedeckt ist.
-  { name: 'Rules',            file: 'test_rules.js',          expectPassed: 523 },   // v4: Seat-Ownership, Football-Raumtyp, typisierte Zuege (move/skip/remove) und die Eviction
+  { name: 'Rules',            file: 'test_rules.js',          expectPassed: 591 },   // v4: Seat-Ownership, Football-Raumtyp, typisierte Zuege (move/skip/remove) und die Eviction
   { name: 'Public-Lobby',     file: 'test_public_lobby.js',   expectPassed: 30 },
   { name: 'Team-Duel',        file: 'test_team_duel.js',      expectPassed: 36 },
 ];

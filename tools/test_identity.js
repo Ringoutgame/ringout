@@ -14,7 +14,7 @@ const src = [
   grab(html, /function sanitizeName\(raw\)\{[\s\S]*?\n\}/, 'sanitizeName'),
   grabFunction(html, 'findOwnSeat'),
   grab(html, /function nameForSeat\(s\)\{[\s\S]*?\n\}/, 'nameForSeat'),
-  grab(html, /function playerRecord\(seat\)\{[^\n]*/, 'playerRecord'),
+  grab(html, /function playerRecord\(seat,team2\)\{[^\n]*/, 'playerRecord'),
   // Stubs for the globals the two roster helpers read.
   "const T=k=>k;",
   "let playersRoster={}, onlinePid='PID000001', onlineName='', onlineTab='TAB000001';",

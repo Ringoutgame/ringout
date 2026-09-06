@@ -25,7 +25,7 @@ const t = (name, cond) => { cond ? pass++ : (fail++, console.error('FAIL: ' + na
 
 // ── validateRoom: visibility is mandatory and exactly 'private' | 'public' ──
 const vroom = (over = {}) => Object.assign(
-  { v: VER, config: { game: 'ringout', winTarget: 3, fmt: 'single', visibility: 'private' }, gen: 0, state: 'lobby',
+  { v: VER, hostUid: 'UID_HOST_FIXTURE', config: { game: 'ringout', winTarget: 3, fmt: 'single', visibility: 'private' }, gen: 0, state: 'lobby',
     p: { 0: { s: 'hosttoken1', on: true, t: 1 } }, created: 1 }, over);
 t('validate: visibility private -> ok', validateRoom(vroom()).ok === true);
 t('validate: visibility public -> ok', validateRoom(vroom({ config: { game: 'ringout', winTarget: 3, fmt: 'single', visibility: 'public' } })).ok === true);
