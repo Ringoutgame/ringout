@@ -8908,6 +8908,140 @@ async function fbV9AcceptedSet(ctx,cap,c,r){
   return raus;
 }
 // ════ ENDE V9-PROTOKOLLMASCHINE ════
+// ════ V9-NETZADAPTER (RUHEND) ════
+// Die duenne Schicht zwischen der Protokollmaschine und Firebase. Sie kennt die vier
+// v9-Pfade und sonst nichts: kein Spielzustand, keine Phase, keine Physik, keine
+// Zustandsmaschine. Jede Funktion ist EINE Handlung - das Zusammenspiel kommt spaeter.
+//
+// Sie wird von keinem freigegebenen Weg aufgerufen. Der v8-Zugpfad laeuft unveraendert
+// ueber g/<gen>/t/<turn>/<seat>; ONLINE_PROTOCOL_VERSION steht weiterhin auf 8.
+//
+// Benutzt werden ausschliesslich die vorhandenen Bausteine aus window.FB
+// (ref, runTransaction, onValue, serverTimestamp) - kein zweiter Firebase-Zugang.
+const FB_V9_COMMITTED='COMMITTED', FB_V9_EXISTS='EXISTS',
+      FB_V9_DENIED='DENIED', FB_V9_INVALID='INVALID', FB_V9_ERROR='ERROR';
+
+// Der Zusammenhang, in dem der Adapter arbeitet. Streng geprueft, damit er nicht
+// versehentlich mit einem v8-Zusammenhang benutzt wird - dort gaebe es diese Pfade
+// nicht, und die Rules wuerden jeden Schreibvorgang abweisen.
+function fbV9CtxOk(ctx){
+  if(!ctx||typeof ctx!=='object')return false;
+  if(ctx.v!==9)return false;
+  if(typeof ctx.code!=='string'||!FB_V9_CODE_RE.test(ctx.code))return false;
+  if(!Number.isInteger(ctx.cap)||ctx.cap<2||ctx.cap>FB_ONLINE_SEATS)return false;
+  if(!Number.isInteger(ctx.gen)||ctx.gen<0||ctx.gen>GEN_MAX)return false;
+  if(!Number.isInteger(ctx.turn)||ctx.turn<0||ctx.turn>9999)return false;
+  if(!Number.isInteger(ctx.seat)||ctx.seat<0||ctx.seat>=ctx.cap)return false;
+  return true;
+}
+function fbV9Path(ctx,rest){
+  return 'rooms/'+ctx.code+'/g/'+ctx.gen+'/'+rest;
+}
+function fbV9Ref(ctx,rest){
+  return window.FB.ref(window.FB.db,fbV9Path(ctx,rest));
+}
+// Ein Schreibvorgang, der genau einmal gelingen darf. `applyLocally:false` wie im
+// v8-Zugslot: kein optimistisches lokales Zwischenereignis, der eigene Wert wird erst
+// sichtbar, wenn der Server entschieden hat. Ist der Knoten belegt, bricht die
+// Transaktion ohne Schreibvorgang ab - das ist kein Fehler, sondern die Antwort.
+async function fbV9WriteOnce(ref,wert){
+  try{
+    const erg=await window.FB.runTransaction(ref,cur=>cur==null?wert:undefined,
+                                             {applyLocally:false});
+    return {status:erg.committed?FB_V9_COMMITTED:FB_V9_EXISTS,
+            wert:erg.snapshot?erg.snapshot.val():null};
+  }catch(e){
+    // Eine Abweisung durch die Rules ist ausdruecklich KEIN Erfolg und wird auch nicht
+    // dazu gemacht. Wiederholt wird nichts - die SDK-eigene Transaktionslogik ist die
+    // einzige Wiederholung, die es hier geben darf.
+    const txt=String((e&&(e.code||e.message))||e);
+    return {status:/permission|PERMISSION/.test(txt)?FB_V9_DENIED:FB_V9_ERROR,
+            wert:null,fehler:txt};
+  }
+}
+
+// ── Die Runde eroeffnen ──────────────────────────────────────────────────────
+// Geschrieben wird der GANZE Knoten {n,o}: die Rules verlangen beides in EINEM
+// atomaren Vorgang, weil `n` die Turnnummer an den Pfadschluessel bindet und erst
+// dadurch die Vorgaengerbedingung rechenbar wird. Ein Blattschreiben auf o allein
+// waere abgewiesen. Der Zeitstempel ist der SERVERwert - nie eine Clientuhr.
+async function fbV9NetOpenTurn(ctx){
+  if(!fbV9CtxOk(ctx))return {status:FB_V9_INVALID,wert:null};
+  return await fbV9WriteOnce(fbV9Ref(ctx,'d/'+ctx.turn),
+                             {n:ctx.turn,o:window.FB.serverTimestamp()});
+}
+
+// ── Das eigene Terminal schreiben ────────────────────────────────────────────
+// Angenommen wird ausschliesslich die Bauform der Maschine: {k:'move',h} oder
+// {k:'pass'}. Die Sentinel-Arten (skip, remove, late) gehoeren einem anderen
+// Schreiber - sie sind Fremdschreibvorgaenge und kommen mit der Zeitsteuerung.
+async function fbV9NetWriteCommit(ctx,terminal){
+  if(!fbV9CtxOk(ctx))return {status:FB_V9_INVALID,wert:null};
+  if(!terminal||typeof terminal!=='object')return {status:FB_V9_INVALID,wert:null};
+  let nutz=null;
+  if(terminal.k==='move'){
+    if(typeof terminal.h!=='string'||!FB_V9_HEX_HASH_RE.test(terminal.h))
+      return {status:FB_V9_INVALID,wert:null};
+    // NUR Zugart, Hash und Zeitstempel. Vektor und Salz bleiben lokal - sie sind
+    // das Geheimnis, dessentwegen es diesen Umweg ueberhaupt gibt.
+    nutz={k:'move',h:terminal.h,ts:window.FB.serverTimestamp()};
+  }else if(terminal.k==='pass'){
+    nutz={k:'pass',ts:window.FB.serverTimestamp()};
+  }else return {status:FB_V9_INVALID,wert:null};
+  return await fbV9WriteOnce(fbV9Ref(ctx,'c/'+ctx.turn+'/'+ctx.seat),nutz);
+}
+
+// ── Die Enthuellungsphase eroeffnen ──────────────────────────────────────────
+// Ein Blatt: eine serverdatierte Zahl, write-once. Der Aufrufer DARF vorher lokal
+// pruefen, ob die Commit-Barriere steht - massgeblich sind aber die Rules. Sagt die
+// lokale Sicht "vollstaendig" und der Server widerspricht, faellt der Schreibvorgang
+// und das Ergebnis wird gemeldet, nicht beschoenigt.
+async function fbV9NetOpenReveal(ctx){
+  if(!fbV9CtxOk(ctx))return {status:FB_V9_INVALID,wert:null};
+  return await fbV9WriteOnce(fbV9Ref(ctx,'ro/'+ctx.turn),window.FB.serverTimestamp());
+}
+
+// ── Die eigene Enthuellung schreiben ─────────────────────────────────────────
+async function fbV9NetWriteReveal(ctx,reveal){
+  if(!fbV9CtxOk(ctx))return {status:FB_V9_INVALID,wert:null};
+  if(!reveal||reveal.k!=='reveal'||!fbV9ResultOk(reveal))
+    return {status:FB_V9_INVALID,wert:null};
+  if(reveal.idx!==ctx.seat)return {status:FB_V9_INVALID,wert:null};   // Eigentum, wie ueberall
+  const nutz={k:'reveal',idx:reveal.idx,dx:reveal.dx,dy:reveal.dy,sp:reveal.sp,
+              n:reveal.n,ts:window.FB.serverTimestamp()};
+  return await fbV9WriteOnce(fbV9Ref(ctx,'r/'+ctx.turn+'/'+ctx.seat),nutz);
+}
+
+// ── Zuhoeren ─────────────────────────────────────────────────────────────────
+// Vier Knoten, ein Rueckruf, kein Ereignisrahmenwerk. Der Adapter DEUTET nichts: er
+// reicht die Schnappschuesse weiter, wie sie kommen. Missgebildetes wird nicht
+// repariert - das liest die Protokollmaschine, und die hat dafuer ihre Kategorien.
+// Nichts hier ruft applyLaunch(), schreibt einen Zug oder raeumt ein Geheimnis.
+function fbV9NetListen(ctx,rueckruf){
+  if(!fbV9CtxOk(ctx)||typeof rueckruf!=='function')return null;
+  const stand={turnOpen:null,commits:null,revealOpen:null,results:null};
+  const wege=[['d/'+ctx.turn,'turnOpen'],['c/'+ctx.turn,'commits'],
+              ['ro/'+ctx.turn,'revealOpen'],['r/'+ctx.turn,'results']];
+  let aus=[],offen=true;
+  for(const w of wege){
+    aus.push(window.FB.onValue(fbV9Ref(ctx,w[0]),snap=>{
+      if(!offen)return;                       // nach dem Abmelden schweigt der Adapter
+      stand[w[1]]=snap?snap.val():null;
+      rueckruf({turnOpen:stand.turnOpen,commits:stand.commits,
+                revealOpen:stand.revealOpen,results:stand.results});
+    }));
+  }
+  // Ausdrueckliches Abmelden, mehrfach gefahrlos: ein zweites Abmelden findet nichts
+  // mehr vor und tut nichts. Ohne diese Zusage haette jeder Raum- oder Rundenwechsel
+  // eine Altlast hinterlassen.
+  return function abmelden(){
+    if(!offen)return;
+    offen=false;
+    for(const u of aus){ try{ if(typeof u==='function')u(); }catch(e){} }
+    aus=[];
+  };
+}
+// ════ ENDE V9-NETZADAPTER ════
 // ════ ONLINE-MODUSREGISTER (v8) ════
 // EINE Quelle fuer Modusnamen, Sollbesetzung, Beschriftung und Freigabestand. Jede
 // Stelle, die Kapazitaet oder Moduslabel braucht, fragt hier - es gibt bewusst keine
