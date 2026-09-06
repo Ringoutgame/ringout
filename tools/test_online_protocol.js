@@ -351,8 +351,8 @@ t('Beitritt: die Ablehnung nennt die Versionsunvertraeglichkeit',
   // Aussage bleibt deshalb dieselbe - fuer das freigegebene Protokoll traegt eine
   // Generation weiterhin genau Zughistorie und Eviction.
   t('eine Generation traegt Zughistorie, Eviction und die v9-Grundlage',
-    JSON.stringify(Object.keys(g$).sort()) === JSON.stringify(['c', 'd', 'e', 't']), Object.keys(g$));
-  for (const zweig of ['d', 'c'])
+    JSON.stringify(Object.keys(g$).sort()) === JSON.stringify(['c', 'd', 'e', 'r', 'ro', 't']), Object.keys(g$));
+  for (const zweig of ['d', 'c', 'ro', 'r'])
     t('der Zweig ' + zweig + ' gilt ausschliesslich fuer v9-Raeume',
       JSON.stringify(g$[zweig]).indexOf("child('v').val() === 9") >= 0);
   t('und der v8-Zugslot bleibt an v4 bis v8 gebunden',

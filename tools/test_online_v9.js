@@ -12,7 +12,22 @@
 //   - Die Fixtures unten setzen `v: 9` unmittelbar - so, wie es der Emulator beim
 //     Vorbefuellen unter Umgehung der Regeln taete. Geprueft werden ausschliesslich die
 //     Kindregeln darunter.
-//   - Reveal, Hashpruefung, WebCrypto, Salt und jede Spielwirkung gehoeren NICHT hierher.
+//
+// WAS DIE REGELN AUSDRUECKLICH NICHT LEISTEN - damit es niemand ueberschaetzt:
+//   - Firebase Rules koennen SHA-256 NICHT berechnen. Sie pruefen die FORM des Hashes
+//     und die FORM des Salzes, nie ihren Zusammenhang.
+//   - Es kann daher ein formal gueltiges Reveal in r/ stehen, dessen Vorlage NICHT zum
+//     Hash seines Commits passt. Die Rules nehmen es an. Erst die Clientlogik in V9.3
+//     muss es erkennen und bei ALLEN Teilnehmern gleich verwerfen.
+//   - Die Eroeffnung des naechsten Turns ist noch nicht simulationssicher: ist der
+//     Vorgaenger protokollarisch fertig, darf sofort geoeffnet werden - auch waehrend
+//     ehrliche Clients die Physik der Vorrunde noch rechnen. Das schliesst erst V9.4
+//     mit einer Settled/Ready-Barriere je Sitz.
+//   - Turn 0 haengt weiterhin nur an state/seats. Eine Ready-Barriere zum
+//     Generationsstart fehlt und gehoert ebenfalls zu V9.4.
+//   - Was ein ausgebliebenes Reveal SPIELERISCH bedeutet, ist NICHT entschieden. Das
+//     Protokoll haelt hier nur fest, dass nichts kam.
+//   - WebCrypto, Salzerzeugung, Hashvorlage und jede Spielwirkung gehoeren nicht hierher.
 //   node test_online_v9.js
 const { tryWrite, NOW, UID_HOST, UID_GUEST, UID_ATTACK, GRACE } = require('./test_rules.js');
 
@@ -45,6 +60,8 @@ function raum(opt) {
   if (evicted.length) { g[0].e = {}; for (const s of evicted) g[0].e[s] = true; }
   if (opt.d) g[0].d = opt.d;
   if (opt.c) g[0].c = opt.c;
+  if (opt.ro) g[0].ro = opt.ro;
+  if (opt.r) g[0].r = opt.r;
   return {
     rooms: {
       V9RM: {
@@ -72,7 +89,7 @@ const barriere = (turn, n) => { const c = {}, e = {};
 const O_MOVE = { k: 'move', h: HEX64, ts: SV };
 const O_PASS = { k: 'pass', ts: SV };
 
-console.log('=== V9.1: autoritative Turn-Eroeffnung und Commit-Terminal ===');
+console.log('=== V9.1/V9.2: Turn-Eroeffnung, Commit-Terminal, Reveal ===');
 
 // ══ TURN-EROEFFNUNG ══════════════════════════════════════════════════════════
 abschnitt('Turn-Eroeffnung  rooms/<code>/g/<gen>/d/<turn>');
@@ -315,5 +332,265 @@ abschnitt('Regression: v8 bleibt unberuehrt');
        { k: 'move', idx: 1, dx: 10, dy: -10, sp: 0 }, UID[1]);
 }
 
-console.log('\nOnline-V9.1: ' + pass + ' passed, ' + fail + ' failed');
+
+// ═════════════════════════════════════════════════════════════════════════════
+// V9.2: DER REVEAL
+// ═════════════════════════════════════════════════════════════════════════════
+// Die Enthuellung ist der zweite Halbschritt eines Zuges. Ihr Anker liegt in einem
+// EIGENEN Namensraum (ro/<turn>), nicht als drittes Kind unter d/<turn>: dort traegt
+// `!data.exists()` die Write-once-Zusage von V9.1 fuer n und o, und `$other: false`
+// sperrt jedes weitere Kind. Ein eigener Pfad ist ausserdem ein Blatt - eine Zahl,
+// write-once, `=== now` - und haelt die beiden Zeitanker sprachlich auseinander.
+const HEX32 = '0123456789abcdef'.repeat(2);          // 32 Zeichen, kleingeschrieben
+const REVEAL_MS = 6000;
+// Terminals eines Turns in gewuenschter Zusammensetzung.
+const terminals = (turn, arten) => { const c = {}, e = {};
+  arten.forEach((k, i) => { e[i] = k === 'move' ? { k: 'move', h: HEX64, ts: NOW - 2000 }
+                                                : { k: k, ts: NOW - 2000 }; });
+  c[turn] = e; return c; };
+// Der Reveal-Anker. `alt` legt ihn zurueck, um die Frist zu ueberschreiten.
+const revOffen = (turn, alt) => { const o = {}; o[turn] = NOW - (alt || 0); return o; };
+const ergebnisse = (turn, obj) => { const r = {}; r[turn] = obj; return r; };
+const REVEAL = { k: 'reveal', idx: 1, dx: 12, dy: -8, sp: 0.5, n: HEX32, ts: SV };
+const NOREVEAL = { k: 'noreveal', ts: SV };
+
+// ══ REVEAL-ANKER ═════════════════════════════════════════════════════════════
+abschnitt('Reveal-Anker  rooms/<code>/g/<gen>/ro/<turn>');
+{
+  const offenOhne = { d: offen('0') };
+  deny('vor vollstaendiger Commit-Barriere oeffnet die Enthuellung nicht',
+       raum(offenOhne), 'rooms/V9RM/g/0/ro/0', SV, UID[1]);
+  deny('auch nicht bei zwei von drei Terminals',
+       raum({ d: offen('0'), c: terminals('0', ['move', 'pass']) }),
+       'rooms/V9RM/g/0/ro/0', SV, UID[1]);
+  allow('mit allen drei Terminals oeffnet sie',
+        raum({ d: offen('0'), c: terminals('0', ['move', 'pass', 'late']) }),
+        'rooms/V9RM/g/0/ro/0', SV, UID[1]);
+  allow('cap 2: zwei Terminals genuegen',
+        raum({ cap: 2, d: offen('0'), c: terminals('0', ['move', 'pass']) }),
+        'rooms/V9RM/g/0/ro/0', SV, UID[1]);
+  deny('cap 5: vier Terminals genuegen nicht',
+       raum({ cap: 5, d: offen('0'), c: terminals('0', ['move', 'pass', 'pass', 'pass']) }),
+       'rooms/V9RM/g/0/ro/0', SV, UID[1]);
+  allow('cap 5: fuenf Terminals genuegen',
+        raum({ cap: 5, d: offen('0'), c: terminals('0', ['move', 'pass', 'pass', 'pass', 'late']) }),
+        'rooms/V9RM/g/0/ro/0', SV, UID[1]);
+  {
+    // Ein Eintrag ausserhalb der Sollbesetzung ersetzt keinen fehlenden Sitz.
+    const r = raum({ cap: 3, d: offen('0'), c: terminals('0', ['move', 'pass']) });
+    r.rooms.V9RM.g[0].c['0'][4] = { k: 'pass', ts: NOW - 2000 };
+    deny('ein Terminal ausserhalb der Sollbesetzung erfuellt die Barriere nicht',
+         r, 'rooms/V9RM/g/0/ro/0', SV, UID[1]);
+  }
+  const voll = { d: offen('0'), c: terminals('0', ['move', 'pass', 'pass']) };
+  for (const paar of [['now-1', NOW - 1], ['now+1', NOW + 1], ['0', 0], ['1e15', 1e15]])
+    deny('ein gefaelschter Reveal-Anker ' + paar[0] + ' wird abgewiesen',
+         raum(voll), 'rooms/V9RM/g/0/ro/0', paar[1], UID[1]);
+  deny('ein Anker, der keine Zahl ist, wird abgewiesen',
+       raum(voll), 'rooms/V9RM/g/0/ro/0', { o: SV }, UID[1]);
+  deny('write-once: ein gesetzter Anker wird nicht neu gesetzt',
+       raum({ d: offen('0'), c: terminals('0', ['move', 'pass', 'pass']), ro: revOffen('0') }),
+       'rooms/V9RM/g/0/ro/0', SV, UID[1]);
+  deny('und er laesst sich nicht loeschen',
+       raum({ d: offen('0'), c: terminals('0', ['move', 'pass', 'pass']), ro: revOffen('0') }),
+       'rooms/V9RM/g/0/ro/0', null, UID[1]);
+  deny('ohne Anmeldung wird kein Anker gesetzt', raum(voll), 'rooms/V9RM/g/0/ro/0', SV, null);
+  deny('ein Fremder ohne Sitz setzt keinen Anker', raum(voll), 'rooms/V9RM/g/0/ro/0', SV, UID_ATTACK);
+  deny('ein getrennter Teilnehmer setzt keinen Anker',
+       raum({ offline: [1], d: offen('0'), c: terminals('0', ['move', 'pass', 'pass']) }),
+       'rooms/V9RM/g/0/ro/0', SV, UID[1]);
+  deny('ohne eroeffneten Turn gibt es keinen Reveal-Anker',
+       raum({ c: terminals('0', ['move', 'pass', 'pass']) }), 'rooms/V9RM/g/0/ro/0', SV, UID[1]);
+  deny('eine fremde Generation wird abgewiesen',
+       raum({ gen: 1, d: offen('0'), c: terminals('0', ['move', 'pass', 'pass']) }),
+       'rooms/V9RM/g/0/ro/0', SV, UID[1]);
+  deny('ein v8-Raum kennt ro/ nicht',
+       raum({ v: 8, d: offen('0'), c: terminals('0', ['move', 'pass', 'pass']) }),
+       'rooms/V9RM/g/0/ro/0', SV, UID[1]);
+}
+
+// ══ REVEAL ═══════════════════════════════════════════════════════════════════
+abschnitt('Reveal-Ergebnis  rooms/<code>/g/<gen>/r/<turn>/<seat>');
+{
+  // Sitz 1 hat committet, die Barriere steht, die Enthuellung laeuft.
+  const basis = (arten, alt) => raum({
+    d: offen('0'), c: terminals('0', arten || ['move', 'move', 'pass']),
+    ro: revOffen('0', alt) });
+  const laeuft = basis();
+
+  allow('der Sitzinhaber enthuellt seinen Zug',
+        laeuft, 'rooms/V9RM/g/0/r/0/1', REVEAL, UID[1]);
+  deny('ein anderer Spieler enthuellt ihn NICHT an seiner Stelle',
+       laeuft, 'rooms/V9RM/g/0/r/0/1', REVEAL, UID[2]);
+  deny('ein Fremder ohne Sitz enthuellt nichts',
+       laeuft, 'rooms/V9RM/g/0/r/0/1', REVEAL, UID_ATTACK);
+
+  // Nur ein verborgener Zug wird enthuellt - die vier Nullterminals nie.
+  for (const art of ['pass', 'skip', 'remove', 'late'])
+    deny('nach einem ' + art + ' gibt es nichts zu enthuellen',
+         basis(['move', art, 'pass']), 'rooms/V9RM/g/0/r/0/1',
+         { k: 'reveal', idx: 1, dx: 12, dy: -8, sp: 0.5, n: HEX32, ts: SV }, UID[1]);
+  deny('ohne Commit erst recht nicht',
+       raum({ d: offen('0'), c: terminals('0', ['move', 'pass', 'pass']), ro: revOffen('0') }),
+       'rooms/V9RM/g/0/r/0/2', { k: 'reveal', idx: 2, dx: 1, dy: 1, sp: 0, n: HEX32, ts: SV }, UID[2]);
+  deny('vor dem Reveal-Anker wird nicht enthuellt',
+       raum({ d: offen('0'), c: terminals('0', ['move', 'move', 'pass']) }),
+       'rooms/V9RM/g/0/r/0/1', REVEAL, UID[1]);
+
+  // Das Salz: 128 Bit, kleingeschrieben hexadezimal.
+  for (const paar of [['grossgeschrieben', HEX32.toUpperCase()], ['zu kurz', HEX32.slice(0, 31)],
+                      ['zu lang', HEX32 + 'a'], ['nicht hexadezimal', 'z'.repeat(32)],
+                      ['leer', ''], ['keine Zeichenkette', 12345]])
+    deny('ein Salz ' + paar[0] + ' wird abgewiesen',
+         laeuft, 'rooms/V9RM/g/0/r/0/1',
+         { k: 'reveal', idx: 1, dx: 12, dy: -8, sp: 0.5, n: paar[1], ts: SV }, UID[1]);
+
+  // Der Vektor traegt dieselben Grenzen wie im v8-Zugslot.
+  for (const paar of [['dx zu gross', { dx: 196 }], ['dx zu klein', { dx: -196 }],
+                      ['dy zu gross', { dy: 196 }], ['sp zu gross', { sp: 1.5 }],
+                      ['sp zu klein', { sp: -1.5 }], ['idx nicht ganzzahlig', { idx: 1.5 }],
+                      ['idx fremde Figur', { idx: 2 }], ['idx ausserhalb', { idx: 6 }]])
+    deny('ein Reveal mit ' + paar[0] + ' wird abgewiesen',
+         laeuft, 'rooms/V9RM/g/0/r/0/1', Object.assign({}, REVEAL, paar[1]), UID[1]);
+
+  deny('ein gefaelschtes ts wird abgewiesen',
+       laeuft, 'rooms/V9RM/g/0/r/0/1', Object.assign({}, REVEAL, { ts: NOW - 1 }), UID[1]);
+  deny('ein zusaetzliches Feld wird abgewiesen',
+       laeuft, 'rooms/V9RM/g/0/r/0/1', Object.assign({}, REVEAL, { h: HEX64 }), UID[1]);
+  for (const feld of ['idx', 'dx', 'dy', 'sp', 'n', 'ts']) {
+    const unvollstaendig = Object.assign({}, REVEAL); delete unvollstaendig[feld];
+    deny('ein Reveal ohne ' + feld + ' wird abgewiesen',
+         laeuft, 'rooms/V9RM/g/0/r/0/1', unvollstaendig, UID[1]);
+  }
+  deny('eine unbekannte Ergebnisart wird abgewiesen',
+       laeuft, 'rooms/V9RM/g/0/r/0/1', { k: 'maybe', ts: SV }, UID[1]);
+  deny('ein Ergebnis, das kein Objekt ist, wird abgewiesen',
+       laeuft, 'rooms/V9RM/g/0/r/0/1', 'reveal', UID[1]);
+
+  // Die Frist der Enthuellung - auf die Millisekunde.
+  allow('genau AUF der Reveal-Frist wird noch enthuellt',
+        basis(null, REVEAL_MS), 'rooms/V9RM/g/0/r/0/1', REVEAL, UID[1]);
+  deny('eine Millisekunde danach nicht mehr',
+       basis(null, REVEAL_MS + 1), 'rooms/V9RM/g/0/r/0/1', REVEAL, UID[1]);
+
+  // Write-once.
+  const belegt = raum({ d: offen('0'), c: terminals('0', ['move', 'move', 'pass']),
+                        ro: revOffen('0'), r: ergebnisse('0', { 1: REVEAL }) });
+  deny('ein belegtes Ergebnis wird nicht ueberschrieben',
+       belegt, 'rooms/V9RM/g/0/r/0/1', REVEAL, UID[1]);
+  deny('und nicht geloescht', belegt, 'rooms/V9RM/g/0/r/0/1', null, UID[1]);
+  deny('ein Sitz ausserhalb der Sollbesetzung hat kein Ergebnis',
+       raum({ cap: 3, d: offen('0'), c: terminals('0', ['move', 'move', 'pass']), ro: revOffen('0') }),
+       'rooms/V9RM/g/0/r/0/3', Object.assign({}, REVEAL, { idx: 3 }), UID[3]);
+}
+
+// ══ NOREVEAL ═════════════════════════════════════════════════════════════════
+abschnitt('Ausbleibende Enthuellung - das Protokoll haelt sie fest, mehr nicht');
+{
+  const mitAnker = (alt) => raum({ d: offen('0'), c: terminals('0', ['move', 'move', 'pass']),
+                                   ro: revOffen('0', alt) });
+  deny('vor der Reveal-Frist ist noreveal unzulaessig',
+       mitAnker(0), 'rooms/V9RM/g/0/r/0/1', NOREVEAL, UID[2]);
+  deny('genau AUF der Frist ebenso - erst danach',
+       mitAnker(REVEAL_MS), 'rooms/V9RM/g/0/r/0/1', NOREVEAL, UID[2]);
+  allow('eine Millisekunde danach schliesst ein Mitspieler den Slot',
+        mitAnker(REVEAL_MS + 1), 'rooms/V9RM/g/0/r/0/1', NOREVEAL, UID[2]);
+  allow('auch der Sitzinhaber selbst darf ihn schliessen',
+        mitAnker(REVEAL_MS + 1), 'rooms/V9RM/g/0/r/0/1', NOREVEAL, UID[1]);
+  deny('ein Fremder ohne Sitz schliesst ihn nicht',
+       mitAnker(REVEAL_MS + 1), 'rooms/V9RM/g/0/r/0/1', NOREVEAL, UID_ATTACK);
+  deny('ohne verborgenen Zug gibt es kein noreveal',
+       raum({ d: offen('0'), c: terminals('0', ['move', 'pass', 'pass']),
+              ro: revOffen('0', REVEAL_MS + 1) }),
+       'rooms/V9RM/g/0/r/0/1', NOREVEAL, UID[2]);
+  deny('noreveal mit Vektor ist keine gueltige Form',
+       mitAnker(REVEAL_MS + 1), 'rooms/V9RM/g/0/r/0/1',
+       { k: 'noreveal', idx: 1, dx: 1, dy: 1, sp: 0, ts: SV }, UID[2]);
+  deny('noreveal mit Salz ebenso',
+       mitAnker(REVEAL_MS + 1), 'rooms/V9RM/g/0/r/0/1',
+       { k: 'noreveal', n: HEX32, ts: SV }, UID[2]);
+  deny('ein gefaelschtes ts wird abgewiesen',
+       mitAnker(REVEAL_MS + 1), 'rooms/V9RM/g/0/r/0/1', { k: 'noreveal', ts: NOW - 1 }, UID[2]);
+
+  // Das Rennen zwischen Enthuellung und Fristschluss loest write-once.
+  const mitReveal = raum({ d: offen('0'), c: terminals('0', ['move', 'move', 'pass']),
+                           ro: revOffen('0', REVEAL_MS + 1), r: ergebnisse('0', { 1: REVEAL }) });
+  deny('noreveal ueberschreibt keine gueltige Enthuellung',
+       mitReveal, 'rooms/V9RM/g/0/r/0/1', NOREVEAL, UID[2]);
+  const mitNoreveal = raum({ d: offen('0'), c: terminals('0', ['move', 'move', 'pass']),
+                             ro: revOffen('0'), r: ergebnisse('0', { 1: NOREVEAL }) });
+  deny('und eine Enthuellung ueberschreibt kein noreveal',
+       mitNoreveal, 'rooms/V9RM/g/0/r/0/1', REVEAL, UID[1]);
+  deny('ein zweites noreveal auf denselben Slot wird abgewiesen',
+       raum({ d: offen('0'), c: terminals('0', ['move', 'move', 'pass']),
+              ro: revOffen('0', REVEAL_MS + 1), r: ergebnisse('0', { 1: NOREVEAL }) }),
+       'rooms/V9RM/g/0/r/0/1', NOREVEAL, UID[2]);
+}
+
+// ══ VERSCHAERFTE VORGAENGERBEDINGUNG ═════════════════════════════════════════
+abschnitt('Vollstaendigkeit des Vorgaengers: zu jedem move gehoert ein Ergebnis');
+{
+  // V9.1 verlangte nur die Commit-Barriere. Das reichte nicht: ein Turn mit einem
+  // committeten, aber nie enthuellten Zug war protokollarisch offen - und der naechste
+  // Turn durfte trotzdem starten.
+  const naechster = (opt) => tryWrite(raum(opt), 'rooms/V9RM/g/0/d/1', { n: 1, o: SV }, UID[1]);
+  const OK = (n, b) => t('[ALLOW] ' + n, b === true);
+  const NEIN = (n, b) => t('[DENY]  ' + n, b === false);
+
+  NEIN('ein committeter, aber unenthuellter Zug haelt den naechsten Turn auf',
+       naechster({ d: offen('0'), c: terminals('0', ['move', 'pass', 'pass']) }));
+  OK('lauter Nullterminals brauchen kein Ergebnis',
+     naechster({ d: offen('0'), c: terminals('0', ['pass', 'skip', 'late']) }));
+  OK('mit Enthuellung geht es weiter',
+     naechster({ d: offen('0'), c: terminals('0', ['move', 'pass', 'pass']),
+                 ro: revOffen('0'), r: ergebnisse('0', { 0: REVEAL }) }));
+  OK('und mit festgehaltener Nicht-Enthuellung ebenso',
+     naechster({ d: offen('0'), c: terminals('0', ['move', 'pass', 'pass']),
+                 ro: revOffen('0'), r: ergebnisse('0', { 0: NOREVEAL }) }));
+  NEIN('zwei Zuege, nur einer enthuellt - noch nicht',
+       naechster({ d: offen('0'), c: terminals('0', ['move', 'move', 'pass']),
+                   ro: revOffen('0'), r: ergebnisse('0', { 0: REVEAL }) }));
+  OK('beide enthuellt - jetzt',
+     naechster({ d: offen('0'), c: terminals('0', ['move', 'move', 'pass']),
+                 ro: revOffen('0'), r: ergebnisse('0', { 0: REVEAL, 1: REVEAL }) }));
+  NEIN('cap 5: vier von fuenf Zuegen enthuellt reicht nicht',
+       naechster({ cap: 5, d: offen('0'), c: terminals('0', ['move', 'move', 'move', 'move', 'move']),
+                   ro: revOffen('0'), r: ergebnisse('0', { 0: REVEAL, 1: REVEAL, 2: REVEAL, 3: REVEAL }) }));
+  OK('cap 5: gemischt - drei Zuege enthuellt, zwei Nullterminals',
+     naechster({ cap: 5, d: offen('0'), c: terminals('0', ['move', 'pass', 'move', 'late', 'move']),
+                 ro: revOffen('0'), r: ergebnisse('0', { 0: REVEAL, 2: REVEAL, 4: REVEAL }) }));
+  NEIN('ein Ergebnis fuer einen Sitz ausserhalb der Sollbesetzung hilft nicht',
+       naechster({ cap: 3, d: offen('0'), c: terminals('0', ['move', 'pass', 'pass']),
+                   ro: revOffen('0'), r: ergebnisse('0', { 4: REVEAL }) }));
+  NEIN('und ein Ergebnis am falschen Sitz ebenso wenig',
+       naechster({ d: offen('0'), c: terminals('0', ['move', 'pass', 'pass']),
+                   ro: revOffen('0'), r: ergebnisse('0', { 1: REVEAL }) }));
+
+  // OFFEN UND AUSDRUECKLICH SO BENANNT: das loest die Voreroeffnung NICHT vollstaendig.
+  // Ist der Vorgaenger protokollarisch fertig, darf der naechste Turn sofort oeffnen -
+  // auch waehrend die ehrlichen Clients die Physik der Vorrunde noch rechnen. Dieses
+  // Fenster schliesst erst V9.4 mit einer Settled/Ready-Barriere je Sitz.
+  OK('ANMERKUNG: unmittelbar nach der Vollstaendigkeit darf sofort geoeffnet werden -'
+     + ' das Simulationsfenster bleibt bis V9.4 offen',
+     naechster({ d: offen('0'), c: terminals('0', ['move', 'pass', 'pass']),
+                 ro: revOffen('0'), r: ergebnisse('0', { 0: REVEAL }) }));
+}
+
+// ══ REGRESSION ═══════════════════════════════════════════════════════════════
+abschnitt('Regression: v8 kennt auch die Reveal-Pfade nicht');
+{
+  const v8voll = { v: 8, d: offen('0'), c: terminals('0', ['move', 'pass', 'pass']),
+                   ro: revOffen('0') };
+  deny('ein v8-Raum schreibt kein Reveal-Ergebnis',
+       raum(v8voll), 'rooms/V9RM/g/0/r/0/1', REVEAL, UID[1]);
+  deny('und kein noreveal',
+       raum({ v: 8, d: offen('0'), c: terminals('0', ['move', 'pass', 'pass']),
+              ro: revOffen('0', REVEAL_MS + 1) }),
+       'rooms/V9RM/g/0/r/0/1', NOREVEAL, UID[2]);
+  allow('der v8-Zugpfad t/ bleibt unveraendert offen',
+        raum({ v: 8 }), 'rooms/V9RM/g/0/t/0/1',
+        { k: 'move', idx: 1, dx: 10, dy: -10, sp: 0 }, UID[1]);
+}
+
+console.log('\nOnline-V9: ' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);
