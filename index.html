@@ -8607,6 +8607,148 @@ const FB_ONLINE_SEATS=5, FB_ONLINE_BALL_IDX=5;
 // fmt='single' - nur ein Online-Football-Raum setzt diesen Wert. Damit ist fmt allein
 // schon die eindeutige Weiche, ohne einen zweiten Zustand einzufuehren.
 const FB_ONLINE_FMT=FOOTBALL_FMTS[0];
+// ════ V9-CODEC: DIE KANONISCHE ZUGVORLAGE (RUHEND) ════
+// Diese Schicht rechnet und prueft - sie schreibt nichts, liest nichts aus Firebase und
+// wird von keinem Spielpfad aufgerufen. Sie ist die Vorbereitung fuer v9 (Commit/Reveal)
+// und liegt bewusst schon hier, damit ihr Vertrag getrennt von der Netzarbeit geprueft
+// werden kann. Der freigegebene Client bleibt auf ONLINE_PROTOCOL_VERSION = 8.
+//
+// WARUM EINE BINAERE VORLAGE MIT FESTER BREITE:
+// Ein Hash bindet nur, was in ihn hineinfliesst - und zwar bei JEDEM Teilnehmer
+// bitgleich. Eine Textform (JSON, Trennzeichen, Zahlenformatierung) haette dafuer zu
+// viele Freiheitsgrade: Schluesselreihenfolge, Exponentenschreibweise, Vorzeichen der
+// Null. Deshalb feste Offsets, feste Breiten und ausdrueckliches Big-Endian.
+//
+// 60 BYTE, GROSS-ENDIAN:
+//   0  4  Bereichsmarke 'R','O','9',0x01
+//   4  1  Protokollnummer (9)
+//   5  4  Raumcode, 4 ASCII-Zeichen
+//   9  4  Generation, uint32
+//  13  4  Turn, uint32
+//  17  1  Sitz
+//  18  1  Zugart (move = 1)
+//  19  1  Koerperindex
+//  20  8  dx  binary64
+//  28  8  dy  binary64
+//  36  8  sp  binary64
+//  44 16  Salz (128 Bit)
+const FB_V9_PREIMAGE_BYTES=60, FB_V9_SALT_BYTES=16;
+// Die Marke trennt diesen Hash von jedem anderen SHA-256-Material der Welt. Rohe Bytes,
+// keine Zeichenkette: eine Kodierung koennte spaeter mehrdeutig werden.
+const FB_V9_DOMAIN=[0x52,0x4f,0x39,0x01];   // 'R','O','9', Formatfassung 1
+// AUSDRUECKLICH eine eigene Konstante, NICHT ONLINE_PROTOCOL_VERSION: die steht noch auf
+// 8 und darf sich nicht in die Vorlage schleichen. Der Codec beschreibt v9.
+const FB_V9_HASH_PROTOCOL=9;
+const FB_V9_KIND_MOVE=1;
+// Dasselbe Alphabet, das rrand() erzeugt und savedRoom() prueft - vier Zeichen, keine
+// Verwechslungspaare. Wird hier NICHT neu erfunden, sondern gespiegelt.
+const FB_V9_CODE_RE=/^[A-HJKMNP-Z2-9]{4}$/;
+// Die Grenzen des Vektors sind die des v8-Zugslots (siehe validateTurnRecord) - derselbe
+// Abschuss, nur spaeter sichtbar.
+const FB_V9_VEC_MAX=195;
+const FB_V9_U32_MAX=4294967295;
+const FB_V9_HEX_SALT_RE=/^[0-9a-f]{32}$/, FB_V9_HEX_HASH_RE=/^[0-9a-f]{64}$/;
+
+// Steht Web Crypto zur Verfuegung? v9 muss GESCHLOSSEN scheitern, wenn nicht - lieber
+// kein Onlinespiel als eines ohne Vertraulichkeit. Der Aufrufer entscheidet, was er
+// damit tut; hier wird nichts abgeschaltet und nichts angezeigt.
+function fbV9CryptoReady(){
+  try{
+    return typeof crypto!=='undefined' && !!crypto
+        && typeof crypto.getRandomValues==='function'
+        && !!crypto.subtle && typeof crypto.subtle.digest==='function';
+  }catch(e){ return false; }
+}
+
+// Ganzzahl in einem geschlossenen Bereich. Kein stilles Runden, kein Ueberlauf: was
+// nicht passt, wird abgewiesen. Ein umgebrochener Wert waere ein anderer Zug mit
+// demselben Hash - genau die Verwechslung, die die Vorlage verhindern soll.
+function fbV9Int(v,min,max){
+  if(typeof v!=='number'||!Number.isInteger(v)||v<min||v>max)
+    throw new Error('v9: Ganzzahl ausserhalb des Bereichs ['+min+','+max+']: '+v);
+  return v;
+}
+// Endliche Gleitkommazahl. NaN und die Unendlichkeiten haben keine sinnvolle Bindung
+// und kaemen als Vektor ohnehin nie durch die Rules.
+function fbV9Num(v,grenze){
+  if(typeof v!=='number'||!Number.isFinite(v)||v<-grenze||v>grenze)
+    throw new Error('v9: Zahl unzulaessig: '+v);
+  // Negative Null wird positiv. Sie verhaelt sich in jeder Rechnung wie +0, hat aber ein
+  // ANDERES Bitmuster - zwei identische Zuege haetten sonst zwei verschiedene Hashes.
+  return v===0?0:v;
+}
+
+// Die Vorlage. Wirft bei jedem unzulaessigen Feld; sie liefert nie eine halbe Vorlage.
+function fbV9Preimage(f,salt){
+  if(!f||typeof f!=='object')throw new Error('v9: keine Zugfelder');
+  if(typeof f.room!=='string'||!FB_V9_CODE_RE.test(f.room))
+    throw new Error('v9: Raumcode unzulaessig: '+f.room);
+  if(!(salt instanceof Uint8Array)||salt.length!==FB_V9_SALT_BYTES)
+    throw new Error('v9: Salz muss '+FB_V9_SALT_BYTES+' Byte sein');
+  const b=new Uint8Array(FB_V9_PREIMAGE_BYTES), dv=new DataView(b.buffer);
+  for(let i=0;i<4;i++)b[i]=FB_V9_DOMAIN[i];
+  b[4]=FB_V9_HASH_PROTOCOL;
+  for(let i=0;i<4;i++)b[5+i]=f.room.charCodeAt(i);   // durch die Regex garantiert ASCII
+  dv.setUint32(9,fbV9Int(f.gen,0,FB_V9_U32_MAX),false);
+  dv.setUint32(13,fbV9Int(f.turn,0,FB_V9_U32_MAX),false);
+  b[17]=fbV9Int(f.seat,0,FB_ONLINE_SEATS-1);
+  // Die Zugart ist ein eigenes Byte, damit ein Commit fuer einen Abschuss spaeter nicht
+  // als andere Handlung wiederverwendbar ist. Zugewiesen ist bisher AUSSCHLIESSLICH
+  // move = 1; jeder andere Wert scheitert geschlossen. Kaeme je eine zweite Zugart
+  // hinzu, braucht sie eine eigene Nummer, einen eigenen Vertrag und eigene Tests -
+  // nicht eine stillschweigend schon offene Luecke.
+  if(f.kind!==FB_V9_KIND_MOVE)throw new Error('v9: Zugart nicht zugewiesen: '+f.kind);
+  b[18]=FB_V9_KIND_MOVE;
+  b[19]=fbV9Int(f.idx,0,FB_ONLINE_BALL_IDX);
+  dv.setFloat64(20,fbV9Num(f.dx,FB_V9_VEC_MAX),false);   // false = Gross-Endian
+  dv.setFloat64(28,fbV9Num(f.dy,FB_V9_VEC_MAX),false);
+  dv.setFloat64(36,fbV9Num(f.sp,1),false);
+  b.set(salt,44);
+  return b;
+}
+
+// 128 Bit aus dem Zufallsgenerator des Browsers. Math.random waere hier wertlos: der
+// Sinn des Salzes ist, dass niemand die Vorlage erraten kann, waehrend der Hash offen
+// in der Datenbank steht.
+function fbV9NewSalt(){
+  if(!fbV9CryptoReady())throw new Error('v9: Web Crypto nicht verfuegbar');
+  return crypto.getRandomValues(new Uint8Array(FB_V9_SALT_BYTES));
+}
+function fbV9Hex(bytes){
+  if(!(bytes instanceof Uint8Array))throw new Error('v9: keine Bytefolge');
+  let s='';
+  for(let i=0;i<bytes.length;i++)s+=bytes[i].toString(16).padStart(2,'0');
+  return s;
+}
+// Hexform zurueck in Bytes - streng: nur Kleinschreibung, nur die erwartete Laenge.
+// Grossbuchstaben werden NICHT stillschweigend umgewandelt; die Rules verlangen die
+// kleingeschriebene Form, und ein hier repariertes Salz waere ein anderes Salz als das,
+// was in der Datenbank steht.
+function fbV9Bytes(hex,anzahl){
+  if(typeof hex!=='string'||hex.length!==anzahl*2||!/^[0-9a-f]*$/.test(hex))
+    throw new Error('v9: Hexfolge unzulaessig');
+  const b=new Uint8Array(anzahl);
+  for(let i=0;i<anzahl;i++)b[i]=parseInt(hex.substr(i*2,2),16);
+  return b;
+}
+const fbV9SaltFromHex=(hex)=>fbV9Bytes(hex,FB_V9_SALT_BYTES);
+
+// SHA-256 ueber die 60 Byte, Ausgabe als 64 kleingeschriebene Hexzeichen.
+// Ausschliesslich die geprueften Bausteine des Browsers - keine eigene Umsetzung.
+async function fbV9Hash(f,salt){
+  if(!fbV9CryptoReady())throw new Error('v9: Web Crypto nicht verfuegbar');
+  const d=await crypto.subtle.digest('SHA-256',fbV9Preimage(f,salt));
+  return fbV9Hex(new Uint8Array(d));
+}
+// Passt eine Enthuellung zu ihrem Commit? Fehlerhafte Eingaben ergeben FALSE, nie eine
+// Ausnahme nach aussen und nie ein "fast richtig" - es gibt nichts zu reparieren.
+async function fbV9Verify(hash,f,salt){
+  try{
+    if(typeof hash!=='string'||!FB_V9_HEX_HASH_RE.test(hash))return false;
+    return (await fbV9Hash(f,salt))===hash;
+  }catch(e){ return false; }
+}
+// ════ ENDE V9-CODEC ════
 // ════ ONLINE-MODUSREGISTER (v8) ════
 // EINE Quelle fuer Modusnamen, Sollbesetzung, Beschriftung und Freigabestand. Jede
 // Stelle, die Kapazitaet oder Moduslabel braucht, fragt hier - es gibt bewusst keine

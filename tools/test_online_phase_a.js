@@ -665,7 +665,23 @@ const R = new Function(`
   for (const pfad of ["/d/'", "/c/'", "'d/'", "'c/'"])
     ok(HTML.indexOf("g/'+ctx.gen+'" + pfad) < 0,
        'der Client schreibt keinen v9-Pfad: ' + pfad);
-  ok(!/crypto\.subtle/.test(HTML), 'und benutzt noch keine Hashfunktion');
+  // Seit V9.3A liegt der v9-Codec (Vorlage, Salz, SHA-256) im Quelltext - RUHEND. Die
+  // Aussage dieser Suite wird dadurch nicht schwaecher, sondern schaerfer: nicht "es gibt
+  // keine Hashfunktion", sondern "sie wird von nirgendwo aufgerufen". Genau diese
+  // Trennung schuetzt V9.3A; die Einbindung in den Zugpfad ist V9.3B.
+  const codecStart = HTML.indexOf('const FB_V9_PREIMAGE_BYTES=60');
+  const codecEnde = HTML.indexOf('// ════ ENDE V9-CODEC ════');
+  ok(codecStart > 0 && codecEnde > codecStart, 'der ruhende v9-Codec ist abgegrenzt');
+  const codec = HTML.slice(codecStart, codecEnde);
+  ok(HTML.split(codec).join('').indexOf('crypto.subtle') < 0,
+     'JEDES Vorkommen von crypto.subtle liegt im Codec - keines im Spielpfad');
+  ok(HTML.split(codec).join('').indexOf('fbV9') < 0,
+     'ausserhalb des Codecs nennt KEINE Zeile eine seiner Funktionen - er ist unbenutzt');
+  for (const fn of ['onlineSendCommit', 'writeTurnSlot', 'onlineArmTurn', 'maybeReveal',
+                    'processSlot', 'applyLaunch', 'allAliveCommitted'])
+    ok(grab(new RegExp('function ' + fn + '\\([^)]*\\)\\{[\\s\\S]*?\\n\\}'), fn)
+         .indexOf('fbV9') < 0,
+       fn + '() ruht unveraendert - kein v9-Aufruf darin');
 }
 
 // ══ H. DIE SOLLBESETZUNG IST UNVERAENDERLICH ═════════════════════════════════
