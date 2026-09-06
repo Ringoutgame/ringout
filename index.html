@@ -8749,6 +8749,165 @@ async function fbV9Verify(hash,f,salt){
   }catch(e){ return false; }
 }
 // ════ ENDE V9-CODEC ════
+// ════ V9-PROTOKOLLMASCHINE (RUHEND) ════
+// Die Deutung des v9-Zugvertrags auf der Clientseite: Commit bauen, das Geheimnis bis
+// zur Enthuellung halten, Barrieren lesen, Enthuellungen pruefen. Sie rechnet und deutet
+// - sie SCHREIBT nichts und LIEST nichts aus Firebase. Kein Aufruf aus dem freigegebenen
+// v8-Weg; der laeuft unveraendert ueber g/<gen>/t/<turn>/<seat> weiter.
+//
+// Warum getrennt statt eingebaut: der v8-Weg ist erprobt und spielt heute. Ihn
+// umzuschreiben, waehrend der Nachfolger noch entsteht, hiesse beide gleichzeitig in
+// Bewegung zu halten. Diese Schicht laesst sich vollstaendig ohne Netz pruefen; die
+// Verdrahtung kommt spaeter und hinter einem Entwicklerschalter.
+const FB_V9_TERMINALS=['move','pass','skip','remove','late'];
+const FB_V9_RESULTS=['reveal','noreveal'];
+// Vier Ergebnisse einer Enthuellungspruefung. Ausdruecklich VIER: ein missgebildeter
+// Datensatz ist etwas anderes als ein falscher Hash, und beides ist etwas anderes als
+// eine ausgebliebene Enthuellung. Sie in einen Nullzug zusammenfallen zu lassen waere
+// bequem und wuerde genau die Unterscheidung verlieren, auf die es spaeter ankommt.
+const FB_V9_VALID='VALID', FB_V9_MISMATCH='HASH_MISMATCH',
+      FB_V9_MALFORMED='MALFORMED', FB_V9_NO_REVEAL='NO_REVEAL';
+
+// ── Das Geheimnis der laufenden Runde ────────────────────────────────────────
+// Zwischen Commit und Reveal haelt der Client als EINZIGER, was er vorhat: den Vektor
+// und das Salz. In der Datenbank steht so lange nur der Hash. Deshalb bleibt das hier
+// im Arbeitsspeicher und geht nirgends hin - kein localStorage, keine URL, kein Firebase.
+let fbV9Secret=null;
+function fbV9SecretClear(){ fbV9Secret=null; }
+// Passt das gehaltene Geheimnis noch zum angegebenen Zusammenhang? Ein Wechsel von Raum,
+// Generation oder Runde macht es gegenstandslos - und ein gegenstandsloses Geheimnis ist
+// gefaehrlicher als keines, weil es zu einem fremden Commit passen koennte.
+function fbV9SecretFor(room,gen,turn){
+  const s=fbV9Secret;
+  if(!s||s.room!==room||s.gen!==gen||s.turn!==turn)return null;
+  return s;
+}
+// Raum- oder Generationswechsel: verwerfen. Ausdruecklich NICHT aufgerufen, weil das
+// Listener-Ereignis eines Mitspielers eintrifft - das sagt ueber den eigenen Zug nichts.
+// Nach abgeschlossener Enthuellung: GENAU dieses Geheimnis raeumen. Gehoert das
+// gehaltene zu einer anderen Runde, bleibt es unangetastet - ein blindes Loeschen
+// koennte den Zug einer laufenden Runde mitnehmen.
+function fbV9SecretDone(room,gen,turn){
+  if(fbV9SecretFor(room,gen,turn))fbV9SecretClear();
+}
+function fbV9SecretSync(room,gen){
+  if(fbV9Secret&&(fbV9Secret.room!==room||fbV9Secret.gen!==gen))fbV9SecretClear();
+}
+
+// ── Commit bauen ─────────────────────────────────────────────────────────────
+// Erzeugt das Salz, rechnet den Hash und behaelt beides. Zurueck geht NUR das Terminal:
+// Zugart und Hash. Weder Vektor noch Salz duerfen an dieser Stelle die Maschine
+// verlassen - sonst waere die ganze Verdeckung gegenstandslos. Den Zeitstempel setzt
+// spaeter die Schreibschicht.
+async function fbV9MakeCommit(ctx,zug){
+  if(!fbV9CryptoReady())throw new Error('v9: Web Crypto nicht verfuegbar');
+  // Ein Abschuss gehoert IMMER der eigenen Figur - dieselbe Zuordnung, die schon
+  // validateTurnRecord() im v8-Zugslot verlangt und die die v9-Rules am Sitz
+  // festmachen (idx + '' === $seat). Sie wird hier NICHT neu erfunden, sondern
+  // gespiegelt: ein Commit auf eine fremde Figur waere ohnehin unschreibbar.
+  if(zug.idx!==ctx.seat)throw new Error('v9: der Abschuss gehoert nicht diesem Sitz');
+  const felder={room:ctx.room,gen:ctx.gen,turn:ctx.turn,seat:ctx.seat,kind:FB_V9_KIND_MOVE,
+                idx:zug.idx,dx:zug.dx,dy:zug.dy,sp:zug.sp};
+  const salt=fbV9NewSalt();
+  const h=await fbV9Hash(felder,salt);   // wirft bei jedem unzulaessigen Feld
+  fbV9Secret={room:ctx.room,gen:ctx.gen,turn:ctx.turn,seat:ctx.seat,
+              idx:felder.idx,dx:felder.dx,dy:felder.dy,sp:felder.sp,salt:salt,h:h};
+  return {k:'move',h:h};
+}
+// Die selbstgeschriebene Nullhandlung. Kein Hash, kein Salz und ausdruecklich KEIN
+// Hash ueber einen Nullvektor: `pass` behauptet nicht, der Sitz haette gezielt, und
+// erst recht nicht, er sei ausgeschieden. Es sagt nur, dass er diese Runde nichts tut.
+function fbV9MakePass(){ return {k:'pass'}; }
+
+// ── Reveal bauen ─────────────────────────────────────────────────────────────
+// Genau die Werte, die gehasht wurden - nicht neu bereinigt. Eine zweite Bereinigung
+// koennte einen anderen Wert liefern, und der wuerde nicht mehr zum eigenen Commit
+// passen: der Spieler haette sich selbst um seinen Zug gebracht.
+function fbV9MakeReveal(ctx){
+  const s=fbV9SecretFor(ctx.room,ctx.gen,ctx.turn);
+  if(!s||s.seat!==ctx.seat)throw new Error('v9: kein Geheimnis fuer diese Runde');
+  return {k:'reveal',idx:s.idx,dx:s.dx,dy:s.dy,sp:s.sp,n:fbV9Hex(s.salt)};
+}
+
+// ── Barrieren ────────────────────────────────────────────────────────────────
+// Reine Praedikate: gleiche Karte, gleiche Antwort - unabhaengig davon, in welcher
+// Reihenfolge die Eintraege eingetroffen sind. Deshalb wird ueber die Sitze 0..cap-1
+// gezaehlt und nie ueber Object.keys.
+function fbV9TerminalOk(rec){
+  if(!rec||typeof rec!=='object'||FB_V9_TERMINALS.indexOf(rec.k)<0)return false;
+  // Ein Abschuss braucht seinen Hash; jede Nullhandlung darf keinen haben.
+  const hatH=typeof rec.h==='string'&&FB_V9_HEX_HASH_RE.test(rec.h);
+  if(rec.k==='move')return hatH;
+  return rec.h===undefined;
+}
+function fbV9ResultOk(rec){
+  if(!rec||typeof rec!=='object'||FB_V9_RESULTS.indexOf(rec.k)<0)return false;
+  if(rec.k==='noreveal')return true;
+  return Number.isInteger(rec.idx)&&Number.isFinite(rec.dx)&&Number.isFinite(rec.dy)
+      &&Number.isFinite(rec.sp)&&typeof rec.n==='string'&&FB_V9_HEX_SALT_RE.test(rec.n);
+}
+// Barriere 1: jeder Sitz der unveraenderlichen Sollbesetzung hat genau ein erkanntes
+// Terminal. Gefragt wird cap - nie der Spielzustand, nie die blosse Zahl der Kinder.
+function fbV9CommitsComplete(cap,c){
+  if(!Number.isInteger(cap)||cap<2||cap>FB_ONLINE_SEATS||!c||typeof c!=='object')return false;
+  for(let s=0;s<cap;s++)if(!fbV9TerminalOk(c[s]))return false;
+  return true;
+}
+// Barriere 2: zu jedem `move` gehoert ein Ergebnis. Die vier Nullterminals brauchen
+// keines - sie tragen nichts Verborgenes.
+function fbV9ResultsComplete(cap,c,r){
+  if(!fbV9CommitsComplete(cap,c))return false;
+  if(!r||typeof r!=='object')r={};
+  for(let s=0;s<cap;s++){
+    if(c[s].k!=='move')continue;
+    if(!fbV9ResultOk(r[s]))return false;
+  }
+  return true;
+}
+
+// ── Pruefung eines Paares ────────────────────────────────────────────────────
+// Liefert IMMER eine der vier Kategorien und wirft nie nach aussen: diese Funktion
+// verarbeitet fremde Daten, und ein Ausnahmefehler aus einem Listener heraus haette
+// den halben Zustand hinter sich.
+async function fbV9VerifyPair(ctx,seat,commit,reveal){
+  try{
+    if(!fbV9TerminalOk(commit)||commit.k!=='move')return {status:FB_V9_MALFORMED,move:null};
+    if(!reveal||typeof reveal!=='object')return {status:FB_V9_MALFORMED,move:null};
+    if(reveal.k==='noreveal')return {status:FB_V9_NO_REVEAL,move:null};
+    if(!fbV9ResultOk(reveal))return {status:FB_V9_MALFORMED,move:null};
+    // TIEFENSICHERUNG. Die Rules wuerden einen solchen Datensatz gar nicht erst
+    // annehmen - aber ein Hash, der zu einem selbst gebauten Commit auf eine FREMDE
+    // Figur passt, waere in sich stimmig. Er darf trotzdem nie als gueltiger Zug
+    // gelten: der Deuter verlaesst sich nicht darauf, dass vor ihm schon jemand
+    // geprueft hat.
+    if(reveal.idx!==seat)return {status:FB_V9_MALFORMED,move:null};
+    const felder={room:ctx.room,gen:ctx.gen,turn:ctx.turn,seat:seat,kind:FB_V9_KIND_MOVE,
+                  idx:reveal.idx,dx:reveal.dx,dy:reveal.dy,sp:reveal.sp};
+    let h;
+    try{ h=await fbV9Hash(felder,fbV9SaltFromHex(reveal.n)); }
+    catch(e){ return {status:FB_V9_MALFORMED,move:null}; }   // Feld ausserhalb des Vertrags
+    if(h!==commit.h)return {status:FB_V9_MISMATCH,move:null};
+    return {status:FB_V9_VALID,move:{idx:reveal.idx,dx:reveal.dx,dy:reveal.dy,sp:reveal.sp}};
+  }catch(e){ return {status:FB_V9_MALFORMED,move:null}; }
+}
+
+// ── Die anerkannte Zugmenge ──────────────────────────────────────────────────
+// Aufsteigend nach Sitz, unabhaengig von der Eintreffreihenfolge. Diese Funktion
+// BERECHNET nur - sie fasst weder commitIdx/commitAim/aimSet noch die Physik an und
+// ruft applyLaunch() nicht auf. Was aus einem HASH_MISMATCH oder einem NO_REVEAL
+// spielerisch folgt, ist eine offene Entscheidung und steht bewusst nicht hier.
+async function fbV9AcceptedSet(ctx,cap,c,r){
+  const raus=[];
+  if(!fbV9ResultsComplete(cap,c,r))return null;   // Barriere offen -> noch nichts zu sagen
+  for(let s=0;s<cap;s++){
+    const t=c[s];
+    if(t.k!=='move'){ raus.push({seat:s,kind:t.k,status:FB_V9_VALID,move:null}); continue; }
+    const p=await fbV9VerifyPair(ctx,s,t,r&&r[s]);
+    raus.push({seat:s,kind:'move',status:p.status,move:p.move});
+  }
+  return raus;
+}
+// ════ ENDE V9-PROTOKOLLMASCHINE ════
 // ════ ONLINE-MODUSREGISTER (v8) ════
 // EINE Quelle fuer Modusnamen, Sollbesetzung, Beschriftung und Freigabestand. Jede
 // Stelle, die Kapazitaet oder Moduslabel braucht, fragt hier - es gibt bewusst keine

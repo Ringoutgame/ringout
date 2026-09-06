@@ -670,13 +670,16 @@ const R = new Function(`
   // keine Hashfunktion", sondern "sie wird von nirgendwo aufgerufen". Genau diese
   // Trennung schuetzt V9.3A; die Einbindung in den Zugpfad ist V9.3B.
   const codecStart = HTML.indexOf('const FB_V9_PREIMAGE_BYTES=60');
-  const codecEnde = HTML.indexOf('// ════ ENDE V9-CODEC ════');
-  ok(codecStart > 0 && codecEnde > codecStart, 'der ruhende v9-Codec ist abgegrenzt');
+  // Der ruhende v9-Bereich umfasst seit V9.3B1 zwei Bloecke: den Codec und die
+  // Protokollmaschine darunter. Die Aussage bleibt dieselbe - ausserhalb dieses
+  // Bereichs nennt nichts eine v9-Funktion, also ruft ihn auch nichts auf.
+  const codecEnde = HTML.indexOf('// ════ ENDE V9-PROTOKOLLMASCHINE ════');
+  ok(codecStart > 0 && codecEnde > codecStart, 'der ruhende v9-Bereich ist abgegrenzt');
   const codec = HTML.slice(codecStart, codecEnde);
   ok(HTML.split(codec).join('').indexOf('crypto.subtle') < 0,
-     'JEDES Vorkommen von crypto.subtle liegt im Codec - keines im Spielpfad');
+     'JEDES Vorkommen von crypto.subtle liegt darin - keines im Spielpfad');
   ok(HTML.split(codec).join('').indexOf('fbV9') < 0,
-     'ausserhalb des Codecs nennt KEINE Zeile eine seiner Funktionen - er ist unbenutzt');
+     'ausserhalb nennt KEINE Zeile eine v9-Funktion - der Bereich ist unbenutzt');
   for (const fn of ['onlineSendCommit', 'writeTurnSlot', 'onlineArmTurn', 'maybeReveal',
                     'processSlot', 'applyLaunch', 'allAliveCommitted'])
     ok(grab(new RegExp('function ' + fn + '\\([^)]*\\)\\{[\\s\\S]*?\\n\\}'), fn)
