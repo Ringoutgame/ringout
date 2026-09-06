@@ -9257,6 +9257,38 @@ const FB_V9_STUFEN=[FB_V9_IDLE,FB_V9_OPENING,FB_V9_COMMITTING,FB_V9_WAIT_COMMITS
 
 // Der Netzadapter nennt den Raum `code`, die Protokollmaschine `room`. Beide sind
 // abgenommen; uebersetzt wird deshalb hier, an einer einzigen Stelle.
+// Fuer alles, was mit dem Geheimnis zu tun hat, braucht der Lauf eine ANGEMELDETE
+// Kennung und die Auskunft, wem der Sitz autoritativ gehoert. Beides kommt vom Aufrufer,
+// der den Raum ohnehin gelesen hat. Ausdruecklich NICHT benutzt: onlineTab, onlinePid
+// oder p/<seat>/s - das Praesenztoken wechselt bei jedem Neuladen und sagt ueber den
+// Sitzbesitz nichts. Der haengt an players/<seat>/uid.
+function fbV9UidOk(ctx){
+  if(!ctx||typeof ctx.uid!=='string'||!ctx.uid)return false;
+  if(ctx.seatUid!==undefined&&ctx.seatUid!==ctx.uid)return false;
+  return true;
+}
+// Ein abgelegtes Geheimnis in den Arbeitsspeicher zurueckholen - aber nur, wenn ZWEI
+// Ebenen zustimmen: der Datensatz ist in sich stimmig (das prueft der Speicher, er
+// rechnet den Hash neu), UND sein Hash ist derselbe, der unveraenderlich im Raum steht.
+// Die zweite Ebene ist die entscheidende: ein lokal einwandfreier Datensatz sagt nichts
+// darueber, ob er zu DIESEM Commit gehoert.
+// Rueckgabe ist bewusst ein STATUS, kein Ja/Nein: der Anrufer muss unterscheiden
+// koennen zwischen `kein brauchbares Geheimnis da` (nichts wegzuwerfen) und `es ist
+// eines da, aber es gehoert zu einem ANDEREN Commit` (genau dieser eine Datensatz ist
+// erwiesenermassen wertlos und darf weg).
+async function fbV9SecretAdopt(ctx,commit){
+  if(!fbV9UidOk(ctx))return FB_V9_NOT_FOUND;
+  if(!commit||commit.k!=='move'||typeof commit.h!=='string')return FB_V9_NOT_FOUND;
+  let g=null;
+  try{ g=await fbV9SecretLoad(ctx,ctx.uid); }catch(e){ return FB_V9_NOT_FOUND; }
+  if(!g||g.status!==FB_V9_OK||!g.secret)return FB_V9_NOT_FOUND;
+  if(g.secret.h!==commit.h)return FB_V9_MISMATCH;   // gehoert zu einem anderen Commit
+  // Genau die gespeicherten Werte - kein neues Salz, keine erneute Bereinigung.
+  fbV9Secret={room:ctx.code,gen:ctx.gen,turn:ctx.turn,seat:ctx.seat,
+              idx:g.secret.idx,dx:g.secret.dx,dy:g.secret.dy,sp:g.secret.sp,
+              salt:g.secret.salt,h:g.secret.h};
+  return FB_V9_OK;
+}
 function fbV9EngineCtx(ctx){
   return {room:ctx.code,gen:ctx.gen,turn:ctx.turn,seat:ctx.seat};
 }
@@ -9430,8 +9462,48 @@ async function fbV9Schritt(lauf){
     // (1) Der Rundenbeginn muss AUTORITATIV dastehen - der eigene Schreibvorgang allein
     //     beweist nichts, er kann von einem anderen ueberholt worden sein.
     if(!st.turnOpen){ fbV9Stufe(lauf,FB_V9_OPENING); return; }
-    // (2) Genau ein eigenes Terminal.
-    if(!lauf.commitFertig){
+    // (2a) FORTSETZEN: das eigene Terminal kommt aus dem Raum, nicht aus dieser Sitzung.
+    if(lauf.fortsetzen&&!lauf.commitFertig){
+      const eigen=st.commits&&st.commits[lauf.ctx.seat];
+      if(fbV9TerminalOk(eigen)){
+        lauf.terminal=eigen; lauf.commitFertig=true;
+        if(eigen.k!=='move'){
+          // pass, skip, remove, late: zu diesem Terminal gehoert NICHTS Verborgenes.
+          // Damit ist erwiesen, dass das abgelegte Geheimnis nie enthuellt wird - erst
+          // JETZT, mit einem autoritativen Terminal in der Hand, darf es weg.
+          fbV9SecretDrop(lauf.ctx); fbV9SecretDone(lauf.ctx.code,lauf.ctx.gen,lauf.ctx.turn);
+        }
+        else if(!lauf.revealFertig&&!lauf.verloren){
+          const st9=await fbV9SecretAdopt(lauf.ctx,eigen);
+          if(fbV9Aus(lauf))return;
+          if(st9!==FB_V9_OK){
+            // Ohne wiederherstellbares Geheimnis ist die Enthuellung unmoeglich. Das ist
+            // KEIN Grund zu scheitern: der Lauf beobachtet weiter, und nach der Frist
+            // schliesst die vorhandene Fristmechanik den Slot mit noreveal.
+            lauf.verloren=true;
+            // Bei HASH_MISMATCH steht autoritativ ein ANDERER Zug in unserem Slot. Der
+            // gespeicherte Datensatz kann zu ihm nie passen - er ist beweisbar wertlos
+            // und wird genau hier verworfen. Bei `nichts gefunden` gibt es dagegen
+            // nichts zu raeumen.
+            if(st9===FB_V9_MISMATCH){
+              fbV9SecretDrop(lauf.ctx); fbV9SecretDone(lauf.ctx.code,lauf.ctx.gen,lauf.ctx.turn);
+            }
+          }
+        }
+      }
+      // KEIN eigenes Terminal zu sehen: hier wird NICHT angehalten. Frueher stand an
+      // dieser Stelle ein `return` in COMMITTING - und COMMITTING stellt keinen Wecker.
+      // Ein Client, dessen Commit vor dem Neuladen vielleicht angekommen ist und
+      // vielleicht nicht, waere damit endlos haengengeblieben: niemand haette je `late`
+      // fuer ihn geschrieben. Stattdessen faellt er jetzt durch bis zur Barriere (3),
+      // wo die Fristmechanik aus B2C2 greift und den offenen Sitz nach der Frist
+      // schliesst. Der alte Zug wird dabei NICHT erneut gesendet - dafuer sorgt der
+      // Vorbehalt `!lauf.fortsetzen` am naechsten Block.
+    }
+    // (2) Genau ein eigenes Terminal. Im Fortsetzen-Fall NICHT: dort kommt das Terminal
+    //     ausschliesslich aus dem Raum. Ein Geheimnis ohne beobachteten Commit befugt
+    //     nicht dazu, den alten Zug noch einmal zu schicken.
+    if(!lauf.commitFertig&&!lauf.fortsetzen){
       if(lauf.commitLaeuft)return;
       lauf.commitLaeuft=true;
       fbV9Stufe(lauf,FB_V9_COMMITTING);
@@ -9441,10 +9513,20 @@ async function fbV9Schritt(lauf){
       if(r.status===FB_V9_COMMITTED)lauf.commitFertig=true;
       else if(r.status===FB_V9_EXISTS){
         // Belegt heisst NICHT erledigt: dort koennte etwas anderes stehen.
-        if(!fbV9EigenesPasst(lauf.terminal,r.wert))
+        if(!fbV9EigenesPasst(lauf.terminal,r.wert)){
+          // Dort steht etwas anderes. Das gesicherte Geheimnis gehoert damit NICHT zum
+          // unveraenderlichen Commit und ist wertlos - es darf weg.
+          fbV9SecretDrop(lauf.ctx); fbV9SecretDone(lauf.ctx.code,lauf.ctx.gen,lauf.ctx.turn);
           return fbV9Scheitern(lauf,'eigenes Terminal weicht ab');
+        }
         lauf.commitFertig=true;
-      }else return fbV9Scheitern(lauf,'Commit: '+r.status);
+      }else{
+        // ABGEWIESEN oder FEHLER: hier wird NICHTS geraeumt. Bei einem Netzfehler weiss
+        // der Client nicht, ob der Server den Commit noch angenommen hat; das Geheimnis
+        // ist dann das Einzige, womit sich die Runde noch retten liesse. Lieber ein
+        // verwaistes Geheimnis behalten als ein gebrauchtes wegwerfen.
+        return fbV9Scheitern(lauf,'Commit: '+r.status);
+      }
     }
     // (3) Warten, bis JEDER Sitz der Sollbesetzung ein Terminal hat.
     fbV9Stufe(lauf,FB_V9_WAIT_COMMITS);
@@ -9475,7 +9557,12 @@ async function fbV9Schritt(lauf){
       return;
     }
     // (5) Nur ein Abschuss wird enthuellt; eine Nullhandlung hat nichts zu zeigen.
-    if(lauf.terminal.k==='move'&&!lauf.revealFertig){
+    if(lauf.terminal.k==='move'&&!lauf.revealFertig&&lauf.verloren){
+      // Verlorenes Geheimnis: keine Enthuellung, kein neues Salz, keine Erfindung -
+      // und ausdruecklich kein Scheitern. Weiter zur Ergebnisbarriere.
+      fbV9Stufe(lauf,FB_V9_WAIT_RESULTS);
+    }
+    else if(lauf.terminal.k==='move'&&!lauf.revealFertig){
       if(lauf.revealLaeuft)return;
       lauf.revealLaeuft=true;
       fbV9Stufe(lauf,FB_V9_REVEALING);
@@ -9512,6 +9599,7 @@ async function fbV9Schritt(lauf){
     // Erst JETZT ist das Geheimnis dieser Runde gegenstandslos - und geraeumt wird
     // genau diese Runde, nicht blind alles.
     fbV9SecretDone(lauf.ctx.code,lauf.ctx.gen,lauf.ctx.turn);
+    fbV9SecretDrop(lauf.ctx);   // genau dieser Datensatz, kein Nachbar
     fbV9Aufloesen(lauf);
   }finally{
     lauf.beschaeftigt=false;
@@ -9526,7 +9614,7 @@ function fbV9Start(ctx,aktion){
   const lauf={ctx:ctx,stufe:FB_V9_IDLE,grund:'',menge:null,terminal:null,
               stand:{turnOpen:null,commits:null,revealOpen:null,results:null},
               abmelden:null,fertigNun:null,beschaeftigt:false,nochmal:false,
-              wecker:{},
+              wecker:{},verloren:false,fortsetzen:false,
               commitLaeuft:false,commitFertig:false,roVersucht:false,
               revealLaeuft:false,revealFertig:false,finaleLaeuft:false};
   lauf.fertig=new Promise(aufl=>{ lauf.fertigNun=aufl; });
@@ -9543,13 +9631,33 @@ function fbV9Start(ctx,aktion){
   // naechsten Schritt an. Ohne ihn gibt es keinen Fortschritt - und mit dem Abmelden
   // hoert jeder Fortschritt auf.
   const start=async()=>{
-    lauf.terminal=aktion&&aktion.pass?fbV9MakePass():null;
-    if(!lauf.terminal){
+    // FORTSETZEN: nach einem Neuladen gibt es nichts zu bauen. Was dieser Sitz getan
+    // hat, steht im Raum - der Lauf uebernimmt es von dort und sucht dann sein
+    // Geheimnis. Bis dahin bleibt `terminal` leer.
+    if(aktion&&aktion.resume){
+      if(!fbV9UidOk(ctx))return fbV9Scheitern(lauf,'keine Kennung');
+      lauf.fortsetzen=true;
+    }
+    else lauf.terminal=aktion&&aktion.pass?fbV9MakePass():null;
+    if(!lauf.terminal&&!lauf.fortsetzen){
       if(!aktion||!aktion.move){ lauf.stufe=FB_V9_FAILED; lauf.grund='keine Handlung';
                                  fbV9Aufloesen(lauf); return; }
+      if(!fbV9UidOk(ctx))return fbV9Scheitern(lauf,'keine Kennung');
       try{ lauf.terminal=await fbV9MakeCommit(fbV9EngineCtx(ctx),aktion.move); }
       catch(e){ return fbV9Scheitern(lauf,'Commit nicht baubar'); }
       if(fbV9Aus(lauf))return;
+      // ZUERST SICHERN, DANN SENDEN. Ein Absturz zwischen beidem darf nie einen
+      // unveraenderlichen Commit hinterlassen, zu dem das Salz fehlt - der Zug waere
+      // fuer immer unenthuellbar. Ein Geheimnis ohne Commit ist dagegen folgenlos.
+      const g=fbV9SecretFor(ctx.code,ctx.gen,ctx.turn);
+      const abgelegt=fbV9SecretSave(ctx,ctx.uid,{v:FB_V9_STORE_V,uid:ctx.uid,
+        salt:fbV9Hex(g.salt),idx:g.idx,dx:g.dx,dy:g.dy,sp:g.sp,h:g.h});
+      if(abgelegt!==FB_V9_SAVED){
+        // Nicht gesichert heisst: nicht senden. Kein zweites Salz, kein stilles
+        // Ausweichen auf pass - der Spieler soll erfahren, dass sein Zug nicht ging.
+        fbV9SecretDone(ctx.code,ctx.gen,ctx.turn);
+        return fbV9Scheitern(lauf,'Geheimnis nicht gesichert: '+abgelegt);
+      }
     }
     lauf.abmelden=fbV9NetListen(ctx,(st)=>{
       if(fbV9Aus(lauf))return;         // spaeter Rueckruf nach dem Ende: wirkungslos
@@ -9570,6 +9678,11 @@ function fbV9Start(ctx,aktion){
   start();
   return lauf;
 }
+// Nach einem Neuladen: denselben Lauf noch einmal, nur ohne eigene Handlung. Was
+// dieser Sitz getan hat, steht im Raum; das Geheimnis kommt - wenn es noch da ist -
+// aus dem Speicher. Ein verwaistes Geheimnis ohne passenden Commit berechtigt zu
+// NICHTS: es wird nicht enthuellt und der alte Zug wird nicht erneut gesendet.
+function fbV9Resume(ctx){ return fbV9Start(ctx,{resume:true}); }
 // ════ ENDE V9-ABLAUFSTEUERUNG ════
 // ════ ONLINE-MODUSREGISTER (v8) ════
 // EINE Quelle fuer Modusnamen, Sollbesetzung, Beschriftung und Freigabestand. Jede

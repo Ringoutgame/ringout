@@ -1,0 +1,597 @@
+// V9.3B2C3C: das gesicherte Geheimnis und die Fortsetzung nach einem Neuladen.
+//
+// Geprueft wird der ECHTE Quelltext aus index.html gegen deterministische Attrappen
+// fuer Firebase, Speicher und Zeit. Kein Emulator, kein Browser, kein Netz, keine
+// echten sechs Sekunden.
+//
+// DIE ZWEI SAETZE, um die es hier geht:
+//   1. Gesichert wird VOR dem Senden. Ein Absturz danach hinterlaesst hoechstens ein
+//      Geheimnis ohne Commit - harmlos. Umgekehrt bliebe ein unveraenderlicher Commit
+//      ohne Salz zurueck, und der Zug waere fuer immer unenthuellbar.
+//   2. Ein abgelegtes Geheimnis berechtigt zu NICHTS, solange nicht derselbe Hash
+//      unveraenderlich im Raum steht. Lokal einwandfrei heisst nicht: gehoert hierher.
+//   node test_online_v9_secret_resume.js
+const fs = require('fs');
+const path = require('path');
+const HTML = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+
+let pass = 0, fail = 0;
+const t = (name, ok, zusatz) => {
+  if (ok) { pass++; } else { fail++; console.log('  [FAIL] ' + name + (zusatz !== undefined ? ' -> ' + zusatz : '')); }
+};
+const abschnitt = (s) => console.log('\n── ' + s + ' ' + '─'.repeat(Math.max(0, 60 - s.length)));
+
+// ── Attrappen ────────────────────────────────────────────────────────────────
+const SENTINEL = { '.sv': 'timestamp' };
+function speicher(vorbelegt) {
+  const m = new Map(Object.entries(vorbelegt || {}));
+  const w = { get: false, set: false, del: false };
+  const pruef = (a) => { if (w[a]) throw new Error('Speicher verweigert'); };
+  return { inhalt: m, wirf: w,
+    get length() { return m.size; }, key: (i) => [...m.keys()][i],
+    getItem: (k) => { pruef('get'); return m.has(k) ? m.get(k) : null; },
+    setItem: (k, v) => { pruef('set'); m.set(k, String(v)); },
+    removeItem: (k) => { pruef('del'); m.delete(k); } };
+}
+function uhrwerk(start) {
+  let jetzt = start === undefined ? 5000000 : start, id = 1;
+  const offen = new Map();
+  return { jetzt: () => jetzt, anzahl: () => offen.size, serverNow: () => jetzt,
+    setTimeout: (fn, ms) => { const k = id++; offen.set(k, { faellig: jetzt + ms, fn: fn }); return k; },
+    clearTimeout: (k) => { offen.delete(k); },
+    vor: async (ms) => { jetzt += ms;
+      for (let r = 0; r < 40; r++) {
+        const f = [...offen.entries()].filter(e => e[1].faellig <= jetzt);
+        if (!f.length) break;
+        for (const e of f) { offen.delete(e[0]); e[1].fn(); }
+        await settle(6);
+      }
+      await settle(6); } };
+}
+function attrappe(vorbelegt, uhr) {
+  const log = { schreib: [], hoert: [] };
+  const stand = Object.assign({}, vorbelegt || {});
+  const fehler = {};
+  return { log: log, stand: stand,
+    setzeFehler: (pfad, e) => { fehler[pfad] = e; },
+    zustellen: (pfad, wert) => { stand[pfad] = wert;
+      for (const h of log.hoert) if (h.pfad === pfad && h.offen) h.cb({ val: () => wert }); },
+    FB: { db: {}, ref: (db, pfad) => ({ pfad: pfad }), serverTimestamp: () => SENTINEL,
+      runTransaction: async (ref, fn, opts) => {
+        const vorher = Object.prototype.hasOwnProperty.call(stand, ref.pfad) ? stand[ref.pfad] : null;
+        const vorschlag = fehler[ref.pfad] ? null : fn(vorher);
+        log.schreib.push({ pfad: ref.pfad, vorschlag: vorschlag });
+        if (fehler[ref.pfad]) throw fehler[ref.pfad];
+        if (vorschlag === undefined) return { committed: false, snapshot: { val: () => vorher } };
+        const jetzt = uhr ? uhr.jetzt() : 1788700000000;
+        const g = JSON.parse(JSON.stringify(vorschlag,
+          (k, v) => (v && v['.sv'] === 'timestamp') ? jetzt : v));
+        stand[ref.pfad] = g;
+        Promise.resolve().then(() => {
+          for (const h of log.hoert) if (h.pfad === ref.pfad && h.offen) h.cb({ val: () => g }); });
+        return { committed: true, snapshot: { val: () => g } };
+      },
+      onValue: (ref, cb) => {
+        const e = { pfad: ref.pfad, cb: cb, offen: true };
+        log.hoert.push(e);
+        const v = Object.prototype.hasOwnProperty.call(stand, ref.pfad) ? stand[ref.pfad] : null;
+        Promise.resolve().then(() => { if (e.offen) cb({ val: () => v }); });
+        return () => { e.offen = false; };
+      } } };
+}
+
+const START = HTML.indexOf('const FB_V9_PREIMAGE_BYTES=60');
+const ENDE = HTML.indexOf('// ════ ENDE V9-ABLAUFSTEUERUNG ════');
+const BEREICH = HTML.slice(START, ENDE);
+const STILL = uhrwerk(1000);
+const baue = (a, st, uhr) => new Function('window', 'crypto', 'GEN_MAX', 'FB_ONLINE_SEATS',
+    'FB_ONLINE_BALL_IDX', 'serverNow', 'setTimeout', 'clearTimeout', 'sessionStorage', `
+  ${BEREICH}
+  return { fbV9Start, fbV9Resume, fbV9UidOk, fbV9SecretAdopt, fbV9SecretFor,
+           fbV9SecretClear, fbV9SecretSave, fbV9SecretLoad, fbV9SecretDrop,
+           fbV9MakeReveal, fbV9Hex, fbV9Hash, fbV9NewSalt,
+           FB_V9_COMPLETE, FB_V9_FAILED, FB_V9_STOPPED, FB_V9_WAIT_COMMITS,
+           FB_V9_WAIT_RESULTS, FB_V9_COMMITTING, FB_V9_VALID, FB_V9_NO_REVEAL,
+           FB_V9_OK, FB_V9_SAVED, FB_V9_STORE_V, FB_V9_MISMATCH,
+           FB_V9_NOT_FOUND, FB_V9_REVEALING };
+`)({ FB: a.FB }, globalThis.crypto, 10000, 5, 5,
+   (uhr || STILL).serverNow, (uhr || STILL).setTimeout, (uhr || STILL).clearTimeout, st);
+
+const UID = 'UID_RESUME_XXXXXXXXXXXXXXXX', FREMD = 'UID_FREMD_XXXXXXXXXXXXXXXXX';
+const H64 = 'ab12'.repeat(16), H32 = '0123456789abcdef'.repeat(2);
+const CTX = { v: 9, code: 'RN2K', gen: 7, turn: 42, seat: 1, cap: 3, uid: UID };
+const mit = (x) => Object.assign({}, CTX, x);
+const P = (r) => 'rooms/RN2K/g/7/' + r;
+const KEY = 'ro9:1:RN2K:7:42:1';
+const ZUG = { idx: 1, dx: 12.5, dy: -8.25, sp: 0.5 };
+const ruhe = () => new Promise(r => setTimeout(r, 0));
+const settle = async (n) => { for (let i = 0; i < (n || 14); i++) await ruhe(); };
+const NULLT = (k) => ({ k: k, ts: 1 });
+
+console.log('=== V9.3B2C3C: gesichertes Geheimnis und Fortsetzung ===');
+
+(async () => {
+
+// ══ SICHERN VOR DEM SENDEN ═══════════════════════════════════════════════════
+abschnitt('Gesichert wird VOR dem Senden');
+{
+  const st = speicher(), a = attrappe({ [P('d/42')]: { n: 42, o: 1 } }), M = baue(a, st);
+  M.fbV9SecretClear();
+  const l = M.fbV9Start(CTX, { move: ZUG });
+  await settle();
+  t('der Zug wurde gesendet', !!a.stand[P('c/42/1')]);
+  t('und das Geheimnis liegt im Speicher', st.inhalt.has(KEY));
+  const rec = JSON.parse(st.inhalt.get(KEY));
+  t('mit derselben Kennung', rec.uid === UID);
+  t('und demselben Hash wie der Commit', rec.h === a.stand[P('c/42/1')].h);
+  t('der gespeicherte Vektor ist der kanonische',
+    rec.idx === 1 && rec.dx === 12.5 && rec.dy === -8.25 && rec.sp === 0.5);
+  l.stop();
+
+  // Und nun der Kern: schlaegt das Sichern fehl, geht KEIN Commit raus.
+  for (const p of [['ein werfender Speicher', () => { const s2 = speicher(); s2.wirf.set = true; return s2; }],
+                   ['gar kein Speicher', () => null]]) {
+    const a2 = attrappe({ [P('d/42')]: { n: 42, o: 1 } }), M2 = baue(a2, p[1]());
+    M2.fbV9SecretClear();
+    const l2 = M2.fbV9Start(CTX, { move: ZUG });
+    await l2.fertig;
+    t(p[0] + ': der Lauf scheitert', l2.stufe === M2.FB_V9_FAILED, l2.stufe);
+    t(p[0] + ': mit benanntem Grund', /Geheimnis nicht gesichert/.test(l2.grund), l2.grund);
+    t(p[0] + ': und KEIN Commit ging raus',
+      !a2.log.schreib.some(w => w.pfad === P('c/42/1')));
+    t(p[0] + ': es wurde auch nicht still zu pass',
+      !a2.log.schreib.some(w => w.vorschlag && w.vorschlag.k === 'pass'));
+    t(p[0] + ': und kein Geheimnis bleibt im Arbeitsspeicher liegen',
+      M2.fbV9SecretFor('RN2K', 7, 42) === null);
+  }
+  // Ohne angemeldete Kennung ebenfalls nicht.
+  {
+    const a3 = attrappe({ [P('d/42')]: { n: 42, o: 1 } }), M3 = baue(a3, speicher());
+    const l3 = M3.fbV9Start(mit({ uid: '' }), { move: ZUG });
+    await l3.fertig;
+    t('ohne Kennung: gescheitert', l3.stufe === M3.FB_V9_FAILED, l3.grund);
+    t('und nichts gesendet', !a3.log.schreib.some(w => w.pfad === P('c/42/1')));
+  }
+  // Eine Nullhandlung legt nichts ab - sie hat nichts zu verbergen.
+  {
+    const s4 = speicher(), a4 = attrappe({ [P('d/42')]: { n: 42, o: 1 } }), M4 = baue(a4, s4);
+    const l4 = M4.fbV9Start(CTX, { pass: true });
+    await settle();
+    t('pass legt kein Geheimnis ab', s4.inhalt.size === 0, s4.inhalt.size);
+    t('und wird trotzdem gesendet', a4.stand[P('c/42/1')].k === 'pass');
+    l4.stop();
+  }
+}
+
+// ══ WAS NACH DEM SENDEN GERAEUMT WIRD - UND WAS NICHT ════════════════════════
+abschnitt('Raeumen nur, wenn es sicher ist');
+{
+  const bau = async (vorbelegt, fehlerAuf) => {
+    const st = speicher(), a = attrappe(Object.assign({ [P('d/42')]: { n: 42, o: 1 } }, vorbelegt || {}));
+    if (fehlerAuf) a.setzeFehler(fehlerAuf[0], fehlerAuf[1]);
+    const M = baue(a, st); M.fbV9SecretClear();
+    const l = M.fbV9Start(CTX, { move: ZUG });
+    await settle();
+    return { st: st, a: a, M: M, l: l };
+  };
+  {
+    const g = await bau();
+    t('nach COMMITTED bleibt das Geheimnis', g.st.inhalt.has(KEY));
+    t('und liegt auch im Arbeitsspeicher', !!g.M.fbV9SecretFor('RN2K', 7, 42));
+    g.l.stop();
+  }
+  {
+    // Dort steht schon etwas ANDERES - das gesicherte Geheimnis ist wertlos.
+    const g = await bau({ [P('c/42/1')]: { k: 'pass', ts: 1 } });
+    await g.l.fertig;
+    t('ein unvertraeglicher Fremdeintrag laesst den Lauf scheitern',
+      g.l.stufe === g.M.FB_V9_FAILED, g.l.stufe);
+    t('und raeumt genau dieses Geheimnis', !g.st.inhalt.has(KEY));
+    t('auch aus dem Arbeitsspeicher', g.M.fbV9SecretFor('RN2K', 7, 42) === null);
+  }
+  for (const p of [['eine Abweisung', new Error('permission_denied')],
+                   ['ein Netzfehler', new Error('network down')]]) {
+    const g = await bau({}, [P('c/42/1'), p[1]]);
+    await g.l.fertig;
+    t(p[0] + ' laesst den Lauf scheitern', g.l.stufe === g.M.FB_V9_FAILED, g.l.stufe);
+    // DAS ist der Punkt: bei einem Netzfehler weiss niemand, ob der Server den Commit
+    // noch angenommen hat. Das Geheimnis ist dann die einzige Rettung.
+    t(p[0] + ': das Geheimnis bleibt erhalten', g.st.inhalt.has(KEY));
+    t(p[0] + ': und auch im Arbeitsspeicher', !!g.M.fbV9SecretFor('RN2K', 7, 42));
+  }
+}
+
+// ══ FORTSETZEN ═══════════════════════════════════════════════════════════════
+abschnitt('Fortsetzen nach dem Neuladen');
+{
+  // Erst eine echte Runde spielen, dann mit demselben Speicher neu beginnen -
+  // genau das, was ein F5 tut: neuer Arbeitsspeicher, alter sessionStorage.
+  const nachNeuladen = async (opt) => {
+    opt = opt || {};
+    const st = speicher();
+    const a1 = attrappe({ [P('d/42')]: { n: 42, o: 1 } });
+    const M1 = baue(a1, st); M1.fbV9SecretClear();
+    const l1 = M1.fbV9Start(CTX, { move: ZUG });
+    await settle();
+    const commit = a1.stand[P('c/42/1')];
+    l1.stop();
+    if (opt.verfaelsche) st.inhalt.set(KEY, opt.verfaelsche(st.inhalt.get(KEY)));
+    if (opt.loesche) st.inhalt.delete(KEY);
+    // Der zweite Lauf: neuer Bau (leerer Arbeitsspeicher), gleicher Speicher.
+    const raum = Object.assign({ [P('d/42')]: { n: 42, o: 1 } }, opt.raum || {});
+    // Der Zuhoerer liest die KARTE c/<turn>; der Einzelpfad allein erreicht ihn nicht.
+    if (!opt.ohneCommit) { const k = opt.commit || commit;
+      raum[P('c/42/1')] = k; raum[P('c/42')] = { 1: k }; }
+    const a2 = attrappe(raum, opt.uhr);
+    const M2 = baue(a2, opt.speicher === null ? null : st, opt.uhr);
+    M2.fbV9SecretClear();
+    const l2 = M2.fbV9Resume(opt.ctx || CTX);
+    await settle();
+    return { st: st, a: a2, M: M2, l: l2, commit: commit };
+  };
+  {
+    const g = await nachNeuladen();
+    t('der Lauf uebernimmt sein eigenes Terminal aus dem Raum',
+      g.l.terminal && g.l.terminal.k === 'move', g.l.terminal && g.l.terminal.k);
+    t('und ist nicht gescheitert', g.l.stufe !== g.M.FB_V9_FAILED, g.l.stufe + ' ' + g.l.grund);
+    t('das Geheimnis ist zurueck im Arbeitsspeicher', !!g.M.fbV9SecretFor('RN2K', 7, 42));
+    const s = g.M.fbV9SecretFor('RN2K', 7, 42);
+    t('mit exakt demselben Vektor',
+      s.idx === 1 && s.dx === 12.5 && s.dy === -8.25 && s.sp === 0.5);
+    t('und exakt demselben Hash', s.h === g.commit.h);
+    t('das Salz ist unveraendert - kein neues erzeugt',
+      g.M.fbV9Hex(s.salt) === JSON.parse(g.st.inhalt.get(KEY)).salt);
+    t('kein neuer Commit wurde gesendet',
+      !g.a.log.schreib.some(w => w.pfad === P('c/42/1')));
+    t('und der Lauf wartet auf die Barriere', g.l.stufe === g.M.FB_V9_WAIT_COMMITS, g.l.stufe);
+    // Und die Enthuellung ist bitgleich die, die vor dem Neuladen entstanden waere.
+    const rev = g.M.fbV9MakeReveal({ room: 'RN2K', gen: 7, turn: 42, seat: 1 });
+    t('die Enthuellung traegt genau die gesicherten Werte',
+      rev.idx === 1 && rev.dx === 12.5 && rev.dy === -8.25 && rev.sp === 0.5
+      && rev.n === JSON.parse(g.st.inhalt.get(KEY)).salt);
+    g.l.stop();
+  }
+  {
+    // Der ganze Weg bis zum Abschluss - nach dem Neuladen.
+    const g = await nachNeuladen();
+    g.a.zustellen(P('c/42'), { 0: NULLT('pass'), 1: g.commit, 2: NULLT('pass') });
+    await settle();
+    t('die Enthuellung wird eroeffnet', typeof g.a.stand[P('ro/42')] === 'number');
+    await settle();
+    const r = g.a.stand[P('r/42/1')];
+    t('und das wiederhergestellte Geheimnis wird enthuellt', !!r && r.k === 'reveal');
+    t('mit dem gesicherten Salz', r.n === JSON.parse(g.st.inhalt.get(KEY)).salt);
+    g.a.zustellen(P('r/42'), { 1: r });
+    await g.l.fertig;
+    t('der Lauf wird COMPLETE', g.l.stufe === g.M.FB_V9_COMPLETE, g.l.stufe + ' ' + g.l.grund);
+    t('der eigene Zug ist geprueft gueltig', g.l.menge[1].status === g.M.FB_V9_VALID);
+    t('und das Geheimnis ist geraeumt - im Speicher', !g.st.inhalt.has(KEY));
+    t('und im Arbeitsspeicher', g.M.fbV9SecretFor('RN2K', 7, 42) === null);
+  }
+  {
+    // Eine bereits vorhandene eigene Enthuellung ist vertraeglich.
+    const st = speicher();
+    const a1 = attrappe({ [P('d/42')]: { n: 42, o: 1 } });
+    const M1 = baue(a1, st); M1.fbV9SecretClear();
+    const l1 = M1.fbV9Start(CTX, { move: ZUG });
+    await settle();
+    const commit = a1.stand[P('c/42/1')];
+    const rev = M1.fbV9MakeReveal({ room: 'RN2K', gen: 7, turn: 42, seat: 1 });
+    rev.ts = 1; l1.stop();
+    const a2 = attrappe({ [P('d/42')]: { n: 42, o: 1 }, [P('c/42/1')]: commit,
+                          [P('c/42')]: { 1: commit },
+                          [P('ro/42')]: 5, [P('r/42/1')]: rev, [P('r/42')]: { 1: rev } });
+    const M2 = baue(a2, st); M2.fbV9SecretClear();
+    const l2 = M2.fbV9Resume(CTX);
+    await settle();
+    a2.zustellen(P('c/42'), { 0: NULLT('pass'), 1: commit, 2: NULLT('pass') });
+    await settle();
+    a2.zustellen(P('r/42'), { 1: rev });
+    await l2.fertig;
+    t('eine schon vorhandene eigene Enthuellung ist vertraeglich',
+      l2.stufe === M2.FB_V9_COMPLETE, l2.stufe + ' ' + l2.grund);
+    t('und der Zug bleibt gueltig', l2.menge[1].status === M2.FB_V9_VALID);
+  }
+}
+
+// ══ DIE BINDUNG AN DEN ECHTEN COMMIT ═════════════════════════════════════════
+abschnitt('Ein Geheimnis berechtigt nur zusammen mit SEINEM Commit');
+{
+  const vorbereiten = async () => {
+    const st = speicher(), a = attrappe({ [P('d/42')]: { n: 42, o: 1 } });
+    const M = baue(a, st); M.fbV9SecretClear();
+    const l = M.fbV9Start(CTX, { move: ZUG });
+    await settle();
+    const commit = a.stand[P('c/42/1')];
+    l.stop();
+    return { st: st, commit: commit };
+  };
+  const { st, commit } = await vorbereiten();
+  const pruefe = async (ctx, kommit) => {
+    const M = baue(attrappe(), st); M.fbV9SecretClear();
+    const ok = await M.fbV9SecretAdopt(ctx, kommit);
+    return { ok: ok, M: M };
+  };
+  t('derselbe Hash bindet', (await pruefe(CTX, commit)).ok === 'OK');
+  // HASH_MISMATCH ist ausdruecklich NICHT dasselbe wie `nichts gefunden`: dort steht
+  // autoritativ ein anderer Zug, das gespeicherte Geheimnis ist beweisbar wertlos.
+  t('ein anderer Hash bindet NICHT',
+    (await pruefe(CTX, { k: 'move', h: H64, ts: 1 })).ok === 'HASH_MISMATCH');
+  for (const k of ['pass', 'late', 'skip', 'remove'])
+    t('ein ' + k + '-Terminal bindet kein Geheimnis',
+      (await pruefe(CTX, { k: k, ts: 1 })).ok === 'NOT_FOUND');
+  t('gar kein Commit bindet nicht', (await pruefe(CTX, null)).ok === 'NOT_FOUND');
+  t('eine fremde Kennung bindet nicht', (await pruefe(mit({ uid: FREMD }), commit)).ok === 'NOT_FOUND');
+  // players/<seat>/uid ist der Sitzbesitz - nicht das Praesenztoken.
+  t('gehoert der Sitz einem anderen Konto, wird nicht gebunden',
+    (await pruefe(mit({ seatUid: FREMD }), commit)).ok === 'NOT_FOUND');
+  t('gehoert er der eigenen Kennung, schon',
+    (await pruefe(mit({ seatUid: UID }), commit)).ok === 'OK');
+  for (const p of [['ein anderer Raum', mit({ code: 'ABCD' })], ['eine andere Generation', mit({ gen: 8 })],
+                   ['eine andere Runde', mit({ turn: 43 })], ['ein anderer Sitz', mit({ seat: 0 })]])
+    t(p[0] + ' findet kein Geheimnis', (await pruefe(p[1], commit)).ok === 'NOT_FOUND');
+  {
+    // Ein lokal verfaelschter Datensatz faellt schon in der ersten Ebene durch.
+    const s2 = speicher(Object.fromEntries(st.inhalt));
+    const rec = JSON.parse(s2.inhalt.get(KEY)); rec.dx = 99;
+    s2.inhalt.set(KEY, JSON.stringify(rec));
+    const M = baue(attrappe(), s2); M.fbV9SecretClear();
+    t('ein verfaelschter Vektor bindet nicht',
+      (await M.fbV9SecretAdopt(CTX, commit)) === 'NOT_FOUND');
+  }
+  {
+    const M = baue(attrappe(), null); M.fbV9SecretClear();
+    t('ohne Speicher bindet nichts', (await M.fbV9SecretAdopt(CTX, commit)) === 'NOT_FOUND');
+  }
+}
+
+// ══ VERLORENES GEHEIMNIS ═════════════════════════════════════════════════════
+abschnitt('Verlorenes Geheimnis - warten, nicht erfinden');
+{
+  const ohneGeheimnis = async (art) => {
+    const st = speicher(), a0 = attrappe({ [P('d/42')]: { n: 42, o: 1 } });
+    const M0 = baue(a0, st); M0.fbV9SecretClear();
+    const l0 = M0.fbV9Start(CTX, { move: ZUG });
+    await settle();
+    const commit = a0.stand[P('c/42/1')];
+    l0.stop();
+    if (art === 'weg') st.inhalt.delete(KEY);
+    if (art === 'kaputt') st.inhalt.set(KEY, '{nicht json');
+    const u = uhrwerk(6000000);
+    const a = attrappe({ [P('d/42')]: { n: 42, o: u.jetzt() }, [P('c/42/1')]: commit,
+                         [P('c/42')]: { 1: commit } }, u);
+    const M = baue(a, art === 'kein Speicher' ? null : st, u);
+    M.fbV9SecretClear();
+    const l = M.fbV9Resume(CTX);
+    await settle();
+    return { u: u, a: a, M: M, l: l, commit: commit, st: st };
+  };
+  for (const art of ['weg', 'kaputt', 'kein Speicher']) {
+    const g = await ohneGeheimnis(art);
+    t(art + ': der Lauf ist NICHT gescheitert', g.l.stufe !== g.M.FB_V9_FAILED, g.l.stufe);
+    t(art + ': er ist als verloren vermerkt', g.l.verloren === true);
+    t(art + ': und kein Geheimnis im Arbeitsspeicher',
+      g.M.fbV9SecretFor('RN2K', 7, 42) === null);
+    // Weiter durch die Barriere - und dann NICHTS enthuellen.
+    g.a.zustellen(P('c/42'), { 0: NULLT('pass'), 1: g.commit, 2: NULLT('pass') });
+    await settle();
+    t(art + ': die Enthuellung wird trotzdem eroeffnet',
+      typeof g.a.stand[P('ro/42')] === 'number');
+    await settle();
+    t(art + ': aber KEINE eigene Enthuellung geschrieben',
+      !g.a.log.schreib.some(w => w.pfad === P('r/42/1')));
+    t(art + ': der Lauf wartet auf die Ergebnisse',
+      g.l.stufe === g.M.FB_V9_WAIT_RESULTS, g.l.stufe);
+    // Und nach der Frist schliesst die vorhandene Mechanik den Slot.
+    await g.u.vor(6300);
+    const nr = g.a.log.schreib.filter(w => w.vorschlag && w.vorschlag.k === 'noreveal');
+    t(art + ': nach der Frist schliesst noreveal den Slot', nr.length >= 1, nr.length);
+    t(art + ': und zwar auf dem eigenen Ergebnispfad',
+      nr.some(w => w.pfad === P('r/42/1')));
+    // Kein neues Salz, keine Umdeutung zu pass, keine Spielfolge.
+    t(art + ': kein pass untergeschoben',
+      !g.a.log.schreib.some(w => w.vorschlag && w.vorschlag.k === 'pass'));
+  }
+}
+
+// ══ VERWAISTES / MEHRDEUTIGES GEHEIMNIS ══════════════════════════
+abschnitt('Geheimnis da, eigener Commit nicht zu sehen');
+{
+  // DER FEHLER, der hier behoben ist: die Fortsetzung kehrte in COMMITTING zurueck,
+  // wenn das eigene Terminal nicht im Raum stand. COMMITTING stellt keinen Wecker -
+  // der wird erst in WAIT_COMMITS geplant. Ein Client, dessen Commit vor dem
+  // Neuladen vielleicht angekommen war und vielleicht nicht, waere damit endlos
+  // haengengeblieben: kein Wecker, keine Frist, kein `late`, kein Fortschritt.
+  // Jetzt faellt er bis zur Barriere durch - ohne den alten Zug erneut zu senden.
+  const verwaist = async (u, vorbelegt) => {
+    const st = speicher(), a0 = attrappe({ [P('d/42')]: { n: 42, o: 1 } });
+    const M0 = baue(a0, st); M0.fbV9SecretClear();
+    const l0 = M0.fbV9Start(CTX, { move: ZUG });
+    await settle();
+    const commit = a0.stand[P('c/42/1')];
+    l0.stop();
+    // Neu geladen. Der Raum zeigt unser Terminal NICHT - ob der Commit nie ankam
+    // oder ob wir ihn nur noch nicht sehen, ist von hier aus nicht zu unterscheiden.
+    const a = attrappe(Object.assign({ [P('d/42')]: { n: 42, o: u.jetzt() } },
+                                     vorbelegt || {}), u);
+    const M = baue(a, st, u); M.fbV9SecretClear();
+    const l = M.fbV9Resume(CTX);
+    await settle();
+    return { st: st, a: a, M: M, l: l, commit: commit, u: u };
+  };
+  const spaet = (g) => g.a.log.schreib.filter(w => w.vorschlag && w.vorschlag.k === 'late');
+  const eigeneZuege = (g) => g.a.log.schreib.filter(
+    w => w.pfad === P('c/42/1') && w.vorschlag && w.vorschlag.k === 'move');
+
+  // ────────── Lebendigkeit: die Frist greift auch ohne eigenes Terminal ──────────
+  {
+    const g = await verwaist(uhrwerk(7000000));
+    t('der Lauf steht an der Barriere, nicht in COMMITTING',
+      g.l.stufe === g.M.FB_V9_WAIT_COMMITS, g.l.stufe);
+    t('und ist nicht gescheitert', g.l.stufe !== g.M.FB_V9_FAILED, g.l.grund);
+    t('der alte Zug wird NICHT erneut gesendet', eigeneZuege(g).length === 0);
+    t('das Geheimnis wird nicht uebernommen', g.M.fbV9SecretFor('RN2K', 7, 42) === null);
+    t('ein Wecker ist gestellt', g.u.anzahl() === 1, g.u.anzahl());
+    t('das Geheimnis bleibt liegen, obwohl c/42/1 gerade leer ist',
+      g.st.inhalt.has(KEY));
+    await g.u.vor(5000);
+    t('vor der Frist faellt kein late', spaet(g).length === 0, spaet(g).length);
+    await g.u.vor(1300);
+    t('nach der Frist wird geschlossen', spaet(g).length === 3, spaet(g).length);
+    t('auch der EIGENE Sitz wird geschlossen - genau das war der Stillstand',
+      spaet(g).some(w => w.pfad === P('c/42/1')));
+    t('und zwar aufsteigend ueber alle Sitze',
+      spaet(g).map(w => w.pfad).join('|') ===
+      [P('c/42/0'), P('c/42/1'), P('c/42/2')].join('|'));
+    t('bis hierher wurde das Geheimnis nicht angeruehrt', g.st.inhalt.has(KEY));
+    // Erst der autoritative Schnappschuss bewegt die Barriere.
+    g.a.zustellen(P('c/42'), { 0: NULLT('late'), 1: NULLT('late'), 2: NULLT('late') });
+    await settle();
+    t('jetzt gilt late als eigenes Terminal',
+      g.l.stufe !== g.M.FB_V9_WAIT_COMMITS, g.l.stufe);
+    t('und das verwaiste Geheimnis wird verworfen', !g.st.inhalt.has(KEY));
+    t('ohne Enthuellung', !g.a.log.schreib.some(w => w.pfad === P('r/42/1')));
+    t('der alte Zug wurde nie gesendet', eigeneZuege(g).length === 0);
+    g.l.stop();
+  }
+
+  // ────────── Mehrdeutig: der Commit war doch angekommen ──────────
+  {
+    const g = await verwaist(uhrwerk(7100000));
+    t('zunaechst wartend', g.l.stufe === g.M.FB_V9_WAIT_COMMITS, g.l.stufe);
+    g.a.zustellen(P('c/42'), { 0: NULLT('pass'), 1: g.commit, 2: NULLT('pass') });
+    await settle();
+    const rev = g.a.log.schreib.filter(w => w.pfad === P('r/42/1'));
+    t('der spaet sichtbare eigene Commit bindet das aufbewahrte Geheimnis',
+      rev.length === 1, rev.length);
+    t('und enthuellt GENAU den gespeicherten Zug',
+      rev.length === 1 && rev[0].vorschlag.k === 'reveal' && rev[0].vorschlag.idx === 1 &&
+      rev[0].vorschlag.dx === 12.5 && rev[0].vorschlag.dy === -8.25 &&
+      rev[0].vorschlag.sp === 0.5,
+      rev.length ? JSON.stringify(rev[0].vorschlag) : 'keine');
+    t('kein noreveal', !g.a.log.schreib.some(w => w.vorschlag && w.vorschlag.k === 'noreveal'));
+    t('und noch immer kein zweiter Zug', eigeneZuege(g).length === 0);
+    g.l.stop();
+  }
+
+  // ────────── Ein FREMDER Zug steht im eigenen Slot ──────────
+  {
+    const g = await verwaist(uhrwerk(7200000));
+    g.a.zustellen(P('c/42'), { 0: NULLT('pass'), 1: { k: 'move', h: H64, ts: 1 },
+                               2: NULLT('pass') });
+    await settle();
+    t('ein anderer Hash bindet das Geheimnis nicht',
+      !g.a.log.schreib.some(w => w.pfad === P('r/42/1') && w.vorschlag &&
+                                 w.vorschlag.k === 'reveal'));
+    t('genau dieser eine Datensatz wird verworfen', !g.st.inhalt.has(KEY));
+    t('aber der Lauf scheitert nicht', g.l.stufe !== g.M.FB_V9_FAILED, g.l.grund);
+    await g.u.vor(20000);
+    t('nach der Frist schliesst noreveal den Slot',
+      g.a.log.schreib.some(w => w.pfad === P('r/42/1') && w.vorschlag &&
+                                w.vorschlag.k === 'noreveal'));
+    g.l.stop();
+  }
+
+  // ────────── Ein Nullterminal steht im eigenen Slot ──────────
+  for (const k of ['pass', 'skip', 'remove', 'late']) {
+    const g = await verwaist(uhrwerk(7300000));
+    g.a.zustellen(P('c/42'), { 0: NULLT('pass'), 1: NULLT(k), 2: NULLT('pass') });
+    await settle();
+    t(k + ': das Geheimnis ist erwiesen verwaist und wird verworfen', !g.st.inhalt.has(KEY));
+    t(k + ': keine Enthuellung', !g.a.log.schreib.some(w => w.pfad === P('r/42/1')));
+    t(k + ': kein Zug nachgeschoben', eigeneZuege(g).length === 0);
+    g.l.stop();
+  }
+
+  // ────────── Rauschen erzeugt weder Zuege noch unbegrenzt Wecker ──────────
+  {
+    const g = await verwaist(uhrwerk(7400000));
+    const karte = { 0: NULLT('pass') };
+    for (let i = 0; i < 12; i++) { g.a.zustellen(P('c/42'), karte); await settle(4); }
+    t('zwoelf gleiche Schnappschuesse ergeben einen Wecker, nicht zwoelf',
+      g.u.anzahl() === 1, g.u.anzahl());
+    t('und keinen einzigen erneuten Zug', eigeneZuege(g).length === 0);
+    t('das Geheimnis liegt weiter bereit', g.st.inhalt.has(KEY));
+    t('der Lauf wartet unveraendert an der Barriere',
+      g.l.stufe === g.M.FB_V9_WAIT_COMMITS, g.l.stufe);
+    g.l.stop();
+  }
+
+  // ────────── Erschoepftes Budget: kein Zug, kein Verlust des Geheimnisses ──────────
+  {
+    const u = uhrwerk(7500000);
+    const g = await verwaist(u);
+    g.a.setzeFehler(P('c/42/1'), new Error('permission_denied'));
+    await u.vor(6300); await u.vor(500); await u.vor(1500); await u.vor(120000);
+    const versuche = g.a.log.schreib.filter(w => w.pfad === P('c/42/1'));
+    t('der abgewiesene eigene Abschluss wird genau dreimal versucht',
+      versuche.length === 3, versuche.length);
+    t('und danach steht kein Wecker mehr', g.u.anzahl() === 0, g.u.anzahl());
+    t('das Geheimnis wurde bei einem NETZFEHLER nicht weggeworfen', g.st.inhalt.has(KEY));
+    t('und kein Zug wurde nachgeschoben', eigeneZuege(g).length === 0);
+    g.l.stop();
+  }
+}
+// ══ DER DOPPELTE TAB ═════════════════════════════════════════════════════════
+abschnitt('Der doppelte Tab - dieselbe Enthuellung, kein Schaden');
+{
+  const st = speicher(), a0 = attrappe({ [P('d/42')]: { n: 42, o: 1 } });
+  const M0 = baue(a0, st); M0.fbV9SecretClear();
+  const l0 = M0.fbV9Start(CTX, { move: ZUG });
+  await settle();
+  const commit = a0.stand[P('c/42/1')];
+  const revA = M0.fbV9MakeReveal({ room: 'RN2K', gen: 7, turn: 42, seat: 1 });
+  l0.stop();
+  // Ein zweiter Tab mit KOPIERTEM Speicher.
+  const kopie = speicher(Object.fromEntries(st.inhalt));
+  const a2 = attrappe({ [P('d/42')]: { n: 42, o: 1 }, [P('c/42/1')]: commit,
+                        [P('c/42')]: { 1: commit } }, null);
+  const M2 = baue(a2, kopie); M2.fbV9SecretClear();
+  const l2 = M2.fbV9Resume(CTX);
+  await settle();
+  t('die Kopie wird uebernommen - so ist es gemeint', !!M2.fbV9SecretFor('RN2K', 7, 42));
+  const revB = M2.fbV9MakeReveal({ room: 'RN2K', gen: 7, turn: 42, seat: 1 });
+  t('und ergibt bitgleich dieselbe Enthuellung',
+    JSON.stringify(revA) === JSON.stringify(revB));
+  l2.stop();
+  // Es gibt bewusst keine Tab-Pruefung.
+  const q = HTML.slice(HTML.indexOf('function fbV9UidOk(ctx)'), ENDE);
+  for (const w of ['onlineTab', 'onlinePid'])
+    t('die Fortsetzung kennt kein ' + w, q.indexOf(w) < 0);
+}
+
+// ══ QUELLTEXT-WAECHTER ═══════════════════════════════════════════════════════
+abschnitt('Waechter');
+{
+  const NL = String.fromCharCode(10);
+  const code = BEREICH.split(NL).map(z => { const k = z.indexOf('//');
+    return k >= 0 ? z.slice(0, k) : z; }).join(NL);
+  t('Protokoll 8', /const ONLINE_PROTOCOL_VERSION=8;/.test(HTML));
+  // Die Reihenfolge gilt IM EINSTIEG, nicht im ganzen Block: fbV9NetWriteCommit ist
+  // weiter oben im Adapter definiert. Massgeblich ist, dass der Einstieg zuerst
+  // sichert und erst der Schritt danach sendet - und dass ein Fehlschlag beim
+  // Sichern den Lauf beendet, BEVOR irgendetwas an Firebase geht.
+  const einstieg = HTML.slice(HTML.indexOf('function fbV9Start(ctx,aktion)'), ENDE);
+  t('der Einstieg sichert das Geheimnis', einstieg.indexOf('fbV9SecretSave') > 0);
+  t('und bricht ab, wenn das misslingt',
+    /if\(abgelegt!==FB_V9_SAVED\)\{/.test(einstieg));
+  t('der Einstieg selbst sendet keinen Commit',
+    einstieg.slice(0, einstieg.indexOf('lauf.abmelden=')).indexOf('fbV9NetWriteCommit') < 0);
+  t('kein localStorage fuer das v9-Geheimnis', code.indexOf('localStorage') < 0);
+  t('kein IndexedDB', code.indexOf('indexedDB') < 0);
+  t('keine Bindung an onlineTab oder das Praesenztoken',
+    code.indexOf('onlineTab') < 0 && code.indexOf('onlinePid') < 0);
+  t('keine Spielfolge',
+    ['fbElimLives', 'gameOver', 'footballElimEliminate', 'applyLaunch('].every(w => code.indexOf(w) < 0));
+  t('nichts wird protokolliert', code.indexOf('console.') < 0);
+  t('ausserhalb des ruhenden Bereichs nennt keine Zeile eine v9-Funktion',
+    HTML.split(BEREICH).join('').indexOf('fbV9') < 0);
+  t('keine zweite Zustandsmaschine - fbV9Resume benutzt fbV9Start',
+    /function fbV9Resume\(ctx\)\{ return fbV9Start\(ctx,\{resume:true\}\); \}/.test(HTML));
+  const regeln = fs.readFileSync(path.join(__dirname, '..', 'firebase.rules.json'), 'utf8');
+  t('die Regeln tragen weiterhin die v9-Zweige', regeln.indexOf("child('v').val() === 9") > 0);
+}
+
+console.log('\nOnline-V9-Fortsetzung: ' + pass + ' passed, ' + fail + ' failed');
+process.exit(fail ? 1 : 0);
+})().catch(e => { console.log('AUSNAHME: ' + (e && e.stack ? e.stack : e)); process.exit(2); });

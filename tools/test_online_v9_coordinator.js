@@ -116,12 +116,23 @@ const START = HTML.indexOf('const FB_V9_PREIMAGE_BYTES=60');
 const ENDE = HTML.indexOf('// ════ ENDE V9-ABLAUFSTEUERUNG ════');
 if (START < 0 || ENDE < START) throw new Error('der ruhende v9-Bereich fehlt');
 const BEREICH = HTML.slice(START, ENDE);
+// Seit B2C3C sichert die Steuerung das Geheimnis, BEVOR sie den Commit sendet. Ohne
+// Speicher gaebe es also keinen Zug mehr - die Sandbox bekommt deshalb einen einfachen.
+function speicher(){
+  const m=new Map();
+  return { get length(){return m.size;}, key:(i)=>[...m.keys()][i],
+           getItem:(k)=>m.has(k)?m.get(k):null,
+           setItem:(k,v)=>{m.set(k,String(v));},
+           removeItem:(k)=>{m.delete(k);}, inhalt:m };
+}
 const STILL = uhrwerk(1000);
-const baue = (a, uhr) => new Function('window', 'crypto', 'GEN_MAX', 'FB_ONLINE_SEATS',
+const baue = (a, uhr, st) => new Function('window', 'crypto', 'GEN_MAX', 'FB_ONLINE_SEATS',
                                 'FB_ONLINE_BALL_IDX', 'serverNow', 'setTimeout',
-                                'clearTimeout', `
+                                'clearTimeout', 'sessionStorage', `
   ${BEREICH}
-  return { fbV9Start, fbV9CtxOk, fbV9MakeCommit, fbV9MakeReveal, fbV9SecretFor,
+  return { fbV9Start, fbV9Resume, fbV9UidOk, fbV9SecretAdopt, fbV9SecretSave,
+           fbV9SecretLoad, fbV9SecretDrop, fbV9Hex, fbV9NewSalt,
+           fbV9CtxOk, fbV9MakeCommit, fbV9MakeReveal, fbV9SecretFor,
            fbV9Marke,
            fbV9SecretClear, fbV9Hash, fbV9Hex, fbV9AcceptedSet, fbV9EngineCtx,
            FB_V9_IDLE, FB_V9_OPENING, FB_V9_COMMITTING, FB_V9_WAIT_COMMITS,
@@ -129,10 +140,14 @@ const baue = (a, uhr) => new Function('window', 'crypto', 'GEN_MAX', 'FB_ONLINE_
            FB_V9_COMPLETE, FB_V9_FAILED, FB_V9_STOPPED,
            FB_V9_VALID, FB_V9_MISMATCH, FB_V9_MALFORMED, FB_V9_NO_REVEAL };
 `)({ FB: a.FB }, globalThis.crypto, 10000, 5, 5,
-   (uhr || STILL).serverNow, (uhr || STILL).setTimeout, (uhr || STILL).clearTimeout);
+   (uhr || STILL).serverNow, (uhr || STILL).setTimeout, (uhr || STILL).clearTimeout,
+   st || speicher());
 
 const H64 = 'ab12'.repeat(16), H32 = '0123456789abcdef'.repeat(2);
-const CTX = { v: 9, code: 'RN2K', gen: 7, turn: 42, seat: 1, cap: 3 };
+const UID = 'UID_KOORD_XXXXXXXXXXXXXXXXX';
+// Seit B2C3C gehoert die angemeldete Kennung in den Zusammenhang - ohne sie wird
+// kein Geheimnis gesichert und folglich kein Zug gesendet.
+const CTX = { v: 9, code: 'RN2K', gen: 7, turn: 42, seat: 1, cap: 3, uid: UID };
 const mit = (x) => Object.assign({}, CTX, x);
 const P = (rest) => 'rooms/RN2K/g/7/' + rest;
 const ZUG = { idx: 1, dx: 12.5, dy: -8.25, sp: 0.5 };
