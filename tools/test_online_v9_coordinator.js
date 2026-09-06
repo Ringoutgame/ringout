@@ -506,11 +506,19 @@ abschnitt('Waechter: die Steuerung ruht');
   for (const w of ['applyLaunch(', 'beginReveal', 'setPhase', 'commitIdx', 'commitAim',
                    'commitSpin', 'aimSet', 'turnNo', 'fbElimLives', 'gameOver', 'balls['])
     t('die Steuerung beruehrt ' + w + ' nicht', ohneText.indexOf(w) < 0);
-  // Keine Fristen, keine Zeitgeber, keine Sentinel-Schreiber in dieser Stufe.
-  for (const w of ['setTimeout', 'setInterval', 'Date.now', '6000'])
-    t('kein ' + w + ' im ruhenden Bereich', ohneText.indexOf(w) < 0);
-  for (const w of ["'late'", "'skip'", "'remove'", "'noreveal'"])
-    t('kein Schreiber fuer ' + w, ohneText.indexOf('k:' + w) < 0);
+  // Die STEUERUNG selbst - abgegrenzt ab fbV9EngineCtx - traegt weder Zeitgeber
+  // noch Sentinel-Schreiber. Die vier Schreiber liegen seit B2C1 im Adapter
+  // darueber; sie zu haben ist etwas anderes, als sie zu benutzen. Gerufen
+  // werden sie erst in B2C2.
+  const stStart = BEREICH.indexOf('function fbV9EngineCtx(ctx)');
+  const stCode = ohneText.slice(ohneText.indexOf('function fbV9EngineCtx(ctx)'));
+  t('die Steuerung ist abgegrenzt', stStart > 0);
+  for (const w of ['setTimeout', 'setInterval', 'Date.now', 'serverNow', '6000'])
+    t('kein ' + w + ' in der Steuerung', stCode.indexOf(w) < 0);
+  for (const w of ["fbV9NetWriteLate", "fbV9NetWriteSkip",
+                   "fbV9NetWriteRemove", "fbV9NetWriteNoReveal"])
+    t('die Steuerung ruft ' + w + ' noch nicht - das ist B2C2',
+      stCode.indexOf(w) < 0);
   t('kein Produktweg legt einen v9-Raum an', HTML.indexOf('v:9') < 0 && HTML.indexOf('v: 9') < 0);
   const regeln = fs.readFileSync(path.join(__dirname, '..', 'firebase.rules.json'), 'utf8');
   t('die Regeldatei traegt weiterhin die v9-Zweige aus V9.1/V9.2',

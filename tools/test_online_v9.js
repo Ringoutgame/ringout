@@ -259,8 +259,11 @@ abschnitt('Terminal skip - nur gegen einen NACHWEISLICH getrennten Sitz');
   const O_SKIP = { k: 'skip', ts: SV };
   deny('ein verbundener Sitz wird nicht uebersprungen',
        raum({ d: offen('0') }), 'rooms/V9RM/g/0/c/0/2', O_SKIP, UID[1]);
-  allow('ein getrennter Sitz wird uebersprungen',
-        raum({ offline: [2], d: offen('0') }), 'rooms/V9RM/g/0/c/0/2', O_SKIP, UID[1]);
+  // Seit der Fristkorrektur reicht die fehlende Praesenz allein NICHT mehr - der
+  // Sitz wird erst nach Ablauf des Entscheidungsfensters uebersprungen. Die alte
+  // Fassung dieses Falls hielt genau das Verhalten fest, das die Luecke ausmachte.
+  allow('ein getrennter Sitz wird NACH der Frist uebersprungen',
+        raum({ offline: [2], d: offen('0', 6001) }), 'rooms/V9RM/g/0/c/0/2', O_SKIP, UID[1]);
   deny('ein Fremder ohne Sitz ueberspringt niemanden',
        raum({ offline: [2], d: offen('0') }), 'rooms/V9RM/g/0/c/0/2', O_SKIP, UID_ATTACK);
   deny('ein selbst getrennter Schreiber ueberspringt niemanden',
@@ -576,6 +579,92 @@ abschnitt('Vollstaendigkeit des Vorgaengers: zu jedem move gehoert ein Ergebnis'
                  ro: revOffen('0'), r: ergebnisse('0', { 0: REVEAL }) }));
 }
 
+// ══ FRISTSCHLUSS: SKIP TRAEGT JETZT DIE FRIST ════════════════════════════════
+abschnitt('skip schliesst kein Fenster vorzeitig');
+{
+  // DIE LUECKE, die hier geschlossen ist: skip verlangte frueher nur `on === false`.
+  // Damit konnte ein Mitspieler das Entscheidungsfenster eines anderen beenden,
+  // sobald dessen Praesenz kurz flackerte - Tunnel, WLAN-Wechsel, Bildschirmsperre -,
+  // obwohl von den sechs Sekunden noch fuenf uebrig waren. Write-once machte das
+  // endgueltig. Jetzt verlangt skip BEIDES: getrennt UND Frist verstrichen.
+  const O_SKIP = { k: 'skip', ts: SV };
+  deny('vor der Frist wird ein getrennter Sitz NICHT uebersprungen',
+       raum({ offline: [2], d: offen('0') }), 'rooms/V9RM/g/0/c/0/2', O_SKIP, UID[1]);
+  deny('genau AUF der Frist ebenso',
+       raum({ offline: [2], d: offen('0', 6000) }), 'rooms/V9RM/g/0/c/0/2', O_SKIP, UID[1]);
+  allow('eine Millisekunde danach schon',
+        raum({ offline: [2], d: offen('0', 6001) }), 'rooms/V9RM/g/0/c/0/2', O_SKIP, UID[1]);
+  deny('ein VERBUNDENER Sitz wird auch nach der Frist nicht uebersprungen',
+       raum({ d: offen('0', 6001) }), 'rooms/V9RM/g/0/c/0/2', O_SKIP, UID[1]);
+  deny('und vor der Frist erst recht nicht',
+       raum({ d: offen('0') }), 'rooms/V9RM/g/0/c/0/2', O_SKIP, UID[1]);
+  deny('write-once: ein belegter Slot bleibt belegt',
+       raum({ offline: [2], d: offen('0', 6001), c: { 0: { 2: { k: 'pass', ts: NOW - 1 } } } }),
+       'rooms/V9RM/g/0/c/0/2', O_SKIP, UID[1]);
+  deny('ein zusaetzliches Feld wird abgewiesen',
+       raum({ offline: [2], d: offen('0', 6001) }), 'rooms/V9RM/g/0/c/0/2',
+       { k: 'skip', ts: SV, h: HEX64 }, UID[1]);
+  deny('ein gefaelschtes ts wird abgewiesen',
+       raum({ offline: [2], d: offen('0', 6001) }), 'rooms/V9RM/g/0/c/0/2',
+       { k: 'skip', ts: NOW - 1 }, UID[1]);
+  deny('ein Ziel ausserhalb der Sollbesetzung wird abgewiesen',
+       raum({ cap: 3, offline: [2], d: offen('0', 6001) }), 'rooms/V9RM/g/0/c/0/3',
+       O_SKIP, UID[1]);
+  deny('ein ausgetragener Sitz bekommt weiterhin kein skip',
+       raum({ offline: [2], evicted: [2], d: offen('0', 6001) }),
+       'rooms/V9RM/g/0/c/0/2', O_SKIP, UID[1]);
+  deny('ohne eroeffnete Runde gibt es kein skip',
+       raum({ offline: [2] }), 'rooms/V9RM/g/0/c/0/2', O_SKIP, UID[1]);
+  // Der v8-Zugslot ist von alledem unberuehrt - dort gibt es diese Frist nicht.
+  allow('der v8-Sentinel bleibt unveraendert ohne Fristbedingung',
+        raum({ v: 8, offline: [2] }), 'rooms/V9RM/g/0/t/0/2',
+        { k: 'skip', idx: 2, dx: 0, dy: 0, sp: 0 }, UID[1]);
+}
+
+// ══ FRISTSCHLUSS: LATE, REMOVE UND NOREVEAL IM ZUSAMMENSPIEL ════════════════
+abschnitt('Die uebrigen Fristschliesser');
+{
+  const O_LATE = { k: 'late', ts: SV };
+  deny('late vor der Frist', raum({ d: offen('0') }), 'rooms/V9RM/g/0/c/0/2', O_LATE, UID[1]);
+  deny('late genau AUF der Frist',
+       raum({ d: offen('0', 6000) }), 'rooms/V9RM/g/0/c/0/2', O_LATE, UID[1]);
+  allow('late danach durch einen Mitspieler',
+        raum({ d: offen('0', 6001) }), 'rooms/V9RM/g/0/c/0/2', O_LATE, UID[1]);
+  allow('und durch den Sitzinhaber selbst',
+        raum({ d: offen('0', 6001) }), 'rooms/V9RM/g/0/c/0/2', O_LATE, UID[2]);
+  deny('ein belegter Slot bleibt belegt',
+       raum({ d: offen('0', 6001), c: { 0: { 2: { k: 'pass', ts: NOW - 1 } } } }),
+       'rooms/V9RM/g/0/c/0/2', O_LATE, UID[1]);
+  // remove haengt allein am Austragungsmarker - nicht an der Frist.
+  const O_REM = { k: 'remove', ts: SV };
+  deny('ohne Marker kein remove',
+       raum({ offline: [2], d: offen('0', 6001) }), 'rooms/V9RM/g/0/c/0/2', O_REM, UID[1]);
+  allow('mit Marker schon',
+        raum({ offline: [2], evicted: [2], d: offen('0', 6001) }),
+        'rooms/V9RM/g/0/c/0/2', O_REM, UID[1]);
+  {
+    // Der Marker selbst wird von diesem Weg NIE gesetzt - er gehoert der
+    // Austragungsmaschinerie und verlangt fuenfzehn Sekunden Abwesenheit.
+    const r = raum({ offline: [2], d: offen('0', 6001) });
+    deny('ein Schreiber kann den Austragungsmarker nicht nebenbei setzen',
+         r, 'rooms/V9RM/g/0/e/2', true, UID[1]);
+  }
+  // noreveal: nur nach der Reveal-Frist, nur zu einem verborgenen Zug.
+  const mitAnker = (alt) => raum({ d: offen('0'), c: terminals('0', ['move', 'move', 'pass']),
+                                   ro: revOffen('0', alt) });
+  const O_NR = { k: 'noreveal', ts: SV };
+  deny('noreveal vor der Frist', mitAnker(0), 'rooms/V9RM/g/0/r/0/1', O_NR, UID[2]);
+  deny('noreveal genau AUF der Frist', mitAnker(6000), 'rooms/V9RM/g/0/r/0/1', O_NR, UID[2]);
+  allow('danach durch einen Mitspieler', mitAnker(6001), 'rooms/V9RM/g/0/r/0/1', O_NR, UID[2]);
+  allow('und durch den Sitzinhaber selbst', mitAnker(6001), 'rooms/V9RM/g/0/r/0/1', O_NR, UID[1]);
+  deny('ohne verborgenen Zug gibt es kein noreveal',
+       raum({ d: offen('0'), c: terminals('0', ['move', 'pass', 'pass']),
+              ro: revOffen('0', 6001) }), 'rooms/V9RM/g/0/r/0/1', O_NR, UID[2]);
+  deny('und ein belegtes Ergebnis bleibt belegt',
+       raum({ d: offen('0'), c: terminals('0', ['move', 'move', 'pass']),
+              ro: revOffen('0', 6001), r: ergebnisse('0', { 1: { k: 'noreveal', ts: NOW - 1 } }) }),
+       'rooms/V9RM/g/0/r/0/1', O_NR, UID[2]);
+}
 // ══ REGRESSION ═══════════════════════════════════════════════════════════════
 abschnitt('Regression: v8 kennt auch die Reveal-Pfade nicht');
 {

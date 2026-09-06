@@ -9041,6 +9041,49 @@ function fbV9NetListen(ctx,rueckruf){
     aus=[];
   };
 }
+// ── Die vier Fristschliesser (ruhend) ────────────────────────────────────────
+// Sie schliessen einen offenen Slot, wenn die Frist verstrichen ist - und zwar den
+// eines ANDEREN Sitzes oder den eigenen. Deshalb nehmen sie den Zielsitz getrennt
+// entgegen: `ctx.seat` ist, wer schreibt, `ziel` ist, wessen Slot geschlossen wird.
+//
+// Keiner von ihnen entscheidet ueber die Frist. Sie schreiben und melden, was der
+// Server sagt; die Bedingungen - Fristablauf, Praesenz, Austragungsmarker - stehen in
+// den Rules und nur dort. Eine lokale Vorpruefung waere eine zweite Wahrheit neben der
+// einzigen, die zaehlt, und im Zweifel die falsche.
+//
+// WAS SIE NICHT TUN: keinen Zeitgeber stellen, keinen Austragungsmarker setzen, keine
+// Spielfolge ziehen. Wann sie gerufen werden, entscheidet eine spaetere Stufe; was ein
+// ausgebliebener Reveal fuer die Lebensregel bedeutet, eine noch spaetere.
+function fbV9ZielOk(ctx,ziel){
+  return Number.isInteger(ziel)&&ziel>=0&&ziel<ctx.cap;
+}
+// Ein Terminal auf den Slot eines Sitzes - move und pass gehoeren NICHT hierher, die
+// schreibt der Sitz selbst ueber fbV9NetWriteCommit.
+async function fbV9NetWriteTerminal(ctx,ziel,art){
+  if(!fbV9CtxOk(ctx)||!fbV9ZielOk(ctx,ziel))return {status:FB_V9_INVALID,wert:null};
+  if(art!=='late'&&art!=='skip'&&art!=='remove')return {status:FB_V9_INVALID,wert:null};
+  return await fbV9WriteOnce(fbV9Ref(ctx,'c/'+ctx.turn+'/'+ziel),
+                             {k:art,ts:window.FB.serverTimestamp()});
+}
+// Die Frist ist verstrichen und niemand hat gezogen. Ein Nullzug, keine Strafe - wer
+// nie committet hat, hat nie etwas gebunden.
+function fbV9NetWriteLate(ctx,ziel){ return fbV9NetWriteTerminal(ctx,ziel,'late'); }
+// Derselbe Nullzug, aber mit der zusaetzlichen Auskunft, dass der Sitz nachweislich
+// getrennt war. Die Rules verlangen dafuer BEIDES: die abgelaufene Frist UND die
+// fehlende Praesenz - sonst koennte ein kurzes Flackern das Fenster eines anderen
+// vorzeitig schliessen.
+function fbV9NetWriteSkip(ctx,ziel){ return fbV9NetWriteTerminal(ctx,ziel,'skip'); }
+// Nur fuer einen bereits ausgetragenen Sitz. Der Marker g/<gen>/e/<seat> wird hier
+// WEDER gesetzt noch veraendert - er gehoert der bestehenden Austragungsmaschinerie,
+// und zwei Wege zu derselben Befugnis waeren einer zu viel.
+function fbV9NetWriteRemove(ctx,ziel){ return fbV9NetWriteTerminal(ctx,ziel,'remove'); }
+// Die Enthuellung ist ausgeblieben. Das Protokoll haelt fest, DASS nichts kam - was
+// daraus spielerisch folgt, steht hier ausdruecklich nicht.
+async function fbV9NetWriteNoReveal(ctx,ziel){
+  if(!fbV9CtxOk(ctx)||!fbV9ZielOk(ctx,ziel))return {status:FB_V9_INVALID,wert:null};
+  return await fbV9WriteOnce(fbV9Ref(ctx,'r/'+ctx.turn+'/'+ziel),
+                             {k:'noreveal',ts:window.FB.serverTimestamp()});
+}
 // ════ ENDE V9-NETZADAPTER ════
 // ════ V9-ABLAUFSTEUERUNG (RUHEND) ════
 // Sie setzt die fertigen Teile zusammen und erfindet nichts nach: Codec und Hash aus

@@ -80,12 +80,19 @@ const REGIONEN = [
   /async function fbV9NetWriteCommit\(ctx,terminal\)\{[\s\S]*?\n\}/,
   /async function fbV9NetOpenReveal\(ctx\)\{[\s\S]*?\n\}/,
   /async function fbV9NetWriteReveal\(ctx,reveal\)\{[\s\S]*?\n\}/,
+  /function fbV9ZielOk\(ctx,ziel\)\{[\s\S]*?\n\}/,
+  /async function fbV9NetWriteTerminal\(ctx,ziel,art\)\{[\s\S]*?\n\}/,
+  /function fbV9NetWriteLate\(ctx,ziel\)\{[^\n]*/,
+  /function fbV9NetWriteSkip\(ctx,ziel\)\{[^\n]*/,
+  /function fbV9NetWriteRemove\(ctx,ziel\)\{[^\n]*/,
+  /async function fbV9NetWriteNoReveal\(ctx,ziel\)\{[\s\S]*?\n\}/,
   /function fbV9NetListen\(ctx,rueckruf\)\{[\s\S]*?\n\}/,
 ];
 const baue = (a) => new Function('window', 'GEN_MAX', 'FB_ONLINE_SEATS', `
   ${REGIONEN.map((r, i) => grab(r, 'Adapter ' + i)).join('\n')}
   return { fbV9CtxOk, fbV9NetOpenTurn, fbV9NetWriteCommit, fbV9NetOpenReveal,
-           fbV9NetWriteReveal, fbV9NetListen,
+           fbV9NetWriteReveal, fbV9NetListen, fbV9NetWriteLate,
+           fbV9NetWriteSkip, fbV9NetWriteRemove, fbV9NetWriteNoReveal,
            FB_V9_COMMITTED, FB_V9_EXISTS, FB_V9_DENIED, FB_V9_INVALID, FB_V9_ERROR };
 `)({ FB: a.FB }, 10000, 5);
 
@@ -327,6 +334,84 @@ abschnitt('Zuhoeren und sauber abmelden');
   t('dabei entsteht kein zusaetzlicher Zuhoerer', a.log.hoert.length === 4, a.log.hoert.length);
 }
 
+// ══ DIE FRISTSCHLIESSER ══════════════════════════════════════════════════════
+abschnitt('Die vier Fristschliesser');
+{
+  // Sie schliessen den Slot eines ANDEREN Sitzes - oder den eigenen. Deshalb nehmen
+  // sie das Ziel getrennt entgegen: ctx.seat ist, WER schreibt, ziel ist, WESSEN
+  // Slot geschlossen wird. Ueber die Frist entscheidet keiner von ihnen.
+  for (const paar of [['fbV9NetWriteLate', 'late'], ['fbV9NetWriteSkip', 'skip'],
+                      ['fbV9NetWriteRemove', 'remove']]) {
+    const a = attrappe(), A2 = baue(a);
+    const r = await A2[paar[0]](CTX, 2);
+    t(paar[0] + ' meldet COMMITTED', r.status === A2.FB_V9_COMMITTED, r.status);
+    const w = a.log.schreib[0];
+    t(paar[1] + ': der Pfad nennt den ZIELsitz', w.pfad === 'rooms/RN2K/g/7/c/42/2', w.pfad);
+    t(paar[1] + ': vorgeschlagen werden genau k und ts',
+      schluessel(w.vorschlag) === 'k,ts', schluessel(w.vorschlag));
+    t(paar[1] + ': mit der richtigen Zugart', w.vorschlag.k === paar[1]);
+    t(paar[1] + ': ts ist der Sentinel', w.vorschlag.ts === SENTINEL);
+    t(paar[1] + ': und KEINE Clientuhr', typeof w.vorschlag.ts !== 'number');
+    t(paar[1] + ': applyLocally:false', w.opts && w.opts.applyLocally === false);
+    t(paar[1] + ': kein Vektor, kein Salz, kein Hash',
+      w.vorschlag.idx === undefined && w.vorschlag.dx === undefined
+      && w.vorschlag.n === undefined && w.vorschlag.h === undefined);
+  }
+  {
+    const a = attrappe(), A2 = baue(a);
+    const r = await A2.fbV9NetWriteNoReveal(CTX, 2);
+    t('fbV9NetWriteNoReveal meldet COMMITTED', r.status === A2.FB_V9_COMMITTED, r.status);
+    const w = a.log.schreib[0];
+    t('noreveal geht auf den ERGEBNISpfad', w.pfad === 'rooms/RN2K/g/7/r/42/2', w.pfad);
+    t('noreveal: genau k und ts', schluessel(w.vorschlag) === 'k,ts');
+    t('noreveal: die richtige Art', w.vorschlag.k === 'noreveal');
+    t('noreveal: ts ist der Sentinel', w.vorschlag.ts === SENTINEL);
+    t('noreveal: kein Vektor, kein Salz',
+      w.vorschlag.idx === undefined && w.vorschlag.n === undefined);
+  }
+  {
+    // Der eigene Slot laesst sich schliessen - kehrt ein allein verbliebener Client
+    // nach der Frist zurueck, gaebe es sonst niemanden, der ihn schliesst.
+    const a = attrappe(), A2 = baue(a);
+    t('der eigene Slot laesst sich schliessen',
+      (await A2.fbV9NetWriteLate(CTX, CTX.seat)).status === A2.FB_V9_COMMITTED);
+    t('und der Pfad zeigt auf den eigenen Sitz',
+      a.log.schreib[0].pfad === 'rooms/RN2K/g/7/c/42/1', a.log.schreib[0].pfad);
+  }
+  for (const fn of ['fbV9NetWriteLate', 'fbV9NetWriteSkip', 'fbV9NetWriteRemove',
+                    'fbV9NetWriteNoReveal']) {
+    const a = attrappe(), A2 = baue(a);
+    for (const ziel of [3, 5, -1, 1.5, 'x', null, undefined])
+      t(fn + ' weist das Ziel ' + ziel + ' ab',
+        (await A2[fn](CTX, ziel)).status === A2.FB_V9_INVALID);
+    t(fn + ' weist einen v8-Zusammenhang ab',
+      (await A2[fn](mit({ v: 8 }), 2)).status === A2.FB_V9_INVALID);
+    t(fn + ': dabei wird nichts gesendet', a.log.schreib.length === 0, a.log.schreib.length);
+  }
+  {
+    const b = attrappe({ 'rooms/RN2K/g/7/c/42/2': { k: 'pass', ts: 1 } }), B2 = baue(b);
+    t('ein belegter Slot ergibt EXISTS',
+      (await B2.fbV9NetWriteLate(CTX, 2)).status === B2.FB_V9_EXISTS);
+    const c = attrappe(), C2 = baue(c);
+    c.setzeFehler('*', new Error('permission_denied'));
+    t('eine Abweisung ergibt DENIED - nie Erfolg',
+      (await C2.fbV9NetWriteSkip(CTX, 2)).status === C2.FB_V9_DENIED);
+    const d = attrappe(), D2 = baue(d);
+    d.setzeFehler('*', new Error('network down'));
+    t('ein Netzfehler ergibt ERROR',
+      (await D2.fbV9NetWriteNoReveal(CTX, 2)).status === D2.FB_V9_ERROR);
+  }
+  // Was die Schreiber ausdruecklich NICHT tun.
+  const term = grab(/async function fbV9NetWriteTerminal\(ctx,ziel,art\)\{[\s\S]*?\n\}/, 'fbV9NetWriteTerminal');
+  t('kein Schreiber setzt den Austragungsmarker', term.indexOf('/e/') < 0);
+  t('und keiner prueft die Frist selbst - das tun die Rules',
+    term.indexOf('6000') < 0 && term.indexOf('Date.now') < 0);
+  t('move und pass gehoeren nicht zu den Fristschliessern',
+    term.indexOf("'move'") < 0 && term.indexOf("'pass'") < 0);
+  const nr = grab(/async function fbV9NetWriteNoReveal\(ctx,ziel\)\{[\s\S]*?\n\}/, 'noreveal');
+  t('auch der noreveal-Schreiber prueft die Frist nicht selbst',
+    nr.indexOf('6000') < 0 && nr.indexOf('Date.now') < 0 && nr.indexOf('/e/') < 0);
+}
 // ══ QUELLTEXT-WAECHTER ═══════════════════════════════════════════════════════
 abschnitt('Waechter: der Adapter ruht');
 {
@@ -367,6 +452,20 @@ abschnitt('Waechter: der Adapter ruht');
   for (const w of ['commitIdx', 'commitAim', 'commitSpin', 'aimSet', 'applyLaunch(',
                    'beginReveal', 'setPhase', 'turnNo', 'fbElimLives', 'gameOver'])
     t('der Bereich beruehrt ' + w + ' nicht', ohneText.indexOf(w) < 0);
+  // B2C1 bringt die Schreiber - aber keinen Zeitgeber, keine Speicherung und keine
+  // Spielfolge. Das kommt mit B2C2, B2C3 und der Aktivierung.
+  for (const w of ['setTimeout', 'setInterval', 'Date.now', 'serverNow',
+                   'sessionStorage', 'localStorage', 'indexedDB'])
+    t('kein ' + w + ' im ruhenden Bereich', ohneText.indexOf(w) < 0);
+  for (const fn of ['fbV9NetWriteLate', 'fbV9NetWriteSkip', 'fbV9NetWriteRemove',
+                    'fbV9NetWriteNoReveal'])
+    t('der Schreiber ' + fn + ' liegt im ruhenden Bereich', bereich.indexOf(fn) > 0);
+  // Und er wird noch von nirgendwo gerufen - auch nicht von der B2B-Steuerung.
+  const steuerung = HTML.slice(HTML.indexOf('function fbV9Start(ctx,aktion)'), ende);
+  for (const fn of ['fbV9NetWriteLate', 'fbV9NetWriteSkip', 'fbV9NetWriteRemove',
+                    'fbV9NetWriteNoReveal'])
+    t('die Steuerung ruft ' + fn + ' noch nicht - das ist B2C2',
+      steuerung.indexOf(fn) < 0);
 }
 
 console.log('\nOnline-V9-Netz: ' + pass + ' passed, ' + fail + ' failed');
