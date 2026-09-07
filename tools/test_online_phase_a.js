@@ -674,13 +674,19 @@ const R = new Function(`
   // Der ruhende v9-Bereich umfasst seit V9.3B1 zwei Bloecke: den Codec und die
   // Protokollmaschine darunter. Die Aussage bleibt dieselbe - ausserhalb dieses
   // Bereichs nennt nichts eine v9-Funktion, also ruft ihn auch nichts auf.
-  const codecEnde = HTML.indexOf('// ════ ENDE V9-BEREITSCHAFTSSTEUERUNG ════');
+  const codecEnde = HTML.indexOf('// ════ ENDE V9-SPIELANBINDUNG ════');
   ok(codecStart > 0 && codecEnde > codecStart, 'der ruhende v9-Bereich ist abgegrenzt');
   const codec = HTML.slice(codecStart, codecEnde);
   ok(HTML.split(codec).join('').indexOf('crypto.subtle') < 0,
      'JEDES Vorkommen von crypto.subtle liegt darin - keines im Spielpfad');
-  ok(HTML.split(codec).join('').indexOf('fbV9') < 0,
-     'ausserhalb nennt KEINE Zeile eine v9-Funktion - der Bereich ist unbenutzt');
+  // SEIT V9.4C ruft das Spiel an genau zwei benannten Stellen in den ruhenden
+  // Bereich hinein - beim Rundenbeginn und am Settlement - und raeumt an den
+  // bestehenden Grenzen ab. Diese Haken sind gewollt; alles andere bleibt verboten.
+  const HAKEN = ['fbV9LebenNeueRunde', 'fbV9LebenStop'];
+  const ohneHaken = (txt) => txt.split(/\r?\n/)
+    .filter(zl => !HAKEN.some(h => zl.indexOf(h) >= 0)).join('\n');
+  ok(ohneHaken(HTML.split(codec).join('')).indexOf('fbV9') < 0,
+     'ausserhalb nennt KEINE Zeile eine v9-Funktion - ausser den benannten Haken');
   for (const fn of ['onlineSendCommit', 'writeTurnSlot', 'onlineArmTurn', 'maybeReveal',
                     'processSlot', 'applyLaunch', 'allAliveCommitted'])
     ok(grab(new RegExp('function ' + fn + '\\([^)]*\\)\\{[\\s\\S]*?\\n\\}'), fn)

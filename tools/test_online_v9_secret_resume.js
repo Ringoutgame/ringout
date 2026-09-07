@@ -81,7 +81,7 @@ function attrappe(vorbelegt, uhr) {
 }
 
 const START = HTML.indexOf('const FB_V9_PREIMAGE_BYTES=60');
-const ENDE = HTML.indexOf('// ════ ENDE V9-BEREITSCHAFTSSTEUERUNG ════');
+const ENDE = HTML.indexOf('// ════ ENDE V9-SPIELANBINDUNG ════');
 const BEREICH = HTML.slice(START, ENDE);
 const STILL = uhrwerk(1000);
 const baue = (a, st, uhr) => new Function('window', 'crypto', 'GEN_MAX', 'FB_ONLINE_SEATS',
@@ -571,10 +571,18 @@ abschnitt('Waechter');
   // weiter oben im Adapter definiert. Massgeblich ist, dass der Einstieg zuerst
   // sichert und erst der Schritt danach sendet - und dass ein Fehlschlag beim
   // Sichern den Lauf beendet, BEVOR irgendetwas an Firebase geht.
+  // SEIT V9.4C liegt das Bauen und Sichern in fbV9Vorbereiten - EIN Weg dorthin, egal
+  // ob die Handlung beim Start schon vorlag oder nachgereicht wurde. Die Reihenfolge
+  // gilt dort: erst sichern, dann darf ueberhaupt gesendet werden.
+  const vorb = HTML.slice(HTML.indexOf('async function fbV9Vorbereiten(lauf,aktion)'),
+                          HTML.indexOf('function fbV9Action(lauf,aktion)'));
+  t('die Vorbereitung sichert das Geheimnis', vorb.indexOf('fbV9SecretSave') > 0);
+  t('und bricht ab, wenn das misslingt', /if\(abgelegt!==FB_V9_SAVED\)\{/.test(vorb));
+  t('sie sendet dabei selbst keinen Commit', vorb.indexOf('fbV9NetWriteCommit') < 0);
+  t('und sie ist der EINZIGE Weg zum Sichern',
+    (HTML.match(/fbV9SecretSave\(/g) || []).length === 2,
+    (HTML.match(/fbV9SecretSave\(/g) || []).length);
   const einstieg = HTML.slice(HTML.indexOf('function fbV9Start(ctx,aktion)'), ENDE);
-  t('der Einstieg sichert das Geheimnis', einstieg.indexOf('fbV9SecretSave') > 0);
-  t('und bricht ab, wenn das misslingt',
-    /if\(abgelegt!==FB_V9_SAVED\)\{/.test(einstieg));
   t('der Einstieg selbst sendet keinen Commit',
     einstieg.slice(0, einstieg.indexOf('lauf.abmelden=')).indexOf('fbV9NetWriteCommit') < 0);
   t('kein localStorage fuer das v9-Geheimnis', code.indexOf('localStorage') < 0);
@@ -584,8 +592,14 @@ abschnitt('Waechter');
   t('keine Spielfolge',
     ['fbElimLives', 'gameOver', 'footballElimEliminate', 'applyLaunch('].every(w => code.indexOf(w) < 0));
   t('nichts wird protokolliert', code.indexOf('console.') < 0);
+  // SEIT V9.4C ruft das Spiel an genau zwei benannten Stellen in den ruhenden
+  // Bereich hinein - beim Rundenbeginn und am Settlement - und raeumt an den
+  // bestehenden Grenzen ab. Diese Haken sind gewollt; alles andere bleibt verboten.
+  const HAKEN = ['fbV9LebenNeueRunde', 'fbV9LebenStop'];
+  const ohneHaken = (txt) => txt.split(/\r?\n/)
+    .filter(zl => !HAKEN.some(h => zl.indexOf(h) >= 0)).join('\n');
   t('ausserhalb des ruhenden Bereichs nennt keine Zeile eine v9-Funktion',
-    HTML.split(BEREICH).join('').indexOf('fbV9') < 0);
+    ohneHaken(HTML.split(BEREICH).join('')).indexOf('fbV9') < 0);
   t('keine zweite Zustandsmaschine - fbV9Resume benutzt fbV9Start',
     /function fbV9Resume\(ctx\)\{ return fbV9Start\(ctx,\{resume:true\}\); \}/.test(HTML));
   const regeln = fs.readFileSync(path.join(__dirname, '..', 'firebase.rules.json'), 'utf8');

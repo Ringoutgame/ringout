@@ -424,7 +424,7 @@ abschnitt('Waechter');
   t('keine Ablaufsteuerung fuer die Bereitschaft',
     STEUER.indexOf('fbV9NetWriteReady') < 0 && STEUER.indexOf('fbV9ReadyComplete') < 0);
   // Und das Produkt selbst hat v9 nirgends begonnen.
-  const REST = HTML.slice(HTML.indexOf('// ════ ENDE V9-BEREITSCHAFTSSTEUERUNG ════'));
+  const REST = HTML.slice(HTML.indexOf('// ════ ENDE V9-SPIELANBINDUNG ════'));
   t('das Produkt ruft keinen Bereitschaftsbaustein auf',
     REST.indexOf('fbV9NetWriteReady') < 0 && REST.indexOf('fbV9NetOpenStart') < 0 &&
     REST.indexOf('fbV9NetListenReady') < 0);

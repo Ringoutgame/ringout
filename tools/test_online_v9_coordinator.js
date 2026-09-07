@@ -113,7 +113,7 @@ function uhrwerk(start) {
 }
 // ── Den echten Quelltext in eine Sandbox holen ───────────────────────────────
 const START = HTML.indexOf('const FB_V9_PREIMAGE_BYTES=60');
-const ENDE = HTML.indexOf('// ════ ENDE V9-BEREITSCHAFTSSTEUERUNG ════');
+const ENDE = HTML.indexOf('// ════ ENDE V9-SPIELANBINDUNG ════');
 if (START < 0 || ENDE < START) throw new Error('der ruhende v9-Bereich fehlt');
 const BEREICH = HTML.slice(START, ENDE);
 // Seit B2C3C sichert die Steuerung das Geheimnis, BEVOR sie den Commit sendet. Ohne
@@ -910,14 +910,33 @@ abschnitt('Waechter: die Steuerung ruht');
   const NL = String.fromCharCode(10);
   t('der freigegebene Client steht auf Protokoll 8',
     /const ONLINE_PROTOCOL_VERSION=8;/.test(HTML));
+  // SEIT V9.4C ruft das Spiel an genau zwei Stellen in den ruhenden Bereich hinein:
+  // beim Rundenbeginn und am Settlement. Dazu kommt das Abraeumen an den bestehenden
+  // Grenzen. Mehr darf es nicht sein - und genau das wird hier gezaehlt, statt jede
+  // Nennung zu verbieten.
+  const HAKEN = ['fbV9LebenNeueRunde', 'fbV9LebenStop'];
+  const ohneHaken = (txt) => txt.split(/\r?\n/)
+    .filter(zl => !HAKEN.some(h => zl.indexOf(h) >= 0)).join('\n');
   t('ausserhalb des ruhenden Bereichs nennt keine Zeile eine v9-Funktion',
-    HTML.split(BEREICH).join('').indexOf('fbV9') < 0);
+    ohneHaken(HTML.split(BEREICH).join('')).indexOf('fbV9') < 0);
+  t('und die beiden Haken stehen genau viermal: zwei Aufrufe, zwei Abraeumungen',
+    (HTML.match(/fbV9LebenNeueRunde\(\)/g) || []).length === 3 &&
+    (HTML.match(/fbV9LebenStop\(\)/g) || []).length === 6,
+    (HTML.match(/fbV9LebenNeueRunde\(\)/g) || []).length + '/' +
+    (HTML.match(/fbV9LebenStop\(\)/g) || []).length);
   for (const fn of ['onlineSendCommit', 'writeTurnSlot', 'onlineArmTurn', 'maybeReveal',
                     'processSlot', 'applyLaunch', 'allAliveCommitted', 'beginReveal'])
     t(fn + '() ruft die Steuerung nicht',
       grab(new RegExp('function ' + fn + '\\([^)]*\\)\\{[\\s\\S]*?' + NL + '\\}'), fn)
         .indexOf('fbV9') < 0);
-  const ohneText = BEREICH.split(NL).map(zl => { const k = zl.indexOf('//');
+  // onlineArmTurn selbst bleibt unberuehrt: der Haken steht bei seinen AUFRUFERN,
+  // damit die Rundennummer weiterhin genau einen Eigentuemer hat.
+  // Die SPIELANBINDUNG ist die einzige Schicht, die das Spiel ueberhaupt kennen
+  // darf - sie liest die Rundennummer und schliesst dauerhaft abwesende Sitze.
+  // Die Protokollschichten darunter duerfen davon nichts wissen, und genau das
+  // pruefen die folgenden Schleifen.
+  const PROTO = BEREICH.slice(0, BEREICH.indexOf('// ════ V9-SPIELANBINDUNG'));
+  const ohneText = PROTO.split(NL).map(zl => { const k = zl.indexOf('//');
     return k >= 0 ? zl.slice(0, k) : zl; }).join(NL);
   for (const w of ['applyLaunch(', 'beginReveal', 'setPhase', 'commitIdx', 'commitAim',
                    'commitSpin', 'aimSet', 'turnNo', 'fbElimLives', 'gameOver', 'balls['])
@@ -957,7 +976,10 @@ abschnitt('Waechter: die Steuerung ruht');
   t('nur der autoritative Schnappschuss traegt die Barriere',
     stCode.indexOf('FB_V9_OPENING_REVEAL;') < 0
     || /fbV9CommitsComplete\(lauf\.ctx\.cap,st\.commits\)/.test(stCode));
-  t('kein Produktweg legt einen v9-Raum an', HTML.indexOf('v:9') < 0 && HTML.indexOf('v: 9') < 0);
+  // Ausserhalb des ruhenden Bereichs steht nirgends eine feste Raumversion 9; drinnen
+  // baut sie nur den Zusammenhang der Steuerungen, nie einen Raumdatensatz.
+  t('kein Produktweg legt einen v9-Raum an',
+    HTML.split(BEREICH).join('').indexOf('v:9') < 0 && HTML.indexOf('v: 9') < 0);
   const regeln = fs.readFileSync(path.join(__dirname, '..', 'firebase.rules.json'), 'utf8');
   t('die Regeldatei traegt weiterhin die v9-Zweige aus V9.1/V9.2',
     regeln.indexOf("child('v').val() === 9") > 0);

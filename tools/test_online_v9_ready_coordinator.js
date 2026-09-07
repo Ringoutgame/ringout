@@ -94,7 +94,7 @@ function attrappe(vorbelegt, uhr) {
 }
 
 const START = HTML.indexOf('const FB_V9_PREIMAGE_BYTES=60');
-const ENDE = HTML.indexOf('// ════ ENDE V9-BEREITSCHAFTSSTEUERUNG ════');
+const ENDE = HTML.indexOf('// ════ ENDE V9-SPIELANBINDUNG ════');
 if (START < 0 || ENDE < 0) { console.log('V9-Bereich nicht gefunden'); process.exit(2); }
 const BEREICH = HTML.slice(START, ENDE);
 const STILL = uhrwerk(1000);
@@ -706,7 +706,10 @@ abschnitt('Der autoritative Fristschluss braucht keine zweite Frist');
 // ══ WAECHTER AM QUELLTEXT ════════════════════════════════════════════════════
 abschnitt('Waechter');
 {
-  const roh = HTML.slice(HTML.indexOf('// ════ V9-BEREITSCHAFTSSTEUERUNG'), ENDE);
+  // Ausdruecklich NUR die Bereitschaftssteuerung - die Spielanbindung dahinter hat
+  // ihre eigenen Waechter in tools/test_online_v9_lifecycle.js.
+  const roh = HTML.slice(HTML.indexOf('// ════ V9-BEREITSCHAFTSSTEUERUNG'),
+                         HTML.indexOf('// ════ ENDE V9-BEREITSCHAFTSSTEUERUNG ════'));
   const code = roh.split(/\r?\n/).filter(z => !/^\s*\/\//.test(z)).join('\n');
   t('der freigegebene Client steht auf Protokoll 8',
     /const ONLINE_PROTOCOL_VERSION=8;/.test(HTML));
@@ -727,12 +730,19 @@ abschnitt('Waechter');
     /remove gegen einen x-Sitz/.test(roh) && /Pflichtaufgabe vor der V9-Aktivierung/.test(roh));
   // Und das Produkt hat v9 nirgends begonnen.
   const REST = HTML.slice(ENDE);
-  t('das Produkt ruft die Bereitschaftssteuerung nicht auf',
+  // Die Bereitschaftssteuerung wird NICHT unmittelbar vom Spiel gerufen: dazwischen
+  // liegt die Spielanbindung, und nur sie kennt fbV9ReadyStart/fbV9ReadyLocal.
+  t('das Produkt ruft die Bereitschaftssteuerung nicht unmittelbar auf',
     REST.indexOf('fbV9ReadyStart') < 0 && REST.indexOf('fbV9ReadyLocal') < 0);
-  for (const fn of ['stepSim', 'onlineArmTurn', 'applyLaunch', 'fastForwardMatch']) {
+  for (const fn of ['onlineArmTurn', 'applyLaunch', 'fastForwardMatch']) {
     const m = HTML.match(new RegExp('function ' + fn + '\\([^)]*\\)\\{[\\s\\S]*?\\n\\}'));
     t(fn + '() nennt keine v9-Funktion', m && m[0].indexOf('fbV9') < 0);
   }
+  // stepSim traegt seit V9.4C GENAU EINEN Haken - und zwar nur den einen Namen.
+  const stepQ = HTML.match(/function stepSim\([^)]*\)\{[\s\S]*?\n\}/);
+  const stepNamen = [...new Set(stepQ[0].match(/fbV9[A-Za-z]*/g) || [])];
+  t('stepSim() nennt genau den einen Bereitschaftshaken - und sonst nichts aus v9',
+    stepNamen.length === 1 && stepNamen[0] === 'fbV9LebenNeueRunde', stepNamen.join(','));
 }
 
 console.log('\nOnline-V9-Bereitschaftssteuerung: ' + pass + ' passed, ' + fail + ' failed');

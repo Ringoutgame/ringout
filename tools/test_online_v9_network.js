@@ -419,12 +419,17 @@ abschnitt('Waechter: der Adapter ruht');
     /const ONLINE_PROTOCOL_VERSION=8;/.test(HTML));
   const start = HTML.indexOf('const FB_V9_PREIMAGE_BYTES=60');
   // Der ruhende v9-Bereich endet seit V9.3B2B hinter der Ablaufsteuerung.
-  const ende = HTML.indexOf('// ════ ENDE V9-BEREITSCHAFTSSTEUERUNG ════');
+  const ende = HTML.indexOf('// ════ ENDE V9-SPIELANBINDUNG ════');
   t('der ruhende v9-Bereich ist abgegrenzt', start > 0 && ende > start);
   const bereich = HTML.slice(start, ende);
   t('er enthaelt den Netzadapter', bereich.indexOf('function fbV9NetOpenTurn') > 0);
-  t('ausserhalb nennt keine Zeile eine v9-Funktion',
-    HTML.split(bereich).join('').indexOf('fbV9') < 0);
+  // Seit V9.4C ruft das Spiel an genau zwei Stellen hinein (Rundenbeginn, Settlement)
+  // und raeumt an den bestehenden Grenzen ab. Diese Haken sind benannt und zaehlbar.
+  const HAKEN = ['fbV9LebenNeueRunde', 'fbV9LebenStop'];
+  const ohneHaken = (txt) => txt.split(/\r?\n/)
+    .filter(zl => !HAKEN.some(h => zl.indexOf(h) >= 0)).join('\n');
+  t('ausserhalb nennt keine Zeile eine v9-Funktion - ausser den benannten Haken',
+    ohneHaken(HTML.split(bereich).join('')).indexOf('fbV9') < 0);
   // Die freigegebenen Netzfunktionen sind unveraendert v8.
   const NL = String.fromCharCode(10);
   for (const fn of ['onlineSendCommit', 'writeTurnSlot', 'onlineArmTurn', 'maybeReveal',
@@ -441,13 +446,18 @@ abschnitt('Waechter: der Adapter ruht');
   t('die Raumanlage schreibt weiterhin die Protokollkonstante',
     /v:ONLINE_PROTOCOL_VERSION/.test(HTML) || /v: *ONLINE_PROTOCOL_VERSION/.test(HTML));
   t('und nirgends eine feste 9 als Raumversion',
-    HTML.indexOf('v:9') < 0 && HTML.indexOf('v: 9') < 0);
+    HTML.split(bereich).join('').indexOf('v:9') < 0 && HTML.indexOf('v: 9') < 0);
   for (const fn of ['validateRoom', 'validateRejoinRoom'])
     t(fn + '() prueft weiterhin gegen ONLINE_PROTOCOL_VERSION',
       grab(new RegExp('function ' + fn + '\\(d\\)\\{[\\s\\S]*?' + NL + '\\}'), fn)
         .indexOf('ONLINE_PROTOCOL_VERSION') > 0);
   // Der Adapter beruehrt keinen Spielzustand.
-  const ohneText = bereich.split(NL).map(zl => { const k = zl.indexOf('//');
+  // Die SPIELANBINDUNG ist die einzige Schicht, die das Spiel ueberhaupt kennen
+  // darf - sie liest die Rundennummer und schliesst dauerhaft abwesende Sitze.
+  // Die Protokollschichten darunter duerfen davon nichts wissen, und genau das
+  // pruefen die folgenden Schleifen.
+  const PROTO = bereich.slice(0, bereich.indexOf('// ════ V9-SPIELANBINDUNG'));
+  const ohneText = PROTO.split(NL).map(zl => { const k = zl.indexOf('//');
     return k >= 0 ? zl.slice(0, k) : zl; }).join(NL);
   for (const w of ['commitIdx', 'commitAim', 'commitSpin', 'aimSet', 'applyLaunch(',
                    'beginReveal', 'setPhase', 'turnNo', 'fbElimLives', 'gameOver'])
@@ -470,12 +480,18 @@ abschnitt('Waechter: der Adapter ruht');
   for (const fn of ['fbV9NetWriteLate', 'fbV9NetWriteSkip', 'fbV9NetWriteRemove',
                     'fbV9NetWriteNoReveal'])
     t('der Schreiber ' + fn + ' liegt im ruhenden Bereich', bereich.indexOf(fn) > 0);
-  // Und er wird noch von nirgendwo gerufen - auch nicht von der B2B-Steuerung.
-  const steuerung = HTML.slice(HTML.indexOf('function fbV9Start(ctx,aktion)'), ende);
+  // Der EINSTIEG der Ablaufsteuerung ruft keinen dieser Schreiber: die Fristschluesse
+  // gehoeren dem Schritt (seit B2C1/B2C2), und remove gehoert seit V9.4C ausschliesslich
+  // der Spielanbindung, die einen Sitz mit e oder x sofort schliesst.
+  const steuerung = HTML.slice(HTML.indexOf('function fbV9Start(ctx,aktion)'),
+                               HTML.indexOf('// ════ ENDE V9-ABLAUFSTEUERUNG ════'));
   for (const fn of ['fbV9NetWriteLate', 'fbV9NetWriteSkip', 'fbV9NetWriteRemove',
                     'fbV9NetWriteNoReveal'])
-    t('die Steuerung ruft ' + fn + ' noch nicht - das ist B2C2',
-      steuerung.indexOf(fn) < 0);
+    t('der Einstieg der Ablaufsteuerung ruft ' + fn + ' nicht', steuerung.indexOf(fn) < 0);
+  // Und remove wird GENAU EINMAL gerufen - von der Spielanbindung, nirgends sonst.
+  t('remove wird ausschliesslich von der Spielanbindung gerufen',
+    (HTML.match(/fbV9NetWriteRemove\(/g) || []).length === 2,
+    (HTML.match(/fbV9NetWriteRemove\(/g) || []).length);
 }
 
 console.log('\nOnline-V9-Netz: ' + pass + ' passed, ' + fail + ' failed');

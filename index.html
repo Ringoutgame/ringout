@@ -4277,7 +4277,11 @@ function resetCommits(){aimSet=[];commitIdx=[];commitAim=[];commitSpin=[];
 function startRound(){placeBalls();resetCommits();roundWinner=-1;
   if(typeof fbClearSelection==='function')fbClearSelection();   // Tactical: jede Runde waehlt jedes Team seine Figur neu (in anderen Modi wirkungslos)
   cancelAimDrag();outBall=-1;setPhase('aim');updateHud();   // vollstaendiger Drag-Reset inkl. Pointer-Capture
-  if(online){curAimer=myPlayer;onlineArmTurn();}
+  // V9 (ruhend): die neue Runde steht - jetzt darf die Bereitschaft dieser Runde
+  // gemeldet werden. In einem v8-Raum faellt der Aufruf wirkungslos durch. Der Haken
+  // steht bewusst in DERSELBEN Zeile: die Offline-Pruefstaende schneiden startRound
+  // woertlich heraus und rechnen mit ihrer Zeilenstruktur.
+  if(online){curAimer=myPlayer;onlineArmTurn();if(typeof fbV9LebenNeueRunde==='function')fbV9LebenNeueRunde();}
   // fbElimFirstAimer(): nur Elimination4 weicht von "Spieler 0 beginnt" ab (Eliminierte
   // werden uebersprungen). typeof-Guard wie bei fbClearSelection — ohne Football-Block 0.
   // Zeitregel: kein Uebergabeschirm - alle entscheiden im selben Fenster (s. fbOffen).
@@ -8077,7 +8081,11 @@ function stepSim(){
     // Phase beginnt. Dieselbe Stelle und dieselbe Begruendung wie bei der Matchuhr.
     if(typeof fbFfaResolve==='function'&&fbFfaResolve(false))return;
     setPhase('aim');updateHud();setPhaseText();
-    if(online){curAimer=myPlayer;onlineArmTurn();}
+    // V9 (ruhend): DAS ist der Settlement-Punkt. Die Physik ist ausgelaufen, Tore,
+    // Leben, Eliminationen und faellige Austritte sind angewandt, und die Eingabe waere
+    // jetzt frei. Kein Zeitgeber - die Bereitschaft kommt aus dem Zustand. Der Haken
+    // steht in DERSELBEN Zeile, weil die Pruefstaende stepSim woertlich herausschneiden.
+    if(online){curAimer=myPlayer;onlineArmTurn();if(typeof fbV9LebenNeueRunde==='function')fbV9LebenNeueRunde();}
     else if(mode==='pvp'||mode==='football'){curAimer=(typeof fbElimFirstAimer==='function')?fbElimFirstAimer():0;
       if(!(typeof fbShared==='function'&&fbShared()))openCover(curAimer);}
     else if(mode==='ffa'){for(let p=0;p<ffaN;p++)if(aliveCount(p)>0){curAimer=p;openCover(p);break;}}
@@ -9634,8 +9642,11 @@ async function fbV9Schritt(lauf){
     // (1) Der Rundenbeginn muss AUTORITATIV dastehen - der eigene Schreibvorgang allein
     //     beweist nichts, er kann von einem anderen ueberholt worden sein.
     if(!st.turnOpen){ fbV9Stufe(lauf,FB_V9_OPENING); return; }
-    // (2a) FORTSETZEN: das eigene Terminal kommt aus dem Raum, nicht aus dieser Sitzung.
-    if(lauf.fortsetzen&&!lauf.commitFertig){
+    // (2a) DAS EIGENE TERMINAL KOMMT AUS DEM RAUM, nicht aus dieser Sitzung. Das gilt
+    //      in zwei Faellen: beim Fortsetzen nach einem Neuladen, und wenn dieser Sitz
+    //      (noch) gar nicht gezogen hat - dann schliesst die Frist seinen Slot mit
+    //      `late`, und auch dieses Terminal muss der Lauf von dort uebernehmen.
+    if((lauf.fortsetzen||!lauf.terminal)&&!lauf.commitFertig){
       const eigen=st.commits&&st.commits[lauf.ctx.seat];
       if(fbV9TerminalOk(eigen)){
         lauf.terminal=eigen; lauf.commitFertig=true;
@@ -9675,10 +9686,20 @@ async function fbV9Schritt(lauf){
     // (2) Genau ein eigenes Terminal. Im Fortsetzen-Fall NICHT: dort kommt das Terminal
     //     ausschliesslich aus dem Raum. Ein Geheimnis ohne beobachteten Commit befugt
     //     nicht dazu, den alten Zug noch einmal zu schicken.
-    if(!lauf.commitFertig&&!lauf.fortsetzen){
+    //     Und ohne Handlung wird NICHTS geschrieben: kein untergeschobenes pass. Der
+    //     Lauf faellt dann bis zur Barriere durch, wo die Fristmechanik greift und der
+    //     Slot nach der Frist an `late` faellt - genau wie bei einem Sitz, der schweigt.
+    if(!lauf.commitFertig&&!lauf.fortsetzen&&(lauf.terminal||lauf.offeneAktion)){
       if(lauf.commitLaeuft)return;
       lauf.commitLaeuft=true;
       fbV9Stufe(lauf,FB_V9_COMMITTING);
+      // Die nachgereichte Handlung wird ERST JETZT gebaut und gesichert - also nach
+      // dem autoritativen Rundenbeginn, den Schritt (1) bereits verlangt hat.
+      if(!lauf.terminal){
+        const a=lauf.offeneAktion; lauf.offeneAktion=null;
+        const ok=await fbV9Vorbereiten(lauf,a);
+        if(!ok||fbV9Aus(lauf)){ lauf.commitLaeuft=false; return; }
+      }
       const r=await fbV9NetWriteCommit(lauf.ctx,lauf.terminal);
       lauf.commitLaeuft=false;
       if(fbV9Aus(lauf))return;
@@ -9830,6 +9851,47 @@ async function fbV9ZAnkerSchreiben(lauf){
   return r.status===FB_V9_DENIED||r.status===FB_V9_ERROR;
 }
 
+// ── DAS EIGENE TERMINAL BAUEN UND SICHERN ───────────────────────────────────
+// Genau ein Weg dorthin - egal ob die Handlung beim Start schon vorlag oder erst
+// spaeter kam. Rueckgabe false heisst: der Lauf ist bereits gescheitert.
+async function fbV9Vorbereiten(lauf,aktion){
+  const ctx=lauf.ctx;
+  if(aktion&&aktion.pass){ lauf.terminal=fbV9MakePass(); return true; }
+  if(!aktion||!aktion.move){ fbV9Scheitern(lauf,'keine Handlung'); return false; }
+  if(!fbV9UidOk(ctx)){ fbV9Scheitern(lauf,'keine Kennung'); return false; }
+  try{ lauf.terminal=await fbV9MakeCommit(fbV9EngineCtx(ctx),aktion.move); }
+  catch(e){ fbV9Scheitern(lauf,'Commit nicht baubar'); return false; }
+  if(fbV9Aus(lauf))return false;
+  // ZUERST SICHERN, DANN SENDEN. Ein Absturz zwischen beidem darf nie einen
+  // unveraenderlichen Commit hinterlassen, zu dem das Salz fehlt - der Zug waere
+  // fuer immer unenthuellbar. Ein Geheimnis ohne Commit ist dagegen folgenlos.
+  const g=fbV9SecretFor(ctx.code,ctx.gen,ctx.turn);
+  const abgelegt=fbV9SecretSave(ctx,ctx.uid,{v:FB_V9_STORE_V,uid:ctx.uid,
+    salt:fbV9Hex(g.salt),idx:g.idx,dx:g.dx,dy:g.dy,sp:g.sp,h:g.h});
+  if(abgelegt!==FB_V9_SAVED){
+    // Nicht gesichert heisst: nicht senden. Kein zweites Salz, kein stilles
+    // Ausweichen auf pass - der Spieler soll erfahren, dass sein Zug nicht ging.
+    fbV9SecretDone(ctx.code,ctx.gen,ctx.turn);
+    fbV9Scheitern(lauf,'Geheimnis nicht gesichert: '+abgelegt);
+    return false;
+  }
+  return true;
+}
+// Die Handlung dieses Sitzes - nachgereicht. GENAU EINMAL je Runde: der erste Aufruf
+// gilt, jeder weitere wird abgewiesen. Sonst entstuende ein zweites Salz oder, schlimmer,
+// ein zweiter Zug zu einem bereits unveraenderlichen Commit.
+// Kommt sie VOR dem autoritativen Rundenbeginn, wird sie nur gemerkt; gesendet wird
+// erst, wenn die Runde wirklich offen ist. Kommt sie danach, geht sie sofort hinaus.
+function fbV9Action(lauf,aktion){
+  if(!lauf||fbV9Aus(lauf))return false;
+  if(lauf.fortsetzen||lauf.aktionGesetzt||lauf.terminal||lauf.commitFertig)return false;
+  if(!aktion||!(aktion.pass||aktion.move))return false;
+  lauf.aktionGesetzt=true;
+  lauf.offeneAktion=aktion;
+  fbV9Schritt(lauf);
+  return true;
+}
+
 // Ein Durchlauf fuer EINEN Raum, EINE Generation, EINEN Turn. `aktion` ist entweder
 // {move:{idx,dx,dy,sp}} oder {pass:true}. Zurueck kommt der Lauf mit `fertig` als
 // Zusage auf sein Ende - erfuellt bei COMPLETE, FAILED oder STOPPED.
@@ -9840,7 +9902,8 @@ function fbV9Start(ctx,aktion){
               wecker:{},verloren:false,fortsetzen:false,
               commitLaeuft:false,commitFertig:false,roVersucht:false,
               revealLaeuft:false,revealFertig:false,finaleLaeuft:false,
-              zStand:null,zAb:null,zLaeuft:false,zBegonnen:false};
+              zStand:null,zAb:null,zLaeuft:false,zBegonnen:false,
+              aktionGesetzt:false,offeneAktion:null};
   lauf.fertig=new Promise(aufl=>{ lauf.fertigNun=aufl; });
   // Anhalten ist mehrfach gefahrlos und schneidet jede kuenftige Wirkung ab.
   lauf.stop=function(){
@@ -9862,26 +9925,16 @@ function fbV9Start(ctx,aktion){
       if(!fbV9UidOk(ctx))return fbV9Scheitern(lauf,'keine Kennung');
       lauf.fortsetzen=true;
     }
-    else lauf.terminal=aktion&&aktion.pass?fbV9MakePass():null;
-    if(!lauf.terminal&&!lauf.fortsetzen){
-      if(!aktion||!aktion.move){ lauf.stufe=FB_V9_FAILED; lauf.grund='keine Handlung';
-                                 fbV9Aufloesen(lauf); return; }
-      if(!fbV9UidOk(ctx))return fbV9Scheitern(lauf,'keine Kennung');
-      try{ lauf.terminal=await fbV9MakeCommit(fbV9EngineCtx(ctx),aktion.move); }
-      catch(e){ return fbV9Scheitern(lauf,'Commit nicht baubar'); }
-      if(fbV9Aus(lauf))return;
-      // ZUERST SICHERN, DANN SENDEN. Ein Absturz zwischen beidem darf nie einen
-      // unveraenderlichen Commit hinterlassen, zu dem das Salz fehlt - der Zug waere
-      // fuer immer unenthuellbar. Ein Geheimnis ohne Commit ist dagegen folgenlos.
-      const g=fbV9SecretFor(ctx.code,ctx.gen,ctx.turn);
-      const abgelegt=fbV9SecretSave(ctx,ctx.uid,{v:FB_V9_STORE_V,uid:ctx.uid,
-        salt:fbV9Hex(g.salt),idx:g.idx,dx:g.dx,dy:g.dy,sp:g.sp,h:g.h});
-      if(abgelegt!==FB_V9_SAVED){
-        // Nicht gesichert heisst: nicht senden. Kein zweites Salz, kein stilles
-        // Ausweichen auf pass - der Spieler soll erfahren, dass sein Zug nicht ging.
-        fbV9SecretDone(ctx.code,ctx.gen,ctx.turn);
-        return fbV9Scheitern(lauf,'Geheimnis nicht gesichert: '+abgelegt);
-      }
+    // Eine Handlung DARF fehlen. Dann wird die Runde trotzdem eroeffnet und beobachtet -
+    // der Zug kommt spaeter ueber fbV9Action. Ohne diese Trennung haette der erste
+    // Spieler bestimmt, wann die gemeinsame Sechs-Sekunden-Frist ueberhaupt beginnt:
+    // er haette beliebig lange warten koennen, bevor d entsteht.
+    else if(aktion){
+      // Ein Aufruf MIT Handlungsobjekt muss eine Handlung enthalten - ein leeres oder
+      // missgebildetes Objekt ist ein Fehler, kein stilles Warten. Wer die Runde ohne
+      // Zug eroeffnen will, ruft ohne Argument.
+      lauf.aktionGesetzt=true;
+      if(!await fbV9Vorbereiten(lauf,aktion))return;
     }
     lauf.abmelden=fbV9NetListen(ctx,(st)=>{
       if(fbV9Aus(lauf))return;         // spaeter Rueckruf nach dem Ende: wirkungslos
@@ -10139,6 +10192,196 @@ function fbV9ReadyLocal(lauf){
 }
 function fbV9ReadyStop(lauf){ if(lauf&&lauf.stop)lauf.stop(); }
 // ════ ENDE V9-BEREITSCHAFTSSTEUERUNG ════
+// ════ V9-SPIELANBINDUNG (RUHEND) ════
+// Die duenne Schicht zwischen dem Spiel und den beiden V9-Steuerungen. Sie beantwortet
+// genau eine Frage: WANN darf die naechste Entscheidungsrunde beginnen? Was in ihr
+// entschieden wird und was daraus folgt, gehoert nicht hierher.
+//
+// WARUM SIE RUHT: ein Client betritt nur einen Raum, dessen `v` seiner eigenen
+// ONLINE_PROTOCOL_VERSION entspricht (s. die Versionspruefungen beim Beitritt). Solange
+// die Konstante 8 ist, gibt es fuer ihn keinen v9-Raum - fbV9LebenAn() ist dann
+// ausnahmslos false, und jeder Haken unten faellt wirkungslos durch. Die Ruhe haengt
+// also nicht an einem Merker, den jemand versehentlich umlegt, sondern daran, dass der
+// freigegebene Client v9-Raeume gar nicht erreichen kann.
+//
+// WAS SIE NICHT TUT: sie eroeffnet keine Runde (das tut allein die bestehende
+// Ablaufsteuerung ueber fbV9NetOpenTurn), sie wendet keine Zugmenge an, sie zieht keine
+// Spielfolge aus einem ausgebliebenen Reveal und sie erhoeht keine Rundennummer. Die
+// Rundennummer gehoert weiterhin ausschliesslich onlineArmTurn.
+let fbV9Leben=null;
+
+function fbV9LebenAn(){
+  return !!online && ONLINE_PROTOCOL_VERSION===9 && mode==='football'
+      && typeof fbElim4==='function' && fbElim4()
+      && typeof roomCode==='string' && !!roomCode && myPlayer>=0;
+}
+// Die Sollbesetzung kommt aus der UNVERAENDERLICHEN Startbesetzung des Matches, nicht
+// aus der Zahl der noch Aktiven: ein ausgeschiedener Sitz bleibt Teil der Barriere.
+function fbV9LebenCtx(turn){
+  const uid=(typeof fbUid==='function')?fbUid():null;
+  return {v:9,code:roomCode,gen:gen,turn:turn,seat:myPlayer,cap:fbElimPlayers(),
+          uid:uid,seatUid:uid};
+}
+// Gehoert dieser Lebenslauf noch zur Gegenwart? Raum, Generation, Sitz und Sitzung
+// muessen alle stimmen - ein Rueckruf aus einer alten Runde darf die neue nie beruehren.
+function fbV9LebenAktuell(L){
+  return !!L && fbV9Leben===L && L.sid===onlineSessionId && L.room===roomCode
+      && L.gen===gen && L.seat===myPlayer && L.stufe!=='STOPPED';
+}
+function fbV9LebenStop(){
+  const L=fbV9Leben;
+  if(!L)return;
+  fbV9Leben=null;
+  L.stufe='STOPPED';
+  if(L.wecker)fbV9WakeStop(L,'raus');
+  if(L.rausAb){ try{ L.rausAb(); }catch(e){} L.rausAb=null; }
+  if(L.bereit){ try{ fbV9ReadyStop(L.bereit); }catch(e){} }
+  if(L.lauf){ try{ L.lauf.stop(); }catch(e){} }
+}
+
+// ── DER EINE EINSTIEG AUS DEM SPIEL ──────────────────────────────────────────
+// „Das Spiel ist fuer Runde <turn> bereit." Gerufen wird das an genau zwei Stellen:
+// beim Rundenbeginn (Runde 0) und am Settlement in stepSim (jede spaetere Runde).
+// Beide liegen HINTER allen deterministischen Folgen der Vorrunde.
+function fbV9LebenBereit(turn){
+  if(!fbV9LebenAn())return null;
+  if(!Number.isInteger(turn)||turn<0)return null;
+  // Derselbe Lauf wird nicht zweimal aufgesetzt: ein wiederholtes Settlement derselben
+  // Runde meldet hoechstens noch einmal Bereitschaft, und die ist mehrfach gefahrlos.
+  if(fbV9Leben&&fbV9LebenAktuell(fbV9Leben)&&fbV9Leben.turn===turn){
+    fbV9ReadyLocal(fbV9Leben.bereit);
+    return fbV9Leben;
+  }
+  fbV9LebenStop();
+  const ctx=fbV9LebenCtx(turn);
+  if(!fbV9CtxOk(ctx))return null;
+  const L={sid:onlineSessionId,room:roomCode,gen:gen,turn:turn,seat:myPlayer,
+           ctx:ctx,stufe:'BEREIT',bereit:null,lauf:null,aktion:null,
+           uebergeben:false,bereitFertig:false,rausAb:null,rausStand:null,
+           rausLaeuft:false,wecker:{}};
+  fbV9Leben=L;
+  L.bereit=fbV9ReadyStart(ctx);
+  if(!L.bereit||L.bereit.stufe===FB_V9_R_FAILED){ fbV9LebenStop(); return null; }
+  L.bereit.fertig.then(()=>fbV9LebenUebergabe(L));
+  // ERST JETZT das ausdrueckliche Zeichen: der Aufrufer steht an einer Stelle, an der
+  // die Physik der Vorrunde ausgelaufen und jede Folge angewandt ist.
+  fbV9ReadyLocal(L.bereit);
+  return L;
+}
+// Die Handlung dieser Runde. Sie kommt NICHT von hier: was dieser Sitz zieht,
+// entscheidet die Spieleingabe, und die Bruecke dorthin ist V9.4D. Bis dahin bleibt
+// dies der einzige Weg, eine Handlung zu setzen - der Pruefstand benutzt ihn.
+function fbV9LebenHandeln(aktion){
+  const L=fbV9Leben;
+  if(!fbV9LebenAktuell(L))return false;
+  if(!aktion||!(aktion.pass||aktion.move))return false;
+  // Laeuft die Ablaufsteuerung schon, geht die Handlung direkt an sie - der Riegel dort
+  // laesst genau eine durch. Sonst wird sie gemerkt und bei der Uebergabe mitgegeben.
+  if(L.lauf)return fbV9Action(L.lauf,aktion);
+  if(L.aktion)return false;
+  L.aktion=aktion;
+  fbV9LebenUebergabe(L);
+  return true;
+}
+// Bereitschaft steht -> die Runde gehoert ab hier der BESTEHENDEN Ablaufsteuerung.
+// Sie, und nur sie, eroeffnet d. Genau einmal je Runde.
+function fbV9LebenUebergabe(L){
+  if(!fbV9LebenAktuell(L)||L.uebergeben)return;
+  if(!L.bereit||L.bereit.stufe!==FB_V9_R_COMPLETE)return;
+  L.bereitFertig=true;
+  L.uebergeben=true;
+  L.stufe='PROTOKOLL';
+  // OHNE Handlung. Die Runde wird JETZT eroeffnet - sonst bestimmte der erste Spieler,
+  // wann die gemeinsame Sechs-Sekunden-Frist ueberhaupt beginnt, und koennte sie durch
+  // Zoegern beliebig hinausschieben. Der eigene Zug wird nachgereicht.
+  L.lauf=fbV9Start(L.ctx,L.aktion||null);
+  if(L.aktion)L.aktion=null;   // sie ist im Lauf angekommen
+  // Ab der Eroeffnung koennen dauerhaft abwesende Sitze sofort geschlossen werden.
+  fbV9LebenRausStarten(L);
+}
+
+// ── AUSGETRAGENE UND DISQUALIFIZIERTE SITZE SOFORT SCHLIESSEN ────────────────
+// Ohne diesen Schritt liefe fuer jeden solchen Sitz in JEDER kuenftigen Runde die
+// Sechs-Sekunden-Frist ins Leere, obwohl laengst feststeht, dass von dort nichts mehr
+// kommt. Die Rules erlauben remove gegen einen Sitz mit e ODER gueltigem x; die
+// Berechtigung wird hier NICHT nachgebaut, sie wird benutzt.
+function fbV9LebenDraussen(st,i){
+  return (st.e&&st.e[i]===true)||fbV9DisqualifyOk(st.x&&st.x[i]);
+}
+function fbV9LebenRausMarke(L,st){
+  let m='';
+  for(let i=0;i<L.ctx.cap;i++)
+    m+=fbV9LebenDraussen(st,i)?(fbV9TerminalOk(st.c&&st.c[i])?'t':'o'):'-';
+  return m;
+}
+function fbV9LebenRausStarten(L){
+  if(!fbV9LebenAktuell(L)||L.rausAb)return;
+  L.rausAb=fbV9NetWatch(L.ctx,[['d/'+L.ctx.turn,'d'],['c/'+L.ctx.turn,'c'],
+                               ['e','e'],['x','x']],st=>{
+    if(!fbV9LebenAktuell(L))return;
+    L.rausStand=st;
+    fbV9LebenRausSchritt(L);
+  });
+}
+function fbV9LebenRausSchritt(L){
+  const st=L.rausStand;
+  if(!st||!st.d)return;             // erst wenn die Runde AUTORITATIV offen ist
+  const marke=fbV9LebenRausMarke(L,st);
+  if(marke.indexOf('o')<0)return;   // nichts offen
+  if(L.wecker['raus']&&L.wecker['raus'].marke===marke)return;   // gleiche Lage, gleiches Budget
+  fbV9WakeStop(L,'raus');
+  L.wecker['raus']={timer:null,frist:null,marke:marke,versuche:0,laeuft:false};
+  fbV9LebenRausVersuch(L);
+}
+// Rueckgabe: true, wenn ein begrenzter zweiter Anlauf lohnt.
+async function fbV9LebenRaus(L){
+  if(!fbV9LebenAktuell(L)||L.rausLaeuft)return false;
+  const st=L.rausStand;
+  if(!st||!st.d)return false;
+  L.rausLaeuft=true;
+  let nochmal=false;
+  for(let i=0;i<L.ctx.cap;i++){                 // aufsteigend - die Reihenfolge ist fest
+    if(!fbV9LebenAktuell(L))break;
+    if(!fbV9LebenDraussen(st,i))continue;
+    if(fbV9TerminalOk(st.c&&st.c[i]))continue;  // steht schon: nichts zu tun
+    const r=await fbV9NetWriteRemove(L.ctx,i);
+    // COMMITTED und EXISTS sind beide in Ordnung - aber KEINES davon fuellt die
+    // Barriere. Das tut allein der naechste autoritative Schnappschuss.
+    if(r.status===FB_V9_DENIED||r.status===FB_V9_ERROR)nochmal=true;
+  }
+  L.rausLaeuft=false;
+  return nochmal;
+}
+// Die Zaehlung liegt AUSDRUECKLICH hier und nicht beim Wecker: der Wecker fuehrt fuer
+// die Fristen eine eigene Wiederholung, und zwei Zaehler auf demselben Merker ergeben
+// eine Grenze, die niemand mehr nachrechnen kann. Deshalb meldet der Rueckruf hier
+// immer `false` und plant selbst - hoechstens der Erstversuch plus zwei weitere.
+async function fbV9LebenRausVersuch(L){
+  const w=L.wecker['raus'];
+  if(!w||!fbV9LebenAktuell(L))return;
+  w.versuche++;
+  const nochmal=await fbV9LebenRaus(L);
+  if(!nochmal||!fbV9LebenAktuell(L))return;
+  if(w.versuche>FB_V9_RETRY_MS.length)return;        // erschoepft: kein vierter Versuch
+  fbV9WakeArm(L,'raus',FB_V9_RETRY_MS[w.versuche-1],()=>{ fbV9LebenRausVersuch(L); return false; });
+}
+
+// ── DIE BEIDEN HAKEN AUS DEM SPIEL ──────────────────────────────────────────
+// Beide liegen unmittelbar hinter dem bestehenden onlineArmTurn: dort ist die
+// Rundennummer gesetzt, die Physik ausgelaufen, jede Tor-, Lebens- und
+// Eliminationsfolge angewandt und ein faelliger Austritt uebernommen.
+function fbV9LebenNeueRunde(){
+  if(!fbV9LebenAn())return null;
+  if(phase==='over')return null;
+  // Ein entschiedenes Match bekommt keine naechste Runde - und damit auch kein q.
+  if(typeof footballWinner!=='undefined'&&footballWinner!==null)return null;
+  // Der eigene Sitz ist ausgetragen oder dauerhaft disqualifiziert: dieser Client ist
+  // kein handelnder Teilnehmer mehr. Er raeumt nichts weg, er hoert auf.
+  if(typeof fbEvicted==='function'&&fbEvicted(myPlayer)){ fbV9LebenStop(); return null; }
+  return fbV9LebenBereit(turnNo);
+}
+// ════ ENDE V9-SPIELANBINDUNG ════
+
 
 // ════ ONLINE-MODUSREGISTER (v8) ════
 // EINE Quelle fuer Modusnamen, Sollbesetzung, Beschriftung und Freigabestand. Jede
@@ -11113,7 +11356,7 @@ function attachRoomListeners(){
   });
 }
 function maybeStart(){ if(gameStarted)return; gameStarted=true; if(roomPublic&&isHost()){removePublicListing(roomCode);roomPublic=false;} $('online').classList.remove('show'); showGame(); startOnlineGame(); toast(T('youAre')+' '+(fmt==='team_duel'?T(teamOf(myPlayer)===0?'teamBlue':'teamRed'):T('col'+colSlot4Name(myPlayer)))); }
-function startOnlineGame(){ replaying=false;repPlaying=false;$('replay').classList.remove('show'); runningGen=gen; turnNo=-1; if(turnUnsub){turnUnsub();turnUnsub=null;} $('ov').classList.remove('show'); newGame(); }
+function startOnlineGame(){ replaying=false;repPlaying=false;$('replay').classList.remove('show'); if(typeof fbV9LebenStop==='function')fbV9LebenStop(); runningGen=gen; turnNo=-1; if(turnUnsub){turnUnsub();turnUnsub=null;} $('ov').classList.remove('show'); newGame(); }
 // ════ B2 canonical match rehydration ════
 // Rebuilds a RUNNING match purely from the turn history under
 // rooms/<code>/g/<gen>/t. The lockstep sim is deterministic, so replaying every
@@ -11681,6 +11924,7 @@ function leaveOnline(after){
   onlineSessionId++;   // P0-Fix: laufende Transaktionen/Listener dieser Session sofort entwerten (auch bei sofortigem Wiederbeitritt zum selben Raum)
   onlineTerminatedSession=-1;   // terminalen Abbruchzustand sicher zuruecksetzen (die neue Session ist ohnehin != gespeicherter Session)
   clearAllSentinelRetries();   // P0-Nachbesserung: Raum wird verlassen -> kein Sentinel-Retry darf danach noch feuern
+  if(typeof fbV9LebenStop==='function')fbV9LebenStop();   // V9 (ruhend): Bereitschaft und Ablauf enden mit dem Raum
   clearLobbyHostGrace();       // deliberate leave -> no pending lobby grace may fire afterwards
   clearAllMatchGrace(); roomP={}; roomPSeen=false;   // B2: in-match grace timers of this room are void as well
   try{ if(turnUnsub)turnUnsub(); }catch(e){} try{ if(genUnsub)genUnsub(); }catch(e){} try{ if(presUnsub)presUnsub(); }catch(e){} try{ if(seatsUnsub)seatsUnsub(); }catch(e){} try{ if(rosterUnsub)rosterUnsub(); }catch(e){}

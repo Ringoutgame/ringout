@@ -355,9 +355,15 @@ abschnitt('Waechter');
   // Geheimes Material gehoert nicht in die Ausgabe.
   t('nichts wird protokolliert',
     code.indexOf('console.') < 0 && code.indexOf('alert(') < 0);
+  // SEIT V9.4C ruft das Spiel an genau zwei benannten Stellen in den ruhenden
+  // Bereich hinein - beim Rundenbeginn und am Settlement - und raeumt an den
+  // bestehenden Grenzen ab. Diese Haken sind gewollt; alles andere bleibt verboten.
+  const HAKEN = ['fbV9LebenNeueRunde', 'fbV9LebenStop'];
+  const ohneHaken = (txt) => txt.split(/\r?\n/)
+    .filter(zl => !HAKEN.some(h => zl.indexOf(h) >= 0)).join('\n');
   t('ausserhalb des ruhenden Bereichs nennt keine Zeile eine v9-Funktion',
-    HTML.split(HTML.slice(START, HTML.indexOf('// ════ ENDE V9-BEREITSCHAFTSSTEUERUNG ════')))
-      .join('').indexOf('fbV9') < 0);
+    ohneHaken(HTML.split(HTML.slice(START, HTML.indexOf('// ════ ENDE V9-SPIELANBINDUNG ════')))
+      .join('')).indexOf('fbV9') < 0);
   // Der v8-Weg benutzt localStorage weiterhin - fuer Name, Kennung, gemerkten Raum.
   // Das ist unberuehrt und soll so bleiben.
   t('der v8-Weg behaelt sein localStorage', HTML.indexOf("localStorage.getItem('ringout_pid')") > 0);
