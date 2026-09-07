@@ -10,7 +10,11 @@ const fs = require('fs');
 const { grabFunction } = require('./extract.js');
 const html = fs.readFileSync(require('path').join(__dirname, '..', 'index.html'), 'utf8');
 // Die Protokollversion kommt aus index.html, nie aus einer Zahl im Test.
-const VER = Number(html.split('const ONLINE_PROTOCOL_VERSION=')[1].split(';')[0]);
+// Stufe 2A: der ausgelieferte Client kann BEIDE Raumfamilien. Diese Fixtures
+// beschreiben ausdruecklich die v8-Familie - sie leiten ihre Fassung deshalb
+// NICHT mehr aus der Ausbaustufe ab. Die v9-Raumform prueft
+// tools/test_online_v9.js.
+const VER = 8;
 const grab = (re, name) => {
   const m = html.match(re);
   if (!m) { console.error('FAIL: cannot extract ' + name); process.exit(1); }
@@ -24,6 +28,12 @@ const fn = (name) => grabFunction(html, name);
 
 const SRC = [
   grab(/const ONLINE_PROTOCOL_VERSION=[^\n]*/, 'ONLINE_PROTOCOL_VERSION'),
+  // Stufe 2A: die extrahierten Raumfunktionen lesen die Fassung DES RAUMS.
+  // Diese Suite faehrt v8-Raeume.
+  'let roomProto=8;',
+  grab(/function fbRaumFassungOk\(v\)\{[^\n]*\}/, 'fbRaumFassungOk'),
+  // Stufe 2A: createRoom waehlt die Raumfassung ueber diesen Waehler.
+  grab(/function fbRaumFassung\(cfg\)\{[\s\S]*?\n\}/, 'fbRaumFassung'),
   grab(/const FFA_MAX_SEATS=[^\n]*/, 'FFA_MAX_SEATS'),
   grab(/const GEN_MAX=[^\n]*/, 'GEN_MAX'),
   grab(/function viewAngle\(\)\{[\s\S]*?\n\}/, 'viewAngle'),

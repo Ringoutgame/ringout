@@ -147,7 +147,9 @@ function speicher() { const m = new Map();
 
 const STILL = uhrwerk(1000);
 const GLOBAL = ['online', 'mode', 'fmt', 'roomCode', 'myPlayer', 'gen', 'turnNo', 'phase',
-                'footballWinner', 'onlineSessionId', 'ONLINE_PROTOCOL_VERSION', 'curAimer'];
+                'footballWinner', 'onlineSessionId', 'ONLINE_PROTOCOL_VERSION', 'curAimer',
+                // Stufe 2A: die Fassung DES RAUMS - sie entscheidet ueber die Ruhe.
+                'roomProto'];
 
 // Die Werkbank. Alles Echte kommt aus index.html; Attrappe ist nur, was Bild, Physik und
 // Netz betrifft. `welt.spur` haelt jede Wirkung fest, damit sich die REIHENFOLGE und die
@@ -281,7 +283,7 @@ const bereitAlle = (n, turn) => { const q = {}; for (let i = 0; i < n; i++) q[i]
 const welt9 = (x) => Object.assign({
   online: true, mode: 'football', fmt: 'elimination', roomCode: 'RN2K', myPlayer: 1,
   gen: 7, turnNo: 0, phase: 'aim', footballWinner: null, onlineSessionId: 3,
-  ONLINE_PROTOCOL_VERSION: 9, curAimer: 1, elim4: true, cap: 3, uid: UID, evicted: {},
+  ONLINE_PROTOCOL_VERSION: 9, roomProto: 9, curAimer: 1, elim4: true, cap: 3, uid: UID, evicted: {},
   gesperrt: false, spur: [], starts: [], t: [], handeln: [], handelnErg: [], senden: [],
   evictLaeufe: 0, aktiv: [true, true, true] }, x || {});
 const cEigen = (a, turn) => a.log.schreib.filter(w => w.pfad === P('c/' + turn + '/1'));
@@ -306,7 +308,7 @@ console.log('=== V9.5B: der echte Eingabeweg -> V9-Handlung ===');
 abschnitt('V8: der Zug geht unveraendert in den t-Slot');
 {
   const u = uhrwerk(4000000);
-  const welt = welt9({ ONLINE_PROTOCOL_VERSION: 8 });
+  const welt = welt9({ roomProto: 8 });
   const a = attrappe({}, u), M = baue(a, u, welt);
   t('die Anbindung ist aus', M.fbV9LebenAn() === false);
   const v = M.losLassen(1, 1, 60, -80, 0.5);          // echtes Zeigerloslassen
@@ -560,7 +562,7 @@ abschnitt('Die Eingabe startet kein Spiel');
 abschnitt('Lokales Spiel unveraendert');
 {
   const u = uhrwerk(4000000);
-  const welt = welt9({ online: false, ONLINE_PROTOCOL_VERSION: 9 });
+  const welt = welt9({ online: false, roomProto: 9 });
   const a = attrappe({}, u), M = baue(a, u, welt);
   t('die Anbindung ist aus', M.fbV9LebenAn() === false);
   M.losLassen(1, 1, 40, -40, 0.5);
@@ -651,7 +653,7 @@ abschnitt('In einem v9-Raum schreibt kein alter Sentinelweg mehr');
 abschnitt('V8: die alten Sentinelwege arbeiten unveraendert');
 {
   const u = uhrwerk(4000000);
-  const welt = welt9({ ONLINE_PROTOCOL_VERSION: 8, evicted: { 2: true } });
+  const welt = welt9({ roomProto: 8, evicted: { 2: true } });
   const a = attrappe({}, u), M = baue(a, u, welt);
   M.lage({ roomP: { 1: { on: true } } });      // 0 und 2 sind nicht verbunden
   M.fbMaybeSkipOffline();
@@ -675,7 +677,7 @@ abschnitt('V8: die alten Sentinelwege arbeiten unveraendert');
 }
 {
   const u = uhrwerk(4000000);
-  const welt = welt9({ ONLINE_PROTOCOL_VERSION: 8, mode: 'ffa', fmt: 'ffa', elim4: false });
+  const welt = welt9({ roomProto: 8, mode: 'ffa', fmt: 'ffa', elim4: false });
   const a = attrappe({}, u), M = baue(a, u, welt);
   M.lage({ seatLeft: [true, false, false] });
   M.writeLeaveSentinel(0);
@@ -686,7 +688,7 @@ abschnitt('V8: die alten Sentinelwege arbeiten unveraendert');
 }
 {
   const u = uhrwerk(4000000);
-  const welt = welt9({ ONLINE_PROTOCOL_VERSION: 8 });
+  const welt = welt9({ roomProto: 8 });
   const a = attrappe({}, u), M = baue(a, u, welt);
   M.lage({ roomP: { 0: { on: true }, 1: { on: true }, 2: { on: true } } });
   M.fbMaybeSkipOffline();
@@ -698,7 +700,7 @@ abschnitt('V8: die alten Sentinelwege arbeiten unveraendert');
 // ══ DIE RUHE ═════════════════════════════════════════════════════════════════
 abschnitt('Der ausgelieferte Client bleibt auf Protokoll 8');
 {
-  t('37. ONLINE_PROTOCOL_VERSION ist 8', /const ONLINE_PROTOCOL_VERSION=8;/.test(HTML));
+  t('37. ONLINE_PROTOCOL_VERSION ist 9', /const ONLINE_PROTOCOL_VERSION=9;/.test(HTML));
   // Genau zwei Vorkommen: die Definition und der EINE Aufruf in applyCommit. Faende sich
   // ein dritter, gaebe es einen zweiten v8-Transportweg, den diese Weiche nicht abdeckt.
   t('    onlineSendCommit hat genau EINEN Aufrufer - applyCommit',

@@ -1411,6 +1411,9 @@ let ffaN=3;         // FFA: Spieleranzahl 2-5 (lokal aus dem Menue; online = sea
 let ffaNMenu=3;     // Menue-Auswahl fuer FFA lokal — leaveOnline() stellt ffaN darauf zurueck
 // ── ONLINE-State ──
 let online=false, roomCode='', myPlayer=0, gen=0, runningGen=-1, turnNo=-1;
+// Die Protokollfassung DIESES Raums. Der Client beherrscht mehrere; welche gilt,
+// entscheidet der Raum - nicht die eigene Ausbaustufe. 0 heisst: in keinem Raum.
+let roomProto=0;
 // ════ HOST IST NICHT DER SITZ ════
 // Bis v7 galt: wer auf Sitz 0 sitzt, ist Host. In einem Team-2v2-Raum ist Sitz 0 aber
 // kanonisch B1 - der Ersteller haette damit nie Rot waehlen koennen. v8 traegt deshalb
@@ -1639,7 +1642,7 @@ async function reserveSeat(code,seat,team2){
   // deshalb im selben atomaren Update mit: die Rules lassen auf rooms/<code>/v nur
   // ein WERTGLEICHES Schreiben zu, ein fremdversionierter Raum weist das ganze
   // Update ab. Kein Sitz in einer fremden Simulation, kein halber Zustand.
-  upd['v']=ONLINE_PROTOCOL_VERSION;
+  upd['v']=roomProto;
   try{ await window.FB.update(window.FB.ref(window.FB.db,'rooms/'+code),upd); return {ok:true}; }
   catch(e){
     if(/permission[_ ]?denied/i.test(String((e&&(e.code||e.message))||e)))return {ok:false,lost:true};
@@ -1733,7 +1736,7 @@ async function reclaimSeat(code,seat,keepName,legacy,team2){
   // Dasselbe Vergleichsschreiben wie beim ersten Claim (siehe reserveSeat): auch ein
   // Wiedereintritt darf nicht in einem inzwischen neu angelegten Raum fremder Version
   // landen.
-  upd['v']=ONLINE_PROTOCOL_VERSION;
+  upd['v']=roomProto;
   try{ await window.FB.update(window.FB.ref(window.FB.db,'rooms/'+code),upd); return {ok:true}; }
   catch(e){
     if(/permission[_ ]?denied/i.test(String((e&&(e.code||e.message))||e)))return {ok:false,lost:true};
@@ -1792,7 +1795,7 @@ async function restorePresencePass(ctx){
     if(!presenceCtxValid(ctx))return 'stale';
     const v=snap.val();
     if(!v)return 'noRoom';                                  // Raum existiert nicht mehr
-    if(v.v!==ONLINE_PROTOCOL_VERSION)return 'version';      // fremdes Protokoll
+    if(v.v!==roomProto)return 'version';                    // fremdes Protokoll
     if((v.gen|0)!==gen)return 'gen';                        // andere Generation -> nicht raten
     const uid=fbUid(), rec=v.players&&v.players[ctx.seat], pres=v.p&&v.p[ctx.seat];
     // Eigentum wird VOR jedem Schreiben neu geprueft. Im Zweifel geschieht nichts.
@@ -8432,7 +8435,8 @@ function createRoom(){
         wirtSitz=fbTeam2SeatsOf(fbOnlineTeam)[0];
       }
       const rec0=playerRecord(wirtSitz,fbo&&fbOnlineMode===FB_ONLINE_MODE_TEAM2);
-      const room={v:ONLINE_PROTOCOL_VERSION, config:cfg, gen:0, state:'lobby', hostUid:fbUid(),
+      roomProto=fbRaumFassung(cfg);
+      const room={v:roomProto, config:cfg, gen:0, state:'lobby', hostUid:fbUid(),
         p:{}, players:{}, created:window.FB.serverTimestamp()};
       room.p[wirtSitz]={s:onlineTab,on:false,t:window.FB.serverTimestamp()};
       room.players[wirtSitz]=rec0;
@@ -8618,7 +8622,7 @@ function joinPublicRoom(code){
 // Beitrittspolitik gegenueber Altbestand: STRIKTE GLEICHHEIT, wie bei jedem frueheren
 // Versionssprung dieses Projekts. Ein v7-Raum wird mit der Versionsmeldung abgelehnt,
 // nicht als v8 gelesen - ein v8-Weg ohne mode/cap gaebe es sonst still zurueck.
-const ONLINE_PROTOCOL_VERSION=8;
+const ONLINE_PROTOCOL_VERSION=9;
 const FFA_MAX_SEATS=5;   // Online-FFA: Seats 0-4 (Host=0), Farben aus PCOLS
 // ── RAUMTYP (v4) ──────────────────────────────────────────────────────────────────
 // config.game trennt die beiden Produktfamilien serverseitig. Bewusst NICHT 'mode':
@@ -10237,7 +10241,7 @@ let fbV9Leben=null;
 // Nachspiel stellt einen ZUSTAND wieder her, es wiederholt kein Erlebnis.
 let fbV9Nachspielen=false;
 function fbV9LebenAn(){
-  return !fbV9Nachspielen && !!online && ONLINE_PROTOCOL_VERSION===9 && mode==='football'
+  return !fbV9Nachspielen && !!online && roomProto===9 && mode==='football'
       && typeof fbElim4==='function' && fbElim4()
       && typeof roomCode==='string' && !!roomCode && myPlayer>=0;
 }
@@ -10635,7 +10639,7 @@ async function fbV9Rehydrieren(ctx){
 // Entwicklerschalter, den jemand versehentlich umlegt. Solange die Konstante 8 ist,
 // ist beides ausnahmslos false, und der freigegebene v8-Weg laeuft unveraendert.
 function fbV9RaumIst9(raum){
-  return !!raum && raum.v===9 && ONLINE_PROTOCOL_VERSION===9;
+  return !!raum && raum.v===9 && ONLINE_PROTOCOL_VERSION>=9;
 }
 // Dieselbe Frage fuer den Raum, in dem dieser Client GERADE SITZT. fbV9RaumIst9 prueft
 // einen gelesenen Raum, bevor man ihn betritt; hier ist er schon betreten, und dann gibt
@@ -10645,7 +10649,7 @@ function fbV9RaumIst9(raum){
 // "ist dieser Raum ein v9-Raum". Ein Nachspieler, ein Zuschauer und ein Client zwischen
 // zwei Runden sitzen genauso in einem v9-Raum wie ein handelnder Spieler - und keiner
 // von ihnen darf in den v8-Zugslot schreiben.
-function fbV9RaumHier(){ return !!online && ONLINE_PROTOCOL_VERSION===9; }
+function fbV9RaumHier(){ return !!online && roomProto===9; }
 // Der Start eines v9-Raums - frisch wie nach einem Neuladen ueber DENSELBEN Weg. Ein
 // frischer Raum hat einfach keine abgeschlossene Runde; die Rehydrierung sieht das,
 // spielt nichts nach und meldet Runde 0 als bereit. Ein zweiter Startweg daneben
@@ -10845,9 +10849,24 @@ function validateTurnRecord(rec,game,seat){
 // Deliberately self-contained (no seatActive call) so it stays extractable/testable
 // on its own, like before.
 const GEN_MAX=10000;   // gen grows +1 per rematch; anything above is manipulation
+// Welche Protokollfassung bekommt ein NEUER Raum? Genau die eingefrorene v9-Flaeche
+// bekommt 9; alles andere bleibt bei 8. Gelesen wird die Konfiguration selbst, nicht
+// eine Beschriftung - und die Grenzen sind dieselben, die die Rules ziehen.
+function fbRaumFassung(cfg){
+  if(!cfg||typeof cfg!=='object')return 8;
+  if(cfg.game!==ROOM_GAME_FOOTBALL)return 8;
+  if(cfg.mode!==FB_ONLINE_MODE_LIVES)return 8;
+  const cap=cfg.cap;
+  if(!(Number.isInteger(cap)&&cap>=3&&cap<=5))return 8;
+  return ONLINE_PROTOCOL_VERSION>=9?9:8;
+}
+// Welche Raumfassungen kann dieser Client bedienen? Beide Wege sind vollstaendig im
+// Produkt: v8 ueber den Zugslot, v9 ueber Commit und Enthuellung. Eine aeltere Fassung
+// bleibt abgewiesen - dort rechnet die Simulation anders.
+function fbRaumFassungOk(v){ return v===8||(ONLINE_PROTOCOL_VERSION>=9&&v===9); }
 function validateRoom(d){
   if(!d||typeof d!=='object')return{ok:false,reason:'Raumdaten ungültig.'};
-  if(d.v!==ONLINE_PROTOCOL_VERSION)return{ok:false,reason:'Versionen stimmen nicht überein — bitte beide Seite neu laden.'};
+  if(!fbRaumFassungOk(d.v))return{ok:false,reason:'Versionen stimmen nicht überein — bitte beide Seite neu laden.'};
   const cfg=d.config;
   if(!cfg||typeof cfg!=='object'||(cfg.winTarget!==3&&cfg.winTarget!==5))
     return{ok:false,reason:'Raum-Konfiguration ungültig.'};
@@ -10910,7 +10929,7 @@ function pickFreeSeat(p,max){for(let s=1;s<max;s++)if(!p||!p[s])return s;return 
 // Reasons are i18n keys. No globals, no side effects (Node-testable).
 function validateRejoinRoom(d){
   if(!d||typeof d!=='object')return{ok:false,reason:'noRoom'};
-  if(d.v!==ONLINE_PROTOCOL_VERSION)return{ok:false,reason:'noRoom'};
+  if(!fbRaumFassungOk(d.v))return{ok:false,reason:'noRoom'};
   const cfg=d.config;
   if(!cfg||typeof cfg!=='object'||(cfg.winTarget!==3&&cfg.winTarget!==5))return{ok:false,reason:'noRoom'};
   if(!validGamePair(cfg.game,cfg.fmt))return{ok:false,reason:'noRoom'};
@@ -10949,7 +10968,7 @@ const ROOM_MAX_AGE_MS=7200000;   // 2h — older public rooms are never shown or
 function publicListingView(d,now){
   // Room gone or structurally broken -> never show; listing is stale (safe to remove).
   if(!d||typeof d!=='object')return{show:false,remove:true};
-  if(d.v!==ONLINE_PROTOCOL_VERSION)return{show:false,remove:true};
+  if(!fbRaumFassungOk(d.v))return{show:false,remove:true};
   const cfg=d.config;
   if(!cfg||typeof cfg!=='object'||cfg.visibility!=='public')return{show:false,remove:true};
   if(!validGamePair(cfg.game,cfg.fmt))return{show:false,remove:true};
@@ -11032,6 +11051,7 @@ function joinRoom(){
       // B2) — ein manueller Join durchlaeuft hier bewusst den normalen Claim-Flow
       // wie jeder andere Beitritt (kein stiller Seat-Reclaim auf diesem Pfad).
       const v=validateRoom(d);
+      if(v.ok)roomProto=d.v;   // ab hier gilt die Fassung DIESES Raums
       if(!v.ok){ setStatus(v.reason); return; }
       // Capture whether the room carries a discovery listing, but commit it to the
       // roomPublic global ONLY after a successful seat claim below. A lost race,
@@ -11223,6 +11243,7 @@ async function attemptRejoin(code){
     if(!snap.exists()){ forgetRoom(); setStatus(T('noRoom')); return false; }
     const d=snap.val();
     const v=validateRejoinRoom(d);
+    if(v.ok)roomProto=d.v;   // ab hier gilt die Fassung DIESES Raums
     if(!v.ok){ forgetRoom(); setStatus(T(v.reason)); return false; }
     const sr0=savedRoom();
     const seat=findOwnSeat(d.players,onlinePid,fbUid(),sr0&&sr0.code===code?sr0.seat:-1);
@@ -12293,7 +12314,7 @@ function leaveOnline(after){
   forgetRoom();
   fbLeaveRetired=false; fbLeaveBusy=false;   // C4B: der Auftrag ist abgeschlossen
   fbElimStartN=0;                            // die Startbesetzung gehoert dem verlassenen Raum
-  online=false; gameStarted=false; roomPublic=false; roomCode=''; lobbyP={}; seatLeft=[]; seatGone=[]; playersRoster={};
+  online=false; gameStarted=false; roomPublic=false; roomCode=''; roomProto=0; lobbyP={}; seatLeft=[]; seatGone=[]; playersRoster={};
   fbRoomMode=''; fbRoomCap=0; roomHostUid='';   // v8: kein Raum -> keine Sollbesetzung, kein Host
   mode=menuMode; ffaN=ffaNMenu;   // Online-FFA stellt mode/ffaN um — Menue-Auswahl wiederherstellen
   if(typeof after==='function')after();

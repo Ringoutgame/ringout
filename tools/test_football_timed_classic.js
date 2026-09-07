@@ -913,7 +913,7 @@ function NOTICE_SEK(name) {
      'AI) und ohne Speed Match oder gemeinsames Fenster laeuft ueberhaupt keine Zeit');
   ok(/const FOOTBALL_FMTS=\['elimination'\];/.test(HTML),
      'AI) Online-Football kennt ausschliesslich Elimination');
-  ok(/const ONLINE_PROTOCOL_VERSION=8;/.test(HTML), 'AI) die Protokollversion ist v8 - der Zugpfad bleibt der v7-Pfad');
+  ok(/const ONLINE_PROTOCOL_VERSION=9;/.test(HTML), 'AI) die Protokollversion des Clients ist v9 - Classic bleibt unberuehrt');
   // Und fbSpeed verlangt fbClassic — in Elimination ist es damit strukturell unmoeglich.
   ok(/function fbSpeed\(\)\{return fbClassic\(\)&&fbRules===FOOTBALL_RULES_SPEED;\}/.test(HTML),
      'AI) Speed Match verlangt Classic — in Elimination unerreichbar');

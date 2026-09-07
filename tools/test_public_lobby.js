@@ -13,10 +13,12 @@ const ageSrc = grab(html, /const ROOM_MAX_AGE_MS=[^\n]*/, 'ROOM_MAX_AGE_MS');
 // Protokoll v4: Raumtyp, Football-Kontrakt und die kanonischen Zugereignisse. Der
 // Block kommt WOERTLICH aus index.html; die Validatoren unten fragen ihn ab.
 const protoSrc = grab(html, /const ROOM_GAME_RINGOUT=[\s\S]*?\nfunction validateTurnRecord\(rec,game,seat\)\{[\s\S]*?\n\}/, 'Protokoll v4');
+// Stufe 2A: die Raumpruefung fragt, ob eine Fassung BEDIENBAR ist.
+const fassungSrc = grab(html, /function fbRaumFassungOk\(v\)\{[^\n]*\}/, 'fbRaumFassungOk');
 const vrSrc = grab(html, /function validateRoom\(d\)\{[\s\S]*?\n\}/, 'validateRoom');
 const plvSrc = grab(html, /function publicListingView\(d,now\)\{[\s\S]*?\n\}/, 'publicListingView');
 // Join snippets with newlines (never ';') — an extracted line may end in a // comment.
-const mod = new Function([verSrc, genSrc, ffaSrc, ageSrc, protoSrc, vrSrc, plvSrc,
+const mod = new Function([verSrc, genSrc, ffaSrc, ageSrc, protoSrc, fassungSrc, vrSrc, plvSrc,
   'return { validateRoom, publicListingView, ONLINE_PROTOCOL_VERSION, ROOM_MAX_AGE_MS };'].join('\n'))();
 const { validateRoom, publicListingView, ONLINE_PROTOCOL_VERSION: VER, ROOM_MAX_AGE_MS } = mod;
 
@@ -33,7 +35,8 @@ t('validate: visibility missing -> reject', validateRoom(vroom({ config: { game:
 t('validate: visibility null -> reject', validateRoom(vroom({ config: { game: 'ringout', winTarget: 3, fmt: 'single', visibility: null } })).ok === false);
 t('validate: visibility "secret" -> reject', validateRoom(vroom({ config: { game: 'ringout', winTarget: 3, fmt: 'single', visibility: 'secret' } })).ok === false);
 t('validate: visibility "Public" (case) -> reject', validateRoom(vroom({ config: { game: 'ringout', winTarget: 3, fmt: 'single', visibility: 'Public' } })).ok === false);
-t('validate: wrong version still rejected first', validateRoom(vroom({ v: VER - 1 })).ok === false);
+// Stufe 2A: bedient werden v8 und v9; abgewiesen wird, was darunter liegt.
+t('validate: wrong version still rejected first', validateRoom(vroom({ v: 7 })).ok === false);
 
 // ── publicListingView: which public rooms may be shown / cleaned up ──
 const NOW = 1751900000000;
@@ -60,7 +63,7 @@ const view = (over) => publicListingView(listRoom(over), NOW);
 // remove:true (objectively stale/invalid -> listing may be cleaned up)
 t('remove: null room', publicListingView(null, NOW).remove === true);
 t('remove: non-object room', publicListingView('x', NOW).remove === true);
-t('remove: wrong protocol version', view({ v: VER - 1 }).remove === true && view({ v: VER - 1 }).show === false);
+t('remove: wrong protocol version', view({ v: 7 }).remove === true && view({ v: 7 }).show === false);
 t('remove: private room never listed', view({ config: { game: 'ringout', winTarget: 3, fmt: 'ffa', visibility: 'private' } }).remove === true);
 t('remove: missing config', view({ config: undefined }).remove === true);
 t('remove: invalid fmt', view({ config: { game: 'ringout', winTarget: 3, fmt: 'triple', visibility: 'public' } }).remove === true);

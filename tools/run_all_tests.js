@@ -34,15 +34,16 @@ const SUITES = [
   { name: 'r3d-Mapping',      file: 'test_r3d_mapping.js',    expectPassed: 52 },
   { name: 'Sanitize',         file: 'test_sanitize.js',       expectPassed: 24 },
   { name: 'Identity',         file: 'test_identity.js',       expectPassed: 45 },
-  { name: 'ValidateRoom',     file: 'test_validateroom.js',   expectPassed: 45 },
+  { name: 'ValidateRoom',     file: 'test_validateroom.js',   expectPassed: 46 },
   { name: 'Lockstep',         file: 'test_lockstep.js',       expectPassed: 24 },
   { name: 'FFA-Kern',         file: 'test_ffa.js',            expectPassed: 18 },
   { name: 'FFA-Online-Prep',  file: 'test_ffa_online.js',     expectPassed: 53 },
   { name: 'FFA-Online-Flow',  file: 'test_ffa_flow.js',       expectPassed: 148 },
   { name: 'FFA-Online-Race',  file: 'test_ffa_race.js',       expectPassed: 115 },
         { name: 'Reconnect-B2',     file: 'test_reconnect.js',      expectPassed: 213 },   // 53 Bestand (RC1-RC11) + 14 RC-ENV + 17 RC-UID/RC-UID2: Seat-Eigentum ueber auth.uid, Diebstahlversuch mit bekannter Spieler-ID, Zweittab, Mehrdeutigkeit und Legacy-Rueckfall
-          { name: 'Protokoll',        file: 'test_online_protocol.js', expectPassed: 200 },
+          { name: 'Protokoll',        file: 'test_online_protocol.js', expectPassed: 203 },
   { name: 'Online-PhaseA',   file: 'test_online_phase_a.js', expectPassed: 326 },   // PROTOKOLL v8 PHASE A: ein Modusregister mit Sollbesetzung, Freigabetor fuer noch nicht fertige Onlinemodi, modusbewusste Lobby mit Soll/Ist - und der Nachweis, dass der Zugpfad unveraendert der v7-Pfad ist (kein v9-Mechanismus)   // reine Schema-/Vertragsschicht: Version, Raumtyp, Sitz/Koerper, kanonische Zugereignisse
+  { name: 'Raum-Protokollweiche', file: 'test_online_room_protocol_routing.js', expectPassed: 65 },   // STUFE 2A: die Protokollfassung gehoert dem RAUM, nicht dem Client. Ein NEUER Raum bekommt sie aus seiner Konfiguration - Football mit der Lebensregel und drei bis fuenf Sitzen wird v9, alles andere bleibt v8, und der Waehler zieht dieselben Grenzen wie die Rules. Bestehende Raeume behalten ihre Fassung; derselbe ausgelieferte Client betritt beide Familien und ist in einem v8-Raum ausdruecklich KEIN v9-Client. Der Zugslot t bleibt v8 vorbehalten, die v9-Knoten bleiben v9-Raeumen vorbehalten - kein Mischbetrieb.
   { name: 'Online-V9',      file: 'test_online_v9.js', expectPassed: 349 },   // V9.1/V9.2 GRUNDLAGE, NUR RULES: autoritative Turn-Eroeffnung (d/<turn>/{n,o}) und Commit-Terminal (c/<turn>/<seat>) - der freigegebene Client steht weiterhin auf Protokoll 8 und kann keinen v9-Raum anlegen. dazu der Reveal-Anker (ro/<turn>) und das write-once Reveal-Ergebnis (r/<turn>/<seat>) hinter der vollstaendigen Commit-Barriere. Die Rules koennen SHA-256 NICHT rechnen - die Bindung Hash<->Reveal und jede Spielwirkung kommen erst mit V9.3.
   { name: 'Online-V9-Crypto', file: 'test_online_v9_crypto.js', expectPassed: 125 },   // V9.3A CODEC, RUHEND: die kanonische 60-Byte-Zugvorlage (gross-endian, feste Offsets), 128-Bit-Salz aus Web Crypto und SHA-256 - samt EINGEFRORENEM Pruefvektor, der unabhaengig gerechnet wurde und der Vertrag zwischen zwei Clients ist. Kein Netzpfad ruft ihn auf.
   { name: 'Online-V9-Client', file: 'test_online_v9_client.js', expectPassed: 158 },   // V9.3B1 PROTOKOLLMASCHINE, RUHEND: Commit bauen, das Geheimnis der Runde halten, beide Barrieren lesen, Enthuellungen pruefen (VALID / HASH_MISMATCH / MALFORMED / NO_REVEAL) und die anerkannte Zugmenge aufsteigend nach Sitz bilden - ohne Firebase, ohne Spielzustand, ohne applyLaunch. Der freigegebene v8-Weg ruft sie nicht auf.

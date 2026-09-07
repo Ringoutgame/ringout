@@ -628,7 +628,7 @@ const R = new Function(`
 // Das ist die wichtigste Zusicherung dieser Phase. v8 aendert Raumkopf und Lobby;
 // die Bedeutung von g/<gen>/t/<turn>/<seat> bleibt exakt die von v7.
 {
-  ok(/const ONLINE_PROTOCOL_VERSION=8;/.test(HTML), 'die Protokollversion ist 8');
+  ok(/const ONLINE_PROTOCOL_VERSION=9;/.test(HTML), 'die Protokollversion ist 9');
   const send = grab(/function onlineSendCommit\(idx,fx,fy,spin\)\{[\s\S]*?\n\}/, 'onlineSendCommit');
   ok(/writeTurnSlot\(myPlayer,\{k:TURN_MOVE,idx:myPlayer,dx:fx,dy:fy,sp:spin\|\|0\}\)/.test(send),
      'der Zug geht unveraendert als {k,idx,dx,dy,sp} in den Slot');
@@ -661,7 +661,7 @@ const R = new Function(`
   // Die Rules tragen seit V9.1 die v9-Grundlage. Der CLIENT tut es ausdruecklich nicht:
   // er steht auf Protokoll 8, kennt keinen der neuen Pfade und kann folglich keinen
   // v9-Raum anlegen oder betreten. Genau das ist die Trennung, die diese Stufe schuetzt.
-  ok(/const ONLINE_PROTOCOL_VERSION=8;/.test(HTML),
+  ok(/const ONLINE_PROTOCOL_VERSION=9;/.test(HTML),
      'der freigegebene Client steht unveraendert auf Protokoll 8');
   for (const pfad of ["/d/'", "/c/'", "'d/'", "'c/'"])
     ok(HTML.indexOf("g/'+ctx.gen+'" + pfad) < 0,

@@ -396,8 +396,8 @@ abschnitt('Waechter');
   // ausdruecklich, was sie NICHT benutzt - eine Suche ueber den Rohtext faende genau
   // diese Verneinungen und meldete sie als Fund.
   const AB = AB_ROH.split(/\r?\n/).filter(z => !/^\s*\/\//.test(z)).join('\n');
-  t('das Protokoll des Produkts steht weiterhin auf 8',
-    HTML.indexOf('const ONLINE_PROTOCOL_VERSION=8;') >= 0);
+  t('der ausgelieferte Client steht auf 9',
+    HTML.indexOf('const ONLINE_PROTOCOL_VERSION=9;') >= 0);
   t('die Bereitschaftsschicht liest KEINE Uhr',
     AB.indexOf('Date.now') < 0 && AB.indexOf('serverNow') < 0, 'Uhr gefunden');
   t('sie stellt keinen Zeitgeber',

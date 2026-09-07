@@ -6,11 +6,17 @@ const verSrc = grab(html, /const ONLINE_PROTOCOL_VERSION=[^\n]*/, 'ONLINE_PROTOC
 // Protokoll v4: Raumtyp, Football-Kontrakt und die kanonischen Zugereignisse. Der
 // Block kommt WOERTLICH aus index.html; die Validatoren unten fragen ihn ab.
 const protoSrc = grab(html, /const ROOM_GAME_RINGOUT=[\s\S]*?\nfunction validateTurnRecord\(rec,game,seat\)\{[\s\S]*?\n\}/, 'Protokoll v4');
+// Stufe 2A: die Raumpruefung fragt, ob eine Fassung BEDIENBAR ist.
+const fassungSrc = grab(html, /function fbRaumFassungOk\(v\)\{[^\n]*\}/, 'fbRaumFassungOk');
 const vrSrc = grab(html, /function validateRoom\(d\)\{[\s\S]*?\n\}/, 'validateRoom');
 // Join snippets with newlines, never ';': an extracted line may end in a
 // // comment, which only a real line break (absent on Linux/LF) terminates.
-const validateRoom = new Function([verSrc, genSrc, protoSrc, vrSrc, 'return validateRoom;'].join('\n'))();
-const VER = new Function([verSrc, 'return ONLINE_PROTOCOL_VERSION;'].join('\n'))();   // fixtures follow the real protocol version
+const validateRoom = new Function([verSrc, genSrc, protoSrc, fassungSrc, vrSrc, 'return validateRoom;'].join('\n'))();
+// Stufe 2A: der ausgelieferte Client kann BEIDE Raumfamilien. Diese Fixtures
+// beschreiben ausdruecklich die v8-Familie - sie leiten ihre Fassung deshalb
+// NICHT mehr aus der Ausbaustufe ab. Die v9-Raumform prueft
+// tools/test_online_v9.js.
+const VER = 8;
 
 let pass = 0, fail = 0;
 const t = (name, cond) => { cond ? pass++ : (fail++, console.error('FAIL: ' + name)); };
@@ -23,7 +29,10 @@ t('v matching -> ok', validateRoom(room()).ok === true);
 t('v missing -> reject with message', validateRoom(room({ v: undefined })).reason === VMSG);
 t('v wrong (0) -> reject', validateRoom(room({ v: 0 })).reason === VMSG);
 t('v outdated (VER-1) -> reject', validateRoom(room({ v: VER - 1 })).reason === VMSG);
-t('v future (VER+1) -> reject', validateRoom(room({ v: VER + 1 })).reason === VMSG);
+// Stufe 2A: der ausgelieferte Client bedient v8 UND v9. Abgewiesen wird, was er nicht
+// bedienen kann - nicht mehr alles ausser der eigenen Zahl.
+t('v 7 (nicht mehr bedient) -> reject', validateRoom(room({ v: 7 })).reason === VMSG);
+t('v 10 (unbekannt) -> reject', validateRoom(room({ v: 10 })).reason === VMSG);
 t('v string -> reject (strict)', validateRoom(room({ v: String(VER) })).reason === VMSG);
 t('v null -> reject', validateRoom(room({ v: null })).reason === VMSG);
 

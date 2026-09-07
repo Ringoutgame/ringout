@@ -22,6 +22,9 @@ const SRC = [
   grab(html, /const GEN_MAX=[^\n]*/, 'GEN_MAX'),
   // Protokollblock: Raumtyp, Football-Kontrakt, kanonische Zugereignisse.
   grab(html, /const ROOM_GAME_RINGOUT=[\s\S]*?\nfunction validateTurnRecord\(rec,game,seat\)\{[\s\S]*?\n\}/, 'Protokoll v4'),
+  // Stufe 2A: die Raumpruefungen fragen, ob eine Fassung BEDIENBAR ist.
+  grabFunction(html, 'fbRaumFassungOk'),
+  grabFunction(html, 'fbRaumFassung'),
   grabFunction(html, 'validateRoom'),
   grabFunction(html, 'validateRejoinRoom'),
   // Die dritte Raumpruefung: sie entscheidet, was in der oeffentlichen Liste ueberhaupt
@@ -69,7 +72,7 @@ console.log('ONLINE-PROTOKOLL v' + P.VER + ' — Schema und kanonische Zugereign
 // v8 traegt MODUS und SOLLBESETZUNG. Die Zugkodierung ist bytegleich zu v7 - erst v9
 // aendert sie (Frist, Hash-Commit/Reveal). Zwei Stufen, weil eine Nummer nie zwei
 // Zugbauformen bedeuten darf.
-t('die Protokollversion ist 8', P.VER === 8, P.VER);
+t('die Protokollversion ist 9', P.VER === 9, P.VER);
 const RULES = require('fs').readFileSync(
   require('path').join(__dirname, '..', 'firebase.rules.json'), 'utf8');
 // WAEHREND DER UMSTELLUNG akzeptiert der Server beide Versionen — sonst waere jeder noch
@@ -95,10 +98,13 @@ t('auch der Zugslot ist versionsgebunden',
   /\.child\('v'\)\.val\(\) === 4 \|\| root\.child\('rooms'\)\.child\(\$code\)\.child\('v'\)\.val\(\) === 5 \|\| root\.child\('rooms'\)\.child\(\$code\)\.child\('v'\)\.val\(\) === 6 \|\| root\.child\('rooms'\)\.child\(\$code\)\.child\('v'\)\.val\(\) === 7 \|\| root\.child\('rooms'\)\.child\(\$code\)\.child\('v'\)\.val\(\) === 8\) && \(\(!root/.test(RULES));
 t('die Rules machen die Raumversion unveraenderlich',
   /\(!data\.exists\(\) \|\| newData\.val\(\) === data\.val\(\)\)/.test(RULES));
-// Jede Raumpruefung des Clients vergleicht strikt gegen die eigene Version — es gibt
-// keinen Pfad, der eine fremde Version durchliesse.
-t('alle Raumpruefungen des Clients vergleichen strikt auf die eigene Version',
-  (html.match(/!==ONLINE_PROTOCOL_VERSION/g) || []).length === 4,
+// Stufe 2A: die Raumpruefungen vergleichen nicht mehr auf die eigene Ausbaustufe,
+// sondern fragen, ob eine Fassung BEDIENBAR ist. Genau drei tun das.
+t('alle drei Raumpruefungen fragen nach einer bedienbaren Fassung',
+  (html.match(/fbRaumFassungOk\(d\.v\)/g) || []).length === 3,
+  (html.match(/fbRaumFassungOk\(d\.v\)/g) || []).length);
+t('und keine vergleicht mehr gegen die Ausbaustufe',
+  (html.match(/!==ONLINE_PROTOCOL_VERSION/g) || []).length === 0,
   (html.match(/!==ONLINE_PROTOCOL_VERSION/g) || []).length);
 
 // ── (2) Raumtyp und Format ───────────────────────────────────────────────────────
@@ -223,8 +229,13 @@ t('ein v4-Raum wird abgelehnt — kein gemischter Lockstep',
 t('ein v5-Raum wird ebenso abgelehnt', P.validateRoom(room({ v: 5 })).ok === false);
 t('ein v7-Raum wird abgelehnt — der Altbestand kennt weder Modus noch Sollbesetzung',
   P.validateRoom(room({ v: 7 })).ok === false);
-t('ein v9-Raum wird abgelehnt — dort aendert sich die Zugbauform',
-  P.validateRoom(room({ v: 9 })).ok === false);
+// Stufe 2A: der ausgelieferte Client bedient BEIDE Raumfamilien. Ein v9-Raum wird
+// deshalb angenommen - er traegt Commit und Enthuellung statt des Zugslots. Abgewiesen
+// wird, was der Client nicht bedienen kann.
+t('ein v9-Raum wird angenommen - der Client bedient beide Familien',
+  P.validateRoom(room({ v: 9 })).ok === true);
+t('ein v10-Raum nicht - unbekannte Fassung',
+  P.validateRoom(room({ v: 10 })).ok === false);
 t('und ein v6-Raum ebenso — die verbrannte Nummer teilt sich keinen Raum mit v8',
   P.validateRoom(room({ v: 6 })).ok === false);
 
@@ -483,25 +494,35 @@ t('Beitritt: die Ablehnung nennt die Versionsunvertraeglichkeit',
 {
   const restore = html.slice(html.indexOf('async function restorePresencePass'),
                             html.indexOf('async function restorePresencePass') + 1200);
-  t('die Wiederverbindung prueft die Version, bevor sie irgendetwas schreibt',
-    /if\(v\.v!==ONLINE_PROTOCOL_VERSION\)return 'version';/.test(restore));
+  // Stufe 2A: verglichen wird gegen die Fassung DES RAUMS, in dem wir sitzen - nicht
+  // gegen die Ausbaustufe. Ein unter demselben Code neu angelegter Raum anderer Fassung
+  // faellt damit genauso durch wie vorher.
+  t('die Wiederverbindung prueft die Raumfassung, bevor sie irgendetwas schreibt',
+    /if\(v\.v!==roomProto\)return 'version';/.test(restore));
   t('und tut das VOR der Eigentumspruefung des Sitzes',
-    restore.indexOf("!==ONLINE_PROTOCOL_VERSION") < restore.indexOf('rec.uid!==uid'));
+    restore.indexOf("v.v!==roomProto") < restore.indexOf('rec.uid!==uid'));
 
   // Das Vergleichsschreiben: der Sitzclaim traegt die eigene Version mit, damit ein
   // zwischen Pruefung und Claim neu angelegter Raum fremder Version das ganze Update
   // abweist. Beide Claimwege — erster Sitz und Wiedereintritt — muessen es fuehren.
-  t('der Sitzclaim traegt die eigene Protokollversion mit',
-    (html.match(/upd\['v'\]=ONLINE_PROTOCOL_VERSION;/g) || []).length === 2,
-    (html.match(/upd\['v'\]=ONLINE_PROTOCOL_VERSION;/g) || []).length);
+  // Stufe 2A: mitgeschrieben wird die Fassung DES GEPRUEFTEN RAUMS. Die Zusage bleibt
+  // dieselbe - die Rules lassen auf v nur ein wertgleiches Schreiben zu.
+  t('der Sitzclaim traegt die Fassung des Raums mit',
+    (html.match(/upd\['v'\]=roomProto;/g) || []).length === 2,
+    (html.match(/upd\['v'\]=roomProto;/g) || []).length);
   t('und die Rules lassen auf der Raumversion nur ein wertgleiches Schreiben zu',
     /"v": \{ "\.write": "data\.exists\(\) && newData\.exists\(\) && newData\.val\(\) === data\.val\(\)"/.test(RULES));
 
   // Es gibt genau EINE Stelle, die einen Raum anlegt — beide Produktwege (oeffentlicher
   // Football-Einstieg und Dev-Einstieg) laufen durch sie. Ein zweiter Anlageort koennte
   // eine andere Version schreiben.
-  t('genau eine Stelle legt einen Raum an, und sie schreibt die eigene Version',
-    (html.match(/v:ONLINE_PROTOCOL_VERSION/g) || []).length === 1);
+  // Stufe 2A: genau eine Stelle legt einen Raum an, und sie fragt den Waehler - der
+  // gibt v9 ausschliesslich fuer Football Lives mit drei bis fuenf Sitzen.
+  t('genau eine Stelle legt einen Raum an, und sie fragt den Waehler',
+    (html.match(/roomProto=fbRaumFassung\(cfg\);/g) || []).length === 1
+    && (html.match(/const room=\{v:roomProto,/g) || []).length === 1);
+  t('und keine Stelle schreibt die Ausbaustufe blind in einen Raum',
+    (html.match(/v:ONLINE_PROTOCOL_VERSION/g) || []).length === 0);
   t('und keine Stelle schreibt eine feste Versionsnummer',
     !/\bv: ?[0-9]+,/.test(html.slice(html.indexOf('const room={v:ONLINE_PROTOCOL_VERSION'),
                                     html.indexOf('const room={v:ONLINE_PROTOCOL_VERSION') + 400)));

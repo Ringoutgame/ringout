@@ -518,7 +518,7 @@ for (const start of [5, 4, 3]) {
 
 // ══ AC+AD. ONLINE UND ARENA B UNBERUEHRT ═════════════════════════════════════
 {
-  ok(/const ONLINE_PROTOCOL_VERSION=8;/.test(HTML), 'Protokollversion ist v8 (Modus/Sollbesetzung; Zugpfad unveraendert)');
+  ok(/const ONLINE_PROTOCOL_VERSION=9;/.test(HTML), 'Protokollversion des Clients ist v9 - v8-Raeume bleiben ueber den Zugslot bedienbar');
   ok(/const FOOTBALL_FMTS=\['elimination'\];/.test(HTML), 'FOOTBALL_FMTS unveraendert');
   // Online bleibt sequentiell: fbLives verlangt ausdruecklich offline.
   const G = leben(4);

@@ -102,9 +102,10 @@ function tryWrite(db, path, value, uid, alsoWrites) {
 // Die Fixtures fahren auf der AKTUELLEN Protokollversion des Clients. Sie wird aus
 // index.html gelesen, damit ein Protokollsprung hier nicht nachgezogen werden muss und
 // die Suite nie gegen eine veraltete Zahl prueft.
-const V = Number(require('fs')
-  .readFileSync(require('path').join(__dirname, '..', 'index.html'), 'utf8')
-  .split('const ONLINE_PROTOCOL_VERSION=')[1].split(';')[0]);
+// Stufe 2A: der ausgelieferte Client bedient BEIDE Raumfamilien. Diese Fixtures
+// beschreiben ausdruecklich die v8-Familie und leiten ihre Fassung deshalb NICHT
+// mehr aus der Ausbaustufe ab. Die v9-Raumform prueft tools/test_online_v9.js.
+const V = 8;
 // v8 verlangt eine Hostkennung, die der uid des Erstellers entspricht. In den Fixtures
 // ist das der Rosterkopf; wo ein Test den Host bewusst woanders sitzen laesst, setzt er
 // hostUid ausdruecklich selbst.
@@ -1432,7 +1433,7 @@ deny('team move pl 4 (seat gate, presence pre-seeded)', playing({ p: { 0: P(H_TA
   };
   const MVF = (seat) => ({ k: 'move', idx: seat, dx: 100, dy: -50, sp: 0.5 });
 
-  t('die Fixtures fahren auf der aktuellen Client-Version', V === 8);
+  t('die Fixtures beschreiben ausdruecklich die Raumfamilie v8', V === 8);
 
   // (a) ANLEGEN — waehrend des Uebergangs sind alle vier Versionen gueltig.
   allow('create v7 (aktueller Client)', { rooms: {} }, 'rooms/KX7P', mkRoom('single', { v: 7 }));

@@ -106,7 +106,9 @@ function speicher() { const m = new Map();
 // Die Spielglobalen, die die Anbindung liest. Sie werden aus `welt` gespiegelt, damit
 // ein Test den Zustand zwischen zwei Haken aendern kann.
 const GLOBAL = ['online', 'mode', 'roomCode', 'myPlayer', 'gen', 'turnNo', 'phase',
-                'footballWinner', 'onlineSessionId', 'ONLINE_PROTOCOL_VERSION'];
+                'footballWinner', 'onlineSessionId', 'ONLINE_PROTOCOL_VERSION',
+                // Stufe 2A: die Fassung DES RAUMS - sie entscheidet ueber die Ruhe.
+                'roomProto'];
 const baue = (a, uhr, welt) => new Function('window', 'crypto', 'GEN_MAX', 'FB_ONLINE_SEATS',
     'FB_ONLINE_BALL_IDX', 'serverNow', 'setTimeout', 'clearTimeout', 'sessionStorage', 'welt', `
   let ${GLOBAL.join(', ')};
@@ -171,7 +173,7 @@ const bereitAlle = (n, turn, aus) => { const q = {};
 const welt9 = (x) => Object.assign({
   online: true, mode: 'football', roomCode: 'RN2K', myPlayer: 1, gen: 7, turnNo: 0,
   phase: 'aim', footballWinner: null, onlineSessionId: 3,
-  ONLINE_PROTOCOL_VERSION: 9, elim4: true, cap: 3, uid: UID, evicted: {},
+  ONLINE_PROTOCOL_VERSION: 9, roomProto: 9, elim4: true, cap: 3, uid: UID, evicted: {},
   spur: [], starts: [], aktiv: [true, true, true] }, x || {});
 const cPfad = (a, turn) => a.log.schreib.filter(w => w.pfad.indexOf(P('c/' + turn + '/')) === 0);
 
@@ -184,7 +186,7 @@ abschnitt('Die Ruhe haengt an der Protokollkonstante');
 {
   const u = uhrwerk(4000000);
   for (const [name, w] of [
-      ['Protokoll 8', welt9({ ONLINE_PROTOCOL_VERSION: 8 })],
+      ['ein v8-Raum', welt9({ roomProto: 8 })],
       ['offline', welt9({ online: false })],
       ['kein Football', welt9({ mode: 'pvp' })],
       ['keine Elimination', welt9({ elim4: false })],
@@ -602,10 +604,10 @@ abschnitt('Waechter');
 {
   const roh = HTML.slice(HTML.indexOf('// ════ V9-SPIELANBINDUNG'), ENDE);
   const code = roh.split(/\r?\n/).filter(z => !/^\s*\/\//.test(z)).join('\n');
-  t('das Protokoll des Produkts steht weiterhin auf 8',
-    /const ONLINE_PROTOCOL_VERSION=8;/.test(HTML));
+  t('der ausgelieferte Client steht auf 9',
+    /const ONLINE_PROTOCOL_VERSION=9;/.test(HTML));
   t('die Ruhe haengt an der Protokollkonstante',
-    /ONLINE_PROTOCOL_VERSION===9/.test(code));
+    /roomProto===9/.test(code));
   // DIE RUNDENNUMMER: gelesen, nie geschrieben.
   t('die Anbindung erhoeht die Rundennummer nicht',
     code.indexOf('turnNo++') < 0 && code.indexOf('turnNo=') < 0 && code.indexOf('turnNo =') < 0);

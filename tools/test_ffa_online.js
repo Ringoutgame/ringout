@@ -16,6 +16,8 @@ const genSrc = grab(html, /const GEN_MAX=[^\n]*/, 'GEN_MAX');
 // Protokoll v4: Raumtyp, Football-Kontrakt und die kanonischen Zugereignisse. Der
 // Block kommt WOERTLICH aus index.html; die Validatoren unten fragen ihn ab.
 const protoSrc = grab(html, /const ROOM_GAME_RINGOUT=[\s\S]*?\nfunction validateTurnRecord\(rec,game,seat\)\{[\s\S]*?\n\}/, 'Protokoll v4');
+// Stufe 2A: die Raumpruefung fragt, ob eine Fassung BEDIENBAR ist.
+const fassungSrc = grab(html, /function fbRaumFassungOk\(v\)\{[^\n]*\}/, 'fbRaumFassungOk');
 const vrSrc = grab(html, /function validateRoom\(d\)\{[\s\S]*?\n\}/, 'validateRoom');
 const pfsSrc = grab(html, /function pickFreeSeat\(p,max\)\{[^\n]*/, 'pickFreeSeat');
 const aacSrc = grab(html, /function allAliveCommitted\(\)\{[^\n]*/, 'allAliveCommitted');
@@ -34,6 +36,7 @@ const env = new Function(`
   ${seatsSrc}
   ${genSrc}
   ${protoSrc}
+  ${fassungSrc}
   ${vrSrc}
   ${pfsSrc}
   let mode='ffa', ffaN=3, fmt='ffa', balls=[], aimSet=[];   // fmt: startFfaMatch-Gate (triple_ffa braucht exakt 3)

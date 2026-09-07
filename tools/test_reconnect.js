@@ -21,6 +21,12 @@ const grab = (re, name) => {
 
 const SRC = [
   grab(/const ONLINE_PROTOCOL_VERSION=[^\n]*/, 'ONLINE_PROTOCOL_VERSION'),
+  // Stufe 2A: die extrahierten Raumfunktionen lesen die Fassung DES RAUMS.
+  // Diese Suite faehrt v8-Raeume.
+  'let roomProto=8;',
+  grab(/function fbRaumFassungOk\(v\)\{[^\n]*\}/, 'fbRaumFassungOk'),
+  // Stufe 2A: createRoom waehlt die Raumfassung ueber diesen Waehler.
+  grab(/function fbRaumFassung\(cfg\)\{[\s\S]*?\n\}/, 'fbRaumFassung'),
   grab(/const FFA_MAX_SEATS=[^\n]*/, 'FFA_MAX_SEATS'),
   grab(/const GEN_MAX=[^\n]*/, 'GEN_MAX'),
   grab(/const MAXPULL_FRAC=[^\n]*/, 'physics constants'),

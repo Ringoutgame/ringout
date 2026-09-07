@@ -17,7 +17,11 @@ const path = require('path');
 const { grabFunction } = require('./extract.js');
 const HTML = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
 // Die Protokollversion kommt aus index.html, nie aus einer Zahl im Test.
-const VER = Number(HTML.split('const ONLINE_PROTOCOL_VERSION=')[1].split(';')[0]);
+// Stufe 2A: der ausgelieferte Client kann BEIDE Raumfamilien. Diese Fixtures
+// beschreiben ausdruecklich die v8-Familie - sie leiten ihre Fassung deshalb
+// NICHT mehr aus der Ausbaustufe ab. Die v9-Raumform prueft
+// tools/test_online_v9.js.
+const VER = 8;
 // Die echte Rueckkehrfrist aus index.html - kein im Test geratener Wert.
 const SEAT_STALE_FROM_SOURCE = Number((HTML.match(/const SEAT_STALE_MS=(\d+)/) || [])[1]);
 if (!Number.isFinite(SEAT_STALE_FROM_SOURCE)) { console.error('FAIL: cannot extract SEAT_STALE_MS'); process.exit(1); }
@@ -39,7 +43,18 @@ const handler = (re, name) => {
 
 const SRC = [
   // ── Konstanten und Grundfunktionen ──
-  grab(/const ONLINE_PROTOCOL_VERSION=[^\n]*/, 'ONLINE_PROTOCOL_VERSION'),
+  // Stufe 2A: diese Suite beschreibt die v8-FAMILIE des Onlinefootballs - den Weg
+  // ueber den Zugslot t. Der ausgelieferte Client steht auf 9 und legt neue
+  // Lives-Raeume als v9 an; dieser Sandkasten faehrt deshalb ausdruecklich einen
+  // v8-Client, damit die v8-Familie weiter vollstaendig geprueft wird. Die
+  // v9-Familie hat ihre eigenen Suiten (test_online_v9*.js).
+  'const ONLINE_PROTOCOL_VERSION=8;',
+  // Stufe 2A: die extrahierten Raumfunktionen lesen die Fassung DES RAUMS.
+  // Diese Suite faehrt v8-Raeume.
+  'let roomProto=8;',
+  grab(/function fbRaumFassungOk\(v\)\{[^\n]*\}/, 'fbRaumFassungOk'),
+  // Stufe 2A: createRoom waehlt die Raumfassung ueber diesen Waehler.
+  grab(/function fbRaumFassung\(cfg\)\{[\s\S]*?\n\}/, 'fbRaumFassung'),
   grab(/const FFA_MAX_SEATS=[^\n]*/, 'FFA_MAX_SEATS'),
   grab(/const GEN_MAX=[^\n]*/, 'GEN_MAX'),
   grab(/const ROOM_MAX_AGE_MS=[^\n]*/, 'ROOM_MAX_AGE_MS'),

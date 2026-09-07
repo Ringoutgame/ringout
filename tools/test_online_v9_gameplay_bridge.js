@@ -61,7 +61,7 @@ const ENDE = HTML.indexOf('// ════ ENDE V9-SPIELANBINDUNG ════')
 if (START < 0 || ENDE < 0) { console.log('V9-Bereich nicht gefunden'); process.exit(2); }
 const BEREICH = HTML.slice(START, ENDE);
 const GLOBAL = ['online', 'mode', 'roomCode', 'myPlayer', 'gen', 'turnNo', 'phase',
-                'footballWinner', 'onlineSessionId', 'ONLINE_PROTOCOL_VERSION'];
+                'footballWinner', 'onlineSessionId', 'ONLINE_PROTOCOL_VERSION', 'roomProto'];
 const baue = (a, welt) => new Function('window', 'crypto', 'GEN_MAX', 'FB_ONLINE_SEATS',
     'FB_ONLINE_BALL_IDX', 'serverNow', 'setTimeout', 'clearTimeout', 'sessionStorage', 'welt', `
   let ${GLOBAL.join(', ')};
@@ -120,7 +120,7 @@ const P = (r) => 'rooms/RN2K/g/7/' + r;
 const welt9 = (x) => Object.assign({
   online: true, mode: 'football', roomCode: 'RN2K', myPlayer: 1, gen: 7, turnNo: 0,
   phase: 'aim', footballWinner: null, onlineSessionId: 3,
-  ONLINE_PROTOCOL_VERSION: 9, elim4: true, cap: 3, uid: UID, evicted: {},
+  ONLINE_PROTOCOL_VERSION: 9, roomProto: 9, roomProto: 9, elim4: true, cap: 3, uid: UID, evicted: {},
   spur: [], starts: [], aktiv: [true, true, true] }, x || {});
 const ruhe = () => new Promise(r => setTimeout(r, 0));
 const settle = async (n) => { for (let i = 0; i < (n || 10); i++) await ruhe(); };
@@ -388,7 +388,7 @@ abschnitt('Im Zweifel geschieht nichts');
 // ══ V8 BLEIBT AUSSEN VOR ═════════════════════════════════════════════════════
 abschnitt('Der freigegebene v8-Weg ruft die Bruecke nie');
 {
-  const welt = welt9({ ONLINE_PROTOCOL_VERSION: 8 });
+  const welt = welt9({ roomProto: 8 });
   const g = lauf(welt);
   t('in einem v8-Raum entsteht kein Lebenslauf', g.M.fbV9LebenNeueRunde() === null);
   t('und die Bruecke weist ab',
@@ -518,8 +518,8 @@ abschnitt('Waechter');
   const roh = HTML.slice(HTML.indexOf('// ── DIE SPIELBRUECKE'),
                          HTML.indexOf('// ── V9-REHYDRIERUNG'));
   const bruecke = roh.split(/\r?\n/).filter(z => !/^\s*\/\//.test(z)).join('\n');
-  t('das Protokoll des Produkts steht weiterhin auf 8',
-    /const ONLINE_PROTOCOL_VERSION=8;/.test(HTML));
+  t('der ausgelieferte Client steht auf 9',
+    /const ONLINE_PROTOCOL_VERSION=9;/.test(HTML));
   t('die Bruecke rechnet keinen Hash nach',
     bruecke.indexOf('fbV9Hash') < 0 && bruecke.indexOf('crypto') < 0 &&
     bruecke.indexOf('subtle') < 0);

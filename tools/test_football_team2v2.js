@@ -498,7 +498,7 @@ const SHOT = 6 * 60;
 
 // ══ W. ONLINE, PROTOKOLL UND RULES UNBERUEHRT ════════════════════════════════
 {
-  ok(/const ONLINE_PROTOCOL_VERSION=8;/.test(HTML), 'Protokollversion ist v8 (Modus/Sollbesetzung; Zugpfad unveraendert)');
+  ok(/const ONLINE_PROTOCOL_VERSION=9;/.test(HTML), 'Protokollversion des Clients ist v9 - v8-Raeume bleiben ueber den Zugslot bedienbar');
   ok(/const FOOTBALL_FMTS=\['elimination'\];/.test(HTML), 'FOOTBALL_FMTS unveraendert');
   const src = grab(/const FOOTBALL_VARIANT_TEAM2='team2v2';[\s\S]*?const FOOTBALL_TEAM2V2_NAMES=\[[^\]]*\];/, 'Team-2v2-Block');
   const code = src.split('\n').filter(z => !/^\s*\/\//.test(z)).join('\n');

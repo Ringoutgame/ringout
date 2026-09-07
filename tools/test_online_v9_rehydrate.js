@@ -56,7 +56,9 @@ const FF = (HTML.match(/function fastForwardMatch\([^)]*\)\{[\s\S]*?\n\}/) || ['
 if (!FF) { console.log('fastForwardMatch nicht gefunden'); process.exit(2); }
 
 const GLOBAL = ['online', 'mode', 'roomCode', 'myPlayer', 'gen', 'turnNo', 'phase',
-                'footballWinner', 'onlineSessionId', 'ONLINE_PROTOCOL_VERSION'];
+                'footballWinner', 'onlineSessionId', 'ONLINE_PROTOCOL_VERSION',
+                // Stufe 2A: die Fassung DES RAUMS entscheidet ueber die Ruhe.
+                'roomProto'];
 const baue = (a, welt) => new Function('window', 'crypto', 'GEN_MAX', 'FB_ONLINE_SEATS',
     'FB_ONLINE_BALL_IDX', 'serverNow', 'setTimeout', 'clearTimeout', 'sessionStorage', 'welt', `
   let ${GLOBAL.join(', ')};
@@ -135,7 +137,7 @@ const CODE = 'RN2K', GEN = 7;
 const welt9 = (x) => Object.assign({
   online: true, mode: 'football', roomCode: CODE, myPlayer: 1, gen: GEN, turnNo: -1,
   phase: 'aim', footballWinner: null, onlineSessionId: 3,
-  ONLINE_PROTOCOL_VERSION: 9, elim4: true, cap: 3, uid: UID, evicted: {},
+  ONLINE_PROTOCOL_VERSION: 9, roomProto: 9, elim4: true, cap: 3, uid: UID, evicted: {},
   spur: [], starts: 0, stumm: false, status: [],
   aktiv: [true, true, true], leben: [2, 2, 2] }, x || {});
 
@@ -436,7 +438,7 @@ abschnitt('Wo der Client nach dem Nachspielen steht');
   {
     // v8 bleibt aussen vor.
     const g = await historie([[M(1, 0, 0), M(2, 0, 0), { art: 'pass' }]]);
-    const r = await lauf(g, welt9({ ONLINE_PROTOCOL_VERSION: 8 }));
+    const r = await lauf(g, welt9({ roomProto: 8 }));
     t('in einem v8-Raum ist die Rehydrierung nicht zustaendig',
       !!r.erg.fehler, JSON.stringify(r.erg));
     t('und es wurde nicht einmal gelesen', r.a.log.lese.length === 0);
@@ -526,7 +528,7 @@ abschnitt('Der echte Einstieg - ein Weg fuer frisch und nach dem Neuladen');
   {
     // v8: der Einstieg nimmt gar nichts.
     const g = await historie([[M(1, 0, 0), M(1, 0, 0), { art: 'pass' }]]);
-    const r = await start(g, welt9({ ONLINE_PROTOCOL_VERSION: 8 }));
+    const r = await start(g, welt9({ roomProto: 8 }));
     t('in einem v8-Raum uebernimmt er nicht', r.genommen === false);
     t('und liest die Generation gar nicht erst', r.a.log.lese.length === 0);
   }
@@ -588,8 +590,8 @@ abschnitt('Waechter');
   const roh = HTML.slice(HTML.indexOf('// ── V9-REHYDRIERUNG'),
                          HTML.indexOf('// ── DIE BEIDEN HAKEN AUS DEM SPIEL'));
   const code = roh.split(/\r?\n/).filter(z => !/^\s*\/\//.test(z)).join('\n');
-  t('das Protokoll des Produkts steht weiterhin auf 8',
-    /const ONLINE_PROTOCOL_VERSION=8;/.test(HTML));
+  t('der ausgelieferte Client steht auf 9',
+    /const ONLINE_PROTOCOL_VERSION=9;/.test(HTML));
   t('die Rehydrierung liest genau einmal', (code.match(/window\.FB\.get\(/g) || []).length === 1);
   t('und schreibt nie',
     code.indexOf('runTransaction') < 0 && code.indexOf('fbV9NetWrite') < 0 &&
@@ -625,7 +627,7 @@ abschnitt('Waechter');
     code.indexOf('.x=') < 0 && code.indexOf('.vx=') < 0 && code.indexOf('balls') < 0);
   // ── DIE ECHTE VERDRAHTUNG ──────────────────────────────────────────
   t('die Raumweiche haengt an der Fassung des Raums, nicht an einem Schalter',
-    /function fbV9RaumIst9\(raum\)\{\s*return !!raum && raum\.v===9 && ONLINE_PROTOCOL_VERSION===9;/
+    /function fbV9RaumIst9\(raum\)\{\s*return !!raum && raum\.v===9 && ONLINE_PROTOCOL_VERSION>=9;/
       .test(HTML));
   t('der Rejoin liest fuer v9 KEINE t-Historie',
     /const v9=fbV9RaumIst9\(v\);/.test(HTML) &&

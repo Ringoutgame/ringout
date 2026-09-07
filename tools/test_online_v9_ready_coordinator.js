@@ -711,8 +711,8 @@ abschnitt('Waechter');
   const roh = HTML.slice(HTML.indexOf('// ════ V9-BEREITSCHAFTSSTEUERUNG'),
                          HTML.indexOf('// ════ ENDE V9-BEREITSCHAFTSSTEUERUNG ════'));
   const code = roh.split(/\r?\n/).filter(z => !/^\s*\/\//.test(z)).join('\n');
-  t('der freigegebene Client steht auf Protokoll 8',
-    /const ONLINE_PROTOCOL_VERSION=8;/.test(HTML));
+  t('der ausgelieferte Client steht auf Protokoll 9',
+    /const ONLINE_PROTOCOL_VERSION=9;/.test(HTML));
   t('die Bereitschaftssteuerung eroeffnet KEINE Runde',
     code.indexOf('fbV9NetOpenTurn') < 0);
   t('sie schreibt KEIN remove', code.indexOf('fbV9NetWriteRemove') < 0);

@@ -415,8 +415,8 @@ abschnitt('Die vier Fristschliesser');
 // ══ QUELLTEXT-WAECHTER ═══════════════════════════════════════════════════════
 abschnitt('Waechter: der Adapter ruht');
 {
-  t('der freigegebene Client steht auf Protokoll 8',
-    /const ONLINE_PROTOCOL_VERSION=8;/.test(HTML));
+  t('der ausgelieferte Client steht auf Protokoll 9',
+    /const ONLINE_PROTOCOL_VERSION=9;/.test(HTML));
   const start = HTML.indexOf('const FB_V9_PREIMAGE_BYTES=60');
   // Der ruhende v9-Bereich endet seit V9.3B2B hinter der Ablaufsteuerung.
   const ende = HTML.indexOf('// ════ ENDE V9-SPIELANBINDUNG ════');
@@ -454,14 +454,17 @@ abschnitt('Waechter: der Adapter ruht');
   t('und kennt keinen v9-Pfad',
     wts.indexOf("/c/'") < 0 && wts.indexOf("/ro/'") < 0 && wts.indexOf("/r/'") < 0);
   // Kein Produktweg legt einen v9-Raum an oder betritt einen.
-  t('die Raumanlage schreibt weiterhin die Protokollkonstante',
-    /v:ONLINE_PROTOCOL_VERSION/.test(HTML) || /v: *ONLINE_PROTOCOL_VERSION/.test(HTML));
+  // Stufe 2A: die Raumanlage fragt den Waehler - die Fassung gehoert dem Raum.
+  t('die Raumanlage waehlt die Fassung des Raums',
+    /roomProto=fbRaumFassung\(cfg\);/.test(HTML) && /const room=\{v:roomProto,/.test(HTML));
   t('und nirgends eine feste 9 als Raumversion',
     HTML.split(bereich).join('').indexOf('v:9') < 0 && HTML.indexOf('v: 9') < 0);
   for (const fn of ['validateRoom', 'validateRejoinRoom'])
-    t(fn + '() prueft weiterhin gegen ONLINE_PROTOCOL_VERSION',
+    // Stufe 2A: sie vergleichen nicht mehr gegen die Ausbaustufe, sondern fragen, ob
+    // eine Fassung BEDIENBAR ist - der Client betritt v8- wie v9-Raeume.
+    t(fn + '() prueft ueber fbRaumFassungOk',
       grab(new RegExp('function ' + fn + '\\(d\\)\\{[\\s\\S]*?' + NL + '\\}'), fn)
-        .indexOf('ONLINE_PROTOCOL_VERSION') > 0);
+        .indexOf('fbRaumFassungOk(d.v)') > 0);
   // Der Adapter beruehrt keinen Spielzustand.
   // Die SPIELANBINDUNG ist die einzige Schicht, die das Spiel ueberhaupt kennen
   // darf - sie liest die Rundennummer und schliesst dauerhaft abwesende Sitze.
