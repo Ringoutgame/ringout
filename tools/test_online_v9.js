@@ -975,5 +975,281 @@ abschnitt('Austragungsmarker e - derselbe Vertrag, jetzt auch fuer v9');
   deny('und gegen keinen von beiden gar nicht',
        raum({ offline: [2], d: offen('0') }), 'rooms/V9RM/g/0/c/0/2', O_REM2, UID[1]);
 }
+// ══ V9.5C: DIE AUFNAHME DES RAUMS SELBST ═════════════════════════════════════
+// Bis hierher haben alle Tests ihren v9-Raum VORGESETZT - so, wie der Emulator ihn
+// unter Umgehung der Regeln vorbefuellt. Genau das verdeckte den Befund aus der
+// Browser-QA: die Fassung 9 stand in keiner Liste, die einen Raum zulaesst. Die
+// v9-Zweige darunter waren vollstaendig und unerreichbar.
+//
+// Dieser Abschnitt legt den Raum deshalb ueber die Regeln AN und prueft danach, dass
+// genau die eingefrorene v9-Flaeche entsteht: Football, Lebensregel, drei bis fuenf
+// Sitze. Nichts darueber hinaus.
+abschnitt('V9.5C: ein v9-Raum entsteht - und zwar nur die eingefrorene Flaeche');
+{
+  const LEER = { rooms: {} };
+  const WIRT = UID[0];
+  // Genau die Form, die createRoom() schreibt: Reservierung auf Sitz 0 (on:false),
+  // Rosteranker daneben, Generation 0, Zustand lobby.
+  const neuerRaum = (over) => {
+    const r = { v: 9, hostUid: WIRT,
+                config: { game: 'football', winTarget: 3, fmt: 'elimination',
+                          visibility: 'private', mode: 'lives', cap: 3 },
+                gen: 0, state: 'lobby',
+                p: { 0: { s: 'V9NRTAB00', on: false, t: NOW } },
+                players: { 0: { id: 'V9NRPID00', name: 'P0', tab: 'V9NRTAB00', uid: WIRT } },
+                created: NOW };
+    if (over) { for (const k in over) {
+      if (k === 'config') r.config = Object.assign({}, r.config, over.config);
+      else r[k] = over[k]; } }
+    return r;
+  };
+  const anlegen = (name, over, erlaubt) =>
+    (erlaubt ? allow : deny)(name, LEER, 'rooms/V9NR', neuerRaum(over), WIRT);
+
+  // (1-3) Die drei kanonischen Besetzungen der Lebensregel.
+  for (const cap of [3, 4, 5])
+    anlegen('ein v9-Football-Lives-Raum mit ' + cap + ' Sitzen', { config: { cap: cap } }, true);
+
+  // (4-7) Die Fassung selbst.
+  anlegen('die Fassung 9 ist zugelassen', null, true);
+  anlegen('die Fassung 10 nicht', { v: 10 }, false);
+  anlegen('und eine erfundene Fassung erst recht nicht', { v: 42 }, false);
+  {
+    const db = { rooms: { V9NR: neuerRaum() } };
+    deny('eine bestehende Fassung laesst sich nicht auf 8 zuruecksetzen',
+         db, 'rooms/V9NR/v', 8, WIRT);
+    deny('und auch nicht auf 10 heben', db, 'rooms/V9NR/v', 10, WIRT);
+  }
+
+  // (8-14) Der Modus. v9 traegt GENAU EINEN - fuer die uebrigen gibt es kein Produkt.
+  anlegen('v9 traegt die Lebensregel', { config: { mode: 'lives' } }, true);
+  for (const m of ['classic', 'speed', 'team2v2', 'timedffa'])
+    anlegen('und NICHT ' + m + ' - dafuer gibt es kein v9-Produkt',
+            { config: { mode: m, cap: m === 'team2v2' ? 4 : (m === 'classic' || m === 'speed' ? 2 : 3) } }, false);
+  anlegen('ein unbekannter Modus wird abgewiesen', { config: { mode: 'irgendwas' } }, false);
+  {
+    const r = neuerRaum(); delete r.config.mode;
+    deny('ohne Modus entsteht kein v9-Football-Raum', LEER, 'rooms/V9NR', r, WIRT);
+  }
+
+  // (15-20) Die Sollbesetzung.
+  for (const cap of [3, 4, 5])
+    anlegen('Sollbesetzung ' + cap + ' ist kanonisch', { config: { cap: cap } }, true);
+  for (const cap of [2, 6, 0, -1])
+    anlegen('Sollbesetzung ' + cap + ' nicht', { config: { cap: cap } }, false);
+  anlegen('eine gebrochene Sollbesetzung nicht', { config: { cap: 3.5 } }, false);
+  anlegen('und eine als Text geschriebene auch nicht', { config: { cap: '4' } }, false);
+  {
+    const r = neuerRaum(); delete r.config.cap;
+    deny('ohne Sollbesetzung entsteht kein v9-Football-Raum', LEER, 'rooms/V9NR', r, WIRT);
+  }
+
+  // (21-24) Der Zusammenhang von Modus, Besetzung und Spiel.
+  anlegen('v9 ist ausschliesslich Football',
+          { config: { game: 'ringout', fmt: 'single' } }, false);
+  anlegen('und ausschliesslich die Eliminationsform',
+          { config: { fmt: 'ffa' } }, false);
+  {
+    const r = neuerRaum(); delete r.config.visibility;
+    deny('eine unvollstaendige Konfiguration wird abgewiesen', LEER, 'rooms/V9NR', r, WIRT);
+  }
+  {
+    const db = { rooms: { V9NR: neuerRaum() } };
+    deny('der Modus eines bestehenden Raums ist unveraenderlich',
+         db, 'rooms/V9NR/config/mode', 'timedffa', WIRT);
+    deny('und seine Sollbesetzung ebenfalls', db, 'rooms/V9NR/config/cap', 5, WIRT);
+  }
+
+  // (25-29) Was v8 immer konnte, kann v8 weiterhin.
+  {
+    const v8 = neuerRaum({ v: 8 });
+    allow('ein v8-Football-Lives-Raum entsteht unveraendert', LEER, 'rooms/V9NR', v8, WIRT);
+    const v8t = neuerRaum({ v: 8, config: { mode: 'timedffa' } });
+    allow('und v8 kennt weiterhin seine uebrigen Modi', LEER, 'rooms/V9NR', v8t, WIRT);
+    const v8c = neuerRaum({ v: 8, config: { mode: 'classic', cap: 2 } });
+    allow('einschliesslich der Zweierbesetzung von classic', LEER, 'rooms/V9NR', v8c, WIRT);
+  }
+  // Die oeffentliche Liste bleibt v9 verschlossen - sie kennt nur v4 bis v8.
+  {
+    const R = require('fs').readFileSync(
+      require('path').join(__dirname, '..', 'firebase.rules.json'), 'utf8');
+    const pub = JSON.parse(R).rules.publicRooms.$code['.write'];
+    t('die oeffentliche Raumliste nimmt keinen v9-Raum auf',
+      pub.indexOf("child('v').val() === 9") < 0);
+  }
+
+  // (30-37) ERREICHBARKEIT: aus einem regelkonform ENTSTANDENEN Raum heraus.
+  // Das ist der Kern des Befundes - die Zweige darunter waren nie das Problem.
+  {
+    const cap = 3;
+    const p = {}, players = {};
+    for (let i = 0; i < cap; i++) {
+      p[i] = { s: 'V9NRTAB0' + i, on: true, t: NOW };
+      players[i] = { id: 'V9NRPID0' + i, name: 'P' + i, tab: 'V9NRTAB0' + i, uid: UID[i] };
+    }
+    const gestartet = { rooms: { V9NR: Object.assign(neuerRaum(), {
+      state: 'playing', seats: cap, p: p, players: players, g: { 0: {} } }) } };
+    allow('aus diesem Raum heraus laesst sich der Generationsstart schreiben',
+          gestartet, 'rooms/V9NR/g/0/s', { ts: SV }, UID[0]);
+    const mitS = JSON.parse(JSON.stringify(gestartet));
+    mitS.rooms.V9NR.g[0].s = { ts: NOW - 60000 };
+    allow('die eigene Bereitschaft ebenfalls',
+          mitS, 'rooms/V9NR/g/0/q/0/1', { k: 'ready', n: 0, ts: SV }, UID[1]);
+    const bereit = JSON.parse(JSON.stringify(mitS));
+    bereit.rooms.V9NR.g[0].q = { 0: {} };
+    for (let i = 0; i < cap; i++) bereit.rooms.V9NR.g[0].q[0][i] = { k: 'ready', n: 0, ts: NOW - 1000 };
+    allow('und danach eroeffnet die Runde',
+          bereit, 'rooms/V9NR/g/0/d/0', { n: 0, o: SV }, UID[1]);
+    const offenR = JSON.parse(JSON.stringify(bereit));
+    offenR.rooms.V9NR.g[0].d = { 0: { n: 0, o: NOW - 100 } };
+    allow('das eigene Commit-Terminal steht offen',
+          offenR, 'rooms/V9NR/g/0/c/0/1', { k: 'move', h: HEX64, ts: SV }, UID[1]);
+    // Die Austragung setzt eine wirklich abgelaufene Praesenz voraus. Der Sitz wird
+    // deshalb erst offline gesetzt - sonst waere die Abweisung richtig und der Test
+    // pruefte etwas anderes, als er behauptet.
+    const weg = JSON.parse(JSON.stringify(offenR));
+    weg.rooms.V9NR.p[2] = { s: 'V9NRTAB02', on: false, t: NOW - GRACE - 1 };
+    allow('und die Austragung ueber e bleibt erreichbar',
+          weg, 'rooms/V9NR/g/0/e/2', true, UID[1]);
+  }
+
+  // (38-40) Sicherheit: die Aufnahme oeffnet nichts anderes.
+  {
+    const db = { rooms: { V9NR: neuerRaum() } };
+    deny('ein Fremder kann den Raum nicht ueberschreiben',
+         db, 'rooms/V9NR', neuerRaum(), UID_ATTACK);
+    deny('und keinen zweiten Raum an dieselbe Stelle legen',
+         db, 'rooms/V9NR', neuerRaum({ config: { cap: 5 } }), WIRT);
+    const fremd = neuerRaum({ hostUid: UID_ATTACK });
+    deny('der Wirtsnachweis muss die eigene Kennung sein', LEER, 'rooms/V9NR', fremd, WIRT);
+    // Und die Fassung bleibt das Tor: derselbe Schreibvorgang, derselbe Sitz, nur ein
+    // v8-Raum darunter - abgewiesen. Ein unzulaessiger v9-Raum entsteht gar nicht erst,
+    // und was nicht entsteht, traegt auch keine Protokollknoten.
+    const alsV8 = { rooms: { V9NR: Object.assign(neuerRaum({ v: 8 }), {
+      state: 'playing', seats: 3, g: { 0: {} } }) } };
+    deny('ein v8-Raum erreicht den Generationsstart nicht',
+         alsV8, 'rooms/V9NR/g/0/s', { ts: SV }, WIRT);
+  }
+}
+
+// ══ V9.5C: DIE HOHEIT UEBER DEN RAUM GEHOERT DEM WIRT ════════════════════════
+// hostUid und Sitz 0 sind ZWEI DINGE. Ein Wirt darf auf jedem Sitz sitzen - v8 laesst
+// ihn schon heute auf Sitz 2 anfangen (Team 2v2, rote Seite), und ein Sitzwechsel im
+// Wartezimmer aendert daran nichts.
+//
+// Die Hoheitsregel von state und seats hiess frueher "v8 fragt den Wirt, alles andere
+// den Sitz 0" - fuer v4 bis v7 richtig, denn dort GAB es kein hostUid. Mit der Aufnahme
+// von v9 fiel dieser Raum in den alten Zweig: der eingetragene Wirt kam nicht an seinen
+// eigenen Raum, und ein beliebiger Sitz-0-Inhaber konnte ihn starten. Genau das prueft
+// dieser Abschnitt - in beide Richtungen.
+abschnitt('V9.5C: die Hoheit ueber den Raum haengt am Wirt, nicht am Sitz 0');
+{
+  const WIRT = 'UID_V9_WIRT_XXXXXXXXXXXXXX';
+  const A = UID[0], B = UID[1];       // A sitzt auf 0, B auf 1, der Wirt auf 2
+  // Genau der Fall aus dem Auftrag: hostUid ist WIRT, players/0 gehoert A,
+  // players/2 gehoert WIRT.
+  const wirtsRaum = (v, over) => {
+    const r = { v: v, hostUid: WIRT,
+      config: { game: 'football', winTarget: 3, fmt: 'elimination',
+                visibility: 'private', mode: 'lives', cap: 3 },
+      gen: 0, state: 'lobby',
+      p: { 0: { s: 'WIRTTAB00', on: true, t: NOW },
+           1: { s: 'WIRTTAB01', on: true, t: NOW },
+           2: { s: 'WIRTTAB02', on: true, t: NOW } },
+      players: { 0: { id: 'WIRTPID00', name: 'A', tab: 'WIRTTAB00', uid: A },
+                 1: { id: 'WIRTPID01', name: 'B', tab: 'WIRTTAB01', uid: B },
+                 2: { id: 'WIRTPID02', name: 'W', tab: 'WIRTTAB02', uid: WIRT } },
+      created: NOW - 60000 };
+    if (over) for (const k in over) r[k] = over[k];
+    return { rooms: { WRTM: r } };
+  };
+
+  // (1) Der Wirt sitzt NICHT auf Sitz 0 - und startet trotzdem seinen Raum.
+  const lobby9 = wirtsRaum(9);
+  allow('der Wirt auf Sitz 2 startet seinen v9-Raum',
+        lobby9, 'rooms/WRTM/state', 'playing', WIRT);
+  // (2) Und niemand sonst.
+  deny('der Inhaber von Sitz 0 kann es nicht - Sitz 0 ist kein Wirt',
+       lobby9, 'rooms/WRTM/state', 'playing', A);
+  deny('ein unbeteiligter Mitspieler erst recht nicht',
+       lobby9, 'rooms/WRTM/state', 'playing', B);
+  deny('und ein Fremder ohne Sitz auch nicht',
+       lobby9, 'rooms/WRTM/state', 'playing', UID_ATTACK);
+
+  const spielt9 = wirtsRaum(9, { state: 'playing' });
+  allow('das kanonische Startsignal seats setzt ebenfalls der Wirt',
+        spielt9, 'rooms/WRTM/seats', 3, WIRT);
+  deny('nicht der Inhaber von Sitz 0', spielt9, 'rooms/WRTM/seats', 3, A);
+  deny('und nicht ein anderer Sitz', spielt9, 'rooms/WRTM/seats', 3, B);
+
+  // (3) Von dort aus laeuft das Protokoll - ohne dass Sitz 0 je Wirt spielen muesste.
+  {
+    const gestartet = wirtsRaum(9, { state: 'playing', seats: 3, g: { 0: {} } });
+    allow('aus diesem Raum heraus steht der Generationsstart offen',
+          gestartet, 'rooms/WRTM/g/0/s', { ts: SV }, WIRT);
+    const mitS = JSON.parse(JSON.stringify(gestartet));
+    mitS.rooms.WRTM.g[0].s = { ts: NOW - 60000 };
+    for (const [i, wer] of [[0, A], [1, B], [2, WIRT]])
+      allow('Sitz ' + i + ' meldet seine Bereitschaft selbst',
+            mitS, 'rooms/WRTM/g/0/q/0/' + i, { k: 'ready', n: 0, ts: SV }, wer);
+    const bereit = JSON.parse(JSON.stringify(mitS));
+    bereit.rooms.WRTM.g[0].q = { 0: {} };
+    for (let i = 0; i < 3; i++) bereit.rooms.WRTM.g[0].q[0][i] = { k: 'ready', n: 0, ts: NOW - 1000 };
+    allow('und die Entscheidungsrunde eroeffnet - von einem beliebigen Sitz',
+          bereit, 'rooms/WRTM/g/0/d/0', { n: 0, o: SV }, A);
+    deny('der v8-Zugslot bleibt diesem Raum verschlossen',
+         bereit, 'rooms/WRTM/g/0/t/0/1', { k: 'move', idx: 1, dx: 1, dy: 2, sp: 0 }, B);
+  }
+
+  // (4) v8 verhaelt sich genau gleich - das war schon vorher richtig und bleibt es.
+  {
+    const lobby8 = wirtsRaum(8);
+    allow('v8: der Wirt auf Sitz 2 startet seinen Raum',
+          lobby8, 'rooms/WRTM/state', 'playing', WIRT);
+    deny('v8: der Inhaber von Sitz 0 nicht', lobby8, 'rooms/WRTM/state', 'playing', A);
+    const spielt8 = wirtsRaum(8, { state: 'playing' });
+    allow('v8: und seats setzt ebenfalls der Wirt', spielt8, 'rooms/WRTM/seats', 3, WIRT);
+    deny('v8: nicht Sitz 0', spielt8, 'rooms/WRTM/seats', 3, A);
+  }
+
+  // (5) v4 bis v7 kannten kein hostUid. Dort bleibt Sitz 0 die Hoheit - sonst waere ein
+  //     alter, noch laufender Raum ploetzlich unstartbar.
+  {
+    const alt = (v) => ({ rooms: { WRTM: {
+      v: v, config: { game: 'ringout', winTarget: 3, fmt: 'ffa', visibility: 'private' },
+      gen: 0, state: 'lobby',
+      p: { 0: { s: 'WIRTTAB00', on: true, t: NOW }, 1: { s: 'WIRTTAB01', on: true, t: NOW } },
+      players: { 0: { id: 'WIRTPID00', name: 'A', tab: 'WIRTTAB00', uid: A },
+                 1: { id: 'WIRTPID01', name: 'B', tab: 'WIRTTAB01', uid: B } },
+      created: NOW - 60000 } } });
+    for (const v of [4, 5, 6, 7]) {
+      allow('v' + v + ': Sitz 0 bleibt die Hoheit', alt(v), 'rooms/WRTM/state', 'playing', A);
+      deny('v' + v + ': ein anderer Sitz nicht', alt(v), 'rooms/WRTM/state', 'playing', B);
+    }
+  }
+
+  // (6) Ein v9-Raum ohne Wirt entstuende sonst - und niemand koennte ihn je starten.
+  {
+    const ohne = { v: 9,
+      config: { game: 'football', winTarget: 3, fmt: 'elimination',
+                visibility: 'private', mode: 'lives', cap: 3 },
+      gen: 0, state: 'lobby',
+      p: { 0: { s: 'WIRTTAB00', on: false, t: NOW } },
+      players: { 0: { id: 'WIRTPID00', name: 'A', tab: 'WIRTTAB00', uid: A } },
+      created: NOW };
+    deny('ein v9-Raum ohne Wirt entsteht gar nicht erst',
+         { rooms: {} }, 'rooms/WRTM', ohne, A);
+  }
+
+  // (7) Das Rematch haengt an keiner Wirtsrolle - es genuegt ein verbundener Sitz.
+  //     Das ist die BESTEHENDE Bedeutung, versionsunabhaengig, und bleibt unangetastet.
+  {
+    const fertig = wirtsRaum(9, { state: 'playing', seats: 3 });
+    allow('ein Rematch darf der Wirt beginnen', fertig, 'rooms/WRTM/gen', 1, WIRT);
+    allow('und ebenso jeder andere verbundene Sitz', fertig, 'rooms/WRTM/gen', 1, B);
+    deny('ein Fremder ohne Sitz nicht', fertig, 'rooms/WRTM/gen', 1, UID_ATTACK);
+  }
+}
+
 console.log('\nOnline-V9: ' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

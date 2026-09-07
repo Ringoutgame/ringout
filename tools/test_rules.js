@@ -1441,7 +1441,12 @@ deny('team move pl 4 (seat gate, presence pre-seeded)', playing({ p: { 0: P(H_TA
   allow('create v4 (noch aelterer Client)', { rooms: {} }, 'rooms/KX7P', mkRoom('single', { v: 4 }));
   deny('create v3 (zu alt)', { rooms: {} }, 'rooms/KX7P', mkRoom('single', { v: 3 }));
   allow('create v8 (aktueller Client)', { rooms: {} }, 'rooms/KX7P', mkRoom('single', { v: 8 }));
-  deny('create v9 (gibt es noch nicht)', { rooms: {} }, 'rooms/KX7P', mkRoom('single', { v: 9 }));
+  // v9 gibt es seit V9.5C - aber ausschliesslich als Football. Ein RingOut-Raum mit
+  // dieser Fassung waere eine Flaeche ohne Produkt dahinter.
+  deny('create v9 als RingOut (v9 ist ausschliesslich Football)',
+       { rooms: {} }, 'rooms/KX7P', mkRoom('single', { v: 9 }));
+  deny('create v10 (jenseits jeder bekannten Fassung)',
+       { rooms: {} }, 'rooms/KX7P', mkRoom('single', { v: 10 }));
 
   // (b) UNVERAENDERLICHKEIT — die Version laesst sich weder heben noch senken.
   deny('v5 -> v6 umschreiben', db1({ v: 5 }), 'rooms/KX7P/v', 6, UID_HOST);

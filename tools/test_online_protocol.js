@@ -75,13 +75,16 @@ const RULES = require('fs').readFileSync(
 // WAEHREND DER UMSTELLUNG akzeptiert der Server beide Versionen — sonst waere jeder noch
 // offene v4-Raum sofort tot, obwohl die alten Clients dort legitim weiterspielen. Die
 // TRENNUNG leistet der Client, nicht der Server (die drei Raumpruefungen unten).
-t('die Rules lassen waehrend der Umstellung v4 bis v8 zu',
-  /\(newData\.val\(\) === 4 \|\| newData\.val\(\) === 5 \|\| newData\.val\(\) === 6 \|\| newData\.val\(\) === 7 \|\| newData\.val\(\) === 8\)/.test(RULES));
+// Seit V9.5C kommt die 9 dazu: die v9-Zweige unter g/<gen> hingen an einer Raumfassung,
+// die kein Raum je tragen konnte. Der freigegebene Client bleibt auf 8 und legt weiterhin
+// keinen v9-Raum an - die Aufnahme ist reine Serverseite.
+t('die Rules lassen waehrend der Umstellung v4 bis v9 zu',
+  /\(newData\.val\(\) === 4 \|\| newData\.val\(\) === 5 \|\| newData\.val\(\) === 6 \|\| newData\.val\(\) === 7 \|\| newData\.val\(\) === 8 \|\| newData\.val\(\) === 9\)/.test(RULES));
 const V_REGEL = (RULES.match(/"v": \{[^}]*\}/) || [''])[0];
 t('und keine andere Protokollversion — geprueft am v-Validator selbst',
   /=== 4/.test(V_REGEL) && /=== 5/.test(V_REGEL) && /=== 6/.test(V_REGEL) &&
-  /=== 7/.test(V_REGEL) && /=== 8/.test(V_REGEL) &&
-  !/=== 3|=== 9|=== 2|=== 1/.test(V_REGEL), V_REGEL);
+  /=== 7/.test(V_REGEL) && /=== 8/.test(V_REGEL) && /=== 9/.test(V_REGEL) &&
+  !/=== 3|=== 2|=== 1/.test(V_REGEL), V_REGEL);
 // Die Protokollnummer eines bestehenden Raums ist unveraenderlich — ein v4-Raum kann
 // nicht zu einem v5-Raum umgeschrieben werden und umgekehrt.
 // Der Zugslot ist die Schreibstelle, die den Lockstep-Strom traegt. Er war bisher als
