@@ -356,7 +356,7 @@ abschnitt('Waechter');
   t('nichts wird protokolliert',
     code.indexOf('console.') < 0 && code.indexOf('alert(') < 0);
   t('ausserhalb des ruhenden Bereichs nennt keine Zeile eine v9-Funktion',
-    HTML.split(HTML.slice(START, HTML.indexOf('// ════ ENDE V9-ABLAUFSTEUERUNG ════')))
+    HTML.split(HTML.slice(START, HTML.indexOf('// ════ ENDE V9-BEREITSCHAFTSSTEUERUNG ════')))
       .join('').indexOf('fbV9') < 0);
   // Der v8-Weg benutzt localStorage weiterhin - fuer Name, Kennung, gemerkten Raum.
   // Das ist unberuehrt und soll so bleiben.

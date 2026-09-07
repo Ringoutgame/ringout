@@ -113,7 +113,7 @@ function uhrwerk(start) {
 }
 // ── Den echten Quelltext in eine Sandbox holen ───────────────────────────────
 const START = HTML.indexOf('const FB_V9_PREIMAGE_BYTES=60');
-const ENDE = HTML.indexOf('// ════ ENDE V9-ABLAUFSTEUERUNG ════');
+const ENDE = HTML.indexOf('// ════ ENDE V9-BEREITSCHAFTSSTEUERUNG ════');
 if (START < 0 || ENDE < START) throw new Error('der ruhende v9-Bereich fehlt');
 const BEREICH = HTML.slice(START, ENDE);
 // Seit B2C3C sichert die Steuerung das Geheimnis, BEVOR sie den Commit sendet. Ohne

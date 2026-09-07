@@ -81,7 +81,7 @@ function attrappe(vorbelegt, uhr) {
 }
 
 const START = HTML.indexOf('const FB_V9_PREIMAGE_BYTES=60');
-const ENDE = HTML.indexOf('// ════ ENDE V9-ABLAUFSTEUERUNG ════');
+const ENDE = HTML.indexOf('// ════ ENDE V9-BEREITSCHAFTSSTEUERUNG ════');
 const BEREICH = HTML.slice(START, ENDE);
 const STILL = uhrwerk(1000);
 const baue = (a, st, uhr) => new Function('window', 'crypto', 'GEN_MAX', 'FB_ONLINE_SEATS',

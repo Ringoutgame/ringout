@@ -419,7 +419,7 @@ abschnitt('Waechter: der Adapter ruht');
     /const ONLINE_PROTOCOL_VERSION=8;/.test(HTML));
   const start = HTML.indexOf('const FB_V9_PREIMAGE_BYTES=60');
   // Der ruhende v9-Bereich endet seit V9.3B2B hinter der Ablaufsteuerung.
-  const ende = HTML.indexOf('// ════ ENDE V9-ABLAUFSTEUERUNG ════');
+  const ende = HTML.indexOf('// ════ ENDE V9-BEREITSCHAFTSSTEUERUNG ════');
   t('der ruhende v9-Bereich ist abgegrenzt', start > 0 && ende > start);
   const bereich = HTML.slice(start, ende);
   t('er enthaelt den Netzadapter', bereich.indexOf('function fbV9NetOpenTurn') > 0);

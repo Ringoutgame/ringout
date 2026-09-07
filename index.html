@@ -9157,10 +9157,20 @@ function fbV9NetWatch(ctx,wege,rueckruf){
   const stand={};
   for(const w of wege)stand[w[1]]=null;
   let aus=[],offen=true;
+  // Jeder Weg meldet sich unabhaengig. Solange nicht JEDER wenigstens einmal gemeldet
+  // hat, ist ein `null` im Stand keine Auskunft, sondern Unwissen - und wer daraus
+  // schliesst, ein Knoten sei leer, handelt auf Verdacht. Genau das darf hier nicht
+  // passieren: aus einem noch nicht gemeldeten q wuerde sonst eine Meldung fuer einen
+  // Sitz, der laengst gemeldet hat. Der Rueckruf kommt deshalb erst, wenn der Stand
+  // VOLLSTAENDIG ist - danach bei jeder Aenderung.
+  const gemeldet={};
+  let offeneWege=wege.length;
   for(const w of wege){
     aus.push(window.FB.onValue(fbV9Ref(ctx,w[0]),snap=>{
       if(!offen)return;
+      if(!gemeldet[w[1]]){ gemeldet[w[1]]=true; offeneWege--; }
       stand[w[1]]=snap?snap.val():null;
+      if(offeneWege>0)return;
       rueckruf(Object.assign({},stand));
     }));
   }
@@ -9464,6 +9474,8 @@ function fbV9Scheitern(lauf,grund){
 }
 function fbV9Aufloesen(lauf){
   fbV9WakeStopAll(lauf);   // jedes Ende raeumt jeden Wecker
+  fbV9WakeStop(lauf,'z');
+  if(lauf.zAb){ try{ lauf.zAb(); }catch(e){} lauf.zAb=null; }
   if(lauf.abmelden){ try{ lauf.abmelden(); }catch(e){} lauf.abmelden=null; }
   if(lauf.fertigNun){ const f=lauf.fertigNun; lauf.fertigNun=null; f(lauf); }
 }
@@ -9525,7 +9537,10 @@ function fbV9Marke(cap,c,r){
   }
   return m;
 }
-function fbV9WakePlan(lauf,art,frist,marke,tun){
+// `fenster` ist die Frist, die dieser Wecker bewacht - 6000 ms bei Commit und
+// Enthuellung, 30000 ms bei der Bereitschaft. Sie wird NUR fuer den Rueckfall ohne
+// brauchbare Serverzeit gebraucht; die Befugnis kommt nie von hier.
+function fbV9WakePlan(lauf,art,frist,marke,tun,fenster){
   if(fbV9Aus(lauf)||!Number.isFinite(frist))return;
   if(!lauf.wecker[art])lauf.wecker[art]={timer:null,frist:null,marke:null,versuche:0,laeuft:false};
   const w=lauf.wecker[art];
@@ -9535,11 +9550,11 @@ function fbV9WakePlan(lauf,art,frist,marke,tun){
   if(w.frist===frist&&w.marke===marke&&(w.timer!==null||w.laeuft||w.versuche>0))return;
   if(w.frist!==frist||w.marke!==marke)fbV9WakeStop(lauf,art);
   w.frist=frist; w.marke=marke; w.versuche=0;
-  fbV9WakeArm(lauf,art,fbV9WakeDelay(frist),tun);
+  fbV9WakeArm(lauf,art,fbV9WakeDelay(frist,fenster),tun);
 }
 // Ohne brauchbare Serverzeit wird NICHT aus Date.now eine Befugnis gebastelt - dann
 // gilt ein kurzer, begrenzter Vorstoss, und die Rules entscheiden wie immer.
-function fbV9WakeDelay(frist){
+function fbV9WakeDelay(frist,fenster){
   const jetzt=(typeof serverNow==='function')?serverNow():NaN;
   if(Number.isFinite(jetzt))return Math.max(0,frist-jetzt+FB_V9_WAKE_MARGIN_MS);
   // Ohne brauchbare Serverzeit wird VOM BEOBACHTUNGSZEITPUNKT AN die volle Frist
@@ -9548,7 +9563,7 @@ function fbV9WakeDelay(frist){
   // Frist liegen. Ein kurzer Rueckfall waere ein Lebendigkeitsfehler gewesen - die
   // drei Versuche waeren verbraucht, bevor der Server die Frist ueberhaupt erreicht,
   // und ohne neuen Schnappschuss haette danach nichts mehr angeklopft.
-  return FB_V9_DEADLINE_MS+FB_V9_WAKE_MARGIN_MS;
+  return (Number.isFinite(fenster)?fenster:FB_V9_DEADLINE_MS)+FB_V9_WAKE_MARGIN_MS;
 }
 function fbV9WakeArm(lauf,art,ms,tun){
   const w=lauf.wecker[art];
@@ -9752,6 +9767,17 @@ async function fbV9Schritt(lauf){
     if(fbV9Aus(lauf))return;
     if(!menge)return fbV9Scheitern(lauf,'Zugmenge unvollstaendig');
     lauf.menge=menge;
+    // (7a) Der Abschlussanker. Die Zugmenge steht - genau das haelt z fest, und nur
+    // das: die vollstaendige, geprueufte EINGABEmenge dieser Runde. Ueber Physik sagt
+    // er nichts. Er ist der Fristanker der naechsten Bereitschaftsrunde, deshalb muss
+    // er AUTORITATIV dastehen, bevor dieser Lauf sich fertig nennt; ein eigener
+    // COMMITTED beweist ihn so wenig wie irgendwo sonst in diesem Protokoll.
+    // Die Zugmenge bleibt dabei erhalten - sie wird NICHT neu berechnet.
+    if(!fbV9AnkerOk(lauf.zStand)){
+      fbV9ZAnkerStarten(lauf);
+      lauf.finaleLaeuft=false;   // der naechste Schnappschuss darf es erneut versuchen
+      return;
+    }
     lauf.stufe=FB_V9_COMPLETE;
     // Erst JETZT ist das Geheimnis dieser Runde gegenstandslos - und geraeumt wird
     // genau diese Runde, nicht blind alles.
@@ -9764,6 +9790,46 @@ async function fbV9Schritt(lauf){
   }
 }
 
+// ── DER ABSCHLUSSANKER z ─────────────────────────────────────────────────────
+// Ein eigener, kleiner Zuhoerer auf genau einem Knoten: fbV9NetListen beobachtet die
+// vier Knoten des Zugprotokolls und wird von drei abgeschlossenen Pruefstaenden
+// woertlich herausgeschnitten - ihn zu erweitern hiesse, sie alle anzufassen. Der
+// verallgemeinerte Baustein aus B2A leistet hier genau dasselbe.
+function fbV9ZAnkerStarten(lauf){
+  if(fbV9Aus(lauf)||lauf.zBegonnen)return;
+  lauf.zBegonnen=true;
+  lauf.zAb=fbV9NetWatch(lauf.ctx,[['z/'+lauf.ctx.turn,'z']],st=>{
+    if(fbV9Aus(lauf))return;
+    lauf.zStand=st.z;
+    fbV9Schritt(lauf);
+  });
+  if(!lauf.zAb)return fbV9Scheitern(lauf,'kein Zuhoerer fuer den Abschluss');
+  // Erster Versuch SOFORT - ein Wecker auf null waere nur ein Umweg ueber die
+  // Ereignisschleife. Erst wenn er scheitert, greift die begrenzte Wiederholung:
+  // hoechstens zwei weitere, dieselbe Ordnung wie bei jedem anderen Weckruf.
+  fbV9ZAnkerVersuch(lauf);
+}
+async function fbV9ZAnkerVersuch(lauf){
+  const nochmal=await fbV9ZAnkerSchreiben(lauf);
+  if(!nochmal||fbV9Aus(lauf))return;
+  if(!lauf.wecker['z'])lauf.wecker['z']={timer:null,frist:null,marke:null,versuche:0,laeuft:false};
+  const w=lauf.wecker['z'];
+  if(w.versuche>=FB_V9_RETRY_MS.length)return;
+  const ms=FB_V9_RETRY_MS[w.versuche]; w.versuche++;
+  fbV9WakeArm(lauf,'z',ms,()=>fbV9ZAnkerSchreiben(lauf));
+}
+// Rueckgabe: true, wenn ein begrenzter zweiter Anlauf lohnt. ABGEWIESEN und FEHLER
+// gelten ausdruecklich NICHT als Abschluss - der Anker zaehlt erst, wenn ihn der
+// Zuhoerer bringt.
+async function fbV9ZAnkerSchreiben(lauf){
+  if(fbV9Aus(lauf)||lauf.zLaeuft)return false;
+  lauf.zLaeuft=true;
+  const r=await fbV9NetMarkComplete(lauf.ctx);
+  lauf.zLaeuft=false;
+  if(fbV9Aus(lauf))return false;
+  return r.status===FB_V9_DENIED||r.status===FB_V9_ERROR;
+}
+
 // Ein Durchlauf fuer EINEN Raum, EINE Generation, EINEN Turn. `aktion` ist entweder
 // {move:{idx,dx,dy,sp}} oder {pass:true}. Zurueck kommt der Lauf mit `fertig` als
 // Zusage auf sein Ende - erfuellt bei COMPLETE, FAILED oder STOPPED.
@@ -9773,7 +9839,8 @@ function fbV9Start(ctx,aktion){
               abmelden:null,fertigNun:null,beschaeftigt:false,nochmal:false,
               wecker:{},verloren:false,fortsetzen:false,
               commitLaeuft:false,commitFertig:false,roVersucht:false,
-              revealLaeuft:false,revealFertig:false,finaleLaeuft:false};
+              revealLaeuft:false,revealFertig:false,finaleLaeuft:false,
+              zStand:null,zAb:null,zLaeuft:false,zBegonnen:false};
   lauf.fertig=new Promise(aufl=>{ lauf.fertigNun=aufl; });
   // Anhalten ist mehrfach gefahrlos und schneidet jede kuenftige Wirkung ab.
   lauf.stop=function(){
@@ -9841,6 +9908,238 @@ function fbV9Start(ctx,aktion){
 // NICHTS: es wird nicht enthuellt und der alte Zug wird nicht erneut gesendet.
 function fbV9Resume(ctx){ return fbV9Start(ctx,{resume:true}); }
 // ════ ENDE V9-ABLAUFSTEUERUNG ════
+// ════ V9-BEREITSCHAFTSSTEUERUNG (RUHEND) ════
+// Die Barriere VOR dem Entscheidungsfenster. Sie beantwortet genau eine Frage: darf
+// die naechste Runde ueberhaupt beginnen, oder rechnet noch jemand die Physik der
+// vorigen? Bis V9.3 durfte sie beginnen, sobald der Vorgaenger protokollarisch fertig
+// war - die Frist eines ehrlichen Clients lief dann bereits, bevor er eingabebereit
+// war.
+//
+// WAS DIESE STUFE AUSDRUECKLICH NICHT TUT: sie eroeffnet keine Runde (das tut die
+// bestehende Ablaufsteuerung mit fbV9NetOpenTurn), sie schreibt kein remove, sie
+// ruehrt kein Spiel an und sie entscheidet nicht, WANN ein Client bereit ist. Das
+// sagt ihr der Aufrufer - und erst V9.4C verbindet diesen Aufruf mit dem echten
+// Settlement in stepSim.
+//
+// OFFEN UND AUSDRUECKLICH BENANNT: hat ein Sitz erst einmal x, wartet die Barriere
+// nicht mehr auf ihn - sein Commit-Slot muss aber in jeder kuenftigen Runde noch
+// geschlossen werden, sonst laeuft dort jedes Mal die Sechs-Sekunden-Frist ins Leere.
+// Die B1-Rules erlauben dafuer bereits remove gegen einen x-Sitz. Diese Stufe setzt
+// es NICHT um; es ist eine Pflichtaufgabe vor der V9-Aktivierung.
+const FB_V9_READY_DEADLINE_MS=30000;   // dieselbe Frist, die die Rules erzwingen
+const FB_V9_R_IDLE='IDLE', FB_V9_R_ANCHOR='WAIT_ANCHOR', FB_V9_R_SELF='WAIT_SELF',
+      FB_V9_R_BARRIER='WAIT_BARRIER', FB_V9_R_COMPLETE='COMPLETE',
+      FB_V9_R_FAILED='FAILED', FB_V9_R_STOPPED='STOPPED';
+const FB_V9_R_STUFEN=[FB_V9_R_IDLE,FB_V9_R_ANCHOR,FB_V9_R_SELF,FB_V9_R_BARRIER,
+                      FB_V9_R_COMPLETE];
+function fbV9RAus(lauf){ return lauf.stufe===FB_V9_R_STOPPED||lauf.stufe===FB_V9_R_FAILED
+                             ||lauf.stufe===FB_V9_R_COMPLETE; }
+function fbV9RStufe(lauf,neu){
+  if(fbV9RAus(lauf))return;
+  const a=FB_V9_R_STUFEN.indexOf(lauf.stufe), b=FB_V9_R_STUFEN.indexOf(neu);
+  if(b>a)lauf.stufe=neu;
+}
+function fbV9RAufloesen(lauf){
+  fbV9WakeStop(lauf,'bereit');
+  fbV9WakeStop(lauf,'raus');
+  if(lauf.abmelden){ try{ lauf.abmelden(); }catch(e){} lauf.abmelden=null; }
+  if(lauf.fertigNun){ const f=lauf.fertigNun; lauf.fertigNun=null; f(lauf); }
+}
+function fbV9RScheitern(lauf,grund){
+  if(fbV9RAus(lauf))return;
+  lauf.stufe=FB_V9_R_FAILED; lauf.grund=grund;
+  fbV9RAufloesen(lauf);
+}
+// Was an einem Schnappschuss WESENTLICH ist: die Einstufung jedes Sitzes der
+// Sollbesetzung. Gleiche Marke heisst gleicher Zustand - egal wie oft er eintrifft.
+function fbV9ReadyMarke(cap,turn,q,e,x){
+  let m='';
+  for(let i=0;i<cap;i++)m+=fbV9ReadySeatState(turn,q&&q[i],e&&e[i],x&&x[i]).charAt(0)
+                          +(fbV9ReadySeatState(turn,q&&q[i],e&&e[i],x&&x[i])==='TIMEOUT_PENDING_X'?'p':'');
+  return m;
+}
+
+// Ein Schritt je Zustandsaenderung - wieder eintretbar wie die Ablaufsteuerung: ein
+// Schnappschuss, der WAEHREND eines Schreibvorgangs eintrifft, geht nicht verloren,
+// sondern wird am Ende einmal nachgeholt.
+async function fbV9ReadySchritt(lauf){
+  if(fbV9RAus(lauf))return;
+  if(lauf.beschaeftigt){ lauf.nochmal=true; return; }
+  lauf.beschaeftigt=true;
+  try{
+    const st=lauf.stand, c=lauf.ctx;
+    // (0) Der eigene Sitz ist ausgetragen. Dann ist dieser Client kein Teilnehmer
+    //     mehr; er raeumt NICHTS weg, sondern hoert auf. Die Barriere koennen andere
+    //     zu Ende bringen.
+    if(st.weg&&st.weg[c.seat]===true)return fbV9RScheitern(lauf,'eigener Sitz ausgetragen');
+    // (1) Der Fristanker muss AUTORITATIV dastehen. Ein eigener COMMITTED beweist ihn
+    //     nicht - er kann von einem anderen ueberholt worden sein.
+    const anker=fbV9ReadyAnchor(c.turn,st.start,st.vorher);
+    if(anker===null){ fbV9RStufe(lauf,FB_V9_R_ANCHOR); return; }
+    lauf.anker=anker;
+    // (2) Die eigene Meldung. Sie geht erst hinaus, wenn BEIDES vorliegt: der Anker
+    //     und das ausdrueckliche lokale Bereitschaftszeichen. Vorher waere sie eine
+    //     Behauptung ueber einen Zustand, den dieser Client gar nicht kennt.
+    const eigen=st.bereit&&st.bereit[c.seat];
+    if(eigen===null||eigen===undefined){
+      fbV9RStufe(lauf,FB_V9_R_SELF);
+      if(lauf.bereitLokal&&!lauf.eigenLaeuft&&!lauf.eigenVersucht){
+        lauf.eigenLaeuft=true; lauf.eigenVersucht=true;
+        const r=await fbV9NetWriteReady(c);
+        lauf.eigenLaeuft=false;
+        if(fbV9RAus(lauf))return;
+        // COMMITTED beweist nichts: massgeblich ist der naechste autoritative
+        // Schnappschuss. Bei ABGEWIESEN oder FEHLER darf es EINMAL wieder versucht
+        // werden, sobald sich der Zustand wesentlich aendert.
+        if(r.status===FB_V9_DENIED||r.status===FB_V9_ERROR)lauf.eigenVersucht=false;
+      }
+    }
+    // Steht im eigenen Slot schon ein Fristschluss, wird NICHT weiter gemeldet: ein
+    // Terminal wird nie ueberschrieben. Der Sitz wartet auf seine Disqualifikation.
+    // (3) Die Barriere - ausgewertet allein auf autoritativen Daten.
+    fbV9RStufe(lauf,FB_V9_R_BARRIER);
+    for(let i=0;i<c.cap;i++){
+      if(fbV9ReadySeatState(c.turn,st.bereit&&st.bereit[i],st.weg&&st.weg[i],
+                            st.raus&&st.raus[i])===FB_V9_RS_MALFORMED)
+        return fbV9RScheitern(lauf,'unbrauchbarer Bereitschaftsstand an Sitz '+i);
+    }
+    if(fbV9ReadyComplete(c.cap,c.turn,st.bereit,st.weg,st.raus)){
+      fbV9WakeStop(lauf,'bereit');
+      lauf.stufe=FB_V9_R_COMPLETE;
+      fbV9RAufloesen(lauf);
+      return;
+    }
+    // (3b) Sitze mit autoritativem Fristschluss werden SOFORT disqualifiziert - die
+    //      Frist ist fuer sie nachweislich schon vorbei. Gleiche Menge, gleiche Marke:
+    //      ein erschoepftes Budget bleibt erschoepft.
+    const rausMarke=fbV9ReadyRausMarke(c.cap,c.turn,st.bereit,st.weg,st.raus);
+    if(rausMarke){
+      if(!lauf.wecker['raus'])lauf.wecker['raus']={timer:null,frist:null,marke:null,versuche:0,laeuft:false};
+      const w=lauf.wecker['raus'];
+      if(w.marke!==rausMarke){
+        fbV9WakeStop(lauf,'raus');
+        w.marke=rausMarke; w.versuche=0;
+        fbV9ReadyRausVersuch(lauf);
+      }
+    }
+    // (4) Warten - aber nicht endlos. Der Wecker klopft kurz nach der geschaetzten
+    //     Frist einmal an; ob sie wirklich vorbei ist, sagen die Rules.
+    fbV9WakePlan(lauf,'bereit',anker+FB_V9_READY_DEADLINE_MS,
+                 fbV9ReadyMarke(c.cap,c.turn,st.bereit,st.weg,st.raus),
+                 ()=>fbV9ReadySchliessen(lauf),FB_V9_READY_DEADLINE_MS);
+  }finally{
+    lauf.beschaeftigt=false;
+    if(lauf.nochmal&&!fbV9RAus(lauf)){ lauf.nochmal=false; fbV9ReadySchritt(lauf); }
+  }
+}
+
+// Die Frist ist geschaetzt vorbei. Offene Sitze werden in kanonischer Reihenfolge
+// geschlossen - erst der Fristschluss, dann, wenn er AUTORITATIV dasteht, die
+// dauerhafte Disqualifikation. Zwischen beidem liegt immer ein Schnappschuss: ein
+// eigener COMMITTED ist kein Beweis.
+// Rueckgabe: true, wenn mindestens ein Versuch abgewiesen wurde oder fehlschlug.
+async function fbV9ReadySchliessen(lauf){
+  const st=lauf.stand, c=lauf.ctx;
+  let nochmal=false;
+  for(let i=0;i<c.cap;i++){
+    if(fbV9RAus(lauf))return false;
+    const z=fbV9ReadySeatState(c.turn,st.bereit&&st.bereit[i],st.weg&&st.weg[i],
+                               st.raus&&st.raus[i]);
+    // NUR noch offene Sitze. Ein autoritativer Fristschluss beweist, dass der Server
+    // die Frist bereits anerkannt hat - die Disqualifikation braucht deshalb keinen
+    // zweiten Fristwecker und laeuft ueber den unmittelbaren Weg (fbV9ReadyRaus).
+    if(z!==FB_V9_RS_MISSING)continue;
+    const r=await fbV9NetWriteReadyTimeout(c,i);
+    // COMMITTED und EXISTS sind beide in Ordnung - aber KEINES davon bewegt die
+    // Barriere. Das tut allein der naechste autoritative Schnappschuss.
+    if(r.status===FB_V9_DENIED||r.status===FB_V9_ERROR)nochmal=true;
+  }
+  return nochmal;
+}
+
+// AUTORITATIVER FRISTSCHLUSS -> DISQUALIFIKATION, OHNE ZWEITE WARTEZEIT.
+// Steht q/<turn>/<seat> autoritativ auf `timeout`, dann HAT der Server die Frist
+// bereits anerkannt - anders waere der Datensatz nicht entstanden. Fuer x gibt es
+// keine zusaetzliche Zeitbedingung, also gibt es auch nichts mehr abzuwarten. Frueher
+// haing diese Stufe am selben Fristwecker; ohne brauchbare Serverzeit kostete das ein
+// zweites volles Fenster von rund dreissig Sekunden, ohne dass es irgendetwas
+// sicherer gemacht haette.
+// Die Reihenfolge bleibt unangetastet: erst der autoritative Schnappschuss, dann x.
+// Ein eigener Schreibvorgang auf q begruendet hier nichts.
+function fbV9ReadyRausMarke(cap,turn,q,e,x){
+  let m='';
+  for(let i=0;i<cap;i++)
+    if(fbV9ReadySeatState(turn,q&&q[i],e&&e[i],x&&x[i])===FB_V9_RS_TIMEOUT)m+=i+',';
+  return m;
+}
+// Rueckgabe: true, wenn ein begrenzter zweiter Anlauf lohnt.
+async function fbV9ReadyRaus(lauf){
+  const st=lauf.stand, c=lauf.ctx;
+  let nochmal=false;
+  for(let i=0;i<c.cap;i++){
+    if(fbV9RAus(lauf))return false;
+    if(fbV9ReadySeatState(c.turn,st.bereit&&st.bereit[i],st.weg&&st.weg[i],
+                          st.raus&&st.raus[i])!==FB_V9_RS_TIMEOUT)continue;
+    const r=await fbV9NetWriteDisqualify(c,i);
+    // Wie ueberall: COMMITTED und EXISTS bewegen die Barriere nicht. Das tut allein
+    // der naechste autoritative Schnappschuss von x.
+    if(r.status===FB_V9_DENIED||r.status===FB_V9_ERROR)nochmal=true;
+  }
+  return nochmal;
+}
+async function fbV9ReadyRausVersuch(lauf){
+  const nochmal=await fbV9ReadyRaus(lauf);
+  if(!nochmal||fbV9RAus(lauf))return;
+  const w=lauf.wecker['raus'];
+  if(!w||w.versuche>=FB_V9_RETRY_MS.length)return;   // erschoepft: kein vierter Versuch
+  const ms=FB_V9_RETRY_MS[w.versuche]; w.versuche++;
+  // Kurze, begrenzte Wiederholung - ausdruecklich KEINE neue Bereitschaftsfrist.
+  fbV9WakeArm(lauf,'raus',ms,()=>fbV9ReadyRaus(lauf));
+}
+
+// Der Einstieg. Er startet die BEOBACHTUNG - mehr nicht. Dass dieser Client bereit
+// ist, sagt ausschliesslich fbV9ReadyLocal; ohne dieses Zeichen geht keine Meldung
+// hinaus, egal wie lange der Anker schon dasteht.
+function fbV9ReadyStart(ctx){
+  const lauf={ctx:ctx,stufe:FB_V9_R_IDLE,grund:'',anker:null,bereitLokal:false,
+              stand:{start:null,bereit:null,raus:null,weg:null,vorher:null},
+              abmelden:null,fertigNun:null,beschaeftigt:false,nochmal:false,
+              wecker:{},eigenLaeuft:false,eigenVersucht:false};
+  lauf.fertig=new Promise(aufl=>{ lauf.fertigNun=aufl; });
+  lauf.stop=function(){
+    if(lauf.stufe===FB_V9_R_COMPLETE||lauf.stufe===FB_V9_R_FAILED){ fbV9RAufloesen(lauf); return; }
+    if(lauf.stufe===FB_V9_R_STOPPED)return;
+    lauf.stufe=FB_V9_R_STOPPED;
+    fbV9RAufloesen(lauf);
+  };
+  if(!fbV9CtxOk(ctx)){ lauf.stufe=FB_V9_R_FAILED; lauf.grund='Zusammenhang ungueltig';
+                       fbV9RAufloesen(lauf); return lauf; }
+  lauf.abmelden=fbV9NetListenReady(ctx,st=>{
+    if(fbV9RAus(lauf))return;
+    lauf.stand=st;
+    fbV9ReadySchritt(lauf);
+  });
+  if(!lauf.abmelden){ lauf.stufe=FB_V9_R_FAILED; lauf.grund='kein Zuhoerer';
+                      fbV9RAufloesen(lauf); return lauf; }
+  fbV9RStufe(lauf,FB_V9_R_ANCHOR);
+  // Runde 0 hat keinen Vorgaenger - der Generationsstart muss erst entstehen. Jeder
+  // darf darum rennen; write-once entscheidet, und massgeblich ist ohnehin erst der
+  // autoritative Schnappschuss.
+  if(ctx.turn===0)Promise.resolve(fbV9NetOpenStart(ctx)).catch(()=>{});
+  return lauf;
+}
+// Das ausdrueckliche Zeichen: DIESER Client ist wirklich bereit fuer diese Runde.
+// Bis V9.4C ruft es nur der Pruefstand; danach der Settlement-Punkt in stepSim.
+function fbV9ReadyLocal(lauf){
+  if(!lauf||fbV9RAus(lauf))return false;
+  if(lauf.bereitLokal)return true;
+  lauf.bereitLokal=true;
+  fbV9ReadySchritt(lauf);
+  return true;
+}
+function fbV9ReadyStop(lauf){ if(lauf&&lauf.stop)lauf.stop(); }
+// ════ ENDE V9-BEREITSCHAFTSSTEUERUNG ════
+
 // ════ ONLINE-MODUSREGISTER (v8) ════
 // EINE Quelle fuer Modusnamen, Sollbesetzung, Beschriftung und Freigabestand. Jede
 // Stelle, die Kapazitaet oder Moduslabel braucht, fragt hier - es gibt bewusst keine
