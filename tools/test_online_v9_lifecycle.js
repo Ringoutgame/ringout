@@ -116,9 +116,43 @@ const baue = (a, uhr, welt) => new Function('window', 'crypto', 'GEN_MAX', 'FB_O
   function fbElimPlayers(){ return welt.cap; }
   function fbUid(){ return welt.uid; }
   function fbEvicted(s){ return !!(welt.evicted && welt.evicted[s]); }
+  // Der Spielteil als Attrappe: genau die Funktionen, die die Bruecke benutzt. Sie
+  // fuehren welt.spur mit, damit die REIHENFOLGE der Wirkungen pruefbar ist.
+  let balls = [], commitIdx = [], commitAim = [], commitSpin = [], aimSet = [];
+  function np(){ return welt.cap; }
+  function resetCommits(){ aimSet=[];commitIdx=[];commitAim=[];commitSpin=[];
+    for(let p=0;p<np();p++){aimSet.push(false);commitIdx.push(-1);
+                            commitAim.push({dx:0,dy:0});commitSpin.push(0);} }
+  function beginReveal(){ welt.spur.push('beginReveal'); phase='reveal'; }
+  function applyLaunch(){ welt.spur.push('applyLaunch'); phase='sim';
+    welt.starts.push(commitIdx.map((idx,i)=>({seat:i,idx:idx,dx:commitAim[i].dx,
+                     dy:commitAim[i].dy,sp:commitSpin[i],an:aimSet[i]}))); }
+  // Bildet den ECHTEN footballElimEliminate nach - einschliesslich des additiven
+  // Stapelmodus: ist stapel gesetzt, aendert der Aufruf NUR den Zustand und trifft
+  // keine Entscheidung. Die Spur haelt jede Entscheidung fest, damit sich zeigen laesst,
+  // dass es genau eine gibt.
+  let fbElimActive = welt.aktiv;
+  function footballElimEliminate(o,stapel){
+    if(!fbElimActive[o])return;
+    welt.spur.push('raus:'+o); fbElimActive[o]=false;
+    for(const b of balls)if(b.owner===o){b.alive=false;b.vx=0;b.vy=0;}
+    if(stapel){ welt.spur.push('stapel:'+o); return; }
+    const uebrig=[]; for(let i=0;i<welt.cap;i++)if(fbElimActive[i])uebrig.push(i);
+    // Wie footballMatchEnd: gameOver spielt SFX.win() - deshalb wird jede Entscheidung
+    // festgehalten, auch die siegreiche.
+    if(uebrig.length===0){ footballWinner=null; phase='over';
+                           welt.spur.push('ohne Sieger'); }
+    else if(uebrig.length===1){ footballWinner=uebrig[0]; phase='over';
+                                welt.spur.push('SIEGERKLANG'); welt.spur.push('Sieger '+uebrig[0]); } }
+  function fbV9WeltAufbauen(){ balls=[];
+    for(let i=0;i<welt.cap;i++)balls.push({owner:i,alive:true,vx:0,vy:0,spin:0});
+    resetCommits(); }
+  fbV9WeltAufbauen();
   ${BEREICH}
   return { sync, fbV9LebenAn, fbV9LebenBereit, fbV9LebenNeueRunde, fbV9LebenHandeln,
            fbV9LebenStop, leben: () => fbV9Leben,
+           fbV9ApplyAccepted, fbV9AcceptedOk, fbV9WeltAufbauen,
+           sicht: () => ({ commitIdx, commitAim, commitSpin, aimSet, balls, phase }),
            FB_V9_R_COMPLETE, FB_V9_R_BARRIER, FB_V9_COMPLETE, FB_V9_STOPPED };
 `)({ FB: a.FB }, globalThis.crypto, 10000, 5, 5,
    (uhr || STILL).serverNow, (uhr || STILL).setTimeout, (uhr || STILL).clearTimeout,
@@ -137,7 +171,8 @@ const bereitAlle = (n, turn, aus) => { const q = {};
 const welt9 = (x) => Object.assign({
   online: true, mode: 'football', roomCode: 'RN2K', myPlayer: 1, gen: 7, turnNo: 0,
   phase: 'aim', footballWinner: null, onlineSessionId: 3,
-  ONLINE_PROTOCOL_VERSION: 9, elim4: true, cap: 3, uid: UID, evicted: {} }, x || {});
+  ONLINE_PROTOCOL_VERSION: 9, elim4: true, cap: 3, uid: UID, evicted: {},
+  spur: [], starts: [], aktiv: [true, true, true] }, x || {});
 const cPfad = (a, turn) => a.log.schreib.filter(w => w.pfad.indexOf(P('c/' + turn + '/')) === 0);
 
 console.log('=== V9.4C: Spielanbindung (ruhend) ===');
@@ -578,12 +613,20 @@ abschnitt('Waechter');
   t('und onlineArmTurn bleibt ihr einziger Eigentuemer',
     (HTML.match(/turnNo\+\+/g) || []).length === 1);
   // KEINE Spielwirkung.
-  t('sie wendet keine Zugmenge an',
-    code.indexOf('applyLaunch') < 0 && code.indexOf('beginReveal') < 0 &&
-    code.indexOf('commitIdx') < 0 && code.indexOf('fbV9AcceptedSet') < 0);
-  t('sie zieht keine Spielfolge aus dem Protokoll',
-    code.indexOf('footballElimEliminate') < 0 && code.indexOf('fbElimLives') < 0 &&
-    code.indexOf('NO_REVEAL') < 0 && code.indexOf('MISMATCH') < 0);
+  // Der Teil VOR der Spielbruecke - Bereitschaft, Uebergabe, remove-Schliessung -
+  // kennt das Spiel nur soweit, wie er muss: Rundennummer, Phase, Sieger. Die Bruecke
+  // dahinter ist ausdruecklich die EINE Stelle, die Zugmenge und Ausscheiden anfasst;
+  // sie hat ihre eigenen Waechter in tools/test_online_v9_gameplay_bridge.js.
+  const vorBruecke = code.slice(0, code.indexOf('const FB_V9_RAUS='));
+  t('die Bereitschaftsschicht wendet keine Zugmenge an',
+    vorBruecke.indexOf('applyLaunch') < 0 && vorBruecke.indexOf('beginReveal') < 0 &&
+    vorBruecke.indexOf('commitIdx') < 0 && vorBruecke.indexOf('fbV9AcceptedSet') < 0);
+  t('und zieht keine Spielfolge aus dem Protokoll',
+    vorBruecke.indexOf('footballElimEliminate') < 0 && vorBruecke.indexOf('fbElimLives') < 0 &&
+    vorBruecke.indexOf('NO_REVEAL') < 0 && vorBruecke.indexOf('MISMATCH') < 0);
+  t('die Bruecke ist die EINE Stelle, die beides tut',
+    code.indexOf('const FB_V9_RAUS=') > 0 && code.indexOf('applyLaunch()') > 0 &&
+    code.indexOf('footballElimEliminate(i,i!==entscheider)') > 0);
   t('sie eroeffnet keine Runde selbst', code.indexOf('fbV9NetOpenTurn') < 0);
   t('aber sie schliesst dauerhaft abwesende Sitze', code.indexOf('fbV9NetWriteRemove') > 0);
   t('und benutzt dafuer den bestehenden Baustein - keinen zweiten',

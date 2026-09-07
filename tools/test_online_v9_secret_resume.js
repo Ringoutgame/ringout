@@ -589,8 +589,13 @@ abschnitt('Waechter');
   t('kein IndexedDB', code.indexOf('indexedDB') < 0);
   t('keine Bindung an onlineTab oder das Praesenztoken',
     code.indexOf('onlineTab') < 0 && code.indexOf('onlinePid') < 0);
-  t('keine Spielfolge',
-    ['fbElimLives', 'gameOver', 'footballElimEliminate', 'applyLaunch('].every(w => code.indexOf(w) < 0));
+  // Die PROTOKOLLSCHICHTEN ziehen keine Spielfolge. Seit V9.4D1 gibt es dafuer genau
+  // eine Stelle - die Spielbruecke ganz am Ende des ruhenden Bereichs -, und sie hat
+  // ihre eigenen Waechter in tools/test_online_v9_gameplay_bridge.js.
+  const vorBruecke = code.slice(0, code.indexOf('const FB_V9_RAUS='));
+  t('keine Spielfolge in den Protokollschichten',
+    ['fbElimLives', 'gameOver', 'footballElimEliminate', 'applyLaunch(']
+      .every(w => vorBruecke.indexOf(w) < 0));
   t('nichts wird protokolliert', code.indexOf('console.') < 0);
   // SEIT V9.4C ruft das Spiel an genau zwei benannten Stellen in den ruhenden
   // Bereich hinein - beim Rundenbeginn und am Settlement - und raeumt an den

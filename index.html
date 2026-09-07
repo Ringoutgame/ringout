@@ -7611,10 +7611,21 @@ function fbElimSpawnBodies(){
 // Kugeln bereits — es bleibt keine Kollisionshuelle zurueck. Das zugehoerige Tor schliesst
 // footballGoalOpen() ueber fbElimActive; es wird ab hier physikalisch zur Bande.
 // EINZIGER Aufrufer ist footballElimConcede: ausgeschieden wird, wenn das letzte Leben faellt.
-function footballElimEliminate(o){
+// `stapel` ist neu und AUSSCHLIESSLICH additiv: ohne das zweite Argument verhaelt sich
+// diese Funktion bitgenau wie bisher. Gesetzt bedeutet es: dieser Ausschluss ist Teil
+// eines groesseren Vorgangs, und die Entscheidung ueber Sieger oder siegerloses Ende
+// faellt NICHT hier, sondern beim letzten wirksamen Ausschluss desselben Stapels.
+//
+// WARUM DAS NOETIG IST: scheiden in EINER Runde die letzten beiden Sitze aus, sah der
+// erste Aufruf noch genau einen Verbliebenen und loeste das Matchende aus - und darin
+// gameOver, das SFX.win spielt. Der zweite Aufruf beendet das Match dann siegerlos
+// und korrigiert Anzeige und Zustand vollstaendig, aber der Siegerklang war bereits
+// hoerbar und laesst sich nicht zuruecknehmen. Ein Sieg, den es nie gab.
+function footballElimEliminate(o,stapel){
   if(!fbElim4()||o<0||o>=fbElimPlayers()||!fbElimActive[o])return;
   fbElimActive[o]=false;
   for(const b of balls)if(b.owner===o){b.alive=false;b.vx=0;b.vy=0;b.spin=0;}
+  if(stapel){ updateHud(); return; }   // nur Zustand - entschieden wird am Stapelende
   // C4B: Im Online-Football kommt der Sieger aus der Menge der wirklich noch
   // Teilnehmenden - ein bereits ausgetragener oder dafuer vorgemerkter Sitz zaehlt nicht
   // mit. Offline (Bot, lokal) gibt es diese Begriffe nicht; dort bleibt alles wie bisher.
@@ -10258,7 +10269,7 @@ function fbV9LebenBereit(turn){
   const L={sid:onlineSessionId,room:roomCode,gen:gen,turn:turn,seat:myPlayer,
            ctx:ctx,stufe:'BEREIT',bereit:null,lauf:null,aktion:null,
            uebergeben:false,bereitFertig:false,rausAb:null,rausStand:null,
-           rausLaeuft:false,wecker:{}};
+           rausLaeuft:false,wecker:{},angewandt:false};
   fbV9Leben=L;
   L.bereit=fbV9ReadyStart(ctx);
   if(!L.bereit||L.bereit.stufe===FB_V9_R_FAILED){ fbV9LebenStop(); return null; }
@@ -10296,6 +10307,13 @@ function fbV9LebenUebergabe(L){
   // Zoegern beliebig hinausschieben. Der eigene Zug wird nachgereicht.
   L.lauf=fbV9Start(L.ctx,L.aktion||null);
   if(L.aktion)L.aktion=null;   // sie ist im Lauf angekommen
+  // Ist die Runde protokollarisch fertig, geht ihre geprueufte Zugmenge EINMAL ins
+  // Spiel. Ein gescheiterter oder angehaltener Lauf traegt keine Menge - dann
+  // passiert hier nichts.
+  const lauf=L.lauf;
+  lauf.fertig.then(()=>{
+    if(lauf.stufe===FB_V9_COMPLETE)fbV9ApplyAccepted(L,lauf.menge);
+  });
   // Ab der Eroeffnung koennen dauerhaft abwesende Sitze sofort geschlossen werden.
   fbV9LebenRausStarten(L);
 }
@@ -10364,6 +10382,99 @@ async function fbV9LebenRausVersuch(L){
   if(!nochmal||!fbV9LebenAktuell(L))return;
   if(w.versuche>FB_V9_RETRY_MS.length)return;        // erschoepft: kein vierter Versuch
   fbV9WakeArm(L,'raus',FB_V9_RETRY_MS[w.versuche-1],()=>{ fbV9LebenRausVersuch(L); return false; });
+}
+
+
+// ── DIE SPIELBRUECKE: VERIFIZIERTE ZUGMENGE -> LEBENSREGEL (RUHEND) ─────────
+// Der EINZIGE Weg vom Netz ins Spiel. Sie nimmt genau eine fertige, vollstaendig
+// geprueufte Zugmenge entgegen - keine Schnappschuesse, keine Schreibergebnisse, keine
+// Zuhoerer. Was ein Zug wert ist, hat die Protokollschicht laengst entschieden; hier
+// wird nur noch uebersetzt.
+//
+// WAS SIE NICHT TUT: sie rechnet keinen Hash nach (das gehoert fbV9VerifyPair), sie
+// baut keinen zweiten Abschussweg (das ist applyLaunch), sie erhoeht keine
+// Rundennummer und sie startet keine naechste Bereitschaft - das tut das Settlement.
+//
+// DIE EINGEFRORENE ZUORDNUNG:
+//   VALID          -> genau der verifizierte Vektor
+//   pass/late/skip  -> Nullhandlung, KEIN Lebensabzug
+//   remove         -> protokollarisch abwesend, kein Abschuss
+//   NO_REVEAL      -> sofortiges Ausscheiden
+//   HASH_MISMATCH  -> sofortiges Ausscheiden
+//   MALFORMED      -> sofortiges Ausscheiden
+// Ausdruecklich SOFORTIGES AUSSCHEIDEN, kein Lebensabzug: wer nicht enthuellt, hat
+// nicht schlecht gespielt, sondern das Protokoll verlassen.
+const FB_V9_RAUS=[FB_V9_NO_REVEAL,FB_V9_MISMATCH,FB_V9_MALFORMED];
+const FB_V9_NULLZUG=['pass','skip','remove','late'];
+
+// Die Form der Zugmenge wird geprueft, BEVOR irgendetwas angewandt wird - und im
+// Zweifel wird nichts angewandt. Ein Eintrag ausserhalb dieses Vertrags ist kein
+// Anlass zu raten.
+function fbV9AcceptedOk(menge,cap){
+  if(!Array.isArray(menge)||menge.length!==cap)return false;
+  for(let i=0;i<cap;i++){
+    const e=menge[i];
+    if(!e||typeof e!=='object'||e.seat!==i)return false;
+    if(e.kind==='move'){
+      if(e.status===FB_V9_VALID){
+        const m=e.move;
+        if(!m||typeof m!=='object')return false;
+        // Ein Abschuss gehoert der EIGENEN Figur. Die Protokollschicht prueft das
+        // bereits; hier wird nicht darauf vertraut, dass vor uns schon jemand geprueft
+        // hat - ein fremder Index wuerde eine fremde Kugel starten.
+        if(m.idx!==i)return false;
+        if(!Number.isFinite(m.dx)||!Number.isFinite(m.dy)||!Number.isFinite(m.sp))return false;
+      }else if(FB_V9_RAUS.indexOf(e.status)<0)return false;
+    }else if(FB_V9_NULLZUG.indexOf(e.kind)<0)return false;
+  }
+  return true;
+}
+
+// Eine Zugmenge wird GENAU EINMAL wirksam. Ein zweiter Rueckruf, ein doppelter
+// Schnappschuss oder ein wiederholtes Ende duerfen weder zweimal ausscheiden lassen
+// noch zweimal starten.
+function fbV9ApplyAccepted(L,menge){
+  if(!fbV9LebenAn()||!fbV9LebenAktuell(L))return false;
+  if(L.angewandt)return false;
+  if(L.turn!==turnNo)return false;              // veraltete Runde: nichts anwenden
+  if(!fbV9AcceptedOk(menge,L.ctx.cap))return false;
+  L.angewandt=true;
+  // (1) PROTOKOLLAUSSCHLUESSE ZUERST, in kanonischer Sitzreihenfolge. Eine Kugel, die
+  //     diesen Abschuss verwirkt hat, darf in ihm nicht mehr mitkollidieren - deshalb
+  //     erst ausscheiden, dann starten. Benutzt wird die BESTEHENDE Eliminierung.
+  //     Mehrere Ausschluesse derselben Runde sind EIN Vorgang: die Reihenfolge ist nur
+  //     Ausfuehrungsordnung, nicht Bedeutung. Deshalb aendern alle bis auf einen nur den
+  //     Zustand, und die Entscheidung faellt genau einmal - beim LETZTEN Ausschluss, der
+  //     ueberhaupt noch etwas bewirkt. Ein bereits ausgeschiedener Sitz kann nicht
+  //     entscheiden; er wuerde sofort zurueckkehren, und niemand nennte den Ausgang.
+  const stapel=[];
+  for(let i=0;i<L.ctx.cap;i++){
+    const e=menge[i];
+    if(e.kind==='move'&&FB_V9_RAUS.indexOf(e.status)>=0)stapel.push(i);
+  }
+  const wirksam=stapel.filter(i=>fbElimActive[i]);
+  const entscheider=wirksam.length?wirksam[wirksam.length-1]:-1;
+  for(const i of stapel)footballElimEliminate(i,i!==entscheider);
+  // (2) Die Ausschluesse koennen das Match bereits entschieden haben - footballElim-
+  //     Eliminate beendet es selbst, sobald hoechstens einer uebrig ist. Dann wird
+  //     keine sinnlose Simulation mehr gestartet.
+  if(phase==='over'||footballWinner!==null)return true;
+  // (3) Nur gueltige Zuege, und zwar EXAKT die verifizierten Werte: keine erneute
+  //     Begrenzung, keine Zufallskomponente, keine Zielhilfe.
+  resetCommits();
+  for(let i=0;i<L.ctx.cap;i++){
+    const e=menge[i];
+    if(e.kind!=='move'||e.status!==FB_V9_VALID)continue;
+    const b=balls[e.move.idx];
+    if(!b||!b.alive)continue;                   // gerade ausgeschieden: kein Abschuss
+    commitIdx[i]=e.move.idx; commitAim[i]={dx:e.move.dx,dy:e.move.dy};
+    commitSpin[i]=e.move.sp; aimSet[i]=true;
+  }
+  // (4) Der BESTEHENDE gemeinsame Abschussweg - kein zweiter. Ab hier laeuft alles
+  //     wie im lokalen Spiel: Physik, Tore, Leben, Settlement, naechste Bereitschaft.
+  beginReveal();
+  applyLaunch();
+  return true;
 }
 
 // ── DIE BEIDEN HAKEN AUS DEM SPIEL ──────────────────────────────────────────

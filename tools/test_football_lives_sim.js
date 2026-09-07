@@ -44,7 +44,7 @@ const SRC = [
   grab(/const FB_ELIM_LIVES=2;[\s\S]*?\nfunction fbElimReset\(\)\{[\s\S]*?\n\}/, 'Elimination-Zustand + Reset'),
   grab(/function fbElimActiveOwners\(\)\{[^\n]*/, 'fbElimActiveOwners'),
   grab(/function fbElimApplyPhase\(\)\{[\s\S]*?\n\}/, 'fbElimApplyPhase'),
-  grab(/function footballElimEliminate\(o\)\{[\s\S]*?\n\}/, 'footballElimEliminate'),
+  grab(/function footballElimEliminate\([^)]*\)\{[\s\S]*?\n\}/, 'footballElimEliminate'),
   // Der Kern dieser Suite: die Zeitregel als Ganzes.
   grab(/const FOOTBALL_ELIM_RULES_LIVES='lives';[\s\S]*?\nfunction fbFfaResolve\(imTor\)\{[\s\S]*?\n\}/, 'Timed-FFA-Block'),
   grab(/function footballElimConcede\(o\)\{[\s\S]*?\n\}/, 'footballElimConcede'),
