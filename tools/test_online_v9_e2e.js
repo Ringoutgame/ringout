@@ -12,13 +12,13 @@
 // Lesen und Aufraeumen.
 //
 // Aufruf (Emulator muss laufen):
-//   cd artifacts/v9-sdk && firebase emulators:start --only database --project demo-v9sdk
+//   cd artifacts/v9-e2e && firebase emulators:start --only database --project ringout-87fbb
 //   node tools/test_online_v9_e2e.js
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 
-const HOST = '127.0.0.1', PORT = 9020, PROJEKT = 'demo-v9sdk';
+const HOST = '127.0.0.1', PORT = 9021, PROJEKT = 'ringout-87fbb';
 const GLOBALE_GRENZE_MS = 180000;     // harte Obergrenze fuer den GESAMTEN Beweis
 const WARTE_GRENZE_MS = 12000;        // harte Obergrenze je erwarteter Bedingung
 
@@ -33,7 +33,10 @@ const abschnitt = (s) => console.log('\n== ' + s + ' ' + '='.repeat(Math.max(0, 
 // Die Produktionsdatenbank wird nicht nur gemieden, sondern ausgeschlossen: die
 // Adresse wird geprueft, bevor irgendein SDK aufgebaut wird.
 const DB_URL = 'http://' + HOST + ':' + PORT + '?ns=' + PROJEKT + '-default-rtdb';
-if (!/^http:\/\/(127\.0\.0\.1|localhost):/.test(DB_URL) || /firebaseio|ringout-87fbb/.test(DB_URL)) {
+// Die Projektkennung ist die echte - der Emulator laeuft aber ausschliesslich lokal.
+// Geprueft wird deshalb die ADRESSE: alles, was nicht auf 127.0.0.1 zeigt, ist ein
+// sofortiger Abbruch, und `firebaseio.com` (die Produktionsdomaene) erst recht.
+if (!/^http:\/\/(127\.0\.0\.1|localhost):/.test(DB_URL) || /firebaseio/.test(DB_URL)) {
   console.log('ABBRUCH: Datenbankadresse ist nicht lokal -> ' + DB_URL);
   process.exit(2);
 }
@@ -42,7 +45,7 @@ let SDK;
 try { SDK = { app: require('firebase/app'), db: require('firebase/database') }; }
 catch (e) { console.log('SDK fehlt: npm install --no-save firebase'); process.exit(3); }
 const { initializeApp } = SDK.app;
-const { getDatabase, connectDatabaseEmulator, ref, onValue,
+const { getDatabase, connectDatabaseEmulator, ref, onValue, get,
         runTransaction, serverTimestamp } = SDK.db;
 
 // Der Emulator akzeptiert ein unsigniertes JWT; entscheidend ist allein die Nutzlast.
@@ -84,15 +87,18 @@ const lies = async (pfad) => {
 
 // ── 2. DIE EXAKTEN REGELN ────────────────────────────────────────────────────
 const RULES_QUELLE = path.join(__dirname, '..', 'firebase.rules.json');
-const RULES_KOPIE = path.join(__dirname, '..', 'artifacts', 'v9-sdk', 'rules-copy.json');
+const RULES_KOPIE = path.join(__dirname, '..', 'artifacts', 'v9-e2e', 'rules-copy.json');
 const md5 = (p) => crypto.createHash('md5').update(fs.readFileSync(p)).digest('hex');
 
 // ── 4. DER ECHTE RUHENDE V9-QUELLTEXT AUS index.html ─────────────────────────
 const HTML = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
 const START = HTML.indexOf('const FB_V9_PREIMAGE_BYTES=60');
-const ENDE = HTML.indexOf('// ════ ENDE V9-ABLAUFSTEUERUNG ════');
+const ENDE = HTML.indexOf('// ════ ENDE V9-SPIELANBINDUNG ════');
 if (START < 0 || ENDE < 0) { console.log('ABBRUCH: V9-Bereich nicht gefunden'); process.exit(5); }
 const BEREICH = HTML.slice(START, ENDE);
+// fastForwardMatch kommt WOERTLICH aus dem Produkt - die Rehydrierung laeuft durch es.
+const FASTFF = (HTML.match(/function fastForwardMatch\([^)]*\)\{[\s\S]*?\n\}/) || [''])[0];
+if (!FASTFF) { console.log('ABBRUCH: fastForwardMatch nicht gefunden'); process.exit(5); }
 
 // Ein Sitzungsspeicher wie im Browser - eine einfache Karte, mehr braucht der echte
 // Quelltext nicht. Die KARTE ueberlebt einen Neuladevorgang, die Laufzeit nicht.
@@ -126,22 +132,103 @@ function laufzeit(uid, unterbau) {
   const setT = (fn, ms) => { const id = setTimeout(() => { timer.delete(id); fn(); }, ms);
                              timer.add(id); return id; };
   const clrT = (id) => { timer.delete(id); clearTimeout(id); };
+  // Die Spielwelt als Attrappe - genau so viel, wie der ruhende Bereich beruehrt.
+  // Physik und Bild sind ersetzt, das PROTOKOLL nicht: Bereitschaft, Ablaufsteuerung,
+  // Bruecke und Rehydrierung sind der echte Quelltext.
+  const welt = { cap: 3, uid: uid, seat: 0, spur: [], starts: [], status: [],
+                 aktiv: [true, true, true], leben: [2, 2, 2], evicted: {},
+                 online: true, mode: 'football', roomCode: '', myPlayer: 0, gen: 0,
+                 turnNo: -1, phase: 'aim', footballWinner: null, onlineSessionId: 1,
+                 ONLINE_PROTOCOL_VERSION: 9 };
+  const GLOBAL = ['online', 'mode', 'roomCode', 'myPlayer', 'gen', 'turnNo', 'phase',
+                  'footballWinner', 'onlineSessionId', 'ONLINE_PROTOCOL_VERSION'];
   const M = new Function('window', 'crypto', 'GEN_MAX', 'FB_ONLINE_SEATS',
-      'FB_ONLINE_BALL_IDX', 'serverNow', 'setTimeout', 'clearTimeout', 'sessionStorage', `
+      'FB_ONLINE_BALL_IDX', 'serverNow', 'setTimeout', 'clearTimeout', 'sessionStorage',
+      'welt', `
+    let ${GLOBAL.join(', ')};
+    function sync(){ ${GLOBAL.map(n => n + ' = welt.' + n + ';').join(' ')} }
+    sync();
+    function fbElim4(){ return true; }
+    function fbElimPlayers(){ return welt.cap; }
+    function fbUid(){ return welt.uid; }
+    function fbEvicted(s){ return !!welt.evicted[s]; }
+    function setStatus(x){ welt.status.push(String(x)); }
+    let balls = [], commitIdx = [], commitAim = [], commitSpin = [], aimSet = [];
+    let soundOn = true, particles = [], fx3 = [], turnUnsub = null;
+    let fbElimActive = welt.aktiv, fbElimLives = welt.leben;
+    const FF_MAX_STEPS_PER_TURN = 20000;
+    function np(){ return welt.cap; }
+    function resetCommits(){ aimSet=[];commitIdx=[];commitAim=[];commitSpin=[];
+      for(let p=0;p<np();p++){aimSet.push(false);commitIdx.push(-1);
+                              commitAim.push({dx:0,dy:0});commitSpin.push(0);} }
+    function setPhase(p){ phase=p; }
+    function setPhaseText(){}
+    function updateHud(){}
+    function processSlot(){ welt.spur.push('v8:processSlot'); }
+    function allAliveCommitted(){ return true; }
+    function afterResult(){}
+    function fbFxSilence(v){ const a=welt.stumm; welt.stumm=!!v; return a; }
+    function fbMusicSync(){}
+    function footballClearGoalFx(){}
+    function beginReveal(){ welt.spur.push('beginReveal'); phase='reveal'; }
+    function applyLaunch(){
+      welt.spur.push(soundOn ? 'KLANG' : 'applyLaunch');
+      const stapel=[];
+      for(let i=0;i<np();i++){
+        if(!aimSet[i]||!balls[commitIdx[i]]||!balls[commitIdx[i]].alive)continue;
+        const b=balls[commitIdx[i]];
+        b.x+=commitAim[i].dx; b.y+=commitAim[i].dy; b.spin=commitSpin[i];
+        stapel.push({seat:i,idx:commitIdx[i],dx:commitAim[i].dx,dy:commitAim[i].dy,
+                     sp:commitSpin[i]});
+      }
+      phase='sim'; welt.starts.push(stapel); }
+    function stepSim(){
+      for(const b of balls){ b.vx=0; b.vy=0; }
+      setPhase('aim'); resetCommits();
+      if(online){ onlineArmTurn(); if(typeof fbV9LebenNeueRunde==='function')fbV9LebenNeueRunde(); } }
+    function onlineArmTurn(){ turnNo++; welt.spur.push('arm:'+turnNo); }
+    function startOnlineGame(){
+      if(typeof fbV9LebenStop==='function')fbV9LebenStop();
+      turnNo=-1; phase='aim'; footballWinner=null;
+      for(let i=0;i<welt.cap;i++){ welt.aktiv[i]=true; welt.leben[i]=2; }
+      balls=[]; for(let i=0;i<welt.cap;i++)balls.push({owner:i,alive:true,x:0,y:0,vx:0,vy:0,spin:0});
+      resetCommits();
+      if(online){ onlineArmTurn(); if(typeof fbV9LebenNeueRunde==='function')fbV9LebenNeueRunde(); } }
+    function footballElimEliminate(o,stapel){
+      if(!fbElimActive[o])return;
+      welt.spur.push('raus:'+o); fbElimActive[o]=false;
+      for(const b of balls)if(b.owner===o){b.alive=false;b.vx=0;b.vy=0;}
+      if(stapel)return;
+      const uebrig=[]; for(let i=0;i<welt.cap;i++)if(fbElimActive[i])uebrig.push(i);
+      if(uebrig.length===0){ footballWinner=null; phase='over'; welt.spur.push('ohne Sieger'); }
+      else if(uebrig.length===1){ footballWinner=uebrig[0]; phase='over';
+                                  welt.spur.push('SIEGER:'+uebrig[0]); } }
+    ${FASTFF}
     ${BEREICH}
-    return { fbV9Start, fbV9Resume, fbV9SecretFor, fbV9SecretClear, fbV9SecretLoad,
-             fbV9SecretDrop, fbV9MakeCommit, fbV9MakeReveal, fbV9Hash, fbV9Hex,
-             fbV9SaltFromHex, fbV9AcceptedSet, fbV9CommitsComplete, fbV9ResultsComplete,
-             fbV9NetOpenTurn, fbV9NetWriteCommit, fbV9NetOpenReveal, fbV9NetWriteReveal,
-             fbV9NetWriteLate, fbV9NetWriteNoReveal, fbV9EngineCtx,
+    return { sync, fbV9Start, fbV9Resume, fbV9Action, fbV9SecretFor, fbV9SecretClear,
+             fbV9SecretLoad, fbV9SecretDrop, fbV9MakeCommit, fbV9MakeReveal, fbV9Hash,
+             fbV9Hex, fbV9SaltFromHex, fbV9AcceptedSet, fbV9CommitsComplete,
+             fbV9ResultsComplete, fbV9NetOpenTurn, fbV9NetWriteCommit, fbV9NetOpenReveal,
+             fbV9NetWriteReveal, fbV9NetWriteLate, fbV9NetWriteNoReveal, fbV9EngineCtx,
+             fbV9NetOpenStart, fbV9NetMarkComplete, fbV9NetWriteReady,
+             fbV9NetWriteReadyTimeout, fbV9NetWriteDisqualify, fbV9NetWriteRemove,
+             fbV9ReadyStart, fbV9ReadyLocal, fbV9ReadyStop, fbV9ReadyComplete,
+             fbV9LebenNeueRunde, fbV9LebenFortsetzen, fbV9LebenHandeln, fbV9LebenStop,
+             fbV9RaumStart, fbV9RaumIst9, fbV9Rehydrieren, fbV9RehydrierPlan,
+             fbV9Wirken, fbV9AcceptedOk, leben: () => fbV9Leben,
+             zustand: () => ({ turnNo, phase, footballWinner,
+                               aktiv: welt.aktiv.slice(), leben: welt.leben.slice(),
+                               balls: balls.map(b => ({ owner: b.owner, alive: b.alive,
+                                 x: b.x, y: b.y, vx: b.vx, vy: b.vy, spin: b.spin })) }),
              FB_V9_COMMITTED, FB_V9_EXISTS, FB_V9_DENIED, FB_V9_INVALID, FB_V9_ERROR,
-             FB_V9_VALID, FB_V9_NO_REVEAL, FB_V9_OK, FB_V9_COMPLETE, FB_V9_FAILED,
-             FB_V9_WAIT_COMMITS, FB_V9_WAIT_RESULTS };
+             FB_V9_VALID, FB_V9_NO_REVEAL, FB_V9_MISMATCH, FB_V9_OK, FB_V9_COMPLETE,
+             FB_V9_FAILED, FB_V9_WAIT_COMMITS, FB_V9_WAIT_RESULTS,
+             FB_V9_R_COMPLETE, FB_V9_R_BARRIER };
   `)({ FB: { db: alsUid(uid), ref, runTransaction, onValue: zaehlendesOnValue,
-             serverTimestamp } },
-     globalThis.crypto, 10000, 5, 5, () => Date.now(), setT, clrT, st);
+             serverTimestamp, get } },
+     globalThis.crypto, 10000, 5, 5, () => Date.now(), setT, clrT, st, welt);
   M.fbV9SecretClear();
-  const r = { uid: uid, M: M, st: st, timer: timer,
+  const r = { uid: uid, M: M, st: st, timer: timer, welt: welt,
               offen: () => timer.size, hoerer: () => eigene };
   alleLaufzeiten.push(r);
   return r;
@@ -182,7 +269,7 @@ async function entferne(code) {
   t(code + ': Fixture entfernt und als null bestaetigt', true);
 }
 
-const UID = [0, 1].map(i => 'UID_E2E' + i + '_XXXXXXXXXXXXXXXX');
+const UID = [0, 1, 2].map(i => 'UID_E2E' + i + '_XXXXXXXXXXXXXXXX');
 const warte = (ms) => new Promise(r => setTimeout(r, ms));
 // Jede Erwartung hat eine harte Grenze - kein Lauf darf haengenbleiben.
 async function warteAuf(label, pred, ms) {
@@ -193,23 +280,43 @@ async function warteAuf(label, pred, ms) {
     await warte(120);
   }
 }
-async function raum(code, cap) {
+async function raum(code, cap, opt) {
   if (!/^[A-HJKMNP-Z2-9]{4}$/.test(code)) throw new Error('Raumcode ausserhalb des Alphabets: ' + code);
   eigeneRaeume.add(code);
   if (ANGELEGT.indexOf(code) < 0) ANGELEGT.push(code);
   const p = {}, players = {};
+  // `offline` nennt Sitze, deren Praesenz auf false steht - und zwar lange genug,
+  // dass ein Mitspieler sie nach den Regeln austragen darf (fuenfzehn Sekunden).
+  const weg = (opt && opt.offline) || [];
   for (let i = 0; i < cap; i++) {
-    p[i] = { s: 'E2ETAB' + i, on: true, t: Date.now() };
+    const ab = weg.indexOf(i) >= 0;
+    p[i] = { s: 'E2ETAB' + i, on: !ab, t: ab ? Date.now() - 20000 : Date.now() };
     players[i] = { id: 'E2EPID' + i, name: 'P' + i, tab: 'E2ETAB' + i, uid: UID[i] };
   }
+  // SEIT V9.4B1 haengt d/<turn> zusaetzlich am Generationsstart s und an einer
+  // vollstaendigen Bereitschaftsbarriere q. Szenarien, die einen SPAETEREN Abschnitt
+  // pruefen, bekommen beides als Fixture vorbefuellt - genau wie Raum und Sitze, und
+  // ueber denselben Verwaltungsweg. Der Bereitschaftsablauf selbst wird in seinem
+  // eigenen Szenario mit dem ECHTEN Client bewiesen.
+  const g0 = {};
+  if (!opt || opt.bereit !== false) {
+    g0.s = { ts: Date.now() - 30000 };
+    const q0 = {};
+    for (let i = 0; i < cap; i++) q0[i] = { k: 'ready', n: 0, ts: Date.now() - 20000 };
+    g0.q = { 0: q0 };
+  }
+  if (opt && opt.g) Object.assign(g0, opt.g);
   await seed('rooms/' + code, {
     v: 9, hostUid: UID[0],
     config: { game: 'football', winTarget: 3, fmt: 'elimination',
               visibility: 'private', mode: 'lives', cap: cap },
-    gen: 0, state: 'playing', seats: cap, p: p, players: players, created: Date.now() - 60000 });
+    gen: 0, state: 'playing', seats: cap, p: p, players: players,
+    created: Date.now() - 60000, g: { 0: g0 } });
 }
 const raeumen = (code) => seed('rooms/' + code, null);
-const ctx = (code, seat) => ({ v: 9, code: code, gen: 0, turn: 0, seat: seat, cap: 2,
+// cap ist ausdruecklich ein Argument: die Szenarien fahren zwei UND drei Sitze.
+const ctx = (code, seat, cap) => ({ v: 9, code: code, gen: 0, turn: 0, seat: seat,
+                                    cap: cap === undefined ? 2 : cap,
                                uid: UID[seat], seatUid: UID[seat] });
 const ZUG = [{ idx: 0, dx: 12.5, dy: -8.25, sp: 0.5 }, { idx: 1, dx: -3.75, dy: 6.5, sp: 0.875 }];
 const KEY = (code, seat) => 'ro9:1:' + code + ':0:0:' + seat;
@@ -232,13 +339,22 @@ abschnitt('Voraussetzungen: lokal, unveraenderte Regeln');
 {
   t('die Datenbankadresse ist lokal (' + DB_URL + ')',
     DB_URL.indexOf('127.0.0.1') > 0 && DB_URL.indexOf('firebaseio') < 0);
-  t('das Projekt ist eine Demo-Kennung (' + PROJEKT + ')', /^demo-/.test(PROJEKT));
+  t('die Adresse zeigt nirgends auf die Produktionsdomaene',
+    DB_URL.indexOf('firebaseio') < 0 && DB_URL.indexOf('https') < 0);
   const a = md5(RULES_QUELLE), b = md5(RULES_KOPIE);
   t('die Regelkopie ist byte-identisch mit der verfolgten firebase.rules.json (' + a + ')',
     a === b && Buffer.compare(fs.readFileSync(RULES_QUELLE), fs.readFileSync(RULES_KOPIE)) === 0,
     a + ' / ' + b);
   const probe = await lies('.info');   // erreichbar?
   t('der Emulator antwortet', probe !== undefined);
+  // ENTSCHEIDEND: nicht die Kopie auf der Platte zaehlt, sondern was der laufende
+  // Emulator wirklich geladen hat. Er gibt seine aktiven Regeln selbst heraus.
+  const aktivRoh = await (await fetch(REST + '/.settings/rules.json?ns=' + NS,
+                                      { headers: ADMIN })).text();
+  const norm = (x) => x.replace(/\r\n/g, '\n').trim();
+  t('die AKTIVEN Regeln des Emulators sind die verfolgte firebase.rules.json',
+    norm(aktivRoh) === norm(fs.readFileSync(RULES_QUELLE, 'utf8')),
+    norm(aktivRoh).length + ' vs ' + norm(fs.readFileSync(RULES_QUELLE, 'utf8')).length);
 }
 
 // ══ SZENARIO A ═════════════════════════════════════════════════════════════════
@@ -511,6 +627,349 @@ abschnitt('Optional - verlorenes Geheimnis: kein erfundener Reveal');
   await beenden(code, [l1, l2, lB], [A1, A2, B]);
 }
 
+// ══ E - BEREITSCHAFT MIT DEM ECHTEN CLIENT ═══════════════════════════════════
+abschnitt('E - die Bereitschaftsbarriere, echt gefahren');
+{
+  const code = 'EEEE';
+  await raum(code, 3, { bereit: false });          // KEIN vorbefuelltes s/q
+  const K = [0, 1, 2].map(i => spur(laufzeit(UID[i])));
+  K.forEach((k, i) => { k.welt.cap = 3; k.welt.seat = i; k.welt.myPlayer = i;
+                        k.welt.roomCode = code; k.welt.gen = 0; k.welt.turnNo = 0;
+                        k.M.sync(); });
+  const laeufe = K.map((k, i) => k.M.fbV9ReadyStart(ctx(code, i, 3)));
+  laufende.push({ stop: () => laeufe.forEach(l => l.stop()) });
+  await warteAuf('der Generationsstart entsteht',
+    async () => !!(await lies('rooms/' + code + '/g/0/s')));
+  const sAnk = await lies('rooms/' + code + '/g/0/s');
+  t('E: s traegt einen SERVERzeitstempel',
+    sAnk && typeof sAnk.ts === 'number' && Object.keys(sAnk).join(',') === 'ts',
+    JSON.stringify(sAnk));
+  t('E: ohne Bereitschaftszeichen meldet niemand',
+    (await lies('rooms/' + code + '/g/0/q')) === null);
+  laeufe.forEach((l, i) => K[i].M.fbV9ReadyLocal(l));
+  await warteAuf('alle drei sind bereit',
+    () => laeufe.every(l => l.stufe === K[0].M.FB_V9_R_COMPLETE));
+  const q0 = await lies('rooms/' + code + '/g/0/q/0');
+  t('E: drei Bereitschaften stehen', q0 && Object.keys(q0).length === 3, JSON.stringify(q0));
+  t('E: jede traegt genau k,n,ts',
+    [0, 1, 2].every(i => Object.keys(q0[i]).sort().join(',') === 'k,n,ts' &&
+                         q0[i].k === 'ready' && q0[i].n === 0));
+  t('E: die Barriere ist bei allen geschlossen',
+    laeufe.every(l => l.stufe === K[0].M.FB_V9_R_COMPLETE));
+  // Und ERST JETZT darf die Runde entstehen.
+  const auf = await K[0].M.fbV9NetOpenTurn(ctx(code, 0, 3));
+  t('E: mit geschlossener Barriere oeffnet die Runde',
+    auf.status === K[0].M.FB_V9_COMMITTED, auf.status);
+  laeufe.forEach(l => l.stop());
+  await entferne(code);
+}
+
+// ══ F - DREI SPIELER, VOLLER ZUG, EINIGKEIT ══════════════════════════════════
+abschnitt('F - drei Spieler: ein vollstaendiger Zug, drei gleiche Zugmengen');
+{
+  const code = 'FFFF';
+  await raum(code, 3);
+  const K = [0, 1, 2].map(i => spur(laufzeit(UID[i])));
+  const ZUEGE = [{ idx: 0, dx: 12.5, dy: -8.25, sp: 0.5 },
+                 { idx: 1, dx: -3.75, dy: 6.5, sp: 0.875 },
+                 { idx: 2, dx: 7.25, dy: 1.5, sp: -0.25 }];
+  const L = K.map((k, i) => k.M.fbV9Start(ctx(code, i, 3), { move: ZUEGE[i] }));
+  laufende.push({ stop: () => L.forEach(l => l.stop()) });
+  await warteAuf('alle drei erreichen COMPLETE',
+    () => L.every(l => l.stufe === K[0].M.FB_V9_COMPLETE), 20000);
+  t('F: alle drei sind fertig', L.every(l => l.stufe === K[0].M.FB_V9_COMPLETE),
+    L.map(l => l.stufe + '/' + (l.grund || '')).join(' '));
+  // EINIGKEIT: dieselbe Zugmenge, Zeichen fuer Zeichen.
+  const mengen = L.map(l => JSON.stringify(l.menge));
+  t('F: alle drei kommen zur GLEICHEN Zugmenge',
+    new Set(mengen).size === 1, mengen.map(m => m.length).join('/'));
+  const m0 = L[0].menge;
+  t('F: sie ist sitzsortiert', m0.every((e, i) => e.seat === i));
+  t('F: alle drei sind VALID', m0.every(e => e.status === K[0].M.FB_V9_VALID));
+  t('F: mit genau den abgeschickten Vektoren',
+    m0.every((e, i) => e.move.dx === ZUEGE[i].dx && e.move.dy === ZUEGE[i].dy &&
+                       e.move.sp === ZUEGE[i].sp),
+    JSON.stringify(m0.map(e => e.move)));
+  const d0 = await lies('rooms/' + code + '/g/0/d/0');
+  t('F: genau EIN Rundenanker mit Serverzeit',
+    d0 && d0.n === 0 && typeof d0.o === 'number');
+  const c0 = await lies('rooms/' + code + '/g/0/c/0');
+  t('F: kein Klartext im Commit-Zweig',
+    !/"(idx|dx|dy|sp|n|salt)"/.test(JSON.stringify(c0)) &&
+    JSON.stringify(c0).indexOf('12.5') < 0, JSON.stringify(c0).slice(0, 120));
+  t('F: jeder Commit traegt genau k,h,ts',
+    [0, 1, 2].every(i => Object.keys(c0[i]).sort().join(',') === 'h,k,ts'));
+  const z0 = await lies('rooms/' + code + '/g/0/z/0');
+  t('F: genau ein Abschlussanker', z0 && typeof z0.ts === 'number' &&
+    Object.keys(z0).join(',') === 'ts', JSON.stringify(z0));
+  L.forEach(l => l.stop());
+  await beenden(code, L, K);
+}
+
+// ══ G - DIE RUNDE OEFFNET SICH VOR DER HANDLUNG ══════════════════════════════
+abschnitt('G - die gemeinsame Uhr haengt an d, nicht am ersten Zug');
+{
+  const code = 'GGGG';
+  await raum(code, 3);
+  const K = [0, 1, 2].map(i => spur(laufzeit(UID[i])));
+  // A startet OHNE Handlung - die Runde muss trotzdem entstehen.
+  const lA = K[0].M.fbV9Start(ctx(code, 0, 3), null);
+  laufende.push({ stop: () => lA.stop() });
+  await warteAuf('die Runde entsteht ohne jede Handlung',
+    async () => !!(await lies('rooms/' + code + '/g/0/d/0')));
+  const d0 = await lies('rooms/' + code + '/g/0/d/0');
+  t('G: der Rundenanker steht - ohne dass jemand gezogen hat',
+    d0 && typeof d0.o === 'number');
+  t('G: und kein Terminal im Raum', (await lies('rooms/' + code + '/g/0/c')) === null);
+  // Jetzt reicht A seinen Zug nach.
+  t('G: der nachgereichte Zug wird angenommen',
+    K[0].M.fbV9Action(lA, { move: { idx: 0, dx: 4, dy: 0, sp: 0 } }) === true);
+  await warteAuf('er steht im Raum',
+    async () => !!(await lies('rooms/' + code + '/g/0/c/0/0')));
+  const c00 = await lies('rooms/' + code + '/g/0/c/0/0');
+  t('G: als echter Commit mit Hash', c00.k === 'move' && c00.h.length === 64);
+  t('G: ein zweiter Zug wird abgewiesen',
+    K[0].M.fbV9Action(lA, { move: { idx: 0, dx: 9, dy: 0, sp: 0 } }) === false);
+  t('G: die gemeinsame Frist kommt aus DEMSELBEN Serverzeitstempel',
+    (await lies('rooms/' + code + '/g/0/d/0')).o === d0.o);
+  lA.stop();
+  await beenden(code, [lA], [K[0]]);
+}
+
+// ══ H - BEREITSCHAFTSFRIST, DISQUALIFIKATION, SOFORTIGES REMOVE ══════════════
+abschnitt('H - Fristschluss, x und der sofort geschlossene Slot');
+{
+  const code = 'HHHH';
+  // Der Generationsstart liegt NACHWEISLICH mehr als dreissig Sekunden zurueck -
+  // als Fixture, ueber den Verwaltungsweg. Keine gefaelschte Uhr, keine
+  // aufgeweichte Regel: die Rules rechnen weiter mit ihrer eigenen Zeit.
+  await raum(code, 3, { bereit: false,
+    g: { s: { ts: Date.now() - 45000 }, q: { 0: { 0: { k: 'ready', n: 0, ts: Date.now() - 40000 } } } } });
+  const A0 = spur(laufzeit(UID[0]));
+  // Zu frueh geht nichts: ein FRISCHER Anker in einem anderen Raum wird abgewiesen.
+  const frisch = 'HHJK';
+  await raum(frisch, 3, { bereit: false, g: { s: { ts: Date.now() } } });
+  const zuFrueh = await A0.M.fbV9NetWriteReadyTimeout(ctx(frisch, 0, 3), 1);
+  t('H: vor der Frist weisen die Regeln den Fristschluss ab',
+    zuFrueh.status === A0.M.FB_V9_DENIED, zuFrueh.status);
+  await entferne(frisch);
+  // Nach der Frist: Fristschluss, dann Disqualifikation.
+  const to1 = await A0.M.fbV9NetWriteReadyTimeout(ctx(code, 0, 3), 1);
+  const to2 = await A0.M.fbV9NetWriteReadyTimeout(ctx(code, 0, 3), 2);
+  t('H: nach der Frist traegt der Fristschluss',
+    to1.status === A0.M.FB_V9_COMMITTED && to2.status === A0.M.FB_V9_COMMITTED,
+    to1.status + '/' + to2.status);
+  const q1 = await lies('rooms/' + code + '/g/0/q/0/1');
+  t('H: er steht als {k,n,ts}', q1.k === 'timeout' && q1.n === 0 &&
+    Object.keys(q1).sort().join(',') === 'k,n,ts', JSON.stringify(q1));
+  const x1 = await A0.M.fbV9NetWriteDisqualify(ctx(code, 0, 3), 1);
+  const x2 = await A0.M.fbV9NetWriteDisqualify(ctx(code, 0, 3), 2);
+  t('H: die Disqualifikation folgt', x1.status === A0.M.FB_V9_COMMITTED &&
+    x2.status === A0.M.FB_V9_COMMITTED, x1.status + '/' + x2.status);
+  const xs = await lies('rooms/' + code + '/g/0/x/1');
+  t('H: sie steht als {k,n,ts}', xs.k === 'ready_timeout' && xs.n === 0);
+  // Mit zwei disqualifizierten Sitzen darf die Runde oeffnen.
+  const auf = await A0.M.fbV9NetOpenTurn(ctx(code, 0, 3));
+  t('H: die Runde oeffnet ohne die disqualifizierten Sitze',
+    auf.status === A0.M.FB_V9_COMMITTED, auf.status);
+  // Und ihre Slots lassen sich SOFORT schliessen - ohne sechs Sekunden zu warten.
+  const t0 = Date.now();
+  const r1 = await A0.M.fbV9NetWriteRemove(ctx(code, 0, 3), 1);
+  const r2 = await A0.M.fbV9NetWriteRemove(ctx(code, 0, 3), 2);
+  t('H: remove gegen einen disqualifizierten Sitz traegt sofort',
+    r1.status === A0.M.FB_V9_COMMITTED && r2.status === A0.M.FB_V9_COMMITTED,
+    r1.status + '/' + r2.status);
+  t('H: und zwar ohne die Sechs-Sekunden-Frist', Date.now() - t0 < 3000, Date.now() - t0);
+  const c1 = await lies('rooms/' + code + '/g/0/c/0/1');
+  t('H: der Slot traegt {k:remove, ts}', c1.k === 'remove' &&
+    Object.keys(c1).sort().join(',') === 'k,ts', JSON.stringify(c1));
+  await entferne(code);
+}
+
+// ══ I - PRAESENZ-AUSTRAGUNG SCHLIESST EBENFALLS SOFORT ═══════════════════════
+abschnitt('I - e und remove');
+{
+  const code = 'JKMN';
+  await raum(code, 3, { offline: [2] });
+  const A0 = spur(laufzeit(UID[0]));
+  // e entsteht ueber den ECHTEN Regelweg: ein anwesender Mitspieler traegt einen
+  // lange abwesenden Sitz aus.
+  const ev = await A0.M.fbV9NetOpenTurn(ctx(code, 0, 3));   // Runde zuerst
+  t('I: die Runde oeffnet', ev.status === A0.M.FB_V9_COMMITTED, ev.status);
+  const eOk = await (async () => { try {
+    const r = await runTransaction(ref(alsUid(UID[0]),
+      'rooms/' + code + '/g/0/e/2'), cur => cur == null ? true : undefined,
+      { applyLocally: false });
+    return r.committed; } catch (e) { return false; } })();
+  t('I: ein anwesender Mitspieler traegt den abwesenden Sitz aus', eOk === true);
+  const rr = await A0.M.fbV9NetWriteRemove(ctx(code, 0, 3), 2);
+  t('I: sein Slot wird sofort geschlossen', rr.status === A0.M.FB_V9_COMMITTED, rr.status);
+  t('I: mit einem remove-Terminal',
+    (await lies('rooms/' + code + '/g/0/c/0/2')).k === 'remove');
+  await entferne(code);
+}
+
+// ══ J - HASH-ABWEICHUNG ══════════════════════════════════════════════════════
+abschnitt('J - eine Enthuellung, die nicht zu ihrem Commit passt');
+{
+  const code = 'JJKM';
+  await raum(code, 2);
+  const A0 = spur(laufzeit(UID[0])), B0 = spur(laufzeit(UID[1]));
+  await A0.M.fbV9NetOpenTurn(ctx(code, 0, 2));
+  // Beide committen ehrlich; B enthuellt danach ANDERE Werte. Die Regeln koennen
+  // das nicht bemerken - sie rechnen keinen Hash. Der Client muss es bemerken.
+  const tA = await A0.M.fbV9MakeCommit(A0.M.fbV9EngineCtx(ctx(code, 0, 2)),
+                                       { idx: 0, dx: 5, dy: 0, sp: 0 });
+  const tB = await B0.M.fbV9MakeCommit(B0.M.fbV9EngineCtx(ctx(code, 1, 2)),
+                                       { idx: 1, dx: -5, dy: 0, sp: 0 });
+  await A0.M.fbV9NetWriteCommit(ctx(code, 0, 2), tA);
+  await B0.M.fbV9NetWriteCommit(ctx(code, 1, 2), tB);
+  await A0.M.fbV9NetOpenReveal(ctx(code, 0, 2));
+  const revA = A0.M.fbV9MakeReveal({ room: code, gen: 0, turn: 0, seat: 0 });
+  const revB = B0.M.fbV9MakeReveal({ room: code, gen: 0, turn: 0, seat: 1 });
+  await A0.M.fbV9NetWriteReveal(ctx(code, 0, 2), revA);
+  const gelogen = Object.assign({}, revB, { dx: 99 });   // andere Werte, gleiches Salz
+  const wB = await B0.M.fbV9NetWriteReveal(ctx(code, 1, 2), gelogen);
+  t('J: die Regeln nehmen die formal gueltige Enthuellung an',
+    wB.status === B0.M.FB_V9_COMMITTED, wB.status);
+  const c = await lies('rooms/' + code + '/g/0/c/0');
+  const r = await lies('rooms/' + code + '/g/0/r/0');
+  const mengen = await Promise.all([A0, B0].map(k =>
+    k.M.fbV9AcceptedSet({ room: code, gen: 0, turn: 0 }, 2, c, r)));
+  t('J: beide Clients erkennen die Abweichung',
+    mengen.every(m => m[1].status === A0.M.FB_V9_MISMATCH),
+    mengen.map(m => m[1].status).join('/'));
+  t('J: und sind sich vollstaendig einig',
+    JSON.stringify(mengen[0]) === JSON.stringify(mengen[1]));
+  t('J: der ehrliche Zug bleibt gueltig', mengen[0][0].status === A0.M.FB_V9_VALID);
+  t('J: fuer den Abweichler gibt es keinen Zug', mengen[0][1].move === null);
+  await entferne(code);
+}
+
+// ══ K - REHYDRIERUNG UEBER DEN ECHTEN EINSTIEG ═══════════════════════════════
+abschnitt('K - zwei Runden Historie, dann ein frischer Client');
+{
+  const code = 'KKMN';
+  await raum(code, 2);
+  const A0 = spur(laufzeit(UID[0])), B0 = spur(laufzeit(UID[1]));
+  const ZUG = [[{ idx: 0, dx: 3, dy: 1, sp: 0.25 }, { idx: 1, dx: -3, dy: -1, sp: 0 }],
+               [{ idx: 0, dx: 2, dy: 0, sp: 0 }, { idx: 1, dx: -2, dy: 0, sp: 0.5 }]];
+  for (let n = 0; n < 2; n++) {
+    if (n > 0) await seed('rooms/' + code + '/g/0/q/' + n,
+      { 0: { k: 'ready', n: n, ts: Date.now() }, 1: { k: 'ready', n: n, ts: Date.now() } });
+    const l0 = A0.M.fbV9Start(Object.assign(ctx(code, 0, 2), { turn: n }), { move: ZUG[n][0] });
+    const l1 = B0.M.fbV9Start(Object.assign(ctx(code, 1, 2), { turn: n }), { move: ZUG[n][1] });
+    laufende.push({ stop: () => { l0.stop(); l1.stop(); } });
+    await warteAuf('Runde ' + n + ' wird abgeschlossen',
+      () => l0.stufe === A0.M.FB_V9_COMPLETE && l1.stufe === B0.M.FB_V9_COMPLETE, 20000);
+    l0.stop(); l1.stop();
+  }
+  t('K: zwei Abschlussanker stehen',
+    !!(await lies('rooms/' + code + '/g/0/z/0')) && !!(await lies('rooms/' + code + '/g/0/z/1')));
+  // Ein FRISCHER Client betritt ueber den echten Einstieg.
+  const N = spur(laufzeit(UID[0]));
+  N.welt.cap = 2; N.welt.seat = 0; N.welt.myPlayer = 0; N.welt.roomCode = code;
+  N.welt.gen = 0; N.welt.turnNo = -1; N.M.sync();
+  t('K: der Einstieg uebernimmt', N.M.fbV9RaumStart() === true);
+  await warteAuf('die Welt ist wiederhergestellt',
+    () => N.M.zustand().turnNo === 2, 15000);
+  const zu = N.M.zustand();
+  t('K: beide Runden sind nachgespielt', zu.turnNo === 2, zu.turnNo);
+  t('K: die Kugeln stehen an der Summe beider Zuege',
+    zu.balls[0].x === 5 && zu.balls[0].y === 1 && zu.balls[1].x === -5,
+    zu.balls.map(b => b.x + '/' + b.y).join(' '));
+  t('K: der Drall ist der des LETZTEN Zuges',
+    zu.balls[0].spin === 0 && zu.balls[1].spin === 0.5,
+    zu.balls.map(b => b.spin).join('/'));
+  t('K: niemand ist ausgeschieden', zu.aktiv.slice(0, 2).join(',') === 'true,true',
+    zu.aktiv.join(','));
+  t('K: das Match laeuft', zu.phase !== 'over' && zu.footballWinner === null);
+  t('K: nachgespielt wurde STUMM', N.welt.spur.indexOf('KLANG') < 0,
+    N.welt.spur.join(',').slice(0, 120));
+  t('K: und die Wiederherstellung schrieb nichts in die Historie',
+    (await lies('rooms/' + code + '/g/0/c/2')) === null);
+  N.M.fbV9LebenStop();
+  await entferne(code);
+}
+
+// ══ L - AKTUELLE RUNDE OHNE ABSCHLUSSANKER ═══════════════════════════════════
+abschnitt('L - c und r vollstaendig, z fehlt: das ist die LAUFENDE Runde');
+{
+  const code = 'MNPQ';
+  await raum(code, 2);
+  const A0 = spur(laufzeit(UID[0])), B0 = spur(laufzeit(UID[1]));
+  // Ein vollstaendiger Zug OHNE z: beide Laeufe werden vor dem Abschluss gestoppt.
+  await A0.M.fbV9NetOpenTurn(ctx(code, 0, 2));
+  for (const [k, seat] of [[A0, 0], [B0, 1]]) {
+    const term = await k.M.fbV9MakeCommit(k.M.fbV9EngineCtx(ctx(code, seat, 2)),
+                                          { idx: seat, dx: seat ? -4 : 4, dy: 0, sp: 0 });
+    await k.M.fbV9NetWriteCommit(ctx(code, seat, 2), term);
+  }
+  await A0.M.fbV9NetOpenReveal(ctx(code, 0, 2));
+  for (const [k, seat] of [[A0, 0], [B0, 1]])
+    await k.M.fbV9NetWriteReveal(ctx(code, seat, 2),
+      k.M.fbV9MakeReveal({ room: code, gen: 0, turn: 0, seat: seat }));
+  t('L: c und r sind vollstaendig',
+    Object.keys(await lies('rooms/' + code + '/g/0/c/0')).length === 2 &&
+    Object.keys(await lies('rooms/' + code + '/g/0/r/0')).length === 2);
+  t('L: aber es gibt keinen Abschlussanker',
+    (await lies('rooms/' + code + '/g/0/z/0')) === null);
+  // Ein frischer Client: diese Runde ist NICHT Historie.
+  const N = spur(laufzeit(UID[0]));
+  N.welt.cap = 2; N.welt.seat = 0; N.welt.myPlayer = 0; N.welt.roomCode = code;
+  N.welt.gen = 0; N.welt.turnNo = -1; N.M.sync();
+  const hist = await N.M.fbV9RehydrierPlan(ctx(code, 0, 2),
+    await (await fetch(REST + '/rooms/' + code + '/g/0.json?ns=' + NS,
+                       { headers: ADMIN })).json());
+  t('L: die Wiederherstellung sieht KEINE abgeschlossene Runde',
+    hist.mengen && hist.mengen.length === 0, JSON.stringify(hist).slice(0, 90));
+  t('L: die Runde bleibt der laufenden Steuerung',
+    (await lies('rooms/' + code + '/g/0/d/0')) !== null);
+  N.M.fbV9LebenStop();
+  await entferne(code);
+}
+
+// ══ M - v8 BLEIBT UNBERUEHRT ═════════════════════════════════════════════════
+abschnitt('M - ein v8-Raum auf demselben Emulator');
+{
+  const code = 'MMNP';
+  const p = {}, players = {};
+  for (let i = 0; i < 2; i++) {
+    p[i] = { s: 'V8TAB' + i, on: true, t: Date.now() };
+    players[i] = { id: 'V8PID' + i, name: 'P' + i, tab: 'V8TAB' + i, uid: UID[i] };
+  }
+  await seed('rooms/' + code, { v: 8, hostUid: UID[0],
+    config: { game: 'football', winTarget: 3, fmt: 'elimination',
+              visibility: 'private', mode: 'lives', cap: 2 },
+    gen: 0, state: 'playing', seats: 2, p: p, players: players,
+    created: Date.now() - 60000 });
+  eigeneRaeume.add(code); ANGELEGT.push(code);
+  const A0 = spur(laufzeit(UID[0]));
+  // Der v8-Zugslot traegt Klartext - das ist sein Datenmodell und bleibt so.
+  const ok = await (async () => { try {
+    const r = await runTransaction(ref(alsUid(UID[0]), 'rooms/' + code + '/g/0/t/0/0'),
+      // Der v8-Football-Slot verlangt genau k,idx,dx,dy,sp - und nichts sonst.
+      cur => cur == null ? { k: 'move', idx: 0, dx: 5, dy: 0, sp: 0 } : undefined,
+      { applyLocally: false });
+    return r.committed; } catch (e) { return false; } })();
+  t('M: der v8-Zugslot t nimmt weiterhin an', ok === true);
+  // Und JEDER v9-Knoten ist in einem v8-Raum unerreichbar.
+  const v9c = ctx(code, 0, 2);
+  const versuche = await Promise.all([
+    A0.M.fbV9NetOpenStart(v9c), A0.M.fbV9NetOpenTurn(v9c),
+    A0.M.fbV9NetWriteReady(v9c), A0.M.fbV9NetMarkComplete(v9c),
+    A0.M.fbV9NetWriteDisqualify(v9c, 1)]);
+  t('M: kein v9-Knoten laesst sich in einem v8-Raum anlegen',
+    versuche.every(r => r.status === A0.M.FB_V9_DENIED),
+    versuche.map(r => r.status).join(','));
+  t('M: und im Raum steht auch nichts davon',
+    (await lies('rooms/' + code + '/g/0/s')) === null &&
+    (await lies('rooms/' + code + '/g/0/q')) === null &&
+    (await lies('rooms/' + code + '/g/0/z')) === null);
+  t('M: die Zughistorie steht dagegen unter t',
+    (await lies('rooms/' + code + '/g/0/t/0/0')) !== null);
+  await entferne(code);
+}
 // ══ AUFRAEUMEN ═════════════════════════════════════════════════════════════════
 abschnitt('Aufraeumen');
 // Jedes Szenario hat sich selbst abgeraeumt; was hier noch steht, waere ein Fehler.
