@@ -918,8 +918,13 @@ abschnitt('Waechter: die Steuerung ruht');
   // der dritte und letzte benannte Beruehrungspunkt zwischen Spiel und v9.
   // Seit V9.4D2 kommen die ECHTEN Einstiege dazu: der Rejoin ruft die Rehydrierung,
   // der frische Start delegiert an sie. Mehr Namen darf das Produkt nicht nennen.
+  // Seit V9.5B kommt der Eingabeweg dazu: applyCommit gibt den bereits bereinigten Zug
+  // in einem v9-Raum an die Ablaufsteuerung statt in den v8-Zugslot. Das ist der sechste
+  // und vorerst letzte benannte Beruehrungspunkt - er wird unten EINZELN gezaehlt, damit
+  // die Aufnahme in diese Liste den Waechter nicht aufweicht.
   const HAKEN = ['fbV9LebenNeueRunde', 'fbV9LebenStop', 'fbV9Wirken',
-                 'fbV9RaumStart', 'fbV9RaumIst9', 'fbV9Rehydrieren', 'fbV9LebenCtx'];
+                 'fbV9RaumStart', 'fbV9RaumIst9', 'fbV9Rehydrieren', 'fbV9LebenCtx',
+                 'fbV9LebenAn', 'fbV9LebenHandeln', 'fbV9RaumHier'];
   const ohneHaken = (txt) => txt.split(/\r?\n/)
     .filter(zl => !HAKEN.some(h => zl.indexOf(h) >= 0)).join('\n');
   t('ausserhalb des ruhenden Bereichs nennt keine Zeile eine v9-Funktion',
@@ -931,7 +936,24 @@ abschnitt('Waechter: die Steuerung ruht');
     (HTML.match(/fbV9LebenNeueRunde\(\)/g) || []).length + '/' +
     (HTML.match(/fbV9LebenStop\(\)/g) || []).length + '/' +
     (HTML.match(/fbV9Wirken\(/g) || []).length);
-  for (const fn of ['onlineSendCommit', 'writeTurnSlot', 'onlineArmTurn', 'maybeReveal',
+  // Der Eingabeweg steht GENAU EINMAL, und zwar mit seiner Bedingung: ohne die Pruefung
+  // auf einen aktiven v9-Zusammenhang wuerde ein v8-Raum seinen Zug nicht mehr los.
+  t('der Eingabeweg steht genau einmal - mit seiner Bedingung',
+    (HTML.match(/if\(typeof fbV9LebenAn==='function'&&fbV9LebenAn\(\)\)\{ if\(fbV9LebenHandeln\(\{move:/g) || []).length === 1,
+    (HTML.match(/fbV9LebenHandeln\(/g) || []).length);
+  // writeTurnSlot steht seit V9.5B bewusst NICHT mehr in dieser Liste: es ist der einzige
+  // Schreibpfad in den v8-Zugslot und traegt deshalb die Sperre, die ihn in einem
+  // v9-Raum schweigen laesst. Geprueft wird stattdessen genau diese eine Nennung.
+  const wts = grab(/function writeTurnSlot\(s,payload,opts\)\{[\s\S]*?\n\}/, 'writeTurnSlot');
+  t('writeTurnSlot() nennt v9 nur fuer die Sperre',
+    (wts.match(/fbV9[A-Za-z]*/g) || []).join(',') === 'fbV9RaumHier,fbV9RaumHier',
+    (wts.match(/fbV9[A-Za-z]*/g) || []).join(','));
+  t('und zwar als erste Anweisung, vor jedem Schreibvorgang',
+    /\{\s*(\/\/[^\n]*\n\s*)*if\(typeof fbV9RaumHier==='function'&&fbV9RaumHier\(\)\)return;/.test(wts));
+  t('der v8-Pfad selbst bleibt unveraendert',
+    /'\/g\/'\+ctx\.gen\+'\/t\/'\+ctx\.turnNo\+'\/'\+s/.test(wts)
+    && /runTransaction\(slotRef, current=>current==null\?payload:undefined, \{applyLocally:false\}\)/.test(wts));
+  for (const fn of ['onlineSendCommit', 'onlineArmTurn', 'maybeReveal',
                     'processSlot', 'applyLaunch', 'allAliveCommitted', 'beginReveal'])
     t(fn + '() ruft die Steuerung nicht',
       grab(new RegExp('function ' + fn + '\\([^)]*\\)\\{[\\s\\S]*?' + NL + '\\}'), fn)

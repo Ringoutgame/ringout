@@ -604,8 +604,11 @@ abschnitt('Waechter');
   // dritte und letzte benannte Beruehrungspunkt zwischen Spiel und v9.
   // Seit V9.4D2 kommen die ECHTEN Einstiege dazu: der Rejoin ruft die Rehydrierung,
   // der frische Start delegiert an sie. Mehr Namen darf das Produkt nicht nennen.
+  // Seit V9.5B nennt auch der Eingabeweg in applyCommit zwei v9-Namen. Gezaehlt wird er
+  // dort, wo die Beruehrungspunkte gezaehlt werden - in test_online_v9_coordinator.js.
   const HAKEN = ['fbV9LebenNeueRunde', 'fbV9LebenStop', 'fbV9Wirken',
-                 'fbV9RaumStart', 'fbV9RaumIst9', 'fbV9Rehydrieren', 'fbV9LebenCtx'];
+                 'fbV9RaumStart', 'fbV9RaumIst9', 'fbV9Rehydrieren', 'fbV9LebenCtx',
+                 'fbV9LebenAn', 'fbV9LebenHandeln', 'fbV9RaumHier'];
   const ohneHaken = (txt) => txt.split(/\r?\n/)
     .filter(zl => !HAKEN.some(h => zl.indexOf(h) >= 0)).join('\n');
   t('ausserhalb des ruhenden Bereichs nennt keine Zeile eine v9-Funktion',

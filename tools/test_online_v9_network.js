@@ -430,14 +430,20 @@ abschnitt('Waechter: der Adapter ruht');
   // Seit V9.4D2 kommen die ECHTEN Einstiege dazu: der Rejoin ruft die Rehydrierung,
   // der frische Start delegiert an sie. Mehr Namen darf das Produkt nicht nennen.
   const HAKEN = ['fbV9LebenNeueRunde', 'fbV9LebenStop', 'fbV9Wirken',
-                 'fbV9RaumStart', 'fbV9RaumIst9', 'fbV9Rehydrieren', 'fbV9LebenCtx'];
+                 'fbV9RaumStart', 'fbV9RaumIst9', 'fbV9Rehydrieren', 'fbV9LebenCtx',
+                 // V9.5B: der Eingabeweg in applyCommit. Gezaehlt wird er in
+                 // test_online_v9_coordinator.js, nicht hier.
+                 'fbV9LebenAn', 'fbV9LebenHandeln', 'fbV9RaumHier'];
   const ohneHaken = (txt) => txt.split(/\r?\n/)
     .filter(zl => !HAKEN.some(h => zl.indexOf(h) >= 0)).join('\n');
   t('ausserhalb nennt keine Zeile eine v9-Funktion - ausser den benannten Haken',
     ohneHaken(HTML.split(bereich).join('')).indexOf('fbV9') < 0);
   // Die freigegebenen Netzfunktionen sind unveraendert v8.
   const NL = String.fromCharCode(10);
-  for (const fn of ['onlineSendCommit', 'writeTurnSlot', 'onlineArmTurn', 'maybeReveal',
+  // writeTurnSlot traegt seit V9.5B die Sperre, die den v8-Zugslot in einem v9-Raum
+  // stumm schaltet - es nennt v9 also bewusst. Gezaehlt wird diese Nennung in
+  // test_online_v9_coordinator.js; hier bleibt der v8-Pfad selbst der Gegenstand.
+  for (const fn of ['onlineSendCommit', 'onlineArmTurn', 'maybeReveal',
                     'processSlot', 'applyLaunch', 'allAliveCommitted'])
     t(fn + '() ruft keinen v9-Helfer',
       grab(new RegExp('function ' + fn + '\\([^)]*\\)\\{[\\s\\S]*?' + NL + '\\}'), fn)

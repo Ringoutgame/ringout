@@ -4996,6 +4996,17 @@ function applyCommit(who,shooterIdx,fx,fy,spin){
     // Leave-Sentinel nach Presence-Flap), simulierten die anderen den Sentinel,
     // dieser Client aber seinen echten Move -> divergente Sims, verschiedene
     // Ringouts/Sieger, Haenger. Jetzt simulieren alle exakt den DB-Wert.
+    // V9 (ruhend): in einem Protokoll-9-Raum traegt die V9-Ablaufsteuerung den Zug.
+    // Es ist DERSELBE bereits bereinigte Zug aus sanitizeMove - nur der Weg dorthin
+    // ist ein anderer; es wird nichts nachgerechnet, geklemmt oder ersetzt. Auch der
+    // Nullzug (Stand-Taste, schwacher Tipp) geht als 'move', nicht als 'pass': ein
+    // pass stuende offen in der Datenbank und verriete waehrend des Commit-Fensters,
+    // dass dieser Sitz stehen bleibt - genau die Absicht, die v9 verbirgt.
+    // Weist die Ablaufsteuerung ab (kein laufender Zyklus, oder dieser Sitz hat diese
+    // Runde schon gehandelt), faellt NICHTS auf den v8-Weg zurueck: ein v9-Raum wiese
+    // einen t-Slot ohnehin ab, und ein zweiter Anlauf erzeugte ein zweites Salz zu
+    // einem bereits unveraenderlichen Commit.
+    if(typeof fbV9LebenAn==='function'&&fbV9LebenAn()){ if(fbV9LebenHandeln({move:{idx:m.idx,dx:m.dx,dy:m.dy,sp:m.sp}})){setPhaseText();updateHud();} return; }
     onlineSendCommit(m.idx,m.dx,m.dy,m.sp);
     setPhaseText();updateHud();
     return;}
@@ -10626,6 +10637,15 @@ async function fbV9Rehydrieren(ctx){
 function fbV9RaumIst9(raum){
   return !!raum && raum.v===9 && ONLINE_PROTOCOL_VERSION===9;
 }
+// Dieselbe Frage fuer den Raum, in dem dieser Client GERADE SITZT. fbV9RaumIst9 prueft
+// einen gelesenen Raum, bevor man ihn betritt; hier ist er schon betreten, und dann gibt
+// es kein `v` mehr zu lesen - es gilt die Invariante, die die Ruhe ueberhaupt traegt:
+// ein Client betritt nur Raeume seiner eigenen Protokollfassung. Bewusst OHNE Sitz,
+// Modus und Variante: die Frage lautet nicht "laeuft mein v9-Lebenslauf gerade", sondern
+// "ist dieser Raum ein v9-Raum". Ein Nachspieler, ein Zuschauer und ein Client zwischen
+// zwei Runden sitzen genauso in einem v9-Raum wie ein handelnder Spieler - und keiner
+// von ihnen darf in den v8-Zugslot schreiben.
+function fbV9RaumHier(){ return !!online && ONLINE_PROTOCOL_VERSION===9; }
 // Der Start eines v9-Raums - frisch wie nach einem Neuladen ueber DENSELBEN Weg. Ein
 // frischer Raum hat einfach keine abgeschlossene Runde; die Rehydrierung sieht das,
 // spielt nichts nach und meldet Runde 0 als bereit. Ein zweiter Startweg daneben
@@ -11753,6 +11773,16 @@ function isOnlineTerminated(){ return onlineTerminatedSession===onlineSessionId;
 // belegt, bricht die Transaction ab (kein Write) und result.snapshot enthaelt in
 // BEIDEN Faellen den autoritativen Serverwert (s. settleSlot).
 function writeTurnSlot(s,payload,opts){
+  // V9 (ruhend): der Zugslot gehoert v8. In einem v9-Raum weisen die Rules ihn ohnehin
+  // ab - aber das genuegt nicht: die alten Sentinelwege (SKIP, REMOVE, Stand-Sentinel)
+  // kennen die Protokollfassung nicht und laufen an genau der Grenze, die in v9 das
+  // Entscheidungsfenster IST. Ohne diese Sperre wuerde jede Runde erneut vergeblich
+  // schreiben, wiederholen und Fehler melden. Die Sperre steht hier, weil hier der
+  // EINZIGE Schreibpfad in den Slot liegt - jeder kuenftige Sentinelweg ist damit
+  // ebenfalls abgedeckt, ohne dass jemand daran denken muss. v9 hat fuer jeden dieser
+  // Faelle einen eigenen Eigentuemer: late, skip, remove und die Fristen der
+  // Bereitschaftssteuerung. Es wird hier nichts ersetzt, nur nichts mehr geschrieben.
+  if(typeof fbV9RaumHier==='function'&&fbV9RaumHier())return;
   if(isOnlineTerminated())return;   // Match terminal abgebrochen -> kein eigener Move/Sentinel mehr senden
   if(pendingSlot[s])return;   // eigener Write fuer diesen Slot bereits unterwegs -> kein doppeltes Senden
   opts=opts||{};
