@@ -163,7 +163,7 @@ const SRC = [
   grab(/function maybeStart\(\)\{[^\n]*/, 'maybeStart'),
   grab(/function startOnlineGame\(\)\{[^\n]*/, 'startOnlineGame'),
   grab(/const FF_MAX_STEPS_PER_TURN=[^\n]*/, 'FF_MAX_STEPS_PER_TURN'),
-  grab(/function fastForwardMatch\(turns\)\{[\s\S]*?\n\}/, 'fastForwardMatch'),
+  grab(/function fastForwardMatch\([^)]*\)\{[\s\S]*?\n\}/, 'fastForwardMatch'),
   grab(/function onOppLeft\(\)\{[\s\S]*?\n\}/, 'onOppLeft'),
   grab(/function onlineArmTurn\(\)\{[\s\S]*?\n\}/, 'onlineArmTurn'),
   grab(/function isCurrentCtx\(ctx\)\{[^\n]*/, 'isCurrentCtx'),

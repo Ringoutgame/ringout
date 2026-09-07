@@ -107,7 +107,7 @@ const env = new Function(`
   ok(/mode==='football'/.test(gate), 'die Effekte gelten nur im Football-Modus');
   ok(/!fbFxMute/.test(gate), 'waehrend der Rehydrierung ist die Bildsprache stumm');
   ok(/!replaying/.test(gate), 'und waehrend einer Wiedergabe ebenfalls');
-  const ff = HTML.match(/function fastForwardMatch\(turns\)\{[\s\S]*?\n\}/)[0];
+  const ff = HTML.match(/function fastForwardMatch\([^)]*\)\{[\s\S]*?\n\}/)[0];
   ok(/fbFxSilence\(true\)/.test(ff), 'die Rehydrierung schaltet die Bildsprache aktiv stumm');
   ok(/soundOn=false/.test(ff), 'und den Klang wie bisher');
   ok(/finally\s*\{[\s\S]*?fbFxSilence\(fx\)/.test(ff),

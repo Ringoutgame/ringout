@@ -425,7 +425,12 @@ abschnitt('Waechter: der Adapter ruht');
   t('er enthaelt den Netzadapter', bereich.indexOf('function fbV9NetOpenTurn') > 0);
   // Seit V9.4C ruft das Spiel an genau zwei Stellen hinein (Rundenbeginn, Settlement)
   // und raeumt an den bestehenden Grenzen ab. Diese Haken sind benannt und zaehlbar.
-  const HAKEN = ['fbV9LebenNeueRunde', 'fbV9LebenStop'];
+  // Seit V9.4D2 nennt fastForwardMatch zusaetzlich die gemeinsame Wirkung - der
+  // dritte und letzte benannte Beruehrungspunkt zwischen Spiel und v9.
+  // Seit V9.4D2 kommen die ECHTEN Einstiege dazu: der Rejoin ruft die Rehydrierung,
+  // der frische Start delegiert an sie. Mehr Namen darf das Produkt nicht nennen.
+  const HAKEN = ['fbV9LebenNeueRunde', 'fbV9LebenStop', 'fbV9Wirken',
+                 'fbV9RaumStart', 'fbV9RaumIst9', 'fbV9Rehydrieren', 'fbV9LebenCtx'];
   const ohneHaken = (txt) => txt.split(/\r?\n/)
     .filter(zl => !HAKEN.some(h => zl.indexOf(h) >= 0)).join('\n');
   t('ausserhalb nennt keine Zeile eine v9-Funktion - ausser den benannten Haken',

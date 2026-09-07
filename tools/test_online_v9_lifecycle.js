@@ -635,16 +635,25 @@ abschnitt('Waechter');
   t('und keinen dauerhaften Speicher',
     code.indexOf('sessionStorage') < 0 && code.indexOf('localStorage') < 0);
   // fastForwardMatch bleibt der v8-Weg - die v9-Rehydrierung ist V9.4D.
+  // fastForwardMatch traegt seit V9.4D2 zwei Eingaenge. Der v8-Zweig ist unveraendert -
+  // dieselbe Zughistorie, dieselben Aufrufe -, der v9-Zweig kommt additiv daneben und
+  // wird nur mit einer fertigen Zugmengenliste betreten.
   const ff = HTML.match(/function fastForwardMatch\([^)]*\)\{[\s\S]*?\n\}/);
-  t('fastForwardMatch ist unberuehrt und liest weiterhin die v8-Historie',
-    ff && ff[0].indexOf('fbV9') < 0 && ff[0].indexOf('turns[turnNo]') > 0);
+  t('fastForwardMatch liest im v8-Zweig weiterhin die t-Historie',
+    ff && ff[0].indexOf('turns[turnNo]') > 0 && ff[0].indexOf('processSlot(s,slots[s])') > 0 &&
+    ff[0].indexOf('allAliveCommitted()') > 0);
+  t('und der v9-Zweig benutzt AUSSCHLIESSLICH die gemeinsame Wirkung',
+    ff && ff[0].indexOf('fbV9Wirken(menge,np())') > 0 &&
+    (ff[0].match(/fbV9[A-Za-z]*/g) || []).join(',') === 'fbV9Wirken');
   const al = HTML.match(/function applyLaunch\([^)]*\)\{[\s\S]*?\n\}/);
   t('applyLaunch ist unberuehrt', al && al[0].indexOf('fbV9') < 0);
   const at = HTML.match(/function onlineArmTurn\([^)]*\)\{[\s\S]*?\n\}/);
   t('onlineArmTurn ist unberuehrt', at && at[0].indexOf('fbV9') < 0);
   // Die beiden Haken stehen bei den AUFRUFERN von onlineArmTurn.
+  // Vier Treffer: die Definition, die zwei Spielhaken und der Abschluss einer
+  // Rehydrierung, die in einer noch nicht eroeffneten Runde landet.
   t('der Haken steht an beiden Rundenanfaengen',
-    (HTML.match(/fbV9LebenNeueRunde\(\)/g) || []).length === 3,
+    (HTML.match(/fbV9LebenNeueRunde\(\)/g) || []).length === 4,
     (HTML.match(/fbV9LebenNeueRunde\(\)/g) || []).length);
   t('und beide sind gegen einen fehlenden Block abgesichert',
     (HTML.match(/typeof fbV9LebenNeueRunde==='function'\)fbV9LebenNeueRunde\(\)/g) || []).length === 2);

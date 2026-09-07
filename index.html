@@ -10221,8 +10221,12 @@ function fbV9ReadyStop(lauf){ if(lauf&&lauf.stop)lauf.stop(); }
 // Rundennummer gehoert weiterhin ausschliesslich onlineArmTurn.
 let fbV9Leben=null;
 
+// Waehrend eine Historie nachgespielt wird, ruht die ganze Anbindung: kein
+// Bereitschaftslauf, keine Ablaufsteuerung, kein einziger Schreibvorgang. Das
+// Nachspiel stellt einen ZUSTAND wieder her, es wiederholt kein Erlebnis.
+let fbV9Nachspielen=false;
 function fbV9LebenAn(){
-  return !!online && ONLINE_PROTOCOL_VERSION===9 && mode==='football'
+  return !fbV9Nachspielen && !!online && ONLINE_PROTOCOL_VERSION===9 && mode==='football'
       && typeof fbElim4==='function' && fbElim4()
       && typeof roomCode==='string' && !!roomCode && myPlayer>=0;
 }
@@ -10277,6 +10281,29 @@ function fbV9LebenBereit(turn){
   // ERST JETZT das ausdrueckliche Zeichen: der Aufrufer steht an einer Stelle, an der
   // die Physik der Vorrunde ausgelaufen und jede Folge angewandt ist.
   fbV9ReadyLocal(L.bereit);
+  return L;
+}
+// Nach einer Rehydrierung, wenn die Runde schon offen ist: derselbe Lebenslauf, aber
+// OHNE Bereitschaftsschritt. Die Barriere ist nachweislich gefallen - d steht ja bereits
+// autoritativ da -, und ein neuer Bereitschaftslauf wuerde nur dreissig Sekunden warten,
+// waehrend die Entscheidungsfrist laengst laeuft.
+function fbV9LebenFortsetzen(turn){
+  if(!fbV9LebenAn())return null;
+  if(!Number.isInteger(turn)||turn<0)return null;
+  fbV9LebenStop();
+  const ctx=fbV9LebenCtx(turn);
+  if(!fbV9CtxOk(ctx))return null;
+  const L={sid:onlineSessionId,room:roomCode,gen:gen,turn:turn,seat:myPlayer,
+           ctx:ctx,stufe:'PROTOKOLL',bereit:null,lauf:null,aktion:null,
+           uebergeben:true,bereitFertig:true,rausAb:null,rausStand:null,
+           rausLaeuft:false,wecker:{},angewandt:false};
+  fbV9Leben=L;
+  // OHNE Handlung: der eigene Zug wird - falls ueberhaupt noch einer kommt - ueber
+  // fbV9LebenHandeln nachgereicht. Ein bereits abgegebener kommt aus dem Raum.
+  L.lauf=fbV9Start(ctx,null);
+  const lauf=L.lauf;
+  lauf.fertig.then(()=>{ if(lauf.stufe===FB_V9_COMPLETE)fbV9ApplyAccepted(L,lauf.menge); });
+  fbV9LebenRausStarten(L);
   return L;
 }
 // Die Handlung dieser Runde. Sie kommt NICHT von hier: was dieser Sitz zieht,
@@ -10433,12 +10460,12 @@ function fbV9AcceptedOk(menge,cap){
 // Eine Zugmenge wird GENAU EINMAL wirksam. Ein zweiter Rueckruf, ein doppelter
 // Schnappschuss oder ein wiederholtes Ende duerfen weder zweimal ausscheiden lassen
 // noch zweimal starten.
-function fbV9ApplyAccepted(L,menge){
-  if(!fbV9LebenAn()||!fbV9LebenAktuell(L))return false;
-  if(L.angewandt)return false;
-  if(L.turn!==turnNo)return false;              // veraltete Runde: nichts anwenden
-  if(!fbV9AcceptedOk(menge,L.ctx.cap))return false;
-  L.angewandt=true;
+// Die reine WIRKUNG einer Zugmenge - ohne Lebenslauf, ohne Netz, ohne Identitaet.
+// Genau diese Funktion benutzen beide Wege: das laufende Spiel ueber die Bruecke und
+// das Nachspielen der Historie. Es gibt keine zweite Uebersetzung.
+function fbV9Wirken(menge,cap){
+  if(!fbV9AcceptedOk(menge,cap))return false;
+  const kap=cap;
   // (1) PROTOKOLLAUSSCHLUESSE ZUERST, in kanonischer Sitzreihenfolge. Eine Kugel, die
   //     diesen Abschuss verwirkt hat, darf in ihm nicht mehr mitkollidieren - deshalb
   //     erst ausscheiden, dann starten. Benutzt wird die BESTEHENDE Eliminierung.
@@ -10448,7 +10475,7 @@ function fbV9ApplyAccepted(L,menge){
   //     ueberhaupt noch etwas bewirkt. Ein bereits ausgeschiedener Sitz kann nicht
   //     entscheiden; er wuerde sofort zurueckkehren, und niemand nennte den Ausgang.
   const stapel=[];
-  for(let i=0;i<L.ctx.cap;i++){
+  for(let i=0;i<kap;i++){
     const e=menge[i];
     if(e.kind==='move'&&FB_V9_RAUS.indexOf(e.status)>=0)stapel.push(i);
   }
@@ -10462,7 +10489,7 @@ function fbV9ApplyAccepted(L,menge){
   // (3) Nur gueltige Zuege, und zwar EXAKT die verifizierten Werte: keine erneute
   //     Begrenzung, keine Zufallskomponente, keine Zielhilfe.
   resetCommits();
-  for(let i=0;i<L.ctx.cap;i++){
+  for(let i=0;i<kap;i++){
     const e=menge[i];
     if(e.kind!=='move'||e.status!==FB_V9_VALID)continue;
     const b=balls[e.move.idx];
@@ -10474,6 +10501,143 @@ function fbV9ApplyAccepted(L,menge){
   //     wie im lokalen Spiel: Physik, Tore, Leben, Settlement, naechste Bereitschaft.
   beginReveal();
   applyLaunch();
+  return true;
+}
+// Der Weg aus dem LAUFENDEN Spiel: Identitaet, Einmaligkeit, dann dieselbe Wirkung.
+function fbV9ApplyAccepted(L,menge){
+  if(!fbV9LebenAn()||!fbV9LebenAktuell(L))return false;
+  if(L.angewandt)return false;
+  if(L.turn!==turnNo)return false;              // veraltete Runde: nichts anwenden
+  if(!fbV9AcceptedOk(menge,L.ctx.cap))return false;
+  L.angewandt=true;
+  return fbV9Wirken(menge,L.ctx.cap);
+}
+
+
+// ── V9-REHYDRIERUNG: DIE WELT AUS DER HISTORIE (RUHEND) ─────────────────────
+// Es gibt KEINE Momentaufnahme der Welt in Firebase - und es soll keine geben. Der
+// Zustand ist die Folge aus Anfangsaufstellung und vollstaendiger Zughistorie, und die
+// Simulation ist deterministisch. Ein Rueckkehrer bekommt seinen Zustand deshalb, indem
+// dieselbe Pipeline dieselben Zuege noch einmal rechnet - nicht, indem ihm jemand
+// Kugelpositionen schickt.
+//
+// WAS EINE RUNDE ZUR HISTORIE MACHT: der autoritative Abschlussanker z. Vollstaendige
+// c- und r-Knoten allein genuegen NICHT - dann kann ein anderer Client die Runde gerade
+// noch abschliessen, und sie gehoert der laufenden Steuerung, nicht dem Nachspiel.
+//
+// WAS HIER NICHT PASSIERT: kein Schreibvorgang, kein Bereitschaftslauf, keine
+// Ablaufsteuerung, kein Klang. Dafuer sorgt fbV9Nachspielen.
+
+// Eine einzige, in sich stimmige Aufnahme der Generation. Ein Punktlesen je Knoten
+// koennte ein z sehen, dessen c/r aus einem aelteren Stand fehlen - genau das waere die
+// Sorte Widerspruch, aus der man keine Welt bauen darf.
+async function fbV9HistorieLesen(ctx){
+  if(!fbV9CtxOk(ctx))return null;
+  try{
+    const snap=await window.FB.get(window.FB.ref(window.FB.db,
+      'rooms/'+ctx.code+'/g/'+ctx.gen));
+    return snap?(snap.val()||{}):null;
+  }catch(e){ return null; }
+}
+
+// Aus der Aufnahme die Folge der nachspielbaren Runden bestimmen - und zwar
+// LUECKENLOS ab Runde 0. Jede Runde wird dabei durch dieselbe Deutung geschickt, die
+// auch im laufenden Spiel entscheidet; es gibt keinen zweiten Hashpruefer und keine
+// zweite Statusabbildung.
+async function fbV9RehydrierPlan(ctx,hist){
+  if(!fbV9CtxOk(ctx))return {fehler:'Zusammenhang ungueltig'};
+  if(!hist||typeof hist!=='object')return {fehler:'keine Historie'};
+  const z=hist.z||{}, c=hist.c||{}, r=hist.r||{}, mengen=[];
+  for(let n=0;n<GEN_MAX;n++){
+    if(!fbV9AnkerOk(z[n]))break;         // ab hier ist es die LAUFENDE Runde
+    if(!fbV9CommitsComplete(ctx.cap,c[n]))
+      return {fehler:'Runde '+n+': Commit-Barriere unvollstaendig'};
+    if(!fbV9ResultsComplete(ctx.cap,c[n],r[n]))
+      return {fehler:'Runde '+n+': Ergebnisbarriere unvollstaendig'};
+    let menge=null;
+    try{ menge=await fbV9AcceptedSet({room:ctx.code,gen:ctx.gen,turn:n},ctx.cap,c[n],r[n]); }
+    catch(e){ return {fehler:'Runde '+n+': Zugmenge nicht bestimmbar'}; }
+    if(!menge||!fbV9AcceptedOk(menge,ctx.cap))
+      return {fehler:'Runde '+n+': Zugmenge unbrauchbar'};
+    mengen.push(menge);
+  }
+  // Eine LUECKE ist kein Grund zu raten. Steht irgendwo hinter dem zusammenhaengenden
+  // Anfang noch ein gueltiger Abschluss, fehlt dazwischen eine Runde - und ohne sie
+  // laesst sich die Welt nicht rechnen.
+  for(const k in z){
+    const n=Number(k);
+    if(Number.isInteger(n)&&n>=mengen.length&&fbV9AnkerOk(z[k]))
+      return {fehler:'Luecke in der Historie vor Runde '+n};
+  }
+  return {mengen:mengen};
+}
+
+// Der ganze Vorgang. Rueckgabe sagt, WO der Client danach steht - entschieden wird die
+// Fortsetzung vom Aufrufer bzw. den bestehenden Stufen.
+//   {fehler}                   nichts angewandt, nichts geloescht
+//   {ok, stufe:'ENDE'}         das Match ist in der Historie zu Ende
+//   {ok, stufe:'DRAUSSEN'}     dieser Sitz ist ausgetragen oder disqualifiziert
+//   {ok, stufe:'OFFEN', turn}  Runde turn ist bereits eroeffnet - die Ablaufsteuerung
+//   {ok, stufe:'BEREIT', turn} noch nicht eroeffnet - die Bereitschaft
+async function fbV9Rehydrieren(ctx){
+  if(!fbV9LebenAn())return {fehler:'v9 ist hier nicht zustaendig'};
+  // Waehrend des Lesens kann der Spieler den Raum verlassen, einem anderen beitreten,
+  // ein Rematch beginnen oder den Sitz wechseln. Ein Ergebnis, das zu einem anderen
+  // Zusammenhang gehoert, darf die Welt nicht anfassen - deshalb wird die Kennung VOR
+  // dem Lesen festgehalten und danach verglichen.
+  const damals={sid:onlineSessionId,room:roomCode,gen:gen,seat:myPlayer};
+  const hist=await fbV9HistorieLesen(ctx);
+  if(damals.sid!==onlineSessionId||damals.room!==roomCode||damals.gen!==gen
+     ||damals.seat!==myPlayer)return {fehler:'Zusammenhang gewechselt'};
+  if(hist===null)return {fehler:'Historie nicht lesbar'};
+  const plan=await fbV9RehydrierPlan(ctx,hist);
+  if(plan.fehler)return {fehler:plan.fehler};
+  // Erst JETZT wird die Welt angefasst - und waehrenddessen ruht die Anbindung.
+  fbV9LebenStop();
+  fbV9Nachspielen=true;
+  try{ fastForwardMatch(null,plan.mengen); }
+  finally{ fbV9Nachspielen=false; }
+  // Eine Historie, die ueber das Matchende hinausreicht, ist widerspruechlich: nach dem
+  // Ende kann keine Runde mehr abgeschlossen worden sein.
+  if(phase==='over'&&plan.mengen.length>turnNo+1)
+    return {fehler:'Historie reicht ueber das Matchende hinaus'};
+  if(phase==='over')return {ok:true,stufe:'ENDE'};
+  if(turnNo!==plan.mengen.length)
+    return {fehler:'Nachspiel endete bei Runde '+turnNo+', erwartet '+plan.mengen.length};
+  const n=turnNo;
+  // Der eigene Sitz ist draussen: kein handelnder Lauf mehr. Nichts wird geloescht.
+  const eigenRaus=(hist.e&&hist.e[ctx.seat]===true)||fbV9DisqualifyOk(hist.x&&hist.x[ctx.seat]);
+  if(eigenRaus)return {ok:true,stufe:'DRAUSSEN'};
+  // Ist die Runde bereits AUTORITATIV eroeffnet, laeuft die Frist schon: dann wird die
+  // Bereitschaft NICHT neu aufgerollt, sondern unmittelbar die Ablaufsteuerung
+  // fortgesetzt. Sie uebernimmt ihr eigenes Terminal aus dem Raum und holt - wenn es
+  // eines gibt - das gesicherte Geheimnis zurueck.
+  const d=hist.d&&hist.d[n];
+  if(d&&typeof d==='object'&&d.n===n&&Number.isFinite(d.o))
+    return {ok:true,stufe:'OFFEN',turn:n,lauf:fbV9LebenFortsetzen(n)};
+  return {ok:true,stufe:'BEREIT',turn:n,lauf:fbV9LebenNeueRunde()};
+}
+
+// ── DIE ECHTEN EINSTIEGE (RUHEND) ───────────────────────────────────────────
+// Ein Raum traegt seine Protokollfassung in `v`, und ein Client betritt nur Raeume
+// seiner eigenen. Die Weiche haengt deshalb an dieser EINEN Tatsache - nicht an einem
+// Entwicklerschalter, den jemand versehentlich umlegt. Solange die Konstante 8 ist,
+// ist beides ausnahmslos false, und der freigegebene v8-Weg laeuft unveraendert.
+function fbV9RaumIst9(raum){
+  return !!raum && raum.v===9 && ONLINE_PROTOCOL_VERSION===9;
+}
+// Der Start eines v9-Raums - frisch wie nach einem Neuladen ueber DENSELBEN Weg. Ein
+// frischer Raum hat einfach keine abgeschlossene Runde; die Rehydrierung sieht das,
+// spielt nichts nach und meldet Runde 0 als bereit. Ein zweiter Startweg daneben
+// koennte von diesem abweichen - und genau das soll es nicht geben.
+// Rueckgabe true heisst: der gewoehnliche Start wird NICHT mehr gegangen.
+function fbV9RaumStart(){
+  if(!fbV9LebenAn())return false;
+  Promise.resolve(fbV9Rehydrieren(fbV9LebenCtx(0))).then(erg=>{
+    // FEHLGESCHLAGEN heisst geschlossen: keine frische Welt, keine v8-Historie, kein
+    // geratener Rundenstand. Der Grund wird gemeldet, sonst geschieht nichts.
+    if(erg&&erg.fehler&&typeof setStatus==='function')setStatus('V9: '+erg.fehler);
+  }).catch(()=>{});
   return true;
 }
 
@@ -11096,9 +11260,14 @@ async function attemptRejoin(code){
     if(rjFb)fbElimStartN=v.seats;   // dieselbe kanonische Quelle wie beim Start
     gameStarted=true;
     attachRoomListeners();
+    // V9 (ruhend): dort steht die Historie in c+r, nicht in t - der v8-Lesevorgang
+    // entfaellt dann ganz. Die Weiche haengt an der Protokollfassung DES RAUMS.
+    const v9=fbV9RaumIst9(v);
     let turns={};
-    try{ const ts=await window.FB.get(window.FB.ref(window.FB.db,'rooms/'+code+'/g/'+v.gen+'/t')); turns=ts.val()||{}; }catch(e){}
-    if(!joinOpCurrent(op))return false;   // superseded during the read -> the newer op owns all state now
+    if(!v9){
+      try{ const ts=await window.FB.get(window.FB.ref(window.FB.db,'rooms/'+code+'/g/'+v.gen+'/t')); turns=ts.val()||{}; }catch(e){}
+      if(!joinOpCurrent(op))return false;   // superseded during the read -> the newer op owns all state now
+    }
     // C4A: Waehrend des Lesens kann die Gegenseite ein Rematch gestartet haben. Die
     // gelesene Historie gehoert dann zu einer VERGANGENEN Generation - sie nachzuspielen
     // wuerde den Zustand dieser Generation (inklusive seatGone) in die neue tragen. Der
@@ -11107,7 +11276,15 @@ async function attemptRejoin(code){
     if(v.gen!==gen){ $('online').classList.remove('show'); showGame(); setStatus(T('rejoinOk')); return true; }
     $('online').classList.remove('show');
     showGame();
-    fastForwardMatch(turns);
+    if(v9){
+      // Die Welt entsteht aus der geprueuften Zughistorie - und danach uebernimmt die
+      // zurueckgegebene Stufe: Bereitschaft, laufende Runde, Ende oder ausgetragen.
+      const erg=await fbV9Rehydrieren(fbV9LebenCtx(0));
+      if(!joinOpCurrent(op))return false;
+      // GESCHLOSSEN scheitern: kein Rueckfall auf eine frische Welt, keine v8-Historie,
+      // kein geratener Rundenstand - und nichts wird geloescht.
+      if(erg&&erg.fehler){ setStatus(T('err')+erg.fehler); return false; }
+    }else fastForwardMatch(turns);
     setStatus(T('rejoinOk'));
     return true;
   }catch(e){
@@ -11466,7 +11643,7 @@ function attachRoomListeners(){
     maybeStart();
   });
 }
-function maybeStart(){ if(gameStarted)return; gameStarted=true; if(roomPublic&&isHost()){removePublicListing(roomCode);roomPublic=false;} $('online').classList.remove('show'); showGame(); startOnlineGame(); toast(T('youAre')+' '+(fmt==='team_duel'?T(teamOf(myPlayer)===0?'teamBlue':'teamRed'):T('col'+colSlot4Name(myPlayer)))); }
+function maybeStart(){ if(gameStarted)return; gameStarted=true; if(roomPublic&&isHost()){removePublicListing(roomCode);roomPublic=false;} $('online').classList.remove('show'); showGame(); if(typeof fbV9RaumStart!=='function'||!fbV9RaumStart())startOnlineGame(); toast(T('youAre')+' '+(fmt==='team_duel'?T(teamOf(myPlayer)===0?'teamBlue':'teamRed'):T('col'+colSlot4Name(myPlayer)))); }
 function startOnlineGame(){ replaying=false;repPlaying=false;$('replay').classList.remove('show'); if(typeof fbV9LebenStop==='function')fbV9LebenStop(); runningGen=gen; turnNo=-1; if(turnUnsub){turnUnsub();turnUnsub=null;} $('ov').classList.remove('show'); newGame(); }
 // ════ B2 canonical match rehydration ════
 // Rebuilds a RUNNING match purely from the turn history under
@@ -11485,7 +11662,7 @@ function startOnlineGame(){ replaying=false;repPlaying=false;$('replay').classLi
 // Fixed-Steps, in Summe einige hundert. 20000 ist die bestehende Reissleine gegen eine
 // nicht settelnde Simulation und bleibt auch fuer Football weit ausreichend.
 const FF_MAX_STEPS_PER_TURN=20000;
-function fastForwardMatch(turns){
+function fastForwardMatch(turns,mengen){
   // Die Historie laeuft durch dieselbe Pipeline wie das echte Spiel. Klang UND Bild sind
   // dabei stumm: ein Rueckkehrer bekommt den Zustand, nicht die Funken von vor zwei
   // Minuten. Beides wird im finally wieder freigegeben, auch bei einem Abbruch.
@@ -11500,6 +11677,15 @@ function fastForwardMatch(turns){
     startOnlineGame();
     let iter=0;
     while(phase==='aim'&&iter++<=GEN_MAX){
+      // V9 (ruhend): dieselbe Schleife, nur eine andere Eingabe je Runde. Die Historie
+      // liegt dort als fertige, bereits geprueufte Zugmenge vor - der v8-Zweig darunter
+      // ist unveraendert und wird ohne `mengen` genauso durchlaufen wie bisher.
+      if(mengen){
+        const menge=mengen[turnNo];
+        if(!menge)break;                 // ab hier ist es die LAUFENDE Runde
+        if(turnUnsub){turnUnsub();turnUnsub=null;}
+        if(!fbV9Wirken(menge,np()))break;
+      }else{
       const slots=turns&&turns[turnNo];
       if(!slots)break;
       for(let s=0;s<np();s++)if(slots[s]!=null)processSlot(s,slots[s]);
@@ -11507,6 +11693,7 @@ function fastForwardMatch(turns){
       if(turnUnsub){turnUnsub();turnUnsub=null;}
       beginReveal();
       applyLaunch();
+      }
       let g=0; while(phase==='sim'&&g++<FF_MAX_STEPS_PER_TURN)stepSim();
       if(phase==='result')afterResult();   // score/round/game-over exactly like live play
       else if(phase!=='aim')break;         // safety net: unexpected phase -> stop the replay

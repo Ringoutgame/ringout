@@ -734,7 +734,9 @@ abschnitt('Waechter');
   // liegt die Spielanbindung, und nur sie kennt fbV9ReadyStart/fbV9ReadyLocal.
   t('das Produkt ruft die Bereitschaftssteuerung nicht unmittelbar auf',
     REST.indexOf('fbV9ReadyStart') < 0 && REST.indexOf('fbV9ReadyLocal') < 0);
-  for (const fn of ['onlineArmTurn', 'applyLaunch', 'fastForwardMatch']) {
+  // fastForwardMatch nennt seit V9.4D2 die gemeinsame Wirkung - geprueft wird das
+  // in tools/test_online_v9_rehydrate.js; hier bleiben die unberuehrten Funktionen.
+  for (const fn of ['onlineArmTurn', 'applyLaunch']) {
     const m = HTML.match(new RegExp('function ' + fn + '\\([^)]*\\)\\{[\\s\\S]*?\\n\\}'));
     t(fn + '() nennt keine v9-Funktion', m && m[0].indexOf('fbV9') < 0);
   }

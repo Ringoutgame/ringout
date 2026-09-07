@@ -513,8 +513,10 @@ abschnitt('Waechter');
 {
   // AUSDRUECKLICH nur die Bruecke: die beiden Spielhaken dahinter gehoeren zur
   // Spielanbindung und haben ihre Waechter in tools/test_online_v9_lifecycle.js.
+  // AUSDRUECKLICH nur die Bruecke: dahinter liegen die Rehydrierung und die beiden
+  // Spielhaken, und beide haben ihre eigenen Waechter.
   const roh = HTML.slice(HTML.indexOf('// ── DIE SPIELBRUECKE'),
-                         HTML.indexOf('// ── DIE BEIDEN HAKEN AUS DEM SPIEL'));
+                         HTML.indexOf('// ── V9-REHYDRIERUNG'));
   const bruecke = roh.split(/\r?\n/).filter(z => !/^\s*\/\//.test(z)).join('\n');
   t('das Protokoll des Produkts steht weiterhin auf 8',
     /const ONLINE_PROTOCOL_VERSION=8;/.test(HTML));
@@ -523,6 +525,13 @@ abschnitt('Waechter');
     bruecke.indexOf('subtle') < 0);
   t('sie liest und schreibt kein Firebase',
     bruecke.indexOf('window.FB') < 0 && bruecke.indexOf('fbV9Net') < 0);
+  // Die Rehydrierung liest EINMAL - das ist ihr Zweck - und schreibt nie.
+  const rehy = HTML.slice(HTML.indexOf('// ── V9-REHYDRIERUNG'),
+                          HTML.indexOf('// ── DIE BEIDEN HAKEN AUS DEM SPIEL'));
+  t('die Rehydrierung liest genau einmal und schreibt nie',
+    (rehy.match(/window\.FB\.get\(/g) || []).length === 1 &&
+    rehy.indexOf('runTransaction') < 0 && rehy.indexOf('fbV9NetWrite') < 0 &&
+    rehy.indexOf('fbV9NetOpen') < 0);
   t('sie benutzt den BESTEHENDEN Abschussweg',
     bruecke.indexOf('beginReveal();') > 0 && bruecke.indexOf('applyLaunch();') > 0);
   t('und baut keinen eigenen',
@@ -540,16 +549,25 @@ abschnitt('Waechter');
     bruecke.indexOf('fbV9ReadyStart') < 0 && bruecke.indexOf('fbV9LebenBereit') < 0);
   t('applyLaunch selbst ist unveraendert',
     (HTML.match(/function applyLaunch\([^)]*\)\{[\s\S]*?\n\}/) || [''])[0].indexOf('fbV9') < 0);
+  // fastForwardMatch traegt seit V9.4D2 zwei Eingaenge. Der v8-Zweig ist unveraendert -
+  // dieselbe Zughistorie, dieselben Aufrufe -, der v9-Zweig kommt additiv daneben und
+  // wird nur mit einer fertigen Zugmengenliste betreten.
   const ff = HTML.match(/function fastForwardMatch\([^)]*\)\{[\s\S]*?\n\}/);
-  t('fastForwardMatch ist unberuehrt und liest weiterhin die v8-Historie',
-    ff && ff[0].indexOf('fbV9') < 0 && ff[0].indexOf('turns[turnNo]') > 0);
-  t('es gibt keine v9-Rehydrierung', HTML.indexOf('fbV9FastForward') < 0 &&
-    HTML.indexOf('fbV9Rehydr') < 0);
+  t('fastForwardMatch liest im v8-Zweig weiterhin die t-Historie',
+    ff && ff[0].indexOf('turns[turnNo]') > 0 && ff[0].indexOf('processSlot(s,slots[s])') > 0 &&
+    ff[0].indexOf('allAliveCommitted()') > 0);
+  t('und der v9-Zweig benutzt AUSSCHLIESSLICH die gemeinsame Wirkung',
+    ff && ff[0].indexOf('fbV9Wirken(menge,np())') > 0 &&
+    (ff[0].match(/fbV9[A-Za-z]*/g) || []).join(',') === 'fbV9Wirken');
+  t('die v9-Rehydrierung ist vorhanden und ruhend',
+    /async function fbV9Rehydrieren\(ctx\)\{/.test(HTML));
   t('genau EINE Stelle im Produkt wendet eine Zugmenge an',
     (HTML.match(/function fbV9ApplyAccepted/g) || []).length === 1);
   // Zweimal im Quelltext: die Definition und die EINE Verdrahtung im Lebenslauf.
-  t('und sie wird genau einmal verdrahtet',
-    (HTML.match(/fbV9ApplyAccepted\(L,/g) || []).length === 2,
+  // Drei Treffer: die Definition und die ZWEI Verdrahtungen - der gewoehnliche Weg
+  // ueber die Bereitschaft und der Weg nach einer Rehydrierung in eine offene Runde.
+  t('sie wird genau in den beiden Lebenslauf-Einstiegen verdrahtet',
+    (HTML.match(/fbV9ApplyAccepted\(L,/g) || []).length === 3,
     (HTML.match(/fbV9ApplyAccepted\(L,/g) || []).length);
   // DIE DREI EIGENSCHAFTEN, auf denen die Gleichzeitigkeit beruht - im ECHTEN
   // Quelltext, nicht in der Attrappe.

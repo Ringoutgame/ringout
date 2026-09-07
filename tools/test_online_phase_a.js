@@ -682,7 +682,12 @@ const R = new Function(`
   // SEIT V9.4C ruft das Spiel an genau zwei benannten Stellen in den ruhenden
   // Bereich hinein - beim Rundenbeginn und am Settlement - und raeumt an den
   // bestehenden Grenzen ab. Diese Haken sind gewollt; alles andere bleibt verboten.
-  const HAKEN = ['fbV9LebenNeueRunde', 'fbV9LebenStop'];
+  // Seit V9.4D2 nennt fastForwardMatch zusaetzlich die gemeinsame Wirkung - der
+  // dritte und letzte benannte Beruehrungspunkt zwischen Spiel und v9.
+  // Seit V9.4D2 kommen die ECHTEN Einstiege dazu: der Rejoin ruft die Rehydrierung,
+  // der frische Start delegiert an sie. Mehr Namen darf das Produkt nicht nennen.
+  const HAKEN = ['fbV9LebenNeueRunde', 'fbV9LebenStop', 'fbV9Wirken',
+                 'fbV9RaumStart', 'fbV9RaumIst9', 'fbV9Rehydrieren', 'fbV9LebenCtx'];
   const ohneHaken = (txt) => txt.split(/\r?\n/)
     .filter(zl => !HAKEN.some(h => zl.indexOf(h) >= 0)).join('\n');
   ok(ohneHaken(HTML.split(codec).join('')).indexOf('fbV9') < 0,

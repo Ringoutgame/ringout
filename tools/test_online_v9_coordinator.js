@@ -914,16 +914,23 @@ abschnitt('Waechter: die Steuerung ruht');
   // beim Rundenbeginn und am Settlement. Dazu kommt das Abraeumen an den bestehenden
   // Grenzen. Mehr darf es nicht sein - und genau das wird hier gezaehlt, statt jede
   // Nennung zu verbieten.
-  const HAKEN = ['fbV9LebenNeueRunde', 'fbV9LebenStop'];
+  // Seit V9.4D2 nennt fastForwardMatch zusaetzlich die gemeinsame Wirkung - das ist
+  // der dritte und letzte benannte Beruehrungspunkt zwischen Spiel und v9.
+  // Seit V9.4D2 kommen die ECHTEN Einstiege dazu: der Rejoin ruft die Rehydrierung,
+  // der frische Start delegiert an sie. Mehr Namen darf das Produkt nicht nennen.
+  const HAKEN = ['fbV9LebenNeueRunde', 'fbV9LebenStop', 'fbV9Wirken',
+                 'fbV9RaumStart', 'fbV9RaumIst9', 'fbV9Rehydrieren', 'fbV9LebenCtx'];
   const ohneHaken = (txt) => txt.split(/\r?\n/)
     .filter(zl => !HAKEN.some(h => zl.indexOf(h) >= 0)).join('\n');
   t('ausserhalb des ruhenden Bereichs nennt keine Zeile eine v9-Funktion',
     ohneHaken(HTML.split(BEREICH).join('')).indexOf('fbV9') < 0);
-  t('und die beiden Haken stehen genau viermal: zwei Aufrufe, zwei Abraeumungen',
-    (HTML.match(/fbV9LebenNeueRunde\(\)/g) || []).length === 3 &&
-    (HTML.match(/fbV9LebenStop\(\)/g) || []).length === 6,
+  t('die Haken bleiben zaehlbar',
+    (HTML.match(/fbV9LebenNeueRunde\(\)/g) || []).length === 4 &&
+    (HTML.match(/fbV9LebenStop\(\)/g) || []).length === 8 &&
+    (HTML.match(/fbV9Wirken\(/g) || []).length === 3,
     (HTML.match(/fbV9LebenNeueRunde\(\)/g) || []).length + '/' +
-    (HTML.match(/fbV9LebenStop\(\)/g) || []).length);
+    (HTML.match(/fbV9LebenStop\(\)/g) || []).length + '/' +
+    (HTML.match(/fbV9Wirken\(/g) || []).length);
   for (const fn of ['onlineSendCommit', 'writeTurnSlot', 'onlineArmTurn', 'maybeReveal',
                     'processSlot', 'applyLaunch', 'allAliveCommitted', 'beginReveal'])
     t(fn + '() ruft die Steuerung nicht',
