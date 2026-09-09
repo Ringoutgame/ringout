@@ -8,6 +8,8 @@
 :root{
   --bg:#080b10;--panel:#0f1520;--text:#e4eaf4;--muted:#4a5a70;
   --p1:#00d4ff;--p2:#ff4d4d;--gold:#ffc940;--green:#39e07a;--danger:#ff5c5c;
+  /* Arena Football im Hub: kuehles Platin statt Gold. Gleiche Welt, anderes Motiv. */
+  --fbac:#b9cfe4;--fbac-lo:#6f8ba6;--fbac-hi:#eaf3fb;
 }
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;touch-action:none}
 html,body{height:100%;overflow:hidden}
@@ -33,9 +35,10 @@ body{background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,
 .logo{text-align:center;margin-bottom:4px}
 .logo h1{font-size:clamp(40px,11.5vw,56px);font-weight:900;letter-spacing:.18em;margin-right:-.18em;text-transform:uppercase;color:#f4f7fc;text-shadow:0 2px 18px rgba(0,0,0,.35)}
 .logo h1 em{font-style:normal;color:var(--gold);text-shadow:0 2px 18px rgba(255,180,40,.25)}
-.orn{width:172px;height:1px;margin:12px auto 0;background:linear-gradient(90deg,transparent,rgba(255,201,64,.9),transparent);position:relative}
+.orn{width:172px;height:1px;margin:9px auto 0;background:linear-gradient(90deg,transparent,rgba(255,201,64,.9),transparent);position:relative}
 .orn::after{content:"";position:absolute;left:50%;top:-5.5px;width:11px;height:11px;transform:translateX(-50%);border-radius:50%;border:1px solid var(--gold);background:radial-gradient(circle,#ffd97a 0,#ffd97a 2.5px,transparent 3px);box-shadow:0 0 12px rgba(255,201,64,.7)}
-.logo .sub{font-size:9px;letter-spacing:.34em;margin-right:-.34em;color:#93a2bd;text-transform:uppercase;margin-top:12px}
+.logo .sub{font-size:9.5px;font-weight:800;letter-spacing:.32em;margin-right:-.32em;color:#dbe4f2;text-transform:uppercase;margin-top:8px;
+  text-shadow:0 1px 2px rgba(4,8,16,.9),0 2px 12px rgba(4,8,16,.75)}
 /* Hero-Fenster: reiner Platzhalter im Layout — die ECHTE 3D-Arena (#cv3d, fixed hinter
    der UI) ist durch das transparente Menue sichtbar. Kein gezeichneter Ersatz mehr. */
 #menuHero{width:100%;max-width:520px;height:clamp(200px,33vh,320px);flex:0 0 auto;margin:0 0 4px}
@@ -61,68 +64,168 @@ body.r3d #menu{z-index:2;background:linear-gradient(180deg,rgba(6,10,18,.55) 0%,
    Beschreibung). Desktop/Tablet: 3er-Grid. Mobil: schlanke, nebeneinanderliegende
    Modus-Leiste (Snap-Scroll) mit Pfeilen + Punkten — kompakte Premium-Wirkung. */
 .mcards{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;width:100%}
-.mcard{position:relative;display:flex;flex-direction:column;align-items:center;gap:8px;padding:22px 10px 16px;border-radius:20px;cursor:pointer;font:inherit;
-  border:1.5px solid rgba(122,142,180,.3);background:linear-gradient(180deg,rgba(28,38,60,.6),rgba(13,19,32,.9));
-  box-shadow:0 12px 28px rgba(5,9,18,.35);transition:transform .18s cubic-bezier(.22,1,.36,1),border-color .18s cubic-bezier(.22,1,.36,1),box-shadow .18s cubic-bezier(.22,1,.36,1),background .18s cubic-bezier(.22,1,.36,1)}
-.mcard.on{border-color:rgba(255,201,64,.95);background:linear-gradient(180deg,rgba(38,47,66,.75),rgba(20,26,42,.95));
-  box-shadow:0 0 0 1px rgba(255,201,64,.35),0 14px 40px rgba(255,178,40,.22),inset 0 0 30px rgba(255,201,64,.05)}
+.mcard{position:relative;display:flex;flex-direction:column;align-items:stretch;gap:0;padding:0;overflow:hidden;
+  border-radius:18px;cursor:pointer;font:inherit;text-align:center;
+  border:1px solid rgba(122,142,180,.26);background:linear-gradient(180deg,rgba(19,27,45,.72),rgba(9,14,25,.95));
+  box-shadow:0 10px 26px rgba(4,8,16,.42);
+  transition:border-color .2s cubic-bezier(.22,1,.36,1),box-shadow .2s cubic-bezier(.22,1,.36,1),opacity .2s}
+/* Die Buehne: randlos, mit eigenem Licht. Sie traegt die Aussage der Karte, bevor
+   irgendjemand den Titel liest - dieselbe bildgefuehrte Bauweise wie die Spielkarten. */
+.mstage{position:relative;display:block;width:100%;aspect-ratio:16/10;overflow:hidden;
+  background:linear-gradient(180deg,#111c30 0%,#0b1322 62%,#070c16 100%)}
+/* Das Kartenbild ist eine ECHTE Aufnahme der Spielwelt aus dem 3D-Renderer des Produkts -
+   dieselbe Arena, dieselbe Beleuchtung, dieselben Figuren, die der Spieler nach dem
+   Start sieht. Kein Diagramm, keine Illustration. */
+.mshot{position:absolute;inset:0;display:block;width:100%;height:100%;object-fit:cover;
+  object-position:50% 46%;transition:filter .2s,opacity .2s}
+.mstage::after{content:"";position:absolute;inset:0;pointer-events:none;z-index:2;
+  background:linear-gradient(180deg,rgba(6,10,18,.42) 0%,rgba(6,10,18,.1) 32%,rgba(6,10,18,0) 52%),
+    radial-gradient(ellipse 128% 86% at 50% 40%,transparent 56%,rgba(4,8,16,.44) 100%)}
+/* Die Beschriftung liegt AUF der Buehne, nicht darunter: eine Karte, ein Bild, ein
+   Rahmen. Der Verlauf haelt sie lesbar, ohne die Szene zuzudecken. */
+.mcap{position:absolute;left:0;right:0;bottom:0;z-index:3;display:block;padding:14px 9px 12px;
+  background:linear-gradient(180deg,rgba(4,8,16,0),rgba(4,8,16,.62) 38%,rgba(4,8,16,.93) 72%,rgba(4,8,16,.985))}
+.mcard .mt,.mcard .msub{text-shadow:0 1px 3px rgba(2,5,11,.95),0 2px 10px rgba(2,5,11,.7)}
+/* Nicht gewaehlte Karten treten ueber ihr BILD zurueck, nicht ueber Rahmenstaerke. */
+.mcard:not(.on) .mshot{filter:saturate(.82) brightness(.76);opacity:.92}
+.mcard.on{border-color:rgba(255,201,64,.7);
+  box-shadow:0 0 0 1px rgba(255,201,64,.2),0 16px 34px rgba(255,178,40,.15)}
+.mcard.on .mstage::before{content:"";position:absolute;left:0;right:0;bottom:0;height:2px;z-index:2;
+  background:linear-gradient(90deg,transparent,var(--gold),transparent)}
+body.fbctx .mstage{background:radial-gradient(ellipse 76% 96% at 50% 116%,rgba(185,207,228,.22),transparent 64%),
+    linear-gradient(180deg,#0f1c2c 0%,#091220 62%,#060b14 100%)}
+body.fbctx .mcard.on{border-color:rgba(200,222,240,.7);
+  box-shadow:0 0 0 1px rgba(200,222,240,.2),0 16px 34px rgba(140,175,210,.16)}
+body.fbctx .mcard.on .mstage::before{background:linear-gradient(90deg,transparent,var(--fbac),transparent)}
 .mcard .chip{position:absolute;top:-11px;right:14px;font-size:8px;font-weight:900;letter-spacing:.16em;padding:4px 11px;border-radius:999px;color:#241800;background:linear-gradient(180deg,#ffd97a,#f0a92e);box-shadow:0 2px 12px rgba(255,180,40,.55),inset 0 1px 0 rgba(255,255,255,.5);display:none}
 /* Badge entfernt: aktive Karte wird nur ueber Rahmen/Akzentlinie markiert (kein Badge) */
-.mcard .mic{width:60px;height:60px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex:0 0 auto;
-  border:1.5px solid rgba(255,201,64,.5);background:radial-gradient(circle at 35% 28%,#232f4c,#0d1528 74%);
-  color:#d9b96a;box-shadow:0 0 0 4px rgba(9,14,25,.55),inset 0 0 12px rgba(0,0,0,.5)}
-.mcard.on .mic{color:var(--gold);border-color:rgba(255,201,64,.9);box-shadow:0 0 22px rgba(255,201,64,.3),0 0 0 4px rgba(9,14,25,.55),inset 0 0 12px rgba(0,0,0,.45)}
-.mcard .mic svg{width:29px;height:29px}
-.mcard .mt{font-size:14px;font-weight:900;letter-spacing:.05em;color:#eef2f9;white-space:nowrap;margin-top:3px}
+.mcard .mt{display:block;font-size:13.5px;font-weight:900;letter-spacing:.05em;color:#eef2f9;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis}
 .mcard.on .mt{color:#fff}
-.mcard .msub{font-size:9.5px;font-weight:900;letter-spacing:.14em;color:#d9b96a;text-transform:uppercase}
+.mcard .msub{display:block;margin-top:4px;font-size:8.5px;font-weight:900;letter-spacing:.13em;
+  margin-right:-.13em;color:#c8a95f;text-transform:uppercase;line-height:1.35}
+body.fbctx .mcard .msub{color:#9fb9d0}
 /* Aktive Karte: nur Styling (Rahmen/Hintergrund/Schatten) + dezente Gold-Akzentlinie
    unten — NIE eine Groessen-/Layout-Aenderung (gilt Desktop wie Mobil). */
-.mcard.on::after{content:"";position:absolute;left:24%;right:24%;bottom:7px;height:2px;border-radius:2px;
-  background:linear-gradient(90deg,transparent,var(--gold),transparent);opacity:.9}
+/* ── Moduskarten: echte Spielbilder ──────────────────────────────────────────
+   Die frueheren SVG-Diagramme sind ersetzt. Jede Karte zeigt eine Aufnahme aus
+   dem laufenden Spiel: RingOut die Ringarena mit ihren Murmeln, Arena Football
+   die Rechteckarena mit Banden und Toren. Erzeugt mit
+   artifacts/hub-d1v2/kartenbilder.js aus dem Produkt selbst. */
+/* ── GAME HUB: zwei erstklassige Spiele unter einer Dachmarke ──────────────
+   RINGOUT bleibt die Marke; darunter stehen RING OUT und ARENA FOOTBALL
+   gleichrangig. Die Auswahl wechselt Modusleiste, CTA und Akzent — sie laedt
+   nichts neu und ruehrt den 3D-Renderer dahinter nicht an. */
+.mhub{display:grid;grid-template-columns:1fr 1fr;gap:11px;width:100%}
+.gcard{position:relative;display:block;width:100%;overflow:hidden;border-radius:20px;cursor:pointer;
+  padding:0;font:inherit;color:#eef2f9;border:1.5px solid rgba(122,142,180,.3);background:#060b15;
+  box-shadow:0 12px 28px rgba(5,9,18,.35);
+  transition:transform .18s cubic-bezier(.22,1,.36,1),border-color .18s cubic-bezier(.22,1,.36,1),box-shadow .18s cubic-bezier(.22,1,.36,1)}
+.gcard img{display:block;width:100%;height:auto;aspect-ratio:16/10;object-fit:cover;object-position:50% 44%}
+/* height:auto ist noetig: die width/height-Attribute am Bild sind nur ein Hinweis gegen
+   Layoutspruenge - ohne diese Zeile setzen sie eine echte Hoehe und aspect-ratio bliebe
+   wirkungslos. */
+.gcard .gveil{position:absolute;inset:0;
+  background:linear-gradient(180deg,rgba(4,7,14,0) 26%,rgba(4,7,14,.5) 52%,rgba(4,7,14,.9) 80%,rgba(4,7,14,.99) 100%)}
+.gcard .gcap{position:absolute;left:0;right:0;bottom:0;display:block;padding:11px 11px 12px;text-align:center}
+.gcard .gn{display:block;font-size:clamp(15px,4.5vw,19px);font-weight:900;letter-spacing:.06em;
+  text-transform:uppercase;line-height:1.05;text-shadow:0 1px 4px rgba(2,5,11,.95),0 3px 14px rgba(2,5,11,.75)}
+.gcard .gn em{font-style:normal;color:var(--gold)}
+.gcard .gs{display:block;margin-top:5px;font-size:8px;font-weight:800;letter-spacing:.17em;
+  margin-right:-.17em;color:#c2cee2;text-transform:uppercase;text-shadow:0 1px 3px rgba(2,5,11,.9)}
+.gcard:not(.on){opacity:.72;filter:saturate(.75)}
+/* Farbkennung: RingOut traegt Gold, Arena Football Blau gegen Rot - die Identitaet
+   des Spiels steht damit direkt unter dem Namen. */
+.gteam{display:flex;justify-content:center;gap:5px;margin-top:7px}
+.gteam i{display:block;width:15px;height:3px;border-radius:2px}
+.gteam .kb{background:#3fa9ff}.gteam .kr{background:#ff5a4d}
+.gteam .kg{width:32px;background:linear-gradient(90deg,transparent,var(--gold),transparent)}
+.gcard.on{border-color:rgba(255,201,64,.95);
+  box-shadow:0 0 0 1px rgba(255,201,64,.34),0 16px 40px rgba(255,178,40,.22),inset 0 0 34px rgba(255,201,64,.09)}
+.gcard.gfb .gn em{color:var(--fbac)}
+.gcard.gfb img{object-position:50% 62%}
+.gcard.gfb.on{border-color:rgba(200,222,240,.95);
+  box-shadow:0 0 0 1px rgba(200,222,240,.36),0 16px 40px rgba(150,185,215,.24),inset 0 0 34px rgba(200,222,240,.1)}
+.gbadge{position:absolute;top:9px;right:9px;z-index:2;font-size:8px;font-weight:900;letter-spacing:.16em;
+  padding:4px 9px;border-radius:7px;color:#04121a;text-transform:uppercase;
+  background:linear-gradient(180deg,var(--fbac-hi),var(--fbac));box-shadow:0 3px 12px rgba(150,185,215,.5)}
+/* Football-Kontext: derselbe Aufbau, Platin statt Gold. Nur Farbe, nie Layout. */
+body.fbctx .msec>span{color:#cfe0ef}
+body.fbctx .msec .hr{background:linear-gradient(90deg,rgba(185,207,228,.38),rgba(150,170,210,.08))}
+body.fbctx .mcard .msub{color:#a9c2d8}
+body.fbctx .mcard.on{border-color:rgba(200,222,240,.95);
+  background:linear-gradient(180deg,rgba(30,42,58,.75),rgba(13,19,30,.95));
+  box-shadow:0 0 0 1px rgba(200,222,240,.35),0 14px 40px rgba(140,175,210,.22),inset 0 0 30px rgba(200,222,240,.05)}
+body.fbctx .mdot.on{background:linear-gradient(90deg,var(--fbac-hi),#a8c1d8)}
+/* Schnellaktionen, Raumliste und How-to erklaeren bzw. erzeugen RingOut. Im
+   Football-Kontext waeren sie unwahr - also stehen sie dort nicht. */
+body.fbctx .roOnly{display:none!important}
+body.fbctx .mcta{color:#152534;text-shadow:0 1px 0 rgba(236,246,255,.55);
+  background:linear-gradient(180deg,#e4eff9 0%,#c6d9e9 44%,#a5bed4 56%,#7a94ac 100%);
+  box-shadow:0 6px 18px rgba(110,145,180,.24),inset 0 1px 0 rgba(248,252,255,.7),
+    inset 0 0 0 1px rgba(226,238,250,.4)}
 /* Basis (Desktop/Tablet): 3er-Grid zeigt alle Modi — Pfeile/Punkte nur mobil noetig */
 .mbar{position:relative;width:100%}
 .marrow{display:none}
 .mdots{display:none}
-.mdot{width:4.5px;height:4.5px;padding:0;border:0;border-radius:50%;background:rgba(150,170,210,.28);cursor:pointer;transition:background .15s,width .15s,border-radius .15s}
-.mdot.on{width:13px;height:2.5px;border-radius:2px;background:linear-gradient(90deg,#ffd97a,#f0a92e)}
+.mdot{width:16px;height:3px;padding:0;border:0;border-radius:2px;background:rgba(150,170,210,.22);cursor:pointer;
+  transition:background .18s,width .18s}
+.mdot.on{width:26px;background:linear-gradient(90deg,#ffd97a,#f0a92e)}
 @media(max-width:559px){
   /* Mobil: alle 5 Moduskarten mit IDENTISCHEN festen Maszen in einem horizontalen
      Swipe-Carousel (Scroll-Snap). Eine Karte voll sichtbar, die naechste ~1/3 peekend.
      Auswahl aendert NUR Styling — nie Groesse/Layout. */
   .mcards{display:flex;align-items:stretch;overflow-x:auto;overscroll-behavior-x:contain;
-    scroll-snap-type:x mandatory;scrollbar-width:none;gap:9px;width:100%;margin:0;padding:4px 2px 6px}
+    scroll-snap-type:x mandatory;scrollbar-width:none;gap:9px;width:100%;margin:0;padding:4px 2px 6px;
+    scroll-padding-left:2px}
+  /* Der peekende Nachbar wird weich ausgeblendet statt hart abgeschnitten: so liest man
+     "es geht weiter" statt "hier ist etwas schiefgegangen". */
+  .mbar::after{content:"";position:absolute;top:0;right:-1px;bottom:0;width:30px;z-index:2;pointer-events:none;
+    background:linear-gradient(90deg,rgba(9,14,25,0),rgba(9,14,25,.9))}
   .mcards::-webkit-scrollbar{display:none}
   /* #menu-Praefix noetig: schlaegt die #menu-* pan-y-Subtree-Regel (hoehere Spezifitaet) */
   #menu .mcards,#menu .mcards *{touch-action:pan-x pan-y}
-  .mcard{flex:0 0 47%;min-width:0;height:auto;scroll-snap-align:start;justify-content:flex-start;
-    padding:16px 12px 15px;gap:7px;border-radius:18px}
-  .mcard .mic{width:39px;height:39px}
-  .mcard .mic svg{width:20px;height:20px}
-  .mcard .mt{font-size:13px;letter-spacing:.03em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;line-height:1.2;margin-top:2px}
-  .mcard .msub{display:block;font-size:9px;letter-spacing:.12em}
+  .mcard{flex:0 0 48.5%;min-width:0;height:auto;scroll-snap-align:start;padding:0;gap:0;border-radius:18px}
+  .mcard .mt{font-size:12.5px;letter-spacing:.03em;line-height:1.2}
+  .mcard .msub{display:block;font-size:8px;letter-spacing:.11em;margin-right:-.11em}
   .mcard .chip{display:none}
+  .mcap{padding:9px 7px 11px}
   .marrow{display:none}
-  .mdots{display:flex;justify-content:center;gap:5px;margin-top:12px}
-  /* Uebergang Hero -> Menue: Arena dominant sichtbar lassen, Sheet nicht zu hoch ziehen */
-  #menuHero{height:clamp(220px,36vh,320px);margin-bottom:0}
+  .mdots{display:flex;justify-content:center;align-items:center;gap:4px;margin-top:13px}
+  /* Uebergang Hero -> Menue: die Arena bleibt der Blickfang, muss sich den Platz aber
+     mit dem Game Hub teilen - sonst rutscht der CTA aus dem ersten Viewport. */
+  #menuHero{height:clamp(180px,26vh,240px);margin-bottom:0}
+  .gcard img{aspect-ratio:16/10}
+  .gcard .gcap{padding:9px 9px 10px}
+  .gcard .gs{font-size:7.5px;letter-spacing:.14em;margin-right:-.14em}
   .msheet{padding-top:12px}
-  .mcta{padding:15px 30px}
   .mquick{margin-top:10px}
 }
 /* CTA: hochwertiges goldenes Banner mit sanft gekappten Ecken — feine Kontur,
    Innenlicht und Metallwirkung durch mittige Glanzkante, statt flachem Verlauf. */
-.mcta{width:100%;margin-top:14px;position:relative;display:flex;align-items:center;justify-content:center;
-  border:0;border-radius:14px;clip-path:polygon(12px 0,calc(100% - 12px) 0,100% 12px,100% calc(100% - 12px),calc(100% - 12px) 100%,12px 100%,0 calc(100% - 12px),0 12px);
-  padding:17px 22px;font:inherit;font-size:clamp(14px,4.2vw,16px);font-weight:900;letter-spacing:.16em;cursor:pointer;color:#2b1c00;
-  text-shadow:0 1px 0 rgba(255,246,214,.7);background:linear-gradient(180deg,#ffe9ad 0%,#f6c24e 46%,#e7a52e 54%,#c9861a 100%);
-  box-shadow:0 8px 26px rgba(230,160,40,.4),inset 0 1.5px 0 rgba(255,248,220,.85),inset 0 -3px 7px rgba(140,80,0,.4),inset 0 0 0 1px rgba(255,222,150,.5);transition:transform .1s}
+.mcta{width:calc(100% - 10px);margin:13px auto 0;position:relative;display:flex;align-items:center;justify-content:center;gap:10px;
+  border:0;border-radius:13px;clip-path:polygon(10px 0,calc(100% - 10px) 0,100% 10px,100% calc(100% - 10px),calc(100% - 10px) 100%,10px 100%,0 calc(100% - 10px),0 10px);
+  padding:14px 20px;font:inherit;font-size:clamp(13px,3.9vw,15px);font-weight:900;letter-spacing:.13em;cursor:pointer;color:#3a2503;
+  text-shadow:0 1px 0 rgba(255,246,214,.55);background:linear-gradient(180deg,#ffdf9a 0%,#f2bb52 44%,#e0a437 56%,#bf8323 100%);
+  box-shadow:0 6px 18px rgba(190,132,35,.26),inset 0 1px 0 rgba(255,248,220,.62),inset 0 0 0 1px rgba(255,222,150,.34);
+  transition:transform .1s,filter .15s}
+.mctaIco{font-size:11px;line-height:1;opacity:.8}
 .mcta:active{transform:scale(.97)}
 .mfoot{align-self:center;margin-top:10px;font-size:8.5px;font-weight:800;letter-spacing:.26em;color:#dfe7f3;background:rgba(7,12,22,.5);border:1px solid rgba(150,170,210,.22);padding:8px calc(18px - .26em) 8px 18px;border-radius:999px;backdrop-filter:blur(4px)}
-@media(max-width:559px){.msec{margin:15px 2px 9px}.mfoot{display:none}}
+@media(max-width:559px){.msec{margin:17px 2px 10px}.mfoot{display:none}
+  .mcta{padding:14px 18px}}
 /* Schnellaktionen unter dem CTA: nur echte Funktionen (Create-Room / Join-Code) —
    Icon-Medaillon oben, Label + kurzer Sub-Text darunter (Referenz-Anmutung). */
-.mquick{display:grid;grid-template-columns:1fr 1fr;gap:10px;width:100%;margin-top:12px}
+.mquick{display:grid;grid-template-columns:1fr 1fr;gap:10px;width:100%;margin-top:10px}
+/* Wiedereintritt: erscheint nur, wenn wirklich ein gemerkter Raum existiert.
+   Er oeffnet den bestehenden Onlinebildschirm, auf dem der echte Wiedereintritts-
+   knopf des Produkts steht - es entsteht keine zweite Netzlogik. */
+.qrejoin{display:none;width:100%;margin-top:12px;align-items:center;gap:11px;text-align:left;font:inherit;cursor:pointer;
+  border:1px solid rgba(255,201,64,.5);border-radius:14px;padding:12px 14px;
+  background:linear-gradient(180deg,rgba(56,44,18,.75),rgba(20,17,12,.9));box-shadow:0 8px 22px rgba(5,9,18,.4)}
+.qrejoin.show{display:flex}
+.qrejoin .qi{color:var(--gold)}
+.qrejoin .qt{color:#ffe7ab}
 .qbtn{display:flex;flex-direction:row;align-items:center;gap:10px;border:1px solid rgba(150,170,210,.32);border-radius:13px;text-align:left;
   background:linear-gradient(180deg,rgba(20,29,48,.5),rgba(12,18,30,.7));color:#dfe7f3;font:inherit;padding:11px 13px;cursor:pointer;transition:border-color .15s}
 .qbtn .qi{width:32px;height:32px;flex:0 0 auto;border-radius:10px;display:flex;align-items:center;justify-content:center;color:var(--gold);
@@ -754,72 +857,106 @@ body:not(.r3d) .ohero{height:12px}
   <!-- Panel-Sheet: alle Home-Sektionen (PLAY / ONLINE ROOMS / HOW TO PLAY / Ausbau-Slot)
        in einem app-artigen Bottom-Sheet unter dem Arena-Hero -->
   <div class="msheet">
+   <!-- GAME HUB: RINGOUT bleibt die Dachmarke; darunter stehen zwei erstklassige Spiele.
+        Die Karte waehlt das Spiel, die Modusleiste darunter zeigt dessen echte Modi. -->
+   <div class="msec"><span id="secHubT">GAME HUB</span><i class="hr"></i></div>
+   <div class="mhub">
+    <button class="gcard on" id="cardRingout" type="button">
+      <img src="assets/hub/hero_ringout.webp" alt="" width="680" height="425" loading="lazy" decoding="async">
+      <span class="gveil"></span>
+      <span class="gcap"><span class="gn">Ring<em>Out</em></span><span class="gs" id="gRoS">PULL BACK · RELEASE</span><span class="gteam" aria-hidden="true"><i class="kg"></i></span></span>
+    </button>
+    <button class="gcard gfb" id="cardFootball" type="button">
+      <span class="gbadge" id="gFbBadge">NEU</span>
+      <img src="assets/hub/hero_football.webp" alt="" width="900" height="563" loading="lazy" decoding="async">
+      <span class="gveil"></span>
+      <span class="gcap"><span class="gn" id="gFbT">Arena <em>Football</em></span><span class="gs" id="gFbS">GOALS · SKILLS · SPEED</span><span class="gteam" aria-hidden="true"><i class="kb"></i><i class="kr"></i></span></span>
+    </button>
+   </div>
    <div class="msec"><span id="secPlayT">PLAY</span><i class="hr"></i></div>
    <div class="mbar">
     <button class="marrow marrow-l" id="modePrev" type="button" aria-label="Previous mode" tabindex="-1">‹</button>
-    <div class="mcards">
+    <div class="mcards" id="roCards">
     <button class="mcard on" id="cardFfa">
       <span class="chip">ACTIVE</span>
-      <span class="mic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="12" r="8"/><ellipse cx="12" cy="12" rx="3.4" ry="8"/><path d="M4.6 12h14.8"/></svg></span>
-      <span class="mt">ONLINE FFA</span>
-      <span class="msub">2–5 PLAYERS</span>
+      <span class="mstage"><img class="mshot" src="assets/hub/modes/ringout_onlineffa.webp" alt="" width="700" height="438" decoding="async"></span>
+      <span class="mcap"><span class="mt">ONLINE FFA</span><span class="msub">2–5 PLAYERS</span></span>
     </button>
     <button class="mcard" id="cardTriple">
       <span class="chip">ACTIVE</span>
-      <span class="mic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="6.4" r="2.5"/><circle cx="6.4" cy="16.6" r="2.5"/><circle cx="17.6" cy="16.6" r="2.5"/><path d="M10.6 8.6l-2.9 5.3M13.4 8.6l2.9 5.3M9 16.6h6"/></svg></span>
-      <span class="mt">TRIPLE FFA</span>
-      <span class="msub">3 PLAYERS · 2 BALLS EACH</span>
+      <span class="mstage"><img class="mshot" src="assets/hub/modes/ringout_tripleffa.webp" alt="" width="700" height="438" decoding="async"></span>
+      <span class="mcap"><span class="mt">TRIPLE FFA</span><span class="msub">3 PLAYERS · 2 BALLS</span></span>
     </button>
     <button class="mcard" id="cardTeam">
       <span class="chip">ACTIVE</span>
-      <span class="mic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="7.2" cy="7.2" r="2.4"/><circle cx="16.8" cy="7.2" r="2.4"/><circle cx="7.2" cy="16.8" r="2.4"/><circle cx="16.8" cy="16.8" r="2.4"/><path d="M9.6 12h4.8M12 9.6v4.8"/></svg></span>
-      <span class="mt">TEAM DUEL</span>
-      <span class="msub">4 PLAYERS · 2 TEAMS</span>
+      <span class="mstage"><img class="mshot" src="assets/hub/modes/ringout_teamduel.webp" alt="" width="700" height="438" decoding="async"></span>
+      <span class="mcap"><span class="mt">TEAM DUEL</span><span class="msub">4 PLAYERS · 2 TEAMS</span></span>
     </button>
     <button class="mcard" id="card2v2">
       <span class="chip">ACTIVE</span>
-      <span class="mic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="9" cy="8.6" r="3"/><path d="M3.4 19c0-3.1 2.6-4.8 5.6-4.8s5.6 1.7 5.6 4.8"/><circle cx="16.6" cy="9.4" r="2.4"/><path d="M16 14.4c2.6.3 4.7 1.9 4.7 4.4"/></svg></span>
-      <span class="mt">ONLINE VERSUS</span>
-      <span class="msub">2 PLAYERS · 2 BALLS EACH</span>
+      <span class="mstage"><img class="mshot" src="assets/hub/modes/ringout_versus.webp" alt="" width="700" height="438" decoding="async"></span>
+      <span class="mcap"><span class="mt">ONLINE VERSUS</span><span class="msub">2 PLAYERS · 2 BALLS</span></span>
     </button>
     <button class="mcard" id="cardBot">
       <span class="chip">ACTIVE</span>
-      <span class="mic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="6" y="8.5" width="12" height="8.5" rx="2.6"/><circle cx="10" cy="12.6" r="1" fill="currentColor" stroke="none"/><circle cx="14" cy="12.6" r="1" fill="currentColor" stroke="none"/><path d="M12 8.5V6"/><circle cx="12" cy="4.8" r="1.1"/></svg></span>
-      <span class="mt">BOT TRAINING</span>
-      <span class="msub">VS AI</span>
+      <span class="mstage"><img class="mshot" src="assets/hub/modes/ringout_bot.webp" alt="" width="700" height="438" decoding="async"></span>
+      <span class="mcap"><span class="mt">BOT TRAINING</span><span class="msub">VS AI</span></span>
     </button>
-    <button class="mcard" id="cardFootball">
-      <span class="chip">NEU</span>
-      <span class="mic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="12" r="8"/><path d="M12 4v3.6M12 16.4V20M4 12h3.6M16.4 12H20"/><circle cx="12" cy="12" r="2.3"/></svg></span>
-      <span class="mt">ARENA FOOTBALL</span>
-      <span class="msub">1V1 · BLAU VS ROT</span>
+    </div>
+    <!-- Arena-Football-Modi. Jede Karte zeigt auf einen BESTEHENDEN Startpfad; der CTA
+         darunter loest genau dessen vorhandenen Knopf aus. Kein zweiter Spielablauf. -->
+    <div class="mcards" id="fbCards" style="display:none">
+    <button class="mcard on" id="cardFbClassic">
+      <span class="mstage"><img class="mshot" src="assets/hub/modes/football_classic.webp" alt="" width="700" height="438" decoding="async"></span>
+      <span class="mcap"><span class="mt" id="cardFbClassicT">CLASSIC 1V1</span><span class="msub" id="cardFbClassicS">PURE DUEL</span></span>
+    </button>
+    <button class="mcard" id="cardFbTactical">
+      <span class="mstage"><img class="mshot" src="assets/hub/modes/football_tactical.webp" alt="" width="700" height="438" decoding="async"></span>
+      <span class="mcap"><span class="mt" id="cardFbTacticalT">TACTICAL 1V1</span><span class="msub" id="cardFbTacticalS">TWO PIECES · ONE MOVE</span></span>
+    </button>
+    <button class="mcard" id="cardFbTeam2">
+      <span class="mstage"><img class="mshot" src="assets/hub/modes/football_team2v2.webp" alt="" width="700" height="438" decoding="async"></span>
+      <span class="mcap"><span class="mt" id="cardFbTeam2T">TEAM 2V2</span><span class="msub" id="cardFbTeam2S">4 PLAYERS · 2 TEAMS</span></span>
+    </button>
+    <button class="mcard" id="cardFbElim">
+      <span class="mstage"><img class="mshot" src="assets/hub/modes/football_elimination.webp" alt="" width="700" height="438" decoding="async"></span>
+      <span class="mcap"><span class="mt" id="cardFbElimT">ELIMINATION</span><span class="msub" id="cardFbElimS">SURVIVE THE ARENA</span></span>
+    </button>
+    <button class="mcard" id="cardFbOnline">
+      <span class="mstage"><img class="mshot" src="assets/hub/modes/football_online.webp" alt="" width="700" height="438" decoding="async"></span>
+      <span class="mcap"><span class="mt" id="cardFbOnlineT">ONLINE</span><span class="msub" id="cardFbOnlineS">3–5 PLAYERS · LIVES FFA</span></span>
     </button>
     </div>
     <button class="marrow marrow-r" id="modeNext" type="button" aria-label="Next mode" tabindex="-1">›</button>
    </div>
    <div class="mdots" id="modeDots" aria-hidden="true"></div>
-   <button class="mcta" id="ctaBtn"><span id="ctaBtnT">PLAY ONLINE FFA</span></button>
+   <button class="mcta" id="ctaBtn"><span class="mctaIco" aria-hidden="true">▶</span><span id="ctaBtnT">PLAY ONLINE FFA</span></button>
    <div class="mfoot" id="ctaInfo">2–5 PLAYERS · HOST STARTS</div>
    <!-- Schnellaktionen: nur echte Funktionen — CREATE ROOM + JOIN CODE fuehren beide
         in den bestehenden openOnline-Flow (Erstellen bzw. Code-Beitreten). Kein Fake. -->
-   <div class="mquick">
+   <div class="msec roOnly"><span id="secMultiT">MULTIPLAYER</span><i class="hr"></i></div>
+   <!-- Wiedereintritt: nur sichtbar, wenn savedRoom() wirklich einen Raum kennt. Der
+        Knopf oeffnet den bestehenden Onlinebildschirm, auf dem der echte
+        Wiedereintrittsknopf des Produkts steht. -->
+   <button class="qrejoin roOnly" id="homeRejoin" type="button"><span class="qi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1"/><path d="M3.2 4.4v5h5"/></svg></span><span class="qtx"><span class="qt" id="homeRejoinT">REJOIN MATCH</span><span class="qs" id="homeRejoinS"></span></span></button>
+   <div class="mquick roOnly">
     <button class="qbtn" id="homeCreate" type="button"><span class="qi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M15 19c0-3.3-2.7-5-6-5s-6 1.7-6 5"/><circle cx="9" cy="8" r="3.2"/><path d="M18 8v6M15 11h6"/></svg></span><span class="qtx"><span class="qt" id="homeCreateT">CREATE ROOM</span><span class="qs" id="homeCreateS">Invite your friends</span></span></button>
     <button class="qbtn" id="homeJoinCode" type="button"><span class="qi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="3.5" width="7" height="7" rx="1.2"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.2"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.2"/><path d="M14 14.5h3M18 14.5h2.5M14 18.5h2.5M19 18.5h1.5M14 21.5h6.5v-4.7"/></svg></span><span class="qtx"><span class="qt" id="homeJoinT">JOIN CODE</span><span class="qs" id="homeJoinS">Enter room code</span></span></button>
    </div>
 
    <!-- Online-Rooms-Vorschau: dieselben Live-Daten wie die Public-Liste der Online-Seite
         (ein geteilter Listener, gekappt auf 3 Zeilen). Join nutzt den echten joinRoom()-Pfad. -->
-   <div class="msec"><span id="secRoomsT">ONLINE ROOMS</span><i class="hr"></i><button class="mlink" id="homeViewAll"><span id="viewAllT">VIEW ALL</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></button></div>
-   <div id="homeRoomsList"></div>
-   <div id="homeRoomsState" class="mstate"></div>
+   <div class="msec roOnly"><span id="secRoomsT">ONLINE ROOMS</span><i class="hr"></i><button class="mlink" id="homeViewAll"><span id="viewAllT">VIEW ALL</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></button></div>
+   <div id="homeRoomsList" class="roOnly"></div>
+   <div id="homeRoomsState" class="mstate roOnly"></div>
 
    <!-- HOW TO PLAY: kompakte Zeile; klappt die bestehenden 3 Schritte auf/zu -->
-   <button class="howrow" id="howToggle" type="button" aria-expanded="false" aria-controls="howPanel">
+   <button class="howrow roOnly" id="howToggle" type="button" aria-expanded="false" aria-controls="howPanel">
     <span class="howrow-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H11v15H5.5A1.5 1.5 0 0 0 4 20.5z"/><path d="M20 5.5A1.5 1.5 0 0 0 18.5 4H13v15h5.5a1.5 1.5 0 0 1 1.5 1.5z"/></svg></span>
     <span class="howrow-tx"><span class="howrow-t" id="secHowT">HOW TO PLAY</span><span class="howrow-s" id="howLeadT">Learn the rules and master the ring.</span></span>
     <span class="howrow-cv"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></span>
    </button>
-   <div class="howp" id="howPanel" style="display:none">
+   <div class="howp roOnly" id="howPanel" style="display:none">
     <div class="hstep"><span class="hico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="15.5" cy="8.5" r="3.2"/><path d="M12.9 11.1 6.2 17.8"/><path d="M9.6 18H6v-3.6"/></svg></span><div class="hst how1T">1. PULL BACK</div><div class="hss how1S">Pull back to aim and set your power.</div></div>
     <div class="hstep"><span class="hico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="8.5" cy="15.5" r="3.2"/><path d="M11.1 12.9l6.7-6.7"/><path d="M14.4 6H18v3.6"/></svg></span><div class="hst how2T">2. RELEASE</div><div class="hss how2S">Let go to launch your marble.</div></div>
     <div class="hstep"><span class="hico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="14.5" r="3.4"/><circle cx="16.8" cy="8.8" r="2.6"/><path d="M12.1 12.2l1.5-1.3"/><path d="M20 5.6l1.7-1.7"/></svg></span><div class="hst how3T">3. KNOCK OUT</div><div class="hss how3S">Push your opponents off the arena.</div></div>
@@ -1980,11 +2117,62 @@ const MENU_SEL={
   bot:{card:'cardBot',cta:'ctaBot',info:'infoBot'},
   football:{card:'cardFootball',cta:'ctaFootball',info:'infoFootball'}   // Arena-Football-Integrations-Shell
 };
+// ── GAME HUB ───────────────────────────────────────────────────────────────
+// Zwei Spiele unter einer Marke. RingOut waehlt seinen Modus wie bisher ueber
+// menuSel; Arena Football hat eine eigene Modusliste. Jeder Football-Eintrag zeigt
+// auf einen BESTEHENDEN Startknopf - der Hub startet nichts selbst und kennt keine
+// zweite Spiellogik. Sichtbar ist nur, was das Produkt wirklich kann: online ist
+// derzeit allein die Lebensregel freigegeben (FB_ONLINE_MODES bleibt massgeblich).
+const FB_HUB_MODES=[
+  {key:'classic', card:'cardFbClassic', btn:'fbClassicBtn',  cta:'ctaFbClassic',  info:'fbClassicS'},
+  {key:'tactical',card:'cardFbTactical',btn:'fbTacticalBtn', cta:'ctaFbTactical', info:'fbTacticalS'},
+  {key:'team2',   card:'cardFbTeam2',   btn:'fbTeam2Btn',    cta:'ctaFbTeam2',    info:'fbTeam2S'},
+  {key:'elim',    card:'cardFbElim',    btn:'fbElimBtn',     cta:'ctaFbElim',     info:'fbElimS'},
+  {key:'online',  card:'cardFbOnline',  btn:'fbOnlineBtn',   cta:'ctaFbOnline',   info:'fbOnHubS'}
+];
+const HUB_RO_ORDER=['ffa','triple','team','vs','bot'];
+let hubGame='ro', fbHubSel=0, roSel='ffa';
+// Kam der Spieler ueber den Hub oder ueber die alte Modusauswahl? Nur davon haengt
+// ab, wohin ZURUECK fuehrt. Die Startknoepfe selbst bleiben unveraendert.
+let fbAusHub=false;
+// Der Kontextwechsel ist reine Darstellung: Leiste, Kopfzeile, Akzent und die
+// RingOut-eigenen Sektionen. Er laedt nichts neu und ruehrt weder Renderer noch
+// Online-Zustand an.
+function applyHubContext(g){
+  hubGame=g;
+  const fb=(g==='fb');
+  document.body.classList.toggle('fbctx',fb);
+  const ro=$('roCards'),fc=$('fbCards');
+  if(ro)ro.style.display=fb?'none':'';
+  if(fc)fc.style.display=fb?'':'none';
+  $('cardRingout').classList.toggle('on',!fb);
+  $('secPlayT').textContent=T(fb?'secFbModes':'secRoModes');
+}
+// Setzt die Football-Auswahl und beschriftet den CTA mit genau diesem Modus.
+function applyFbMode(i){
+  fbHubSel=Math.max(0,Math.min(FB_HUB_MODES.length-1,i|0));
+  FB_HUB_MODES.forEach((d,k)=>{const el=$(d.card);if(el)el.classList.toggle('on',k===fbHubSel);});
+  const d=FB_HUB_MODES[fbHubSel];
+  $('ctaBtnT').textContent=T(d.cta);
+  $('ctaInfo').textContent=T(d.info);
+}
+function selectFbMode(i){
+  applyFbMode(i);
+  updateModeDots('football');
+  const card=$(FB_HUB_MODES[fbHubSel].card),row=card&&card.parentElement;
+  if(row&&row.scrollWidth>row.clientWidth+4){
+    const cr=card.getBoundingClientRect(),rr=row.getBoundingClientRect();
+    row.scrollBy({left:cr.left-rr.left-2,behavior:'smooth'});
+  }
+}
 function selectMenuMode(m){
   menuSel=m;
+  if(m!=='football')roSel=m;                      // der zuletzt gewaehlte RingOut-Modus
+  applyHubContext(m==='football'?'fb':'ro');      // die Football-Karte IST die Spielwahl
   for(const k of Object.keys(MENU_SEL))$(MENU_SEL[k].card).classList.toggle('on',k===m);
   $('ctaBtnT').textContent=T(MENU_SEL[m].cta);
   $('ctaInfo').textContent=T(MENU_SEL[m].info);
+  if(m==='football')applyFbMode(fbHubSel);
   updateModeDots(m);
   // Mobil-Carousel: Active-State sofort gesetzt (oben). Danach nur den Scroll-Container
   // zur gewaehlten Karte bewegen (native Smooth-Scroll) — keine Groessen-/Layout-Animation.
@@ -2000,9 +2188,16 @@ function selectMenuMode(m){
 const MODE_ORDER=['ffa','triple','team','vs','bot','football'];
 function updateModeDots(m){
   const box=$('modeDots'); if(!box)return;
-  if(!box.childElementCount)MODE_ORDER.forEach(k=>{const d=document.createElement('button');d.type='button';d.className='mdot';
-    d.setAttribute('aria-label',T(MENU_SEL[k].cta));d.onclick=()=>selectMenuMode(k);box.appendChild(d);});
-  const i=MODE_ORDER.indexOf(m);
+  const fb=(hubGame==='fb');
+  // Neu aufbauen nur bei Kontext- oder Sprachwechsel; sonst wandert nur die Markierung.
+  if(box.dataset.ctx!==hubGame){
+    box.textContent=''; box.dataset.ctx=hubGame;
+    const bau=(label,klick)=>{const d=document.createElement('button');d.type='button';d.className='mdot';
+      d.setAttribute('aria-label',label);d.onclick=klick;box.appendChild(d);};
+    if(fb)FB_HUB_MODES.forEach((d,i)=>bau(T(d.cta),()=>selectFbMode(i)));
+    else HUB_RO_ORDER.forEach(k=>bau(T(MENU_SEL[k].cta),()=>selectMenuMode(k)));
+  }
+  const i=fb?fbHubSel:HUB_RO_ORDER.indexOf(m);
   [...box.children].forEach((d,idx)=>d.classList.toggle('on',idx===i));
 }
 function stepMenuMode(dir){const i=MODE_ORDER.indexOf(menuSel);selectMenuMode(MODE_ORDER[(i+dir+MODE_ORDER.length)%MODE_ORDER.length]);}
@@ -2050,6 +2245,18 @@ en:{tagline:'PULL BACK · RELEASE · KNOCK THEM OUT',chip:'FEATURED',
   joinCodeBtn:'JOIN CODE',howLead:'Learn the rules and master the ring.',
   createRoomSub:'Invite your friends',joinCodeSub:'Enter room code',
   scrollHint:'SCROLL TO EXPLORE',soonT:'MORE COMING SOON',soonS:'New modes and features are in the works.',
+  // GAME HUB: zwei Spiele unter der Dachmarke RINGOUT. Die Online-Zeile nennt genau
+  // die freigegebene Flaeche - Lives FFA mit 3 bis 5 Spielern, sonst nichts.
+  secHub:'GAME HUB',secRoModes:'RING OUT MODES',secFbModes:'ARENA FOOTBALL MODES',
+  secMulti:'MULTIPLAYER',rejoinHome:'REJOIN MATCH',rejoinRoom:'Room {code} is still open',
+  // Kurze Unterzeilen der Hub-Karten: eine Zeile, kein Regeltext.
+  mcTriple:'3 PLAYERS · 2 BALLS',mcVs:'2 PLAYERS · 2 BALLS',
+  mcFbClassic:'PURE DUEL',mcFbTactical:'TWO PIECES · ONE MOVE',
+  mcFbTeam2:'4 PLAYERS · 2 TEAMS',mcFbElim:'SURVIVE THE ARENA',
+  gRoS:'PULL BACK · RELEASE',gFbT:'Arena <em>Football</em>',gFbS:'GOALS · SKILLS · SPEED',gFbBadge:'NEW',
+  fbOnHubS:'3–5 PLAYERS · LIVES FFA',
+  ctaFbClassic:'PLAY CLASSIC 1V1',ctaFbTactical:'PLAY TACTICAL 1V1',ctaFbTeam2:'PLAY TEAM 2V2',
+  ctaFbElim:'PLAY ELIMINATION',ctaFbOnline:'PLAY ONLINE',
   how1T:'1. PULL BACK',how1S:'Pull back to aim and set your power.',
   how2T:'2. RELEASE',how2S:'Let go to launch your marble.',
   how3T:'3. KNOCK OUT',how3S:'Push your opponents off the arena.',
@@ -2123,6 +2330,15 @@ de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'FEATURED',
   onSubFb:'Elimination · 2 bis 5 Spieler · je 2 Leben',
   secPlay:'SPIELEN',secRooms:'ONLINE-RÄUME',secHow:'SO WIRD GESPIELT',viewAll:'ALLE ANZEIGEN',
   scrollHint:'SCROLLEN FÜR MEHR',soonT:'BALD MEHR',soonS:'Neue Modi und Features sind in Arbeit.',
+  secHub:'GAME HUB',secRoModes:'RING OUT MODI',secFbModes:'ARENA FOOTBALL MODI',
+  secMulti:'MEHRSPIELER',rejoinHome:'ZURÜCK INS MATCH',rejoinRoom:'Raum {code} steht noch offen',
+  mcTriple:'3 SPIELER · 2 KUGELN',mcVs:'2 SPIELER · 2 KUGELN',
+  mcFbClassic:'DAS REINE DUELL',mcFbTactical:'ZWEI FIGUREN · EIN ZUG',
+  mcFbTeam2:'4 SPIELER · 2 TEAMS',mcFbElim:'ÜBERLEBE DIE ARENA',
+  gRoS:'ZIEH ZURÜCK · LASS LOS',gFbT:'Arena <em>Football</em>',gFbS:'TORE · TECHNIK · TEMPO',gFbBadge:'NEU',
+  fbOnHubS:'3–5 SPIELER · LIVES FFA',
+  ctaFbClassic:'CLASSIC 1V1 SPIELEN',ctaFbTactical:'TACTICAL 1V1 SPIELEN',ctaFbTeam2:'TEAM 2V2 SPIELEN',
+  ctaFbElim:'ELIMINATION SPIELEN',ctaFbOnline:'ONLINE SPIELEN',
   joinCodeBtn:'CODE BEITRETEN',howLead:'Lerne die Regeln und meistere den Ring.',
   createRoomSub:'Lade deine Freunde ein',joinCodeSub:'Raumcode eingeben',
   how1T:'1. ZIEH ZURÜCK',how1S:'Ziehe zurück, ziele und bestimme die Kraft.',
@@ -2198,6 +2414,15 @@ tr:{tagline:'GERİ ÇEK · BIRAK · DIŞARI İT',chip:'FEATURED',
   onSubFb:'Eliminasyon · 2-5 oyuncu · her birine 2 can',
   secPlay:'OYNA',secRooms:'ONLINE ODALAR',secHow:'NASIL OYNANIR',viewAll:'TÜMÜNÜ GÖR',
   scrollHint:'KAYDIR VE KEŞFET',soonT:'ÇOK YAKINDA DAHA FAZLASI',soonS:'Yeni modlar ve özellikler yolda.',
+  secHub:'OYUN MERKEZİ',secRoModes:'RING OUT MODLARI',secFbModes:'ARENA FOOTBALL MODLARI',
+  secMulti:'ÇOK OYUNCULU',rejoinHome:'MAÇA GERİ DÖN',rejoinRoom:'{code} odası hâlâ açık',
+  mcTriple:'3 OYUNCU · 2 TOP',mcVs:'2 OYUNCU · 2 TOP',
+  mcFbClassic:'SAF DÜELLO',mcFbTactical:'İKİ TAŞ · TEK HAMLE',
+  mcFbTeam2:'4 OYUNCU · 2 TAKIM',mcFbElim:'ARENADA HAYATTA KAL',
+  gRoS:'GERİ ÇEK · BIRAK',gFbT:'Arena <em>Football</em>',gFbS:'GOL · BECERİ · HIZ',gFbBadge:'YENİ',
+  fbOnHubS:'3–5 OYUNCU · LIVES FFA',
+  ctaFbClassic:'CLASSIC 1V1 OYNA',ctaFbTactical:'TACTICAL 1V1 OYNA',ctaFbTeam2:'TEAM 2V2 OYNA',
+  ctaFbElim:'ELİMİNASYON OYNA',ctaFbOnline:'ONLİNE OYNA',
   joinCodeBtn:'KODLA KATIL',howLead:'Kuralları öğren ve ringe hâkim ol.',
   createRoomSub:'Arkadaşlarını davet et',joinCodeSub:'Oda kodunu gir',
   how1T:'1. GERİ ÇEK',how1S:'Geri çek, nişan al ve gücü ayarla.',
@@ -2250,12 +2475,12 @@ function applyLang(){
   document.querySelector('#cardFfa .mt').textContent=T('ffaT');
   document.querySelector('#cardFfa .msub').textContent=T('ffaS');
   document.querySelector('#cardTriple .mt').textContent=T('tripleT');
-  document.querySelector('#cardTriple .msub').textContent=T('tripleS');
+  document.querySelector('#cardTriple .msub').textContent=T('mcTriple');
   document.querySelector('#cardTeam .mt').textContent=T('teamT');
   document.querySelector('#cardTeam .msub').textContent=T('teamS');
   $('lobbyTeamBlue').textContent=T('teamBlue');$('lobbyTeamRed').textContent=T('teamRed');
   document.querySelector('#card2v2 .mt').textContent=T('vsT');
-  document.querySelector('#card2v2 .msub').textContent=T('vsS');
+  document.querySelector('#card2v2 .msub').textContent=T('mcVs');
   document.querySelector('#cardBot .mt').textContent=T('botT');
   document.querySelector('#cardBot .msub').textContent=T('botS');
   // Home-Sektionen + Online-Rooms-Vorschau + How-to (Klassen: Home UND Online-Seite)
@@ -2265,6 +2490,18 @@ function applyLang(){
   $('homeJoinT').textContent=T('joinCodeBtn');$('howLeadT').textContent=T('howLead');
   $('homeCreateS').textContent=T('createRoomSub');$('homeJoinS').textContent=T('joinCodeSub');
   $('soonT').textContent=T('soonT');$('soonS').textContent=T('soonS');
+  // GAME HUB: Spielwahl, Kontextkopf und die fuenf Football-Modi.
+  $('secHubT').textContent=T('secHub');
+  $('gRoS').textContent=T('gRoS');$('gFbT').innerHTML=T('gFbT');$('gFbS').textContent=T('gFbS');
+  $('gFbBadge').textContent=T('gFbBadge');
+  $('cardFbClassicT').textContent=T('fbClassicT');$('cardFbClassicS').textContent=T('mcFbClassic');
+  $('cardFbTacticalT').textContent=T('fbTacticalT');$('cardFbTacticalS').textContent=T('mcFbTactical');
+  $('cardFbTeam2T').textContent=T('fbTeam2T');$('cardFbTeam2S').textContent=T('mcFbTeam2');
+  $('cardFbElimT').textContent=T('fbElimT');$('cardFbElimS').textContent=T('mcFbElim');
+  $('cardFbOnlineT').textContent=T('fbOnlineT');$('cardFbOnlineS').textContent=T('fbOnHubS');
+  $('secMultiT').textContent=T('secMulti');$('homeRejoinT').textContent=T('rejoinHome');
+  updHomeRejoin();
+  {const b=$('modeDots');if(b)b.dataset.ctx='';}
   $('scrollHintT').textContent=T('scrollHint');
   for(const k of ['how1T','how1S','how2T','how2S','how3T','how3S'])
     document.querySelectorAll('.'+k).forEach(e=>{e.textContent=T(k);});
@@ -2352,6 +2589,8 @@ $('cardTeam').onclick=()=>selectMenuMode('team');
 $('card2v2').onclick=()=>selectMenuMode('vs');
 $('cardBot').onclick=()=>selectMenuMode('bot');
 $('cardFootball').onclick=()=>selectMenuMode('football');   // Arena-Football-Karte: gleiche Einzel-Click-Bindung wie alle anderen Moduskarten
+$('cardRingout').onclick=()=>selectMenuMode(roSel);   // zurueck zum zuletzt gewaehlten RingOut-Modus
+FB_HUB_MODES.forEach((d,i)=>{const el=$(d.card);if(el)el.onclick=()=>selectFbMode(i);});
 $('modePrev').onclick=()=>stepMenuMode(-1);
 $('modeNext').onclick=()=>stepMenuMode(1);
 $('ctaBtn').onclick=()=>{
@@ -2362,7 +2601,11 @@ $('ctaBtn').onclick=()=>{
     if(!r3dActive){toast(T('fbNo3d'));return;}
     if(DEV_FB_VARIANT==='classic'||DEV_FB_VARIANT===FOOTBALL_VARIANT_TACTICAL||DEV_FB_VARIANT===FOOTBALL_VARIANT_ELIM
      ||DEV_FB_VARIANT===FOOTBALL_VARIANT_TEAM2||DEV_FB_VARIANT===FOOTBALL_VARIANT_ELIM4){startFootball(DEV_FB_VARIANT);return;}
-    $('fbModeOv').classList.add('show');return;}
+    // HUB: der Modus steht bereits auf der Startseite. Der CTA loest genau dessen
+    // VORHANDENEN Startknopf aus - kein zweiter Startpfad, keine Kopie.
+    const fbW=FB_HUB_MODES[fbHubSel],fbB=fbW&&$(fbW.btn);
+    if(fbB&&typeof fbB.onclick==='function'){fbAusHub=true;fbB.onclick();return;}
+    fbAusHub=false;$('fbModeOv').classList.add('show');return;}
   if(menuSel==='bot'){if(SFX.click())vibrateMs(VIBE_CLICK_MS);$('botOv').classList.add('show');return;}       // Format-Auswahl: 1v1 / 2v2 Duo vs Bot
   if(TUNE){if(SFX.click())vibrateMs(VIBE_CLICK_MS);toast('Tuning aktiv — Online deaktiviert');return;}
   // "Play Online FFA": normaler Klick, aber weiterhin die deutlichere Vibration
@@ -2419,7 +2662,7 @@ $('fbFirst3Btn').onclick=()=>{if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);
 $('fbSpeedBtn').onclick=()=>{if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);
   $('fbRuleOv').classList.remove('show');startFootball('classic',FOOTBALL_RULES_SPEED);};
 // Zurueck fuehrt zur Modusauswahl, nicht ins Hauptmenue — der Weg, den man gekommen ist.
-$('fbRuleBack').onclick=()=>{$('fbRuleOv').classList.remove('show');$('fbModeOv').classList.add('show');};
+$('fbRuleBack').onclick=()=>{$('fbRuleOv').classList.remove('show');if(!fbAusHub)$('fbModeOv').classList.add('show');};
 $('fbTacticalBtn').onclick=()=>{if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);startFootball(FOOTBALL_VARIANT_TACTICAL);};
 $('fbTeam2Btn').onclick=()=>{if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);startFootball(FOOTBALL_VARIANT_TEAM2);};
 // ELIMINATION oeffnet die Einrichtung statt sofort zu starten - dieselbe Bauweise wie
@@ -2433,7 +2676,7 @@ $('fbLivesBtn').onclick=()=>{if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);
   fbElimSetupRules=FOOTBALL_ELIM_RULES_LIVES;startFootball(FOOTBALL_VARIANT_ELIM);};
 $('fbTimedBtn').onclick=()=>{if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);
   fbElimSetupRules=FOOTBALL_ELIM_RULES_TIMED;startFootball(FOOTBALL_VARIANT_ELIM);};
-$('fbElimBack').onclick=()=>{$('fbElimOv').classList.remove('show');$('fbModeOv').classList.add('show');};
+$('fbElimBack').onclick=()=>{$('fbElimOv').classList.remove('show');if(!fbAusHub)$('fbModeOv').classList.add('show');};
 // ARENA FOOTBALL ONLINE - der normale Produktweg. Er setzt NUR den Kontext (Raumtyp,
 // Variante) und uebergibt an den bestehenden Onlinebildschirm; Raumformat, Sitzclaim,
 // Lobby, Host-Start, Reconnect und der kanonische Austritt sind unveraendert dieselben
@@ -2538,7 +2781,7 @@ for(const c of [3,4,5]){
 $('fbOnCapGo').onclick=()=>{if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);
   $('fbOnCapOv').classList.remove('show');fbOnlineEnter();};
 $('fbOnCapBack').onclick=()=>{$('fbOnCapOv').classList.remove('show');fbOnModeShow();};
-$('fbOnModeBack').onclick=()=>{$('fbOnModeOv').classList.remove('show');$('fbModeOv').classList.add('show');};
+$('fbOnModeBack').onclick=()=>{$('fbOnModeOv').classList.remove('show');if(!fbAusHub)$('fbModeOv').classList.add('show');};
 $('fbModeBack').onclick=()=>$('fbModeOv').classList.remove('show');
 $('menuSnd').onclick=()=>{soundOn=!soundOn;const g=soundOn?'🔊':'🔇';$('menuSnd').textContent=g;$('sndBtn').textContent=g;if(!soundOn){SFX.charge.stop();SFX.fbTransitionStop();if(typeof fbMusicStop==='function')fbMusicStop();}};
 // ── Menue-Preview: die ECHTE 3D-Szene zeigt den gewaehlten Modus. Setzt nur den
@@ -2562,6 +2805,17 @@ $('homeViewAll').onclick=()=>{SFX.unlock();mode='ffa';fmt='ffa';openOnline();};
 $('homeCreate').onclick=()=>{SFX.unlock();mode='ffa';fmt='ffa';openOnline();};
 // JOIN CODE: gleicher Online-Flow — die Beitreten-Karte (Code-Feld) ist dort direkt sichtbar.
 $('homeJoinCode').onclick=()=>{SFX.unlock();mode='ffa';fmt='ffa';openOnline();try{setTimeout(()=>$('onInput').focus(),80);}catch(e){}};
+// WIEDEREINTRITT auf der Startseite: derselbe Onlinebildschirm wie die anderen
+// Schnellaktionen - dort steht der echte Wiedereintrittsknopf des Produkts. Es
+// entsteht keine zweite Netzlogik und kein zweiter Zustand.
+$('homeRejoin').onclick=()=>{SFX.unlock();mode='ffa';fmt='ffa';openOnline();};
+// Sichtbar nur mit einem wirklich gemerkten Raum - der Code steht als Unterzeile.
+function updHomeRejoin(){
+  const b=$('homeRejoin'); if(!b)return;
+  let sr=null; try{ sr=savedRoom(); }catch(e){}
+  b.classList.toggle('show',!!sr);
+  if(sr)$('homeRejoinS').textContent=T('rejoinRoom').replace('{code}',sr.code);
+}
 // HOW TO PLAY: kompakte Zeile klappt die bestehenden 3 Schritte auf/zu.
 $('howToggle').onclick=()=>{const p=$('howPanel'),b=$('howToggle'),open=p.style.display==='none';p.style.display=open?'':'none';b.setAttribute('aria-expanded',open?'true':'false');};
 // Public-Liste manuell auffrischen (Listener ist ohnehin live; Refresh startet ihn neu)
@@ -2619,6 +2873,7 @@ function showMenu(){menuVisible=true;$('menu').style.display='flex';$('game').st
   SFX.footballGoalStop();      // ein noch laufender Torsound blendet weich aus, statt ins Menue hineinzuklingen
   SFX.fbTransitionStop();      // dasselbe fuer einen laufenden Transitionsklang
   if(r3dActive&&r3d&&r3d.flushEnvProfile)r3d.flushEnvProfile();   // waehrend des Matches aufgeschobenen Env-Wechsel jetzt (sicherer Idle) anwenden
+  updHomeRejoin();   // gemerkter Raum kann sich seit dem letzten Menuebesuch geaendert haben
   whenFB(()=>{if(fbReady()&&menuVisible)startPublicListing();});updScrollHint();}   // Home-Rooms-Vorschau reaktivieren
 function showGame(){menuVisible=false;$('menu').style.display='none';$('game').style.display='flex';stopPublicListing();updScrollHint();}   // Gameplay-Framing kommt via newGame()->resize()
 // Scroll-Cue der Startseite: transienter Onboarding-Hinweis — sichtbar nur solange
@@ -2629,7 +2884,19 @@ function updScrollHint(){
   const m=$('menu'),h=$('scrollHint');if(!h)return;
   if(m.scrollTop>=24)scrollHintDone=true;   // einmal gescrollt -> Cue hat seinen Zweck erfuellt
   const show=!scrollHintDone&&menuVisible&&!$('online').classList.contains('show')&&m.scrollHeight>m.clientHeight+30&&m.scrollTop<24;
-  h.classList.toggle('show',show);
+  // Der Cue ist ein Hinweis, kein Vorhang: ueberdeckt er an dieser Groesse echten
+  // Inhalt, wird er nicht gezeigt. Geprueft wird gegen genau die Bereiche, die frei
+  // bleiben muessen - Moduskarten, CTA, Schnellaktionen, Raumliste, Ausbau-Slot.
+  h.classList.toggle('show',show&&!scrollHintKollision(h));
+}
+const SCROLL_HINT_FREI=['#ctaBtn','.mquick','.qrejoin','.soon','#homeRoomsList','#roCards','#fbCards','#howToggle'];
+function scrollHintKollision(h){
+  const a=h.getBoundingClientRect();
+  for(const sel of SCROLL_HINT_FREI)for(const e of document.querySelectorAll(sel)){
+    const r=e.getBoundingClientRect(); if(!r.width||!r.height)continue;
+    if(a.left<r.right&&a.right>r.left&&a.top<r.bottom&&a.bottom>r.top)return true;
+  }
+  return false;
 }
 $('menu').addEventListener('scroll',updScrollHint,{passive:true});
 window.addEventListener('resize',()=>updScrollHint());
@@ -3823,8 +4090,9 @@ function wireBtnFx(el,withSound){
 }
 function wireMenuClickFeedback(){
   const IDS=['cardFfa','card2v2','cardBot','ctaBtn',
+    'cardRingout','cardFootball','cardFbClassic','cardFbTactical','cardFbTeam2','cardFbElim','cardFbOnline',
     'bot1v1','bot2v2','botBack','ffaOnline','onCreate','onJoin','onBack','onBack2','lobbyStart',
-    'homeViewAll','homeCreate','homeJoinCode','pubRefresh','onVisPriv','onVisPub',
+    'homeViewAll','homeCreate','homeJoinCode','homeRejoin','pubRefresh','onVisPriv','onVisPub',
     'menuSet','setClose','langEn','langDe','langTr','vibeOnBtn','vibeOffBtn','musicOnBtn','musicOffBtn','envDawnBtn','envDayBtn','menuBtn',
     'fbClassicBtn','fbTacticalBtn','fbTeam2Btn','fbElimBtn','fbOnlineBtn','fbModeBack',
     'fbLivesBtn','fbTimedBtn','fbElimBack','fbElimN3','fbElimN4','fbElimN5',

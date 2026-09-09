@@ -23,6 +23,20 @@ const OUT = path.join(ROOT, 'public');
 // Genau diese Dateien werden veroeffentlicht - nichts sonst.
 const DATEIEN = [
   'index.html',
+  // Game Hub: die freigegebenen Spielkarten-Motive der Startseite
+  'assets/hub/hero_ringout.webp',
+  'assets/hub/hero_football.webp',
+  // Moduskarten: echte Aufnahmen der Spielwelt (artifacts/hub-d1v2/kartenbilder.js)
+  'assets/hub/modes/football_classic.webp',
+  'assets/hub/modes/football_tactical.webp',
+  'assets/hub/modes/football_team2v2.webp',
+  'assets/hub/modes/football_elimination.webp',
+  'assets/hub/modes/football_online.webp',
+  'assets/hub/modes/ringout_onlineffa.webp',
+  'assets/hub/modes/ringout_tripleffa.webp',
+  'assets/hub/modes/ringout_teamduel.webp',
+  'assets/hub/modes/ringout_versus.webp',
+  'assets/hub/modes/ringout_bot.webp',
   // 3D-Geometrie
   'assets/arena_platform.glb',
   'assets/arena_football_goal.glb',
