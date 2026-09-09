@@ -1,6 +1,6 @@
 # PROJECT.md — RingOut
 
-**Zuletzt aktualisiert:** 2026-09-06 (**ONLINE V8 PHASE A ABGESCHLOSSEN** — bestätigt durch eine echte Mehrbrowser-QA gegen `ringout-87fbb`: vier eigenständige Browser, echtes Firebase-Projekt, **40/40** bestanden, keine Seitenfehler. Belegt am laufenden Produkt: Modus und Sollbesetzung im Raum, `hostUid` unabhängig vom Sitz, Teamwahl beim Erstellen wie beim Beitreten, Beschriftung B1/B2 blau gegen R1/R2 rot ohne Grün und Gelb — auch in der Datenbank —, Abweisung des fünften Clients, Rückkehr von Gast und Wirt auf ihre Sitze, gesperrter Start für Team 2v2 und unveränderte Einzelfarben der Lebensregel. **Der Zugpfad bleibt der v7-Pfad im Klartext**; Hash-Commit/Reveal und autoritative Frist sind v9 und **nicht begonnen**. Zuvor: **TEAM-2V2-EINSTIEG**: der Modus führt in den normalen Onlinebildschirm; die Seite wird beim **Erstellen** vor der Anlage und beim **Beitreten** erst nach Code, Prüfung und frisch gelesener Belegung gewählt. Bis zur Bestätigung wird nichts beansprucht; ein verlorenes Rennen bleibt in derselben Seite. Die Auswahlschirme liegen über dem Onlinebildschirm (`#fbOnTeamOv` z-index 140 gegen `.cover` 120). Zuvor: **HOST/SITZ-ENTKOPPLUNG (v8)**: `hostUid` an der Raumwurzel, bei der Anlage an `auth.uid` gebunden und danach ohne Schreibweg. `isHost()` ist die einzige Hostfrage; ohne Kennung gilt weiterhin Sitz 0 (v4–v7). Der Team-2v2-Ersteller sitzt auf dem ersten Sitz seiner gewählten Seite (Blau 0, Rot 2) und behält jede Lebenszyklus-Befugnis; der Zugpfad bleibt sitzgebunden. Zuvor: **TEAM 2V2 ONLINE-LOBBY**: zwei Teams als Ableitung aus dem Sitz (Blau 0/1, Rot 2/3), Teamwahl begrenzt die Kandidatensitze des atomaren Claims, Lobby mit festen Plätzen B1/B2 gegen R1/R2; ein nicht freigegebener Modus startet nicht. **Kein Rules- und kein Schema-Delta** — `config.cap` bleibt 4, das Team wird nirgends gespeichert. Zuvor: **ONLINE-PROTOKOLL v8 (Phase A)**: `config.mode` und `config.cap` stehen unveränderlich im Raum; zulässig sind nur classic/speed 2, team2v2 4, lives und timedffa 3–5. Der Start verlangt `seats === cap`, ein Sitz oberhalb der Sollbesetzung wird abgewiesen. Ein **Modusregister** (`FB_ONLINE_MODES`) ist die einzige Quelle für Kapazität, Beschriftung und **Freigabestand**; freigegeben ist online allein die Lebensregel. **Der Zugpfad `g/<gen>/t/<turn>/<seat>` behält exakt seine v7-Bedeutung** — Frist und Hash-Commit/Reveal kommen erst mit v9. Rules additiv: v4–v7 bleiben gültig. Zuvor: **die lokale Lebensregel teilt sich das gemeinsame Entscheidungsfenster**: alle aktiven Spieler entscheiden im selben 6-Sekunden-Fenster (`FOOTBALL_LIVES_SHOT_SECONDS`) und starten gleichzeitig, der Übergabeschirm entfällt; übernommen wurde nur das Fenster, **nicht** Phasenuhr oder DANGER, und die Regel (2 Gegentore) ist unverändert. `fbShared()` ist jetzt das Prädikat dreier Regeln; online bleibt die Lebensregel sequentiell, Protokoll v7 unberührt. Zuvor: **kanonische Wandform B**: eine Beschreibung (`FB_TWO_GOAL_SHAPE`) für Classic, Tactical, Team 2v2 und das Zwei-Spieler-Finale, dasselbe Schulterverhältnis radial (`FB_RADIAL_SHAPE`) für 3/4/5 Tore; das A/B/C-Labor ist restlos entfernt. Zuvor: **Geometrielabor A/B/C**: `?dev=1&arenaGeom=A|B|C` tauscht rein entwicklungsseitig die Wandform der Zwei-Tor-Arenen; ohne Parameter und online ändert sich nichts. Zuvor: **neuer lokaler Modus TRUE TEAM 2V2**: vier Identitäten B1/B2/R1/R2 mit je einer eigenen Figur, zwei Teams, First to 3 nach Torseite; ein gemeinsames 6-Sekunden-Fenster und gleichzeitiger Abschuss aus Timed FFA, Arena und Spawns unverändert aus Tactical. Zuvor: **Timed FFA ist simultan**: ein gemeinsames 6-Sekunden-Fenster fuer alle aktiven Spieler, ein gemeinsamer Start, kein Uebergabeschirm; Countdown gehoert dem Fenster (`FOOTBALL_FFA_WINDOW`), READY je Spieler im Chip. Zuvor: **Timed FFA zaehlt Bedenkzeit, nicht Ballzeit** — die Phasenuhr sinkt nur beim Zielen, dazu ein 6-Sekunden-Riegel je Zug mit Auto-Commit des anliegenden Vektors; grosser zentraler Countdown, Phasenuhr daneben. Dieselbe Uhr wie Classic Speed Match, dasselbe Gatter `fbDecisionWho()`. Zuvor: **Elimination hat zwei Regeln: LIVES und TIMED FFA** — Timed FFA ist rein lokal, zählt Gegentore in 60-s-Phasen und scheidet den Schlechtesten aus; Gleichstand führt in FFA DANGER SUDDEN DEATH. **Online bleibt ausschließlich Lives**, Protokoll v7 unverändert. Zuvor: **Arena-Football-Menümusik mit Energiekurve**: `FBTRACK` spielt `assets/audio/arena-football-menu.m4a` — leichter Einstieg bis 11,25 s, Aufbau bis 28,125 s, danach volle Energie; die Schleife umfasst nur die volle Phase (28,125 → 65,625 s), Menüpegel 0,30, Matchblende 0,70 s; das prozedurale Thema bleibt liegen, wird aber in jedem Bild auf `off` gehalten; Regeln, Physik, HUD und **Online-Protokoll v7** unverändert)
+**Zuletzt aktualisiert:** 2026-09-09 (**D1v2 GAME HUB VISUELL FINALISIERT** — die Startseite trägt jetzt zwei erstklassige Spiele unter der Dachmarke RINGOUT: **RING OUT** und **ARENA FOOTBALL**, jeweils mit eigener cinematischer Hero-Karte, eigener Modusleiste, eigenem Akzent und eigenem CTA. Alle **zehn** Moduskarten (fünf RingOut, fünf Arena Football) tragen hochwertige, produktgetreue Bildassets; die früheren flachen SVG-/Diagrammkarten sind **vollständig entfernt**. Die Football-Key-Art respektiert die Produktwahrheit: **offene Torrahmen, kein Netz, keine Rückwand, kein Torkorridor**. Mobiles und Desktop-Layout sowie die bestehende Navigation bleiben funktionsfähig. Belegt durch Browser-Probe **13/0** und die relevanten UI-Suiten **3687/0**. Produktcommit: `966c188f0f6ef2389920e40241d92f31d05f73d3`. Zuvor: **ONLINE V8 PHASE A ABGESCHLOSSEN** — bestätigt durch eine echte Mehrbrowser-QA gegen `ringout-87fbb`: vier eigenständige Browser, echtes Firebase-Projekt, **40/40** bestanden, keine Seitenfehler. Belegt am laufenden Produkt: Modus und Sollbesetzung im Raum, `hostUid` unabhängig vom Sitz, Teamwahl beim Erstellen wie beim Beitreten, Beschriftung B1/B2 blau gegen R1/R2 rot ohne Grün und Gelb — auch in der Datenbank —, Abweisung des fünften Clients, Rückkehr von Gast und Wirt auf ihre Sitze, gesperrter Start für Team 2v2 und unveränderte Einzelfarben der Lebensregel. **Der Zugpfad bleibt der v7-Pfad im Klartext**; Hash-Commit/Reveal und autoritative Frist sind v9 und **nicht begonnen**. Zuvor: **TEAM-2V2-EINSTIEG**: der Modus führt in den normalen Onlinebildschirm; die Seite wird beim **Erstellen** vor der Anlage und beim **Beitreten** erst nach Code, Prüfung und frisch gelesener Belegung gewählt. Bis zur Bestätigung wird nichts beansprucht; ein verlorenes Rennen bleibt in derselben Seite. Die Auswahlschirme liegen über dem Onlinebildschirm (`#fbOnTeamOv` z-index 140 gegen `.cover` 120). Zuvor: **HOST/SITZ-ENTKOPPLUNG (v8)**: `hostUid` an der Raumwurzel, bei der Anlage an `auth.uid` gebunden und danach ohne Schreibweg. `isHost()` ist die einzige Hostfrage; ohne Kennung gilt weiterhin Sitz 0 (v4–v7). Der Team-2v2-Ersteller sitzt auf dem ersten Sitz seiner gewählten Seite (Blau 0, Rot 2) und behält jede Lebenszyklus-Befugnis; der Zugpfad bleibt sitzgebunden. Zuvor: **TEAM 2V2 ONLINE-LOBBY**: zwei Teams als Ableitung aus dem Sitz (Blau 0/1, Rot 2/3), Teamwahl begrenzt die Kandidatensitze des atomaren Claims, Lobby mit festen Plätzen B1/B2 gegen R1/R2; ein nicht freigegebener Modus startet nicht. **Kein Rules- und kein Schema-Delta** — `config.cap` bleibt 4, das Team wird nirgends gespeichert. Zuvor: **ONLINE-PROTOKOLL v8 (Phase A)**: `config.mode` und `config.cap` stehen unveränderlich im Raum; zulässig sind nur classic/speed 2, team2v2 4, lives und timedffa 3–5. Der Start verlangt `seats === cap`, ein Sitz oberhalb der Sollbesetzung wird abgewiesen. Ein **Modusregister** (`FB_ONLINE_MODES`) ist die einzige Quelle für Kapazität, Beschriftung und **Freigabestand**; freigegeben ist online allein die Lebensregel. **Der Zugpfad `g/<gen>/t/<turn>/<seat>` behält exakt seine v7-Bedeutung** — Frist und Hash-Commit/Reveal kommen erst mit v9. Rules additiv: v4–v7 bleiben gültig. Zuvor: **die lokale Lebensregel teilt sich das gemeinsame Entscheidungsfenster**: alle aktiven Spieler entscheiden im selben 6-Sekunden-Fenster (`FOOTBALL_LIVES_SHOT_SECONDS`) und starten gleichzeitig, der Übergabeschirm entfällt; übernommen wurde nur das Fenster, **nicht** Phasenuhr oder DANGER, und die Regel (2 Gegentore) ist unverändert. `fbShared()` ist jetzt das Prädikat dreier Regeln; online bleibt die Lebensregel sequentiell, Protokoll v7 unberührt. Zuvor: **kanonische Wandform B**: eine Beschreibung (`FB_TWO_GOAL_SHAPE`) für Classic, Tactical, Team 2v2 und das Zwei-Spieler-Finale, dasselbe Schulterverhältnis radial (`FB_RADIAL_SHAPE`) für 3/4/5 Tore; das A/B/C-Labor ist restlos entfernt. Zuvor: **Geometrielabor A/B/C**: `?dev=1&arenaGeom=A|B|C` tauscht rein entwicklungsseitig die Wandform der Zwei-Tor-Arenen; ohne Parameter und online ändert sich nichts. Zuvor: **neuer lokaler Modus TRUE TEAM 2V2**: vier Identitäten B1/B2/R1/R2 mit je einer eigenen Figur, zwei Teams, First to 3 nach Torseite; ein gemeinsames 6-Sekunden-Fenster und gleichzeitiger Abschuss aus Timed FFA, Arena und Spawns unverändert aus Tactical. Zuvor: **Timed FFA ist simultan**: ein gemeinsames 6-Sekunden-Fenster fuer alle aktiven Spieler, ein gemeinsamer Start, kein Uebergabeschirm; Countdown gehoert dem Fenster (`FOOTBALL_FFA_WINDOW`), READY je Spieler im Chip. Zuvor: **Timed FFA zaehlt Bedenkzeit, nicht Ballzeit** — die Phasenuhr sinkt nur beim Zielen, dazu ein 6-Sekunden-Riegel je Zug mit Auto-Commit des anliegenden Vektors; grosser zentraler Countdown, Phasenuhr daneben. Dieselbe Uhr wie Classic Speed Match, dasselbe Gatter `fbDecisionWho()`. Zuvor: **Elimination hat zwei Regeln: LIVES und TIMED FFA** — Timed FFA ist rein lokal, zählt Gegentore in 60-s-Phasen und scheidet den Schlechtesten aus; Gleichstand führt in FFA DANGER SUDDEN DEATH. **Online bleibt ausschließlich Lives**, Protokoll v7 unverändert. Zuvor: **Arena-Football-Menümusik mit Energiekurve**: `FBTRACK` spielt `assets/audio/arena-football-menu.m4a` — leichter Einstieg bis 11,25 s, Aufbau bis 28,125 s, danach volle Energie; die Schleife umfasst nur die volle Phase (28,125 → 65,625 s), Menüpegel 0,30, Matchblende 0,70 s; das prozedurale Thema bleibt liegen, wird aber in jedem Bild auf `off` gehalten; Regeln, Physik, HUD und **Online-Protokoll v7** unverändert)
 
 - **Aktueller stabiler Projekt-HEAD:** `5a23dc424fb3126c33c29543b7c6571b87a65ec7`
 - **Implementierungs-Commit UX-Phase 3:** `babbbe78ee388489321d1f0cb3e032bbaabd0725`
@@ -1319,6 +1319,58 @@ Die CSS-Dauern sind maschinell an `FB_GOAL_HUD_MS` und `FB_POP_MS` gekoppelt.
 Golden-Physik 13/0 · Ring-Collapse 235/0. Die fünf bekannten Legacy-Suiten bleiben rot
 (siehe „Bekannte Einschränkungen"), keine neue Suite rot.
 
+### D1v2 Game Hub — zwei Spiele unter einer Dachmarke (2026-09-09, visuell freigegeben)
+
+RINGOUT bleibt die Marke; darunter stehen **RING OUT** und **ARENA FOOTBALL**
+gleichrangig. Arena Football ist damit nicht länger die sechste RingOut-Moduskarte.
+
+**Aufbau.** Im bestehenden Panel-Sheet der Startseite steht über der Modus-Sektion ein
+Abschnitt `GAME HUB` mit zwei Hero-Spielkarten (`#cardRingout`, `#cardFootball`). Die
+Auswahl wechselt ohne Neuladen Modusleiste, Sektionskopf, CTA-Beschriftung, Punktanzeige
+und Akzentfarbe (`body.fbctx`, Platin statt Gold) sowie die RingOut-eigenen Sektionen.
+Die Modusleiste existiert zweimal in identischer Bauform (`#roCards`, `#fbCards`):
+Snap-Carousel mobil, dreispaltiges Raster ab 560 px.
+
+**Routing.** `selectMenuMode('football')` ist der einzige Umschaltpunkt — die
+Football-Hero-Karte trägt deshalb weiterhin die ID `cardFootball` und ihre bestehende
+Klickbindung. Die fünf Football-Moduskarten lösen über den CTA jeweils den
+**vorhandenen** Startknopf aus (`fbClassicBtn`, `fbTacticalBtn`, `fbTeam2Btn`,
+`fbElimBtn`, `fbOnlineBtn`); es gibt keinen zweiten Startpfad und keine Kopie einer
+Spiellogik. Ein Merker `fbAusHub` sorgt dafür, dass ZURÜCK aus Regelwahl,
+Elimination-Einrichtung und Online-Moduswahl wieder in den Hub führt statt in die
+alte Modusauswahl; ohne Hub-Einstieg gilt der bisherige Weg unverändert.
+
+**Kartenbilder.** Jede Moduskarte ist **ein** visuelles Objekt: eine randlose Bühne im
+Format 16:10 trägt das Bild, Titel und Unterzeile liegen auf einem integrierten
+Verlauf darauf — kein separater Textkasten. Die Bilder sind produktgetreu: Spielerzahl,
+Farben, Kugelzahl je Spieler, Arena-Topologie und Toranzahl entsprechen dem, was der
+Spieler nach dem Start sieht. Bei Arena Football gilt zusätzlich: **offene Torrahmen,
+kein Netz, keine Rückwand, kein Torkorridor.**
+
+| Karte | Inhalt |
+|---|---|
+| `ringout_onlineffa` | Ringarena, 5 Spieler mit je 1 Kugel |
+| `ringout_tripleffa` | Ringarena, 3 Spieler mit je 2 Kugeln |
+| `ringout_teamduel` | Ringarena, 4 Spieler in zwei Teams, je 1 Kugel |
+| `ringout_versus` | Ringarena, 2 Spieler mit je 2 Kugeln |
+| `ringout_bot` | Ringarena, Spieler gegen Bot, je 1 Kugel |
+| `football_classic` | Rechteckarena, 1 Blau, 1 Rot, neutraler Ball, 2 offene Tore |
+| `football_tactical` | Rechteckarena, 2 Blau, 2 Rot, neutraler Ball, 2 offene Tore |
+| `football_team2v2` | dieselbe Arena, zwei Teams, neutraler Ball, 2 offene Tore |
+| `football_elimination` | radiale Fünf-Tore-Arena, 5 Spieler, neutraler Ball |
+| `football_online` | radiale Drei-Tore-Arena, 3 Spieler — die einzige online freigegebene Aufstellung |
+
+**Ehrlichkeit der Onlinefläche.** Die Football-Online-Karte nennt `LIVES FFA · 3–5 PLAYERS`
+und führt in `fbOnModeShow()`; `FB_ONLINE_MODES` bleibt die einzige Quelle des
+Freigabestands. Classic, Speed, Team 2v2 und Timed FFA erscheinen online **nicht**.
+Die RingOut-eigenen Schnellaktionen (CREATE ROOM, JOIN CODE, ONLINE ROOMS) und der
+Wiedereintritt sind im Football-Kontext ausgeblendet, weil sie dort RingOut-Räume
+erzeugen bzw. listen würden.
+
+**Was der Hub nicht anfasst.** Gameplay, Physik, Arena-Geometrie, Match-Renderer,
+Match-Kamera, Online-Protokoll, V9-Kern, Firebase Rules, Raumlogik und Spielregeln sind
+unberührt. Der Hub ist Darstellung und Navigation.
+
 ### Bot-KI
 - **Leicht:** Zufallswinkel ±60°, Zufallskraft *(nur `?dev=1`)*
 - **Mittel:** Heuristisch – Angriff oder Rückzug zur Mitte; leichtes Rauschen *(nur `?dev=1`)*
@@ -1411,6 +1463,8 @@ Golden-Physik 13/0 · Ring-Collapse 235/0. Die fünf bekannten Legacy-Suiten ble
 ```
 Ringout/
   index.html         # Gesamte Spiellogik, UI, CSS, JS
+  assets/hub/        # Game-Hub-Bildassets: zwei Hero-Karten
+  assets/hub/modes/  # zehn Moduskarten-Bilder (5 RingOut, 5 Arena Football)
   prototype3d.html   # Isolierter Three.js-Visual-Spike (KEINE Integration, keine Spiel-Logik)
   firebase.rules.json# Server-seitige RTDB-Regeln (publiziert)
   CLAUDE.md          # Contributor-Richtlinien und Coding Standards
