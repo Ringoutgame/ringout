@@ -6,6 +6,17 @@ Alle abgeschlossenen Änderungen am Projekt, neueste zuerst.
 
 ## [Unreleased]
 
+### Arena Football — Modushierarchie (H02)
+- feat(hub): **vier Kategorien statt flacher Modusliste** (2026-09-09) — Arena Football öffnet auf **1V1, 2V2, FFA und BOT TRAINING**. Produktcommit `133333a7ca15d6eac85abc34f651bb09e3eb3d8a`.
+- feat(hub): **ONLINE ist keine Kategorie mehr, sondern eine Spielumgebung** (2026-09-09) — sie steht am ENDE des jeweiligen Moduspfads: 1V1 → Classic/Tactical → LOCAL/ONLINE; 2V2 → Team 2v2 direkt → LOCAL/ONLINE; FFA → Lives/Timed FFA → 3/4/5 Spieler → LOCAL/ONLINE.
+- feat(hub): **ein Navigationsschirm für alle Unterschritte** (2026-09-09) — er kennt keine Spielregeln und startet nichts selbst; jeder Weg endet auf einem **bestehenden** Startknopf oder dem bestehenden Onlineeinstieg. Ein Schrittstapel macht ZURÜCK deterministisch: **genau eine Ebene**, keine Sprünge in Altmenüs.
+- feat(hub): **ehrliches Online-Gatter** (2026-09-09) — `FB_ONLINE_MODES` bleibt die einzige Quelle: online verfügbar ist allein **FFA Lives mit 3/4/5 Spielern**. Classic, Tactical, Team 2v2 und Timed FFA sind online sichtbar **gesperrt** statt vorgetäuscht — kein Klick, kein Raum, kein halber Start.
+- feat(hub): **BOT TRAINING als Kategorie vorbereitet** (2026-09-09) — eigener Eintrag in Football-Bildsprache, Zustand *Coming Soon*, **kein Bot-Gameplay und kein Startweg**.
+- fix(hub): **keine internen Bezeichner mehr in der Oberfläche** (2026-09-09) — zwei nie angelegte i18n-Schlüssel liessen `T()` den Schlüsselnamen ausgeben (MCFBLIVES / MCFBTIMED). Jetzt Produktsprache in EN/DE/TR; im gesamten Dokument hat jeder `T()`-Aufruf einen Eintrag.
+- fix(hub): **Navigations-CSS lag im Mobil-Media-Block** (2026-09-09) — verschachtelte Media Queries sind ungültig, deshalb griffen auf dem Desktop weder Kartenraster noch Vergrößerung. Der Block liegt jetzt auf oberster Ebene: Desktop-Modal 720 px, mobil 348 px mit 146 px breiten Karten.
+- test: Navigationsprobe **30/0** am laufenden Produkt (vier Kategorien, alle Unterwege, lokale Starts, gesperrte Onlinewege, Bot ohne Startweg, ZURÜCK eine Ebene, RingOut unverändert); UI-Suiten **3687/0**; keine `pageerror` (2026-09-09)
+- **Nicht berührt** (2026-09-09): Gameplay, Physik, Arena B, Spawns, Tore, Scoring, Match-Renderer, Match-Kamera, V9-Kern, Online-Protokoll, Firebase Rules, Raumschema und RingOut. H02 ist Informationsarchitektur, Navigation und Sichtbarkeit.
+
 ### Game Hub (D1v2)
 - feat(hub): **D1v2 Game Hub visuell finalisiert** (2026-09-09) — die Startseite trägt zwei erstklassige Spiele unter der Dachmarke RINGOUT: **RING OUT** und **ARENA FOOTBALL**, jeweils mit eigener cinematischer Hero-Karte, eigener Modusleiste, eigenem Akzent und eigenem CTA. Arena Football ist damit nicht mehr die sechste RingOut-Moduskarte. Produktcommit `966c188f0f6ef2389920e40241d92f31d05f73d3`.
 - feat(hub): **zehn produktgetreue Moduskarten** (2026-09-09) — fünf RingOut (Online FFA, Triple FFA, Team Duel, Versus, Bot) und fünf Arena Football (Classic 1v1, Tactical 1v1, Team 2v2, Elimination, Online). Spielerzahl, Farben, Kugelzahl je Spieler, Arena-Topologie und Toranzahl entsprechen dem echten Modus. Jede Karte ist **ein** visuelles Objekt: randlose 16:10-Bühne, Titel und Unterzeile auf einem integrierten Verlauf, kein separater Textkasten.
