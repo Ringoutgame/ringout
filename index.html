@@ -160,6 +160,7 @@ body.fbctx .mdot.on{background:linear-gradient(90deg,var(--fbac-hi),#a8c1d8)}
 /* Schnellaktionen, Raumliste und How-to erklaeren bzw. erzeugen RingOut. Im
    Football-Kontext waeren sie unwahr - also stehen sie dort nicht. */
 body.fbctx .roOnly{display:none!important}
+
 body.fbctx .mcta{color:#152534;text-shadow:0 1px 0 rgba(236,246,255,.55);
   background:linear-gradient(180deg,#e4eff9 0%,#c6d9e9 44%,#a5bed4 56%,#7a94ac 100%);
   box-shadow:0 6px 18px rgba(110,145,180,.24),inset 0 1px 0 rgba(248,252,255,.7),
@@ -828,6 +829,38 @@ body:not(.r3d) .ohero{height:12px}
 .repspeeds{display:flex;gap:3px;flex:0 0 auto}
 .repspd{background:#141b27;border:1px solid #2a3850;color:var(--muted);border-radius:6px;padding:6px 6px;font-size:11px;font-weight:700;cursor:pointer}
 .repspd.on{color:#06202e;background:var(--gold);border-color:var(--gold)}
+/* ── Arena-Football-Navigation ───────────────────────────────────────────────
+   Ein Schirm fuer Regel-, Spielerzahl- und Umgebungswahl. Die Karten sind
+   dieselben wie im Hub, damit der Weg nach unten nicht in eine Textliste faellt. */
+.navwb{width:348px;max-width:92vw}
+.navkick{font-size:8.5px;font-weight:900;letter-spacing:.24em;margin-right:-.24em;
+  color:#9fb9d0;text-transform:uppercase;margin-bottom:8px}
+.navsub{font-size:9px;font-weight:800;letter-spacing:.18em;margin-right:-.18em;
+  color:#8b99b4;text-transform:uppercase;margin:6px 0 14px}
+.navcards{display:grid;grid-template-columns:repeat(auto-fit,minmax(132px,1fr));gap:10px;
+  margin-bottom:14px;width:100%}
+.navcards .mcard{flex:none;width:100%;min-width:0;height:auto}
+/* Ein noch nicht umgesetzter Weg wird sichtbar gesperrt statt versteckt - der Spieler
+   soll sehen, dass es ihn geben wird, und ihn nicht versehentlich starten. */
+.navcards .mcard.gesperrt{opacity:.45;cursor:not-allowed}
+.navcards .mcard.gesperrt .mshot{filter:saturate(.25) brightness(.6)}
+.navnote{font-size:10px;font-weight:600;color:#9fb0cc;line-height:1.45;margin:0 0 14px}
+/* Desktop: auf grosser Flaeche wirkte der Schirm wie ein Mobile-Popup. Er waechst hier
+   deutlich, bleibt aber ein Modal und kein Vollbild. Mobile bleibt unveraendert. */
+@media(min-width:900px){
+  /* .wb setzt eine feste Breite von 300px - deshalb hier ausdruecklich width, nicht nur
+     max-width; sonst bliebe der Schirm auf dem Desktop so schmal wie auf dem Telefon. */
+  .navwb{width:720px;max-width:min(720px,62vw);padding:34px 34px 30px}
+  .navwb .wt{font-size:26px;letter-spacing:.1em}
+  .navkick{font-size:10px;letter-spacing:.26em;margin-right:-.26em;margin-bottom:12px}
+  .navsub{font-size:11px;letter-spacing:.2em;margin-right:-.2em;margin:9px 0 22px}
+  .navcards{grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:22px}
+  .navcards .mcard .mt{font-size:17px}
+  .navcards .mcard .msub{font-size:10px;letter-spacing:.14em;margin-right:-.14em}
+  .navcards .mcap{padding:14px 12px 16px}
+  .navnote{font-size:12.5px;margin:0 0 20px}
+  #fbNavBack{font-size:14px;padding:16px}
+}
 </style>
 </head>
 <body class="booting">
@@ -905,26 +938,24 @@ body:not(.r3d) .ohero{height:12px}
     </div>
     <!-- Arena-Football-Modi. Jede Karte zeigt auf einen BESTEHENDEN Startpfad; der CTA
          darunter loest genau dessen vorhandenen Knopf aus. Kein zweiter Spielablauf. -->
+    <!-- Arena Football: vier Kategorien. ONLINE ist keine Kategorie, sondern eine
+         Spielumgebung und steht deshalb erst hinter der Regel- und Spielerwahl. -->
     <div class="mcards" id="fbCards" style="display:none">
-    <button class="mcard on" id="cardFbClassic">
+    <button class="mcard on" id="cardFb1v1">
       <span class="mstage"><img class="mshot" src="assets/hub/modes/football_classic.webp" alt="" width="700" height="438" decoding="async"></span>
-      <span class="mcap"><span class="mt" id="cardFbClassicT">CLASSIC 1V1</span><span class="msub" id="cardFbClassicS">PURE DUEL</span></span>
+      <span class="mcap"><span class="mt" id="cardFb1v1T">1V1</span><span class="msub" id="cardFb1v1S">2 PLAYERS</span></span>
     </button>
-    <button class="mcard" id="cardFbTactical">
-      <span class="mstage"><img class="mshot" src="assets/hub/modes/football_tactical.webp" alt="" width="700" height="438" decoding="async"></span>
-      <span class="mcap"><span class="mt" id="cardFbTacticalT">TACTICAL 1V1</span><span class="msub" id="cardFbTacticalS">TWO PIECES · ONE MOVE</span></span>
-    </button>
-    <button class="mcard" id="cardFbTeam2">
+    <button class="mcard" id="cardFb2v2">
       <span class="mstage"><img class="mshot" src="assets/hub/modes/football_team2v2.webp" alt="" width="700" height="438" decoding="async"></span>
-      <span class="mcap"><span class="mt" id="cardFbTeam2T">TEAM 2V2</span><span class="msub" id="cardFbTeam2S">4 PLAYERS · 2 TEAMS</span></span>
+      <span class="mcap"><span class="mt" id="cardFb2v2T">2V2</span><span class="msub" id="cardFb2v2S">4 PLAYERS · 2 TEAMS</span></span>
     </button>
-    <button class="mcard" id="cardFbElim">
+    <button class="mcard" id="cardFbFfa">
       <span class="mstage"><img class="mshot" src="assets/hub/modes/football_elimination.webp" alt="" width="700" height="438" decoding="async"></span>
-      <span class="mcap"><span class="mt" id="cardFbElimT">ELIMINATION</span><span class="msub" id="cardFbElimS">SURVIVE THE ARENA</span></span>
+      <span class="mcap"><span class="mt" id="cardFbFfaT">FFA</span><span class="msub" id="cardFbFfaS">3–5 PLAYERS</span></span>
     </button>
-    <button class="mcard" id="cardFbOnline">
-      <span class="mstage"><img class="mshot" src="assets/hub/modes/football_online.webp" alt="" width="700" height="438" decoding="async"></span>
-      <span class="mcap"><span class="mt" id="cardFbOnlineT">ONLINE</span><span class="msub" id="cardFbOnlineS">3–5 PLAYERS · LIVES FFA</span></span>
+    <button class="mcard" id="cardFbBot">
+      <span class="mstage"><img class="mshot" src="assets/hub/modes/football_classic.webp" alt="" width="700" height="438" decoding="async"></span>
+      <span class="mcap"><span class="mt" id="cardFbBotT">BOT TRAINING</span><span class="msub" id="cardFbBotS">PRACTICE VS AI</span></span>
     </button>
     </div>
     <button class="marrow marrow-r" id="modeNext" type="button" aria-label="Next mode" tabindex="-1">›</button>
@@ -1127,6 +1158,20 @@ body:not(.r3d) .ohero{height:12px}
       <span class="vopt-s" id="fbOnlineS">2–5 PLAYERS · PLAY WITH FRIENDS</span>
     </button>
     <button class="wbtn" id="fbModeBack">↩ Back</button>
+  </div>
+</div>
+
+<!-- ARENA-FOOTBALL-NAVIGATION. Ein Schirm fuer alle Unterschritte der Kategorien:
+     Regelwahl, Spielerzahl und die Wahl der Spielumgebung. Er startet nichts selbst,
+     sondern loest ausschliesslich die BESTEHENDEN Startwege aus. -->
+<div class="ov" id="fbNavOv">
+  <div class="wb navwb">
+    <div class="navkick" id="fbNavKick">ARENA FOOTBALL</div>
+    <div class="wt" id="fbNavTitle">1V1</div>
+    <div class="navsub" id="fbNavSub"></div>
+    <div class="navcards" id="fbNavCards"></div>
+    <div class="navnote" id="fbNavNote"></div>
+    <button class="wbtn" id="fbNavBack">↩ Back</button>
   </div>
 </div>
 
@@ -2123,12 +2168,14 @@ const MENU_SEL={
 // auf einen BESTEHENDEN Startknopf - der Hub startet nichts selbst und kennt keine
 // zweite Spiellogik. Sichtbar ist nur, was das Produkt wirklich kann: online ist
 // derzeit allein die Lebensregel freigegeben (FB_ONLINE_MODES bleibt massgeblich).
+// Arena Football hat vier KATEGORIEN. Der Spieler waehlt zuerst, WAS er spielt; die
+// Regel, die Spielerzahl und zuletzt die Spielumgebung (lokal oder online) folgen im
+// Navigationsschirm. ONLINE ist damit keine Kategorie mehr, sondern eine Lieferform.
 const FB_HUB_MODES=[
-  {key:'classic', card:'cardFbClassic', btn:'fbClassicBtn',  cta:'ctaFbClassic',  info:'fbClassicS'},
-  {key:'tactical',card:'cardFbTactical',btn:'fbTacticalBtn', cta:'ctaFbTactical', info:'fbTacticalS'},
-  {key:'team2',   card:'cardFbTeam2',   btn:'fbTeam2Btn',    cta:'ctaFbTeam2',    info:'fbTeam2S'},
-  {key:'elim',    card:'cardFbElim',    btn:'fbElimBtn',     cta:'ctaFbElim',     info:'fbElimS'},
-  {key:'online',  card:'cardFbOnline',  btn:'fbOnlineBtn',   cta:'ctaFbOnline',   info:'fbOnHubS'}
+  {key:'1v1', card:'cardFb1v1', cta:'ctaFb1v1', info:'mcFb1v1', schritt:'rule1v1'},
+  {key:'2v2', card:'cardFb2v2', cta:'ctaFb2v2', info:'mcFb2v2', schritt:'env2v2'},
+  {key:'ffa', card:'cardFbFfa', cta:'ctaFbFfa', info:'mcFbFfa', schritt:'ruleFfa'},
+  {key:'bot', card:'cardFbBot', cta:'ctaFbBot', info:'mcFbBot', schritt:'bot'}
 ];
 const HUB_RO_ORDER=['ffa','triple','team','vs','bot'];
 let hubGame='ro', fbHubSel=0, roSel='ffa';
@@ -2251,6 +2298,19 @@ en:{tagline:'PULL BACK · RELEASE · KNOCK THEM OUT',chip:'FEATURED',
   secMulti:'MULTIPLAYER',rejoinHome:'REJOIN MATCH',rejoinRoom:'Room {code} is still open',
   // Kurze Unterzeilen der Hub-Karten: eine Zeile, kein Regeltext.
   mcTriple:'3 PLAYERS · 2 BALLS',mcVs:'2 PLAYERS · 2 BALLS',
+  // ARENA FOOTBALL: vier Kategorien plus die Unterschritte des Navigationsschirms.
+  catFb1v1:'1V1',catFb2v2:'2V2',catFbFfa:'FFA',catFbBot:'BOT TRAINING',
+  mcFb1v1:'2 PLAYERS',mcFb2v2:'4 PLAYERS · 2 TEAMS',mcFbFfa:'3–5 PLAYERS',mcFbBot:'PRACTICE VS AI',
+  ctaFb1v1:'PLAY 1V1',ctaFb2v2:'PLAY 2V2',ctaFbFfa:'PLAY FFA',ctaFbBot:'BOT TRAINING',
+  navT1v1:'1V1',navS1v1:'CHOOSE YOUR RULE',
+  navT2v2:'TEAM 2V2',navS2v2:'CHOOSE WHERE TO PLAY',
+  navTFfa:'FFA',navSFfa:'CHOOSE YOUR RULE',
+  navSCount:'HOW MANY PLAYERS?',navSEnv:'CHOOSE WHERE TO PLAY',
+  navLocal:'LOCAL',navLocalS:'ONE DEVICE',
+  navOnline:'ONLINE',navOnlineS:'EVERYONE ON THEIR OWN DEVICE',navSoon:'NOT AVAILABLE YET',
+  navTBot:'BOT TRAINING',navSBot:'COMING SOON',
+  navBotNote:'Train against a powerful Arena Football bot.',
+  navSubLives:'2 GOALS = OUT',navSubTimed:'60 SECOND PHASES',navSubCount:'FREE FOR ALL',
   mcFbClassic:'PURE DUEL',mcFbTactical:'TWO PIECES · ONE MOVE',
   mcFbTeam2:'4 PLAYERS · 2 TEAMS',mcFbElim:'SURVIVE THE ARENA',
   gRoS:'PULL BACK · RELEASE',gFbT:'Arena <em>Football</em>',gFbS:'GOALS · SKILLS · SPEED',gFbBadge:'NEW',
@@ -2333,6 +2393,18 @@ de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'FEATURED',
   secHub:'GAME HUB',secRoModes:'RING OUT MODI',secFbModes:'ARENA FOOTBALL MODI',
   secMulti:'MEHRSPIELER',rejoinHome:'ZURÜCK INS MATCH',rejoinRoom:'Raum {code} steht noch offen',
   mcTriple:'3 SPIELER · 2 KUGELN',mcVs:'2 SPIELER · 2 KUGELN',
+  catFb1v1:'1V1',catFb2v2:'2V2',catFbFfa:'FFA',catFbBot:'BOT-TRAINING',
+  mcFb1v1:'2 SPIELER',mcFb2v2:'4 SPIELER · 2 TEAMS',mcFbFfa:'3–5 SPIELER',mcFbBot:'ÜBEN GEGEN DIE KI',
+  ctaFb1v1:'1V1 SPIELEN',ctaFb2v2:'2V2 SPIELEN',ctaFbFfa:'FFA SPIELEN',ctaFbBot:'BOT-TRAINING',
+  navT1v1:'1V1',navS1v1:'REGEL WÄHLEN',
+  navT2v2:'TEAM 2V2',navS2v2:'WO SPIELEN?',
+  navTFfa:'FFA',navSFfa:'REGEL WÄHLEN',
+  navSCount:'WIE VIELE SPIELER?',navSEnv:'WO SPIELEN?',
+  navLocal:'LOKAL',navLocalS:'EIN GERÄT',
+  navOnline:'ONLINE',navOnlineS:'JEDER AN SEINEM GERÄT',navSoon:'NOCH NICHT VERFÜGBAR',
+  navTBot:'BOT-TRAINING',navSBot:'BALD VERFÜGBAR',
+  navBotNote:'Übe gegen einen starken Arena-Football-Bot.',
+  navSubLives:'2 GEGENTORE = RAUS',navSubTimed:'60-SEKUNDEN-PHASEN',navSubCount:'JEDER GEGEN JEDEN',
   mcFbClassic:'DAS REINE DUELL',mcFbTactical:'ZWEI FIGUREN · EIN ZUG',
   mcFbTeam2:'4 SPIELER · 2 TEAMS',mcFbElim:'ÜBERLEBE DIE ARENA',
   gRoS:'ZIEH ZURÜCK · LASS LOS',gFbT:'Arena <em>Football</em>',gFbS:'TORE · TECHNIK · TEMPO',gFbBadge:'NEU',
@@ -2417,6 +2489,18 @@ tr:{tagline:'GERİ ÇEK · BIRAK · DIŞARI İT',chip:'FEATURED',
   secHub:'OYUN MERKEZİ',secRoModes:'RING OUT MODLARI',secFbModes:'ARENA FOOTBALL MODLARI',
   secMulti:'ÇOK OYUNCULU',rejoinHome:'MAÇA GERİ DÖN',rejoinRoom:'{code} odası hâlâ açık',
   mcTriple:'3 OYUNCU · 2 TOP',mcVs:'2 OYUNCU · 2 TOP',
+  catFb1v1:'1V1',catFb2v2:'2V2',catFbFfa:'FFA',catFbBot:'BOT ANTRENMANI',
+  mcFb1v1:'2 OYUNCU',mcFb2v2:'4 OYUNCU · 2 TAKIM',mcFbFfa:'3–5 OYUNCU',mcFbBot:'YAPAY ZEKAYA KARŞI',
+  ctaFb1v1:'1V1 OYNA',ctaFb2v2:'2V2 OYNA',ctaFbFfa:'FFA OYNA',ctaFbBot:'BOT ANTRENMANI',
+  navT1v1:'1V1',navS1v1:'KURALINI SEÇ',
+  navT2v2:'TEAM 2V2',navS2v2:'NEREDE OYNANACAK?',
+  navTFfa:'FFA',navSFfa:'KURALINI SEÇ',
+  navSCount:'KAÇ OYUNCU?',navSEnv:'NEREDE OYNANACAK?',
+  navLocal:'YEREL',navLocalS:'TEK CİHAZ',
+  navOnline:'ONLİNE',navOnlineS:'HERKES KENDİ CİHAZINDA',navSoon:'HENÜZ YOK',
+  navTBot:'BOT ANTRENMANI',navSBot:'ÇOK YAKINDA',
+  navBotNote:'Güçlü bir Arena Football botuna karşı çalış.',
+  navSubLives:'2 GOL = ELEME',navSubTimed:'60 SANİYELİK FAZLAR',navSubCount:'HERKES HERKESE KARŞI',
   mcFbClassic:'SAF DÜELLO',mcFbTactical:'İKİ TAŞ · TEK HAMLE',
   mcFbTeam2:'4 OYUNCU · 2 TAKIM',mcFbElim:'ARENADA HAYATTA KAL',
   gRoS:'GERİ ÇEK · BIRAK',gFbT:'Arena <em>Football</em>',gFbS:'GOL · BECERİ · HIZ',gFbBadge:'YENİ',
@@ -2494,11 +2578,11 @@ function applyLang(){
   $('secHubT').textContent=T('secHub');
   $('gRoS').textContent=T('gRoS');$('gFbT').innerHTML=T('gFbT');$('gFbS').textContent=T('gFbS');
   $('gFbBadge').textContent=T('gFbBadge');
-  $('cardFbClassicT').textContent=T('fbClassicT');$('cardFbClassicS').textContent=T('mcFbClassic');
-  $('cardFbTacticalT').textContent=T('fbTacticalT');$('cardFbTacticalS').textContent=T('mcFbTactical');
-  $('cardFbTeam2T').textContent=T('fbTeam2T');$('cardFbTeam2S').textContent=T('mcFbTeam2');
-  $('cardFbElimT').textContent=T('fbElimT');$('cardFbElimS').textContent=T('mcFbElim');
-  $('cardFbOnlineT').textContent=T('fbOnlineT');$('cardFbOnlineS').textContent=T('fbOnHubS');
+  $('cardFb1v1T').textContent=T('catFb1v1');$('cardFb1v1S').textContent=T('mcFb1v1');
+  $('cardFb2v2T').textContent=T('catFb2v2');$('cardFb2v2S').textContent=T('mcFb2v2');
+  $('cardFbFfaT').textContent=T('catFbFfa');$('cardFbFfaS').textContent=T('mcFbFfa');
+  $('cardFbBotT').textContent=T('catFbBot');$('cardFbBotS').textContent=T('mcFbBot');
+  $('fbNavKick').textContent=T('fbT');$('fbNavBack').textContent=T('back');
   $('secMultiT').textContent=T('secMulti');$('homeRejoinT').textContent=T('rejoinHome');
   updHomeRejoin();
   {const b=$('modeDots');if(b)b.dataset.ctx='';}
@@ -2601,10 +2685,11 @@ $('ctaBtn').onclick=()=>{
     if(!r3dActive){toast(T('fbNo3d'));return;}
     if(DEV_FB_VARIANT==='classic'||DEV_FB_VARIANT===FOOTBALL_VARIANT_TACTICAL||DEV_FB_VARIANT===FOOTBALL_VARIANT_ELIM
      ||DEV_FB_VARIANT===FOOTBALL_VARIANT_TEAM2||DEV_FB_VARIANT===FOOTBALL_VARIANT_ELIM4){startFootball(DEV_FB_VARIANT);return;}
-    // HUB: der Modus steht bereits auf der Startseite. Der CTA loest genau dessen
-    // VORHANDENEN Startknopf aus - kein zweiter Startpfad, keine Kopie.
-    const fbW=FB_HUB_MODES[fbHubSel],fbB=fbW&&$(fbW.btn);
-    if(fbB&&typeof fbB.onclick==='function'){fbAusHub=true;fbB.onclick();return;}
+    // HUB: die Kategorie steht bereits auf der Startseite. Der CTA oeffnet ihren
+    // ersten Unterschritt; gestartet wird erst am Ende, und zwar ueber die
+    // VORHANDENEN Startwege des Produkts.
+    const fbW=FB_HUB_MODES[fbHubSel];
+    if(fbW&&fbW.schritt){fbAusHub=true;fbNavStart(fbW.schritt);return;}
     fbAusHub=false;$('fbModeOv').classList.add('show');return;}
   if(menuSel==='bot'){if(SFX.click())vibrateMs(VIBE_CLICK_MS);$('botOv').classList.add('show');return;}       // Format-Auswahl: 1v1 / 2v2 Duo vs Bot
   if(TUNE){if(SFX.click())vibrateMs(VIBE_CLICK_MS);toast('Tuning aktiv — Online deaktiviert');return;}
@@ -2662,7 +2747,8 @@ $('fbFirst3Btn').onclick=()=>{if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);
 $('fbSpeedBtn').onclick=()=>{if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);
   $('fbRuleOv').classList.remove('show');startFootball('classic',FOOTBALL_RULES_SPEED);};
 // Zurueck fuehrt zur Modusauswahl, nicht ins Hauptmenue — der Weg, den man gekommen ist.
-$('fbRuleBack').onclick=()=>{$('fbRuleOv').classList.remove('show');if(!fbAusHub)$('fbModeOv').classList.add('show');};
+$('fbRuleBack').onclick=()=>{$('fbRuleOv').classList.remove('show');
+  if(fbNavStapel.length)fbNavZeichne();else if(!fbAusHub)$('fbModeOv').classList.add('show');};
 $('fbTacticalBtn').onclick=()=>{if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);startFootball(FOOTBALL_VARIANT_TACTICAL);};
 $('fbTeam2Btn').onclick=()=>{if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);startFootball(FOOTBALL_VARIANT_TEAM2);};
 // ELIMINATION oeffnet die Einrichtung statt sofort zu starten - dieselbe Bauweise wie
@@ -2676,7 +2762,8 @@ $('fbLivesBtn').onclick=()=>{if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);
   fbElimSetupRules=FOOTBALL_ELIM_RULES_LIVES;startFootball(FOOTBALL_VARIANT_ELIM);};
 $('fbTimedBtn').onclick=()=>{if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);
   fbElimSetupRules=FOOTBALL_ELIM_RULES_TIMED;startFootball(FOOTBALL_VARIANT_ELIM);};
-$('fbElimBack').onclick=()=>{$('fbElimOv').classList.remove('show');if(!fbAusHub)$('fbModeOv').classList.add('show');};
+$('fbElimBack').onclick=()=>{$('fbElimOv').classList.remove('show');
+  if(fbNavStapel.length)fbNavZeichne();else if(!fbAusHub)$('fbModeOv').classList.add('show');};
 // ARENA FOOTBALL ONLINE - der normale Produktweg. Er setzt NUR den Kontext (Raumtyp,
 // Variante) und uebergibt an den bestehenden Onlinebildschirm; Raumformat, Sitzclaim,
 // Lobby, Host-Start, Reconnect und der kanonische Austritt sind unveraendert dieselben
@@ -2782,6 +2869,91 @@ $('fbOnCapGo').onclick=()=>{if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);
   $('fbOnCapOv').classList.remove('show');fbOnlineEnter();};
 $('fbOnCapBack').onclick=()=>{$('fbOnCapOv').classList.remove('show');fbOnModeShow();};
 $('fbOnModeBack').onclick=()=>{$('fbOnModeOv').classList.remove('show');if(!fbAusHub)$('fbModeOv').classList.add('show');};
+// ════ ARENA-FOOTBALL-NAVIGATION ══════════════════════════════════════════════
+// Ein Schirm fuer alle Unterschritte einer Kategorie. Er kennt KEINE Spielregeln und
+// startet nichts selbst: am Ende jedes Weges steht ein BESTEHENDER Startknopf oder der
+// bestehende Onlineeinstieg. Der Stapel macht ZURUECK deterministisch - genau eine Ebene.
+let fbNavStapel=[], fbNavWahl={};
+// Was online WIRKLICH geht, sagt allein das Modusregister. Hier wird nichts behauptet.
+function fbOnlineFrei(m){ return typeof fbModeReleased==='function' && fbModeReleased(m); }
+const FB_NAV={
+  // 1V1: zuerst die Regel, dann die Umgebung.
+  rule1v1:{titel:'navT1v1',sub:'navS1v1',karten:[
+    {id:'classic', bild:'football_classic', t:'fbClassicT', s:'mcFbClassic', weiter:'envClassic'},
+    {id:'tactical',bild:'football_tactical',t:'fbTacticalT',s:'mcFbTactical',weiter:'envTactical'}]},
+  // FFA: erst die Regel, dann die Spielerzahl, dann die Umgebung.
+  ruleFfa:{titel:'navTFfa',sub:'navSFfa',karten:[
+    {id:'lives', bild:'football_elimination',t:'fbLivesT', s:'navSubLives', weiter:'countLives'},
+    {id:'timed', bild:'football_online',     t:'fbTimedT', s:'navSubTimed', weiter:'countTimed'}]},
+  // 2V2 hat derzeit genau eine Regel - eine eigene Regelebene waere ein leerer Schritt.
+  env2v2:{titel:'navT2v2',sub:'navS2v2',umgebung:{regel:'team2v2',lokal:()=>$('fbTeam2Btn').onclick()}},
+  envClassic:{titel:'fbClassicT',sub:'navSEnv',umgebung:{regel:'classic',lokal:()=>$('fbClassicBtn').onclick()}},
+  envTactical:{titel:'fbTacticalT',sub:'navSEnv',umgebung:{regel:'tactical',lokal:()=>$('fbTacticalBtn').onclick()}},
+  bot:{titel:'navTBot',sub:'navSBot',hinweis:'navBotNote'}
+};
+// Die Spielerzahl ist bei beiden FFA-Regeln dieselbe Frage.
+for(const [schritt,regel,rueck] of [['countLives','lives','ruleFfa'],['countTimed','timed','ruleFfa']])
+  FB_NAV[schritt]={titel:regel==='lives'?'fbLivesT':'fbTimedT',sub:'navSCount',zahl:regel};
+FB_NAV.envLives={titel:'fbLivesT',sub:'navSEnv',umgebung:{regel:'lives',
+  lokal:()=>{$('fbElimN'+fbNavWahl.n).onclick();$('fbLivesBtn').onclick();}}};
+FB_NAV.envTimed={titel:'fbTimedT',sub:'navSEnv',umgebung:{regel:'timedffa',
+  lokal:()=>{$('fbElimN'+fbNavWahl.n).onclick();$('fbTimedBtn').onclick();}}};
+
+function fbNavStart(schritt){ fbNavStapel=[]; fbNavWahl={}; fbNavGehe(schritt); }
+function fbNavGehe(schritt){ fbNavStapel.push(schritt); fbNavZeichne(); }
+function fbNavZurueck(){
+  fbNavStapel.pop();
+  if(!fbNavStapel.length){ $('fbNavOv').classList.remove('show'); return; }
+  fbNavZeichne();
+}
+// Eine Karte im Navigationsschirm - dieselbe bildgefuehrte Bauform wie im Hub.
+function fbNavKarte(bild,titel,sub,gesperrt,klick){
+  const b=document.createElement('button');
+  b.className='mcard'+(gesperrt?' gesperrt':'');
+  b.innerHTML='<span class="mstage"><img class="mshot" src="assets/hub/modes/'+bild+
+    '.webp" alt="" width="700" height="438" decoding="async"></span>'+
+    '<span class="mcap"><span class="mt"></span><span class="msub"></span></span>';
+  b.querySelector('.mt').textContent=titel;
+  b.querySelector('.msub').textContent=sub;
+  if(gesperrt)b.disabled=true; else b.onclick=klick;
+  return b;
+}
+function fbNavZeichne(){
+  const schritt=fbNavStapel[fbNavStapel.length-1], d=FB_NAV[schritt];
+  if(!d){ $('fbNavOv').classList.remove('show'); return; }
+  $('fbNavTitle').textContent=T(d.titel);
+  $('fbNavSub').textContent=d.sub?T(d.sub):'';
+  $('fbNavNote').textContent=d.hinweis?T(d.hinweis):'';
+  $('fbNavNote').style.display=d.hinweis?'':'none';
+  const box=$('fbNavCards'); box.textContent='';
+  if(d.karten)
+    for(const k of d.karten)
+      box.appendChild(fbNavKarte(k.bild,T(k.t),T(k.s),false,()=>fbNavGehe(k.weiter)));
+  else if(d.zahl)
+    for(const n of [3,4,5])
+      box.appendChild(fbNavKarte(d.zahl==='lives'?'football_elimination':'football_online',
+        n+' '+T('playersWord'), T('navSubCount'), false,
+        ()=>{ fbNavWahl.n=n; fbNavGehe(d.zahl==='lives'?'envLives':'envTimed'); }));
+  else if(d.umgebung){
+    const u=d.umgebung, frei=fbOnlineFrei(u.regel);
+    box.appendChild(fbNavKarte('football_classic',T('navLocal'),T('navLocalS'),false,
+      ()=>{ $('fbNavOv').classList.remove('show'); u.lokal(); }));
+    box.appendChild(fbNavKarte('football_online',T('navOnline'),
+      frei?T('navOnlineS'):T('navSoon'),!frei,
+      ()=>{ $('fbNavOv').classList.remove('show'); fbNavOnline(u.regel); }));
+  }
+  $('fbNavOv').classList.add('show');
+}
+// Der einzige Onlineweg, den das Produkt heute wirklich hat: die Lebensregel mit
+// gewaehlter Sollbesetzung. Er benutzt den BESTEHENDEN Einstieg, keine Kopie.
+function fbNavOnline(regel){
+  if(TUNE){toast('Tuning aktiv — Online deaktiviert');return;}
+  if(!r3dActive){toast(T('fbNo3d'));return;}
+  if(!fbOnlineFrei(regel)){toast(T('onModeLocked'));return;}
+  fbOnlineMode=regel; fbOnlineCap=fbNavWahl.n||fbModeDefaultCap(regel);
+  fbOnlineEnter();
+}
+$('fbNavBack').onclick=()=>fbNavZurueck();
 $('fbModeBack').onclick=()=>$('fbModeOv').classList.remove('show');
 $('menuSnd').onclick=()=>{soundOn=!soundOn;const g=soundOn?'🔊':'🔇';$('menuSnd').textContent=g;$('sndBtn').textContent=g;if(!soundOn){SFX.charge.stop();SFX.fbTransitionStop();if(typeof fbMusicStop==='function')fbMusicStop();}};
 // ── Menue-Preview: die ECHTE 3D-Szene zeigt den gewaehlten Modus. Setzt nur den
@@ -4090,7 +4262,7 @@ function wireBtnFx(el,withSound){
 }
 function wireMenuClickFeedback(){
   const IDS=['cardFfa','card2v2','cardBot','ctaBtn',
-    'cardRingout','cardFootball','cardFbClassic','cardFbTactical','cardFbTeam2','cardFbElim','cardFbOnline',
+    'cardRingout','cardFootball','cardFb1v1','cardFb2v2','cardFbFfa','cardFbBot','fbNavBack',
     'bot1v1','bot2v2','botBack','ffaOnline','onCreate','onJoin','onBack','onBack2','lobbyStart',
     'homeViewAll','homeCreate','homeJoinCode','homeRejoin','pubRefresh','onVisPriv','onVisPub',
     'menuSet','setClose','langEn','langDe','langTr','vibeOnBtn','vibeOffBtn','musicOnBtn','musicOffBtn','envDawnBtn','envDayBtn','menuBtn',
