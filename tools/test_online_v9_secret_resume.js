@@ -48,12 +48,17 @@ function uhrwerk(start) {
       }
       await settle(6); } };
 }
-function attrappe(vorbelegt, uhr) {
+function attrappe(vorbelegt, uhr, halte) {
   const log = { schreib: [], hoert: [] };
   const stand = Object.assign({}, vorbelegt || {});
   const fehler = {};
+  // Zurueckgehaltene Wege: ihre erste Zustellung wartet auf freigeben(pfad). Firebase
+  // garantiert keine Reihenfolge zwischen den Zuhoerern - genau das bildet das nach.
+  const gehalten = new Set(halte || []), wartend = [];
   return { log: log, stand: stand,
     setzeFehler: (pfad, e) => { fehler[pfad] = e; },
+    freigeben: (pfad) => { gehalten.delete(pfad);
+      for (const w of wartend.splice(0)) if (w.pfad === pfad) w.los(); else wartend.push(w); },
     zustellen: (pfad, wert) => { stand[pfad] = wert;
       for (const h of log.hoert) if (h.pfad === pfad && h.offen) h.cb({ val: () => wert }); },
     FB: { db: {}, ref: (db, pfad) => ({ pfad: pfad }), serverTimestamp: () => SENTINEL,
@@ -75,7 +80,8 @@ function attrappe(vorbelegt, uhr) {
         const e = { pfad: ref.pfad, cb: cb, offen: true };
         log.hoert.push(e);
         const v = Object.prototype.hasOwnProperty.call(stand, ref.pfad) ? stand[ref.pfad] : null;
-        Promise.resolve().then(() => { if (e.offen) cb({ val: () => v }); });
+        if (gehalten.has(ref.pfad)) wartend.push({ pfad: ref.pfad, los: () => { if (e.offen) cb({ val: () => v }); } });
+        else Promise.resolve().then(() => { if (e.offen) cb({ val: () => v }); });
         return () => { e.offen = false; };
       } } };
 }
@@ -87,7 +93,7 @@ const STILL = uhrwerk(1000);
 const baue = (a, st, uhr) => new Function('window', 'crypto', 'GEN_MAX', 'FB_ONLINE_SEATS',
     'FB_ONLINE_BALL_IDX', 'serverNow', 'setTimeout', 'clearTimeout', 'sessionStorage', `
   ${BEREICH}
-  return { fbV9Start, fbV9Resume, fbV9UidOk, fbV9SecretAdopt, fbV9SecretFor,
+  return { fbV9Start, fbV9Resume, fbV9Action, fbV9UidOk, fbV9SecretAdopt, fbV9SecretFor,
            fbV9SecretClear, fbV9SecretSave, fbV9SecretLoad, fbV9SecretDrop,
            fbV9MakeReveal, fbV9Hex, fbV9Hash, fbV9NewSalt,
            FB_V9_COMPLETE, FB_V9_FAILED, FB_V9_STOPPED, FB_V9_WAIT_COMMITS,
@@ -703,6 +709,148 @@ abschnitt('Geheimnis da, eigener Commit nicht zu sehen');
     g.l.stop();
   }
 }
+// ══ UNBEKANNT IST NICHT LEER ══════════════════════════════════════════════════
+abschnitt('Der eigene Slot ist UNBEKANNT, nicht leer - bis der Raum ihn gemeldet hat');
+{
+  // Der Einstieg in eine OFFENE Runde nach dem Neuladen (fbV9LebenFortsetzen ruft
+  // fbV9Start mit {hydrieren:true}). Firebase liefert d, c, ro und r als getrennte
+  // Zuhoerer ohne Reihenfolgegarantie. Bis der c-Knoten gemeldet UND eingeordnet ist,
+  // darf dieser Sitz nichts bauen: kein Salz, kein Hash, kein Commit - auch wenn der
+  // Spieler in diesem Fenster zieht oder "Stehen bleiben" drueckt.
+  const ZUG2 = { idx: 1, dx: -3, dy: 4, sp: 0 };
+  const vorspiel = async () => {
+    const st = speicher();
+    const a1 = attrappe({ [P('d/42')]: { n: 42, o: 1 } });
+    const M1 = baue(a1, st); M1.fbV9SecretClear();
+    const l1 = M1.fbV9Start(CTX, { move: ZUG });
+    await settle();
+    const commit = a1.stand[P('c/42/1')];
+    l1.stop();
+    return { st, commit, salz: JSON.parse(st.inhalt.get(KEY)).salt };
+  };
+  const eigeneSchreib = (a) => a.log.schreib.filter(w => w.pfad === P('c/42/1'));
+  const neueCommits = (a) => eigeneSchreib(a).filter(w => w.vorschlag && w.vorschlag.k === 'move');
+  {
+    // FALL A: d kommt vor c. Der Slot traegt den Commit von vor dem Neuladen.
+    const v = await vorspiel();
+    const a = attrappe({ [P('d/42')]: { n: 42, o: 1 }, [P('c/42/1')]: v.commit, [P('c/42')]: { 1: v.commit } },
+                       null, [P('c/42')]);
+    const M = baue(a, v.st); M.fbV9SecretClear();
+    const l = M.fbV9Start(CTX, { hydrieren: true });
+    await settle();
+    t('A: d ist da, c noch nicht - der eigene Slot ist UNBEKANNT', l.eigenUnbekannt === true && !!l.stand.turnOpen);
+    t('A: der Lauf ist nicht gescheitert', l.stufe !== M.FB_V9_FAILED, l.stufe + ' ' + l.grund);
+    t('A: ein Zug in diesem Fenster wird ABGEWIESEN, nicht gemerkt',
+      M.fbV9Action(l, { move: ZUG2 }) === false && l.aktionGesetzt === false && l.offeneAktion === null);
+    t('A: "Stehen bleiben" ebenso', M.fbV9Action(l, { pass: true }) === false && l.terminal === null);
+    await settle();
+    t('A: kein Salz, kein Hash - der Arbeitsspeicher bleibt leer', M.fbV9SecretFor('RN2K', 7, 42) === null);
+    t('A: der gesicherte Datensatz ist unveraendert', JSON.parse(v.st.inhalt.get(KEY)).salt === v.salz);
+    t('A: kein Schreibvorgang in den eigenen Slot', eigeneSchreib(a).length === 0);
+    a.freigeben(P('c/42'));
+    await settle();
+    t('A: nach dem gemeldeten c ist der Slot BEKANNT', l.eigenUnbekannt === false);
+    t('A: und das vorhandene Terminal ist uebernommen - derselbe Hash',
+      !!l.terminal && l.terminal.h === v.commit.h && l.commitFertig === true);
+    const g = M.fbV9SecretFor('RN2K', 7, 42);
+    t('A: das Geheimnis kommt aus dem Speicher - dasselbe Salz', !!g && M.fbV9Hex(g.salt) === v.salz);
+    t('A: immer noch kein Schreibvorgang in den eigenen Slot', eigeneSchreib(a).length === 0);
+    t('A: ein spaeter Zug wird weiter abgewiesen', M.fbV9Action(l, { move: ZUG2 }) === false);
+    t('A: der Lauf wartet auf die Barriere', l.stufe === M.FB_V9_WAIT_COMMITS, l.stufe);
+    l.stop();
+  }
+  {
+    // FALL B: c kommt vor d. Gemeldet ist nicht eingeordnet - ohne d gibt es kein (2a).
+    const v = await vorspiel();
+    const a = attrappe({ [P('d/42')]: { n: 42, o: 1 }, [P('c/42/1')]: v.commit, [P('c/42')]: { 1: v.commit } },
+                       null, [P('d/42')]);
+    const M = baue(a, v.st); M.fbV9SecretClear();
+    const l = M.fbV9Start(CTX, { hydrieren: true });
+    await settle();
+    t('B: c ist gemeldet, d noch nicht - der Slot bleibt UNBEKANNT',
+      l.commitsGemeldet === true && l.eigenUnbekannt === true && !l.stand.turnOpen);
+    t('B: ein Zug wird abgewiesen', M.fbV9Action(l, { move: ZUG2 }) === false && l.offeneAktion === null);
+    t('B: kein Salz', M.fbV9SecretFor('RN2K', 7, 42) === null);
+    a.freigeben(P('d/42'));
+    await settle();
+    t('B: mit d wird eingeordnet - dasselbe Terminal, derselbe Hash',
+      l.eigenUnbekannt === false && !!l.terminal && l.terminal.h === v.commit.h);
+    t('B: dasselbe Salz', M.fbV9Hex(M.fbV9SecretFor('RN2K', 7, 42).salt) === v.salz);
+    t('B: kein zweiter Commit', eigeneSchreib(a).length === 0);
+    t('B: kein FAILED', l.stufe === M.FB_V9_WAIT_COMMITS, l.stufe);
+    l.stop();
+  }
+  {
+    // FALL C: leerer Slot (Neuladen VOR dem eigenen Commit), d vor c. Waehrend UNBEKANNT
+    // gesperrt; sobald c den leeren Slot BEWEIST, darf genau einmal gehandelt werden.
+    const st = speicher();
+    const a = attrappe({ [P('d/42')]: { n: 42, o: 1 } }, null, [P('c/42')]);
+    const M = baue(a, st); M.fbV9SecretClear();
+    const l = M.fbV9Start(CTX, { hydrieren: true });
+    await settle();
+    t('C: UNBEKANNT - gesperrt', l.eigenUnbekannt === true && M.fbV9Action(l, { move: ZUG2 }) === false);
+    a.freigeben(P('c/42'));
+    await settle();
+    t('C: der leere Slot ist bewiesen - BEKANNT, kein Terminal', l.eigenUnbekannt === false && l.terminal === null);
+    t('C: jetzt wird der Zug angenommen', M.fbV9Action(l, { move: ZUG2 }) === true);
+    await settle();
+    t('C: genau EIN Commit', neueCommits(a).length === 1 && !!a.stand[P('c/42/1')]);
+    t('C: mit genau einem Salz', !!M.fbV9SecretFor('RN2K', 7, 42) && st.inhalt.has(KEY));
+    t('C: ein zweiter Zug wird abgewiesen', M.fbV9Action(l, { move: ZUG }) === false && neueCommits(a).length === 1);
+    l.stop();
+  }
+  {
+    // FALL D: die Frist laeuft ab, waehrend c noch UNBEKANNT ist. Die Fristmechanik darf
+    // keinen eigenen Commit erfinden - hoechstens ein late (write-once, kein Salz).
+    const v = await vorspiel();
+    const uhr = uhrwerk(1000);
+    const a = attrappe({ [P('d/42')]: { n: 42, o: 1 }, [P('c/42/1')]: v.commit, [P('c/42')]: { 1: v.commit } },
+                       uhr, [P('c/42')]);
+    const M = baue(a, v.st, uhr); M.fbV9SecretClear();
+    const l = M.fbV9Start(CTX, { hydrieren: true });
+    await settle();
+    await uhr.vor(9000);
+    t('D: nach der Frist immer noch UNBEKANNT und nicht gescheitert',
+      l.eigenUnbekannt === true && l.stufe !== M.FB_V9_FAILED, l.stufe + ' ' + l.grund);
+    t('D: kein erfundener eigener Commit', neueCommits(a).length === 0);
+    t('D: kein Salz', M.fbV9SecretFor('RN2K', 7, 42) === null);
+    t('D: der Slot im Raum traegt weiter den alten Commit', a.stand[P('c/42/1')].h === v.commit.h);
+    a.freigeben(P('c/42'));
+    await settle();
+    t('D: eingeordnet - dasselbe Terminal', !!l.terminal && l.terminal.h === v.commit.h && l.stufe !== M.FB_V9_FAILED);
+    l.stop();
+  }
+  {
+    // Ein FRISCHER Lauf (ohne hydrieren) ist unveraendert: er kennt UNBEKANNT nicht, weil
+    // er in dieser Sitzung der erste Lauf dieser Runde ist und dieser Sitz darin noch nie
+    // gezogen haben kann. Eine Handlung vor d wird wie bisher gemerkt und dann gesendet.
+    const st = speicher();
+    const a = attrappe({}, null, [P('d/42')]);
+    const M = baue(a, st); M.fbV9SecretClear();
+    const l = M.fbV9Start(CTX, null);
+    await settle();
+    t('frisch: kein UNBEKANNT', l.eigenUnbekannt === false);
+    t('frisch: eine Handlung wird angenommen', M.fbV9Action(l, { move: ZUG }) === true);
+    a.freigeben(P('d/42'));
+    await settle();
+    t('frisch: und nach d gesendet - genau einmal', neueCommits(a).length === 1);
+    l.stop();
+  }
+  // Waechter: hydrieren wird GENAU an einer Stelle benutzt - beim Einstieg in die offene Runde.
+  t('hydrieren wird genau einmal benutzt: in fbV9LebenFortsetzen',
+    (HTML.match(/fbV9Start\(ctx,\{hydrieren:true\}\)/g) || []).length === 1
+    && (HTML.match(/hydrieren:true/g) || []).length === 1);
+  t('und fbV9LebenFortsetzen startet den Lauf nicht mehr ohne diese Auskunft',
+    HTML.indexOf('L.lauf=fbV9Start(ctx,null);') < 0);
+  t('UNBEKANNT endet nur in Schritt (2a), nach dem gemeldeten c-Knoten',
+    (HTML.match(/lauf\.eigenUnbekannt=false/g) || []).length === 1
+    && /if\(lauf\.eigenUnbekannt&&lauf\.commitsGemeldet\)lauf\.eigenUnbekannt=false;/.test(HTML));
+  t('fbV9Action weist waehrend UNBEKANNT ab - vor jedem anderen Riegel',
+    /function fbV9Action\(lauf,aktion\)\{\s*if\(!lauf\|\|fbV9Aus\(lauf\)\)return false;\s*(\/\/[^\n]*\n\s*)*if\(lauf\.eigenUnbekannt\)return false;/.test(HTML));
+  t('und Schritt (2) baut waehrend UNBEKANNT nichts',
+    /!lauf\.verworfen&&!lauf\.eigenUnbekannt\s*&&\(lauf\.terminal\|\|lauf\.offeneAktion\)/.test(HTML));
+}
+
 // ══ DER DOPPELTE TAB ═════════════════════════════════════════════════════════
 abschnitt('Der doppelte Tab - dieselbe Enthuellung, kein Schaden');
 {
@@ -784,7 +932,11 @@ abschnitt('Waechter');
   // dort, wo die Beruehrungspunkte gezaehlt werden - in test_online_v9_coordinator.js.
   const HAKEN = ['fbV9LebenNeueRunde', 'fbV9LebenStop', 'fbV9Wirken',
                  'fbV9RaumStart', 'fbV9RaumIst9', 'fbV9Rehydrieren', 'fbV9LebenCtx',
-                 'fbV9LebenAn', 'fbV9LebenHandeln', 'fbV9RaumHier'];
+                 'fbV9LebenAn', 'fbV9LebenHandeln', 'fbV9RaumHier',
+                 // Hydrations-Barriere: das Eingabetor - whoCanAim und die Stand-Taste fragen,
+                 // ob der eigene Slot der laufenden Runde schon bekannt ist. Gezaehlt in
+                 // test_online_v9_coordinator.js.
+                 'fbV9EingabeOffen'];
   const ohneHaken = (txt) => txt.split(/\r?\n/)
     .filter(zl => !HAKEN.some(h => zl.indexOf(h) >= 0)).join('\n');
   t('ausserhalb des ruhenden Bereichs nennt keine Zeile eine v9-Funktion',

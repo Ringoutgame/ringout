@@ -120,6 +120,40 @@ abschnitt('Die Weiche haengt an den richtigen Stellen');
     /'\/g\/'\+ctx\.gen\+'\/t\/'\+ctx\.turnNo\+'\/'\+s/.test(wts));
 }
 
+// ══ RUECKKEHR ════════════════════════════════════════════════════════════════
+abschnitt('Rueckkehr - die Fassung des Raums entscheidet den Weg');
+{
+  // validateRejoinRoom ist seiteneffektfrei und im Node-Test ausfuehrbar.
+  const vrr = new Function(
+    'fbRaumFassungOk', 'validGamePair', 'validModeCap', 'modeReachable', 'roomSeatCap', 'GEN_MAX', 'FFA_MAX_SEATS', 'ROOM_GAME_FOOTBALL', 'FB_ONLINE_SEATS',
+    grab(/function validateRejoinRoom\(d\)\{[\s\S]*?\n\}/, 'validateRejoinRoom') + '\nreturn validateRejoinRoom;')(
+    (v) => v === 8 || v === 9, () => true, () => true, () => true, () => 5, 1000, 5, 'football', 5);
+  const raum = (v, state) => ({ v, hostUid: 'H', gen: 0, state, seats: 5,
+    config: { game: 'football', fmt: 'elimination', mode: 'lives', cap: 5, winTarget: 3, visibility: 'private' } });
+  t('das geprueft Ergebnis traegt die Fassung des Raums (v9)', vrr(raum(9, 'playing')).v === 9);
+  t('... und eines v8-Raums (v8)', vrr(raum(8, 'playing')).v === 8);
+  t('... auch in der Lobby', vrr(raum(9, 'lobby')).v === 9 && vrr(raum(8, 'lobby')).v === 8);
+  t('eine unbekannte Fassung scheitert geschlossen',
+    [7, 10, undefined].every(v => vrr(raum(v, 'playing')).ok === false && !('v' in vrr(raum(v, 'playing')))));
+  // Die Startweiche fbV9RaumIst9 fragt raum.v===9 (oben belegt). Die Rueckkehr reicht ihr
+  // das GEPRUEFTE Ergebnis - das muss die Fassung also tragen, sonst ist v9 nie wahr.
+  const rj = grab(/async function attemptRejoin\(code\)\{[\s\S]*?\n\}/, 'attemptRejoin');
+  t('attemptRejoin prueft den Raum genau einmal', (rj.match(/validateRejoinRoom\(/g) || []).length === 1);
+  t('... und die Weiche fragt das geprueft Ergebnis', /const v9=fbV9RaumIst9\(v\);/.test(rj));
+  t('... nicht den rohen Raum und nicht die Ausbaustufe',
+    !/fbV9RaumIst9\(d\)/.test(rj) && !/ONLINE_PROTOCOL_VERSION/.test(rj));
+  t('die Fassung des Clients im Raum ist die des Raums', /if\(v\.ok\)roomProto=d\.v;/.test(rj));
+  // v9 -> Rehydrierung aus c+r; v8 -> Historie t. Kein v9-Weg liest t, kein v8-Weg rehydriert.
+  t('v9 kehrt ueber die Rehydrierung zurueck', /if\(v9\)\{[\s\S]*?await fbV9Rehydrieren\(fbV9LebenCtx\(0\)\);/.test(rj));
+  t('v8 kehrt ueber die Zughistorie t zurueck', /\}else fastForwardMatch\(turns\);/.test(rj));
+  t('der v8-Lesevorgang der Historie t findet nur ausserhalb von v9 statt',
+    /if\(!v9\)\{\s*try\{ const ts=await window\.FB\.get\(window\.FB\.ref\(window\.FB\.db,'rooms\/'\+code\+'\/g\/'\+v\.gen\+'\/t'\)\);/.test(rj));
+  t('fastForwardMatch(turns) ist der einzige Legacy-Aufruf - und er haengt am else der v9-Weiche',
+    (rj.match(/fastForwardMatch\(/g) || []).length === 1);
+  t('die v9-Rehydrierung scheitert geschlossen (Fehler -> kein Rueckfall auf eine frische Welt)',
+    /if\(erg&&erg\.fehler\)\{ setStatus\(T\('err'\)\+erg\.fehler\); return false; \}/.test(rj));
+}
+
 // ══ KEINE VERMISCHUNG ════════════════════════════════════════════════════════
 abschnitt('Kein Mischbetrieb - die Rules ziehen dieselben Grenzen');
 {

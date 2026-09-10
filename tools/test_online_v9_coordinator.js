@@ -924,7 +924,10 @@ abschnitt('Waechter: die Steuerung ruht');
   // die Aufnahme in diese Liste den Waechter nicht aufweicht.
   const HAKEN = ['fbV9LebenNeueRunde', 'fbV9LebenStop', 'fbV9Wirken',
                  'fbV9RaumStart', 'fbV9RaumIst9', 'fbV9Rehydrieren', 'fbV9LebenCtx',
-                 'fbV9LebenAn', 'fbV9LebenHandeln', 'fbV9RaumHier'];
+                 'fbV9LebenAn', 'fbV9LebenHandeln', 'fbV9RaumHier',
+                 // Hydrations-Barriere: das Eingabetor - whoCanAim und die Stand-Taste fragen,
+                 // ob der eigene Slot der laufenden Runde schon bekannt ist. Unten gezaehlt.
+                 'fbV9EingabeOffen'];
   const ohneHaken = (txt) => txt.split(/\r?\n/)
     .filter(zl => !HAKEN.some(h => zl.indexOf(h) >= 0)).join('\n');
   t('ausserhalb des ruhenden Bereichs nennt keine Zeile eine v9-Funktion',
@@ -941,6 +944,19 @@ abschnitt('Waechter: die Steuerung ruht');
   t('der Eingabeweg steht genau einmal - mit seiner Bedingung',
     (HTML.match(/if\(typeof fbV9LebenAn==='function'&&fbV9LebenAn\(\)\)\{ if\(fbV9LebenHandeln\(\{move:/g) || []).length === 1,
     (HTML.match(/fbV9LebenHandeln\(/g) || []).length);
+  // Das EINGABETOR der Hydrations-Barriere steht GENAU ZWEIMAL ausserhalb des Bereichs:
+  // in whoCanAim (Zeiger) und in der Stand-Taste - jeweils mit typeof-Bedingung, damit
+  // ein Spiel ohne v9-Bereich unveraendert laeuft. Ein drittes Vorkommen waere ein
+  // neuer, ungezaehlter Beruehrungspunkt.
+  const AUSSEN = HTML.split(BEREICH).join('');
+  t('das Eingabetor steht genau zweimal ausserhalb - Zeiger und Stand-Taste',
+    (AUSSEN.match(/typeof fbV9EingabeOffen==='function'&&!fbV9EingabeOffen\(\)/g) || []).length === 2
+    && (AUSSEN.match(/fbV9EingabeOffen/g) || []).length === 4,
+    (AUSSEN.match(/fbV9EingabeOffen/g) || []).length);
+  t('... in whoCanAim nur fuer online, vor der Freigabe des eigenen Sitzes',
+    /if\(online\)return \(aimSet\[myPlayer\]\|\|!aliveCount\(myPlayer\)\|\|\(typeof fbV9EingabeOffen==='function'&&!fbV9EingabeOffen\(\)\)\)\?-1:myPlayer;/.test(AUSSEN));
+  t('... und in der Stand-Taste nur fuer online, vor dem Nullzug',
+    /if\(online&&typeof fbV9EingabeOffen==='function'&&!fbV9EingabeOffen\(\)\)return;/.test(AUSSEN));
   // writeTurnSlot steht seit V9.5B bewusst NICHT mehr in dieser Liste: es ist der einzige
   // Schreibpfad in den v8-Zugslot und traegt deshalb die Sperre, die ihn in einem
   // v9-Raum schweigen laesst. Geprueft wird stattdessen genau diese eine Nennung.

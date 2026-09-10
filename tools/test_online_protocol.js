@@ -335,6 +335,26 @@ t('Rejoin: fehlender Typ wird abgelehnt',
   P.validateRejoinRoom(room({ config: { winTarget: 3, fmt: 'single', visibility: 'private' } })).ok === false);
 t('Rejoin: die Ablehnung ist lokalisierbar (Schluessel statt Rohtext)',
   P.validateRejoinRoom(room({ v: 3 })).reason === 'noRoom');
+// Die Protokollfassung gehoert dem RAUM und muss die Pruefung UEBERLEBEN: die
+// Rueckkehr-Weiche (fbV9RaumIst9) fragt das geprueft Ergebnis, nicht den rohen Raum.
+// Ohne dieses Feld liefe jede v9-Rueckkehr ueber die v8-Historie t - nachweislich
+// der Fehler vor dieser Absicherung.
+t('Rejoin: das Ergebnis traegt die Fassung des v9-Raums',
+  P.validateRejoinRoom(fbCfg('lives', 5, { v: 9, state: 'playing', seats: 5 })).v === 9);
+t('Rejoin: ... auch in der Lobby',
+  P.validateRejoinRoom(fbCfg('lives', 3, { v: 9 })).v === 9);
+t('Rejoin: ein v8-Raum bleibt v8 (RingOut)',
+  P.validateRejoinRoom(room({ v: 8, state: 'playing' })).v === 8);
+t('Rejoin: ein bestehender v8-Football-Raum behaelt v8 (keine Neuzuordnung aus dem Modus)',
+  P.validateRejoinRoom(fbCfg('lives', 5, { v: 8, state: 'playing', seats: 5 })).v === 8);
+t('Rejoin: die Fassung ist der ROHWERT des Raums, nicht die Client-Ausbaustufe',
+  P.validateRejoinRoom(room({ v: 8, state: 'playing' })).v !== P.VER
+  && P.validateRejoinRoom(fbCfg('lives', 4, { v: 9, state: 'playing', seats: 4 })).v === 9);
+t('Rejoin: unbekannte Fassungen scheitern geschlossen (kein v-Feld, kein ok)',
+  [3, 4, 5, 6, 7, 10, 0, -1, '9', undefined, null].every(v => {
+    const r = P.validateRejoinRoom(fbCfg('lives', 5, { v, state: 'playing', seats: 5 }));
+    return r.ok === false && r.reason === 'noRoom' && !('v' in r);
+  }));
 t('Beitritt: die Ablehnung nennt die Versionsunvertraeglichkeit',
   /Version/i.test(P.validateRoom(room({ v: 3 })).reason || ''));
 

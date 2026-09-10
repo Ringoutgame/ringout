@@ -26,9 +26,17 @@ const abschnitt = (s) => console.log('\n── ' + s + ' ' + '─'.repeat(Math.m
 const SENTINEL = { '.sv': 'timestamp' };
 // Die Attrappe kann lesen (get) und schreiben - damit sich zeigen laesst, dass das
 // Nachspiel NUR liest.
-function attrappe(baum) {
+function attrappe(baum, opt) {
   const log = { schreib: [], hoert: [], lese: [] };
+  opt = opt || {};
+  // Standard: Zuhoerer melden null (das Nachspiel liest nur). Mit opt.lebend melden sie
+  // den Wert aus dem Baum; Wege in opt.halte melden erst nach freigeben(pfad).
+  const lies = (pfad) => { const teile = pfad.split('/'); let v = baum;
+    for (const k of teile) { if (v == null) break; v = v[k]; } return v === undefined ? null : v; };
+  const gehalten = new Set(opt.halte || []), wartend = [];
   return { log, baum,
+    freigeben: (pfad) => { gehalten.delete(pfad);
+      for (const w of wartend.splice(0)) if (w.pfad === pfad) w.los(); else wartend.push(w); },
     FB: { db: {}, ref: (db, p) => ({ pfad: p }), serverTimestamp: () => SENTINEL,
       get: async (ref) => { log.lese.push(ref.pfad);
         const teile = ref.pfad.split('/'); let v = baum;
@@ -38,7 +46,10 @@ function attrappe(baum) {
         log.schreib.push({ pfad: ref.pfad, vorschlag: fn(null) });
         return { committed: true, snapshot: { val: () => null } }; },
       onValue: (ref, cb) => { const e = { pfad: ref.pfad, cb, offen: true };
-        log.hoert.push(e); Promise.resolve().then(() => { if (e.offen) cb({ val: () => null }); });
+        log.hoert.push(e);
+        const v = opt.lebend ? lies(ref.pfad) : null;
+        if (gehalten.has(ref.pfad)) wartend.push({ pfad: ref.pfad, los: () => { if (e.offen) cb({ val: () => v }); } });
+        else Promise.resolve().then(() => { if (e.offen) cb({ val: () => v }); });
         return () => { e.offen = false; }; } } };
 }
 const STILL = { serverNow: () => 4000000, setTimeout: () => 0, clearTimeout: () => {} };
@@ -123,6 +134,7 @@ const baue = (a, welt) => new Function('window', 'crypto', 'GEN_MAX', 'FB_ONLINE
   return { sync, fbV9Rehydrieren, fbV9RehydrierPlan, fbV9HistorieLesen, fbV9Wirken,
            fbV9RaumStart, fbV9RaumIst9,
            fbV9LebenNeueRunde, fbV9LebenFortsetzen, fbV9LebenStop, fbV9LebenAn,
+           fbV9LebenHandeln, fbV9EingabeOffen,
            fastForwardMatch, startOnlineGame, leben: () => fbV9Leben,
            zustand: () => ({ turnNo, phase, footballWinner, aktiv: welt.aktiv.slice(),
                              leben: welt.leben.slice(),
@@ -584,6 +596,74 @@ abschnitt('Der echte Einstieg - ein Weg fuer frisch und nach dem Neuladen');
       w.status.some(x => /gewechselt/.test(x)), w.status.join(' | '));
   }
 }
+// ══ DER EIGENE SLOT NACH DEM NEULADEN: UNBEKANNT, BIS DER RAUM IHN MELDET ═════
+abschnitt('Einstieg in die offene Runde - Eingabe gesperrt, bis der eigene Slot bekannt ist');
+{
+  // Nach dem Neuladen mitten in Runde 1 (d/1 steht, eigener Commit von vor dem Neuladen
+  // steht in c/1/1). Der Einstieg laeuft ueber den echten Weg (fbV9RaumStart ->
+  // Rehydrierung -> fbV9LebenFortsetzen). Die Zuhoerer melden lebend; der c-Knoten der
+  // Runde wird zurueckgehalten. Solange er fehlt, ist die Spieleingabe zu: whoCanAim
+  // und die Stand-Taste fragen fbV9EingabeOffen, und fbV9LebenHandeln weist ab.
+  const P = (r) => 'rooms/' + CODE + '/g/' + GEN + '/' + r;
+  const eigeneCommits = (a) => a.log.schreib.filter(x => x.pfad === P('c/1/1') && x.vorschlag && x.vorschlag.k === 'move');
+  {
+    const g = await historie([[M(1, 0, 0), M(2, 0, 0), { art: 'pass' }]]);
+    g.d[1] = { n: 1, o: 4000000 };
+    const eigen = await zug(1, 1, 5, 5, 0);
+    g.c[1] = { 1: eigen.c };
+    const w = welt9();
+    const a = attrappe(baum(g), { lebend: true, halte: [P('c/1')] });
+    const m = baue(a, w);
+    m.fbV9RaumStart();
+    await settle(12);
+    const L = m.leben();
+    t('die Ablaufsteuerung uebernimmt die offene Runde 1', !!(L && L.lauf) && L.turn === 1);
+    t('mit UNBEKANNTEM eigenen Slot', L.lauf.eigenUnbekannt === true && !!L.lauf.stand.turnOpen);
+    t('die Eingabe ist ZU', m.fbV9EingabeOffen() === false);
+    t('ein Zug ueber die Spielbruecke wird abgewiesen', m.fbV9LebenHandeln({ move: { idx: 1, dx: 1, dy: 1, sp: 0 } }) === false);
+    t('"Stehen bleiben" ebenso', m.fbV9LebenHandeln({ pass: true }) === false);
+    await settle(6);
+    t('kein eigener Commit, kein Salz', eigeneCommits(a).length === 0 && L.lauf.terminal === null);
+    a.freigeben(P('c/1'));
+    await settle(12);
+    t('nach dem gemeldeten c ist der Slot bekannt - die Eingabe ist wieder OFFEN',
+      L.lauf.eigenUnbekannt === false && m.fbV9EingabeOffen() === true);
+    t('und das vorhandene Terminal ist uebernommen - derselbe Hash',
+      !!L.lauf.terminal && L.lauf.terminal.h === eigen.c.h && L.lauf.commitFertig === true);
+    t('ein Zug jetzt wird abgewiesen - der Slot ist besetzt', m.fbV9LebenHandeln({ move: { idx: 1, dx: 1, dy: 1, sp: 0 } }) === false);
+    t('kein zweiter Commit', eigeneCommits(a).length === 0);
+    t('kein FAILED', L.lauf.stufe !== 'FAILED', L.lauf.stufe + ' ' + L.lauf.grund);
+    m.fbV9LebenStop();
+  }
+  {
+    // Leerer Slot (Neuladen VOR dem eigenen Commit): gesperrt bis zum Beweis, dann genau ein Zug.
+    const g = await historie([[M(1, 0, 0), M(2, 0, 0), { art: 'pass' }]]);
+    g.d[1] = { n: 1, o: 4000000 };
+    const w = welt9();
+    const a = attrappe(baum(g), { lebend: true, halte: [P('c/1')] });
+    const m = baue(a, w);
+    m.fbV9RaumStart();
+    await settle(12);
+    const L = m.leben();
+    t('leer: UNBEKANNT und zu', L.lauf.eigenUnbekannt === true && m.fbV9EingabeOffen() === false
+      && m.fbV9LebenHandeln({ move: { idx: 1, dx: 1, dy: 1, sp: 0 } }) === false);
+    a.freigeben(P('c/1'));
+    await settle(12);
+    t('leer: bewiesen leer - offen', L.lauf.eigenUnbekannt === false && m.fbV9EingabeOffen() === true && L.lauf.terminal === null);
+    t('leer: der Zug wird angenommen', m.fbV9LebenHandeln({ move: { idx: 1, dx: 1, dy: 1, sp: 0 } }) === true);
+    await settle(12);
+    t('leer: genau EIN Commit', eigeneCommits(a).length === 1);
+    t('leer: ein zweiter wird abgewiesen', m.fbV9LebenHandeln({ move: { idx: 1, dx: 2, dy: 2, sp: 0 } }) === false && eigeneCommits(a).length === 1);
+    m.fbV9LebenStop();
+  }
+  {
+    // Ohne Lebenslauf ist die Eingabe offen (v8, lokal): das Tor sperrt nur waehrend UNBEKANNT.
+    const w = welt9();
+    const m = baue(attrappe({ rooms: {} }), w);
+    t('ohne Lebenslauf ist das Tor offen', m.fbV9EingabeOffen() === true);
+  }
+}
+
 // ══ WAECHTER AM QUELLTEXT ════════════════════════════════════════════════════
 abschnitt('Waechter');
 {

@@ -5234,6 +5234,7 @@ function fbCloseCover(){
 $('coverBtn').onclick=()=>fbCloseCover();
 
 $('actBtn').onclick=()=>{if(r3dOrbit)return;if(phase!=='aim')return;const who=online?myPlayer:(mode==='bot'?0:curAimer);if(aimSet[who]||!aliveCount(who))return;
+  if(online&&typeof fbV9EingabeOffen==='function'&&!fbV9EingabeOffen())return;   // V9: eigener Slot dieser Runde noch unbekannt
   const own=aliveBalls(who);let idx=own.length?balls.indexOf(own[0]):-1;
   // Tactical: "Stehen bleiben" gilt fuer die GEWAEHLTE Figur. Der Zug ist ein Nullzug, aber
   // commitIdx steuert die Reveal-Markierung — sonst leuchtet dort die falsche Figur auf.
@@ -5268,7 +5269,7 @@ function devAimBlock(){
 }
 function whoCanAim(){if(r3dOrbit)return -1;if(phase!=='aim')return -1;
   if(inputLocked())return -1;   // Timer abgelaufen: kein neuer Zug, bis der Collapse ausgewertet ist
-  if(online)return (aimSet[myPlayer]||!aliveCount(myPlayer))?-1:myPlayer;if(mode==='bot')return aimSet[0]?-1:0;
+  if(online)return (aimSet[myPlayer]||!aliveCount(myPlayer)||(typeof fbV9EingabeOffen==='function'&&!fbV9EingabeOffen()))?-1:myPlayer;if(mode==='bot')return aimSet[0]?-1:0;
   // Gemeinsames Fenster: gezielt werden darf, solange irgendein aktiver Spieler offen
   // ist; bevorzugt bleibt der, den das HUD gerade fuehrt.
   if(typeof fbShared==='function'&&fbShared()){
@@ -9505,12 +9506,19 @@ function fbV9NetListen(ctx,rueckruf){
   const wege=[['d/'+ctx.turn,'turnOpen'],['c/'+ctx.turn,'commits'],
               ['ro/'+ctx.turn,'revealOpen'],['r/'+ctx.turn,'results']];
   let aus=[],offen=true;
+  // Jeder Weg meldet fuer sich. Bis ein Weg zum ersten Mal gemeldet hat, ist sein
+  // `null` im Stand KEINE Auskunft, sondern Unwissen (vgl. fbV9NetWatch). Der Rueckruf
+  // bekommt deshalb als zweites Argument, WELCHE Wege schon gemeldet haben - wer aus
+  // einem ungemeldeten c schliesst, der eigene Slot sei leer, handelt auf Verdacht.
+  const gemeldet={turnOpen:false,commits:false,revealOpen:false,results:false};
   for(const w of wege){
     aus.push(window.FB.onValue(fbV9Ref(ctx,w[0]),snap=>{
       if(!offen)return;                       // nach dem Abmelden schweigt der Adapter
       stand[w[1]]=snap?snap.val():null;
+      gemeldet[w[1]]=true;
       rueckruf({turnOpen:stand.turnOpen,commits:stand.commits,
-                revealOpen:stand.revealOpen,results:stand.results});
+                revealOpen:stand.revealOpen,results:stand.results},
+               Object.assign({},gemeldet));
     }));
   }
   // Ausdrueckliches Abmelden, mehrfach gefahrlos: ein zweites Abmelden findet nichts
@@ -10173,6 +10181,11 @@ async function fbV9Schritt(lauf){
           }
         }
       }
+      // HYDRIEREN: der c-Knoten hat gemeldet und ist hiermit eingeordnet - entweder steht
+      // das eigene Terminal jetzt fest (oben uebernommen), oder der Slot ist nachweislich
+      // leer. Erst ab hier ist der eigene Slot BEKANNT; erst ab hier darf dieser Sitz
+      // (bei leerem Slot) handeln. Ohne gemeldeten Knoten bleibt es bei UNBEKANNT.
+      if(lauf.eigenUnbekannt&&lauf.commitsGemeldet)lauf.eigenUnbekannt=false;
       // KEIN eigenes Terminal zu sehen: hier wird NICHT angehalten. Frueher stand an
       // dieser Stelle ein `return` in COMMITTING - und COMMITTING stellt keinen Wecker.
       // Ein Client, dessen Commit vor dem Neuladen vielleicht angekommen ist und
@@ -10189,7 +10202,8 @@ async function fbV9Schritt(lauf){
     //     Lauf faellt dann bis zur Barriere durch, wo die Fristmechanik greift und der
     //     Slot nach der Frist an `late` faellt - genau wie bei einem Sitz, der schweigt.
     //     Ein VERWORFENER Zug (von den Rules abgewiesen) wird nie erneut gesendet.
-    if(!lauf.commitFertig&&!lauf.fortsetzen&&!lauf.verworfen&&(lauf.terminal||lauf.offeneAktion)){
+    if(!lauf.commitFertig&&!lauf.fortsetzen&&!lauf.verworfen&&!lauf.eigenUnbekannt
+       &&(lauf.terminal||lauf.offeneAktion)){
       if(lauf.commitLaeuft)return;
       lauf.commitLaeuft=true;
       fbV9Stufe(lauf,FB_V9_COMMITTING);
@@ -10421,6 +10435,11 @@ async function fbV9Vorbereiten(lauf,aktion){
 // erst, wenn die Runde wirklich offen ist. Kommt sie danach, geht sie sofort hinaus.
 function fbV9Action(lauf,aktion){
   if(!lauf||fbV9Aus(lauf))return false;
+  // Solange der eigene Slot dieser Runde unbekannt ist, wird NICHTS angenommen - auch
+  // nicht zum Nachreichen: dort koennte der Commit von vor dem Neuladen stehen, und ein
+  // zweites Salz dazu gaebe es nie zurueck. Die Eingabe bleibt bis dahin gesperrt
+  // (fbV9EingabeOffen); dieser Riegel faengt jeden anderen Weg hierher.
+  if(lauf.eigenUnbekannt)return false;
   if(lauf.fortsetzen||lauf.aktionGesetzt||lauf.terminal||lauf.commitFertig)return false;
   if(!aktion||!(aktion.pass||aktion.move))return false;
   lauf.aktionGesetzt=true;
@@ -10440,7 +10459,7 @@ function fbV9Start(ctx,aktion){
               commitLaeuft:false,commitFertig:false,roVersucht:false,
               revealLaeuft:false,revealFertig:false,finaleLaeuft:false,
               zStand:null,zAb:null,zLaeuft:false,zBegonnen:false,
-              aktionGesetzt:false,offeneAktion:null};
+              aktionGesetzt:false,offeneAktion:null,eigenUnbekannt:false,commitsGemeldet:false};
   lauf.fertig=new Promise(aufl=>{ lauf.fertigNun=aufl; });
   // Anhalten ist mehrfach gefahrlos und schneidet jede kuenftige Wirkung ab.
   lauf.stop=function(){
@@ -10462,6 +10481,17 @@ function fbV9Start(ctx,aktion){
       if(!fbV9UidOk(ctx))return fbV9Scheitern(lauf,'keine Kennung');
       lauf.fortsetzen=true;
     }
+    // HYDRIEREN: der Lauf steigt in eine bereits OFFENE Runde ein (nach dem Neuladen),
+    // und ob dieser Sitz darin schon gezogen hat, steht allein im Raum. Bis der
+    // c-Knoten dieser Runde zum ersten Mal gemeldet hat, ist der eigene Slot UNBEKANNT -
+    // nicht leer. In dieser Zeit entsteht kein Salz, kein Hash, kein Commit: eine
+    // Handlung wird abgewiesen (fbV9Action), nicht gemerkt. Erst der gemeldete Knoten
+    // entscheidet: steht dort ein Terminal, wird es uebernommen (2a); ist der Slot
+    // nachweislich leer, darf dieser Sitz genau einmal handeln. Kein Zeitgeber, keine
+    // Frist - allein der autoritative Stand hebt die Sperre.
+    else if(aktion&&aktion.hydrieren){
+      lauf.eigenUnbekannt=true;
+    }
     // Eine Handlung DARF fehlen. Dann wird die Runde trotzdem eroeffnet und beobachtet -
     // der Zug kommt spaeter ueber fbV9Action. Ohne diese Trennung haette der erste
     // Spieler bestimmt, wann die gemeinsame Sechs-Sekunden-Frist ueberhaupt beginnt:
@@ -10473,9 +10503,13 @@ function fbV9Start(ctx,aktion){
       lauf.aktionGesetzt=true;
       if(!await fbV9Vorbereiten(lauf,aktion))return;
     }
-    lauf.abmelden=fbV9NetListen(ctx,(st)=>{
+    lauf.abmelden=fbV9NetListen(ctx,(st,gemeldet)=>{
       if(fbV9Aus(lauf))return;         // spaeter Rueckruf nach dem Ende: wirkungslos
       lauf.stand=st;
+      // Ob der c-Knoten dieser Runde schon gemeldet hat, merkt sich der Lauf - EINGEORDNET
+      // (Terminal uebernommen oder Slot nachweislich leer) wird er in Schritt (2a), und
+      // erst dort endet UNBEKANNT.
+      if(gemeldet&&gemeldet.commits)lauf.commitsGemeldet=true;
       fbV9Schritt(lauf);
     });
     if(!lauf.abmelden)return fbV9Scheitern(lauf,'kein Zuhoerer');
@@ -10825,12 +10859,22 @@ function fbV9LebenFortsetzen(turn){
            rausLaeuft:false,wecker:{},angewandt:false};
   fbV9Leben=L;
   // OHNE Handlung: der eigene Zug wird - falls ueberhaupt noch einer kommt - ueber
-  // fbV9LebenHandeln nachgereicht. Ein bereits abgegebener kommt aus dem Raum.
-  L.lauf=fbV9Start(ctx,null);
+  // fbV9LebenHandeln nachgereicht. Ein bereits abgegebener kommt aus dem Raum - und
+  // bis der Raum das gemeldet hat, ist der eigene Slot unbekannt (hydrieren): keine
+  // Handlung, kein zweites Salz zu einem Commit, der dort vielleicht schon steht.
+  L.lauf=fbV9Start(ctx,{hydrieren:true});
   const lauf=L.lauf;
   lauf.fertig.then(()=>{ if(lauf.stufe===FB_V9_COMPLETE)fbV9ApplyAccepted(L,lauf.menge); });
   fbV9LebenRausStarten(L);
   return L;
+}
+// Darf die Spieleingabe gerade einen Zug hervorbringen? Nein, solange der laufende
+// Zyklus den eigenen Slot dieser Runde noch nicht kennt (Einstieg in eine offene Runde
+// nach dem Neuladen, c-Knoten noch nicht gemeldet). Das ist ein Zustand von
+// Millisekunden - kein Dialog, kein Hinweis; whoCanAim und die Stand-Taste warten.
+function fbV9EingabeOffen(){
+  const L=fbV9Leben;
+  return !(fbV9LebenAktuell(L)&&L.lauf&&L.lauf.eigenUnbekannt);
 }
 // Die Handlung dieser Runde. Sie kommt NICHT von hier: was dieser Sitz zieht,
 // entscheidet die Spieleingabe, und die Bruecke dorthin ist V9.4D. Bis dahin bleibt
@@ -11465,7 +11509,12 @@ function validateRejoinRoom(d){
     // mit abweichender Besetzung ist kein Raum, in den man zurueckkehren kann.
     if(Number.isInteger(cfg.cap)&&seats!==cfg.cap)return{ok:false,reason:'noRoom'};
   }
-  return{ok:true,fmt:cfg.fmt,winTarget:cfg.winTarget,gen:d.gen,state:d.state,seats:seats,
+  // Die Protokollfassung gehoert dem RAUM und wandert mit: die Weiche der Rueckkehr
+  // (fbV9RaumIst9) fragt das GEPRUEFTE Ergebnis, nicht den rohen Raum. Ohne dieses Feld
+  // war sie fuer jeden v9-Raum falsch, und die Rueckkehr lief ueber den v8-Zugslot-Pfad
+  // statt ueber die v9-Rehydrierung aus der Historie. Geprueft ist die Fassung oben
+  // (fbRaumFassungOk) - hier wird nichts geraten und nichts gehoben.
+  return{ok:true,v:d.v,fmt:cfg.fmt,winTarget:cfg.winTarget,gen:d.gen,state:d.state,seats:seats,
          cap:roomSeatCap(cfg),mode:cfg.mode||'',hostUid:d.hostUid};
 }
 const ROOM_MAX_AGE_MS=7200000;   // 2h — older public rooms are never shown or listed
