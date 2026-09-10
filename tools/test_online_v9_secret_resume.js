@@ -128,21 +128,25 @@ abschnitt('Gesichert wird VOR dem Senden');
     rec.idx === 1 && rec.dx === 12.5 && rec.dy === -8.25 && rec.sp === 0.5);
   l.stop();
 
-  // Und nun der Kern: schlaegt das Sichern fehl, geht KEIN Commit raus.
+  // Und nun der Kern: schlaegt das Sichern fehl, geht der Commit TROTZDEM raus. Das
+  // Geheimnis lebt im Arbeitsspeicher; der Speicher ist allein die Absicherung gegen
+  // ein Neuladen. (Frueher scheiterte hier der ganze Lauf - ein Client ohne Speicher
+  // blieb fuer immer in der Runde stehen: dieselbe Klasse wie der P0-Desync.)
   for (const p of [['ein werfender Speicher', () => { const s2 = speicher(); s2.wirf.set = true; return s2; }],
                    ['gar kein Speicher', () => null]]) {
     const a2 = attrappe({ [P('d/42')]: { n: 42, o: 1 } }), M2 = baue(a2, p[1]());
     M2.fbV9SecretClear();
     const l2 = M2.fbV9Start(CTX, { move: ZUG });
-    await l2.fertig;
-    t(p[0] + ': der Lauf scheitert', l2.stufe === M2.FB_V9_FAILED, l2.stufe);
-    t(p[0] + ': mit benanntem Grund', /Geheimnis nicht gesichert/.test(l2.grund), l2.grund);
-    t(p[0] + ': und KEIN Commit ging raus',
-      !a2.log.schreib.some(w => w.pfad === P('c/42/1')));
-    t(p[0] + ': es wurde auch nicht still zu pass',
+    await settle();
+    t(p[0] + ': der Lauf scheitert NICHT', l2.stufe !== M2.FB_V9_FAILED, l2.stufe + ' ' + l2.grund);
+    t(p[0] + ': das Geheimnis ist als fluechtig vermerkt', l2.geheimnisFluechtig === true);
+    const c2 = a2.stand[P('c/42/1')];
+    t(p[0] + ': der Commit ging raus', !!c2 && c2.k === 'move');
+    t(p[0] + ': es wurde nicht still zu pass',
       !a2.log.schreib.some(w => w.vorschlag && w.vorschlag.k === 'pass'));
-    t(p[0] + ': und kein Geheimnis bleibt im Arbeitsspeicher liegen',
-      M2.fbV9SecretFor('RN2K', 7, 42) === null);
+    const g2 = M2.fbV9SecretFor('RN2K', 7, 42);
+    t(p[0] + ': das Geheimnis lebt im Arbeitsspeicher, mit dem Hash des Commits', !!g2 && g2.h === c2.h);
+    l2.stop();
   }
   // Ohne angemeldete Kennung ebenfalls nicht.
   {
@@ -189,8 +193,8 @@ abschnitt('Raeumen nur, wenn es sicher ist');
     t('und raeumt genau dieses Geheimnis', !g.st.inhalt.has(KEY));
     t('auch aus dem Arbeitsspeicher', g.M.fbV9SecretFor('RN2K', 7, 42) === null);
   }
-  for (const p of [['eine Abweisung', new Error('permission_denied')],
-                   ['ein Netzfehler', new Error('network down')]]) {
+  {
+    const p = ['ein Netzfehler', new Error('network down')];
     const g = await bau({}, [P('c/42/1'), p[1]]);
     await g.l.fertig;
     t(p[0] + ' laesst den Lauf scheitern', g.l.stufe === g.M.FB_V9_FAILED, g.l.stufe);
@@ -198,6 +202,52 @@ abschnitt('Raeumen nur, wenn es sicher ist');
     // noch angenommen hat. Das Geheimnis ist dann die einzige Rettung.
     t(p[0] + ': das Geheimnis bleibt erhalten', g.st.inhalt.has(KEY));
     t(p[0] + ': und auch im Arbeitsspeicher', !!g.M.fbV9SecretFor('RN2K', 7, 42));
+  }
+  {
+    // EINE ABWEISUNG ist etwas anderes als ein Netzfehler: die Rules haben den Zug
+    // nicht angenommen - im Regelfall, weil die Frist nach Serverzeit vorbei war.
+    // Das ist KEIN Scheitern der Runde (P0-Desync-Diagnose 01: ein gescheiterter Lauf
+    // liess den Client fuer immer in der Runde stehen, waehrend die Mitspieler ihn
+    // disqualifizierten und allein weiterspielten). Der Zug ist verworfen, der Lauf
+    // wartet an der Barriere, und das eigene Terminal kommt als `late` aus dem Raum.
+    const g = await bau({}, [P('c/42/1'), new Error('permission_denied')]);
+    await settle();
+    t('eine Abweisung laesst den Lauf NICHT scheitern', g.l.stufe !== g.M.FB_V9_FAILED, g.l.stufe + ' ' + g.l.grund);
+    t('er wartet an der Commit-Barriere', g.l.stufe === g.M.FB_V9_WAIT_COMMITS, g.l.stufe);
+    t('der Zug ist verworfen', g.l.verworfen === true && g.l.terminal === null);
+    t('Abweisung: das Geheimnis bleibt vorerst erhalten', g.st.inhalt.has(KEY));
+    const vorher = g.a.log.schreib.filter(w => w.pfad === P('c/42/1')).length;
+    await settle();
+    t('und der Zug wird nicht erneut gesendet', g.a.log.schreib.filter(w => w.pfad === P('c/42/1')).length === vorher, vorher);
+    // Ein Mitspieler schliesst den Slot nach der Frist mit `late` - genau wie bei einem
+    // Sitz, der geschwiegen hat.
+    g.a.zustellen(P('c/42'), { 0: NULLT('pass'), 1: NULLT('late'), 2: NULLT('pass') });
+    await settle();
+    t('das autoritative late wird als eigenes Terminal uebernommen',
+      g.l.terminal && g.l.terminal.k === 'late' && g.l.commitFertig === true, JSON.stringify(g.l.terminal));
+    t('die Barriere ist damit ueberwunden - kein Scheitern', g.l.stufe !== g.M.FB_V9_FAILED && g.l.stufe !== g.M.FB_V9_WAIT_COMMITS, g.l.stufe);
+    t('und erst JETZT ist das Geheimnis geraeumt', !g.st.inhalt.has(KEY) && g.M.fbV9SecretFor('RN2K', 7, 42) === null);
+    t('immer noch kein zweiter Sendeversuch', g.a.log.schreib.filter(w => w.pfad === P('c/42/1')).length === vorher);
+    g.l.stop();
+  }
+  {
+    // Derselbe Ausloeser, anderer Zeitpunkt: ein Mitspieler hat den eigenen Slot nach
+    // der Frist schon mit `late` geschlossen, BEVOR das eigene Loslassen ankam. Die
+    // Transaktion meldet dann EXISTS mit dem fremden Fristschluss - kein Scheitern.
+    const g = await bau({ [P('c/42/1')]: NULLT('late'), [P('c/42')]: { 1: NULLT('late') } });
+    await settle();
+    t('ein fremdes late im eigenen Slot laesst den Lauf NICHT scheitern', g.l.stufe !== g.M.FB_V9_FAILED, g.l.stufe + ' ' + g.l.grund);
+    t('das late wird als eigenes Terminal uebernommen', g.l.terminal && g.l.terminal.k === 'late' && g.l.commitFertig === true, JSON.stringify(g.l.terminal));
+    t('und das Geheimnis dazu ist geraeumt', !g.st.inhalt.has(KEY) && g.M.fbV9SecretFor('RN2K', 7, 42) === null);
+    t('der eigene Zug wird nicht nachgeschoben', !g.a.log.schreib.some(w => w.pfad === P('c/42/1') && w.vorschlag && w.vorschlag.k === 'move' && g.l.verworfen !== true) || g.l.verworfen === true);
+    g.l.stop();
+  }
+  {
+    // Ein ANDERER Zug im eigenen Slot (zweiter Tab derselben Kennung) bleibt ein echter
+    // Widerspruch und scheitert wie bisher.
+    const g = await bau({ [P('c/42/1')]: { k: 'move', h: H64, ts: 1 }, [P('c/42')]: { 1: { k: 'move', h: H64, ts: 1 } } });
+    await g.l.fertig;
+    t('ein fremder move im eigenen Slot scheitert weiterhin', g.l.stufe === g.M.FB_V9_FAILED, g.l.stufe);
   }
 }
 
@@ -394,6 +444,127 @@ abschnitt('Verlorenes Geheimnis - warten, nicht erfinden');
   }
 }
 
+// ══ SPEICHER NICHT VERFUEGBAR - KEIN EINFRIEREN ══════════════════════════
+abschnitt('Speicher nicht verfuegbar - kein Einfrieren');
+{
+  // Fuenf Arten, auf die der sessionStorage im Feld ausfaellt (Privatmodus, Richtlinie,
+  // Kontingent, Sandkasten). Keine davon darf den Lauf einer lebenden Seite scheitern
+  // lassen, und die Verdeckung bleibt in jeder dieselbe: 128-Bit-Salz, SHA-256, ein
+  // Commit, eine Enthuellung mit genau diesem Salz.
+  const wirft = (was) => { const s = speicher(); s.wirf[was] = true; return s; };
+  const zugriffWirft = () => new Proxy({}, { get: () => { throw new Error('SecurityError: storage access denied'); } });
+  const ARTEN = [
+    ['A Zugriff wirft', zugriffWirft, false],
+    ['B setItem wirft', () => wirft('set'), false],
+    ['C getItem wirft', () => wirft('get'), false],
+    ['D removeItem wirft', () => wirft('del'), true],
+    ['E von Anfang an kein Speicher', () => null, false],
+  ];
+  // (i) Die lebende Seite: eine volle Runde, unveraendertes Protokoll.
+  for (const [art, mach] of ARTEN) {
+    const st = mach(), a = attrappe({ [P('d/42')]: { n: 42, o: 1 } }), M = baue(a, st);
+    M.fbV9SecretClear();
+    const l = M.fbV9Start(CTX, { move: ZUG });
+    await settle();
+    const c = a.stand[P('c/42/1')];
+    t(art + ': der Lauf scheitert nicht', l.stufe !== M.FB_V9_FAILED, l.stufe + ' ' + l.grund);
+    t(art + ': genau EIN Commit ging raus',
+      !!c && c.k === 'move' && a.log.schreib.filter(w => w.pfad === P('c/42/1')).length === 1);
+    t(art + ': und er traegt keinen Klartext', !!c && !('dx' in c) && !('dy' in c) && !('n' in c) && /^[0-9a-f]{64}$/.test(c.h));
+    const g = M.fbV9SecretFor('RN2K', 7, 42);
+    t(art + ': das Geheimnis lebt im Arbeitsspeicher mit dem Hash des Commits', !!g && g.h === c.h);
+    const salz = M.fbV9Hex(g.salt);
+    a.zustellen(P('c/42'), { 0: NULLT('pass'), 1: c, 2: NULLT('pass') });
+    await settle();
+    const r = a.stand[P('r/42/1')];
+    t(art + ': die Enthuellung kommt mit GENAU diesem Salz und Vektor',
+      !!r && r.k === 'reveal' && r.n === salz && r.idx === 1 && r.dx === 12.5 && r.dy === -8.25 && r.sp === 0.5,
+      JSON.stringify(r));
+    t(art + ': kein zweites Salz, kein zweiter Commit',
+      a.log.schreib.filter(w => w.pfad === P('c/42/1')).length === 1 && a.log.schreib.filter(w => w.pfad === P('r/42/1')).length === 1);
+    a.zustellen(P('r/42'), { 1: r });
+    await settle();
+    t(art + ': die Runde wird fertig', l.stufe === M.FB_V9_COMPLETE, l.stufe + ' ' + l.grund);
+    t(art + ': danach ist das Geheimnis geraeumt', M.fbV9SecretFor('RN2K', 7, 42) === null);
+    l.stop();
+  }
+  // (ii) Fortsetzen INNERHALB derselben Seite (kein Neuladen, z. B. Rehydrierung bei
+  //      offener Runde): der Arbeitsspeicher berechtigt, weil sein Hash der des
+  //      unveraenderlichen Commits ist - und nur dann.
+  {
+    const a = attrappe({ [P('d/42')]: { n: 42, o: 1 } }), M = baue(a, null);
+    M.fbV9SecretClear();
+    const l1 = M.fbV9Start(CTX, { move: ZUG });
+    await settle();
+    const c = a.stand[P('c/42/1')];
+    l1.stop();
+    const g = M.fbV9SecretFor('RN2K', 7, 42);
+    t('gleiche Seite ohne Speicher: das Geheimnis ist noch da', !!g);
+    const salz = M.fbV9Hex(g.salt);
+    t('es bindet an den eigenen Commit', (await M.fbV9SecretAdopt(CTX, c)) === M.FB_V9_OK);
+    t('aber NICHT an einen fremden Hash', (await M.fbV9SecretAdopt(CTX, { k: 'move', h: H64, ts: 1 })) === M.FB_V9_NOT_FOUND);
+    a.zustellen(P('c/42'), { 1: c });
+    const l2 = M.fbV9Resume(CTX);
+    await settle();
+    t('der Fortsetzer scheitert nicht', l2.stufe !== M.FB_V9_FAILED, l2.stufe + ' ' + l2.grund);
+    t('und uebernimmt sein Terminal aus dem Raum', l2.terminal && l2.terminal.h === c.h);
+    a.zustellen(P('c/42'), { 0: NULLT('pass'), 1: c, 2: NULLT('pass') });
+    await settle();
+    const r = a.stand[P('r/42/1')];
+    t('er enthuellt mit demselben Salz - kein neues', !!r && r.n === salz && r.dx === 12.5, JSON.stringify(r));
+    t('und hat den Commit nie erneut gesendet', a.log.schreib.filter(w => w.pfad === P('c/42/1')).length === 1);
+    a.zustellen(P('r/42'), { 1: r });
+    await settle();
+    t('die Runde wird fertig', l2.stufe === M.FB_V9_COMPLETE, l2.stufe);
+    l2.stop();
+  }
+  // (iii) NEULADEN: neuer Arbeitsspeicher, derselbe (ausgefallene) Speicher. Ohne
+  //       wiederherstellbares Geheimnis wird NICHTS erfunden - keine Enthuellung, kein
+  //       zweites Salz, kein Scheitern; nach der Frist schliesst noreveal den Slot und
+  //       die Folge (NO_REVEAL) tragen alle gleich. Nur D (removeItem wirft) hat einen
+  //       lesbaren Datensatz und kehrt voll zurueck.
+  for (const [art, mach, lesbar] of ARTEN) {
+    const st = mach();
+    const a0 = attrappe({ [P('d/42')]: { n: 42, o: 1 } }), M0 = baue(a0, st);
+    M0.fbV9SecretClear();
+    const l0 = M0.fbV9Start(CTX, { move: ZUG });
+    await settle();
+    const c = a0.stand[P('c/42/1')];
+    l0.stop();
+    const u = uhrwerk(6000000);
+    const a = attrappe({ [P('d/42')]: { n: 42, o: u.jetzt() }, [P('c/42/1')]: c, [P('c/42')]: { 1: c } }, u);
+    const M = baue(a, st, u);
+    M.fbV9SecretClear();   // das Neuladen: leerer Arbeitsspeicher
+    const l = M.fbV9Resume(CTX);
+    await settle();
+    t(art + ' nach Neuladen: der Lauf scheitert nicht', l.stufe !== M.FB_V9_FAILED, l.stufe + ' ' + l.grund);
+    t(art + ' nach Neuladen: kein neuer Commit', !a.log.schreib.some(w => w.pfad === P('c/42/1')));
+    if (lesbar) {
+      t(art + ' nach Neuladen: das Geheimnis ist zurueck', !!M.fbV9SecretFor('RN2K', 7, 42) && M.fbV9SecretFor('RN2K', 7, 42).h === c.h);
+      t(art + ' nach Neuladen: nicht als verloren vermerkt', l.verloren !== true);
+    } else {
+      t(art + ' nach Neuladen: als verloren vermerkt', l.verloren === true);
+      t(art + ' nach Neuladen: kein Geheimnis im Arbeitsspeicher', M.fbV9SecretFor('RN2K', 7, 42) === null);
+    }
+    a.zustellen(P('c/42'), { 0: NULLT('pass'), 1: c, 2: NULLT('pass') });
+    await settle();
+    t(art + ' nach Neuladen: die Enthuellung wird eroeffnet', typeof a.stand[P('ro/42')] === 'number');
+    await settle();
+    if (lesbar) {
+      const r = a.stand[P('r/42/1')];
+      t(art + ' nach Neuladen: enthuellt mit dem gesicherten Salz', !!r && r.n === JSON.parse(st.inhalt.get(KEY)).salt);
+    } else {
+      t(art + ' nach Neuladen: KEINE eigene Enthuellung', !a.log.schreib.some(w => w.pfad === P('r/42/1')));
+      await u.vor(6300);
+      const nr = a.log.schreib.filter(w => w.vorschlag && w.vorschlag.k === 'noreveal');
+      t(art + ' nach Neuladen: noreveal schliesst den eigenen Slot nach der Frist', nr.some(w => w.pfad === P('r/42/1')), nr.length);
+      t(art + ' nach Neuladen: kein pass untergeschoben, kein neues Salz',
+        !a.log.schreib.some(w => w.vorschlag && (w.vorschlag.k === 'pass' || w.vorschlag.k === 'reveal')));
+    }
+    l.stop();
+  }
+}
+
 // ══ VERWAISTES / MEHRDEUTIGES GEHEIMNIS ══════════════════════════
 abschnitt('Geheimnis da, eigener Commit nicht zu sehen');
 {
@@ -577,7 +748,12 @@ abschnitt('Waechter');
   const vorb = HTML.slice(HTML.indexOf('async function fbV9Vorbereiten(lauf,aktion)'),
                           HTML.indexOf('function fbV9Action(lauf,aktion)'));
   t('die Vorbereitung sichert das Geheimnis', vorb.indexOf('fbV9SecretSave') > 0);
-  t('und bricht ab, wenn das misslingt', /if\(abgelegt!==FB_V9_SAVED\)\{/.test(vorb));
+  // SEIT DER SPEICHER-HAERTUNG: ein Fehlschlag beim Sichern beendet den Lauf NICHT mehr
+  // (das liess einen Client ohne Speicher fuer immer stehen). Er wird als fluechtig
+  // vermerkt; das Geheimnis lebt im Arbeitsspeicher, gesendet wird dasselbe Terminal.
+  t('und vermerkt einen Fehlschlag nur als fluechtig - kein Abbruch',
+    /if\(abgelegt!==FB_V9_SAVED\)lauf\.geheimnisFluechtig=true;/.test(vorb)
+    && vorb.indexOf("fbV9Scheitern(lauf,'Geheimnis nicht gesichert") < 0);
   t('sie sendet dabei selbst keinen Commit', vorb.indexOf('fbV9NetWriteCommit') < 0);
   t('und sie ist der EINZIGE Weg zum Sichern',
     (HTML.match(/fbV9SecretSave\(/g) || []).length === 2,

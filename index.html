@@ -648,6 +648,14 @@ body.r3d header,body.r3d .status,body.r3d .botbar{position:relative;z-index:2}
   border-radius:999px;padding:8px 18px;width:auto;max-width:92%;margin:0 auto;backdrop-filter:blur(6px);
   color:#dfe7f3;box-shadow:0 8px 20px rgba(5,9,18,.3)}
 body.r3d .phase{position:relative;z-index:2}
+/* HIT-TESTING (P1, Fuenf-Client-Diagnose): #cv ist im 3D-Modus viewportgross, und die
+   vier HUD-Leisten liegen mit z-index 2 DARUEBER. Ihre Flaeche - auch die leere Breite
+   des Statusstreifens und die Luecken der Knopfleiste - fing damit jeden Zeiger ab:
+   eine Figur, die sichtbar darunter stand, war nicht greifbar (elementFromPoint lieferte
+   DIV#phase statt canvas#cv). Rein informative Ebenen duerfen Spielereingabe nie
+   verschlucken; nur die echten Knoepfe bleiben Ziele. Keine Ebene wird verschoben. */
+body.r3d header,body.r3d .status,body.r3d .phase,body.r3d .botbar{pointer-events:none}
+body.r3d header .ibtn,body.r3d .botbar .btn{pointer-events:auto}
 .phase .me0{color:var(--p1)}.phase .me1{color:var(--p2)}
 
 .botbar{width:100%;max-width:460px;display:flex;gap:7px;margin-top:2px;flex-shrink:0}
@@ -9760,8 +9768,26 @@ const FB_V9_SAVED='SAVED', FB_V9_NOT_FOUND='NOT_FOUND', FB_V9_UNAVAILABLE='UNAVA
 function fbV9Store(){
   try{
     if(typeof sessionStorage==='undefined'||!sessionStorage)return null;
-    return sessionStorage;
+    return fbV9StoreOk(sessionStorage)?sessionStorage:null;
   }catch(e){ return null; }
+}
+// Die Faehigkeitsprobe: nicht "gibt es das Objekt", sondern "kann das Produkt darin
+// wirklich schreiben und wieder lesen" - genau das braucht das Geheimnis. Der Zugriff
+// selbst oder setItem (Kontingent, Richtlinie, Privatmodus) koennen werfen; beides
+// heisst fuer das Produkt dasselbe: kein Speicher. Ein werfendes removeItem dagegen
+// disqualifiziert NICHT - Loeschen ist Aufraeumen, jede Loeschstelle faengt es selbst
+// ab, und ein Speicher, der nur nicht loeschen kann, stellt nach dem Neuladen trotzdem
+// wieder her. Der Probeschluessel traegt bewusst nicht das ro9:-Praefix, damit er nie
+// mit einem Geheimnis verwechselt wird.
+const FB_V9_STORE_PROBE='ro9probe';
+function fbV9StoreOk(st){
+  let ok=false;
+  try{
+    st.setItem(FB_V9_STORE_PROBE,'1');
+    ok=st.getItem(FB_V9_STORE_PROBE)==='1';
+  }catch(e){ return false; }
+  try{ st.removeItem(FB_V9_STORE_PROBE); }catch(e){}
+  return ok;
 }
 function fbV9SecretKey(ctx){
   if(!fbV9CtxOk(ctx))return null;
@@ -9920,6 +9946,13 @@ function fbV9UidOk(ctx){
 async function fbV9SecretAdopt(ctx,commit){
   if(!fbV9UidOk(ctx))return FB_V9_NOT_FOUND;
   if(!commit||commit.k!=='move'||typeof commit.h!=='string')return FB_V9_NOT_FOUND;
+  // ZUERST DER ARBEITSSPEICHER: haelt diese lebende Seite noch das Geheimnis dieser
+  // Runde, und ist sein Hash der des unveraenderlichen Commits, dann IST es das
+  // richtige - der Hash bindet Salz und Felder. Das ist der Weg eines Clients ohne
+  // Speicher, dessen Lauf innerhalb derselben Seite fortgesetzt wird. Ein gehaltenes
+  // Geheimnis mit ANDEREM Hash berechtigt zu nichts und faellt auf den Speicher durch.
+  const m=fbV9SecretFor(ctx.code,ctx.gen,ctx.turn);
+  if(m&&m.seat===ctx.seat&&m.h===commit.h)return FB_V9_OK;
   let g=null;
   try{ g=await fbV9SecretLoad(ctx,ctx.uid); }catch(e){ return FB_V9_NOT_FOUND; }
   if(!g||g.status!==FB_V9_OK||!g.secret)return FB_V9_NOT_FOUND;
@@ -10155,7 +10188,8 @@ async function fbV9Schritt(lauf){
     //     Und ohne Handlung wird NICHTS geschrieben: kein untergeschobenes pass. Der
     //     Lauf faellt dann bis zur Barriere durch, wo die Fristmechanik greift und der
     //     Slot nach der Frist an `late` faellt - genau wie bei einem Sitz, der schweigt.
-    if(!lauf.commitFertig&&!lauf.fortsetzen&&(lauf.terminal||lauf.offeneAktion)){
+    //     Ein VERWORFENER Zug (von den Rules abgewiesen) wird nie erneut gesendet.
+    if(!lauf.commitFertig&&!lauf.fortsetzen&&!lauf.verworfen&&(lauf.terminal||lauf.offeneAktion)){
       if(lauf.commitLaeuft)return;
       lauf.commitLaeuft=true;
       fbV9Stufe(lauf,FB_V9_COMMITTING);
@@ -10176,14 +10210,36 @@ async function fbV9Schritt(lauf){
           // Dort steht etwas anderes. Das gesicherte Geheimnis gehoert damit NICHT zum
           // unveraenderlichen Commit und ist wertlos - es darf weg.
           fbV9SecretDrop(lauf.ctx); fbV9SecretDone(lauf.ctx.code,lauf.ctx.gen,lauf.ctx.turn);
-          return fbV9Scheitern(lauf,'eigenes Terminal weicht ab');
+          // Steht dort ein FREMD geschriebener Fristschluss (late, skip, remove), war
+          // ein Mitspieler nach der Frist schlicht schneller als das eigene Loslassen -
+          // derselbe Ausgang wie eine Abweisung, nur mit anderem Zeitpunkt. Kein
+          // Scheitern: der Zug ist verworfen, das Terminal kommt aus dem Raum (2a).
+          // Nur ein ANDERER move oder pass im eigenen Slot bleibt ein echter
+          // Widerspruch (zweiter Tab derselben Kennung) und scheitert wie bisher.
+          if(fbV9TerminalOk(r.wert)&&r.wert.k!=='move'&&r.wert.k!=='pass'){
+            lauf.terminal=null; lauf.verworfen=true;
+          }else return fbV9Scheitern(lauf,'eigenes Terminal weicht ab');
         }
-        lauf.commitFertig=true;
+        else lauf.commitFertig=true;
+      }else if(r.status===FB_V9_DENIED){
+        // ABGEWIESEN: die Rules haben den eigenen Zug nicht angenommen - im Regelfall,
+        // weil die Sechs-Sekunden-Frist nach SERVERZEIT bereits vorbei war, als das
+        // Loslassen ankam. Das ist kein Scheitern der Runde, sondern derselbe Ausgang
+        // wie bei einem Sitz, der schweigt: ein Mitspieler schliesst den Slot mit `late`,
+        // ohne Lebensabzug, und die Runde laeuft fuer alle weiter. Ein FAILED an dieser
+        // Stelle liess den Client dagegen fuer immer in dieser Runde stehen (kein
+        // Abschuss, keine Bereitschaft), waehrend die anderen ihn nach der Frist
+        // disqualifizierten und allein weiterspielten - der P0-Desync im Fuenferspiel.
+        // Der Zug ist verworfen und wird NICHT erneut gesendet. Das eigene Terminal
+        // kommt ab jetzt aus dem Raum (Schritt 2a), wie beim Fortsetzen - und dort wird
+        // das Geheimnis geraeumt, sobald das autoritative `late` in der Hand ist. Hier
+        // wird bewusst nichts geraeumt: dieselbe Vorsicht wie beim Fehler darunter.
+        lauf.terminal=null; lauf.verworfen=true;
       }else{
-        // ABGEWIESEN oder FEHLER: hier wird NICHTS geraeumt. Bei einem Netzfehler weiss
-        // der Client nicht, ob der Server den Commit noch angenommen hat; das Geheimnis
-        // ist dann das Einzige, womit sich die Runde noch retten liesse. Lieber ein
-        // verwaistes Geheimnis behalten als ein gebrauchtes wegwerfen.
+        // FEHLER: hier wird NICHTS geraeumt. Bei einem Netzfehler weiss der Client
+        // nicht, ob der Server den Commit noch angenommen hat; das Geheimnis ist dann
+        // das Einzige, womit sich die Runde noch retten liesse. Lieber ein verwaistes
+        // Geheimnis behalten als ein gebrauchtes wegwerfen.
         return fbV9Scheitern(lauf,'Commit: '+r.status);
       }
     }
@@ -10233,9 +10289,20 @@ async function fbV9Schritt(lauf){
       if(fbV9Aus(lauf))return;
       if(r.status===FB_V9_COMMITTED)lauf.revealFertig=true;
       else if(r.status===FB_V9_EXISTS){
-        if(!fbV9RevealPasst(rev,r.wert))
-          return fbV9Scheitern(lauf,'eigenes Ergebnis weicht ab');
-        lauf.revealFertig=true;
+        if(!fbV9RevealPasst(rev,r.wert)){
+          // Ein fremd geschriebenes noreveal: die Mitspieler haben den Slot nach der
+          // Frist geschlossen, bevor die eigene Enthuellung ankam. Derselbe Weg wie
+          // beim verlorenen Geheimnis - die Folge (NO_REVEAL) tragen alle gleich.
+          if(r.wert&&r.wert.k==='noreveal')lauf.verloren=true;
+          else return fbV9Scheitern(lauf,'eigenes Ergebnis weicht ab');
+        }
+        else lauf.revealFertig=true;
+      }else if(r.status===FB_V9_DENIED){
+        // Abgewiesen - im Regelfall nach dem Ende der Enthuellungsfrist. Derselbe Weg
+        // wie beim verlorenen Geheimnis: keine Enthuellung, kein zweites Salz, kein
+        // Scheitern. Die Mitspieler schliessen den Slot mit noreveal, und die Folge
+        // (NO_REVEAL) tragen alle Clients gleich - dieser eingeschlossen.
+        lauf.verloren=true;
       }else return fbV9Scheitern(lauf,'Reveal: '+r.status);
     }
     // (6) Warten, bis zu jedem Abschuss ein Ergebnis vorliegt.
@@ -10334,13 +10401,17 @@ async function fbV9Vorbereiten(lauf,aktion){
   const g=fbV9SecretFor(ctx.code,ctx.gen,ctx.turn);
   const abgelegt=fbV9SecretSave(ctx,ctx.uid,{v:FB_V9_STORE_V,uid:ctx.uid,
     salt:fbV9Hex(g.salt),idx:g.idx,dx:g.dx,dy:g.dy,sp:g.sp,h:g.h});
-  if(abgelegt!==FB_V9_SAVED){
-    // Nicht gesichert heisst: nicht senden. Kein zweites Salz, kein stilles
-    // Ausweichen auf pass - der Spieler soll erfahren, dass sein Zug nicht ging.
-    fbV9SecretDone(ctx.code,ctx.gen,ctx.turn);
-    fbV9Scheitern(lauf,'Geheimnis nicht gesichert: '+abgelegt);
-    return false;
-  }
+  // NICHT GESICHERT HEISST NICHT: NICHT SENDEN. Der Speicher ist allein die Absicherung
+  // gegen ein Neuladen; das Geheimnis selbst liegt im Arbeitsspeicher (fbV9Secret) und
+  // traegt Salz und Hash dieser einen Runde. Ohne Speicher (Privatmodus, Richtlinie,
+  // Kontingent) laeuft die Runde auf dieser lebenden Seite ganz normal weiter - mit
+  // demselben Salz, demselben Hash, derselben Enthuellung. Nur ein Neuladen dazwischen
+  // verliert das Geheimnis; dann greift der bestehende Weg fuer ein verlorenes
+  // Geheimnis (keine Enthuellung, kein zweites Salz, noreveal durch die Mitspieler,
+  // NO_REVEAL fuer alle gleich). Frueher scheiterte hier der ganze Lauf, und ein
+  // Client ohne Speicher blieb fuer immer in der Runde stehen - dieselbe Klasse wie
+  // der P0-Desync. Der Zustand wird nur vermerkt, nichts wird erfunden oder ersetzt.
+  if(abgelegt!==FB_V9_SAVED)lauf.geheimnisFluechtig=true;
   return true;
 }
 // Die Handlung dieses Sitzes - nachgereicht. GENAU EINMAL je Runde: der erste Aufruf
@@ -10365,7 +10436,7 @@ function fbV9Start(ctx,aktion){
   const lauf={ctx:ctx,stufe:FB_V9_IDLE,grund:'',menge:null,terminal:null,
               stand:{turnOpen:null,commits:null,revealOpen:null,results:null},
               abmelden:null,fertigNun:null,beschaeftigt:false,nochmal:false,
-              wecker:{},verloren:false,fortsetzen:false,
+              wecker:{},verloren:false,fortsetzen:false,verworfen:false,
               commitLaeuft:false,commitFertig:false,roVersucht:false,
               revealLaeuft:false,revealFertig:false,finaleLaeuft:false,
               zStand:null,zAb:null,zLaeuft:false,zBegonnen:false,
@@ -14762,6 +14833,52 @@ async function initR3D(){
       if(!r3dOrbit){camera.position.set(camP.ex,camP.ey,camP.ez);camera.up.set(0,1,0);
         camera.lookAt(camP.tx,camP.ty,camP.tz);}
     }
+    // ── SICHERE RAHMUNG (Mobile-Layout-Pass) ──────────────────────────────────
+    // Die Rahmung in frame() passt den Sichtradius an den GANZEN Viewport an und
+    // verschiebt nur den Hauptpunkt in die Mitte der arena-wrap. Auf kleinen Bildschirmen
+    // ragt die Arena damit unter die interaktiven HUD-Zeilen: eine Figur an der nahen
+    // Bande stand sichtbar unter "Stehen bleiben" und war dort - zu Recht, der Knopf
+    // gewinnt - nicht greifbar. Hier wird deshalb die ECHTE Grenze der Spielflaeche (der
+    // Ort, an dem eine Spielerfigur die Bande beruehrt, ueber footballBoundSD) mit
+    // derselben Kameramathematik projiziert, und der Abstand waechst NUR, wenn eine
+    // Silhouette in die Kopf- oder Knopfleiste geriete. Wo Platz ist - Desktop -, aendert
+    // sich nichts. Rein lokale Darstellung: keine Weltkoordinate, kein Spawn, keine Physik,
+    // kein Protokoll; der Nutzer-Zoom (camDistF) bleibt relativ dazu wie bisher.
+    const FB_SAFE_GAP=6;                               // CSS-px Luft zwischen Silhouette und Leiste
+    function fbSafeBaseDist(g){
+      if(mode!=='football')return g.baseDist;
+      const bb=document.querySelector('#game .botbar'),hd=document.querySelector('#game header');
+      if(!bb||!hd)return g.baseDist;
+      const rb=bb.getBoundingClientRect(),rh=hd.getBoundingClientRect();
+      if(!(rb.height>0)||!(rh.height>0))return g.baseDist;
+      const unten=rb.top-FB_SAFE_GAP,oben=rh.bottom+FB_SAFE_GAP;
+      // 24 Randpunkte: je Richtung der Radius, bei dem eine Spielerfigur die Bande beruehrt.
+      const rand=[],probe={x:0,y:0,owner:0};
+      const rMax=fbArenaViewR(fbArena())+BR;
+      for(let k=0;k<24;k++){
+        const a=k*Math.PI/12,ca=Math.cos(a),sa=Math.sin(a);
+        let lo=0,hi=rMax;
+        for(let i=0;i<14;i++){const m=(lo+hi)/2;probe.x=cx+ca*m;probe.y=cy+sa*m;
+          if(footballBoundSD(probe).sd<0)lo=m;else hi=m;}
+        rand.push([cx+ca*lo,cy+sa*lo]);
+      }
+      let dist=g.baseDist;
+      const spol=Math.sin(POLAR0),cpol=Math.cos(POLAR0),yawW=curVA;
+      for(let it=0;it<4;it++){
+        const m=r3dCamMath({ex:cx+dist*spol*Math.sin(yawW),ey:35+dist*cpol,ez:cy+dist*spol*Math.cos(yawW),
+          tx:cx,ty:35,tz:cy,fov:45,vw:g.vw,vh:g.vh,ox:g.ox,oy:g.oy,os:g.os,shx:g.shx,shy:g.shy,py:0});
+        const mitte=g.oy+m.w2s(cx,cy,BR).y*g.os/1000;
+        let ymin=Infinity,ymax=-Infinity;
+        for(const p of rand){const q=m.w2s(p[0],p[1],BR);const y=g.oy+q.y*g.os/1000,r=BR*q.s*g.os/1000;
+          if(y-r<ymin)ymin=y-r;if(y+r>ymax)ymax=y+r;}
+        const fu=(ymax>unten&&unten>mitte)?(ymax-mitte)/(unten-mitte):1;
+        const fo=(ymin<oben&&oben<mitte)?(mitte-ymin)/(mitte-oben):1;
+        const f=Math.max(fu,fo);
+        if(!isFinite(f)||f<=1.002)break;
+        dist*=f;
+      }
+      return dist;
+    }
     function frame(){                                // voll: Viewport/Rect/Renderer (Resize, Seitenwechsel)
       const vw=innerWidth,vh=innerHeight,aspect=vw/vh;
       const tanV=Math.tan(45*Math.PI/360), need=530;         // sichtbarer Plattform-Aussenradius + knapper Rand
@@ -14793,6 +14910,13 @@ async function initR3D(){
       const rect=cv.getBoundingClientRect(),wr=cv.parentElement.getBoundingClientRect();
       geo={vw,vh,baseDist,ox:rect.left,oy:rect.top,os:rect.width||1,
            shx:wr.left+wr.width/2-vw/2,shy:wr.top+wr.height/2-vh/2};   // Principal Point -> Wrap-Zentrum (cv ist jetzt Viewport-gross)
+      if(fbFrame){
+        geo.baseDist=fbSafeBaseDist(geo);            // Football: Figuren nie unter Kopf-/Knopfleiste
+        // Musste die Rahmung weichen, ist die sichere Rahmung zugleich die Zoomgrenze:
+        // ein Hereinzoomen darunter zoege die Figuren wieder unter die Knopfleiste.
+        // Wo Platz ist (Desktop), bleibt der bisherige Zoombereich unveraendert.
+        geo.zoomMin=geo.baseDist>baseDist*1.002?1:.75;
+      }
       }
       camera.fov=45;camera.aspect=aspect;camera.near=10;camera.far=20000;
       camera.setViewOffset(vw,vh,-geo.shx,-geo.shy,vw,vh);   // identischer Shift wie in r3dCamMath
@@ -14999,7 +15123,7 @@ async function initR3D(){
         // Grab-Metapher: Wisch nach rechts -> Arena dreht sichtbar nach rechts, d. h. die
         // Kamera orbitet entgegengesetzt (-dx). Vertikal war bereits trackball-natuerlich.
         rotate(dx,dy){camYawT-=dx*.005;camPolarT=Math.min(1.15,Math.max(.3,camPolarT-dy*.004));},
-        zoom(f){camDistFT=Math.min(1.5,Math.max(.75,camDistFT*f));},
+        zoom(f){camDistFT=Math.min(1.5,Math.max(geo.zoomMin||.75,camDistFT*f));},
         reset(){camYawT=0;camPolarT=POLAR0;camDistFT=1;}
       },
       render(){sync();renderer.render(scene,camera);},

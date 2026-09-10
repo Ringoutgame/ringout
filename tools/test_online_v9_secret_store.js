@@ -140,7 +140,11 @@ abschnitt('Ablegen - geprueft VOR dem Schreiben');
     const s4 = lager(), M4 = baue(s4);
     s4.wirf.set = true;
     const r = M4.fbV9SecretSave(CTX, UID, rec);
-    t('ein werfender Speicher meldet ERROR', r === M4.FB_V9_ERROR, r);
+    // Seit der Speicher-Haertung prueft fbV9Store() die Faehigkeit (schreiben + lesen)
+    // VOR jedem Zugriff: ein Speicher, dessen setItem wirft, ist fuer das Produkt kein
+    // Speicher - er meldet UNAVAILABLE, nicht erst beim Ablegen ERROR. Beides ist
+    // "nicht gesichert"; der Lauf bleibt davon unberuehrt (Geheimnis im Arbeitsspeicher).
+    t('ein werfender Speicher meldet UNAVAILABLE', r === 'UNAVAILABLE', r);
     t('und keinesfalls SAVED', r !== M4.FB_V9_SAVED);
   }
   {
