@@ -730,5 +730,130 @@ const R = new Function(`
      'und der Raumzustand bleibt eine Einbahn');
 }
 
+// ══ H. PASS 03: EIN KLICK VON DER FFA-KARTE IN DIE GEMEINSAME LOBBY ══════════
+// Der alte Trichter (Regel -> Spielerzahl -> Lokal/Online) ist GESTRICHEN, nicht nur
+// uebersprungen: es gibt ihn im Produkt nicht mehr. FFA ist der eine aktive Modus und
+// fuehrt direkt in die gemeinsame Onlinelobby; Tactical, Team 2v2 und Training sind
+// sichtbar, aber ehrlich gesperrt. Classic und Timed FFA bleiben vollstaendig im Code
+// und ueber ?dev=1 erreichbar - sie kommen in der normalen Navigation nicht mehr vor.
+{
+  // ── Der Weg selbst: er setzt nur den Kontext und uebergibt an den Bestandseinstieg ──
+  const lauf = (opt) => {
+    const o = Object.assign({ TUNE: false, r3d: true, frei: true }, opt || {});
+    return new Function('o', `
+      const TUNE=o.TUNE; let r3dActive=o.r3d;
+      const T=k=>k; const spur=[]; const toast=m=>spur.push('toast:'+m);
+      const FB_ONLINE_MODE_LIVES='lives', FB_ONLINE_SEATS=5;
+      function fbModeReleased(m){ return !!o.frei && m==='lives'; }
+      let fbOnlineMode='', fbOnlineCap=0;
+      function fbOnlineEnter(){ spur.push('enter'); }
+      ${grab(/function fbOnlineFrei\(m\)\{[^\n]*\}/, 'fbOnlineFrei')}
+      ${grab(/function fbFfaOnlineOeffnen\(\)\{[\s\S]*?\n\}/, 'fbFfaOnlineOeffnen')}
+      fbFfaOnlineOeffnen();
+      return { spur, mode:fbOnlineMode, cap:fbOnlineCap };
+    `)(o);
+  };
+  const gut = lauf();
+  ok(gut.spur.join(',') === 'enter', 'FFA fuehrt ohne Zwischenschritt in den bestehenden Onlineeinstieg');
+  ok(gut.mode === 'lives', 'und setzt die Lebensregel als FFA-Regel des Produkts');
+  ok(gut.cap === 5, 'die Hoechstbesetzung ist fuenf - es gibt keine Spielerzahl-Vorwahl mehr');
+  const ohne3d = lauf({ r3d: false });
+  ok(ohne3d.spur.indexOf('enter') < 0 && ohne3d.spur.join(',').indexOf('fbNo3d') > 0,
+     'ohne 3D-Szene fuehrt der Weg nicht hinein, sondern sagt es');
+  const tune = lauf({ TUNE: true });
+  ok(tune.spur.indexOf('enter') < 0, 'im Tuningbetrieb ebenso wenig');
+  const gesperrt = lauf({ frei: false });
+  ok(gesperrt.spur.indexOf('enter') < 0 && gesperrt.spur.join(',').indexOf('onModeLocked') > 0,
+     'und ein nicht freigegebener Modus bleibt zu - das Freigabetor gilt auch hier');
+
+  // ── Die Karten: EIN aktiver Modus, drei ehrlich gesperrte ──
+  const reg = grab(/const FB_HUB_MODES=\[[\s\S]*?\];/, 'FB_HUB_MODES');
+  ok((reg.match(/\{key:/g) || []).length === 4, 'der Hub zeigt vier Arena-Football-Karten');
+  ok((reg.match(/direkt:true/g) || []).length === 1 && /\{key:'ffa',\s+card:'cardFbFfa'[^}]*direkt:true\}/.test(reg),
+     'genau EINE Karte fuehrt direkt weiter - FFA');
+  ok((reg.match(/soon:true/g) || []).length === 3
+     && /key:'tactical'[^}]*soon:true/.test(reg) && /key:'team2v2'[^}]*soon:true/.test(reg) && /key:'training'[^}]*soon:true/.test(reg),
+     'Tactical, Team 2v2 und Training sind sichtbar und gesperrt');
+  ok(reg.indexOf('schritt:') < 0, 'keine Karte fuehrt mehr in einen Zwischenschirm');
+  const karte = grab(/function fbHubKarte\(i\)\{[\s\S]*?\n\}/, 'fbHubKarte');
+  ok(/if\(d&&d\.direkt\)\{ vibrateMs\(VIBE_CONFIRM_MS\); fbFfaOnlineOeffnen\(\); \}/.test(karte),
+     'der Klick auf die aktive Karte oeffnet die Lobby - ein Klick, kein zweiter Knopf');
+  ok(/FB_HUB_MODES\.forEach\(\(d,i\)=>\{const el=\$\(d\.card\);if\(el\)el\.onclick=\(\)=>fbHubKarte\(i\);\}\);/.test(HTML),
+     'und jede Karte haengt an genau diesem einen Weg');
+  const anwenden = grab(/function applyFbMode\(i\)\{[\s\S]*?\n\}/, 'applyFbMode');
+  ok(/\$\('ctaBtnT'\)\.textContent=d\.soon\?T\('soonCta'\):T\(d\.cta\);/.test(anwenden),
+     'der CTA nennt einen gesperrten Modus beim Namen, statt einen Start zu versprechen');
+
+  // ── Der CTA: aktiver Modus direkt, gesperrter ehrlich, Legacy nur mit ?dev=1 ──
+  const cta = grab(/\$\('ctaBtn'\)\.onclick=\(\)=>\{[\s\S]*?\n\};/, 'CTA-Handler');
+  ok(/if\(fbW&&fbW\.direkt\)\{fbFfaOnlineOeffnen\(\);return;\}/.test(cta), 'der CTA fuehrt FFA direkt in die Lobby');
+  ok(/if\(typeof DEV_MENU!=='undefined'&&DEV_MENU\)\{\$\('fbModeOv'\)\.classList\.add\('show'\);return;\}/.test(cta),
+     'die alte Modusauswahl oeffnet sich nur noch mit ?dev=1');
+  ok(/toast\(T\('soonCta'\)\);return;/.test(cta), 'ohne Dev-Schalter sagt ein gesperrter Modus schlicht, dass es ihn noch nicht gibt');
+  ok(cta.indexOf('fbNavStart') < 0, 'der CTA kennt keinen Zwischenschirm mehr');
+
+  // ── Der Trichter ist WEG, nicht nur abgeschaltet ──
+  for (const rest of ['fbNavStart', 'fbNavZeichne', 'fbNavZurueck', 'FB_NAV', 'fbNavOv', 'fbNavCards', 'fbAusHub'])
+    ok(HTML.indexOf(rest) < 0, 'kein Rest des alten Trichters: ' + rest);
+  for (const key of ['navSoon', 'navLocal', 'navOnlineS', 'navSCount', 'navSubLives', 'navSubTimed', 'navTBot'])
+    ok(HTML.indexOf(key + ":'") < 0, 'und kein Text davon: ' + key);
+
+  // ── Classic und Timed FFA: aus der normalen Navigation raus, im Code drin ──
+  const hub = grab(/<div class="mcards" id="fbCards"[\s\S]*?\n    <\/div>/, 'Arena-Kartenleiste');
+  // Geprueft wird der SICHTBARE Text der Leiste - ein Bilddateiname ist kein Angebot.
+  const kartenText = hub.replace(/<img[^>]*>/g, '').toUpperCase();
+  for (const weg of ['CLASSIC', 'TIMED', 'LIVES', 'LOCAL', 'ONLINE'])
+    ok(kartenText.indexOf(weg) < 0, 'die Kartenleiste bietet keine ' + weg + '-Wahl mehr');
+  const titel = (hub.match(/class="mt" id="\w+">([^<]*)</g) || []).map(x => x.replace(/.*>/, '').replace(/<$/, ''));
+  ok(titel.join('|') === 'FFA|TACTICAL 1V1|TEAM 2V2|TRAINING',
+     'die Leiste zeigt genau vier Modi in dieser Reihenfolge (erhalten: ' + titel.join('|') + ')');
+  ok(/id="cardFbFfa"[\s\S]{0,400}id="cardFb1v1"/.test(hub), 'FFA steht als aktiver Modus vorn');
+  ok(/<button class="mcard on" id="cardFbFfa">/.test(hub), 'und ist die Voreinstellung');
+  ok((hub.match(/class="mcard msoon"/g) || []).length === 3, 'die drei uebrigen Karten sind sichtbar gesperrt');
+  ok(/id="cardFb1v1T">TACTICAL 1V1</.test(hub) && /football_tactical\.webp/.test(hub),
+     'die 1v1-Karte ist jetzt TACTICAL 1V1 - das eigene Zweifigurenspiel');
+  ok(/id="cardFbBotT">TRAINING</.test(hub), 'und aus dem Bot-Platz wird TRAINING');
+  // Die Modi selbst leben unveraendert weiter - Start, Regeln und Dev-Zugang.
+  ok(/\$\('fbClassicBtn'\)\.onclick=/.test(HTML) && /startFootball\('classic',FOOTBALL_RULES_FIRST3\)/.test(HTML),
+     'Classic ist unveraendert vorhanden und startbar');
+  ok(/\$\('fbTimedBtn'\)\.onclick=[\s\S]{0,200}?startFootball\(FOOTBALL_VARIANT_ELIM\);/.test(HTML),
+     'Timed FFA ebenso');
+  ok(/\$\('fbTacticalBtn'\)\.onclick=[\s\S]{0,120}?startFootball\(FOOTBALL_VARIANT_TACTICAL\);/.test(HTML)
+     && /\$\('fbTeam2Btn'\)\.onclick=[\s\S]{0,120}?startFootball\(FOOTBALL_VARIANT_TEAM2\);/.test(HTML),
+     'und die lokalen Tactical- und Team-2v2-Starts auch');
+  for (const id of ['fbElimN3', 'fbElimN4', 'fbElimN5'])
+    ok(new RegExp('id="' + id + '"').test(HTML), 'die Spielerzahl ' + id + ' bleibt fuer den Dev-Weg erhalten');
+  // Kein gesperrter Modus taeuscht einen Onlineweg vor.
+  ok(HTML.indexOf("fbOnlineMode=FB_ONLINE_MODE_TEAM2") < 0 || /fbOnlineMode=FB_ONLINE_MODE_TEAM2; fbOnlineCap=4;/.test(HTML),
+     'Team 2v2 hat keinen neuen Onlineweg bekommen');
+
+  // ── Lobbytext: FFA ist der Produktname, nicht die Regel ──
+  for (const tab of [/onModeLives:'FFA'/, /onModeLivesS:'2–5 PLAYERS'/, /onModeLivesS:'2–5 SPIELER'/, /onModeLivesS:'2–5 OYUNCU'/])
+    ok(tab.test(HTML), 'die Lobby nennt FFA und die Spanne 2–5: ' + tab);
+  ok(!/onModeLives:'LIVES FFA'/.test(HTML), 'und nicht mehr die Regel als Modusnamen');
+
+  // ── Texte: jeder neue Schluessel steht in allen drei Sprachen ──
+  for (const key of ['soonChip', 'soonCta', 'catFb1v1', 'catFbBot', 'mcFb1v1', 'mcFbFfa', 'ctaFbFfa'])
+    ok((HTML.match(new RegExp('\\b' + key + ":'", 'g')) || []).length === 3,
+       'der Schluessel ' + key + ' steht in EN, DE und TR');
+  ok(/for\(const d of FB_HUB_MODES\)\{[\s\S]{0,260}?u\.textContent=T\(d\.info\)\+\(d\.soon\?\(' · '\+T\('soonChip'\)\):''\);/.test(HTML),
+     'die Karten holen Titel und Unterzeile aus EINER Quelle - der Hinweis steht in der Unterzeile');
+
+  // Vier Arena-Karten im Dreierraster haetten eine Einzelkarte in Reihe zwei gelassen.
+  ok(/body\.fbctx \.mcards\{grid-template-columns:repeat\(2,1fr\)\}/.test(HTML),
+     'die vier Arena-Karten stehen zwei mal zwei - keine Einzelkarte in einer zweiten Reihe');
+  ok(/\.mcards\{display:grid;grid-template-columns:repeat\(3,1fr\)/.test(HTML),
+     'und Ring Out behaelt sein Dreierraster');
+  // ── RingOut bleibt, wie es war ──
+  ok(/\$\('ctaBtn'\)\.classList\.remove\('msoon'\);/.test(grab(/function selectMenuMode\(m\)\{[\s\S]*?\n\}/, 'selectMenuMode')),
+     'der Wechsel zurueck zu Ring Out nimmt die Sperrmarkierung vom CTA');
+  ok(/const HUB_RO_ORDER=\['ffa','triple','team','vs','bot'\];/.test(HTML), 'die RingOut-Modusleiste ist unveraendert');
+  ok(/\$\('cardFfa'\)\.onclick=\(\)=>selectMenuMode\('ffa'\);/.test(HTML)
+     && /\$\('cardFootball'\)\.onclick=\(\)=>selectMenuMode\('football'\);/.test(HTML),
+     'und ihre Karten haengen unveraendert an selectMenuMode');
+  ok(/if\(menuSel==='ffa'\)\{[\s\S]{0,120}?mode='ffa';fmt='ffa';openOnline\(\);return;\}/.test(cta),
+     'der RingOut-Weg in den Onlinebildschirm ist derselbe wie bisher');
+}
+
 console.log('\nOnline-Phase-A: ' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);
