@@ -461,8 +461,10 @@ console.log('ARENA FOOTBALL — Produktsuite: Classic 1v1 (Standard) + Tactical 
   // "2-5" war richtig, solange der Raum nahm, wer kam - jetzt verlangt er eine Zahl.
   ok(/\$\('onTitleMode'\)\.textContent=fbo\?\(md\?T\(md\.key\):'ARENA FOOTBALL'\)/.test(titelSrc),
      'der Onlinebildschirm nennt den gewaehlten Modus beim Namen');
-  ok(/\$\('onBadgeN'\)\.textContent=fbo\?String\(fbLobbyCap\(\)\)/.test(titelSrc),
-     'und zeigt die genaue Sollbesetzung statt einer Spanne');
+  // PASS 02 (v10): die Lebensregel ist der dynamische FFA-Raum - der Kopf nennt die
+  // Startspanne 2-5; jeder andere Football-Modus zeigt weiter seine genaue Sollbesetzung.
+  ok(/\$\('onBadgeN'\)\.textContent=fbo\?\(\(mo===FB_ONLINE_MODE_LIVES&&ONLINE_PROTOCOL_VERSION>=10\)\?'2–5':String\(fbLobbyCap\(\)\)\)/.test(titelSrc),
+     'und zeigt bei Lives die Startspanne 2–5, sonst die genaue Sollbesetzung');
   // v8: auch der Untertitel folgt dem MODUS - und kommt weiterhin aus der Sprachtabelle.
   ok(/\$\('onCtxt'\)\.textContent=fbo\?\(md\?T\(md\.key\+'S'\):T\('onSubFb'\)\)/.test(titelSrc),
      'der Untertitel kommt aus der Sprachtabelle - dreisprachig wie alles andere');

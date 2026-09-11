@@ -174,6 +174,7 @@ const SRC = [
   grab(/let roomHostUid='';/, 'roomHostUid'),
   grab(/function renderLobby\(p\)\{[\s\S]*?\n\}/, 'renderLobby'),
   grab(/function setOnTitle\(ffa\)\{[\s\S]*?\n\}/, 'setOnTitle'),
+  grab(/let onlineKontext=null;[\s\S]*?\nfunction onlineZurueckInKontext\(k\)\{[\s\S]*?\n\}/, 'Online-Spielkontext (PASS 02)'),
   grab(/function openOnline\(\)\{[\s\S]*?\n\}/, 'openOnline'),
   grab(/function createRoom\(\)\{[\s\S]*?\n\}/, 'createRoom'),
   grab(/function joinRoom\(\)\{[\s\S]*?\n\}/, 'joinRoom'),
@@ -778,6 +779,8 @@ function makeClient(db, code, opts) {
       enterFootball(m,c){ mode='football'; fbVariant=FOOTBALL_VARIANT_ELIM; fmt=FB_ONLINE_FMT;
         fbOnlineMode=m||'lives'; fbOnlineCap=c||5; openOnline(); },
       create(){ createRoom(); },
+      lobbyClosed(){ onLobbyClosed(); },
+      kontext(){ return onlineKontext ? Object.assign({}, onlineKontext) : null; },
       join(c){ \$('onInput').value=c; joinRoom(); },
       start(){ lobbyP=roomP&&Object.keys(roomP).length?roomP:lobbyP; startFfaMatch(); },
       rejoin(c){ return attemptRejoin(c); },
@@ -3933,6 +3936,25 @@ async function eliminateSeat(db, cs, seat, maxRounds) {
     t('V10 (' + n + ') Torslots 0..' + (n - 1), S.every(s => s.slots.join(',') === [...Array(n).keys()].join(',')), JSON.stringify(S[0].slots));
     t('V10 (' + n + ') derselbe Modus - Lebensregel, kein Classic', S.every(s => s.mode === 'football' && s.fmt === 'elimination'));
     spaet.drop(); for (const c of cs) c.drop();
+  }
+
+  // ── (V10) DER BILDSCHIRM BLEIBT BEIM SPIEL: Lobby-Schluss legt keinen RingOut-Raum an ──
+  {
+    const db = makeDB();
+    // b bekommt einen eigenen Raumcode fuer SEINE Anlage - der Sandkasten bindet den Code an den Client.
+    const a = makeClient(db, 'KTXA', { name: 'A', ver: 10 }), b = makeClient(db, 'KTXB', { name: 'B', ver: 10 });
+    a.enterFootball(); a.create(); await tick(db);
+    b.enterFootball(); b.join('KTXA'); await tick(db);
+    t('KTX der Gast traegt den Arena-Kontext', b.kontext() && b.kontext().spiel === 'football');
+    b.lobbyClosed(); await tick(db);
+    t('KTX nach dem Lobby-Schluss ist der Gast draussen', b.st().online === false && b.st().roomCode === '');
+    t('KTX ... und noch im Football-Kontext', b.st().mode === 'football' && b.st().fmt === 'elimination' && b.kontext().spiel === 'football');
+    b.create(); await tick(db);
+    const r = db.data.rooms[b.st().roomCode];
+    t('KTX "Raum erstellen" legt danach einen Arena-Raum an - v10, Lives, 5 Sitze',
+      !!r && r.config.game === 'football' && r.v === 10 && r.config.mode === 'lives' && r.config.cap === 5, { st: b.st(), status: b.status(), log: b.ui.log.slice(-4) });
+    t('KTX und er ist oeffentlich ohne jede Wahl', !!r && r.config.visibility === 'public');
+    a.drop(); b.drop();
   }
 
 console.log('\nFootball-Online: ' + pass + ' passed, ' + fail + ' failed');

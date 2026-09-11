@@ -107,6 +107,7 @@ const SRC = [
   grab(/const NAME_COL=[\s\S]*?\nfunction ncol\(i\)\{[^\n]*/, 'Football-Farbtafel'),
   grab(/function renderLobby\(p\)\{[\s\S]*?\n\}/, 'renderLobby'),
   grab(/function setOnTitle\(ffa\)\{[\s\S]*?\n\}/, 'setOnTitle'),
+  grab(/let onlineKontext=null;[\s\S]*?\nfunction onlineZurueckInKontext\(k\)\{[\s\S]*?\n\}/, 'Online-Spielkontext (PASS 02)'),
   grab(/function openOnline\(\)\{[\s\S]*?\n\}/, 'openOnline'),
   grab(/function createRoom\(\)\{[\s\S]*?\n\}/, 'createRoom'),
   grab(/function joinRoom\(\)\{[\s\S]*?\n\}/, 'joinRoom'),
@@ -523,6 +524,8 @@ function makeClient(db, code, forcePid) {
       setMenu(m,n){mode=menuMode=m;if(n)ffaN=ffaNMenu=n;},
       setLobbyP(p){lobbyP=p;},
       create(){createRoom();},
+      open(){openOnline();},
+      kontext(){return onlineKontext?Object.assign({},onlineKontext):null;},
       join(c){$('onInput').value=c;joinRoom();},
       clickStart(){startFfaMatch();},
       canAim(){return whoCanAim();},
@@ -669,6 +672,22 @@ async function dropSeat(db, code, seat) {
     t('S4 new joiner fills seat 1', g3.st().myPlayer === 1 && h.els.lobbyStart.disabled === false);
     h.clickStart(); await tick();
     t('S4 start after gap filled', db.data.rooms.GAP1.seats === 3 && g3.st().gameStarted && g2.st().gameStarted);
+  }
+
+  // ── S5b (PASS 02): a guest who came through the online screen stays in the RingOut
+  //    context after the host closes the lobby; the next create is a RingOut FFA room, public. ──
+  {
+    const db = makeDB();
+    const h = makeClient(db, 'HST3'); h.setMenu('ffa', 3); h.open(); h.create(); await tick();
+    t('S5b the host room is public without any choice', db.data.rooms.HST3.config.visibility === 'public');
+    const g = makeClient(db, 'X'); g.setMenu('ffa', 3); g.open(); g.join('HST3'); await tick();
+    t('S5b guest context is ringout/ffa', g.kontext() && g.kontext().spiel === 'ringout' && g.kontext().mode === 'ffa', g.kontext());
+    h.leave(); await tick();
+    t('S5b guest aborted with message', g.els.onStatus.textContent === 'Host hat die Lobby geschlossen.' && g.st().online === false);
+    t('S5b guest stays in the RingOut FFA context', g.st().mode === 'ffa', g.st());
+    g.create(); await tick();
+    const r = db.data.rooms[g.st().roomCode];
+    t('S5b the guest creates a RingOut FFA room afterwards, public', !!r && r.config.game === 'ringout' && r.config.fmt === 'ffa' && r.v === 8 && r.config.visibility === 'public');
   }
 
   // ── S5: host leaves lobby -> guests aborted; leave restores menu state ──

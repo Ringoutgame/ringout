@@ -38,7 +38,7 @@ const SUITES = [
   { name: 'Lockstep',         file: 'test_lockstep.js',       expectPassed: 24 },
   { name: 'FFA-Kern',         file: 'test_ffa.js',            expectPassed: 18 },
   { name: 'FFA-Online-Prep',  file: 'test_ffa_online.js',     expectPassed: 53 },
-  { name: 'FFA-Online-Flow',  file: 'test_ffa_flow.js',       expectPassed: 148 },
+  { name: 'FFA-Online-Flow',  file: 'test_ffa_flow.js',       expectPassed: 153 },
   { name: 'FFA-Online-Race',  file: 'test_ffa_race.js',       expectPassed: 115 },
         { name: 'Reconnect-B2',     file: 'test_reconnect.js',      expectPassed: 213 },   // 53 Bestand (RC1-RC11) + 14 RC-ENV + 17 RC-UID/RC-UID2: Seat-Eigentum ueber auth.uid, Diebstahlversuch mit bekannter Spieler-ID, Zweittab, Mehrdeutigkeit und Legacy-Rueckfall
           { name: 'Protokoll',        file: 'test_online_protocol.js', expectPassed: 214 },
@@ -58,7 +58,7 @@ const SUITES = [
   { name: 'Online-V9-Spielbruecke', file: 'test_online_v9_gameplay_bridge.js', expectPassed: 151 },   // V9.4D1 SPIELBRUECKE, RUHEND: der EINZIGE Weg vom Netz ins Spiel. Sie nimmt eine fertige, verifizierte Zugmenge - keine Schnappschuesse - und uebersetzt sie: VALID exakt, pass/late/skip/remove als Nullhandlung ohne Lebensabzug, NO_REVEAL/HASH_MISMATCH/MALFORMED als sofortiges Ausscheiden. Erst ausscheiden, dann starten; genau einmal je Runde; kein zweiter Abschussweg und kein zweiter Hash.
   { name: 'Online-V9-Eingabebruecke', file: 'test_online_v9_input_bridge.js', expectPassed: 89 },   // V9.5B EINGABEBRUECKE, RUHEND: der EINZIGE Weg vom Spieler ins Netz. Derselbe applyCommit, den Zeigerloslassen und Stand-Taste benutzen, waehlt die Strecke - v8 in den Zugslot t, v9 an die Ablaufsteuerung. Der Zug wird dabei NICHT neu gerechnet: was sanitizeMove einmal bereinigt hat, geht bitgenau in die Hashschicht. Auch der Nullzug geht als verborgener move, denn ein pass verriete waehrend des Commit-Fensters die Absicht. Ein v9-Raum faellt nie auf v8 zurueck, es entsteht kein zweites Salz, und die Eingabe startet weder Abschuss noch Enthuellung.
   { name: 'Online-V9-Rehydrierung', file: 'test_online_v9_rehydrate.js', expectPassed: 125 },   // V9.4D2 REHYDRIERUNG, RUHEND: es gibt KEINE Momentaufnahme der Welt. Der Zustand ist die Folge aus Anfangsaufstellung und Zughistorie, und die Simulation ist deterministisch - ein Rueckkehrer bekommt ihn, indem dieselbe Pipeline dieselben Zuege noch einmal rechnet. Historie ist eine Runde erst mit autoritativem Abschlussanker z, und nur lueckenlos ab Runde 0. Nachgespielt wird stumm: kein Schreibvorgang, kein Bereitschaftslauf, kein Klang.
-  { name: 'Football-Online', file: 'test_football_online.js', expectPassed: 758 },   // fuenf getrennte Clients an einer Datenbank: Lobby, paralleler Commit, gleichzeitiger Abschuss, Tore/Leben, 5->4->3->2, Rehydrierung
+  { name: 'Football-Online', file: 'test_football_online.js', expectPassed: 763 },   // fuenf getrennte Clients an einer Datenbank: Lobby, paralleler Commit, gleichzeitiger Abschuss, Tore/Leben, 5->4->3->2, Rehydrierung
         // 719 -> 713 mit Action Core 04: der Ball traegt mehr Energie, es fallen mehr
         // Streutore, und in der Sequenz [P1>P2>P3] steht der Sieger fest, BEVOR P3 an die
         // Reihe kommt. Die Schleife bricht dann ab (das ist ihr Vertrag) und drei
@@ -66,7 +66,7 @@ const SUITES = [
         // ersten beiden Ausfaelle weiter; verloren geht nur die Zwei-Ueberlebenden-Stufe
         // in genau dieser Sequenz, die offline von der Elimination-Suite gedeckt ist.
   { name: 'Rules',            file: 'test_rules.js',          expectPassed: 592 },   // v4: Seat-Ownership, Football-Raumtyp, typisierte Zuege (move/skip/remove) und die Eviction
-  { name: 'Public-Lobby',     file: 'test_public_lobby.js',   expectPassed: 37 },
+  { name: 'Public-Lobby',     file: 'test_public_lobby.js',   expectPassed: 62 },
   { name: 'Team-Duel',        file: 'test_team_duel.js',      expectPassed: 36 },
 ];
 

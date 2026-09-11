@@ -87,6 +87,7 @@ const SRC = [
   grab(/const NAME_COL=[\s\S]*?\nfunction ncol\(i\)\{[^\n]*/, 'Football-Farbtafel'),
   grab(/function renderLobby\(p\)\{[\s\S]*?\n\}/, 'renderLobby'),
   grab(/function setOnTitle\(ffa\)\{[\s\S]*?\n\}/, 'setOnTitle'),
+  grab(/let onlineKontext=null;[\s\S]*?\nfunction onlineZurueckInKontext\(k\)\{[\s\S]*?\n\}/, 'Online-Spielkontext (PASS 02)'),
   grab(/function openOnline\(\)\{[\s\S]*?\n\}/, 'openOnline'),
   grab(/function createRoom\(\)\{[\s\S]*?\n\}/, 'createRoom'),
   grab(/function joinRoom\(\)\{[\s\S]*?\n\}/, 'joinRoom'),

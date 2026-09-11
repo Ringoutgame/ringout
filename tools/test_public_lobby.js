@@ -111,5 +111,42 @@ t('remove: created NaN', view({ created: NaN }).remove === true);
   const laeuft = fb(10, { state: 'playing', seats: 3 });
   t('remove: started v10 arena room', laeuft.show === false && laeuft.remove === true);
 }
+// ── PASS 02: eine gemeinsame oeffentliche Lobby fuer beide Spiele ──
+{
+  const fs2 = require('fs'), path2 = require('path');
+  const H = fs2.readFileSync(path2.join(__dirname, '..', 'index.html'), 'utf8');
+  // Jede Zeile weiss, welchem Spiel sie gehoert.
+  t('view: ringout row carries game=ringout', view().game === 'ringout');
+  const fbCfg = { game: 'football', winTarget: 3, fmt: 'elimination', visibility: 'public', mode: 'lives', cap: 5 };
+  t('view: v10 arena row carries game=football', publicListingView(listRoom({ v: 10, config: fbCfg }), NOW).game === 'football');
+  // Kein Public/Private mehr: der Bildschirm oeffnet oeffentlich, der Schalter ist weg.
+  const oo = (H.match(/function openOnline\(\)\{[\s\S]*?\n\}/) || [''])[0];
+  t('openOnline defaults createVisibility to public', /createVisibility='public';/.test(oo) && !/createVisibility='private'/.test(oo));
+  t('no visibility toggle markup remains', !/id="onVisRow"|id="onVisPub"|id="onVisPriv"|id="onVisGrp"/.test(H));
+  t('no visibility toggle handlers remain', !/onVisPriv'\)\.onclick|onVisPub'\)\.onclick/.test(H));
+  t('createRoom still snapshots the visibility once (private stays possible internally)', /const visibility = createVisibility==='public' \? 'public' : 'private';/.test(H));
+  // Der Bildschirm kennt sein Spiel und filtert danach.
+  t('openOnline records the game context', /function openOnline\(\)\{[\s\S]{0,80}onlineKontextMerken\(\);/.test(H));
+  const rows = (H.match(/function renderPublicRows\(shown\)\{[\s\S]*?\n\}/) || [''])[0];
+  t('the online list is filtered by the current game context', /const spiel=onlineKontextSpiel\(\);/.test(rows) && /shown\.filter\(r=>r\.view\.game===spiel\)/.test(rows));
+  t('the home preview shows RingOut rooms only', /shown\.filter\(r=>r\.view\.game===ROOM_GAME_RINGOUT\)/.test(rows));
+  t('each row names its game', /game\.textContent=roomGameLabel\(view\.game\);/.test(H) && /function roomGameLabel\(game\)\{ return game===ROOM_GAME_FOOTBALL\?'ARENA FOOTBALL':'RING OUT'; \}/.test(H));
+  t('home join opens the online screen of the row\'s own game', /btn\.onclick=fromHome\?\(\)=>\{openOnlineForGame\(view\.game\);joinPublicRoom\(code\);\}/.test(H));
+  // Rueckwege in den Bildschirm behalten das Spiel.
+  const olc = (H.match(/function onLobbyClosed\(\)\{[\s\S]*?\n\}/) || [''])[0];
+  t('onLobbyClosed returns to the same game context', /const k=onlineKontext;[\s\S]*leaveOnline\(\);[\s\S]*onlineZurueckInKontext\(k\);/.test(olc) && !/openOnline\(\);/.test(olc));
+  t('"match started without you" returns to the same game context', /const k=onlineKontext; leaveOnline\(\); onlineZurueckInKontext\(k\); setStatus\('Das Match ist ohne dich gestartet/.test(H));
+  const zk = (H.match(/function onlineZurueckInKontext\(k\)\{[\s\S]*?\n\}/) || [''])[0];
+  t('the context restore never assigns the game literal itself', zk.length > 0 && zk.indexOf("mode='football'") < 0);
+  // Texte: jeder neue Schluessel steht in allen drei Sprachtabellen.
+  for (const k of ['hostTag', 'fbLobbyHow1', 'fbLobbyHow2', 'createSub', 'joinTitle', 'joinSub', 'pubTitle'])
+    t('i18n key ' + k + ' exists in EN/DE/TR', (H.match(new RegExp('\\b' + k + ":'", 'g')) || []).length === 3);
+  t('the list is titled OPEN ROOMS', /pubTitle:'OPEN ROOMS'/.test(H) && /pubTitle:'OFFENE RÄUME'/.test(H));
+  // Lobby: Hostkennzeichnung und Arena-Hinweis.
+  const lob = (H.match(/function renderLobby\(p\)\{[\s\S]*?\n\}/) || [''])[0];
+  t('the roster marks the host', /nameForSeat\(s\)\+\(s===hostSeat\(\)\?' · '\+T\('hostTag'\):''\)/.test(lob));
+  t('the Arena hint shows only for Football Lives', /infoEl\.style\.display=\(fmt===FB_ONLINE_FMT&&fbLobbyMode\(\)===FB_ONLINE_MODE_LIVES\)\?'':'none';/.test(lob));
+  t('the lobby names the 2-5 span for the dynamic room', /fbRaumDynamisch\(\)\?\(FB_DYN_MIN_START\+'–'\+cap\):cap/.test(lob));
+}
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

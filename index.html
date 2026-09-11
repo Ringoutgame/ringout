@@ -786,8 +786,7 @@ body:not(.r3d) .ohero{height:12px}
   background:linear-gradient(180deg,rgba(16,24,41,.9),rgba(8,13,23,.975) 22%);backdrop-filter:blur(10px);
   padding:20px 16px calc(26px + env(safe-area-inset-bottom));box-shadow:0 -18px 50px rgba(4,8,16,.45);text-align:left}
 /* Name + Sichtbarkeit nebeneinander (mobil untereinander) */
-.ogrid2{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px}
-@media(max-width:429px){.ogrid2{grid-template-columns:1fr}}
+.ogrid1{margin-bottom:16px}
 .olbl{font-size:10px;font-weight:900;letter-spacing:.2em;color:#93a2bd;text-transform:uppercase;margin-bottom:8px}
 .oinwrap{display:flex;align-items:center;gap:9px;border:1px solid rgba(122,142,180,.32);border-radius:14px;background:linear-gradient(180deg,#101a2c,#0c1420);padding:0 12px;transition:border-color .15s}
 .oinwrap:focus-within{border-color:rgba(255,201,64,.65)}
@@ -802,7 +801,7 @@ body:not(.r3d) .ohero{height:12px}
 .oseg button svg{width:13px;height:13px;flex:0 0 auto}
 .oseg button.on{color:#2b1c00;background:linear-gradient(180deg,#ffe197,#f0ae32);box-shadow:0 3px 12px rgba(255,185,50,.3),inset 0 1px 0 rgba(255,255,255,.5)}
 /* Create-ODER-Join: zwei gleichwertige Aktionskarten, Create als Primaerweg */
-.ocards{position:relative;display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.ocards{position:relative;display:grid;grid-template-columns:1fr;gap:12px;margin-top:6px}
 .ocard{display:flex;flex-direction:column;align-items:center;gap:8px;padding:18px 14px 15px;border-radius:20px;border:1.5px solid rgba(122,142,180,.3);
   background:linear-gradient(180deg,rgba(24,33,54,.8),rgba(13,19,32,.94));box-shadow:0 12px 28px rgba(5,9,18,.4);text-align:center}
 .ocard.primary{border-color:rgba(255,201,64,.75);box-shadow:0 0 0 1px rgba(255,201,64,.25),0 14px 36px rgba(255,178,40,.16)}
@@ -812,10 +811,16 @@ body:not(.r3d) .ohero{height:12px}
 .oct{font-size:13px;font-weight:900;letter-spacing:.06em;color:#eef2f9;text-transform:uppercase}
 .ocs{font-size:10.5px;font-weight:600;line-height:1.5;color:#93a2bd}
 .ocard .cbtn{width:100%;margin-top:auto;padding:13px 6px;font-size:12.5px;letter-spacing:.08em;border-radius:13px;text-transform:uppercase}
-.orb{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:1;width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center;
-  font-size:10px;font-weight:900;letter-spacing:.06em;color:#e6c46c;background:radial-gradient(circle at 35% 28%,#1b2540,#0b1220 76%);
-  border:1px solid rgba(255,201,64,.45);box-shadow:0 6px 18px rgba(4,8,16,.55)}
-@media(max-width:429px){.ocards{grid-template-columns:1fr;gap:10px}.orb{position:static;transform:none;margin:-2px auto;width:38px;height:38px}}
+/* Zweiter Weg: Beitritt mit Code - bewusst leise, unter dem grossen Erstellen. */
+.ocode{display:flex;flex-direction:column;align-items:center;gap:6px;padding:12px 14px 13px;border-radius:16px;border:1px dashed rgba(122,142,180,.32);text-align:center}
+.ocode .oct{font-size:11px;color:#c9d4e6}
+.ocode #onJoinRow{display:flex;gap:8px;justify-content:center;width:100%;max-width:320px}
+.ocode .cbtn{padding:11px 16px;font-size:11.5px;letter-spacing:.08em;border-radius:12px;text-transform:uppercase}
+.proom .pr-game{font-size:9.5px;font-weight:900;letter-spacing:.14em;color:#e6c46c;text-transform:uppercase;white-space:nowrap;max-width:100%;overflow:hidden;text-overflow:ellipsis}
+.proom .pr-meta{white-space:nowrap}
+body.fbctx .proom .pr-game{color:#cfe0ef}
+.proom .pr-main{flex-direction:column;align-items:flex-start;gap:2px}
+.proom .pr-line{display:flex;align-items:baseline;gap:10px;width:100%;min-width:0}
 #onJoinRow{display:flex;gap:8px;width:100%;margin-top:auto}
 #onInput{flex:1;min-width:0;width:auto;text-transform:uppercase;text-align:center;font:inherit;font-size:18px;font-weight:800;letter-spacing:.2em;padding:12px 6px;border-radius:13px;border:1px solid rgba(122,142,180,.32);background:linear-gradient(180deg,#101a2c,#0c1420);color:var(--text);user-select:text;-webkit-user-select:text;transition:border-color .15s}
 #onInput:focus{outline:none;border-color:rgba(255,201,64,.65)}
@@ -1349,8 +1354,9 @@ body:not(.r3d) .ohero{height:12px}
     <div id="onRejoinTxt" style="font-size:11px;color:var(--muted);margin-bottom:8px"></div>
     <button class="cbtn" id="rejoinBtn">Wieder beitreten</button>
   </div>
-  <!-- Player name (identity v3, sanitized, textContent-only) + Sichtbarkeit (Default privat) -->
-  <div class="ogrid2">
+  <!-- Player name (identity v3, sanitized, textContent-only). Raeume sind oeffentlich -
+       es gibt keine Sichtbarkeitswahl mehr (PASS 02: eine gemeinsame oeffentliche Lobby). -->
+  <div class="ogrid1">
     <div id="nameRow">
       <div id="nameLbl" class="olbl">DEIN NAME</div>
       <div class="oinwrap">
@@ -1359,17 +1365,18 @@ body:not(.r3d) .ohero{height:12px}
         <svg class="pen" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 5.5l4 4L8 20H4v-4L14.5 5.5z"/></svg>
       </div>
     </div>
-    <div id="onVisRow">
-      <div id="onVisLbl" class="olbl">SICHTBARKEIT</div>
-      <div class="oseg" id="onVisGrp">
-        <button id="onVisPub"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="8"/><ellipse cx="12" cy="12" rx="3.4" ry="8"/><path d="M4.6 12h14.8"/></svg><span>Öffentlich</span></button>
-        <button id="onVisPriv" class="on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="11" width="12" height="8" rx="2"/><path d="M8.5 11V8.5a3.5 3.5 0 0 1 7 0V11"/></svg><span>Privat</span></button>
-      </div>
-    </div>
   </div>
-  <!-- Die zwei Wege in einen Raum: erstellen ODER mit Code beitreten. JS toggelt den
-       CONTAINER (onActions); die inneren IDs (onCreate, onJoinRow, onInput, onJoin)
-       bleiben unveraendert. -->
+  <!-- OFFENE RAEUME (PASS 02, gemeinsame Lobby beider Spiele): oeffentliche, beitretbare
+       Raeume des AKTUELLEN Spielkontexts. Ein Klick uebernimmt nur den Code und ruft den
+       bestehenden joinRoom()-Pfad - kein zweiter Beitrittsweg. -->
+  <div id="onPublic">
+    <div class="msec"><span id="onPublicLbl">ÖFFENTLICHE RÄUME</span><i class="hr"></i><button class="mlink" id="pubRefresh"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12a7 7 0 1 1-2.05-4.95"/><path d="M17.6 3.6V7.2H14"/></svg><span id="pubRefreshT">REFRESH</span></button></div>
+    <div id="onPublicList"></div>
+    <div id="onPublicState" style="font-size:11px;color:var(--muted);text-align:center;padding:8px 0"></div>
+  </div>
+  <!-- Die zwei Wege in einen Raum: erstellen (oeffentlich, eine Karte) oder mit Code
+       beitreten (zweiter Weg, kompakt). JS toggelt den CONTAINER (onActions); die inneren
+       IDs (onCreate, onJoinRow, onInput, onJoin) bleiben unveraendert. -->
   <div class="ocards" id="onActions">
     <div class="ocard primary" id="onCreateCard">
       <span class="ocic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="10" cy="8.4" r="3.1"/><path d="M4.2 19c0-3.2 2.7-5 5.8-5s5.8 1.8 5.8 5"/><path d="M18.4 7.2v5M15.9 9.7h5"/></svg></span>
@@ -1377,8 +1384,7 @@ body:not(.r3d) .ohero{height:12px}
       <div class="ocs" id="onCreateS">Erstelle einen Raum und lade Freunde ein.</div>
       <button class="cbtn" id="onCreate">Erstellen</button>
     </div>
-    <div class="orb" id="orBadge" aria-hidden="true">OR</div>
-    <div class="ocard" id="onJoinCard">
+    <div class="ocode" id="onJoinCard">
       <span class="ocic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M13 4h6v16h-6"/><path d="M4 12h9"/><path d="M10.5 8.5 14 12l-3.5 3.5"/></svg></span>
       <div class="oct" id="onJoinT">Raum beitreten</div>
       <div class="ocs" id="onJoinS">Tritt mit dem 4-stelligen Code bei.</div>
@@ -1412,15 +1418,12 @@ body:not(.r3d) .ohero{height:12px}
     <div id="lobbyMine" style="font-size:11px;font-weight:800;letter-spacing:.06em;color:#fff;margin-bottom:10px"></div>
     <button class="cbtn" id="lobbyStart" style="display:none">▶ Start</button>
     <div id="lobbyHint" style="font-size:11px;color:var(--muted)">Warte auf Host…</div>
+    <!-- Arena Football: der kurze Hinweis auf das gleichzeitige Ziehen (nur dort sichtbar). -->
+    <div id="lobbyInfo" style="display:none;margin-top:12px;padding:10px 12px;border-radius:12px;border:1px solid rgba(122,142,180,.28);background:rgba(13,19,32,.6);font-size:11px;line-height:1.55;color:#c9d4e6">
+      <div id="lobbyInfo1"></div><div id="lobbyInfo2" style="font-weight:800;color:#fff"></div>
+    </div>
   </div>
   <div id="onStatus"></div>
-  <!-- Public-Room-Liste (feature/public-lobby-mvp): oeffentliche, beitretbare Raeume.
-       Ein Klick uebernimmt nur den Code und ruft den bestehenden joinRoom()-Pfad. -->
-  <div id="onPublic">
-    <div class="msec"><span id="onPublicLbl">ÖFFENTLICHE RÄUME</span><i class="hr"></i><button class="mlink" id="pubRefresh"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12a7 7 0 1 1-2.05-4.95"/><path d="M17.6 3.6V7.2H14"/></svg><span id="pubRefreshT">REFRESH</span></button></div>
-    <div id="onPublicList"></div>
-    <div id="onPublicState" style="font-size:11px;color:var(--muted);text-align:center;padding:8px 0"></div>
-  </div>
   <!-- How-to-play: gleiche 3 Schritte wie auf der Startseite (Klassen-basierte i18n) -->
   <div class="msec"><span id="onHowLbl">HOW TO PLAY</span><i class="hr"></i></div>
   <div class="howp">
@@ -2155,8 +2158,6 @@ $('devFbOnlineBtn').onclick=()=>{
 };
 $('ffaOnline').onclick=()=>{SFX.unlock();fmt='ffa';openOnline();};
 // Public-Lobby: Sichtbarkeits-Auswahl beim Erstellen (Default privat).
-$('onVisPriv').onclick=()=>{createVisibility='private';setOn('onVisGrp','onVisPriv');};
-$('onVisPub').onclick=()=>{createVisibility='public';setOn('onVisGrp','onVisPub');};
 // ── Premium-Hauptmenue: 3 Karten (FFA-first), Hero-Preview, eine CTA ──
 // Karten setzen NUR die Menue-Auswahl; mode/fmt werden erst beim CTA-Tap gesetzt.
 // FFA setzt menuMode bewusst NICHT — onBack stellt mode=menuMode wieder her
@@ -2277,7 +2278,7 @@ en:{tagline:'PULL BACK · RELEASE · KNOCK THEM OUT',chip:'FEATURED',
   onModeClassic:'CLASSIC 1V1',onModeClassicS:'2 PLAYERS · FIRST TO 3',
   onModeSpeed:'SPEED MATCH',onModeSpeedS:'2 PLAYERS · 45 s TIME BANKS',
   onModeTeam2:'TEAM 2V2',onModeTeam2S:'4 PLAYERS · TWO TEAMS · FIRST TO 3',
-  onModeLives:'LIVES FFA',onModeLivesS:'3–5 PLAYERS · TWO LIVES EACH',
+  onModeLives:'LIVES FFA',onModeLivesS:'2–5 PLAYERS · TWO LIVES EACH',
   onModeTimed:'TIMED FFA',onModeTimedS:'3–5 PLAYERS · 60 s PHASES',
   onModeDev:'NOT RELEASED ONLINE YET',onModeBad:'This mode does not allow that player count.',
   onModeLocked:'This online mode is not released yet.',
@@ -2334,8 +2335,9 @@ en:{tagline:'PULL BACK · RELEASE · KNOCK THEM OUT',chip:'FEATURED',
   setTitle:'SETTINGS',setLang:'Language',vibeLbl:'Vibration',vibeUnsupported:' (not available)',musicLbl:'Music',
   env:'Environment',envDawn:'Dawn',envDay:'Day',
   onSubFfa:'Free for all · 2 to 5 players',onSubVs:'Versus · 2 players',
-  createBtn:'Create',createSub:'Create a room and invite your friends.',
-  joinTitle:'Join room',joinSub:'Join with the 4-letter room code.',orLbl:'OR',refresh:'REFRESH',
+  createBtn:'Create',createSub:'Your room is open right away – friends and other players join from the list.',
+  joinTitle:'Join with a code',joinSub:'Got a 4-letter code from a friend? Enter it here.',orLbl:'OR',refresh:'REFRESH',
+  hostTag:'HOST',fbLobbyHow1:'Pull your sphere → release → wait for the others.',fbLobbyHow2:'All players shoot at the same time.',
   createRoom:'Create room',join:'Join',enterCode:'ENTER CODE',back:'↩ Back',yourCode:'YOUR CODE',waitMate:'Waiting for opponent…',lobby:'LOBBY',lobbyGo:'▶ Start',
   leaveT:'Leave online match?',leaveS:'Your opponent can’t continue without you.',leaveNo:'Cancel',leaveYes:'Leave match',
   rematch:'🔄 Rematch',replayB:'🎬 Watch replay',menuB:'↩ Menu',fbNewMatch:'🔄 New match',
@@ -2359,7 +2361,7 @@ en:{tagline:'PULL BACK · RELEASE · KNOCK THEM OUT',chip:'FEATURED',
   nameLbl:'YOUR NAME',namePh:'Name',rejoinBtn:'Rejoin',rejoinAsk:'Rejoin room {code}?',
   rejoinNoLobby:'Room is no longer in the lobby.',rejoinTab:'Seat is active in another tab.',rejoinOk:'Rejoined.',
   rejoinWait:'Seat still reserved — try again in a few seconds.',
-  visLbl:'VISIBILITY',visPriv:'Private',visPub:'Public',pubTitle:'PUBLIC ROOMS',pubJoin:'Join',
+  visLbl:'VISIBILITY',visPriv:'Private',visPub:'Public',pubTitle:'OPEN ROOMS',pubJoin:'Join',
   pubLoading:'Loading rooms…',pubEmpty:'No public rooms right now.',pubError:'Couldn’t load rooms.'},
 de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'FEATURED',
   ffaT:'ONLINE FFA',ffaS:'2–5 SPIELER',
@@ -2377,7 +2379,7 @@ de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'FEATURED',
   onModeClassic:'CLASSIC 1V1',onModeClassicS:'2 SPIELER · ERSTER MIT 3',
   onModeSpeed:'SPEED MATCH',onModeSpeedS:'2 SPIELER · 45 s ZEITKONTEN',
   onModeTeam2:'TEAM 2V2',onModeTeam2S:'4 SPIELER · ZWEI TEAMS · ERSTER MIT 3',
-  onModeLives:'LIVES FFA',onModeLivesS:'3–5 SPIELER · JE ZWEI LEBEN',
+  onModeLives:'LIVES FFA',onModeLivesS:'2–5 SPIELER · JE ZWEI LEBEN',
   onModeTimed:'TIMED FFA',onModeTimedS:'3–5 SPIELER · 60-s-PHASEN',
   onModeDev:'ONLINE NOCH NICHT FREIGEGEBEN',onModeBad:'Dieser Modus erlaubt diese Spielerzahl nicht.',
   onModeLocked:'Dieser Onlinemodus ist noch nicht freigegeben.',
@@ -2430,8 +2432,9 @@ de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'FEATURED',
   setTitle:'EINSTELLUNGEN',setLang:'Sprache',vibeLbl:'Vibration',vibeUnsupported:' (nicht verfügbar)',musicLbl:'Musik',
   env:'Umgebung',envDawn:'Dämmerung',envDay:'Tag',
   onSubFfa:'Free for all · 2 bis 5 Spieler',onSubVs:'Versus · 2 Spieler',
-  createBtn:'Erstellen',createSub:'Erstelle einen Raum und lade Freunde ein.',
-  joinTitle:'Raum beitreten',joinSub:'Tritt mit dem 4-stelligen Code bei.',orLbl:'ODER',refresh:'AKTUALISIEREN',
+  createBtn:'Erstellen',createSub:'Dein Raum ist sofort offen – Freunde und andere Spieler treten über die Liste bei.',
+  joinTitle:'Mit Code beitreten',joinSub:'Hast du einen 4-stelligen Code von einem Freund? Hier eingeben.',orLbl:'ODER',refresh:'AKTUALISIEREN',
+  hostTag:'HOST',fbLobbyHow1:'Zieh deine Kugel → loslassen → auf die anderen warten.',fbLobbyHow2:'Alle Spieler schießen gleichzeitig.',
   createRoom:'Raum erstellen',join:'Beitreten',enterCode:'CODE EINGEBEN',back:'↩ Zurück',yourCode:'DEIN CODE',waitMate:'Warte auf Gegner…',lobby:'LOBBY',lobbyGo:'▶ Start',
   leaveT:'Online-Match verlassen?',leaveS:'Dein Gegner kann dann nicht weiterspielen.',leaveNo:'Abbrechen',leaveYes:'Match verlassen',
   rematch:'🔄 Rematch',replayB:'🎬 Replay ansehen',menuB:'↩ Menü',fbNewMatch:'🔄 Neues Match',
@@ -2455,7 +2458,7 @@ de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'FEATURED',
   nameLbl:'DEIN NAME',namePh:'Name',rejoinBtn:'Wieder beitreten',rejoinAsk:'Raum {code} wieder beitreten?',
   rejoinNoLobby:'Raum ist nicht mehr in der Lobby.',rejoinTab:'Sitz ist in einem anderen Tab aktiv.',rejoinOk:'Wieder beigetreten.',
   rejoinWait:'Sitz ist noch reserviert — versuche es in ein paar Sekunden erneut.',
-  visLbl:'SICHTBARKEIT',visPriv:'Privat',visPub:'Öffentlich',pubTitle:'ÖFFENTLICHE RÄUME',pubJoin:'Beitreten',
+  visLbl:'SICHTBARKEIT',visPriv:'Privat',visPub:'Öffentlich',pubTitle:'OFFENE RÄUME',pubJoin:'Beitreten',
   pubLoading:'Räume werden geladen…',pubEmpty:'Gerade keine öffentlichen Räume.',pubError:'Räume konnten nicht geladen werden.'},
 tr:{tagline:'GERİ ÇEK · BIRAK · DIŞARI İT',chip:'FEATURED',
   ffaT:'ONLINE FFA',ffaS:'2–5 OYUNCU',
@@ -2473,7 +2476,7 @@ tr:{tagline:'GERİ ÇEK · BIRAK · DIŞARI İT',chip:'FEATURED',
   onModeClassic:'CLASSIC 1V1',onModeClassicS:'2 OYUNCU · İLK 3',
   onModeSpeed:'SPEED MATCH',onModeSpeedS:'2 OYUNCU · 45 s SÜRE BANKASI',
   onModeTeam2:'TEAM 2V2',onModeTeam2S:'4 OYUNCU · İKİ TAKIM · İLK 3',
-  onModeLives:'LIVES FFA',onModeLivesS:'3–5 OYUNCU · İKİŞER CAN',
+  onModeLives:'LIVES FFA',onModeLivesS:'2–5 OYUNCU · İKİŞER CAN',
   onModeTimed:'TIMED FFA',onModeTimedS:'3–5 OYUNCU · 60 s EVRE',
   onModeDev:'ÇEVRİMİÇİ HENÜZ YAYINDA DEĞİL',onModeBad:'Bu mod bu oyuncu sayısına izin vermiyor.',
   onModeLocked:'Bu çevrimiçi mod henüz yayında değil.',
@@ -2526,8 +2529,9 @@ tr:{tagline:'GERİ ÇEK · BIRAK · DIŞARI İT',chip:'FEATURED',
   setTitle:'AYARLAR',setLang:'Dil',vibeLbl:'Titreşim',vibeUnsupported:' (desteklenmiyor)',musicLbl:'Müzik',
   env:'Ortam',envDawn:'Şafak',envDay:'Gündüz',
   onSubFfa:'Herkes tek · 2–5 oyuncu',onSubVs:'Karşılıklı · 2 oyuncu',
-  createBtn:'Oda kur',createSub:'Bir oda kur ve arkadaşlarını davet et.',
-  joinTitle:'Odaya katıl',joinSub:'4 haneli oda koduyla katıl.',orLbl:'VEYA',refresh:'YENİLE',
+  createBtn:'Oda kur',createSub:'Odan hemen açık olur – arkadaşlar ve diğer oyuncular listeden katılır.',
+  joinTitle:'Kodla katıl',joinSub:'Arkadaşından 4 haneli kod aldın mı? Buraya gir.',
+  hostTag:'HOST',fbLobbyHow1:'Topunu çek → bırak → diğerlerini bekle.',fbLobbyHow2:'Tüm oyuncular aynı anda vurur.',orLbl:'VEYA',refresh:'YENİLE',
   createRoom:'Oda kur',join:'Katıl',enterCode:'KOD GİR',back:'↩ Geri',yourCode:'KODUN',waitMate:'Rakip bekleniyor…',lobby:'LOBİ',lobbyGo:'▶ Başlat',
   leaveT:'Online maçtan çıkılsın mı?',leaveS:'Rakibin sensiz devam edemez.',leaveNo:'İptal',leaveYes:'Maçtan çık',
   rematch:'🔄 Rövanş',replayB:'🎬 Tekrarı izle',menuB:'↩ Menü',fbNewMatch:'🔄 Yeni maç',
@@ -2644,11 +2648,8 @@ function applyLang(){
   $('onCreate').textContent=T('createBtn');$('onJoin').textContent=T('join');$('onBack2').textContent=T('back');
   $('onCreateT').textContent=T('createRoom');$('onCreateS').textContent=T('createSub');
   $('onJoinT').textContent=T('joinTitle');$('onJoinS').textContent=T('joinSub');
-  $('orBadge').textContent=T('orLbl');
-  $('onVisLbl').textContent=T('visLbl');
-  document.querySelector('#onVisPriv span').textContent=T('visPriv');
-  document.querySelector('#onVisPub span').textContent=T('visPub');
   $('onPublicLbl').textContent=T('pubTitle');$('pubRefreshT').textContent=T('refresh');
+  $('lobbyInfo1').textContent=T('fbLobbyHow1');$('lobbyInfo2').textContent=T('fbLobbyHow2');
   $('onCodeLbl').textContent=T('yourCode');$('onWaitTxt').textContent=T('waitMate');
   $('lobbyLbl').textContent=T('lobby');$('lobbyStart').textContent=T('lobbyGo');
   $('leaveT').textContent=T('leaveT');$('leaveS').textContent=T('leaveS');
@@ -4272,7 +4273,7 @@ function wireMenuClickFeedback(){
   const IDS=['cardFfa','card2v2','cardBot','ctaBtn',
     'cardRingout','cardFootball','cardFb1v1','cardFb2v2','cardFbFfa','cardFbBot','fbNavBack',
     'bot1v1','bot2v2','botBack','ffaOnline','onCreate','onJoin','onBack','onBack2','lobbyStart',
-    'homeViewAll','homeCreate','homeJoinCode','homeRejoin','pubRefresh','onVisPriv','onVisPub',
+    'homeViewAll','homeCreate','homeJoinCode','homeRejoin','pubRefresh',
     'menuSet','setClose','langEn','langDe','langTr','vibeOnBtn','vibeOffBtn','musicOnBtn','musicOffBtn','envDawnBtn','envDayBtn','menuBtn',
     'fbClassicBtn','fbTacticalBtn','fbTeam2Btn','fbElimBtn','fbOnlineBtn','fbModeBack',
     'fbLivesBtn','fbTimedBtn','fbElimBack','fbElimN3','fbElimN4','fbElimN5',
@@ -8731,9 +8732,13 @@ function renderLobby(p){
   const modeEl=$('lobbyMode');
   if(modeEl){
     const mo=(fmt===FB_ONLINE_FMT)?fbLobbyMode():'';
-    modeEl.textContent=mo?(T(fbModeDef(mo)?fbModeDef(mo).key:'')+' · '+cap+' '+T('playersWord')):'';
+    // v10: der Raum fasst cap, gestartet wird ab FB_DYN_MIN_START - die Lobby sagt beides.
+    modeEl.textContent=mo?(T(fbModeDef(mo)?fbModeDef(mo).key:'')+' · '+(fbRaumDynamisch()?(FB_DYN_MIN_START+'–'+cap):cap)+' '+T('playersWord')):'';
     modeEl.style.display=mo?'':'none';
   }
+  // Arena Football: der kurze Hinweis auf das gleichzeitige Ziehen - nur dort.
+  const infoEl=$('lobbyInfo');
+  if(infoEl)infoEl.style.display=(fmt===FB_ONLINE_FMT&&fbLobbyMode()===FB_ONLINE_MODE_LIVES)?'':'none';
   // TEAM DUEL: Team-Header einblenden und Namenszeilen per CSS order gruppieren —
   // Blau (Seats 0,2) unter den Blau-Header (order 0), Rot (1,3) unter Rot (order 3).
   $('lobbyTeamBlue').style.display=(team||team2)?'':'none';
@@ -8758,7 +8763,7 @@ function renderLobby(p){
       row.style.color=pcol(fbTeam2Side(s)).ui;
       row.style.opacity=seatActive(p,s)?'':'0.45';
     }
-    else if(s<cap&&seatActive(p,s)){ row.textContent=nameForSeat(s); row.style.display=''; row.style.color=pcol(fbLobbyColorSlot(s)).ui; row.style.opacity=''; }
+    else if(s<cap&&seatActive(p,s)){ row.textContent=nameForSeat(s)+(s===hostSeat()?' · '+T('hostTag'):''); row.style.display=''; row.style.color=pcol(fbLobbyColorSlot(s)).ui; row.style.opacity=''; }
     else { row.textContent=''; row.style.display='none'; row.style.opacity=''; }
   }
   // "DU BIST GELB" waere in einem Teamspiel eine Falschauskunft: Gelb ist dort kein
@@ -8814,10 +8819,34 @@ function setOnTitle(ffa){
   // Der Untertitel folgt dem MODUS. Das pauschale "2 bis 5 Spieler" war richtig,
   // solange jeder Football-Raum fuenf Sitze hatte und nahm, wer kam.
   $('onCtxt').textContent=fbo?(md?T(md.key+'S'):T('onSubFb')):team?T('onSubTeam'):trip?T('onSubTriple'):ffa?T('onSubFfa'):T('onSubVs');
-  $('onBadgeN').textContent=fbo?String(fbLobbyCap()):team?'4':trip?'3':ffa?'2–5':'2';
+  $('onBadgeN').textContent=fbo?((mo===FB_ONLINE_MODE_LIVES&&ONLINE_PROTOCOL_VERSION>=10)?'2–5':String(fbLobbyCap())):team?'4':trip?'3':ffa?'2–5':'2';
+}
+// GEMEINSAME ONLINE-SHELL (PASS 02): der Bildschirm gehoert immer genau EINEM Spiel -
+// dem, aus dem er geoeffnet wurde. Der Kontext wird beim Oeffnen aus den Spielglobalen
+// festgehalten; die Raumliste filtert danach, und jeder Rueckweg in den Bildschirm
+// (Host schliesst die Lobby, Match ohne dich gestartet) stellt ihn wieder her. Ohne das
+// fiel `mode` beim Verlassen auf das Menue zurueck, und "Raum erstellen" legte aus dem
+// Arena-Football-Bildschirm heraus einen RingOut-Raum an.
+let onlineKontext=null;
+function onlineKontextMerken(){
+  onlineKontext={spiel:(mode==='football'&&fmt===FB_ONLINE_FMT)?ROOM_GAME_FOOTBALL:ROOM_GAME_RINGOUT,mode:mode,fmt:fmt,fbMode:fbOnlineMode};
+  return onlineKontext;
+}
+function onlineKontextSpiel(){ return onlineKontext?onlineKontext.spiel:ROOM_GAME_RINGOUT; }
+// Nach einem Verlassen zurueck in den Onlinebildschirm DESSELBEN Spiels - mit denselben
+// Globalen, die der urspruengliche Einstieg gesetzt hat.
+function onlineZurueckInKontext(k){
+  if(!k){ openOnline(); return; }   // ohne festgehaltenen Kontext: der Bildschirm im Menuezustand (wie bisher)
+  if(k.spiel===ROOM_GAME_FOOTBALL){
+    // Der Football-Einstieg setzt Modus, Variante, Format und Regelwerk gemeinsam.
+    fbOnlineMode=k.fbMode||FB_ONLINE_MODE_LIVES;
+    if(typeof fbOnlineEnter==='function'){ fbOnlineEnter(); return; }
+  }
+  mode=k.mode; fmt=k.fmt; openOnline();
 }
 function openOnline(){
   if(TUNE){toast('Tuning aktiv — Online deaktiviert');return;}
+  onlineKontextMerken();
   setOnTitle(mode==='ffa');
   $('online').classList.add('show');
   $('online').scrollTop=0;
@@ -8826,9 +8855,10 @@ function openOnline(){
   // inneren IDs (onCreate/onJoinRow/onInput/onJoin) bleiben stabil.
   $('onActions').style.display='';$('onWait').style.display='none';
   $('onLobby').style.display='none';$('nameRow').style.display='';
-  $('onVisRow').style.display='';$('onPublic').style.display='';
-  createVisibility='private';   // safe default on every open — no accidental public create
-  setOn('onVisGrp','onVisPriv');
+  $('onPublic').style.display='';
+  // PASS 02: Raeume sind oeffentlich - es gibt keine Sichtbarkeitswahl mehr. Der Wert
+  // wird trotzdem je Oeffnen gesetzt, weil createRoom ihn genau einmal einfriert.
+  createVisibility='public';
   $('onCode').textContent='';$('onInput').value='';$('nameInput').value=onlineName;setStatus('');
   // B2: Lobby- UND Match-Rejoin sind aktiv — die Affordance erscheint, sobald
   // ein frischer savedRoom existiert. attemptRejoin verifiziert Identitaet,
@@ -8949,6 +8979,27 @@ function createRoom(){
 // Listener: startPublicListing stoppt einen bestehenden zuerst. Alle Namen werden nur
 // sanitisiert und ueber textContent gesetzt.
 let publicUnsub=null, publicRenderToken=0;
+// PASS 02: die Zeilen leben. Der Index (publicRooms) sagt nur, WELCHE Raeume es gibt;
+// Belegung, "voll" und "gestartet" stehen im Raum selbst. Deshalb hoert die Liste je
+// gelistetem Raum zusaetzlich auf rooms/<code> und rendert bei jeder Aenderung neu -
+// gebuendelt, damit fuenf Beitritte nicht fuenf Lesevorgaenge je Raum ausloesen.
+let publicRoomUnsubs={}, publicCodes=[], publicRefreshTimer=null;
+function publicRefreshSoon(){
+  if(publicRefreshTimer)return;
+  publicRefreshTimer=setTimeout(()=>{ publicRefreshTimer=null; if(publicUnsub)renderPublicList(publicCodes); },150);
+}
+function publicRoomWatch(codes){
+  for(const c of Object.keys(publicRoomUnsubs))if(codes.indexOf(c)<0){ try{ publicRoomUnsubs[c](); }catch(e){} delete publicRoomUnsubs[c]; }
+  for(const c of codes)if(!publicRoomUnsubs[c]){
+    let erste=true;   // der erste Schnappschuss ist der Lesevorgang von renderPublicList selbst
+    publicRoomUnsubs[c]=window.FB.onValue(window.FB.ref(window.FB.db,'rooms/'+c),()=>{ if(erste){erste=false;return;} publicRefreshSoon(); },()=>{});
+  }
+}
+function publicRoomUnwatch(){
+  for(const c of Object.keys(publicRoomUnsubs)){ try{ publicRoomUnsubs[c](); }catch(e){} }
+  publicRoomUnsubs={}; publicCodes=[];
+  if(publicRefreshTimer){ clearTimeout(publicRefreshTimer); publicRefreshTimer=null; }
+}
 // Zwei Render-Ziele, EIN Listener: die volle Liste auf der Online-Seite und die
 // Home-Vorschau (max. 3 Zeilen) auf der Startseite werden immer gemeinsam bedient.
 function setPublicState(msg){ for(const id of ['onPublicState','homeRoomsState']){ const el=$(id); if(el)el.textContent=msg||''; } }
@@ -8959,13 +9010,13 @@ function startPublicListing(){
   clearPublicRows(); setPublicState(T('pubLoading'));
   const q=window.FB.query(window.FB.ref(window.FB.db,'publicRooms'),window.FB.orderByChild('created'),window.FB.limitToLast(30));
   publicUnsub=window.FB.onValue(q,
-    snap=>{ const idx=snap.val()||{}; const codes=Object.keys(idx).filter(c=>/^[A-HJKMNP-Z2-9]{4}$/.test(c)); renderPublicList(codes); },
+    snap=>{ const idx=snap.val()||{}; const codes=Object.keys(idx).filter(c=>/^[A-HJKMNP-Z2-9]{4}$/.test(c)); publicCodes=codes; publicRoomWatch(codes); renderPublicList(codes); },
     ()=>{ setPublicState(T('pubError')); });
 }
-function stopPublicListing(){ if(publicUnsub){ try{ publicUnsub(); }catch(e){} publicUnsub=null; } publicRenderToken++; }
+function stopPublicListing(){ if(publicUnsub){ try{ publicUnsub(); }catch(e){} publicUnsub=null; } publicRoomUnwatch(); publicRenderToken++; }
 // Hides the whole public UI + stops the listener when we leave the create/join screen
 // (i.e. we entered a room). Idempotent and safe to call from any success path.
-function hidePublicUI(){ stopPublicListing(); const p=$('onPublic'); if(p)p.style.display='none'; const v=$('onVisRow'); if(v)v.style.display='none'; }
+function hidePublicUI(){ stopPublicListing(); const p=$('onPublic'); if(p)p.style.display='none'; }
 // Fetches each listed room live, filters via publicListingView, opportunistically
 // cleans up objectively-stale listings, and renders the survivors newest-first.
 async function renderPublicList(codes){
@@ -8983,17 +9034,30 @@ async function renderPublicList(codes){
     if(view.show)shown.push({code:code,view:view,created:(d&&d.created)||0});
   }
   shown.sort((a,b)=>b.created-a.created);
-  renderPublicRows(shown);
-  setPublicState(shown.length?'':T('pubEmpty'));
+  renderPublicRows(shown);   // setzt die Leerzustaende je Ziel (kontextgefiltert)
 }
 const PUB_MODE_LABEL={single:'1v1',double:'2v2',ffa:'FFA',triple_ffa:'TRIPLE FFA',team_duel:'TEAM DUEL',football:'ARENA FOOTBALL'};
 // Modus-Medaillon je Raumzeile: nutzt das vorhandene Icon der passenden Modus-Karte
 // (kein Punkte-Preview mehr, keine neue Icon-Duplikation). Reines statisches SVG.
 const ROOM_MODE_CARD={ffa:'cardFfa',triple_ffa:'cardTriple',team_duel:'cardTeam',single:'card2v2',double:'card2v2'};
+// Arena Football hat keine SVG-Moduskarte (Bildkarten) - ein schlichter Ball als Medaillon.
+const ROOM_FOOTBALL_ICON='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><circle cx="12" cy="12" r="8.6"/><path d="M12 7.6l4.2 3.1-1.6 4.9H9.4L7.8 10.7z"/><path d="M12 3.4v4.2M7.8 10.7 4.2 9.5M16.2 10.7l3.6-1.2M9.4 15.6l-2.6 3.6M14.6 15.6l2.6 3.6"/></svg>';
+// Die RingOut-Moduskarten des Hubs sind Bildkarten (kein SVG mehr) - ein schlichter Ring
+// mit Kugel als Medaillon, damit die Zeile nie leer bleibt.
+const ROOM_RINGOUT_ICON='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5.2" stroke-dasharray="2.6 2.2"/><circle cx="12" cy="12" r="2" fill="currentColor" stroke="none"/></svg>';
 function roomModeIcon(mode){
+  if(mode==='football')return ROOM_FOOTBALL_ICON;
   const el=$(ROOM_MODE_CARD[mode]||'cardFfa');
   const svg=el&&el.querySelector('.mic svg');
-  return svg?svg.outerHTML:'';
+  return svg?svg.outerHTML:ROOM_RINGOUT_ICON;
+}
+// Die Zeile nennt ihr Spiel ausdruecklich - Eigennamen, keine Uebersetzung.
+function roomGameLabel(game){ return game===ROOM_GAME_FOOTBALL?'ARENA FOOTBALL':'RING OUT'; }
+// Den Onlinebildschirm fuer das Spiel EINER Zeile oeffnen (Beitritt aus der Home-Vorschau):
+// derselbe Einstieg, den auch das Menue benutzt - kein zweiter Weg.
+function openOnlineForGame(game){
+  if(game===ROOM_GAME_FOOTBALL){ fbOnlineMode=FB_ONLINE_MODE_LIVES; fbOnlineEnter(); return; }
+  mode='ffa'; fmt='ffa'; openOnline();
 }
 const HOME_ROOMS_MAX=3;   // Home-Vorschau bewusst kompakt — volle Liste auf der Online-Seite
 function buildRoomRow(code,view,fromHome){
@@ -9001,24 +9065,36 @@ function buildRoomRow(code,view,fromHome){
   const prev=document.createElement('div'); prev.className='pr-prev'; prev.innerHTML=roomModeIcon(view.mode);
   const dot=document.createElement('span'); dot.className='pr-dot';
   const main=document.createElement('div'); main.className='pr-main';
+  // Erste Zeile: das Spiel, dem der Raum gehoert. Zweite Zeile: Host links, Modus und
+  // Belegung rechts. Namen nur ueber textContent (untrusted input).
+  const game=document.createElement('div'); game.className='pr-game'; game.textContent=roomGameLabel(view.game);
+  const line=document.createElement('div'); line.className='pr-line';
   const host=document.createElement('div'); host.className='pr-host';
   host.textContent=sanitizeName(view.host)||T('namePlayer');   // textContent -> XSS-safe
   const meta=document.createElement('div'); meta.className='pr-meta';
-  meta.textContent=(PUB_MODE_LABEL[view.mode]||view.mode)+' · '+view.active+'/'+view.capacity;
-  main.appendChild(host); main.appendChild(meta);
+  meta.textContent=(view.mode==='football'?T('onModeLives'):(PUB_MODE_LABEL[view.mode]||view.mode))+' · '+view.active+'/'+view.capacity;
+  line.appendChild(host); line.appendChild(meta);
+  main.appendChild(game); main.appendChild(line);
   const btn=document.createElement('button'); btn.className='pr-join'; btn.type='button';
   btn.textContent=T('pubJoin');
-  // Home-Join: erst die Online-Seite oeffnen (Status/Fehler sichtbar), dann der
-  // unveraenderte joinPublicRoom->joinRoom-Pfad — keine zweite Join-Implementierung.
-  btn.onclick=fromHome?()=>{mode='ffa';openOnline();joinPublicRoom(code);}:()=>joinPublicRoom(code);
+  // Home-Join: erst die Online-Seite des RICHTIGEN Spiels oeffnen (Status/Fehler sichtbar),
+  // dann der unveraenderte joinPublicRoom->joinRoom-Pfad — keine zweite Join-Implementierung.
+  btn.onclick=fromHome?()=>{openOnlineForGame(view.game);joinPublicRoom(code);}:()=>joinPublicRoom(code);
   wireBtnFx(btn,true);
   row.appendChild(prev); row.appendChild(dot); row.appendChild(main); row.appendChild(btn);
   return row;
 }
+// Die Liste ist spielkontext-bewusst: der Onlinebildschirm zeigt nur Raeume SEINES Spiels,
+// die Home-Vorschau (RingOut-Startseite) nur RingOut-Raeume. Die Auffindbarkeit darunter
+// (publicRooms, ein Listener) bleibt fuer beide Spiele dieselbe.
 function renderPublicRows(shown){
   const list=$('onPublicList'),home=$('homeRoomsList');
-  if(list){ list.textContent=''; for(const {code,view} of shown)list.appendChild(buildRoomRow(code,view,false)); }
-  if(home){ home.textContent=''; for(const {code,view} of shown.slice(0,HOME_ROOMS_MAX))home.appendChild(buildRoomRow(code,view,true)); }
+  const spiel=onlineKontextSpiel();
+  const fuerListe=shown.filter(r=>r.view.game===spiel), fuerHome=shown.filter(r=>r.view.game===ROOM_GAME_RINGOUT);
+  if(list){ list.textContent=''; for(const {code,view} of fuerListe)list.appendChild(buildRoomRow(code,view,false)); }
+  if(home){ home.textContent=''; for(const {code,view} of fuerHome.slice(0,HOME_ROOMS_MAX))home.appendChild(buildRoomRow(code,view,true)); }
+  const st=$('onPublicState'); if(st)st.textContent=fuerListe.length?'':T('pubEmpty');
+  const hs=$('homeRoomsState'); if(hs)hs.textContent=fuerHome.length?'':T('pubEmpty');
 }
 // Public join: hand ONLY the room code to the existing joinRoom() path — no second
 // join implementation. The room is re-read and validated there, the seat arbiter is
@@ -11580,7 +11656,7 @@ function publicListingView(d,now){
   if(active>=capacity)return{show:false,remove:false};             // full -> hide, may free up
   const players=d.players;
   const host=(players&&players[0]&&typeof players[0].name==='string')?players[0].name:'';
-  return{show:true,remove:false,host:host,mode:roomIsFootball(cfg)?'football':cfg.fmt,active:active,capacity:capacity};
+  return{show:true,remove:false,host:host,game:roomGame(cfg),mode:roomIsFootball(cfg)?'football':cfg.fmt,active:active,capacity:capacity};
 }
 // Start-Gate-Helfer (pure, Node-getestet). Belegte Seats muessen lueckenlos 0..n-1
 // sein, sonst wartet der Lockstep ewig auf einen leeren Seat (Geister-Spieler).
@@ -11811,8 +11887,9 @@ function startFfaMatch(){
 }
 // Host weg waehrend der Lobby: Raum ist tot -> zurueck zur Online-Auswahl.
 function onLobbyClosed(){
+  const k=onlineKontext;   // leaveOnline stellt die Menue-Globalen wieder her - der Bildschirm bleibt beim Spiel
   leaveOnline();
-  openOnline();
+  onlineZurueckInKontext(k);
   setStatus('Host hat die Lobby geschlossen.');
 }
 // B2 boundary check: a room is rejoinable in its lobby AND in a running match
@@ -12273,7 +12350,7 @@ function attachRoomListeners(){
     // fbElimReset() sie sofort brauchen.
     if(fmt===FB_ONLINE_FMT)fbElimStartN=n;
     if(myPlayer>=n){   // Race: Seat erst nach dem Host-Kopfzaehlen geclaimt -> sauber aussteigen
-      leaveOnline(); openOnline(); setStatus('Das Match ist ohne dich gestartet — tritt einem neuen Raum bei.');
+      const k=onlineKontext; leaveOnline(); onlineZurueckInKontext(k); setStatus('Das Match ist ohne dich gestartet — tritt einem neuen Raum bei.');
       return;
     }
     // ffaN ist die Spielerzahl der FFA-Familie. Football liest seine Zahl aus
@@ -12930,7 +13007,13 @@ async function offerRejoinOnBoot(){
     if(!s.exists()){ forgetRoom(); return; }
     const d=s.val();
     if(!validateRejoinRoom(d).ok||findOwnSeat(d.players,onlinePid,fbUid(),sr.seat)<0){ forgetRoom(); return; }
-    if(!$('online').classList.contains('show'))openOnline();
+    // PASS 02: der Bildschirm gehoert dem Spiel des gemerkten Raums - nicht dem, was die
+    // Startseite gerade zeigt. Sonst legte 'Raum erstellen' neben der Rueckkehrleiste das
+    // falsche Spiel an.
+    if(!$('online').classList.contains('show')){
+      if(roomIsFootball(d.config)){ fbOnlineMode=d.config.mode||FB_ONLINE_MODE_LIVES; fbOnlineEnter(); }
+      else { fmt=d.config.fmt; mode=(fmt==='single'||fmt==='double')?'online':'ffa'; openOnline(); }
+    }
   }catch(e){}
 }
 whenFB(()=>{ offerRejoinOnBoot(); });
