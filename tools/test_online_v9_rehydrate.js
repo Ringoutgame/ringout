@@ -670,8 +670,8 @@ abschnitt('Waechter');
   const roh = HTML.slice(HTML.indexOf('// ── V9-REHYDRIERUNG'),
                          HTML.indexOf('// ── DIE BEIDEN HAKEN AUS DEM SPIEL'));
   const code = roh.split(/\r?\n/).filter(z => !/^\s*\/\//.test(z)).join('\n');
-  t('der ausgelieferte Client steht auf 9',
-    /const ONLINE_PROTOCOL_VERSION=9;/.test(HTML));
+  t('der ausgelieferte Client steht auf 10',
+    /const ONLINE_PROTOCOL_VERSION=10;/.test(HTML));
   t('die Rehydrierung liest genau einmal', (code.match(/window\.FB\.get\(/g) || []).length === 1);
   t('und schreibt nie',
     code.indexOf('runTransaction') < 0 && code.indexOf('fbV9NetWrite') < 0 &&
@@ -707,7 +707,7 @@ abschnitt('Waechter');
     code.indexOf('.x=') < 0 && code.indexOf('.vx=') < 0 && code.indexOf('balls') < 0);
   // ── DIE ECHTE VERDRAHTUNG ──────────────────────────────────────────
   t('die Raumweiche haengt an der Fassung des Raums, nicht an einem Schalter',
-    /function fbV9RaumIst9\(raum\)\{\s*return !!raum && raum\.v===9 && ONLINE_PROTOCOL_VERSION>=9;/
+    /function fbV9RaumIst9\(raum\)\{[\s\S]{0,400}?return !!raum && \(raum\.v===9\|\|raum\.v===10\) && ONLINE_PROTOCOL_VERSION>=raum\.v;/
       .test(HTML));
   t('der Rejoin liest fuer v9 KEINE t-Historie',
     /const v9=fbV9RaumIst9\(v\);/.test(HTML) &&

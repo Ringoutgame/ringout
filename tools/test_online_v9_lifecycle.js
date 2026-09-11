@@ -604,8 +604,8 @@ abschnitt('Waechter');
 {
   const roh = HTML.slice(HTML.indexOf('// ════ V9-SPIELANBINDUNG'), ENDE);
   const code = roh.split(/\r?\n/).filter(z => !/^\s*\/\//.test(z)).join('\n');
-  t('der ausgelieferte Client steht auf 9',
-    /const ONLINE_PROTOCOL_VERSION=9;/.test(HTML));
+  t('der ausgelieferte Client steht auf 10',
+    /const ONLINE_PROTOCOL_VERSION=10;/.test(HTML));
   t('die Ruhe haengt an der Protokollkonstante',
     /roomProto===9/.test(code));
   // DIE RUNDENNUMMER: gelesen, nie geschrieben.

@@ -885,7 +885,7 @@ abschnitt('Waechter');
   const NL = String.fromCharCode(10);
   const code = BEREICH.split(NL).map(z => { const k = z.indexOf('//');
     return k >= 0 ? z.slice(0, k) : z; }).join(NL);
-  t('Protokoll 9', /const ONLINE_PROTOCOL_VERSION=9;/.test(HTML));
+  t('Protokoll 10', /const ONLINE_PROTOCOL_VERSION=10;/.test(HTML));
   // Die Reihenfolge gilt IM EINSTIEG, nicht im ganzen Block: fbV9NetWriteCommit ist
   // weiter oben im Adapter definiert. Massgeblich ist, dass der Einstieg zuerst
   // sichert und erst der Schritt danach sendet - und dass ein Fehlschlag beim

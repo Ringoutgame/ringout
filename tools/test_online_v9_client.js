@@ -466,8 +466,8 @@ abschnitt('Waechter: die Maschine ruht wirklich');
     v8.indexOf("/c/'") < 0 && v8.indexOf("/r/'") < 0 && v8.indexOf("/ro/'") < 0);
   const al = grab(/function applyLaunch\(\)\{[\s\S]*?\n\}/, 'applyLaunch');
   t('applyLaunch() ist unberuehrt', al.indexOf('fbV9') < 0 && al.indexOf('FB_V9') < 0);
-  t('der ausgelieferte Client steht auf Protokoll 9',
-    /const ONLINE_PROTOCOL_VERSION=9;/.test(HTML));
+  t('der ausgelieferte Client steht auf Protokoll 10',
+    /const ONLINE_PROTOCOL_VERSION=10;/.test(HTML));
   // Keine Spielfolge fuer eine ausgebliebene oder falsche Enthuellung - die Entscheidung
   // steht aus und darf hier nirgends vorweggenommen sein.
   for (const w of ['fbElimLives', 'footballElimEliminate', 'gameOver', 'toast('])

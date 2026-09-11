@@ -4617,6 +4617,11 @@ function ffaSeatCap(){return fmt==='triple_ffa'?3:fmt==='team_duel'?4:fmt===FB_O
 // gesetzt beim Anlegen oder Beitreten); ohne Raum die eigene Auswahl.
 let fbRoomCap=0, fbRoomMode='';
 function fbLobbyCap(){return fbRoomCap>0?fbRoomCap:(online?FB_ONLINE_SEATS:fbOnlineCap);}
+// v10: der Raum fasst fbLobbyCap() Sitze, gestartet wird aber mit der Besetzung, die
+// beim Druecken von START da ist - mindestens FB_DYN_MIN_START. Nur der v10-Raum kennt
+// diesen Unterschied; v8 und v9 verlangen weiter die exakte Sollbesetzung.
+const FB_DYN_MIN_START=2;
+function fbRaumDynamisch(){return !!online&&roomProto===10;}
 function fbLobbyMode(){return fbRoomMode||fbOnlineMode;}
 // TEAM 2V2: der Hinweis sagt, WELCHES Team noch jemanden braucht - "warte auf 1
 // weiteren Spieler" liesse offen, auf welcher Seite der Platz frei ist.
@@ -8773,7 +8778,10 @@ function renderLobby(p){
     // Sitze 0,2,3 - eine Luecke bei 1, und trotzdem ein voellig regulaerer Zwischenstand.
     // Massgeblich sind ZWEI VOLLE TEAMS.
     const blau=team2?fbTeam2Count(p,FB_TEAM2_BLUE):0, rot=team2?fbTeam2Count(p,FB_TEAM2_RED):0;
-    const bereit=team2?(blau===2&&rot===2):(n===soll&&!gap);
+    // v10: bereit ab FB_DYN_MIN_START verbundenen, lueckenlosen Sitzen - der Host entscheidet,
+    // wann es losgeht; die Hoechstbesetzung ist eine Grenze, kein Soll.
+    const dyn=fbRaumDynamisch();
+    const bereit=team2?(blau===2&&rot===2):(dyn?(n>=FB_DYN_MIN_START&&n<=soll&&!gap):(n===soll&&!gap));
     // Solange das Onlinespiel dieses Modus nicht fertig ist, bleibt der Start zu - auch
     // bei voller Besetzung. Sonst fiele Team 2v2 in die generische Vier-Tore-Partie.
     const spielbar=fbModeReleased(fbLobbyMode());
@@ -8784,7 +8792,7 @@ function renderLobby(p){
     // Fuellvorgang ueberdeckt.
     $('lobbyHint').textContent=
       !bereit?(team2?fbTeam2Hint(blau,rot)
-                    :(n<soll?fbWaitText(n,soll)
+                    :(n<(dyn?FB_DYN_MIN_START:soll)?fbWaitText(n,dyn?FB_DYN_MIN_START:soll)
                       :'Sitzlücke: Warte auf freien Sitz / Spieler soll neu beitreten.'))
       :!spielbar?T('onModeNoPlay')
       :host?'Bereit — Match starten.':'Warte auf Host…';
@@ -8871,7 +8879,10 @@ function createRoom(){
       // unveraenderlich - die Rules erlauben unterhalb eines bestehenden Raums keinen
       // Schreibzugriff auf config, weder dem Host noch sonst jemandem.
       const cfg={game:fbo?ROOM_GAME_FOOTBALL:ROOM_GAME_RINGOUT,winTarget:winTarget,fmt:fmtNew,visibility:visibility};
-      if(fbo){ cfg.mode=fbOnlineMode; cfg.cap=fbOnlineCap; }
+      // v10: die Lebensregel ist der dynamische FFA-Raum - er fasst immer FB_ONLINE_SEATS,
+      // unabhaengig davon, welche Spielerzahl zuletzt irgendwo gewaehlt wurde. Genau diese
+      // Altlast (fbOnlineCap lebt seitenweit) hatte einen Fuenferraum als Dreierraum angelegt.
+      if(fbo){ cfg.mode=fbOnlineMode; cfg.cap=(fbOnlineMode===FB_ONLINE_MODE_LIVES&&ONLINE_PROTOCOL_VERSION>=10)?FB_ONLINE_SEATS:fbOnlineCap; }
       // TEAM 2V2: der Ersteller sitzt auf dem ERSTEN SITZ SEINER GEWAEHLTEN SEITE - Blau
       // auf 0 (B1), Rot auf 2 (R1). In einem frischen Raum ist dieser Sitz immer frei.
       // Sonst bleibt es beim Sitz 0.
@@ -8904,7 +8915,8 @@ function createRoom(){
       // listings), and only when THIS operation was started as public. Failure compensates
       // the whole create (room + seat + index) so a "public" room is never silently
       // undiscoverable. `listed` records the write operation-locally for the cleanup paths.
-      if(visibility==='public'&&!fbo){
+      // v10: auch der dynamische Arena-Raum darf gelistet werden (Rules: publicRooms fuer v10).
+      if(visibility==='public'&&(!fbo||roomProto===10)){
         try{ await writePublicListing(code); listed=true; }
         catch(e){ await abortFreshRoom(code,dc,listed,wirtSitz); if(joinOpCurrent(op))setStatus(onlineErrText(e)); return; }
         if(!joinOpCurrent(op)){ await abortFreshRoom(code,dc,listed,wirtSitz); return; }
@@ -8914,7 +8926,7 @@ function createRoom(){
       roomCode=code; myPlayer=wirtSitz; online=true; gen=0; runningGen=-1; gameStarted=false; seatLeft=[]; seatGone=[];
       roomHostUid=fbUid();   // v8: die Hostkennung ist die eigene - unabhaengig vom Sitz
       fbOnlineTeam=-1;       // die Wahl hat ihren Zweck erfuellt und gilt fuer keinen weiteren Raum
-      fbRoomMode=fbo?fbOnlineMode:''; fbRoomCap=fbo?fbOnlineCap:0;   // v8: Sollbesetzung des angelegten Raums
+      fbRoomMode=fbo?fbOnlineMode:''; fbRoomCap=fbo?cfg.cap:0;   // v8: Sollbesetzung des angelegten Raums (v10: Hoechstbesetzung)
       roomPublic=(visibility==='public');   // committed room reflects the snapshotted visibility
       playersRoster={}; playersRoster[wirtSitz]=rec0;
       rememberRoom(code,wirtSitz);
@@ -8974,7 +8986,7 @@ async function renderPublicList(codes){
   renderPublicRows(shown);
   setPublicState(shown.length?'':T('pubEmpty'));
 }
-const PUB_MODE_LABEL={single:'1v1',double:'2v2',ffa:'FFA',triple_ffa:'TRIPLE FFA',team_duel:'TEAM DUEL'};
+const PUB_MODE_LABEL={single:'1v1',double:'2v2',ffa:'FFA',triple_ffa:'TRIPLE FFA',team_duel:'TEAM DUEL',football:'ARENA FOOTBALL'};
 // Modus-Medaillon je Raumzeile: nutzt das vorhandene Icon der passenden Modus-Karte
 // (kein Punkte-Preview mehr, keine neue Icon-Duplikation). Reines statisches SVG.
 const ROOM_MODE_CARD={ffa:'cardFfa',triple_ffa:'cardTriple',team_duel:'cardTeam',single:'card2v2',double:'card2v2'};
@@ -9071,7 +9083,20 @@ function joinPublicRoom(code){
 // Beitrittspolitik gegenueber Altbestand: STRIKTE GLEICHHEIT, wie bei jedem frueheren
 // Versionssprung dieses Projekts. Ein v7-Raum wird mit der Versionsmeldung abgelehnt,
 // nicht als v8 gelesen - ein v8-Weg ohne mode/cap gaebe es sonst still zurueck.
-const ONLINE_PROTOCOL_VERSION=9;
+// PROTOKOLL v10 - DYNAMISCHE BESETZUNG (Arena Football FFA).
+//   v9:  config.cap ist SOLL- und Startbesetzung zugleich (3-5); gestartet wird nur
+//        mit seats === cap, und jede Sitzmenge des Protokolls (Bereitschaft, Commit,
+//        Enthuellung) zaehlt bis cap.
+//   v10: config.cap ist die HOECHSTBESETZUNG des Raums (immer FB_ONLINE_SEATS = 5),
+//        seats die beim Start EINGEFRORENE Besetzung (2-5). Der Host startet, sobald
+//        zwei bis fuenf zusammenhaengende Sitze verbunden sind; die Sitzmengen des
+//        Protokolls zaehlen bis seats. Zug, Frist, Hash und Enthuellung sind
+//        BYTEGLEICH zu v9 - nur die Bedeutung von cap und seats ist eine andere, und
+//        genau deshalb ist es eine eigene Nummer: ein v9-Client laese seats < cap als
+//        manipulierten Raum, und seine Bereitschaftsbarriere wartete auf Sitze, die es
+//        nie gibt. Ein v9-Raum bleibt fuer beide Seiten unveraendert; er entsteht nur
+//        nicht mehr neu.
+const ONLINE_PROTOCOL_VERSION=10;
 const FFA_MAX_SEATS=5;   // Online-FFA: Seats 0-4 (Host=0), Farben aus PCOLS
 // ── RAUMTYP (v4) ──────────────────────────────────────────────────────────────────
 // config.game trennt die beiden Produktfamilien serverseitig. Bewusst NICHT 'mode':
@@ -10786,7 +10811,7 @@ let fbV9Leben=null;
 // Nachspiel stellt einen ZUSTAND wieder her, es wiederholt kein Erlebnis.
 let fbV9Nachspielen=false;
 function fbV9LebenAn(){
-  return !fbV9Nachspielen && !!online && roomProto===9 && mode==='football'
+  return !fbV9Nachspielen && !!online && (roomProto===9||roomProto===10) && mode==='football'
       && typeof fbElim4==='function' && fbElim4()
       && typeof roomCode==='string' && !!roomCode && myPlayer>=0;
 }
@@ -11194,7 +11219,9 @@ async function fbV9Rehydrieren(ctx){
 // Entwicklerschalter, den jemand versehentlich umlegt. Solange die Konstante 8 ist,
 // ist beides ausnahmslos false, und der freigegebene v8-Weg laeuft unveraendert.
 function fbV9RaumIst9(raum){
-  return !!raum && raum.v===9 && ONLINE_PROTOCOL_VERSION>=9;
+  // v9 UND v10: dieselbe Protokollfamilie (Commit/Reveal); der Unterschied ist allein
+  // der Besetzungsvertrag (s. PROTOKOLL v10).
+  return !!raum && (raum.v===9||raum.v===10) && ONLINE_PROTOCOL_VERSION>=raum.v;
 }
 // Dieselbe Frage fuer den Raum, in dem dieser Client GERADE SITZT. fbV9RaumIst9 prueft
 // einen gelesenen Raum, bevor man ihn betritt; hier ist er schon betreten, und dann gibt
@@ -11204,7 +11231,7 @@ function fbV9RaumIst9(raum){
 // "ist dieser Raum ein v9-Raum". Ein Nachspieler, ein Zuschauer und ein Client zwischen
 // zwei Runden sitzen genauso in einem v9-Raum wie ein handelnder Spieler - und keiner
 // von ihnen darf in den v8-Zugslot schreiben.
-function fbV9RaumHier(){ return !!online && roomProto===9; }
+function fbV9RaumHier(){ return !!online && (roomProto===9||roomProto===10); }
 // Der Start eines v9-Raums - frisch wie nach einem Neuladen ueber DENSELBEN Weg. Ein
 // frischer Raum hat einfach keine abgeschlossene Runde; die Rehydrierung sieht das,
 // spielt nichts nach und meldet Runde 0 als bereit. Ein zweiter Startweg daneben
@@ -11413,12 +11440,16 @@ function fbRaumFassung(cfg){
   if(cfg.mode!==FB_ONLINE_MODE_LIVES)return 8;
   const cap=cfg.cap;
   if(!(Number.isInteger(cap)&&cap>=3&&cap<=5))return 8;
+  // v10: ein Lives-Raum mit der vollen Hoechstbesetzung ist ein Raum mit dynamischer
+  // Startbesetzung. Nur diese Form legt das Produkt noch an (createRoom); die
+  // Sollbesetzungen 3 und 4 bleiben v9-Raeume, die es nur noch im Bestand gibt.
+  if(cap===5&&ONLINE_PROTOCOL_VERSION>=10)return 10;   // 5 = FB_ONLINE_SEATS (Sandbox-frei)
   return ONLINE_PROTOCOL_VERSION>=9?9:8;
 }
 // Welche Raumfassungen kann dieser Client bedienen? Beide Wege sind vollstaendig im
 // Produkt: v8 ueber den Zugslot, v9 ueber Commit und Enthuellung. Eine aeltere Fassung
 // bleibt abgewiesen - dort rechnet die Simulation anders.
-function fbRaumFassungOk(v){ return v===8||(ONLINE_PROTOCOL_VERSION>=9&&v===9); }
+function fbRaumFassungOk(v){ return v===8||(ONLINE_PROTOCOL_VERSION>=9&&v===9)||(ONLINE_PROTOCOL_VERSION>=10&&v===10); }
 function validateRoom(d){
   if(!d||typeof d!=='object')return{ok:false,reason:'Raumdaten ungültig.'};
   if(!fbRaumFassungOk(d.v))return{ok:false,reason:'Versionen stimmen nicht überein — bitte beide Seite neu laden.'};
@@ -11507,7 +11538,8 @@ function validateRejoinRoom(d){
     if(cfg.game===ROOM_GAME_FOOTBALL&&(seats<2||seats>FB_ONLINE_SEATS))return{ok:false,reason:'noRoom'};
     // v8: das Startsignal MUSS die Sollbesetzung des Raums tragen. Ein laufendes Match
     // mit abweichender Besetzung ist kein Raum, in den man zurueckkehren kann.
-    if(Number.isInteger(cfg.cap)&&seats!==cfg.cap)return{ok:false,reason:'noRoom'};
+    // v10: die Startbesetzung ist hoechstens die Hoechstbesetzung - Gleichheit gilt nur v8/v9.
+    if(Number.isInteger(cfg.cap)&&(d.v===10?seats>cfg.cap:seats!==cfg.cap))return{ok:false,reason:'noRoom'};
   }
   // Die Protokollfassung gehoert dem RAUM und wandert mit: die Weiche der Rueckkehr
   // (fbV9RaumIst9) fragt das GEPRUEFTE Ergebnis, nicht den rohen Raum. Ohne dieses Feld
@@ -11534,19 +11566,21 @@ function publicListingView(d,now){
   if(!validGamePair(cfg.game,cfg.fmt))return{show:false,remove:true};
   // Football-Raeume erscheinen (noch) nicht in der oeffentlichen Lobby: es gibt keinen
   // Produktweg, der sie erzeugt. Die Zeile ist die Absicherung, nicht die Absicht.
-  if(roomIsFootball(cfg))return{show:false,remove:false};
+  // v10: der dynamische Arena-Raum ist auffindbar (Rules: publicRooms fuer v10). Aeltere
+  // Football-Raeume bleiben unsichtbar - fuer sie gibt es weiterhin keinen Produktweg.
+  if(roomIsFootball(cfg)&&d.v!==10)return{show:false,remove:false};
   if(!Number.isFinite(d.created)||(now-d.created)>=ROOM_MAX_AGE_MS)return{show:false,remove:true};
   if(d.state!=='lobby')return{show:false,remove:true};   // match started/finished -> stale
   // From here the listing itself is valid; it is only HIDDEN (not removed) for transient
   // reasons that may recover: a host reload, or a currently full room.
   const p=d.p;
   if(!(p&&p[0]&&p[0].on===true))return{show:false,remove:false};   // host offline (maybe reloading)
-  const capacity=cfg.fmt==='ffa'?FFA_MAX_SEATS:cfg.fmt==='triple_ffa'?3:cfg.fmt==='team_duel'?4:2;
+  const capacity=roomIsFootball(cfg)?roomSeatCap(cfg):cfg.fmt==='ffa'?FFA_MAX_SEATS:cfg.fmt==='triple_ffa'?3:cfg.fmt==='team_duel'?4:2;
   let active=0; for(let s=0;s<capacity;s++)if(p&&p[s]&&p[s].on===true)active++;
   if(active>=capacity)return{show:false,remove:false};             // full -> hide, may free up
   const players=d.players;
   const host=(players&&players[0]&&typeof players[0].name==='string')?players[0].name:'';
-  return{show:true,remove:false,host:host,mode:cfg.fmt,active:active,capacity:capacity};
+  return{show:true,remove:false,host:host,mode:roomIsFootball(cfg)?'football':cfg.fmt,active:active,capacity:capacity};
 }
 // Start-Gate-Helfer (pure, Node-getestet). Belegte Seats muessen lueckenlos 0..n-1
 // sein, sonst wartet der Lockstep ewig auf einen leeren Seat (Geister-Spieler).
@@ -11733,11 +11767,15 @@ function startFfaMatch(){
   // fuenf. Die Rules verlangen dasselbe (seats === config/cap).
   const soll=fbOnlineRoom()?fbLobbyCap():0;
   if(soll>0){
-    if(n!==soll){toast(fbWaitText(n,soll));return;}
+    // v10: die Besetzung beim Start ist die Startbesetzung - zwei bis soll. Sie wird im
+    // Startsignal EINGEFROREN (seats), und die Rules verlangen dasselbe: alle gezaehlten
+    // Sitze verbunden, keiner darueber belegt.
+    const dyn=fbRaumDynamisch();
+    if(dyn?(n<FB_DYN_MIN_START||n>soll):(n!==soll)){toast(fbWaitText(n,dyn?FB_DYN_MIN_START:soll));return;}
     if(!seatsContiguous(lobbyP,n)){toast('Warte auf freien Sitz / Spieler soll neu beitreten.');return;}
     $('lobbyStart').disabled=true;
     (async()=>{ try{
-      const start={}; start['state']='playing'; start['seats']=soll;
+      const start={}; start['state']='playing'; start['seats']=dyn?n:soll;
       await window.FB.update(rRef(''),start);
       if(roomPublic){removePublicListing(roomCode);roomPublic=false;}
     }catch(e){ setStatus('Start fehlgeschlagen: '+(e.message||e)); $('lobbyStart').disabled=false; } })();

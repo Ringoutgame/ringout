@@ -267,7 +267,7 @@ const gleich = (arr) => arr.every(k => Math.abs(k.L - arr[0].L) < 1e-9);
                    /const FOOTBALL_BANK_SECONDS=45;/, /const FOOTBALL_SHOT_SECONDS=6;/,
                    /const FOOTBALL_TROUBLE_SECONDS=2;/])
     ok(c.test(HTML), 'Regelkonstante unveraendert: ' + c.source);
-  ok(/const ONLINE_PROTOCOL_VERSION=9;/.test(HTML), 'Protokollversion des Clients ist v9 - v8-Raeume bleiben ueber den Zugslot bedienbar');
+  ok(/const ONLINE_PROTOCOL_VERSION=10;/.test(HTML), 'Protokollversion des Clients ist v10 - v8-Raeume bleiben ueber den Zugslot bedienbar');
   ok(/const FOOTBALL_FMTS=\['elimination'\];/.test(HTML), 'FOOTBALL_FMTS unveraendert');
   // Kein lokaler Parameter kann die Geometrie mehr verstellen - online wie offline.
   ok(!/URLSearchParams[^\n]*arena/i.test(HTML),

@@ -72,7 +72,7 @@ console.log('ONLINE-PROTOKOLL v' + P.VER + ' — Schema und kanonische Zugereign
 // v8 traegt MODUS und SOLLBESETZUNG. Die Zugkodierung ist bytegleich zu v7 - erst v9
 // aendert sie (Frist, Hash-Commit/Reveal). Zwei Stufen, weil eine Nummer nie zwei
 // Zugbauformen bedeuten darf.
-t('die Protokollversion ist 9', P.VER === 9, P.VER);
+t('die Protokollversion ist 10', P.VER === 10, P.VER);
 const RULES = require('fs').readFileSync(
   require('path').join(__dirname, '..', 'firebase.rules.json'), 'utf8');
 // WAEHREND DER UMSTELLUNG akzeptiert der Server beide Versionen — sonst waere jeder noch
@@ -81,13 +81,13 @@ const RULES = require('fs').readFileSync(
 // Seit V9.5C kommt die 9 dazu: die v9-Zweige unter g/<gen> hingen an einer Raumfassung,
 // die kein Raum je tragen konnte. Der freigegebene Client bleibt auf 8 und legt weiterhin
 // keinen v9-Raum an - die Aufnahme ist reine Serverseite.
-t('die Rules lassen waehrend der Umstellung v4 bis v9 zu',
-  /\(newData\.val\(\) === 4 \|\| newData\.val\(\) === 5 \|\| newData\.val\(\) === 6 \|\| newData\.val\(\) === 7 \|\| newData\.val\(\) === 8 \|\| newData\.val\(\) === 9\)/.test(RULES));
+t('die Rules lassen waehrend der Umstellung v4 bis v10 zu',
+  /\(newData\.val\(\) === 4 \|\| newData\.val\(\) === 5 \|\| newData\.val\(\) === 6 \|\| newData\.val\(\) === 7 \|\| newData\.val\(\) === 8 \|\| newData\.val\(\) === 9 \|\| newData\.val\(\) === 10\)/.test(RULES));
 const V_REGEL = (RULES.match(/"v": \{[^}]*\}/) || [''])[0];
 t('und keine andere Protokollversion — geprueft am v-Validator selbst',
   /=== 4/.test(V_REGEL) && /=== 5/.test(V_REGEL) && /=== 6/.test(V_REGEL) &&
-  /=== 7/.test(V_REGEL) && /=== 8/.test(V_REGEL) && /=== 9/.test(V_REGEL) &&
-  !/=== 3|=== 2|=== 1/.test(V_REGEL), V_REGEL);
+  /=== 7/.test(V_REGEL) && /=== 8/.test(V_REGEL) && /=== 9/.test(V_REGEL) && /=== 10/.test(V_REGEL) &&
+  !/=== 3|=== 2|=== 11|=== 1[^0]/.test(V_REGEL), V_REGEL);
 // Die Protokollnummer eines bestehenden Raums ist unveraenderlich — ein v4-Raum kann
 // nicht zu einem v5-Raum umgeschrieben werden und umgekehrt.
 // Der Zugslot ist die Schreibstelle, die den Lockstep-Strom traegt. Er war bisher als
@@ -234,8 +234,10 @@ t('ein v7-Raum wird abgelehnt — der Altbestand kennt weder Modus noch Sollbese
 // wird, was der Client nicht bedienen kann.
 t('ein v9-Raum wird angenommen - der Client bedient beide Familien',
   P.validateRoom(room({ v: 9 })).ok === true);
-t('ein v10-Raum nicht - unbekannte Fassung',
-  P.validateRoom(room({ v: 10 })).ok === false);
+t('ein v10-Raum wird angenommen - dynamische Arena-Besetzung',
+  P.validateRoom(room({ v: 10 })).ok === true);
+t('ein v11-Raum nicht - unbekannte Fassung',
+  P.validateRoom(room({ v: 11 })).ok === false);
 t('und ein v6-Raum ebenso — die verbrannte Nummer teilt sich keinen Raum mit v8',
   P.validateRoom(room({ v: 6 })).ok === false);
 
@@ -311,8 +313,19 @@ t('Rejoin: laufender Football-Raum mit drei bis fuenf Sitzen wird angenommen',
   [3, 4, 5].every(n => P.validateRejoinRoom(fbCfg('lives', n, { state: 'playing', seats: n })).ok === true));
 t('Rejoin: die gemeldete Sitzzahl ist die des Startsignals',
   [3, 4, 5].every(n => P.validateRejoinRoom(fbCfg('lives', n, { state: 'playing', seats: n })).seats === n));
-t('Rejoin: ein Startsignal unterhalb der Sollbesetzung wird abgelehnt',
-  P.validateRejoinRoom(fbCfg('lives', 5, { state: 'playing', seats: 4 })).ok === false);
+t('Rejoin: v9 - ein Startsignal unterhalb der Sollbesetzung wird abgelehnt',
+  P.validateRejoinRoom(fbCfg('lives', 5, { v: 9, state: 'playing', seats: 4 })).ok === false);
+// v10: die Sollbesetzung ist die HOECHSTbesetzung. Ein laufendes Match darf mit zwei bis
+// fuenf eingefrorenen Sitzen zurueckerobert werden - nur mehr als der Raum fasst nicht.
+t('Rejoin: v10 - ein Startsignal unterhalb der Hoechstbesetzung wird angenommen',
+  [2, 3, 4, 5].every(n => P.validateRejoinRoom(fbCfg('lives', 5, { v: 10, state: 'playing', seats: n })).ok === true
+    && P.validateRejoinRoom(fbCfg('lives', 5, { v: 10, state: 'playing', seats: n })).seats === n));
+t('Rejoin: v10 - oberhalb der Hoechstbesetzung nicht',
+  P.validateRejoinRoom(fbCfg('lives', 5, { v: 10, state: 'playing', seats: 6 })).ok === false);
+t('Rejoin: v10 - ein einzelner Sitz ist kein Match',
+  P.validateRejoinRoom(fbCfg('lives', 5, { v: 10, state: 'playing', seats: 1 })).ok === false);
+t('Rejoin: v10 - das Ergebnis traegt die Fassung 10',
+  P.validateRejoinRoom(fbCfg('lives', 5, { v: 10, state: 'playing', seats: 2 })).v === 10);
 t('Rejoin: ein Startsignal oberhalb der Sollbesetzung ebenso',
   P.validateRejoinRoom(fbCfg('lives', 3, { state: 'playing', seats: 4 })).ok === false);
 t('Rejoin: ein Football-Raum mit nur einem Sitz wird abgelehnt',
@@ -351,7 +364,7 @@ t('Rejoin: die Fassung ist der ROHWERT des Raums, nicht die Client-Ausbaustufe',
   P.validateRejoinRoom(room({ v: 8, state: 'playing' })).v !== P.VER
   && P.validateRejoinRoom(fbCfg('lives', 4, { v: 9, state: 'playing', seats: 4 })).v === 9);
 t('Rejoin: unbekannte Fassungen scheitern geschlossen (kein v-Feld, kein ok)',
-  [3, 4, 5, 6, 7, 10, 0, -1, '9', undefined, null].every(v => {
+  [3, 4, 5, 6, 7, 11, 0, -1, '9', '10', undefined, null].every(v => {
     const r = P.validateRejoinRoom(fbCfg('lives', 5, { v, state: 'playing', seats: 5 }));
     return r.ok === false && r.reason === 'noRoom' && !('v' in r);
   }));

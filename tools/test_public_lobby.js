@@ -91,5 +91,25 @@ t('remove: created NaN', view({ created: NaN }).remove === true);
   const a = publicListingView(input, NOW), b = publicListingView(input, NOW);
   t('pure: frozen input, stable result', JSON.stringify(a) === JSON.stringify(b) && a.show === true); }
 
+// v10: der dynamische Arena-Raum (Lives, Hoechstbesetzung 5) ist auffindbar; aeltere
+// Football-Raeume (v8/v9) bleiben unsichtbar, ohne dass ihr Eintrag geraeumt wuerde.
+{
+  const fbCfg = (over) => Object.assign({ game: 'football', winTarget: 3, fmt: 'elimination', visibility: 'public', mode: 'lives', cap: 5 }, over || {});
+  const fb = (v, over) => publicListingView(listRoom(Object.assign({ v, config: fbCfg() }, over || {})), NOW);
+  const v10 = fb(10);
+  t('show: v10 arena lives lobby is listed', v10.show === true && v10.remove === false);
+  t('show: v10 arena capacity is the room maximum (5), mode football', v10.capacity === 5 && v10.active === 1 && v10.mode === 'football');
+  const v9 = fb(9, { config: fbCfg({ cap: 3 }) });
+  t('hide (keep): v9 football room stays unlisted', v9.show === false && v9.remove === false);
+  const v8 = fb(8, { config: fbCfg({ mode: 'classic', cap: 2 }) });
+  t('hide (keep): v8 football room stays unlisted', v8.show === false && v8.remove === false);
+  const p5 = {}; for (let i = 0; i < 5; i++) p5[i] = { s: 'h' + i, on: true, t: 1 };
+  const voll = fb(10, { p: p5 });
+  t('hide (keep): full v10 arena lobby', voll.show === false && voll.remove === false);
+  const drei = fb(10, { p: { 0: p5[0], 1: p5[1], 2: p5[2] } });
+  t('show: v10 arena lobby with 3/5', drei.show === true && drei.active === 3 && drei.capacity === 5);
+  const laeuft = fb(10, { state: 'playing', seats: 3 });
+  t('remove: started v10 arena room', laeuft.show === false && laeuft.remove === true);
+}
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

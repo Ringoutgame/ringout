@@ -518,8 +518,8 @@ abschnitt('Waechter');
   const roh = HTML.slice(HTML.indexOf('// ── DIE SPIELBRUECKE'),
                          HTML.indexOf('// ── V9-REHYDRIERUNG'));
   const bruecke = roh.split(/\r?\n/).filter(z => !/^\s*\/\//.test(z)).join('\n');
-  t('der ausgelieferte Client steht auf 9',
-    /const ONLINE_PROTOCOL_VERSION=9;/.test(HTML));
+  t('der ausgelieferte Client steht auf 10',
+    /const ONLINE_PROTOCOL_VERSION=10;/.test(HTML));
   t('die Bruecke rechnet keinen Hash nach',
     bruecke.indexOf('fbV9Hash') < 0 && bruecke.indexOf('crypto') < 0 &&
     bruecke.indexOf('subtle') < 0);

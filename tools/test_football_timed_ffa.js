@@ -889,7 +889,7 @@ function FFA_LIVES() { return 'lives'; }
 // ══ N. Classic, Tactical und Online bleiben unberuehrt ══════════════════════
 {
   ok(/const FOOTBALL_FMTS=\['elimination'\];/.test(HTML), 'FOOTBALL_FMTS unveraendert');
-  ok(/const ONLINE_PROTOCOL_VERSION=9;/.test(HTML), 'Protokollversion des Clients ist v9 - v8-Raeume bleiben ueber den Zugslot bedienbar');
+  ok(/const ONLINE_PROTOCOL_VERSION=10;/.test(HTML), 'Protokollversion des Clients ist v10 - v8-Raeume bleiben ueber den Zugslot bedienbar');
   const ffaBlock = grab(/const FOOTBALL_ELIM_RULES_LIVES='lives';[\s\S]*?\nfunction fbFfaResolve\(imTor\)\{[\s\S]*?\n\}/, 'Timed-FFA-Block');
   // Kommentare zaehlen nicht: der Block ERWAEHNT online, um zu sagen, dass es dort diese
   // Regel nicht gibt. Geprueft wird der Code.

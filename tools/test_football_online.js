@@ -767,7 +767,7 @@ function makeClient(db, code, opts) {
     }
     const localStorage={getItem(){return null;},setItem(){},removeItem(){}};
     const performance={now(){return 0;}};
-    ${SRC}
+    ${opts.ver === 10 ? SRC.split('const ONLINE_PROTOCOL_VERSION=8;').join('const ONLINE_PROTOCOL_VERSION=10;').split('let roomProto=8;').join('let roomProto=0;') : SRC}
     // ── Steuerpult dieses Clients ──
     return {
       ui, uid:${JSON.stringify(uid)}, pid:onlinePid, tab:onlineTab,
@@ -3879,6 +3879,61 @@ async function eliminateSeat(db, cs, seat, maxRounds) {
       cs[0].hash() === cs[1].hash(), [cs[0].hash(), cs[1].hash()]);
   }
 }
+
+  // ── (V10) DYNAMISCHE BESETZUNG: ein Fuenf-Sitz-Raum, Start mit 2-5 ─────────────
+  // Dieser Sandkasten faehrt einen v10-Client (ONLINE_PROTOCOL_VERSION=10): die
+  // Lebensregel legt den dynamischen FFA-Raum an - config.cap ist die Hoechstbesetzung
+  // (5), seats die beim Start eingefrorene Besetzung. Der Startknopf ist ab zwei frei.
+  {
+    const db = makeDB();
+    const cs = [];
+    for (let i = 0; i < 6; i++) cs.push(makeClient(db, 'DYNA', { name: 'D' + (i + 1), ver: 10 }));
+    // DER FUENF-SPIELER-FEHLER: eine seitenweit ueberlebende Auswahl "3 Spieler"
+    // (fbOnlineCap=3) darf keinen Dreierraum mehr anlegen.
+    cs[0].enterFootball('lives', 3); cs[0].create(); await tick(db);
+    const room = db.data.rooms.DYNA;
+    t('V10 der Raum traegt die Fassung 10', room && room.v === 10, room && room.v);
+    t('V10 trotz Altlast "3 Spieler" ein Fuenf-Sitz-Raum (Ursache des Cap=3-Fehlers geschlossen)',
+      room.config.cap === 5 && room.config.mode === 'lives');
+    t('V10 allein ist der Startknopf gesperrt', cs[0].lobbyStartDisabled() === true);
+    cs[0].start(); await tick(db, 20);
+    t('V10 und allein wird kein Startsignal geschrieben', db.data.rooms.DYNA.state === 'lobby' && db.data.rooms.DYNA.seats === undefined);
+    cs[1].join('DYNA'); await tick(db);
+    t('V10 bei 2/5 ist der Startknopf frei', cs[0].lobbyStartDisabled() === false);
+    t('V10 die Lobby zaehlt 2/5', cs[0].lobbyCount() === '2/5', cs[0].lobbyCount());
+    cs[2].join('DYNA'); await tick(db); cs[3].join('DYNA'); await tick(db); cs[4].join('DYNA'); await tick(db);
+    t('V10 der fuenfte Spieler kommt herein', cs[4].st().online === true && cs[4].st().myPlayer === 4, cs[4].st());
+    t('V10 fuenf Sitze belegt', Object.keys(db.data.rooms.DYNA.players).length === 5);
+    cs[5].join('DYNA'); await tick(db);
+    t('V10 ein sechster wird abgewiesen', cs[5].st().online === false && Object.keys(db.data.rooms.DYNA.players).length === 5, cs[5].status());
+    t('V10 bei 5/5 ist der Startknopf frei', cs[0].lobbyStartDisabled() === false);
+    cs[0].start(); await tick(db);
+    t('V10 Start mit fuenf friert seats=5 ein', db.data.rooms.DYNA.state === 'playing' && db.data.rooms.DYNA.seats === 5);
+    for (const c of cs) c.drop();
+  }
+  for (const n of [2, 3, 4]) {
+    const db = makeDB(); const code = 'DYN' + ['B', 'C', 'D'][n - 2];
+    const cs = [];
+    for (let i = 0; i < n; i++) cs.push(makeClient(db, code, { name: 'N' + i, ver: 10 }));
+    cs[0].enterFootball(); cs[0].create(); await tick(db);
+    for (let i = 1; i < n; i++) { cs[i].join(code); await tick(db); }
+    t('V10 (' + n + ') Startknopf frei', cs[0].lobbyStartDisabled() === false);
+    cs[0].start(); await tick(db);
+    const r = db.data.rooms[code];
+    t('V10 (' + n + ') seats=' + n + ' eingefroren, cap bleibt 5', r.seats === n && r.config.cap === 5 && r.state === 'playing', r.seats);
+    const spaet = makeClient(db, code, { name: 'SPAET', ver: 10 }); spaet.join(code); await tick(db);
+    t('V10 (' + n + ') ein spaeter Beitritt bleibt draussen', spaet.st().online === false || spaet.st().myPlayer >= n, spaet.st());
+    t('V10 (' + n + ') kein Geistersitz', Object.keys(r.players).length === n);
+    const S = cs.map(c => c.st());
+    t('V10 (' + n + ') alle Clients im Match', S.every(s => s.gameStarted === true), S.map(s => s.gameStarted).join(','));
+    t('V10 (' + n + ') Kugeln = Spieler + Ball', S.every(s => s.ballN === n + 1), S.map(s => s.ballN).join(','));
+    t('V10 (' + n + ') aktive Sitze 0..' + (n - 1), S.every(s => s.active.length === n && s.active.every(Boolean)), JSON.stringify(S[0].active));
+    t('V10 (' + n + ') zwei Leben je Sitz', S.every(s => s.lives.length === n && s.lives.every(l => l === 2)), JSON.stringify(S[0].lives));
+    t('V10 (' + n + ') Arenaphase ' + n, S.every(s => s.phaseN === n), S.map(s => s.phaseN).join(','));
+    t('V10 (' + n + ') Torslots 0..' + (n - 1), S.every(s => s.slots.join(',') === [...Array(n).keys()].join(',')), JSON.stringify(S[0].slots));
+    t('V10 (' + n + ') derselbe Modus - Lebensregel, kein Classic', S.every(s => s.mode === 'football' && s.fmt === 'elimination'));
+    spaet.drop(); for (const c of cs) c.drop();
+  }
 
 console.log('\nFootball-Online: ' + pass + ' passed, ' + fail + ' failed');
   process.exit(fail ? 1 : 0);

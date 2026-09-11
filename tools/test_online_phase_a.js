@@ -115,8 +115,8 @@ const R = new Function(`
      'und die Rueckkehr ebenso');
   // Die oeffentliche Raumliste zeigt Football-Raeume ohnehin nicht.
   const plv = grab(/function publicListingView\(d,now\)\{[\s\S]*?\n\}/, 'publicListingView');
-  ok(/if\(roomIsFootball\(cfg\)\)return\{show:false,remove:false\};/.test(plv),
-     'und die oeffentliche Liste fuehrt gar keinen Football-Raum');
+  ok(/if\(roomIsFootball\(cfg\)&&d\.v!==10\)return\{show:false,remove:false\};/.test(plv),
+     'und die oeffentliche Liste fuehrt nur den dynamischen v10-Arena-Raum, keinen aelteren Football-Raum');
   for (const lang of [/onModeLocked:'This online mode is not released yet\.'/,
                       /onModeLocked:'Dieser Onlinemodus ist noch nicht freigegeben\.'/,
                       /onModeLocked:'Bu çevrimiçi mod henüz yayında değil\.'/])
@@ -181,9 +181,9 @@ const R = new Function(`
      'die Lobby zeigt beigetreten/erforderlich');
   ok(/modeEl\.textContent=mo\?/.test(lob) && /fbLobbyMode\(\)/.test(lob),
      'und den Modus des Raums');
-  ok(/const soll=fbLobbyCap\(\);/.test(lob) && /const bereit=team2\?\(blau===2&&rot===2\):\(n===soll&&!gap\);/.test(lob),
-     'der Startknopf oeffnet NUR bei genau der Sollbesetzung');
-  ok(/n<soll\?fbWaitText\(n,soll\)/.test(lob),
+  ok(/const soll=fbLobbyCap\(\);/.test(lob) && /const bereit=team2\?\(blau===2&&rot===2\):\(dyn\?\(n>=FB_DYN_MIN_START&&n<=soll&&!gap\):\(n===soll&&!gap\)\);/.test(lob),
+     'der Startknopf oeffnet bei v8/v9 NUR bei genau der Sollbesetzung - im v10-Raum ab zwei');
+  ok(/n<\(dyn\?FB_DYN_MIN_START:soll\)\?fbWaitText\(n,dyn\?FB_DYN_MIN_START:soll\)/.test(lob),
      'und der Hinweis nennt, wie viele fehlen');
   // Der Wartetext ist eine Aussage, kein Platzhalter.
   const W = new Function(`${grab(/function fbWaitText\(n,soll\)\{[\s\S]*?\n\}/, 'fbWaitText')}
@@ -526,9 +526,8 @@ const R = new Function(`
      'und der Aufraeumpfad raeumt genau diesen Sitz ab - kein Waisenraum');
   ok(/let dc=null, code='', created=false, listed=false, wirtSitz=0;/.test(cr),
      'wirtSitz lebt ausserhalb des try - sonst saehe der catch ihn nicht');
-  ok(/if\(visibility==='public'&&!fbo\)\{/.test(cr),
-     'ein Football-Raum schreibt keinen oeffentlichen Eintrag - die Liste zeigt ihn ohnehin nie, '
-     + 'und dessen Regel haengt an p/0');
+  ok(/if\(visibility==='public'&&\(!fbo\|\|roomProto===10\)\)\{/.test(cr),
+     'nur der dynamische v10-Arena-Raum schreibt einen oeffentlichen Eintrag - aeltere Football-Raeume nicht');
 
   // Die Raumpruefungen verlangen die Kennung und geben sie weiter.
   const vr2 = grab(/function validateRoom\(d\)\{[\s\S]*?\n\}/, 'validateRoom');
@@ -628,7 +627,7 @@ const R = new Function(`
 // Das ist die wichtigste Zusicherung dieser Phase. v8 aendert Raumkopf und Lobby;
 // die Bedeutung von g/<gen>/t/<turn>/<seat> bleibt exakt die von v7.
 {
-  ok(/const ONLINE_PROTOCOL_VERSION=9;/.test(HTML), 'die Protokollversion ist 9');
+  ok(/const ONLINE_PROTOCOL_VERSION=10;/.test(HTML), 'die Protokollversion ist 10');
   const send = grab(/function onlineSendCommit\(idx,fx,fy,spin\)\{[\s\S]*?\n\}/, 'onlineSendCommit');
   ok(/writeTurnSlot\(myPlayer,\{k:TURN_MOVE,idx:myPlayer,dx:fx,dy:fy,sp:spin\|\|0\}\)/.test(send),
      'der Zug geht unveraendert als {k,idx,dx,dy,sp} in den Slot');
@@ -661,8 +660,8 @@ const R = new Function(`
   // Die Rules tragen seit V9.1 die v9-Grundlage. Der CLIENT tut es ausdruecklich nicht:
   // er steht auf Protokoll 8, kennt keinen der neuen Pfade und kann folglich keinen
   // v9-Raum anlegen oder betreten. Genau das ist die Trennung, die diese Stufe schuetzt.
-  ok(/const ONLINE_PROTOCOL_VERSION=9;/.test(HTML),
-     'der freigegebene Client steht unveraendert auf Protokoll 8');
+  ok(/const ONLINE_PROTOCOL_VERSION=10;/.test(HTML),
+     'der ausgelieferte Client steht auf Protokoll 10');
   for (const pfad of ["/d/'", "/c/'", "'d/'", "'c/'"])
     ok(HTML.indexOf("g/'+ctx.gen+'" + pfad) < 0,
        'der Client schreibt keinen v9-Pfad: ' + pfad);

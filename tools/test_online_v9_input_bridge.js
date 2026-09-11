@@ -700,7 +700,7 @@ abschnitt('V8: die alten Sentinelwege arbeiten unveraendert');
 // ══ DIE RUHE ═════════════════════════════════════════════════════════════════
 abschnitt('Der ausgelieferte Client bleibt auf Protokoll 8');
 {
-  t('37. ONLINE_PROTOCOL_VERSION ist 9', /const ONLINE_PROTOCOL_VERSION=9;/.test(HTML));
+  t('37. ONLINE_PROTOCOL_VERSION ist 10', /const ONLINE_PROTOCOL_VERSION=10;/.test(HTML));
   // Genau zwei Vorkommen: die Definition und der EINE Aufruf in applyCommit. Faende sich
   // ein dritter, gaebe es einen zweiten v8-Transportweg, den diese Weiche nicht abdeckt.
   t('    onlineSendCommit hat genau EINEN Aufrufer - applyCommit',

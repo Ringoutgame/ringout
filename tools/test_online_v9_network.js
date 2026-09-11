@@ -415,8 +415,8 @@ abschnitt('Die vier Fristschliesser');
 // ══ QUELLTEXT-WAECHTER ═══════════════════════════════════════════════════════
 abschnitt('Waechter: der Adapter ruht');
 {
-  t('der ausgelieferte Client steht auf Protokoll 9',
-    /const ONLINE_PROTOCOL_VERSION=9;/.test(HTML));
+  t('der ausgelieferte Client steht auf Protokoll 10',
+    /const ONLINE_PROTOCOL_VERSION=10;/.test(HTML));
   const start = HTML.indexOf('const FB_V9_PREIMAGE_BYTES=60');
   // Der ruhende v9-Bereich endet seit V9.3B2B hinter der Ablaufsteuerung.
   const ende = HTML.indexOf('// ════ ENDE V9-SPIELANBINDUNG ════');

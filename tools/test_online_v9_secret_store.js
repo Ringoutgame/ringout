@@ -349,8 +349,8 @@ abschnitt('Waechter');
   const q = HTML.slice(HTML.indexOf('const FB_V9_STORE_PREFIX'), ENDE);
   const code = q.split(NL).map(z => { const k = z.indexOf('//');
     return k >= 0 ? z.slice(0, k) : z; }).join(NL);
-  t('der ausgelieferte Client steht auf Protokoll 9',
-    /const ONLINE_PROTOCOL_VERSION=9;/.test(HTML));
+  t('der ausgelieferte Client steht auf Protokoll 10',
+    /const ONLINE_PROTOCOL_VERSION=10;/.test(HTML));
   t('der Speicher benutzt sessionStorage', code.indexOf('sessionStorage') > 0);
   t('und ausdruecklich KEIN localStorage', code.indexOf('localStorage') < 0);
   t('und kein IndexedDB', code.indexOf('indexedDB') < 0 && code.indexOf('IDBFactory') < 0);

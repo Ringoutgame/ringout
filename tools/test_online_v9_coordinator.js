@@ -908,8 +908,8 @@ abschnitt('Erschoepfte Wiederholungen bleiben erschoepft');
 abschnitt('Waechter: die Steuerung ruht');
 {
   const NL = String.fromCharCode(10);
-  t('der ausgelieferte Client steht auf Protokoll 9',
-    /const ONLINE_PROTOCOL_VERSION=9;/.test(HTML));
+  t('der ausgelieferte Client steht auf Protokoll 10',
+    /const ONLINE_PROTOCOL_VERSION=10;/.test(HTML));
   // SEIT V9.4C ruft das Spiel an genau zwei Stellen in den ruhenden Bereich hinein:
   // beim Rundenbeginn und am Settlement. Dazu kommt das Abraeumen an den bestehenden
   // Grenzen. Mehr darf es nicht sein - und genau das wird hier gezaehlt, statt jede
