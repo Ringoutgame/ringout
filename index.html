@@ -164,6 +164,9 @@ body.fbctx .mdot.on{background:linear-gradient(90deg,var(--fbac-hi),#a8c1d8)}
 /* Schnellaktionen, Raumliste und How-to erklaeren bzw. erzeugen RingOut. Im
    Football-Kontext waeren sie unwahr - also stehen sie dort nicht. */
 body.fbctx .roOnly{display:none!important}
+/* Das Gegenstueck: Abschnitte, die es NUR in Arena Football gibt. */
+.fbOnly{display:none}
+body.fbctx .fbOnly{display:block}
 
 body.fbctx .mcta{color:#152534;text-shadow:0 1px 0 rgba(236,246,255,.55);
   background:linear-gradient(180deg,#e4eff9 0%,#c6d9e9 44%,#a5bed4 56%,#7a94ac 100%);
@@ -1010,6 +1013,16 @@ body.fbctx .proom .pr-game{color:#cfe0ef}
    <div class="msec roOnly"><span id="secRoomsT">ONLINE ROOMS</span><i class="hr"></i><button class="mlink" id="homeViewAll"><span id="viewAllT">VIEW ALL</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></button></div>
    <div id="homeRoomsList" class="roOnly"></div>
    <div id="homeRoomsState" class="mstate roOnly"></div>
+
+   <!-- ARENA FOOTBALL: offene Raeume direkt auf der ersten Seite. Wer mitspielen will,
+        soll einen offenen Raum sehen, ohne vorher die Karte des richtigen Modus zu
+        oeffnen. Gespeist wird der Abschnitt aus DERSELBEN Quelle wie die Liste der
+        Online-Seite und die RingOut-Vorschau - ein Listener, drei Ziele. -->
+   <div id="fbRooms" class="fbOnly">
+    <div class="msec"><span id="secFbRoomsT">OPEN ROOMS</span><i class="hr"></i></div>
+    <div id="fbRoomsList"></div>
+    <div id="fbRoomsState" class="mstate"></div>
+   </div>
 
    <!-- HOW TO PLAY: kompakte Zeile; klappt die bestehenden 3 Schritte auf/zu -->
    <button class="howrow roOnly" id="howToggle" type="button" aria-expanded="false" aria-controls="howPanel">
@@ -2602,6 +2615,7 @@ function applyLang(){
   document.querySelector('#cardBot .msub').textContent=T('botS');
   // Home-Sektionen + Online-Rooms-Vorschau + How-to (Klassen: Home UND Online-Seite)
   $('secPlayT').textContent=T('secPlay');$('secRoomsT').textContent=T('secRooms');
+  $('secFbRoomsT').textContent=T('pubTitle');
   $('secHowT').textContent=T('secHow');$('onHowLbl').textContent=T('secHow');
   $('viewAllT').textContent=T('viewAll');$('homeCreateT').textContent=T('createRoom');
   $('homeJoinT').textContent=T('joinCodeBtn');$('howLeadT').textContent=T('howLead');
@@ -3071,7 +3085,7 @@ function updScrollHint(){
   // bleiben muessen - Moduskarten, CTA, Schnellaktionen, Raumliste, Ausbau-Slot.
   h.classList.toggle('show',show&&!scrollHintKollision(h));
 }
-const SCROLL_HINT_FREI=['#ctaBtn','.mquick','.qrejoin','.soon','#homeRoomsList','#roCards','#fbCards','#howToggle'];
+const SCROLL_HINT_FREI=['#ctaBtn','.mquick','.qrejoin','.soon','#homeRoomsList','#fbRoomsList','#roCards','#fbCards','#howToggle'];
 function scrollHintKollision(h){
   const a=h.getBoundingClientRect();
   for(const sel of SCROLL_HINT_FREI)for(const e of document.querySelectorAll(sel)){
@@ -9085,8 +9099,8 @@ function publicRoomUnwatch(){
 }
 // Zwei Render-Ziele, EIN Listener: die volle Liste auf der Online-Seite und die
 // Home-Vorschau (max. 3 Zeilen) auf der Startseite werden immer gemeinsam bedient.
-function setPublicState(msg){ for(const id of ['onPublicState','homeRoomsState']){ const el=$(id); if(el)el.textContent=msg||''; } }
-function clearPublicRows(){ for(const id of ['onPublicList','homeRoomsList']){ const el=$(id); if(el)el.textContent=''; } }
+function setPublicState(msg){ for(const id of ['onPublicState','homeRoomsState','fbRoomsState']){ const el=$(id); if(el)el.textContent=msg||''; } }
+function clearPublicRows(){ for(const id of ['onPublicList','homeRoomsList','fbRoomsList']){ const el=$(id); if(el)el.textContent=''; } }
 function startPublicListing(){
   if(!fbReady())return;
   stopPublicListing();               // never stack two listeners
@@ -9128,24 +9142,41 @@ const ROOM_FOOTBALL_ICON='<svg viewBox="0 0 24 24" fill="none" stroke="currentCo
 // Die RingOut-Moduskarten des Hubs sind Bildkarten (kein SVG mehr) - ein schlichter Ring
 // mit Kugel als Medaillon, damit die Zeile nie leer bleibt.
 const ROOM_RINGOUT_ICON='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5.2" stroke-dasharray="2.6 2.2"/><circle cx="12" cy="12" r="2" fill="currentColor" stroke="none"/></svg>';
-function roomModeIcon(mode){
-  if(mode==='football')return ROOM_FOOTBALL_ICON;
-  const el=$(ROOM_MODE_CARD[mode]||'cardFfa');
+function roomModeIcon(view){
+  if(view.football)return ROOM_FOOTBALL_ICON;
+  const el=$(ROOM_MODE_CARD[view.mode]||'cardFfa');
   const svg=el&&el.querySelector('.mic svg');
   return svg?svg.outerHTML:ROOM_RINGOUT_ICON;
 }
+// Der Modusname, wie ein Mensch ihn kennt - EINE Stelle fuer beide Spiele. Innen heisst
+// der Arena-Modus 'lives'; auf dem Bildschirm heisst er FFA, und das steht im
+// Sprachregister, nicht hier. Ein kuenftiger Modus bekommt seine Beschriftung damit
+// automatisch aus demselben Register wie seine Moduskarte.
+function roomModeLabel(view){
+  if(view.football){
+    const d=(typeof fbModeDef==='function')?fbModeDef(view.mode):null;
+    return d?T(d.key):'ARENA FOOTBALL';
+  }
+  return PUB_MODE_LABEL[view.mode]||view.mode;
+}
 // Die Zeile nennt ihr Spiel ausdruecklich - Eigennamen, keine Uebersetzung.
 function roomGameLabel(game){ return game===ROOM_GAME_FOOTBALL?'ARENA FOOTBALL':'RING OUT'; }
-// Den Onlinebildschirm fuer das Spiel EINER Zeile oeffnen (Beitritt aus der Home-Vorschau):
-// derselbe Einstieg, den auch das Menue benutzt - kein zweiter Weg.
-function openOnlineForGame(game){
-  if(game===ROOM_GAME_FOOTBALL){ fbOnlineMode=FB_ONLINE_MODE_LIVES; fbOnlineEnter(); return; }
+// Den Onlinebildschirm fuer EINE Zeile oeffnen (Beitritt aus einer Vorschau): derselbe
+// Einstieg, den auch das Menue benutzt - kein zweiter Weg. Mitgegeben wird der Modus DES
+// RAUMS; ihn hier auf FFA zu setzen waere genau die Vorentscheidung, die diese Seite
+// abschaffen soll. (Beim Beitritt gilt ohnehin die Konfiguration des Raums - die
+// Modusvariable stellt nur den Bildschirm, auf dem Status und Fehler sichtbar werden.)
+function openOnlineForRoom(view){
+  if(view.game===ROOM_GAME_FOOTBALL){
+    fbOnlineMode=(typeof fbModeValid==='function'&&fbModeValid(view.mode))?view.mode:FB_ONLINE_MODE_LIVES;
+    fbOnlineEnter(); return;
+  }
   setzeVorspiel('ffa','ffa'); openOnline();
 }
 const HOME_ROOMS_MAX=3;   // Home-Vorschau bewusst kompakt — volle Liste auf der Online-Seite
-function buildRoomRow(code,view,fromHome){
+function buildRoomRow(code,view,ausDemMenue){
   const row=document.createElement('div'); row.className='proom';
-  const prev=document.createElement('div'); prev.className='pr-prev'; prev.innerHTML=roomModeIcon(view.mode);
+  const prev=document.createElement('div'); prev.className='pr-prev'; prev.innerHTML=roomModeIcon(view);
   const dot=document.createElement('span'); dot.className='pr-dot';
   const main=document.createElement('div'); main.className='pr-main';
   // Erste Zeile: das Spiel, dem der Raum gehoert. Zweite Zeile: Host links, Modus und
@@ -9155,14 +9186,21 @@ function buildRoomRow(code,view,fromHome){
   const host=document.createElement('div'); host.className='pr-host';
   host.textContent=sanitizeName(view.host)||T('namePlayer');   // textContent -> XSS-safe
   const meta=document.createElement('div'); meta.className='pr-meta';
-  meta.textContent=(view.mode==='football'?T('onModeLives'):(PUB_MODE_LABEL[view.mode]||view.mode))+' · '+view.active+'/'+view.capacity;
+  meta.textContent=roomModeLabel(view)+' · '+view.active+'/'+view.capacity;
   line.appendChild(host); line.appendChild(meta);
   main.appendChild(game); main.appendChild(line);
   const btn=document.createElement('button'); btn.className='pr-join'; btn.type='button';
   btn.textContent=T('pubJoin');
-  // Home-Join: erst die Online-Seite des RICHTIGEN Spiels oeffnen (Status/Fehler sichtbar),
-  // dann der unveraenderte joinPublicRoom->joinRoom-Pfad — keine zweite Join-Implementierung.
-  btn.onclick=fromHome?()=>{openOnlineForGame(view.game);joinPublicRoom(code);}:()=>joinPublicRoom(code);
+  // Der Knopf nennt, wohin er fuehrt - ein Bildschirmleser liest sonst viermal "Join".
+  // Genannt wird, was ein Mensch wissen will: wessen Raum, welcher Modus, wie voll.
+  // Nichts Technisches.
+  btn.setAttribute('aria-label',
+    T('pubJoin')+' · '+(sanitizeName(view.host)||T('namePlayer'))+' · '
+    +roomModeLabel(view)+' · '+view.active+'/'+view.capacity);
+  // Beitritt aus einer Vorschau: erst die Online-Seite des RICHTIGEN Raums oeffnen
+  // (Status/Fehler sichtbar), dann der unveraenderte joinPublicRoom->joinRoom-Pfad —
+  // keine zweite Join-Implementierung, keine eigene Sitzvergabe.
+  btn.onclick=ausDemMenue?()=>{openOnlineForRoom(view);joinPublicRoom(code);}:()=>joinPublicRoom(code);
   wireBtnFx(btn,true);
   row.appendChild(prev); row.appendChild(dot); row.appendChild(main); row.appendChild(btn);
   return row;
@@ -9171,13 +9209,20 @@ function buildRoomRow(code,view,fromHome){
 // die Home-Vorschau (RingOut-Startseite) nur RingOut-Raeume. Die Auffindbarkeit darunter
 // (publicRooms, ein Listener) bleibt fuer beide Spiele dieselbe.
 function renderPublicRows(shown){
-  const list=$('onPublicList'),home=$('homeRoomsList');
+  const list=$('onPublicList'),home=$('homeRoomsList'),fb=$('fbRoomsList');
   const spiel=onlineKontextSpiel();
   const fuerListe=shown.filter(r=>r.view.game===spiel), fuerHome=shown.filter(r=>r.view.game===ROOM_GAME_RINGOUT);
+  // Die Arena-Football-Startseite zeigt ALLE spielbaren Arena-Football-Raeume. Gefiltert
+  // wird nach dem SPIEL - welcher Modus dahintersteht, hat die Zulassung oben schon
+  // entschieden. Nicht gekappt: ohne einen "alle anzeigen"-Weg waere jede Kappung ein
+  // Raum, den jemand nicht findet; die Quelle selbst liefert hoechstens dreissig.
+  const fuerFb=shown.filter(r=>r.view.game===ROOM_GAME_FOOTBALL);
   if(list){ list.textContent=''; for(const {code,view} of fuerListe)list.appendChild(buildRoomRow(code,view,false)); }
   if(home){ home.textContent=''; for(const {code,view} of fuerHome.slice(0,HOME_ROOMS_MAX))home.appendChild(buildRoomRow(code,view,true)); }
+  if(fb){ fb.textContent=''; for(const {code,view} of fuerFb)fb.appendChild(buildRoomRow(code,view,true)); }
   const st=$('onPublicState'); if(st)st.textContent=fuerListe.length?'':T('pubEmpty');
   const hs=$('homeRoomsState'); if(hs)hs.textContent=fuerHome.length?'':T('pubEmpty');
+  const fs=$('fbRoomsState'); if(fs)fs.textContent=fuerFb.length?'':T('pubEmpty');
 }
 // Public join: hand ONLY the room code to the existing joinRoom() path — no second
 // join implementation. The room is re-read and validated there, the seat arbiter is
@@ -11882,30 +11927,60 @@ const ROOM_MAX_AGE_MS=7200000;   // 2h — older public rooms are never shown or
 //   remove : listing is objectively stale/invalid -> best-effort delete is allowed
 //   host/mode/active/capacity: display fields, only meaningful when show===true
 // The displayed player count is NEVER authoritative — the seat arbiter decides the join.
+// Welche Raumfassungen darf der Auffindbarkeits-Index fuehren? Genau die Menge, die
+// auch die Rules fuer publicRooms/<code> zulassen. v9 fehlt darin mit Absicht: fuer
+// diese Fassung gab es nie einen Produktweg, der einen oeffentlichen Raum anlegt.
+// Steht hier je eine neue Fassung an, gehoeren beide Stellen zusammen geaendert.
+function roomListable(v){ return v===4||v===5||v===6||v===7||v===8||v===10||v===11; }
 function publicListingView(d,now){
   // Room gone or structurally broken -> never show; listing is stale (safe to remove).
   if(!d||typeof d!=='object')return{show:false,remove:true};
   if(!fbRaumFassungOk(d.v))return{show:false,remove:true};
+  // Eine Fassung, die dieser Client zwar spielt, die der Index aber nicht fuehren darf,
+  // wird verborgen - nicht geraeumt: der Eintrag ist nicht das Problem, er kann dort
+  // gar nicht rechtmaessig entstanden sein.
+  if(!roomListable(d.v))return{show:false,remove:false};
   const cfg=d.config;
   if(!cfg||typeof cfg!=='object'||cfg.visibility!=='public')return{show:false,remove:true};
   if(!validGamePair(cfg.game,cfg.fmt))return{show:false,remove:true};
-  // Football-Raeume erscheinen (noch) nicht in der oeffentlichen Lobby: es gibt keinen
-  // Produktweg, der sie erzeugt. Die Zeile ist die Absicherung, nicht die Absicht.
-  // v10: der dynamische Arena-Raum ist auffindbar (Rules: publicRooms fuer v10). Aeltere
-  // Football-Raeume bleiben unsichtbar - fuer sie gibt es weiterhin keinen Produktweg.
-  if(roomIsFootball(cfg)&&d.v!==10)return{show:false,remove:false};
+  const fbo=roomIsFootball(cfg);
+  // Ein Raum erscheint nur, wenn sein MODUS wirklich spielbar ist. Ein gesperrter Modus
+  // bleibt unsichtbar, egal welche Fassung sein Raum traegt - und ein kuenftiger, dann
+  // freigegebener Modus erscheint, ohne dass diese Zeile noch einmal angefasst wird.
+  // Welche Fassungen dieser Client ueberhaupt bedient, steht bereits weiter oben
+  // (fbRaumFassungOk); hier geht es allein um die Frage, ob ein Mensch mitspielen kann.
+  if(fbo&&!(typeof fbModeReleased==='function'&&fbModeReleased(cfg.mode)))return{show:false,remove:false};
   if(!Number.isFinite(d.created)||(now-d.created)>=ROOM_MAX_AGE_MS)return{show:false,remove:true};
   if(d.state!=='lobby')return{show:false,remove:true};   // match started/finished -> stale
   // From here the listing itself is valid; it is only HIDDEN (not removed) for transient
   // reasons that may recover: a host reload, or a currently full room.
   const p=d.p;
-  if(!(p&&p[0]&&p[0].on===true))return{show:false,remove:false};   // host offline (maybe reloading)
-  const capacity=roomIsFootball(cfg)?roomSeatCap(cfg):cfg.fmt==='ffa'?FFA_MAX_SEATS:cfg.fmt==='triple_ffa'?3:cfg.fmt==='team_duel'?4:2;
-  let active=0; for(let s=0;s<capacity;s++)if(p&&p[s]&&p[s].on===true)active++;
+  const capacity=fbo?roomSeatCap(cfg):cfg.fmt==='ffa'?FFA_MAX_SEATS:cfg.fmt==='triple_ffa'?3:cfg.fmt==='team_duel'?4:2;
+  let active=0, ersterDa=-1;
+  for(let s=0;s<capacity;s++)if(p&&p[s]&&p[s].on===true){ active++; if(ersterDa<0)ersterDa=s; }
+  // Wer haelt den Raum offen? Bis v10 war das Sitz 0 - ohne ihn gab es den Raum nicht
+  // mehr. Ab v11 ueberlebt der Raum seinen Gruender, und dann zaehlt jeder verbundene
+  // Sitz. Dieselbe Unterscheidung treffen die Rules ueber den Listeneintrag.
+  const bleibend=(d.v===11);
+  if(bleibend?active===0:!(p&&p[0]&&p[0].on===true))return{show:false,remove:false};   // niemand da (vielleicht ein Neuladen)
   if(active>=capacity)return{show:false,remove:false};             // full -> hide, may free up
   const players=d.players;
-  const host=(players&&players[0]&&typeof players[0].name==='string')?players[0].name:'';
-  return{show:true,remove:false,host:host,game:roomGame(cfg),mode:roomIsFootball(cfg)?'football':cfg.fmt,active:active,capacity:capacity};
+  // Der angezeigte Name gehoert dem AKTUELLEN Wirt. In v11 wandert die Rolle; steht
+  // dort noch der Gruender, waere die Zeile falsch. Findet sich kein eingetragener
+  // Wirt, nennt die Zeile den niedrigsten verbundenen Sitz - irgendjemand haelt den
+  // Raum ja offen.
+  let wirt=0;
+  if(bleibend){
+    wirt=-1;
+    if(typeof d.hostUid==='string'&&d.hostUid)
+      for(let s=0;s<capacity;s++)if(players&&players[s]&&players[s].uid===d.hostUid&&p&&p[s]&&p[s].on===true){ wirt=s; break; }
+    if(wirt<0)wirt=ersterDa;
+  }
+  const host=(players&&players[wirt]&&typeof players[wirt].name==='string')?players[wirt].name:'';
+  // Der Modus des RAUMS wird durchgereicht, nicht das Spiel. Beschriftet wird er eine
+  // Stufe weiter (roomModeLabel) - hier wird nichts uebersetzt.
+  return{show:true,remove:false,host:host,game:roomGame(cfg),football:fbo,
+         mode:fbo?(cfg.mode||''):cfg.fmt,active:active,capacity:capacity};
 }
 // Start-Gate-Helfer (pure, Node-getestet). Belegte Seats muessen lueckenlos 0..n-1
 // sein, sonst wartet der Lockstep ewig auf einen leeren Seat (Geister-Spieler).

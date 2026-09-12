@@ -113,10 +113,13 @@ const R = new Function(`
   const vj = grab(/function validateRejoinRoom\(d\)\{[\s\S]*?\n\}/, 'validateRejoinRoom');
   ok(/if\(!modeReachable\(cfg\)\)return\{ok:false,reason:'noRoom'\};/.test(vj),
      'und die Rueckkehr ebenso');
-  // Die oeffentliche Raumliste zeigt Football-Raeume ohnehin nicht.
+  // Die oeffentliche Raumliste haengt am MODUS, nicht an einer Fassungsnummer: ein
+  // gesperrter Modus erscheint nie, ein freigegebener immer - ganz gleich, welche
+  // Protokollfassung sein Raum traegt. Damit ist die Liste nicht auf FFA gebaut.
   const plv = grab(/function publicListingView\(d,now\)\{[\s\S]*?\n\}/, 'publicListingView');
-  ok(/if\(roomIsFootball\(cfg\)&&d\.v!==10\)return\{show:false,remove:false\};/.test(plv),
-     'und die oeffentliche Liste fuehrt nur den dynamischen v10-Arena-Raum, keinen aelteren Football-Raum');
+  ok(/if\(fbo&&!\(typeof fbModeReleased===.function.&&fbModeReleased\(cfg\.mode\){2}\)return\{show:false,remove:false\};/.test(plv)
+     && plv.indexOf('d.v!==10') < 0,
+     'und die oeffentliche Liste fuehrt jeden Raum eines FREIGEGEBENEN Modus - und keinen gesperrten');
   for (const lang of [/onModeLocked:'This online mode is not released yet\.'/,
                       /onModeLocked:'Dieser Onlinemodus ist noch nicht freigegeben\.'/,
                       /onModeLocked:'Bu çevrimiçi mod henüz yayında değil\.'/])

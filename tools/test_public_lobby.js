@@ -17,10 +17,15 @@ const protoSrc = grab(html, /const ROOM_GAME_RINGOUT=[\s\S]*?\nfunction validate
 const fassungSrc = grab(html, /function fbRaumFassungOk\(v\)\{[^\n]*\}/, 'fbRaumFassungOk');
 const vrSrc = grab(html, /function validateRoom\(d\)\{[\s\S]*?\n\}/, 'validateRoom');
 const plvSrc = grab(html, /function publicListingView\(d,now\)\{[\s\S]*?\n\}/, 'publicListingView');
+// 01B: welche Fassungen der Auffindbarkeits-Index ueberhaupt fuehren darf. Das
+// Modusregister (FB_ONLINE_MODES, fbModeDef, fbModeReleased) steckt bereits im
+// Protokollblock darueber - ein zweites Mal deklariert waere es ein Fehler.
+const listbarSrc = grab(html, /function roomListable\(v\)\{[^\n]*}/, 'roomListable');
 // Join snippets with newlines (never ';') — an extracted line may end in a // comment.
-const mod = new Function([verSrc, genSrc, ffaSrc, ageSrc, protoSrc, fassungSrc, vrSrc, plvSrc,
-  'return { validateRoom, publicListingView, ONLINE_PROTOCOL_VERSION, ROOM_MAX_AGE_MS };'].join('\n'))();
-const { validateRoom, publicListingView, ONLINE_PROTOCOL_VERSION: VER, ROOM_MAX_AGE_MS } = mod;
+const mod = new Function([verSrc, genSrc, ffaSrc, ageSrc, protoSrc, fassungSrc,
+  listbarSrc, vrSrc, plvSrc,
+  'return { validateRoom, publicListingView, roomListable, ONLINE_PROTOCOL_VERSION, ROOM_MAX_AGE_MS };'].join('\n'))();
+const { validateRoom, publicListingView, roomListable, ONLINE_PROTOCOL_VERSION: VER, ROOM_MAX_AGE_MS } = mod;
 
 let pass = 0, fail = 0;
 const t = (name, cond) => { cond ? pass++ : (fail++, console.error('FAIL: ' + name)); };
@@ -91,25 +96,90 @@ t('remove: created NaN', view({ created: NaN }).remove === true);
   const a = publicListingView(input, NOW), b = publicListingView(input, NOW);
   t('pure: frozen input, stable result', JSON.stringify(a) === JSON.stringify(b) && a.show === true); }
 
-// v10: der dynamische Arena-Raum (Lives, Hoechstbesetzung 5) ist auffindbar; aeltere
-// Football-Raeume (v8/v9) bleiben unsichtbar, ohne dass ihr Eintrag geraeumt wuerde.
+// 01B: ein Arena-Raum erscheint, wenn sein MODUS spielbar ist - nicht, wenn seine
+// Protokollfassung zufaellig eine bestimmte Zahl traegt. Daneben steht, was der Index
+// ueberhaupt fuehren darf: v9 gehoert nicht dazu (so sagen es auch die Rules).
 {
   const fbCfg = (over) => Object.assign({ game: 'football', winTarget: 3, fmt: 'elimination', visibility: 'public', mode: 'lives', cap: 5 }, over || {});
   const fb = (v, over) => publicListingView(listRoom(Object.assign({ v, config: fbCfg() }, over || {})), NOW);
+  const fbM = (v, cfgOver, over) => publicListingView(listRoom(Object.assign({ v, config: fbCfg(cfgOver) }, over || {})), NOW);
+  // Welche Fassungen der Index fuehren darf - dieselbe Menge wie in den Rules.
+  for (const v of [4, 5, 6, 7, 8, 10, 11]) t('listbar: Fassung ' + v, roomListable(v) === true);
+  for (const v of [0, 3, 9, 12, null, undefined, '10']) t('nicht listbar: Fassung ' + JSON.stringify(v), roomListable(v) === false);
   const v10 = fb(10);
   t('show: v10 arena lives lobby is listed', v10.show === true && v10.remove === false);
-  t('show: v10 arena capacity is the room maximum (5), mode football', v10.capacity === 5 && v10.active === 1 && v10.mode === 'football');
+  const v11 = fb(11);
+  t('show: der bleibende v11-Arena-Raum ist ebenso auffindbar', v11.show === true && v11.remove === false);
+  t('show: die Zeile traegt den MODUS des Raums, nicht das Spiel',
+    v11.mode === 'lives' && v11.football === true && v10.mode === 'lives');
+  t('show: capacity is the room maximum (5)', v10.capacity === 5 && v10.active === 1 && v11.capacity === 5);
   const v9 = fb(9, { config: fbCfg({ cap: 3 }) });
   t('hide (keep): v9 football room stays unlisted', v9.show === false && v9.remove === false);
-  const v8 = fb(8, { config: fbCfg({ mode: 'classic', cap: 2 }) });
-  t('hide (keep): v8 football room stays unlisted', v8.show === false && v8.remove === false);
+  // Ein GESPERRTER Modus bleibt unsichtbar - in jeder Fassung.
+  const gesperrt8 = fbM(8, { mode: 'classic', cap: 2 });
+  t('hide (keep): ein gesperrter Modus bleibt unsichtbar (v8)', gesperrt8.show === false && gesperrt8.remove === false);
+  const gesperrt11 = fbM(11, { mode: 'team2v2', cap: 4 });
+  t('hide (keep): ... und auch in v11', gesperrt11.show === false && gesperrt11.remove === false);
+  const unbekannt = fbM(11, { mode: 'zirkus', cap: 5 });
+  t('hide (keep): ein unbekannter Modus erst recht', unbekannt.show === false && unbekannt.remove === false);
   const p5 = {}; for (let i = 0; i < 5; i++) p5[i] = { s: 'h' + i, on: true, t: 1 };
   const voll = fb(10, { p: p5 });
-  t('hide (keep): full v10 arena lobby', voll.show === false && voll.remove === false);
+  t('hide (keep): full arena lobby', voll.show === false && voll.remove === false);
   const drei = fb(10, { p: { 0: p5[0], 1: p5[1], 2: p5[2] } });
-  t('show: v10 arena lobby with 3/5', drei.show === true && drei.active === 3 && drei.capacity === 5);
+  t('show: arena lobby with 3/5', drei.show === true && drei.active === 3 && drei.capacity === 5);
   const laeuft = fb(10, { state: 'playing', seats: 3 });
-  t('remove: started v10 arena room', laeuft.show === false && laeuft.remove === true);
+  t('remove: started arena room', laeuft.show === false && laeuft.remove === true);
+  const laeuft11 = fb(11, { state: 'playing' });
+  t('remove: ein laufendes v11-Match wird nicht als offener Raum angeboten',
+    laeuft11.show === false && laeuft11.remove === true);
+  // v11: der Raum ueberlebt seinen Gruender. Sitz 0 darf dauerhaft leer sein.
+  const ohneNull = fb(11, { p: { 2: { s: 'h2', on: true, t: 1 }, 4: { s: 'h4', on: true, t: 1 } },
+                            players: { 2: { id: 'P2', name: 'Memo', tab: 'h2', uid: 'U2' }, 4: { id: 'P4', name: 'Ali', tab: 'h4', uid: 'U4' } },
+                            hostUid: 'U2' });
+  t('show: ein v11-Raum ohne Sitz 0 bleibt auffindbar', ohneNull.show === true && ohneNull.active === 2);
+  t('show: ... und nennt den AKTUELLEN Wirt', ohneNull.host === 'Memo');
+  const nachWechsel = fb(11, { p: { 2: { s: 'h2', on: true, t: 1 }, 4: { s: 'h4', on: true, t: 1 } },
+                               players: { 2: { id: 'P2', name: 'Memo', tab: 'h2', uid: 'U2' }, 4: { id: 'P4', name: 'Ali', tab: 'h4', uid: 'U4' } },
+                               hostUid: 'U4' });
+  t('show: wandert die Rolle, wandert der Name mit', nachWechsel.host === 'Ali');
+  // Bis v10 bleibt es dabei: ohne Sitz 0 gibt es den Raum nicht mehr.
+  const zehnOhneNull = fb(10, { p: { 1: { s: 'h1', on: true, t: 1 } } });
+  t('hide (keep): ein v10-Raum ohne Sitz 0 verschwindet wie bisher',
+    zehnOhneNull.show === false && zehnOhneNull.remove === false);
+}
+// 01B: die kuenftigen Modi. Sie sind gesperrt und duerfen deshalb NICHT erscheinen -
+// aber die Normalisierung darunter muss sie schon heute richtig behandeln, sonst waere
+// die Seite doch wieder auf FFA gebaut. Geprueft wird mit einer Kopie des Registers,
+// in der sie freigegeben sind: die Belegung kommt aus der Konfiguration des Raums, die
+// Beschriftung aus dem Sprachregister des Modus.
+{
+  const fs3 = require('fs'), path3 = require('path');
+  const H3 = fs3.readFileSync(path3.join(__dirname, '..', 'index.html'), 'utf8');
+  const g = (re, n) => grab(H3, re, n);
+  // Die Freigabe wird IM Protokollblock gesetzt - dort steht das Register, und zwei
+  // Register nebeneinander gaebe es im Produkt auch nicht.
+  const protoFrei = protoSrc.replace(/released:false/g, 'released:true');
+  const mod2 = new Function([verSrc, genSrc, ffaSrc, ageSrc, protoFrei, fassungSrc,
+    listbarSrc, plvSrc,
+    'return { publicListingView };'].join('\n'))();
+  const cfgVon = (mode, cap) => ({ game: 'football', winTarget: 3, fmt: 'elimination', visibility: 'public', mode: mode, cap: cap });
+  const sitze = (n) => { const p = {}; for (let i = 0; i < n; i++) p[i] = { s: 'h' + i, on: true, t: 1 }; return p; };
+  const fall = (mode, cap, da) => mod2.publicListingView(listRoom({ v: 11, config: cfgVon(mode, cap), p: sitze(da) }), NOW);
+  const ffa = fall('lives', 5, 3);
+  t('generisch: ein FFA-Raum meldet 3/5 und den Modus lives', ffa.show === true && ffa.active === 3 && ffa.capacity === 5 && ffa.mode === 'lives');
+  const tac = fall('classic', 2, 1);
+  t('generisch: ein 1v1-Raum meldet 1/2 - die Kapazitaet kommt aus dem Raum', tac.show === true && tac.active === 1 && tac.capacity === 2 && tac.mode === 'classic');
+  const tacVoll = fall('classic', 2, 2);
+  t('generisch: ... und bei 2/2 ist er nicht mehr beitretbar', tacVoll.show === false && tacVoll.remove === false);
+  const team = fall('team2v2', 4, 3);
+  t('generisch: ein Team-Raum meldet 3/4', team.show === true && team.active === 3 && team.capacity === 4 && team.mode === 'team2v2');
+  const teamVoll = fall('team2v2', 4, 4);
+  t('generisch: ... und bei 4/4 nicht mehr', teamVoll.show === false && teamVoll.remove === false);
+  // Und die Gegenprobe: mit dem ECHTEN Register bleiben genau diese Raeume unsichtbar.
+  t('gesperrt: derselbe 1v1-Raum erscheint im Produkt nicht',
+    publicListingView(listRoom({ v: 11, config: cfgVon('classic', 2), p: sitze(1) }), NOW).show === false);
+  t('gesperrt: derselbe Team-Raum ebenso wenig',
+    publicListingView(listRoom({ v: 11, config: cfgVon('team2v2', 4), p: sitze(3) }), NOW).show === false);
 }
 // ── PASS 02: eine gemeinsame oeffentliche Lobby fuer beide Spiele ──
 {
@@ -119,6 +189,13 @@ t('remove: created NaN', view({ created: NaN }).remove === true);
   t('view: ringout row carries game=ringout', view().game === 'ringout');
   const fbCfg = { game: 'football', winTarget: 3, fmt: 'elimination', visibility: 'public', mode: 'lives', cap: 5 };
   t('view: v10 arena row carries game=football', publicListingView(listRoom({ v: 10, config: fbCfg }), NOW).game === 'football');
+  // 01B: die Arena-Startseite ist das dritte Ziel derselben Quelle.
+  t('die Arena-Startseite hat einen Abschnitt fuer offene Raeume',
+    /id="fbRooms" class="fbOnly"/.test(H) && /id="fbRoomsList"/.test(H) && /id="fbRoomsState"/.test(H));
+  t('er traegt die vorhandene Ueberschrift, keine zweite Zeichenkette',
+    /\$\('secFbRoomsT'\)\.textContent=T\('pubTitle'\);/.test(H));
+  t('er ist nur im Arena-Kontext sichtbar',
+    /\.fbOnly{display:none}/.test(H) && /body\.fbctx \.fbOnly{display:block}/.test(H));
   // Kein Public/Private mehr: der Bildschirm oeffnet oeffentlich, der Schalter ist weg.
   const oo = (H.match(/function openOnline\(\)\{[\s\S]*?\n\}/) || [''])[0];
   t('openOnline defaults createVisibility to public', /createVisibility='public';/.test(oo) && !/createVisibility='private'/.test(oo));
@@ -130,8 +207,22 @@ t('remove: created NaN', view({ created: NaN }).remove === true);
   const rows = (H.match(/function renderPublicRows\(shown\)\{[\s\S]*?\n\}/) || [''])[0];
   t('the online list is filtered by the current game context', /const spiel=onlineKontextSpiel\(\);/.test(rows) && /shown\.filter\(r=>r\.view\.game===spiel\)/.test(rows));
   t('the home preview shows RingOut rooms only', /shown\.filter\(r=>r\.view\.game===ROOM_GAME_RINGOUT\)/.test(rows));
+  t('die Arena-Startseite zeigt alle Arena-Raeume - gefiltert wird nach dem SPIEL',
+    /const fuerFb=shown\.filter\(r=>r\.view\.game===ROOM_GAME_FOOTBALL\);/.test(rows));
+  t('… und sie bekommt ihren eigenen Leerzustand',
+    /const fs=\$\('fbRoomsState'\); if\(fs\)fs\.textContent=fuerFb\.length\?'':T\('pubEmpty'\);/.test(rows));
+  t('EINE Quelle, drei Ziele - kein zweiter Listener',
+    (H.match(/window\.FB\.onValue\(q,/g) || []).length === 1
+    && /for\(const id of \['onPublicList','homeRoomsList','fbRoomsList'\]\)/.test(H));
   t('each row names its game', /game\.textContent=roomGameLabel\(view\.game\);/.test(H) && /function roomGameLabel\(game\)\{ return game===ROOM_GAME_FOOTBALL\?'ARENA FOOTBALL':'RING OUT'; \}/.test(H));
-  t('home join opens the online screen of the row\'s own game', /btn\.onclick=fromHome\?\(\)=>\{openOnlineForGame\(view\.game\);joinPublicRoom\(code\);\}/.test(H));
+  t('der Beitritt aus einer Vorschau oeffnet den Bildschirm des RAUMS',
+    /btn\.onclick=ausDemMenue\?\(\)=>\{openOnlineForRoom\(view\);joinPublicRoom\(code\);\}/.test(H));
+  t('… und behaelt dabei den Modus des Raums, nicht FFA',
+    /fbOnlineMode=\(typeof fbModeValid==='function'&&fbModeValid\(view\.mode\){2}\?view\.mode:FB_ONLINE_MODE_LIVES;/.test(H));
+  t('die Beschriftung kommt aus EINER Stelle',
+    /function roomModeLabel\(view\)\{/.test(H)
+    && /meta\.textContent=roomModeLabel\(view\)\+' · '\+view\.active\+'\/'\+view\.capacity;/.test(H));
+  t('der Beitrittsknopf nennt, wohin er fuehrt', /btn\.setAttribute\('aria-label',/.test(H));
   // Rueckwege in den Bildschirm behalten das Spiel.
   const olc = (H.match(/function onLobbyClosed\(\)\{[\s\S]*?\n\}/) || [''])[0];
   t('onLobbyClosed returns to the same game context', /const k=onlineKontext;[\s\S]*leaveOnline\(\);[\s\S]*onlineZurueckInKontext\(k\);/.test(olc) && !/openOnline\(\);/.test(olc));

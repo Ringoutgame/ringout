@@ -70,7 +70,7 @@ const SUITES = [
         // ersten beiden Ausfaelle weiter; verloren geht nur die Zwei-Ueberlebenden-Stufe
         // in genau dieser Sequenz, die offline von der Elimination-Suite gedeckt ist.
   { name: 'Rules',            file: 'test_rules.js',          expectPassed: 592 },   // v4: Seat-Ownership, Football-Raumtyp, typisierte Zuege (move/skip/remove) und die Eviction
-  { name: 'Public-Lobby',     file: 'test_public_lobby.js',   expectPassed: 62 },
+  { name: 'Public-Lobby',     file: 'test_public_lobby.js',   expectPassed: 101 },
   { name: 'Team-Duel',        file: 'test_team_duel.js',      expectPassed: 36 },
 ];
 

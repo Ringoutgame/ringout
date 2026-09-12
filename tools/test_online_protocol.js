@@ -30,6 +30,9 @@ const SRC = [
   // Die dritte Raumpruefung: sie entscheidet, was in der oeffentlichen Liste ueberhaupt
   // erscheint — und damit, welchen Raum ein Spieler per Klick betreten kann.
   grab(html, /const ROOM_MAX_AGE_MS=[^\n]*/, 'ROOM_MAX_AGE_MS'),
+  // 01B: welche Fassungen der Auffindbarkeits-Index fuehren darf - dieselbe Menge wie
+  // in den Rules. publicListingView fragt sie als Erstes.
+  grabFunction(html, 'roomListable'),
   grabFunction(html, 'publicListingView'),
   grabFunction(html, 'pickFreeSeat'),
   grabFunction(html, 'seatActive'),
