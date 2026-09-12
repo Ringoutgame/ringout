@@ -854,7 +854,9 @@ const R = new Function(`
   ok(/\$\('cardFfa'\)\.onclick=\(\)=>selectMenuMode\('ffa'\);/.test(HTML)
      && /\$\('cardFootball'\)\.onclick=\(\)=>selectMenuMode\('football'\);/.test(HTML),
      'und ihre Karten haengen unveraendert an selectMenuMode');
-  ok(/if\(menuSel==='ffa'\)\{[\s\S]{0,120}?mode='ffa';fmt='ffa';openOnline\(\);return;\}/.test(cta),
+  // STABILITY 01: derselbe Weg, nur benannt - setzeVorspiel setzt Modus und Format und
+  // stellt im selben Schritt die Koerper, damit keine Figur aus dem vorigen Spiel bleibt.
+  ok(/if\(menuSel==='ffa'\)\{[\s\S]{0,120}?setzeVorspiel\('ffa','ffa'\);openOnline\(\);return;\}/.test(cta),
      'der RingOut-Weg in den Onlinebildschirm ist derselbe wie bisher');
 }
 

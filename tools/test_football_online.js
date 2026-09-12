@@ -227,6 +227,10 @@ const SRC = [
   fn('fbLeaveRetry'),
   fn('fbLeaveFinish'),
   fn('fbLeaveGiveUp'),
+  // STABILITY 01: leaveOnline stellt Modus UND Koerper gemeinsam zurueck - der eine
+  // Weg dafuer gehoert mit in die Sandbox.
+  grab(/function fbVorspielKoerperOk\(\)\{[\s\S]*?\n\}/, 'fbVorspielKoerperOk'),
+  grab(/function setzeVorspiel\(m,format,spieler\)\{[\s\S]*?\n\}/, 'setzeVorspiel'),
   grab(/function leaveOnline\(after\)\{[\s\S]*?\n\}/, 'leaveOnline'),
   // ── Identitaet und Reclaim ──
   grab(/function genToken\(n\)\{[\s\S]*?\n\}/, 'genToken'),
@@ -723,7 +727,7 @@ function makeClient(db, code, opts) {
     const LOGICAL=1000, cx=500, cy=500, R0=LOGICAL*0.485; let BR=LOGICAL*0.032, R=R0;
     function maxPull(){return R0*MAXPULL_FRAC;}
     const REVEAL_MS=600, RESULT_MS=950, REDUCED_MOTION=false;
-    let mode='bot',menuMode='bot',diff='easy',winTarget=3,fmt='single',ffaN=5,ffaNMenu=5,roundNo=1;
+    let mode='bot',menuMode='bot',diff='easy',winTarget=3,fmt='single',ffaN=5,ffaNMenu=5,fmtMenu='single',roundNo=1;
     let online=false, roomCode='', myPlayer=0, gen=0, runningGen=-1, turnNo=-1;
     let turnUnsub=null, genUnsub=null, presUnsub=null, seatsUnsub=null, gameStarted=false;
     let lobbyP={}, seatLeft=[], seatGone=[];

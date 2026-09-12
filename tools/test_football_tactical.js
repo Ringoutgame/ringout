@@ -422,7 +422,10 @@ console.log('ARENA FOOTBALL — Produktsuite: Classic 1v1 (Standard) + Tactical 
   //                                sie haengt am DEV_MENU-Gatter und existiert im
   //                                Produkt nicht. Sie steht hier, damit eine SECHSTE
   //                                Stelle weiterhin auffaellt.
-  const fbAssignments = (HTML.match(/mode=menuMode='football'|mode='football'/g) || []).length;
+  // STABILITY 01: die Menuevorschau setzt den Modus nicht mehr selbst, sondern geht
+  // durch den EINEN Vorspielweg, der Modus und Koerper gemeinsam stellt. Er zaehlt
+  // als dieselbe Tuer - der Waechter faengt weiterhin jede zusaetzliche ab.
+  const fbAssignments = (HTML.match(/mode=menuMode='football'|mode='football'|setzeVorspiel\('football'/g) || []).length;
   ok(fbAssignments === 5, 'mode="football" wird an genau fuenf Stellen gesetzt (erhalten: ' + fbAssignments + ')');
   ok(/lobby2:\(belegt,ich,sitze,ohneNamen\)=>/.test(HTML) && /if\(typeof DEV_MENU!=='undefined'&&DEV_MENU\)window\.__fbDev=\{/.test(HTML),
      'und die fuenfte ist die DEV_MENU-gebundene Lobbysonde, keine Produkttuer');

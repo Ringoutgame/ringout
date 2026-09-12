@@ -1615,6 +1615,9 @@ let menuMode='bot'; // im Menue gewaehlter Modus — ein Online-Join kann mode t
 let fmt='single';   // Format (single/double/ffa)
 let ffaN=3;         // FFA: Spieleranzahl 2-5 (lokal aus dem Menue; online = seats aus Firebase)
 let ffaNMenu=3;     // Menue-Auswahl fuer FFA lokal — leaveOnline() stellt ffaN darauf zurueck
+// Das Format der Menueauswahl. leaveOnline stellt es zusammen mit Modus und Spielerzahl
+// wieder her: ohne das liefe der Koerperaufbau unter dem Format des VERLASSENEN Raums.
+let fmtMenu='single';
 // ── ONLINE-State ──
 let online=false, roomCode='', myPlayer=0, gen=0, runningGen=-1, turnNo=-1;
 // Die Protokollfassung DIESES Raums. Der Client beherrscht mehrere; welche gilt,
@@ -2146,10 +2149,10 @@ const DEV_MENU=new URLSearchParams(location.search).get('dev')==='1';
 // den Offline-Harnessen unveraendert lauffaehig. Ohne ?dev=1 immer null -> Classic.
 const DEV_FB_VARIANT=DEV_MENU?new URLSearchParams(location.search).get('fb'):null;
 if(DEV_MENU){$('devPanel').style.display='';$('devFbOnlineSec').style.display='';}
-$('mBot').onclick=()=>{mode=menuMode='bot';setOn('modeGrp','mBot');$('diffSec').style.display='';$('fmtSec').style.display='';$('ffaSec').style.display='none';};
-$('mPvp').onclick=()=>{mode=menuMode='pvp';setOn('modeGrp','mPvp');$('diffSec').style.display='none';$('fmtSec').style.display='';$('ffaSec').style.display='none';};
-$('mFfa').onclick=()=>{mode=menuMode='ffa';setOn('modeGrp','mFfa');$('diffSec').style.display='none';$('fmtSec').style.display='none';$('ffaSec').style.display='';};
-$('mOnline').onclick=()=>{mode=menuMode='online';setOn('modeGrp','mOnline');$('diffSec').style.display='none';$('fmtSec').style.display='';$('ffaSec').style.display='none';};
+$('mBot').onclick=()=>{menuMode='bot';setzeVorspiel('bot');setOn('modeGrp','mBot');$('diffSec').style.display='';$('fmtSec').style.display='';$('ffaSec').style.display='none';};
+$('mPvp').onclick=()=>{menuMode='pvp';setzeVorspiel('pvp');setOn('modeGrp','mPvp');$('diffSec').style.display='none';$('fmtSec').style.display='';$('ffaSec').style.display='none';};
+$('mFfa').onclick=()=>{menuMode='ffa';setzeVorspiel('ffa');setOn('modeGrp','mFfa');$('diffSec').style.display='none';$('fmtSec').style.display='none';$('ffaSec').style.display='';};
+$('mOnline').onclick=()=>{menuMode='online';setzeVorspiel('online');setOn('modeGrp','mOnline');$('diffSec').style.display='none';$('fmtSec').style.display='';$('ffaSec').style.display='none';};
 $('dE').onclick=()=>{diff='easy';setOn('diffGrp','dE');};
 $('dM').onclick=()=>{diff='medium';setOn('diffGrp','dM');};
 $('dH').onclick=()=>{diff='hard';setOn('diffGrp','dH');};
@@ -2721,12 +2724,12 @@ $('ctaBtn').onclick=()=>{
   // "Play Online FFA": normaler Klick, aber weiterhin die deutlichere Vibration
   // (25ms statt 10ms) — nur hier, weil die Aktion tatsaechlich angenommen wird
   // (nicht durch TUNE blockiert).
-  if(menuSel==='ffa'){if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);mode='ffa';fmt='ffa';openOnline();return;}        // createRoom liest mode==='ffa' -> ffa-Raum (state:'lobby')
-  if(menuSel==='triple'){if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);mode='ffa';fmt='triple_ffa';openOnline();return;}   // TRIPLE FFA: derselbe Online-Flow, fmt traegt das Format
-  if(menuSel==='team'){if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);mode='ffa';fmt='team_duel';openOnline();return;}   // TEAM DUEL: FFA-Raum-Flow, fmt traegt das Format
+  if(menuSel==='ffa'){if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);setzeVorspiel('ffa','ffa');openOnline();return;}        // createRoom liest mode==='ffa' -> ffa-Raum (state:'lobby')
+  if(menuSel==='triple'){if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);setzeVorspiel('ffa','triple_ffa');openOnline();return;}   // TRIPLE FFA: derselbe Online-Flow, fmt traegt das Format
+  if(menuSel==='team'){if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);setzeVorspiel('ffa','team_duel');openOnline();return;}   // TEAM DUEL: FFA-Raum-Flow, fmt traegt das Format
   // Online Versus: immer Doppel (2 Spieler, 2 Kugeln pro Spieler) — keine Format-Auswahl mehr.
   // Internes 'single'-Format bleibt fuer bestehende Raeume/Tests erhalten, ist aber ueber die UI nicht mehr erreichbar.
-  if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);mode=menuMode='online';fmt='double';openOnline();
+  if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);menuMode='online';setzeVorspiel('online','double');openOnline();
 };
 // Bot-Modal: 1v1 oder 2v2 Duo gegen den Hard-Bot (botMove routet fmt-abhaengig auf bot1v1/bot2v2)
 $('bot1v1').onclick=()=>{$('botOv').classList.remove('show');mode=menuMode='bot';fmt='single';online=false;showGame();newGame();};
@@ -2913,27 +2916,66 @@ $('menuSnd').onclick=()=>{soundOn=!soundOn;const g=soundOn?'🔊':'🔇';$('menu
 //    Pre-Game-Zustand (wie frueher die Menue-Pills) und laesst den echten Spawner
 //    (placeBalls) die Kugeln stellen — der 3D-Renderer spiegelt balls[] ohnehin
 //    jeden Frame. Kein gezeichneter Ersatz, keine Physik-/Online-Aenderung. ──
+// ── VORSPIEL: MODUS, FORMAT UND KOERPER WECHSELN GEMEINSAM ───────────────────
+// Der Renderer zeichnet in JEDEM Bild genau das, was in balls steht. Der neutrale Ball
+// von Arena Football traegt den Besitzer 5 - eine Farbe hat dieser Slot aber nur,
+// solange mode==='football' ist: die globale Tafel PCOLS hat fuenf Eintraege (0..4),
+// die Football-Tafel sechs. Wer den Modus wechselt und die Koerper stehen laesst,
+// uebergibt drawBall also eine Figur ohne Farbe. Die Ausnahme verlaesst dann die
+// Bildschleife, das abschliessende requestAnimationFrame wird nie erreicht - und es
+// wird NIE WIEDER gezeichnet. Genau deshalb gibt es fuer den Moduswechsel vor dem
+// Match nur noch diesen einen Weg: er stellt die Koerper im selben Schritt neu.
+// Laesst sich die Football-Aufstellung ueberhaupt beschreiben? Die Elimination stellt je
+// Startspieler eine Figur vor ein eigenes Tor; hat die aktive Arena weniger Richtungen
+// als Startspieler, gibt es diese Aufstellung noch nicht. Das ist genau der Zustand
+// zwischen Beitritt und Matchstart.
+function fbVorspielKoerperOk(){
+  if(mode!=='football')return true;
+  if(typeof fbElim4!=='function'||!fbElim4())return true;
+  if(typeof fbElimPlayers!=='function'||typeof fbElimDirs!=='function')return true;
+  const d=fbElimDirs();
+  return Array.isArray(d)&&fbElimPlayers()<=d.length;
+}
+function setzeVorspiel(m,format,spieler){
+  mode=m;
+  if(format!==undefined)fmt=format;
+  if(spieler!==undefined)ffaN=spieler;
+  // Ein laufendes Match stellt seine Koerper selbst - dort waere ein Neuaufbau ein
+  // Eingriff ins Spiel, kein Aufraeumen.
+  if(gameStarted)return;
+  // Der Aufbau von Arena Football setzt eine STIMMIGE Aufstellung voraus: die aktive
+  // Arena muss fuer jeden Startspieler eine Torrichtung haben. Zwischen dem Beitritt zu
+  // einem Raum und dem Matchstart ist das noch nicht so - dort sind die Koerper die
+  // Kulisse eines Matches, das erst beginnt, und der Start stellt sie ohnehin richtig.
+  // Ausgelassen wird deshalb nur ein Aufbau, der sich gar nicht beschreiben liesse -
+  // und der ist immer innerhalb von Arena Football, wo keine Figur ohne Farbe sein kann.
+  if(!fbVorspielKoerperOk())return;
+  // typeof-Guard wie an den uebrigen Modulgrenzen: die Pruefstaende schneiden den
+  // Renderer heraus und pruefen hier nur Modus, Format und Spielerzahl. Im Produkt
+  // gibt es den Spawner immer - dort ist dies keine Bedingung, sondern ein Aufruf.
+  if(typeof placeBalls!=='function')return;
+  R=R0;outBall=-1;placeBalls();   // frische Plattformgroesse + kein Fall-Rest aus einem Vorspiel
+}
 function updateMenuPreview(){
   if(online)return;   // nie eine laufende Online-Session anfassen (Karten sind dann eh verdeckt)
-  if(menuSel==='ffa'){mode=menuMode='ffa';fmt='ffa';ffaN=5;}          // 5 Kugeln: Blau/Rot/Gruen/Gelb/Schwarz
-  else if(menuSel==='triple'){mode=menuMode='ffa';fmt='triple_ffa';ffaN=3;}   // TRIPLE-Preview: 6 Kugeln Blau/Rot/Gruen alternierend
-  else if(menuSel==='team'){mode=menuMode='ffa';fmt='team_duel';ffaN=4;}      // TEAM-DUEL-Preview: 4 Kugeln Blau/Rot/Blau/Rot
-  else if(menuSel==='vs'){mode=menuMode='online';fmt='double';}       // Versus-Preview: 2v2-Duo-Layout (2 blaue vs 2 rote)
-  else if(menuSel==='football'){mode=menuMode='football';fmt='single';}   // Football-Shell-Preview: 3 Kugeln (Blau/Rot/neutral) in der echten 3D-Arena
-  else{mode=menuMode='bot';fmt='single';}                             // 1v1: Spieler vs Bot
-  R=R0;outBall=-1;placeBalls();   // frische Plattformgroesse + kein Fall-Rest aus einem Vorspiel
+  if(menuSel==='ffa'){menuMode='ffa';fmtMenu='ffa';setzeVorspiel('ffa','ffa',5);}          // 5 Kugeln: Blau/Rot/Gruen/Gelb/Schwarz
+  else if(menuSel==='triple'){menuMode='ffa';fmtMenu='triple_ffa';setzeVorspiel('ffa','triple_ffa',3);}   // TRIPLE-Preview: 6 Kugeln Blau/Rot/Gruen alternierend
+  else if(menuSel==='team'){menuMode='ffa';fmtMenu='team_duel';setzeVorspiel('ffa','team_duel',4);}      // TEAM-DUEL-Preview: 4 Kugeln Blau/Rot/Blau/Rot
+  else if(menuSel==='vs'){menuMode='online';fmtMenu='double';setzeVorspiel('online','double');}       // Versus-Preview: 2v2-Duo-Layout (2 blaue vs 2 rote)
+  else if(menuSel==='football'){menuMode='football';fmtMenu='single';setzeVorspiel('football','single');}   // Football-Shell-Preview: 3 Kugeln (Blau/Rot/neutral) in der echten 3D-Arena
+  else{menuMode='bot';fmtMenu='single';setzeVorspiel('bot','single');}                             // 1v1: Spieler vs Bot
 }
 $('lobbyStart').onclick=()=>startFfaMatch();
 // Home-Rooms-Sektion: VIEW ALL / CREATE ROOM oeffnen die Online-FFA-Seite — der echte
 // openOnline-Flow (Erstellen erst nach Name/Sichtbarkeit dort). Kein Fake-Quick-Match.
-$('homeViewAll').onclick=()=>{SFX.unlock();mode='ffa';fmt='ffa';openOnline();};
-$('homeCreate').onclick=()=>{SFX.unlock();mode='ffa';fmt='ffa';openOnline();};
+$('homeViewAll').onclick=()=>{SFX.unlock();setzeVorspiel('ffa','ffa');openOnline();};
+$('homeCreate').onclick=()=>{SFX.unlock();setzeVorspiel('ffa','ffa');openOnline();};
 // JOIN CODE: gleicher Online-Flow — die Beitreten-Karte (Code-Feld) ist dort direkt sichtbar.
-$('homeJoinCode').onclick=()=>{SFX.unlock();mode='ffa';fmt='ffa';openOnline();try{setTimeout(()=>$('onInput').focus(),80);}catch(e){}};
+$('homeJoinCode').onclick=()=>{SFX.unlock();setzeVorspiel('ffa','ffa');openOnline();try{setTimeout(()=>$('onInput').focus(),80);}catch(e){}};
 // WIEDEREINTRITT auf der Startseite: derselbe Onlinebildschirm wie die anderen
 // Schnellaktionen - dort steht der echte Wiedereintrittsknopf des Produkts. Es
 // entsteht keine zweite Netzlogik und kein zweiter Zustand.
-$('homeRejoin').onclick=()=>{SFX.unlock();mode='ffa';fmt='ffa';openOnline();};
+$('homeRejoin').onclick=()=>{SFX.unlock();setzeVorspiel('ffa','ffa');openOnline();};
 // Sichtbar nur mit einem wirklich gemerkten Raum - der Code steht als Unterzeile.
 function updHomeRejoin(){
   const b=$('homeRejoin'); if(!b)return;
@@ -8796,7 +8838,7 @@ function onlineZurueckInKontext(k){
     fbOnlineMode=k.fbMode||FB_ONLINE_MODE_LIVES;
     if(typeof fbOnlineEnter==='function'){ fbOnlineEnter(); return; }
   }
-  mode=k.mode; fmt=k.fmt; openOnline();
+  setzeVorspiel(k.mode,k.fmt); openOnline();
 }
 function openOnline(){
   if(TUNE){toast('Tuning aktiv — Online deaktiviert');return;}
@@ -9011,7 +9053,7 @@ function roomGameLabel(game){ return game===ROOM_GAME_FOOTBALL?'ARENA FOOTBALL':
 // derselbe Einstieg, den auch das Menue benutzt - kein zweiter Weg.
 function openOnlineForGame(game){
   if(game===ROOM_GAME_FOOTBALL){ fbOnlineMode=FB_ONLINE_MODE_LIVES; fbOnlineEnter(); return; }
-  mode='ffa'; fmt='ffa'; openOnline();
+  setzeVorspiel('ffa','ffa'); openOnline();
 }
 const HOME_ROOMS_MAX=3;   // Home-Vorschau bewusst kompakt — volle Liste auf der Online-Seite
 function buildRoomRow(code,view,fromHome){
@@ -11857,6 +11899,7 @@ function joinRoom(){
         // Football: Modus UND Variante setzen, bevor irgendetwas np()/fbElim4() fragt.
         if(joinFb){ mode='football'; fbVariant=FOOTBALL_VARIANT_ELIM; } else mode='ffa';
         winTarget=v.winTarget; fmt=v.fmt; gen=v.gen; roomPublic=isPublic;
+        setzeVorspiel(mode,fmt);   // Kulisse der Lobby: die Koerper des Spiels, dem man beitritt
         rememberRoom(code,c.seat);
         hidePublicUI();   // entered a room -> stop the listener, hide the public UI
         setOnTitle(true);
@@ -11874,6 +11917,7 @@ function joinRoom(){
       roomCode=code; myPlayer=1; online=true; runningGen=-1; gameStarted=false; seatLeft=[]; seatGone=[]; playersRoster=d.players||{};
       fbRoomMode=v.mode||''; fbRoomCap=Number.isInteger(v.cap)?v.cap:0; roomHostUid=v.hostUid||'';
       winTarget=v.winTarget; fmt=v.fmt; gen=v.gen; roomPublic=isPublic;
+      setzeVorspiel(mode,fmt);   // Kulisse der Lobby: die Koerper des Spiels, dem man beitritt
       rememberRoom(code,1);
       hidePublicUI();   // entered a room -> stop the listener, hide the public UI
       setStatus(T('connStart'));
@@ -12020,6 +12064,10 @@ async function attemptRejoin(code){
     // Football: Modus UND Variante stehen, BEVOR irgendetwas np()/fbElim4() fragt.
     winTarget=v.winTarget; fmt=v.fmt; mode=rjFb?'football':ffa?'ffa':'online';
     if(rjFb)fbVariant=FOOTBALL_VARIANT_ELIM;
+    // Der Wiedereintritt kann das SPIEL wechseln. Die Rehydrierung stellt die Koerper
+    // spaeter ohnehin neu - bis dahin liegen aber Bilder, und in keinem davon darf eine
+    // Figur aus dem vorigen Spiel stehen.
+    setzeVorspiel(mode,fmt);
     roomPublic=!!(d.config&&d.config.visibility==='public');   // commit only after a successful claim
     rememberRoom(code,seat);
     hidePublicUI();   // entered a room -> stop the listener, hide the public UI
@@ -13057,7 +13105,10 @@ function leaveOnline(after){
   fbElimStartN=0;                            // die Startbesetzung gehoert dem verlassenen Raum
   online=false; gameStarted=false; roomPublic=false; roomCode=''; roomProto=0; lobbyP={}; seatLeft=[]; seatGone=[]; playersRoster={};
   fbRoomMode=''; fbRoomCap=0; roomHostUid='';   // v8: kein Raum -> keine Sollbesetzung, kein Host
-  mode=menuMode; ffaN=ffaNMenu;   // Online-FFA stellt mode/ffaN um — Menue-Auswahl wiederherstellen
+  // Menue-Auswahl wiederherstellen - MIT den dazu passenden Koerpern. Ohne sie blieben
+  // die Figuren des verlassenen Matches stehen, und nach einem Arena-Football-Match
+  // waere darunter der neutrale Ball, den es in Ring Out nicht gibt.
+  setzeVorspiel(menuMode,fmtMenu,ffaNMenu);
   if(typeof after==='function')after();
 }
 // B2: after a reload with a fresh saved room, surface the rejoin affordance
@@ -13078,7 +13129,7 @@ async function offerRejoinOnBoot(){
     // falsche Spiel an.
     if(!$('online').classList.contains('show')){
       if(roomIsFootball(d.config)){ fbOnlineMode=d.config.mode||FB_ONLINE_MODE_LIVES; fbOnlineEnter(); }
-      else { fmt=d.config.fmt; mode=(fmt==='single'||fmt==='double')?'online':'ffa'; openOnline(); }
+      else { fmt=d.config.fmt; setzeVorspiel((fmt==='single'||fmt==='double')?'online':'ffa',fmt); openOnline(); }
     }
   }catch(e){}
 }
