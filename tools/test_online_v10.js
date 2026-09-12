@@ -69,7 +69,9 @@ abschnitt('Raumanlage  rooms/<code>  (v10 = Lives, Hoechstbesetzung 5)');
   deny('ein v10-RingOut-Raum', { rooms: {} }, 'rooms/VDYN', frisch({ config: { game: 'ringout', winTarget: 3, fmt: 'ffa', visibility: 'private' } }), UID[0]);
   deny('v10 ohne Hostkennung', { rooms: {} }, 'rooms/VDYN', (() => { const r = frisch(); delete r.hostUid; return r; })(), UID[0]);
   deny('v10 mit fremder Hostkennung', { rooms: {} }, 'rooms/VDYN', frisch({ hostUid: UID[1] }), UID[0]);
-  deny('v11 - jenseits jeder bekannten Fassung', { rooms: {} }, 'rooms/VDYN', frisch({ v: 11 }), UID[0]);
+  // v11 ist seit PLAYER LOOP 01A eine bekannte Fassung und hat ihre eigene Suite.
+  // Der Waechter bleibt: was JENSEITS aller bekannten Fassungen liegt, wird abgewiesen.
+  deny('v12 - jenseits jeder bekannten Fassung', { rooms: {} }, 'rooms/VDYN', frisch({ v: 12 }), UID[0]);
   deny('die Fassung eines v10-Raums laesst sich nicht auf 9 senken', raum({ state: 'lobby', n: 1 }), P('v'), 9, UID[0]);
   deny('... und nicht auf 11 heben', raum({ state: 'lobby', n: 1 }), P('v'), 11, UID[0]);
   allow('das wertgleiche Vergleichsschreiben bleibt erlaubt', raum({ state: 'lobby', n: 1 }), P('v'), 10, UID[0]);

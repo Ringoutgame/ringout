@@ -646,8 +646,11 @@ const R = new Function(`
   // Protokoll-Disqualifikation). Jeder dieser Zweige ist an `v === 9` gebunden und
   // damit fuer jeden v8-Raum unerreichbar - die Aussage dieser Suite bleibt also
   // dieselbe, sie wird nur genauer: Phase A wird von v9 nicht angefasst.
-  ok(Object.keys(rooms.g.$gen).sort().join(',') === 'c,d,e,q,r,ro,s,t,x,z',
-     'eine Generation traegt Zughistorie, Eviction und die v9-Grundlage d/c/ro/r/s/z/q/x');
+  // Seit PLAYER LOOP 01A kommen pt und rd dazu: die Teilnehmerliste einer Generation
+  // und die Bereitschaft fuer die kommende. Beide haengen an `v === 11` und sind fuer
+  // jeden v8-Raum unerreichbar - die Aussage bleibt dieselbe, die Liste wird laenger.
+  ok(Object.keys(rooms.g.$gen).sort().join(',') === 'c,d,e,pt,q,r,rd,ro,s,t,x,z',
+     'eine Generation traegt Zughistorie, Eviction, die v9-Grundlage und die v11-Besetzung');
   for (const zweig of ['d', 'c', 'ro', 'r', 's', 'z', 'q', 'x'])
     ok(JSON.stringify(rooms.g.$gen[zweig]).indexOf("child('v').val() === 9") >= 0,
        'der Zweig ' + zweig + ' ist an v9 gebunden und damit in einem v8-Raum unerreichbar');

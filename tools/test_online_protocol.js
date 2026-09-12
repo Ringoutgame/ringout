@@ -81,13 +81,16 @@ const RULES = require('fs').readFileSync(
 // Seit V9.5C kommt die 9 dazu: die v9-Zweige unter g/<gen> hingen an einer Raumfassung,
 // die kein Raum je tragen konnte. Der freigegebene Client bleibt auf 8 und legt weiterhin
 // keinen v9-Raum an - die Aufnahme ist reine Serverseite.
-t('die Rules lassen waehrend der Umstellung v4 bis v10 zu',
-  /\(newData\.val\(\) === 4 \|\| newData\.val\(\) === 5 \|\| newData\.val\(\) === 6 \|\| newData\.val\(\) === 7 \|\| newData\.val\(\) === 8 \|\| newData\.val\(\) === 9 \|\| newData\.val\(\) === 10\)/.test(RULES));
+// Seit PLAYER LOOP 01A kommt die 11 dazu: der bleibende Raum. v4 bis v10 bleiben
+// woertlich bedienbar - ein alter Raum stirbt nicht daran, dass es eine neue Fassung gibt.
+t('die Rules lassen waehrend der Umstellung v4 bis v11 zu',
+  /\(newData\.val\(\) === 4 \|\| newData\.val\(\) === 5 \|\| newData\.val\(\) === 6 \|\| newData\.val\(\) === 7 \|\| newData\.val\(\) === 8 \|\| newData\.val\(\) === 9 \|\| newData\.val\(\) === 10 \|\| newData\.val\(\) === 11\)/.test(RULES));
 const V_REGEL = (RULES.match(/"v": \{[^}]*\}/) || [''])[0];
 t('und keine andere Protokollversion — geprueft am v-Validator selbst',
   /=== 4/.test(V_REGEL) && /=== 5/.test(V_REGEL) && /=== 6/.test(V_REGEL) &&
   /=== 7/.test(V_REGEL) && /=== 8/.test(V_REGEL) && /=== 9/.test(V_REGEL) && /=== 10/.test(V_REGEL) &&
-  !/=== 3|=== 2|=== 11|=== 1[^0]/.test(V_REGEL), V_REGEL);
+  /=== 11/.test(V_REGEL) &&
+  !/=== 3|=== 2|=== 12|=== 1[^012]/.test(V_REGEL), V_REGEL);
 // Die Protokollnummer eines bestehenden Raums ist unveraenderlich — ein v4-Raum kann
 // nicht zu einem v5-Raum umgeschrieben werden und umgekehrt.
 // Der Zugslot ist die Schreibstelle, die den Lockstep-Strom traegt. Er war bisher als
@@ -398,8 +401,11 @@ t('Beitritt: die Ablehnung nennt die Versionsunvertraeglichkeit',
   // Protokoll-Disqualifikation). ALLE haengen an `v === 9`; ein v8-Raum erreicht
   // keinen davon. Die Aussage bleibt deshalb dieselbe - fuer das freigegebene
   // Protokoll traegt eine Generation weiterhin genau Zughistorie und Eviction.
-  t('eine Generation traegt Zughistorie, Eviction und die v9-Grundlage',
-    JSON.stringify(Object.keys(g$).sort()) === JSON.stringify(['c', 'd', 'e', 'q', 'r', 'ro', 's', 't', 'x', 'z']), Object.keys(g$));
+  // Seit PLAYER LOOP 01A kommen pt und rd dazu: die Teilnehmerliste einer Generation
+  // und die Bereitschaft fuer die kommende. Beide haengen an `v === 11`; ein v8-Raum
+  // erreicht auch sie nicht.
+  t('eine Generation traegt Zughistorie, Eviction, die v9-Grundlage und die v11-Besetzung',
+    JSON.stringify(Object.keys(g$).sort()) === JSON.stringify(['c', 'd', 'e', 'pt', 'q', 'r', 'rd', 'ro', 's', 't', 'x', 'z']), Object.keys(g$));
   for (const zweig of ['d', 'c', 'ro', 'r', 's', 'z', 'q', 'x'])
     t('der Zweig ' + zweig + ' gilt ausschliesslich fuer v9-Raeume',
       JSON.stringify(g$[zweig]).indexOf("child('v').val() === 9") >= 0);
