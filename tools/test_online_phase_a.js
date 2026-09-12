@@ -526,8 +526,11 @@ const R = new Function(`
      'und der Aufraeumpfad raeumt genau diesen Sitz ab - kein Waisenraum');
   ok(/let dc=null, code='', created=false, listed=false, wirtSitz=0;/.test(cr),
      'wirtSitz lebt ausserhalb des try - sonst saehe der catch ihn nicht');
-  ok(/if\(visibility==='public'&&\(!fbo\|\|roomProto===10\)\)\{/.test(cr),
-     'nur der dynamische v10-Arena-Raum schreibt einen oeffentlichen Eintrag - aeltere Football-Raeume nicht');
+  // Ab v10 ist der Arena-Raum dynamisch besetzt und darf gelistet werden; v11 erbt das
+  // und bringt dazu, dass der Eintrag nach jedem Match zurueckkehrt. Die alten
+  // Football-Fassungen (8, 9) bleiben ungelistet.
+  ok(/if\(visibility==='public'&&\(!fbo\|\|roomProto>=10\)\)\{/.test(cr),
+     'nur der dynamisch besetzte Arena-Raum schreibt einen oeffentlichen Eintrag - aeltere Football-Raeume nicht');
 
   // Die Raumpruefungen verlangen die Kennung und geben sie weiter.
   const vr2 = grab(/function validateRoom\(d\)\{[\s\S]*?\n\}/, 'validateRoom');
@@ -542,8 +545,17 @@ const R = new Function(`
 
   // Die Rules: v8 fragt die Kennung, der Altbestand den Sitz.
   const rr = JSON.parse(RULES).rules.rooms.$code;
-  ok(rr.hostUid !== undefined && rr.hostUid['.write'] === undefined,
-     'hostUid hat keine eigene Schreiberlaubnis - damit ist sie unveraenderlich');
+  // v11: die Wirtsrolle wandert, weil der Raum seinen Wirt ueberlebt. Sie wandert aber
+  // NUR unter drei Bedingungen zugleich, und alle drei stehen in dieser einen Regel:
+  // die Fassung ist 11, der bisherige Wirt ist kein verbundenes Mitglied mehr, und der
+  // Schreiber ist selbst der niedrigste verbundene Sitz. Fuer v8 bis v10 ist die Regel
+  // damit unerreichbar - dort bleibt die Kennung so unveraenderlich wie bisher.
+  ok(rr.hostUid !== undefined && typeof rr.hostUid['.write'] === 'string'
+     && /child\('v'\)\.val\(\) === 11/.test(rr.hostUid['.write'])
+     && rr.hostUid['.write'].indexOf('=== 8') < 0
+     && rr.hostUid['.write'].indexOf('=== 9') < 0
+     && rr.hostUid['.write'].indexOf('=== 10') < 0,
+     'hostUid wandert ausschliesslich in v11');
   ok(rr.hostUid['.validate'].indexOf("newData.val() === auth.uid") >= 0,
      'sie muss bei der Anlage die uid des Erstellers sein');
   ok(rr.hostUid['.validate'].indexOf("child('v').val() === 8") >= 0,
@@ -627,7 +639,7 @@ const R = new Function(`
 // Das ist die wichtigste Zusicherung dieser Phase. v8 aendert Raumkopf und Lobby;
 // die Bedeutung von g/<gen>/t/<turn>/<seat> bleibt exakt die von v7.
 {
-  ok(/const ONLINE_PROTOCOL_VERSION=10;/.test(HTML), 'die Protokollversion ist 10');
+  ok(/const ONLINE_PROTOCOL_VERSION=11;/.test(HTML), 'die Protokollversion ist 11');
   const send = grab(/function onlineSendCommit\(idx,fx,fy,spin\)\{[\s\S]*?\n\}/, 'onlineSendCommit');
   ok(/writeTurnSlot\(myPlayer,\{k:TURN_MOVE,idx:myPlayer,dx:fx,dy:fy,sp:spin\|\|0\}\)/.test(send),
      'der Zug geht unveraendert als {k,idx,dx,dy,sp} in den Slot');
@@ -646,10 +658,10 @@ const R = new Function(`
   // Protokoll-Disqualifikation). Jeder dieser Zweige ist an `v === 9` gebunden und
   // damit fuer jeden v8-Raum unerreichbar - die Aussage dieser Suite bleibt also
   // dieselbe, sie wird nur genauer: Phase A wird von v9 nicht angefasst.
-  // Seit PLAYER LOOP 01A kommen pt und rd dazu: die Teilnehmerliste einer Generation
-  // und die Bereitschaft fuer die kommende. Beide haengen an `v === 11` und sind fuer
-  // jeden v8-Raum unerreichbar - die Aussage bleibt dieselbe, die Liste wird laenger.
-  ok(Object.keys(rooms.g.$gen).sort().join(',') === 'c,d,e,pt,q,r,rd,ro,s,t,x,z',
+  // Seit PLAYER LOOP 01A kommt pt dazu: die unveraenderliche Teilnehmerliste einer
+  // Generation. Sie haengt an `v === 11` und ist fuer jeden v8-Raum unerreichbar -
+  // die Aussage bleibt dieselbe, die Liste wird um genau einen Eintrag laenger.
+  ok(Object.keys(rooms.g.$gen).sort().join(',') === 'c,d,e,pt,q,r,ro,s,t,x,z',
      'eine Generation traegt Zughistorie, Eviction, die v9-Grundlage und die v11-Besetzung');
   for (const zweig of ['d', 'c', 'ro', 'r', 's', 'z', 'q', 'x'])
     ok(JSON.stringify(rooms.g.$gen[zweig]).indexOf("child('v').val() === 9") >= 0,
@@ -663,8 +675,8 @@ const R = new Function(`
   // Die Rules tragen seit V9.1 die v9-Grundlage. Der CLIENT tut es ausdruecklich nicht:
   // er steht auf Protokoll 8, kennt keinen der neuen Pfade und kann folglich keinen
   // v9-Raum anlegen oder betreten. Genau das ist die Trennung, die diese Stufe schuetzt.
-  ok(/const ONLINE_PROTOCOL_VERSION=10;/.test(HTML),
-     'der ausgelieferte Client steht auf Protokoll 10');
+  ok(/const ONLINE_PROTOCOL_VERSION=11;/.test(HTML),
+     'der ausgelieferte Client steht auf Protokoll 11');
   for (const pfad of ["/d/'", "/c/'", "'d/'", "'c/'"])
     ok(HTML.indexOf("g/'+ctx.gen+'" + pfad) < 0,
        'der Client schreibt keinen v9-Pfad: ' + pfad);
@@ -689,6 +701,11 @@ const R = new Function(`
   // Seit V9.4D2 kommen die ECHTEN Einstiege dazu: der Rejoin ruft die Rehydrierung,
   // der frische Start delegiert an sie. Mehr Namen darf das Produkt nicht nennen.
   const HAKEN = ['fbV9LebenNeueRunde', 'fbV9LebenStop', 'fbV9Wirken',
+                 // v11: die gemeinsame Sitzlisten-Vokabel. Das Spiel prueft mit ihr die
+                 // Teilnehmerliste einer Generation - und zwar mit derselben Instanz,
+                 // mit der das Protokoll sie prueft. Eine zweite waere eine zweite
+                 // Vorstellung davon, was eine gueltige Besetzung ist.
+                 'fbV9Sitze',
                  'fbV9RaumStart', 'fbV9RaumIst9', 'fbV9Rehydrieren', 'fbV9LebenCtx',
                  // V9.5B: der Eingabeweg in applyCommit. Gezaehlt wird er in
                  // test_online_v9_coordinator.js, nicht hier.

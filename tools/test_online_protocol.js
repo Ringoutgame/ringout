@@ -72,7 +72,7 @@ console.log('ONLINE-PROTOKOLL v' + P.VER + ' — Schema und kanonische Zugereign
 // v8 traegt MODUS und SOLLBESETZUNG. Die Zugkodierung ist bytegleich zu v7 - erst v9
 // aendert sie (Frist, Hash-Commit/Reveal). Zwei Stufen, weil eine Nummer nie zwei
 // Zugbauformen bedeuten darf.
-t('die Protokollversion ist 10', P.VER === 10, P.VER);
+t('die Protokollversion ist 11', P.VER === 11, P.VER);
 const RULES = require('fs').readFileSync(
   require('path').join(__dirname, '..', 'firebase.rules.json'), 'utf8');
 // WAEHREND DER UMSTELLUNG akzeptiert der Server beide Versionen — sonst waere jeder noch
@@ -239,8 +239,10 @@ t('ein v9-Raum wird angenommen - der Client bedient beide Familien',
   P.validateRoom(room({ v: 9 })).ok === true);
 t('ein v10-Raum wird angenommen - dynamische Arena-Besetzung',
   P.validateRoom(room({ v: 10 })).ok === true);
-t('ein v11-Raum nicht - unbekannte Fassung',
-  P.validateRoom(room({ v: 11 })).ok === false);
+t('ein v11-Raum wird angenommen - derselbe Beitritt, aber der Raum ueberlebt sein Match',
+  P.validateRoom(room({ v: 11 })).ok === true);
+t('ein v12-Raum nicht - unbekannte Fassung',
+  P.validateRoom(room({ v: 12 })).ok === false);
 t('und ein v6-Raum ebenso — die verbrannte Nummer teilt sich keinen Raum mit v8',
   P.validateRoom(room({ v: 6 })).ok === false);
 
@@ -305,17 +307,26 @@ t('Rejoin: gueltiger Raum der eigenen Version', P.validateRejoinRoom(room({ stat
 // Rueckkehrer wuerde als "ausserhalb der Besetzung" abgewiesen.
 t('Rejoin: gueltiger Football-v4-Raum', P.validateRejoinRoom(fbRoom({ state: 'playing', seats: 5 })).ok === true);
 t('Rejoin: der Football-Raum meldet fuenf Sitze',
-  P.validateRejoinRoom(fbRoom({ state: 'playing', seats: 5 })).seats === 5);
+  P.validateRejoinRoom(fbRoom({ v: 10, state: 'playing', seats: 5 })).seats === 5);
 t('Rejoin: laufender Football-Raum OHNE Startsignal wird abgelehnt',
-  P.validateRejoinRoom(fbRoom({ state: 'playing' })).ok === false);
+  P.validateRejoinRoom(fbRoom({ v: 10, state: 'playing' })).ok === false);
+// v11: es GIBT kein Startsignal mehr. Wer bei einem laufenden Match mitspielt, steht in
+// der Teilnehmerliste der Generation - der Raum selbst traegt keine Sitzzahl, und sie
+// hier zu verlangen hiesse, jede Rueckkehr in einen v11-Raum abzuweisen.
+t('Rejoin: ein laufender v11-Raum braucht kein Startsignal',
+  P.validateRejoinRoom(fbRoom({ v: 11, state: 'playing' })).ok === true);
+t('Rejoin: und meldet auch keine Sitzzahl - die steht in der Generation',
+  P.validateRejoinRoom(fbRoom({ v: 11, state: 'playing' })).seats === 0);
+t('Rejoin: ein v11-Raum traegt die Fassung 11 im Ergebnis',
+  P.validateRejoinRoom(fbRoom({ v: 11, state: 'playing' })).v === 11);
 // Ein Football-Match startet mit zwei bis fuenf Teilnehmern; die Zahl steht im
 // Startsignal und ist damit auch fuer den Rueckkehrer eindeutig.
 // v8: das Startsignal MUSS die Sollbesetzung des Raums treffen. Ein laufendes Match
 // mit abweichender Besetzung ist kein Raum, in den man zurueckkehren kann.
 t('Rejoin: laufender Football-Raum mit drei bis fuenf Sitzen wird angenommen',
-  [3, 4, 5].every(n => P.validateRejoinRoom(fbCfg('lives', n, { state: 'playing', seats: n })).ok === true));
+  [3, 4, 5].every(n => P.validateRejoinRoom(fbCfg('lives', n, { v: 9, state: 'playing', seats: n })).ok === true));
 t('Rejoin: die gemeldete Sitzzahl ist die des Startsignals',
-  [3, 4, 5].every(n => P.validateRejoinRoom(fbCfg('lives', n, { state: 'playing', seats: n })).seats === n));
+  [3, 4, 5].every(n => P.validateRejoinRoom(fbCfg('lives', n, { v: 9, state: 'playing', seats: n })).seats === n));
 t('Rejoin: v9 - ein Startsignal unterhalb der Sollbesetzung wird abgelehnt',
   P.validateRejoinRoom(fbCfg('lives', 5, { v: 9, state: 'playing', seats: 4 })).ok === false);
 // v10: die Sollbesetzung ist die HOECHSTbesetzung. Ein laufendes Match darf mit zwei bis
@@ -330,11 +341,11 @@ t('Rejoin: v10 - ein einzelner Sitz ist kein Match',
 t('Rejoin: v10 - das Ergebnis traegt die Fassung 10',
   P.validateRejoinRoom(fbCfg('lives', 5, { v: 10, state: 'playing', seats: 2 })).v === 10);
 t('Rejoin: ein Startsignal oberhalb der Sollbesetzung ebenso',
-  P.validateRejoinRoom(fbCfg('lives', 3, { state: 'playing', seats: 4 })).ok === false);
+  P.validateRejoinRoom(fbCfg('lives', 3, { v: 9, state: 'playing', seats: 4 })).ok === false);
 t('Rejoin: ein Football-Raum mit nur einem Sitz wird abgelehnt',
-  P.validateRejoinRoom(fbRoom({ state: 'playing', seats: 1 })).ok === false);
+  P.validateRejoinRoom(fbRoom({ v: 10, state: 'playing', seats: 1 })).ok === false);
 t('Rejoin: mehr Sitze als der Raum fasst wird abgelehnt',
-  P.validateRejoinRoom(fbRoom({ state: 'playing', seats: 6 })).ok === false);
+  P.validateRejoinRoom(fbRoom({ v: 10, state: 'playing', seats: 6 })).ok === false);
 t('Rejoin: die Football-LOBBY braucht kein Startsignal',
   P.validateRejoinRoom(fbRoom({ state: 'lobby' })).ok === true);
 t('Rejoin: v3 wird abgelehnt', P.validateRejoinRoom(room({ v: 3 })).ok === false);
@@ -367,7 +378,7 @@ t('Rejoin: die Fassung ist der ROHWERT des Raums, nicht die Client-Ausbaustufe',
   P.validateRejoinRoom(room({ v: 8, state: 'playing' })).v !== P.VER
   && P.validateRejoinRoom(fbCfg('lives', 4, { v: 9, state: 'playing', seats: 4 })).v === 9);
 t('Rejoin: unbekannte Fassungen scheitern geschlossen (kein v-Feld, kein ok)',
-  [3, 4, 5, 6, 7, 11, 0, -1, '9', '10', undefined, null].every(v => {
+  [3, 4, 5, 6, 7, 12, 0, -1, '9', '10', '11', undefined, null].every(v => {
     const r = P.validateRejoinRoom(fbCfg('lives', 5, { v, state: 'playing', seats: 5 }));
     return r.ok === false && r.reason === 'noRoom' && !('v' in r);
   }));
@@ -392,20 +403,29 @@ t('Beitritt: die Ablehnung nennt die Versionsunvertraeglichkeit',
   // Lebenszyklus fuehrt - unabhaengig davon, auf welchem Sitz dieser Mensch spielt.
   t('der Raum traegt nur Version, Identitaet, Praesenz, Konfiguration, Historie und Eviction',
     JSON.stringify(keys) === JSON.stringify(['config', 'created', 'g', 'gen', 'hostUid', 'p', 'players', 'seats', 'state', 'v']), keys);
-  t('und die Hostkennung ist an die Anlage gebunden, nicht beschreibbar',
-    room$.hostUid['.validate'].indexOf("newData.val() === auth.uid") >= 0
-    && room$.hostUid['.write'] === undefined, Object.keys(room$.hostUid));
+  // Wer die Kennung schreibt, kann immer nur die EIGENE schreiben - das galt schon
+  // bei der Anlage und gilt seit v11 auch fuer die Nachfolge. Verschenken kann sie
+  // niemand, uebernehmen nur, wer selbst da ist und unter dem kein verbundener Sitz
+  // mehr liegt.
+  t('die Hostkennung traegt immer die eigene Identitaet',
+    room$.hostUid['.validate'].indexOf("newData.val() === auth.uid") >= 0);
+  t('und sie wandert ausschliesslich in v11',
+    typeof room$.hostUid['.write'] === 'string'
+    && room$.hostUid['.write'].indexOf("child('v').val() === 11") >= 0
+    && room$.hostUid['.write'].indexOf('=== 8') < 0
+    && room$.hostUid['.write'].indexOf('=== 9') < 0
+    && room$.hostUid['.write'].indexOf('=== 10') < 0, Object.keys(room$.hostUid));
   const g$ = JSON.parse(rules).rules.rooms.$code.g.$gen;
   // Seit der V9.1-Grundlage kommen d und c dazu, seit V9.4B1 zusaetzlich s
   // (Generationsstart), z (Protokollabschluss), q (Bereitschaft) und x (dauerhafte
   // Protokoll-Disqualifikation). ALLE haengen an `v === 9`; ein v8-Raum erreicht
   // keinen davon. Die Aussage bleibt deshalb dieselbe - fuer das freigegebene
   // Protokoll traegt eine Generation weiterhin genau Zughistorie und Eviction.
-  // Seit PLAYER LOOP 01A kommen pt und rd dazu: die Teilnehmerliste einer Generation
-  // und die Bereitschaft fuer die kommende. Beide haengen an `v === 11`; ein v8-Raum
-  // erreicht auch sie nicht.
+  // Seit PLAYER LOOP 01A kommt pt dazu: die unveraenderliche Teilnehmerliste einer
+  // Generation. Sie haengt an `v === 11`; ein v8-Raum erreicht sie nicht. Eine
+  // Bereitschaft gibt es nicht - in v11 startet der Wirt von Hand.
   t('eine Generation traegt Zughistorie, Eviction, die v9-Grundlage und die v11-Besetzung',
-    JSON.stringify(Object.keys(g$).sort()) === JSON.stringify(['c', 'd', 'e', 'pt', 'q', 'r', 'rd', 'ro', 's', 't', 'x', 'z']), Object.keys(g$));
+    JSON.stringify(Object.keys(g$).sort()) === JSON.stringify(['c', 'd', 'e', 'pt', 'q', 'r', 'ro', 's', 't', 'x', 'z']), Object.keys(g$));
   for (const zweig of ['d', 'c', 'ro', 'r', 's', 'z', 'q', 'x'])
     t('der Zweig ' + zweig + ' gilt ausschliesslich fuer v9-Raeume',
       JSON.stringify(g$[zweig]).indexOf("child('v').val() === 9") >= 0);

@@ -560,7 +560,7 @@ function makeClient(db, code, forcePid, forceUid) {
     const pubCalls=[];
     function removePublicListing(c){pubCalls.push('remove:'+c);}
     function writePublicListing(c){pubCalls.push('write:'+c);return Promise.resolve();}
-    let roomPublic=false, createVisibility='private';
+    let roomPublic=false, roomOeffentlich=false, createVisibility='private';
     const LOGICAL=1000, cx=500, cy=500, R0=LOGICAL*0.485; let BR=LOGICAL*0.032, R=R0;
     function curFR(){return FRICTION;} function curFE(){return FEND;} function curST(){return STOPV;}
     function maxPull(){return R0*MAXPULL_FRAC;}

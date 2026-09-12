@@ -1071,9 +1071,13 @@ ok(/col0:'BLAU'/.test(HTML) && /col1:'ROT'/.test(HTML) && /wins:'GEWINNT'/.test(
 ok(/const iPlay=online\|\|mode==='bot';/.test(HTML), 'Lokales Football zeigt die neutrale Gewinner-Headline (kein VICTORY/DEFEAT)');
 ok(/T\('finalScore'\)/.test(HTML) && /finalScore:'ENDSTAND'/.test(HTML), 'Endstand wird im Result-Overlay angezeigt');
 ok(/fbNewMatch:'[^']*Neues Match'/.test(HTML), 'Button-Text "Neues Match" vorhanden (de)');
-ok(/function rematchLabel\(\)\{return mode==='football'\?T\('fbNewMatch'\):T\('rematch'\);\}/.test(HTML),
+ok(/return mode==='football'\?T\('fbNewMatch'\):T\('rematch'\);\n\}/.test(HTML),
   'Neues-Match-Beschriftung ist mode-scoped — normale Modi behalten "Rematch"');
-ok((HTML.match(/rematchLabel\(\)/g) || []).length === 3, 'rematchLabel: eine Definition, genau zwei Verwendungen (applyLang + gameOver)');
+// v11: aus dem Ergebnisfenster geht es zurueck in die Lobby DIESES Raums - dort
+// entsteht das naechste Match. "Rematch" waere dort eine Falschauskunft.
+ok(/if\(\(typeof fbV11Raum==='function'\)&&fbV11Raum\(\)\)return '↩ LOBBY';/.test(HTML),
+  'v11 beschriftet den Primaerknopf als Rueckweg in die Lobby');
+ok((HTML.match(/rematchLabel\(\)/g) || []).length === 4, 'rematchLabel: eine Definition, genau drei Verwendungen (applyLang + gameOver + Matchende ohne Sieger)');
 ok(/id="ovMenuBtn"/.test(HTML), 'Bestehender Menue-Button im Result-Overlay wird wiederverwendet');
 ok(/\$\('replayBtn'\)\.style\.display=mode==='football'\?'none':'';/.test(HTML), 'Replay-Button nur im Football ausgeblendet — andere Modi unveraendert');
 ok(!/id="fbResult|id="footballOv|id="fbOv/i.test(HTML), 'Kein zweites Football-Result-Overlay');
@@ -1122,8 +1126,12 @@ ok(!/confetti|particleWin|cameraShake/i.test(HTML), 'Keine Konfetti-/Partikel-/K
   ok(JSON.stringify(M.score()) === '[1,0]', 'Erstes Tor im neuen Match zaehlt regulaer (keine alte Punktzahl)');
   ok(M.goalState() === 'fall' && M.winner() === null, 'Erstes Tor im neuen Match beendet das Match nicht'); }
 ok(/function newGame\(\)\{[\s\S]*?footballResetMatchState\(\);/.test(HTML), 'newGame nutzt die zentrale Football-Match-Initialisierung');
-ok((HTML.match(/footballResetMatchState\(\)/g) || []).length === 3, 'footballResetMatchState: eine Definition, genau zwei Aufrufe (newGame + showMenu)');
-ok(/\$\('rematchBtn'\)\.onclick=\(\)=>\{if\(online\)[\s\S]*?newGame\(\);\};/.test(HTML), 'Neues-Match-Button laeuft ueber den bestehenden newGame-Pfad');
+ok((HTML.match(/footballResetMatchState\(\)/g) || []).length === 4, 'footballResetMatchState: eine Definition, genau drei Aufrufe (newGame + showMenu + v11-Rueckweg in die Lobby)');
+ok(/\$\('rematchBtn'\)\.onclick=\(\)=>\{\n[\s\S]*?if\(online\)\{onlineRematch\(\);return;\}\n[\s\S]*?newGame\(\);\n\};/.test(HTML), 'Neues-Match-Button laeuft ueber den bestehenden newGame-Pfad');
+// Drei Wege, EIN Knopf - und jeder geht seinen bestehenden Pfad: v11 zurueck in die
+// Lobby, Online bis v10 ueber den Generationswechsel, lokal ueber newGame.
+ok(/\$\('rematchBtn'\)\.onclick=\(\)=>\{\n\s*if\(\(typeof fbV11Raum==='function'\)&&fbV11Raum\(\)\)\{\s*fbV11ErgebnisVerlassen\(\);\s*return;\s*\}/.test(HTML),
+  'v11 nimmt aus dem Ergebnisfenster den Rueckweg in die Lobby');
 
 // ── F6. MODUSWECHSEL / MENUE ──
 { const M = buildEnv('football', 'single');

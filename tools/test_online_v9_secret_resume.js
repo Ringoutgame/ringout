@@ -885,7 +885,7 @@ abschnitt('Waechter');
   const NL = String.fromCharCode(10);
   const code = BEREICH.split(NL).map(z => { const k = z.indexOf('//');
     return k >= 0 ? z.slice(0, k) : z; }).join(NL);
-  t('Protokoll 10', /const ONLINE_PROTOCOL_VERSION=10;/.test(HTML));
+  t('Protokoll 11', /const ONLINE_PROTOCOL_VERSION=11;/.test(HTML));
   // Die Reihenfolge gilt IM EINSTIEG, nicht im ganzen Block: fbV9NetWriteCommit ist
   // weiter oben im Adapter definiert. Massgeblich ist, dass der Einstieg zuerst
   // sichert und erst der Schritt danach sendet - und dass ein Fehlschlag beim
@@ -931,6 +931,11 @@ abschnitt('Waechter');
   // Seit V9.5B nennt auch der Eingabeweg in applyCommit zwei v9-Namen. Gezaehlt wird er
   // dort, wo die Beruehrungspunkte gezaehlt werden - in test_online_v9_coordinator.js.
   const HAKEN = ['fbV9LebenNeueRunde', 'fbV9LebenStop', 'fbV9Wirken',
+                 // v11: die gemeinsame Sitzlisten-Vokabel. Das Spiel prueft mit ihr die
+                 // Teilnehmerliste einer Generation - und zwar mit derselben Instanz,
+                 // mit der das Protokoll sie prueft. Eine zweite waere eine zweite
+                 // Vorstellung davon, was eine gueltige Besetzung ist.
+                 'fbV9Sitze',
                  'fbV9RaumStart', 'fbV9RaumIst9', 'fbV9Rehydrieren', 'fbV9LebenCtx',
                  'fbV9LebenAn', 'fbV9LebenHandeln', 'fbV9RaumHier',
                  // Hydrations-Barriere: das Eingabetor - whoCanAim und die Stand-Taste fragen,

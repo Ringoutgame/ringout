@@ -415,8 +415,8 @@ abschnitt('Die vier Fristschliesser');
 // ══ QUELLTEXT-WAECHTER ═══════════════════════════════════════════════════════
 abschnitt('Waechter: der Adapter ruht');
 {
-  t('der ausgelieferte Client steht auf Protokoll 10',
-    /const ONLINE_PROTOCOL_VERSION=10;/.test(HTML));
+  t('der ausgelieferte Client steht auf Protokoll 11',
+    /const ONLINE_PROTOCOL_VERSION=11;/.test(HTML));
   const start = HTML.indexOf('const FB_V9_PREIMAGE_BYTES=60');
   // Der ruhende v9-Bereich endet seit V9.3B2B hinter der Ablaufsteuerung.
   const ende = HTML.indexOf('// ════ ENDE V9-SPIELANBINDUNG ════');
@@ -430,6 +430,11 @@ abschnitt('Waechter: der Adapter ruht');
   // Seit V9.4D2 kommen die ECHTEN Einstiege dazu: der Rejoin ruft die Rehydrierung,
   // der frische Start delegiert an sie. Mehr Namen darf das Produkt nicht nennen.
   const HAKEN = ['fbV9LebenNeueRunde', 'fbV9LebenStop', 'fbV9Wirken',
+                 // v11: die gemeinsame Sitzlisten-Vokabel. Das Spiel prueft mit ihr die
+                 // Teilnehmerliste einer Generation - und zwar mit derselben Instanz,
+                 // mit der das Protokoll sie prueft. Eine zweite waere eine zweite
+                 // Vorstellung davon, was eine gueltige Besetzung ist.
+                 'fbV9Sitze',
                  'fbV9RaumStart', 'fbV9RaumIst9', 'fbV9Rehydrieren', 'fbV9LebenCtx',
                  // V9.5B: der Eingabeweg in applyCommit. Gezaehlt wird er in
                  // test_online_v9_coordinator.js, nicht hier.

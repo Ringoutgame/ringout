@@ -1644,6 +1644,10 @@ let turnUnsub=null, genUnsub=null, presUnsub=null, seatsUnsub=null, gameStarted=
 // Matchstart/Leave/Abbruch best-effort aufgeraeumt. /rooms/<code> bleibt die einzige
 // Wahrheit; publicRooms ist ein reiner Auffindbarkeits-Index ohne Namen/Modi/Zahlen.
 let createVisibility='private', roomPublic=false;
+// Ist DIESER Raum als oeffentlich angelegt? Unveraenderlich, solange man drin sitzt
+// (config wird nie neu geschrieben). roomPublic daneben sagt nur, ob gerade ein
+// Eintrag in der oeffentlichen Liste steht.
+let roomOeffentlich=false;
 let lobbyP={};      // letzter Lobby-Presence-Snapshot (Start-Gate des Hosts, M8-T3c)
 let seatLeft=[];    // FFA: Seat hat das Match verlassen (Presence-Sicht) -> Sentinel schreiben
 let seatGone=[];    // FFA: Verlassen-Status aus den Move-Daten — deterministisch fuer alle Clients
@@ -2104,6 +2108,10 @@ function startLobbyHostGrace(){
 //   host record kept (reload)-> start/keep the grace and wait for the return
 function evalLobbyHostPresence(){
   if(!(online&&ffaRoom()&&!gameStarted&&!isHost()))return;
+  // v11: der Host ist reine Anzeige. Er startet nichts, er schliesst nichts, und sein
+  // Weggang laesst den Raum genau so bestehen wie der Weggang jedes anderen - die
+  // Uebrigen spielen weiter. Es gibt dafuer auch nichts zu uebertragen.
+  if(typeof fbV11Raum==='function'&&fbV11Raum())return;
   // Beobachtet wird der SITZ DES HOSTS - in einem v8-Raum kann das Sitz 2 sein. Wer auf
   // Sitz 0 sitzt, ist dort ein gewoehnlicher Mitspieler; sein Weggang schliesst nichts.
   const hs=hostSeat();
@@ -2570,7 +2578,13 @@ function T(k){return (I18N[LANG]&&I18N[LANG][k])||I18N.en[k]||k;}
 // Beschriftung des Result-Overlay-Primaerbuttons. Arena Football beendet ein MATCH
 // (First-to-3) und startet danach ein neues Match bei 0:0 — in allen anderen Modi bleibt
 // es das unveraenderte Rematch. Eine Quelle fuer applyLang() und gameOver().
-function rematchLabel(){return mode==='football'?T('fbNewMatch'):T('rematch');}
+function rematchLabel(){
+  // v11: aus diesem Fenster geht es zurueck in die Lobby des Raums - dort erklaert
+  // jeder seine Bereitschaft, und daraus entsteht das naechste Match. Ein "Rematch"
+  // waere hier eine Falschauskunft: es gibt keine Wiederholung derselben Besetzung.
+  if((typeof fbV11Raum==='function')&&fbV11Raum())return '↩ LOBBY';
+  return mode==='football'?T('fbNewMatch'):T('rematch');
+}
 function applyLang(){
   document.documentElement.lang=LANG;
   document.querySelector('.logo .sub').textContent=T('tagline');
@@ -2957,7 +2971,12 @@ function updateMenuPreview(){
   else if(menuSel==='football'){menuMode='football';fmtMenu='single';setzeVorspiel('football','single');}   // Football-Shell-Preview: 3 Kugeln (Blau/Rot/neutral) in der echten 3D-Arena
   else{menuMode='bot';fmtMenu='single';setzeVorspiel('bot','single');}                             // 1v1: Spieler vs Bot
 }
-$('lobbyStart').onclick=()=>startFfaMatch();
+// v11: derselbe Knopf, derselbe Sinn wie eh und je - der Wirt startet das Match. Neu
+// ist nur, dass er das in DIESEM Raum beliebig oft tut.
+$('lobbyStart').onclick=()=>{
+  if((typeof fbV11Raum==='function')&&fbV11Raum()){ fbV11Starten(); return; }
+  startFfaMatch();
+};
 // Home-Rooms-Sektion: VIEW ALL / CREATE ROOM oeffnen die Online-FFA-Seite — der echte
 // openOnline-Flow (Erstellen erst nach Name/Sichtbarkeit dort). Kein Fake-Quick-Match.
 $('homeViewAll').onclick=()=>{SFX.unlock();setzeVorspiel('ffa','ffa');openOnline();};
@@ -2989,7 +3008,11 @@ $('leaveGo').onclick=()=>{$('leaveOv').classList.remove('show');$('ov').classLis
 $('ovMenuBtn').onclick=()=>{$('ov').classList.remove('show');leaveOnline(showMenu);};
 $('sndBtn').onclick=()=>{soundOn=!soundOn;const g=soundOn?'🔊':'🔇';$('sndBtn').textContent=g;$('menuSnd').textContent=g;if(!soundOn){SFX.charge.stop();SFX.fbTransitionStop();if(typeof fbMusicStop==='function')fbMusicStop();}};
 $('resetBtn').onclick=()=>{if(online){toast(T('noOnlineReset'));return;}newGame();};
-$('rematchBtn').onclick=()=>{if(online){onlineRematch();return;}$('ov').classList.remove('show');newGame();};   // online: das Ergebnisfenster bleibt stehen, bis der Generationswechsel BESTAETIGT ist (startOnlineGame raeumt es ab) - wird er abgelehnt, sieht der Spieler weiter sein Ergebnis
+$('rematchBtn').onclick=()=>{
+  if((typeof fbV11Raum==='function')&&fbV11Raum()){ fbV11ErgebnisVerlassen(); return; }
+  if(online){onlineRematch();return;}
+  $('ov').classList.remove('show');newGame();
+};   // online: das Ergebnisfenster bleibt stehen, bis der Generationswechsel BESTAETIGT ist (startOnlineGame raeumt es ab) - wird er abgelehnt, sieht der Spieler weiter sein Ergebnis
 // ERSTELLEN. Nur Team 2v2 schiebt eine Frage dazwischen - und zwar HIER, nachdem der
 // Mensch sich fuer "Raum anlegen" entschieden hat. Alle anderen Modi legen sofort an.
 $('onCreate').onclick=()=>{
@@ -4600,7 +4623,7 @@ function fbLobbyCap(){return fbRoomCap>0?fbRoomCap:(online?FB_ONLINE_SEATS:fbOnl
 // beim Druecken von START da ist - mindestens FB_DYN_MIN_START. Nur der v10-Raum kennt
 // diesen Unterschied; v8 und v9 verlangen weiter die exakte Sollbesetzung.
 const FB_DYN_MIN_START=2;
-function fbRaumDynamisch(){return !!online&&roomProto===10;}
+function fbRaumDynamisch(){return !!online&&(roomProto===10||roomProto===11);}
 function fbLobbyMode(){return fbRoomMode||fbOnlineMode;}
 // TEAM 2V2: der Hinweis sagt, WELCHES Team noch jemanden braucht - "warte auf 1
 // weiteren Spieler" liesse offen, auf welcher Seite der Platz frei ist.
@@ -4653,7 +4676,12 @@ function placeBalls(){
     // 90-Grad-Drehung ineinander ueberfuehrbar (s. FOOTBALL_ELIM4_DIRS).
     // Dieselbe geometrische Spawnregel, die auch nach jeder Eliminierung greift
     // (fbElimSpawnBodies) — es gibt nur EINE Beschreibung der fairen Startaufstellung.
-    for(let o=0;o<fbElimPlayers();o++)balls.push(mkBall(fbElimSpawnX(o),fbElimSpawnY(o),o));
+    const D=fbElimDirs();
+    for(let sl=0;sl<D.length;sl++){
+      const o=fbElimSlotOwner(sl);
+      if(o<0)continue;
+      balls.push(mkBall(fbElimSpawnX(sl),fbElimSpawnY(sl),o));
+    }
     balls.push(mkBall(cx,cy,FOOTBALL_NEUTRAL_OWNER));
   }else if(mode==='football'&&typeof fbTeam2==='function'&&fbTeam2()){
     // TRUE TEAM 2V2: dieselbe Aufstellung wie Tactical - Zeichen fuer Zeichen dieselben
@@ -5170,7 +5198,7 @@ function setPhaseText(){const p=$('phase');
       // Zeile 'Spieler N zielt' behauptete hier eine Reihenfolge, die es nicht gibt -
       // und stand seit PASS 04 zusaetzlich neben der genauen Zeile im Kopf. Zwei
       // Etiketten fuer eine Lage, eines davon falsch: das entfaellt.
-      else if(phase==='aim'&&online&&(roomProto===9||roomProto===10))p.textContent='';
+      else if(phase==='aim'&&online&&(roomProto===9||roomProto===10||roomProto===11))p.textContent='';
       else if(phase==='aim')p.innerHTML='<span style="color:'+pcol(curAimer).ui+'">Spieler '+(curAimer+1)+'</span> zielt – verdeckt';
       else if(phase==='reveal')p.textContent='Alle aufgedeckt…';
       else if(phase==='sim')p.textContent='💥';
@@ -7780,9 +7808,14 @@ function footballMatchEndNoWinner(){
   $('wt').textContent='Keine Teilnehmer mehr im Match.';$('wt').className='wt';
   $('ws').textContent='Das Match ist beendet.';
   document.querySelector('#ov .trophy').textContent='🏁';
-  $('rematchBtn').style.display='none';$('replayBtn').style.display='none';
+  // v11: auch ohne Sieger fuehrt der Weg zurueck in die Lobby - der Raum lebt weiter.
+  const v11=(typeof fbV11Raum==='function')&&fbV11Raum();
+  $('rematchBtn').style.display=v11?'':'none';
+  if(v11)$('rematchBtn').textContent=rematchLabel();
+  $('replayBtn').style.display='none';
   $('ov').classList.add('show');
   if(typeof fbMusicResult==='function')fbMusicResult(false);   // ohne Sieger: ruhige Aufloesung, dann Stille
+  if(typeof fbV11MatchVorbei==='function')fbV11MatchVorbei();
   updateHud();
 }
 function footballMatchEnd(){
@@ -7791,6 +7824,9 @@ function footballMatchEnd(){
   footballClearGoalFx();              // der Impuls des Siegtores ist hier laengst abgelaufen — Ergebnisbild startet garantiert ruhig
   if(typeof fbMusicResult==='function')fbMusicResult(true);   // der Rhythmus haelt an und loest auf — unter dem Ergebnis bleibt es still
   gameOver(footballWinner);
+  // v11: das Match ist entschieden - der RAUM erfaehrt es jetzt und faellt in seine
+  // Lobby zurueck. Das Ergebnisfenster bleibt davon unberuehrt stehen.
+  if(typeof fbV11MatchVorbei==='function')fbV11MatchVorbei();
 }
 // ══ ARENA FOOTBALL TACTICAL 1V1 — 2 Figuren je Spieler, EINE Figur pro Runde ════════
 // Tactical ist eine VARIANTE des Football-Modus, kein eigener mode. Das ZUGMODELL ist exakt
@@ -7980,12 +8016,37 @@ const fbElimActive=[true,true,true,true,true];
 const fbElimLives=[FB_ELIM_LIVES,FB_ELIM_LIVES,FB_ELIM_LIVES,FB_ELIM_LIVES,FB_ELIM_LIVES];
 const fbElimSlots=[0,1,2,3,4];
 let fbElimPhaseN=fbElimPlayers();
-// Vollstaendiger Reset (neues Match, Moduswechsel, Menue) — Aufrufer ist footballResetMatchState.
-function fbElimReset(){
-  for(let o=0;o<FOOTBALL_ELIM_MAX_PLAYERS;o++){fbElimActive[o]=o<fbElimPlayers();fbElimSlots[o]=o<fbElimPlayers()?o:-1;fbElimLives[o]=FB_ELIM_LIVES;}
-  fbElimPhaseN=fbElimPlayers();
+// v11: die Teilnehmer DIESES Matches, aufsteigend. null heisst "die dichte Besetzung
+// 0..fbElimPlayers()-1" - so laeuft jedes lokale Match und jeder Raum bis v10, und dort
+// aendert sich durch diese Liste kein einziges Bit.
+let fbElimTeil=null;
+// Gesetzt wird sie an genau einer Stelle je Match: dort, wo die Generation ihre
+// unveraenderliche Teilnehmerliste bekommt (v11) beziehungsweise wieder verliert.
+// Geprueft wird sie durch dieselbe Instanz, die auch das Protokoll prueft - eine
+// zweite Vorstellung davon, was eine gueltige Besetzung ist, darf es nicht geben.
+function fbElimTeilSetzen(liste){
+  if(liste==null){ fbElimTeil=null; return true; }
+  const t=(typeof fbV9Sitze==='function')?fbV9Sitze(liste):null;
+  if(!t)return false;
+  fbElimTeil=t;
+  return true;
 }
+// Die Liste, wie sie das Protokoll braucht - oder null fuer die dichte Besetzung.
+function fbElimTeilnehmer(){ return fbElimTeil?fbElimTeil.slice():null; }
+// Spielt dieser Sitz mit? EINE Frage, EINE Antwort - jede Schleife fragt hier.
+function fbElimDabei(o){ return fbElimTeil?fbElimTeil.indexOf(o)>=0:o<fbElimPlayers(); }
+// Wer ist JETZT noch im Match? Aufsteigend - die Reihenfolge ist die Torslotvergabe.
 function fbElimActiveOwners(){const a=[];for(let o=0;o<fbElimPlayers();o++)if(fbElimActive[o])a.push(o);return a;}
+// Vollstaendiger Reset (neues Match, Moduswechsel, Menue) — Aufrufer ist footballResetMatchState.
+// Die Torslots entstehen aus den AKTIVEN Besitzern, aufsteigend - genau die Regel, die
+// fbElimApplyPhase nach jeder Eliminierung anwendet. Bei dichter Besetzung ist das
+// Ergebnis Zeichen fuer Zeichen das alte (Slot k gehoert Sitz k, Phase = Spielerzahl).
+function fbElimReset(){
+  for(let o=0;o<FOOTBALL_ELIM_MAX_PLAYERS;o++){fbElimActive[o]=o<fbElimPlayers()&&fbElimDabei(o);fbElimSlots[o]=-1;fbElimLives[o]=FB_ELIM_LIVES;}
+  const act=fbElimActiveOwners();
+  for(let k=0;k<FOOTBALL_ELIM_MAX_PLAYERS;k++)fbElimSlots[k]=k<act.length?act[k]:-1;
+  fbElimPhaseN=act.length;
+}
 // Erster Spieler der verdeckten Commit-Runde. Bestandsmodi beginnen immer bei Spieler 0;
 // in Elimination4 wird in FESTER Reihenfolge P1 -> P4 der erste noch aktive gesucht.
 // Aufgerufen aus startRound und dem Settlement in stepSim (jeweils typeof-geguardet).
@@ -8664,8 +8725,10 @@ function gameOver(winner){setPhase('over');setPhaseText();
     ?T('elimDone')
     :T('finalScore')+' · '+(team?score.slice(0,2):score).join(' : ');
   // C4B: Rematch nur anbieten, solange die Teilnehmerstruktur unveraendert ist.
+  // v11: der Rueckweg in die Lobby steht IMMER offen - auch nach einem dauerhaften
+  // Austritt, denn die naechste Generation hat ihre eigene Teilnehmerliste.
   $('rematchBtn').style.display=((typeof fbOnlineRoom==='function')&&fbOnlineRoom()
-    &&fbPermanentExitHappened())?'none':'';
+    &&!((typeof fbV11Raum==='function')&&fbV11Raum())&&fbPermanentExitHappened())?'none':'';
   $('replayBtn').style.display=mode==='football'?'none':'';
   // Football: derselbe Primaerbutton startet ein NEUES MATCH bei 0:0 (newGame). Der Replay-
   // Pfad spult Runden ueber phase 'sim'/'result' zurueck — den kennt der Football-Torablauf
@@ -8760,6 +8823,9 @@ function renderLobby(p){
     ?FOOTBALL_TEAM2V2_NAMES[myPlayer]+' · '+T(fbTeam2Side(myPlayer)===FB_TEAM2_BLUE?'teamBlue':'teamRed')
     :nameForSeat(myPlayer));
   const host=isHost(),gap=!seatsContiguous(p,n);   // v8: Host ist nicht mehr "Sitz 0"
+  // v11: jeder hat denselben Knopf. Es gibt keinen, der fuer die anderen entscheidet -
+  // deshalb faellt hier auch die Hostweiche weg, noch bevor sie gestellt wird.
+  if(fmt===FB_ONLINE_FMT&&(typeof fbV11Raum==='function')&&fbV11Raum()){ fbV11Lobby(p,n); return; }
   // v8-FOOTBALL: der Raum verlangt eine EXAKTE Besetzung, und die Lobby sagt das auch.
   // Kein "ab zwei darf der Host" mehr - wer einen Fuenf-Spieler-Raum aufmacht, startet
   // mit fuenf. Der Server erzwingt dasselbe (seats === config/cap).
@@ -8795,6 +8861,35 @@ function renderLobby(p){
   $('lobbyStart').disabled=team?(n!==4||gap):trip?(n!==3||gap):(n<2||gap);
   $('lobbyHint').textContent=host?(team&&n<4?'TEAM DUEL braucht genau 4 Spieler.':trip&&n<3?'TRIPLE FFA braucht genau 3 Spieler.':'Sitzlücke: Warte auf freien Sitz / Spieler soll neu beitreten.'):'Warte auf Host…';
   $('lobbyHint').style.display=(host?((gap&&n>=2)||(trip&&n<3)||(team&&n<4)):true)?'':'none';
+}
+// Die Lobby eines v11-Raums sagt drei Dinge und sonst nichts: wer da ist, wer der
+// Wirt ist, und worauf gewartet wird. Der Wirt sieht START, die anderen sehen keinen
+// Knopf - es gibt nichts, was sie druecken koennten, und ein toter Knopf ist eine
+// Luege. Sitzluecken sind hier keine Stoerung, sondern der Normalfall eines Raums,
+// den Leute betreten und verlassen.
+function fbV11Lobby(p,n){
+  const btn=$('lobbyStart'), hint=$('lobbyHint');
+  hint.style.display='';
+  // Der Raum spielt, dieser Sitz nicht: dann gibt es hier nichts zu tun als warten.
+  if(fbV11State==='playing'){
+    btn.style.display='none';
+    hint.textContent='Match läuft — du bist bei der nächsten Runde dabei.';
+    return;
+  }
+  const wirtSitz=fbV11HostSitz(p);
+  if(wirtSitz!==myPlayer){
+    btn.style.display='none';
+    hint.textContent = n<FB_DYN_MIN_START ? fbWaitText(n,FB_DYN_MIN_START)
+                     : wirtSitz<0          ? 'Warte auf einen neuen Host…'
+                                           : 'Warte auf den Host…';
+    return;
+  }
+  // Der Wirt. Er darf ab zwei starten und muss nicht warten, bis der Raum voll ist.
+  btn.style.display='';
+  btn.disabled=!(n>=FB_DYN_MIN_START&&n<=FB_ONLINE_SEATS);
+  btn.textContent='▶ START';
+  hint.textContent = n<FB_DYN_MIN_START ? fbWaitText(n,FB_DYN_MIN_START)
+                                        : 'Bereit — du startest das Match.';
 }
 // Kopfbereich der Online-Seite: zweifarbiger Titel (ONLINE · FFA/1v1/2v2), Untertitel,
 // Spielerzahl-Badge — eine Stelle fuer openOnline UND attemptRejoin.
@@ -8934,7 +9029,7 @@ function createRoom(){
       // the whole create (room + seat + index) so a "public" room is never silently
       // undiscoverable. `listed` records the write operation-locally for the cleanup paths.
       // v10: auch der dynamische Arena-Raum darf gelistet werden (Rules: publicRooms fuer v10).
-      if(visibility==='public'&&(!fbo||roomProto===10)){
+      if(visibility==='public'&&(!fbo||roomProto>=10)){
         try{ await writePublicListing(code); listed=true; }
         catch(e){ await abortFreshRoom(code,dc,listed,wirtSitz); if(joinOpCurrent(op))setStatus(onlineErrText(e)); return; }
         if(!joinOpCurrent(op)){ await abortFreshRoom(code,dc,listed,wirtSitz); return; }
@@ -8945,7 +9040,7 @@ function createRoom(){
       roomHostUid=fbUid();   // v8: die Hostkennung ist die eigene - unabhaengig vom Sitz
       fbOnlineTeam=-1;       // die Wahl hat ihren Zweck erfuellt und gilt fuer keinen weiteren Raum
       fbRoomMode=fbo?fbOnlineMode:''; fbRoomCap=fbo?cfg.cap:0;   // v8: Sollbesetzung des angelegten Raums (v10: Hoechstbesetzung)
-      roomPublic=(visibility==='public');   // committed room reflects the snapshotted visibility
+      roomPublic=(visibility==='public'); roomOeffentlich=roomPublic;   // committed room reflects the snapshotted visibility
       playersRoster={}; playersRoster[wirtSitz]=rec0;
       rememberRoom(code,wirtSitz);
       hidePublicUI();   // entered a room -> stop the listener, hide the public UI
@@ -9160,7 +9255,7 @@ function joinPublicRoom(code){
 //        manipulierten Raum, und seine Bereitschaftsbarriere wartete auf Sitze, die es
 //        nie gibt. Ein v9-Raum bleibt fuer beide Seiten unveraendert; er entsteht nur
 //        nicht mehr neu.
-const ONLINE_PROTOCOL_VERSION=10;
+const ONLINE_PROTOCOL_VERSION=11;
 const FFA_MAX_SEATS=5;   // Online-FFA: Seats 0-4 (Host=0), Farben aus PCOLS
 // ── RAUMTYP (v4) ──────────────────────────────────────────────────────────────────
 // config.game trennt die beiden Produktfamilien serverseitig. Bewusst NICHT 'mode':
@@ -9520,6 +9615,15 @@ function fbV9CtxOk(ctx){
   if(!Number.isInteger(ctx.gen)||ctx.gen<0||ctx.gen>GEN_MAX)return false;
   if(!Number.isInteger(ctx.turn)||ctx.turn<0||ctx.turn>9999)return false;
   if(!Number.isInteger(ctx.seat)||ctx.seat<0||ctx.seat>=ctx.cap)return false;
+  // v11: die Besetzung steht ausdruecklich als Liste da. Dann MUSS sie eine gueltige
+  // Sitzliste sein, in die Sitzzahl passen und den eigenen Sitz enthalten - wer nicht
+  // Teilnehmer ist, hat in dieser Generation keinen Kontext, nicht einen halben.
+  if(ctx.teil!==undefined){
+    const t=fbV9Sitze(ctx.teil);
+    if(!t||!Array.isArray(ctx.teil)||t.length!==ctx.teil.length)return false;
+    if(t[t.length-1]>=ctx.cap)return false;
+    if(t.indexOf(ctx.seat)<0)return false;
+  }
   return true;
 }
 // Die Besetzung, die zu diesem Kontext gehoert: bis v10 die Zahl der Sitze, ab v11 die
@@ -10908,7 +11012,7 @@ let fbV9Leben=null;
 // Nachspiel stellt einen ZUSTAND wieder her, es wiederholt kein Erlebnis.
 let fbV9Nachspielen=false;
 function fbV9LebenAn(){
-  return !fbV9Nachspielen && !!online && (roomProto===9||roomProto===10) && mode==='football'
+  return !fbV9Nachspielen && !!online && (roomProto===9||roomProto===10||roomProto===11) && mode==='football'
       && typeof fbElim4==='function' && fbElim4()
       && typeof roomCode==='string' && !!roomCode && myPlayer>=0;
 }
@@ -10916,8 +11020,14 @@ function fbV9LebenAn(){
 // aus der Zahl der noch Aktiven: ein ausgeschiedener Sitz bleibt Teil der Barriere.
 function fbV9LebenCtx(turn){
   const uid=(typeof fbUid==='function')?fbUid():null;
-  return {v:9,code:roomCode,gen:gen,turn:turn,seat:myPlayer,cap:fbElimPlayers(),
-          proto:roomProto,uid:uid,seatUid:uid};
+  const ctx={v:9,code:roomCode,gen:gen,turn:turn,seat:myPlayer,cap:fbElimPlayers(),
+             proto:roomProto,uid:uid,seatUid:uid};
+  // v11: die Teilnehmer dieser Generation stehen unveraenderlich fest und koennen
+  // Luecken haben. Bis v10 gibt es keine Liste - dort bleibt das Feld weg, und jede
+  // Schleife rechnet weiter ueber cap. Dieselbe Quelle wie das Spiel selbst.
+  const teil=(typeof fbElimTeilnehmer==='function')?fbElimTeilnehmer():null;
+  if(teil)ctx.teil=teil;
+  return ctx;
 }
 // Gehoert dieser Lebenslauf noch zur Gegenwart? Raum, Generation, Sitz und Sitzung
 // muessen alle stimmen - ein Rueckruf aus einer alten Runde darf die neue nie beruehren.
@@ -11428,9 +11538,9 @@ async function fbV9Rehydrieren(ctx){
 // Entwicklerschalter, den jemand versehentlich umlegt. Solange die Konstante 8 ist,
 // ist beides ausnahmslos false, und der freigegebene v8-Weg laeuft unveraendert.
 function fbV9RaumIst9(raum){
-  // v9 UND v10: dieselbe Protokollfamilie (Commit/Reveal); der Unterschied ist allein
-  // der Besetzungsvertrag (s. PROTOKOLL v10).
-  return !!raum && (raum.v===9||raum.v===10) && ONLINE_PROTOCOL_VERSION>=raum.v;
+  // v9, v10 UND v11: dieselbe Protokollfamilie (Commit/Reveal); verschieden ist allein
+  // der Besetzungsvertrag (s. PROTOKOLL v10 und PROTOKOLL V11).
+  return !!raum && (raum.v===9||raum.v===10||raum.v===11) && ONLINE_PROTOCOL_VERSION>=raum.v;
 }
 // Dieselbe Frage fuer den Raum, in dem dieser Client GERADE SITZT. fbV9RaumIst9 prueft
 // einen gelesenen Raum, bevor man ihn betritt; hier ist er schon betreten, und dann gibt
@@ -11440,7 +11550,7 @@ function fbV9RaumIst9(raum){
 // "ist dieser Raum ein v9-Raum". Ein Nachspieler, ein Zuschauer und ein Client zwischen
 // zwei Runden sitzen genauso in einem v9-Raum wie ein handelnder Spieler - und keiner
 // von ihnen darf in den v8-Zugslot schreiben.
-function fbV9RaumHier(){ return !!online && (roomProto===9||roomProto===10); }
+function fbV9RaumHier(){ return !!online && (roomProto===9||roomProto===10||roomProto===11); }
 // Der Start eines v9-Raums - frisch wie nach einem Neuladen ueber DENSELBEN Weg. Ein
 // frischer Raum hat einfach keine abgeschlossene Runde; die Rehydrierung sieht das,
 // spielt nichts nach und meldet Runde 0 als bereit. Ein zweiter Startweg daneben
@@ -11652,13 +11762,16 @@ function fbRaumFassung(cfg){
   // v10: ein Lives-Raum mit der vollen Hoechstbesetzung ist ein Raum mit dynamischer
   // Startbesetzung. Nur diese Form legt das Produkt noch an (createRoom); die
   // Sollbesetzungen 3 und 4 bleiben v9-Raeume, die es nur noch im Bestand gibt.
-  if(cap===5&&ONLINE_PROTOCOL_VERSION>=10)return 10;   // 5 = FB_ONLINE_SEATS (Sandbox-frei)
+  // v11: derselbe Raum wie v10, aber er ueberlebt sein Match. Das ist die Form, die
+  // das Produkt anlegt; v10 bleibt als Bestandsvertrag lesbar.
+  if(cap===5&&ONLINE_PROTOCOL_VERSION>=11)return 11;   // 5 = FB_ONLINE_SEATS (Sandbox-frei)
+  if(cap===5&&ONLINE_PROTOCOL_VERSION>=10)return 10;
   return ONLINE_PROTOCOL_VERSION>=9?9:8;
 }
 // Welche Raumfassungen kann dieser Client bedienen? Beide Wege sind vollstaendig im
 // Produkt: v8 ueber den Zugslot, v9 ueber Commit und Enthuellung. Eine aeltere Fassung
 // bleibt abgewiesen - dort rechnet die Simulation anders.
-function fbRaumFassungOk(v){ return v===8||(ONLINE_PROTOCOL_VERSION>=9&&v===9)||(ONLINE_PROTOCOL_VERSION>=10&&v===10); }
+function fbRaumFassungOk(v){ return v===8||(ONLINE_PROTOCOL_VERSION>=9&&v===9)||(ONLINE_PROTOCOL_VERSION>=10&&v===10)||(ONLINE_PROTOCOL_VERSION>=11&&v===11); }
 function validateRoom(d){
   if(!d||typeof d!=='object')return{ok:false,reason:'Raumdaten ungültig.'};
   if(!fbRaumFassungOk(d.v))return{ok:false,reason:'Versionen stimmen nicht überein — bitte beide Seite neu laden.'};
@@ -11739,7 +11852,10 @@ function validateRejoinRoom(d){
   // Sitz fuer ausserhalb der Besetzung und weist die Rueckkehr ab.
   const multi=cfg.fmt==='ffa'||cfg.fmt==='triple_ffa'||cfg.fmt==='team_duel'||cfg.game===ROOM_GAME_FOOTBALL;
   let seats=0;
-  if(d.state==='playing'&&multi){
+  // v11: die Besetzung eines laufenden Matches steht in g/<gen>/pt und gehoert damit
+  // der Generation, nicht dem Raum. Der Knoten seats existiert dort gar nicht mehr
+  // (die Rules sperren ihn) - ihn hier zu verlangen, hiesse jede Rueckkehr abzuweisen.
+  if(d.state==='playing'&&multi&&d.v!==11){
     seats=d.seats;
     if(!Number.isInteger(seats)||seats<2||seats>FFA_MAX_SEATS)return{ok:false,reason:'noRoom'};
     if(cfg.fmt==='triple_ffa'&&seats!==3)return{ok:false,reason:'noRoom'};
@@ -11923,7 +12039,7 @@ function joinRoom(){
         // v8: Modus, Sollbesetzung UND Hostkennung kommen aus dem RAUM.
         // Football: Modus UND Variante setzen, bevor irgendetwas np()/fbElim4() fragt.
         if(joinFb){ mode='football'; fbVariant=FOOTBALL_VARIANT_ELIM; } else mode='ffa';
-        winTarget=v.winTarget; fmt=v.fmt; gen=v.gen; roomPublic=isPublic;
+        winTarget=v.winTarget; fmt=v.fmt; gen=v.gen; roomPublic=isPublic; roomOeffentlich=isPublic;
         setzeVorspiel(mode,fmt);   // Kulisse der Lobby: die Koerper des Spiels, dem man beitritt
         rememberRoom(code,c.seat);
         hidePublicUI();   // entered a room -> stop the listener, hide the public UI
@@ -11941,7 +12057,7 @@ function joinRoom(){
       mode='online';   // Gast kann aus dem FFA-Menue heraus auch einem 1v1/2v2-Raum beitreten
       roomCode=code; myPlayer=1; online=true; runningGen=-1; gameStarted=false; seatLeft=[]; seatGone=[]; playersRoster=d.players||{};
       fbRoomMode=v.mode||''; fbRoomCap=Number.isInteger(v.cap)?v.cap:0; roomHostUid=v.hostUid||'';
-      winTarget=v.winTarget; fmt=v.fmt; gen=v.gen; roomPublic=isPublic;
+      winTarget=v.winTarget; fmt=v.fmt; gen=v.gen; roomPublic=isPublic; roomOeffentlich=isPublic;
       setzeVorspiel(mode,fmt);   // Kulisse der Lobby: die Koerper des Spiels, dem man beitritt
       rememberRoom(code,1);
       hidePublicUI();   // entered a room -> stop the listener, hide the public UI
@@ -11963,6 +12079,9 @@ function joinRoom(){
 // RTDB Geschwister eines Multi-Path-Updates so sieht, traegt schon der kanonische
 // Austritt (Praesenz + Rosteranker + Eviction-Marker in einem Update, live bestaetigt).
 function startFfaMatch(){
+  // v11 kennt keinen Hoststart. Der Weg dorthin ist abgeschnitten (s. renderLobby);
+  // dies ist der Riegel dahinter, damit er es auch bleibt.
+  if((typeof fbV11Raum==='function')&&fbV11Raum())return;
   const n=seatCount(lobbyP);
   // PRODUKTSCHUTZ: ein Modus, dessen Onlinespiel noch nicht fertig ist, darf NICHT in
   // den generischen Ablauf durchfallen. Team 2v2 hat in Phase A Raum und Lobby, aber
@@ -12027,6 +12146,365 @@ function onLobbyClosed(){
   onlineZurueckInKontext(k);
   setStatus('Host hat die Lobby geschlossen.');
 }
+
+// ════ PROTOKOLL V11 · DER RAUM UEBERLEBT DAS MATCH ═══════════════════════════
+// Bis v10 war ein Raum der Behaelter EINES Matches. Er entstand als Lobby, der Host
+// startete, und danach gab es kein Zurueck: state ging genau einmal auf 'playing',
+// seats war einmal schreibbar, die oeffentliche Liste war fort. Wer weiterspielen
+// wollte, bekam ein Rematch derselben Besetzung - oder musste einen neuen Raum
+// aufmachen. Das ist kein Ort, an dem Freunde einen Abend verbringen.
+//
+// v11 dreht genau diese eine Sache um: der Raum bleibt, das Match kommt und geht.
+//
+//   state:  lobby -> playing -> lobby -> playing -> …
+//   gen:    steigt bei JEDEM Start um eins - jede Generation ist ein eigenes Match
+//   g/<gen>/pt/<sitz>=true   WER dieses Match spielt (unveraenderlich, atomar mit
+//                            gen und state geschrieben)
+//
+// GESTARTET WIRD VON HAND, VOM HOST. Nicht, weil der Raum voll ist, nicht, weil sich
+// alle bereit gemeldet haben, und nie durch einen Beitritt. Der Host sieht START und
+// entscheidet, wann es losgeht - mit zwei, drei, vier oder fuenf Leuten. Fuer das
+// erste Match und fuer jedes weitere gilt derselbe eine Weg.
+//
+// WER DABEI IST, entscheidet dieser Klick nicht aus: es sind GENAU die Menschen, die
+// in diesem Augenblick verbunden im Raum sitzen. Der Server rechnet das nach - die
+// pt-Regel vergleicht die Liste Sitz fuer Sitz gegen die Praesenz und weist die ganze
+// Schreibung ab, wenn auch nur einer fehlt oder einer zu viel darin steht. Damit kann
+// der Host niemanden uebergehen und niemanden erfinden.
+//
+// Wer im Match nicht dabei sein WILL, verlaesst den Raum. Wer erst nach dem Start
+// kommt, ist beim naechsten Mal dabei. Es gibt keinen dritten Zustand dazwischen.
+//
+// DEN HOST MUSS ES IMMER GEBEN, solange der Raum lebt - sonst koennte niemand mehr
+// starten, und der Raum waere tot, obwohl Leute darin sitzen. Die Rolle wandert
+// deshalb: sie geht an den NIEDRIGSTEN verbundenen Sitz, sobald der bisherige Host
+// kein verbundenes Mitglied mehr ist. Solange er da ist, kann ihn niemand
+// verdraengen; das erzwingen die Rules, nicht die Hoeflichkeit der Clients.
+//
+// Ein dauerhafter Austritt beendet den Raum nicht mehr. Er beendet die TEILNAHME AN
+// EINER GENERATION - und die naechste hat ihre eigene Teilnehmerliste.
+
+// Wie lange das Ergebnis stehen bleibt, bevor der Raum von selbst in seine Lobby
+// zurueckfaellt. Der Knopf im Ergebnisfenster geht sofort; diese Frist ist nur dafuer
+// da, dass niemand haengen bleibt, der nichts drueckt.
+const FB_V11_ERGEBNIS_MS=8000;
+// Und die Obergrenze, bis zu der auf das EIGENE Matchende gewartet wird. Sie greift
+// nur in einem Fall, den es nicht geben sollte: der Raum ist beendet, der eigene
+// Ablauf steht aber nicht. Dann ist die Lobby immer noch besser als das Nichts.
+const FB_V11_ENDE_MAX_MS=20000;
+// Wie lange ein Wirt, der nur GETRENNT ist, seine Rolle behaelt. Die Summe ist kein
+// gegriffener Wert: SEAT_STALE_MS ist die Zeit, in der sein Sitz noch fuer ihn
+// reserviert bleibt (so lange kann er ihn gar nicht zurueckerobern), und
+// LOBBY_HOST_GRACE_MS ist die Frist, die die Lobby ihm ohnehin schon gibt. Erst
+// danach ist er wirklich weg. Wer BEWUSST geht, loescht seinen Rostereintrag - dann
+// wird gar nicht gewartet.
+const FB_V11_HOST_FRIST_MS=SEAT_STALE_MS+LOBBY_HOST_GRACE_MS;
+
+let fbV11State='';          // zuletzt gesehener Raumzustand ('' = noch keiner)
+let fbV11StateUnsub=null, fbV11HostUnsub=null;
+let fbV11StartBusy=false, fbV11NachfolgeBusy=false, fbV11NachfolgeTimer=null;
+let fbV11EndeBusy=false, fbV11PtBusy=false;
+let fbV11Gestartet=-1;      // Generation, deren Match dieser Client schon aufgenommen hat
+let fbV11ErgTimer=null, fbV11ErgAb=0, fbV11ErgSeit=0;
+// Hat der Spieler das Ergebnis gelesen und will weiter? Dann wird nicht mehr auf die
+// Frist gewartet - aber sehr wohl darauf, dass der Raum das Matchende bestaetigt hat.
+let fbV11ErgWeg=false;
+
+function fbV11Raum(){ return !!online && roomProto===11; }
+// Wer sitzt JETZT verbunden im Raum? Genau diese Sitze zaehlen die Rules beim Start.
+function fbV11Anwesend(p){
+  const q=p||roomP||{}, a=[];
+  for(let s=0;s<FB_ONLINE_SEATS;s++)if(seatActive(q,s))a.push(s);
+  return a;
+}
+// Der Sitz des eingetragenen Wirts - oder -1, wenn er nicht (mehr) VERBUNDEN im Raum
+// sitzt. Gefragt wird nach der KENNUNG, nicht nach der Sitznummer: der Wirt ist in v11
+// nicht mehr "Sitz 0", sondern wer eingetragen ist.
+function fbV11HostSitz(p){
+  if(!roomHostUid)return -1;
+  for(const s of fbV11Anwesend(p)){
+    const rec=playersRoster&&playersRoster[s];
+    if(rec&&rec.uid===roomHostUid)return s;
+  }
+  return -1;
+}
+// Haelt der Raum den Wirt noch fest? Sein Rostereintrag ueberlebt ein Neuladen; ein
+// bewusster Austritt loescht ihn. Genau daran haengt, ob die Nachfolge wartet oder
+// sofort geschieht - dieselbe Unterscheidung, die die Lobby seit jeher trifft.
+function fbV11HostGemerkt(){
+  if(!roomHostUid)return false;
+  for(let s=0;s<FFA_MAX_SEATS;s++){
+    const rec=playersRoster&&playersRoster[s];
+    if(rec&&rec.uid===roomHostUid)return true;
+  }
+  return false;
+}
+// Bin ich der Wirt? Nur, wenn ich es bin UND selbst verbunden hier sitze - eine
+// Wirtskennung ohne Sitz darf nichts ausloesen, und die Rules sehen das genauso.
+function fbV11BinHost(p){
+  const s=fbV11HostSitz(p);
+  return s>=0 && s===myPlayer;
+}
+
+// ── DIE HOSTNACHFOLGE ───────────────────────────────────────────────────────
+// Sie ist kein Wettlauf: es gibt genau einen zulaessigen Nachfolger, und das ist der
+// niedrigste verbundene Sitz. Jeder andere Versuch wird vom Server abgewiesen - hier
+// wird deshalb gar nicht erst einer unternommen.
+function fbV11NachfolgeStop(){
+  if(fbV11NachfolgeTimer){ clearTimeout(fbV11NachfolgeTimer); fbV11NachfolgeTimer=null; }
+}
+function fbV11Nachfolge(p){
+  if(!fbV11Raum()||!window.FB||!roomCode||myPlayer<0)return;
+  if(fbV11HostSitz(p)>=0){ fbV11NachfolgeStop(); return; }   // es gibt einen Wirt - nichts zu tun
+  if(fbV11NachfolgeBusy||fbV11NachfolgeTimer)return;
+  const da=fbV11Anwesend(p);
+  if(da.length===0||da[0]!==myPlayer)return;
+  // Der Wirt ist nur getrennt: er bekommt die Frist der Lobby, bevor jemand nachrueckt.
+  // Ist sein Eintrag fort, ist er gegangen - dann gibt es nichts zu erwarten.
+  const frist=fbV11HostGemerkt()?FB_V11_HOST_FRIST_MS:0;
+  const ctx={sid:onlineSessionId,room:roomCode};
+  fbV11NachfolgeTimer=setTimeout(()=>{
+    fbV11NachfolgeTimer=null;
+    if(ctx.sid!==onlineSessionId||ctx.room!==roomCode)return;
+    if(!fbV11Raum()||fbV11HostSitz()>=0||fbV11NachfolgeBusy)return;
+    const jetzt=fbV11Anwesend();
+    if(jetzt.length===0||jetzt[0]!==myPlayer)return;
+    fbV11NachfolgeBusy=true;
+    Promise.resolve(window.FB.set(rRef('hostUid'),fbUid())).catch(()=>{}).then(()=>{
+      if(ctx.sid===onlineSessionId&&ctx.room===roomCode)fbV11NachfolgeBusy=false;
+    });
+  },frist);
+}
+
+// ── DER START ───────────────────────────────────────────────────────────────
+// gen, state und die Teilnehmerliste gehoeren in EIN atomares update(). Getrennt
+// geschrieben gaebe es einen Augenblick, in dem der Raum 'playing' ist und niemand
+// weiss, wer spielt - und aus dem gaebe es kein Zurueck, denn pt ist unveraenderlich.
+// Die Rules verlangen deshalb alle drei Beine im selben Vorgang und rechnen jedes
+// gegen die beiden anderen.
+async function fbV11Starten(){
+  if(!fbV11Raum()||gameStarted||fbV11State!=='lobby'||fbV11StartBusy)return;
+  if(!fbV11BinHost())return;
+  const da=fbV11Anwesend();
+  if(da.length<FB_DYN_MIN_START||da.length>FB_ONLINE_SEATS)return;
+  fbV11StartBusy=true;
+  const ng=gen+1, upd={}, pt={};
+  for(const s of da)pt[s]=true;
+  upd['gen']=ng; upd['state']='playing'; upd['g/'+ng+'/pt']=pt;
+  const ctx={sid:onlineSessionId,room:roomCode,pub:roomPublic};
+  let abgewiesen=false;
+  try{
+    await window.FB.update(rRef(''),upd);
+    // Der Raum spielt: er gehoert nicht mehr in die oeffentliche Liste.
+    if(ctx.pub&&ctx.room===roomCode){ removePublicListing(ctx.room); roomPublic=false; }
+  }catch(e){ abgewiesen=true; }
+  if(ctx.sid!==onlineSessionId||ctx.room!==roomCode)return;
+  fbV11StartBusy=false;
+  // Eine Abweisung heisst, dass sich die Besetzung im selben Augenblick geaendert hat -
+  // jemand kam oder ging. Der Server hat dann RECHT, und der Spieler erfaehrt es,
+  // statt auf einen Knopf zu starren, der nichts getan hat.
+  if(abgewiesen&&!gameStarted)setStatus('Die Besetzung hat sich gerade geändert — bitte noch einmal starten.');
+}
+
+// ── DAS MATCH AUFNEHMEN ─────────────────────────────────────────────────────
+// Aus dem rohen Knoten die aufsteigende Sitzliste - oder null. Geraten wird nichts:
+// eine Teilnehmerliste, die nicht dem Vertrag entspricht, ist keine halbe Liste.
+// (RTDB liefert {0:true,1:true} als Array und {0:true,2:true} als Objekt - deshalb
+// wird ueber die Sitznummern gelesen und nicht ueber die Schluesselform.)
+function fbV11PtSitze(v){
+  if(!v||typeof v!=='object')return null;
+  const a=[];
+  for(let i=0;i<FB_ONLINE_SEATS;i++)if(v[i]===true)a.push(i);
+  for(const k of Object.keys(v)){
+    const w=v[k];
+    if(w===null||w===undefined)continue;
+    const n=Number(k);
+    if(!Number.isInteger(n)||n<0||n>=FB_ONLINE_SEATS||w!==true)return null;
+  }
+  return (typeof fbV9Sitze==='function')?fbV9Sitze(a):null;
+}
+// Der Raum sagt 'playing' und traegt eine Teilnehmerliste: DAS ist der Startbefehl.
+// Gelesen wird sie genau einmal je Generation - sie kann sich nicht mehr aendern.
+async function fbV11MatchAufnehmen(){
+  if(!fbV11Raum()||fbV11PtBusy)return;
+  if(fbV11State!=='playing'||gameStarted||fbV11Gestartet===gen)return;
+  fbV11PtBusy=true;
+  const ctx={sid:onlineSessionId,room:roomCode,gen:gen};
+  let sitze=null;
+  try{
+    const snap=await window.FB.get(window.FB.ref(window.FB.db,'rooms/'+ctx.room+'/g/'+ctx.gen+'/pt'));
+    sitze=fbV11PtSitze(snap.val());
+  }catch(e){}
+  fbV11PtBusy=false;
+  if(ctx.sid!==onlineSessionId||ctx.room!==roomCode||ctx.gen!==gen)return;
+  if(gameStarted||fbV11State!=='playing')return;
+  if(!sitze){ setStatus('Teilnehmerliste dieses Matches fehlt — bitte neu laden.'); return; }
+  if(sitze.indexOf(myPlayer)<0){
+    // Das Match laeuft ohne diesen Sitz. Das ist kein Fehler und kein Rauswurf: wer
+    // zum Startzeitpunkt nicht verbunden war, schaut zu und ist beim naechsten Mal
+    // dabei.
+    fbV11Gestartet=gen;
+    setStatus('Das Match läuft ohne dich — du bist bei der nächsten Runde wieder dabei.');
+    if(!gameStarted&&ffaRoom())renderLobby(lobbyP);
+    return;
+  }
+  fbV11Gestartet=gen;
+  if(!fbElimTeilSetzen(sitze)){ setStatus('Teilnehmerliste dieses Matches ist ungültig.'); return; }
+  // Die Sitzzahl des Matches ist der HOECHSTE teilnehmende Sitz plus eins - nicht die
+  // Zahl der Teilnehmer. Nur so bleibt Sitz 4 der Sitz 4, in jeder Schleife und in
+  // jedem Protokollpfad. Bei dichter Besetzung ist beides dasselbe.
+  fbElimStartN=sitze[sitze.length-1]+1;
+  // Ein neues Match hat sein eigenes Ergebnis: alles, was zum vorigen gehoerte,
+  // faellt hier weg - auch der Wunsch, es zu verlassen.
+  fbV11ErgAb=0; fbV11ErgSeit=0; fbV11ErgWeg=false;
+  maybeStart();
+}
+
+// ── DAS MATCHENDE ───────────────────────────────────────────────────────────
+// Wer das Ende sieht, sagt es dem Raum. Die Rules lassen den Uebergang nur aus
+// 'playing' zu - die zweite und dritte Meldung werden abgewiesen, und genau das ist
+// der Zweck: es gibt nichts zu koordinieren. Ausdruecklich darf das JEDES verbundene
+// Mitglied und nicht nur der Wirt: der kann waehrend des Matches gegangen sein, und
+// dann muesste der Raum sonst ewig 'playing' bleiben.
+function fbV11MatchVorbei(){
+  if(!fbV11Raum())return;
+  if(!fbV11ErgAb)fbV11ErgAb=Date.now();
+  if(fbV11EndeBusy||fbV11State!=='playing'||!window.FB||!roomCode)return;
+  fbV11EndeBusy=true;
+  const ctx={sid:onlineSessionId,room:roomCode};
+  Promise.resolve(window.FB.set(rRef('state'),'lobby')).catch(()=>{}).then(()=>{
+    if(ctx.sid===onlineSessionId&&ctx.room===roomCode)fbV11EndeBusy=false;
+  });
+}
+// Das Ergebnis bleibt stehen, bis es gelesen ist. Erst danach faellt der Raum sichtbar
+// in seine Lobby zurueck - der Raumzustand ist da laengst 'lobby'.
+function fbV11ErgebnisFrist(){
+  if(fbV11ErgTimer)return;
+  if(!fbV11ErgSeit)fbV11ErgSeit=Date.now();
+  const ab=fbV11ErgAb||Date.now();
+  const rest=Math.max(0,FB_V11_ERGEBNIS_MS-(Date.now()-ab));
+  const ctx={sid:onlineSessionId,room:roomCode};
+  fbV11ErgTimer=setTimeout(()=>{
+    fbV11ErgTimer=null;
+    if(ctx.sid!==onlineSessionId||ctx.room!==roomCode||fbV11State!=='lobby')return;
+    // Das eigene Match ist noch nicht am Ende: dann ist die Lobby verfrueht. Gewartet
+    // wird auf den eigenen Abschluss - hoechstens aber bis zur Obergrenze.
+    if(!fbV11ErgAb&&phase!=='over'&&(Date.now()-fbV11ErgSeit)<FB_V11_ENDE_MAX_MS){
+      fbV11ErgebnisFrist();
+      return;
+    }
+    fbV11ZurueckInLobby();
+  },rest);
+}
+// Der Knopf im Ergebnisfenster. Er FUEHRT in die Lobby - aber erst, wenn der Raum
+// dort auch ist: solange er noch 'playing' sagt, wuerde der naechste Schritt die
+// Teilnehmerliste derselben Generation erneut lesen und das eben beendete Match
+// wieder aufnehmen. Also wird dem Raum das Ende (noetigenfalls erneut) gesagt, und
+// gegangen wird, sobald er es bestaetigt hat.
+function fbV11ErgebnisVerlassen(){
+  if(!fbV11Raum())return;
+  fbV11ErgWeg=true;
+  if(fbV11State==='lobby'){ fbV11ZurueckInLobby(); return; }
+  fbV11MatchVorbei();
+}
+// Zurueck in DIESE Lobby - nicht ins Menue und nicht in einen neuen Raum. Alles, was
+// zum vergangenen Match gehoert, faellt hier weg; alles, was zum Raum gehoert (Sitz,
+// Praesenz, Roster, Listener), bleibt unangetastet.
+function fbV11ZurueckInLobby(){
+  if(!fbV11Raum())return;
+  // Der Raum spielt noch: dann ist dies nicht der Rueckweg, sondern seine Ankuendigung.
+  // Ohne diesen Riegel wuerde die naechste Runde des Lebenszyklus das gerade beendete
+  // Match ein zweites Mal aufnehmen.
+  if(fbV11State!=='lobby')return;
+  if(fbV11ErgTimer){ clearTimeout(fbV11ErgTimer); fbV11ErgTimer=null; }
+  fbV11ErgAb=0; fbV11ErgSeit=0; fbV11ErgWeg=false; fbV11Gestartet=-1;
+  if(typeof fbV9LebenStop==='function')fbV9LebenStop();
+  try{ if(turnUnsub)turnUnsub(); }catch(e){}
+  turnUnsub=null; turnNo=-1; runningGen=-1;
+  clearAllMatchGrace();
+  clearLeaveState(); fbRemovePending=[]; fbExitBusy={};
+  gameStarted=false;
+  fbElimTeilSetzen(null); fbElimStartN=0;
+  startEvictionWatch();   // die Marker gehoeren zur Generation - die naechste bekommt ihren eigenen Beobachter
+  replaying=false; repPlaying=false;
+  $('replay').classList.remove('show');
+  $('ov').classList.remove('show');
+  footballResetMatchState();
+  applyFootballHud();
+  SFX.footballGoalStop(); SFX.fbTransitionStop();
+  // Die Kulisse der Lobby entsteht ueber die EINE Tuer, die Modus und Koerper zusammen
+  // haelt (Stability 01) - und erst, nachdem gameStarted gefallen ist.
+  setzeVorspiel(mode,fmt);
+  menuVisible=true;
+  $('menu').style.display='flex'; $('game').style.display='none';
+  resize();
+  $('online').classList.add('show'); $('online').scrollTop=0;
+  $('onActions').style.display='none'; $('onWait').style.display='none';
+  $('onRejoin').style.display='none'; $('nameRow').style.display='none';
+  const pub=$('onPublic'); if(pub)pub.style.display='none';
+  $('onLobby').style.display=''; $('onCode').textContent=roomCode;
+  setOnTitle(true);
+  renderLobby(roomP||{});
+  setStatus('Match beendet.');
+  roomPublic=false;   // ein spielender Raum stand in keiner Liste - jetzt darf er wieder hinein
+  fbV11ListeWieder();
+  fbV11Nachfolge();
+}
+// Ein oeffentlicher Raum, der wieder Lobby ist, gehoert wieder in die Liste. Geschrieben
+// wird von EINEM - dem niedrigsten verbundenen Sitz; ein zweiter Schreibversuch wuerde
+// von den Rules ohnehin abgewiesen (der Eintrag existiert dann schon).
+function fbV11ListeWieder(){
+  if(!fbV11Raum()||!roomOeffentlich||roomPublic||!window.FB)return;
+  const da=fbV11Anwesend();
+  if(da.length===0||da[0]!==myPlayer)return;
+  const ctx={sid:onlineSessionId,room:roomCode};
+  Promise.resolve(writePublicListing(ctx.room)).then(()=>{
+    if(ctx.sid===onlineSessionId&&ctx.room===roomCode)roomPublic=true;
+  }).catch(()=>{});
+}
+
+// ── DER EINE SCHRITT, DEN JEDE AENDERUNG AUSLOEST ───────────────────────────
+// Raumzustand, Generation, Praesenz und Wirtsmarke laufen ueber getrennte Listener
+// ein. Was daraus folgt, steht trotzdem an genau EINER Stelle - sonst gaebe es vier
+// Vorstellungen davon, was der Raum gerade tut.
+function fbV11Schritt(){
+  if(!fbV11Raum())return;
+  if(fbV11State==='playing'){ fbV11MatchAufnehmen(); return; }
+  if(fbV11State!=='lobby')return;
+  // Erst das Ergebnis, dann die Lobby - es sei denn, der Spieler hat es gelesen.
+  if(gameStarted){ if(fbV11ErgWeg)fbV11ZurueckInLobby(); else fbV11ErgebnisFrist(); return; }
+  if(ffaRoom())renderLobby(lobbyP);   // der Raum spielt nicht mehr - die Lobby sagt es auch
+  fbV11Nachfolge();
+}
+function fbV11Aus(){
+  if(fbV11StateUnsub){ try{ fbV11StateUnsub(); }catch(e){} fbV11StateUnsub=null; }
+  if(fbV11HostUnsub){ try{ fbV11HostUnsub(); }catch(e){} fbV11HostUnsub=null; }
+  fbV11NachfolgeStop();
+  if(fbV11ErgTimer){ clearTimeout(fbV11ErgTimer); fbV11ErgTimer=null; }
+  fbV11State=''; fbV11StartBusy=false; fbV11EndeBusy=false; fbV11PtBusy=false;
+  fbV11NachfolgeBusy=false;
+  fbV11Gestartet=-1; fbV11ErgAb=0; fbV11ErgSeit=0; fbV11ErgWeg=false;
+}
+function fbV11An(){
+  fbV11Aus();
+  if(!fbV11Raum()||!window.FB||!roomCode)return;
+  const ctx={sid:onlineSessionId,room:roomCode};
+  fbV11StateUnsub=window.FB.onValue(rRef('state'),snap=>{
+    if(ctx.sid!==onlineSessionId||ctx.room!==roomCode)return;
+    const v=snap.val();
+    fbV11State=(typeof v==='string')?v:'';
+    fbV11Schritt();
+  });
+  // Die Wirtsmarke wandert in v11 - also wird sie beobachtet. In den aelteren
+  // Fassungen ist sie unveraenderlich, und dort gibt es diesen Beobachter nicht.
+  fbV11HostUnsub=window.FB.onValue(rRef('hostUid'),snap=>{
+    if(ctx.sid!==onlineSessionId||ctx.room!==roomCode)return;
+    const v=snap.val();
+    roomHostUid=(typeof v==='string')?v:'';
+    if(!gameStarted&&ffaRoom())renderLobby(lobbyP);
+    fbV11Nachfolge();
+  });
+}
 // B2 boundary check: a room is rejoinable in its lobby AND in a running match
 // (canonical reconnect). Every other state (finished/unknown) is rejected here
 // and by the rules alike.
@@ -12065,7 +12543,22 @@ async function attemptRejoin(code){
     // Der gespeicherte Raum bleibt bestehen - mit verfuegbarer 3D-Szene gelingt sie.
     if(rjFb&&!r3dActive){ setStatus(T('fbNo3d')); return false; }
     const ffa=rjFb||v.fmt==='ffa'||v.fmt==='triple_ffa'||v.fmt==='team_duel';
-    if(v.state==='playing'&&ffa&&seat>=v.seats){ forgetRoom(); setStatus(T('rejoinNoLobby')); return false; }   // match started without this seat
+    // v11: wer beim laufenden Match dabei ist, sagt die Teilnehmerliste der Generation.
+    // Sie wird gelesen, BEVOR irgendeine globale Variable steht - fehlt oder taugt sie
+    // nicht, gibt es keine Rueckkehr in die Partie und nichts wird geraten.
+    let v11Teil=null;
+    if(d.v===11&&v.state==='playing'){
+      try{
+        const ps=await window.FB.get(window.FB.ref(window.FB.db,'rooms/'+code+'/g/'+v.gen+'/pt'));
+        v11Teil=fbV11PtSitze(ps.val());
+      }catch(e){}
+      if(!joinOpCurrent(op))return false;
+      if(!v11Teil){ setStatus(T('rejoinNoLobby')); return false; }   // Raum bleibt gemerkt - die naechste Lobby nimmt ihn wieder auf
+    }
+    // Der Raum spielt, dieser Sitz nicht: kein Grund, den Raum zu verlieren. Der Sitz
+    // gehoert ihm weiter, und die naechste Lobby nimmt ihn auf.
+    const v11Zuschauer=!!(v11Teil&&v11Teil.indexOf(seat)<0);
+    if(v.state==='playing'&&ffa&&d.v!==11&&seat>=v.seats){ forgetRoom(); setStatus(T('rejoinNoLobby')); return false; }   // match started without this seat
     if(d.p&&seatActive(d.p,seat)){ setStatus(T('rejoinTab')); return false; }
     const oldRec=d.players&&d.players[seat];
     const claim=await reclaimSeatSlot(code,seat,op,oldRec&&typeof oldRec.name==='string'?sanitizeName(oldRec.name):'',
@@ -12093,14 +12586,14 @@ async function attemptRejoin(code){
     // spaeter ohnehin neu - bis dahin liegen aber Bilder, und in keinem davon darf eine
     // Figur aus dem vorigen Spiel stehen.
     setzeVorspiel(mode,fmt);
-    roomPublic=!!(d.config&&d.config.visibility==='public');   // commit only after a successful claim
+    roomPublic=!!(d.config&&d.config.visibility==='public'); roomOeffentlich=roomPublic;   // commit only after a successful claim
     rememberRoom(code,seat);
     hidePublicUI();   // entered a room -> stop the listener, hide the public UI
     $('onRejoin').style.display='none';
     $('onActions').style.display='none';
     setOnTitle(ffa);
     $('onCode').textContent=code;
-    if(v.state==='lobby'){
+    if(v.state==='lobby'||v11Zuschauer){
       if(ffa){ $('onLobby').style.display=''; }
       else { $('onWait').style.display=''; }
       setStatus(T('rejoinOk'));
@@ -12112,7 +12605,14 @@ async function attemptRejoin(code){
     // lobby paths (renderLobby/host grace/onLobbyClosed) nor the auto-start
     // (maybeStart/seats listener) can fire for an already-running room.
     if(ffa&&!rjFb)ffaN=v.seats;   // Football liest seine Spielerzahl aus fbElimPlayers()
-    if(rjFb)fbElimStartN=v.seats;   // dieselbe kanonische Quelle wie beim Start
+    // v11: Teilnehmerliste und Startbesetzung kommen aus der Generation - dieselbe
+    // kanonische Quelle, aus der auch ein frischer Start sie nimmt.
+    if(rjFb&&v11Teil){
+      fbElimTeilSetzen(v11Teil);
+      fbElimStartN=v11Teil[v11Teil.length-1]+1;
+      fbV11Gestartet=v.gen;
+    }
+    else if(rjFb)fbElimStartN=v.seats;   // dieselbe kanonische Quelle wie beim Start
     gameStarted=true;
     attachRoomListeners();
     // V9 (ruhend): dort steht die Historie in c+r, nicht in t - der v8-Lesevorgang
@@ -12395,6 +12895,11 @@ function attachRoomListeners(){
   // roomCtx-Guard (Session+Raum) UND terminaler Abbruch: nach onlineConnectionLost
   // darf kein Presence-/Gen-/Seats-Callback mehr das Match veraendern.
   const isCurrentRoom=()=>roomCtx.sid===onlineSessionId&&roomCtx.room===roomCode&&!isOnlineTerminated();
+  // v11: der Raumzustand ist selbst ein Ereignis (lobby <-> playing). Er bekommt
+  // deshalb einen eigenen Beobachter; alles Weitere entscheidet fbV11Schritt. Die
+  // Fassung des Raums steht fuer diese ganze Raumsitzung fest, die Antwort also auch.
+  const v11=(typeof fbV11Raum==='function')&&fbV11Raum();
+  if(v11)fbV11An();
   presUnsub=window.FB.onValue(rRef('p'), snap=>{
     if(!isCurrentRoom())return;
     const p=snap.val()||{};
@@ -12406,6 +12911,10 @@ function attachRoomListeners(){
       // so evalLobbyHostPresence holds the lobby open during a short host grace and
       // only closes when the host record itself is gone (a deliberate leave).
       evalLobbyHostPresence();
+      // v11: wer geht, kann der WIRT gewesen sein - dann uebernimmt der niedrigste
+      // verbundene Sitz. roomP traegt den neuen Stand erst weiter unten, deshalb
+      // ausdruecklich mit p.
+      if(v11){ roomP=p; fbV11Nachfolge(p); fbV11ListeWieder(); }
     }
     // 1v1/2v2: fremder Seat weg -> Match-Ende fuer alle. Online-FFA: Verlassene
     // werden per Move-Sentinel eliminiert, die Uebrigen spielen weiter (M8-T3c).
@@ -12458,7 +12967,12 @@ function attachRoomListeners(){
     // sich nicht wiederherstellen. Eine neue Generation wird dann NICHT gestartet, auch
     // wenn ein Mitspieler den Wechsel geschrieben hat (die Rules sperren nur den
     // Schreiber selbst). Fail closed: das Match endet hier, es geht zurueck ins Menue.
-    const hatteAustritt=genChanged&&(typeof fbOnlineRoom==='function')&&fbOnlineRoom()&&fbPermanentExitHappened();
+    // v11: ein dauerhafter Austritt beendet die TEILNAHME AN EINER GENERATION, nicht
+    // den Raum. Die naechste Generation hat ihre eigene Teilnehmerliste, und die Rules
+    // verlangen fuer sie keinen unversehrten Roster mehr. Der Riegel von C4B gilt
+    // deshalb nur fuer die Fassungen, deren Besetzung lebenslang eingefroren ist.
+    const hatteAustritt=genChanged&&(typeof fbOnlineRoom==='function')&&fbOnlineRoom()
+                        &&!v11&&fbPermanentExitHappened();
     if(genChanged||!genStartedAt)markGenerationStart();
     gen=g;
     if(hatteAustritt){
@@ -12470,7 +12984,11 @@ function attachRoomListeners(){
     // C4A: VOR dem Neustart leeren - die Sentinel-Nachfuellung der neuen Runde darf die
     // Altlast der vorigen Generation nicht mehr sehen.
     if(genChanged){ clearLeaveState(); fbRemovePending=[]; fbExitBusy={}; startEvictionWatch(); }
-    if(gameStarted && g!==runningGen) startOnlineGame();
+    // v11 startet NICHT aus der Generation allein: erst die Teilnehmerliste dieser
+    // Generation sagt, wer spielt - und ohne sie gaebe es keine Partie, nur eine Welt
+    // aus Vermutungen. Der Startbefehl ist state='playing' (s. fbV11MatchAufnehmen).
+    if(v11){ if(genChanged)fbV11Schritt(); }
+    else if(gameStarted && g!==runningGen) startOnlineGame();
     // Nach dem Wechsel: weiterhin getrennte Sitze brauchen einen Weckruf in DIESER
     // Generation (s. rearmMatchGrace), und wer wirklich weg ist, wird aus der aktuellen
     // Praesenz neu abgeleitet (s. rederiveLeaveState).
@@ -12478,7 +12996,7 @@ function attachRoomListeners(){
   });
   // FFA-Startsignal: seats existiert (Rule-gesichert) erst NACH state='playing' —
   // ein einziger Listener reicht daher als synchroner Start fuer Host UND Gaeste.
-  if(ffaRoom()) seatsUnsub=window.FB.onValue(rRef('seats'), snap=>{
+  if(ffaRoom()&&roomProto!==11) seatsUnsub=window.FB.onValue(rRef('seats'), snap=>{
     if(!isCurrentRoom())return;
     const n=snap.val();
     if(gameStarted||!Number.isInteger(n)||n<2||n>FFA_MAX_SEATS)return;
@@ -12674,7 +13192,7 @@ function startEvictionWatch(){
       // C4B: Kommt der Marker erst NACH dem Ergebnisbildschirm an, muss die
       // Rematch-Schaltflaeche nachtraeglich verschwinden - sonst bliebe ein Angebot
       // stehen, das nicht mehr gilt.
-      if(fbPermanentExitHappened()&&$('rematchBtn'))$('rematchBtn').style.display='none';
+      if(fbPermanentExitHappened()&&$('rematchBtn')&&!((typeof fbV11Raum==='function')&&fbV11Raum()))$('rematchBtn').style.display='none';
       fbMaybeWriteRemoves();
     });
   }catch(e){ evUnsub=null; }
@@ -13088,6 +13606,7 @@ function leaveOnline(after){
   onlineTerminatedSession=-1;   // terminalen Abbruchzustand sicher zuruecksetzen (die neue Session ist ohnehin != gespeicherter Session)
   clearAllSentinelRetries();   // P0-Nachbesserung: Raum wird verlassen -> kein Sentinel-Retry darf danach noch feuern
   if(typeof fbV9LebenStop==='function')fbV9LebenStop();   // V9 (ruhend): Bereitschaft und Ablauf enden mit dem Raum
+  if(typeof fbV11Aus==='function')fbV11Aus();             // v11: Raumzustand, Bereitschaft und Fristen gehoeren dem verlassenen Raum
   clearLobbyHostGrace();       // deliberate leave -> no pending lobby grace may fire afterwards
   clearAllMatchGrace(); roomP={}; roomPSeen=false;   // B2: in-match grace timers of this room are void as well
   try{ if(turnUnsub)turnUnsub(); }catch(e){} try{ if(genUnsub)genUnsub(); }catch(e){} try{ if(presUnsub)presUnsub(); }catch(e){} try{ if(seatsUnsub)seatsUnsub(); }catch(e){} try{ if(rosterUnsub)rosterUnsub(); }catch(e){}
@@ -13105,6 +13624,11 @@ function leaveOnline(after){
   // cleanup rule needs no seat present).
   try{ if(window.FB && roomCode){
     const code=roomCode, wasPublic=roomPublic, wasHost=isHost();   // snapshot before the globals below reset them
+    // v11: der Raum ueberlebt seinen Wirt. Den Eintrag raeumt deshalb nicht mehr, wer
+    // Wirt WAR, sondern wer der LETZTE ist - nur dann verschwindet der Raum wirklich.
+    const wasLetzter=(typeof fbV11Raum==='function')&&fbV11Raum()
+      ? fbV11Anwesend().filter(x=>x!==myPlayer).length===0
+      : wasHost;
     const rootRef=window.FB.ref(window.FB.db,'rooms/'+code);
     // C4B: Im laufenden Football-Match hat fbCanonicalLeave den Sitz bereits samt
     // Eviction-Marker gegen die autoritative Generation zurueckgenommen - dann bleibt
@@ -13119,7 +13643,7 @@ function leaveOnline(after){
     // remain (the guest never touches it). removePublicListing runs inside the .then()
     // after the update; the room is then removed. Nothing here blocks the leave.
     const cleanup=()=>{
-      if(wasPublic&&wasHost)removePublicListing(code);
+      if(wasPublic&&wasLetzter)removePublicListing(code);
       window.FB.remove(rootRef).catch(()=>{});
     };
     if(Object.keys(upd).length)window.FB.update(rootRef,upd).then(cleanup).catch(()=>{});
@@ -13128,6 +13652,8 @@ function leaveOnline(after){
   forgetRoom();
   fbLeaveRetired=false; fbLeaveBusy=false;   // C4B: der Auftrag ist abgeschlossen
   fbElimStartN=0;                            // die Startbesetzung gehoert dem verlassenen Raum
+  if(typeof fbElimTeilSetzen==='function')fbElimTeilSetzen(null);   // und mit ihr die Teilnehmerliste
+  roomOeffentlich=false;
   online=false; gameStarted=false; roomPublic=false; roomCode=''; roomProto=0; lobbyP={}; seatLeft=[]; seatGone=[]; playersRoster={};
   fbRoomMode=''; fbRoomCap=0; roomHostUid='';   // v8: kein Raum -> keine Sollbesetzung, kein Host
   // Menue-Auswahl wiederherstellen - MIT den dazu passenden Koerpern. Ohne sie blieben

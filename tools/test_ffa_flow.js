@@ -492,7 +492,7 @@ function makeClient(db, code, forcePid) {
     // by the fake DB, but writePublicListing/removePublicListing RECORD their calls so the
     // create-race + host-leave order can be asserted. bumpAfterListing lets a test make the
     // op go stale exactly after a successful listing write. UI helpers stay inert stubs.
-    let roomPublic=false, createVisibility='private', bumpAfterListing=false;
+    let roomPublic=false, roomOeffentlich=false, createVisibility='private', bumpAfterListing=false;
     const pubCalls=[];
     function removePublicListing(c){pubCalls.push('remove:'+c);}
     function writePublicListing(c){pubCalls.push('write:'+c); if(bumpAfterListing){bumpAfterListing=false;joinOpSeq++;} return Promise.resolve();}

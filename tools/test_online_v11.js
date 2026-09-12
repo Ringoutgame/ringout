@@ -9,9 +9,13 @@
 //     haben (0, 2, 4 ist eine gueltige Besetzung).
 //   * Die Protokollbarrieren warten auf GENAU die Sitze aus g/<gen>/pt - nicht auf die
 //     Raumkapazitaet, nicht auf die vorige Besetzung, nicht auf das v10-Feld `seats`.
-//   * Die Bereitschaft steht unter g/<gen+1>/rd und gehoert damit dem KOMMENDEN Match;
-//     eine alte Bereitschaft kann niemanden im naechsten Kreislauf bereit machen.
-//   * Der Matchstart ist EIN atomarer Schritt: gen, state und pt zusammen.
+//   * Ein Match beginnt, weil der HOST es startet - nicht weil die Besetzung voll ist
+//     und nicht, weil sich alle bereit gemeldet haben. Es gibt keine Bereitschaft.
+//   * Damit es diesen einen Host immer gibt, wandert die Rolle: sie geht an den
+//     niedrigsten verbundenen Sitz, sobald der bisherige Host kein verbundenes
+//     Mitglied mehr ist. Solange er da ist, kann ihn niemand verdraengen.
+//   * Der Matchstart ist EIN atomarer Schritt: gen, state und pt zusammen - und pt ist
+//     GENAU die Menge der verbundenen Sitze in diesem Augenblick.
 //
 // v8, v9 und v10 sind Vertraege der Vergangenheit. Ihre Suiten laufen unveraendert
 // weiter; diese hier prueft ausschliesslich, was v11 hinzufuegt - und was es verbietet.
@@ -32,8 +36,9 @@ const SV = NOW;
 const CFG = (over) => Object.assign({ game: 'football', winTarget: 3, fmt: 'elimination', visibility: 'private', mode: 'lives', cap: 5 }, over || {});
 
 // Ein v11-Raum. `sitze` ist die Menge der BELEGTEN Raumsitze (darf Luecken haben),
-// `gen` die laufende Generation, `pt` die Teilnehmerliste der laufenden Generation,
-// `rd` die Bereitschaft fuer die KOMMENDE.
+// `gen` die laufende Generation, `pt` die Teilnehmerliste der laufenden Generation.
+// `host` ist der SITZ, dessen Kennung als Wirt eingetragen ist - er muss nicht besetzt
+// sein, denn genau daran haengt die Nachfolge.
 function raum(opt) {
   opt = opt || {};
   const sitze = opt.sitze === undefined ? [0, 1] : opt.sitze;
@@ -47,8 +52,6 @@ function raum(opt) {
   const g = {};
   for (let k = 0; k <= gen + 1; k++) g[k] = {};
   if (opt.pt) g[gen].pt = opt.pt;
-  if (opt.rd) g[gen + 1].rd = opt.rd;
-  if (opt.rdGen !== undefined) { g[opt.rdGen] = g[opt.rdGen] || {}; g[opt.rdGen].rd = opt.rdWert || { 0: true }; }
   if (opt.s !== false) g[gen].s = { ts: NOW - 60000 };
   if (opt.q) g[gen].q = opt.q;
   if (opt.d) g[gen].d = opt.d;
@@ -64,7 +67,6 @@ function raum(opt) {
 }
 const P = (rest) => 'rooms/VEFB/' + rest;
 const ptVon = (sitze) => { const o = {}; for (const s of sitze) o[s] = true; return o; };
-const rdVon = (sitze) => { const o = {}; for (const s of sitze) o[s] = true; return o; };
 
 // Der Matchstart ist EIN atomarer Schritt ueber drei Pfade. Erlaubt ist er nur, wenn
 // ALLE DREI Pfade ihn erlauben - genau das prueft dieser Helfer.
@@ -101,57 +103,115 @@ abschnitt('Raumanlage  (v11 = Lives, Hoechstbesetzung 5, startet als Lobby)');
   deny('v12 bleibt jenseits jeder bekannten Fassung', { rooms: {} }, 'rooms/VEFB', frisch({ v: 12 }), UID[0]);
 }
 
-// ══ BEREITSCHAFT ═════════════════════════════════════════════════════════════
-abschnitt('Bereitschaft  g/<gen+1>/rd/<seat>  (nur der eigene Sitz, nur in der Lobby)');
+// ══ WER DARF STARTEN ═════════════════════════════════════════════════════════
+abschnitt('Startbefugnis  (genau einer: der eingetragene Wirt)');
 {
-  const db = raum({ sitze: [0, 1, 2] });
-  allow('ein Spieler meldet sich fuer das kommende Match bereit', db, P('g/1/rd/0'), true, UID[0]);
-  allow('... und ein anderer ebenso', db, P('g/1/rd/2'), true, UID[2]);
-  deny('niemand meldet einen FREMDEN Sitz bereit', db, P('g/1/rd/1'), true, UID[0]);
-  deny('... auch nicht der Wirt', db, P('g/1/rd/2'), true, UID[0]);
-  deny('ein Unbeteiligter meldet gar nichts', db, P('g/1/rd/0'), true, UID[5]);
-  deny('ohne Anmeldung geht es nicht', db, P('g/1/rd/0'), true, null);
-  deny('ein leerer Sitz kann sich nicht bereit melden', db, P('g/1/rd/3'), true, UID[3]);
-  deny('ein getrennter Sitz ebenso wenig', raum({ sitze: [0, 1], offline: [1] }), P('g/1/rd/1'), true, UID[1]);
-  deny('Bereitschaft fuer die LAUFENDE Generation ist sinnlos', db, P('g/0/rd/0'), true, UID[0]);
-  deny('Bereitschaft fuer eine uebernaechste Generation ebenso', db, P('g/2/rd/0'), true, UID[0]);
-  deny('waehrend eines laufenden Matches meldet sich niemand bereit',
-    raum({ sitze: [0, 1], state: 'playing', pt: ptVon([0, 1]) }), P('g/1/rd/0'), true, UID[0]);
-  deny('ein anderer Wert als true ist keine Bereitschaft', db, P('g/1/rd/0'), false, UID[0]);
-  deny('und eine Zahl erst recht nicht', db, P('g/1/rd/0'), 1, UID[0]);
-  // Nach einem Match: die Bereitschaft der NEUEN Lobby steht unter der naechsten Generation.
-  const nachMatch = raum({ sitze: [0, 1], gen: 3, state: 'lobby' });
-  allow('nach dem dritten Match zaehlt die Bereitschaft fuer das vierte', nachMatch, P('g/4/rd/1'), true, UID[1]);
-  deny('eine Bereitschaft aus dem vorigen Kreislauf ist wertlos', nachMatch, P('g/3/rd/1'), true, UID[1]);
+  // Drei Menschen sitzen im Raum, der Wirt ist Sitz 0. Nur er startet.
+  const db = raum({ sitze: [0, 1, 2], host: 0 });
+  startAllow('der Wirt startet das Match', db, 1, ptVon([0, 1, 2]), UID[0]);
+  startDeny('ein gewoehnliches Mitglied nicht', db, 1, ptVon([0, 1, 2]), UID[1]);
+  startDeny('... und auch nicht der letzte Sitz', db, 1, ptVon([0, 1, 2]), UID[2]);
+  startDeny('ein Unbeteiligter erst recht nicht', db, 1, ptVon([0, 1, 2]), UID[5]);
+  // Der Wirt muss selbst im Raum sitzen. Eine Wirtskennung ohne Sitz ist eine
+  // Karteileiche - sie darf nichts ausloesen.
+  const wirtWeg = raum({ sitze: [1, 2], host: 0 });
+  startDeny('eine Wirtskennung ohne Sitz startet nichts', wirtWeg, 1, ptVon([1, 2]), UID[0]);
+  const wirtOffline = raum({ sitze: [0, 1, 2], offline: [0], host: 0 });
+  startDeny('ein getrennter Wirt ebenso wenig', wirtOffline, 1, ptVon([1, 2]), UID[0]);
+  // Der Wirt muss nicht Sitz 0 sein - er ist, wer eingetragen ist.
+  const wirt4 = raum({ sitze: [0, 2, 4], host: 4 });
+  startAllow('ein Wirt auf Sitz 4 startet genauso', wirt4, 1, ptVon([0, 2, 4]), UID[4]);
+  startDeny('... und Sitz 0 darf es dort nicht', wirt4, 1, ptVon([0, 2, 4]), UID[0]);
+}
+
+// ══ DIE HOSTNACHFOLGE ════════════════════════════════════════════════════════
+abschnitt('Hostnachfolge  (nur wenn der Wirt weg ist, und nur an den niedrigsten Sitz)');
+{
+  // Solange der Wirt verbunden im Raum sitzt, ist die Rolle unantastbar.
+  const wirtDa = raum({ sitze: [0, 1, 2], host: 0 });
+  deny('niemand nimmt dem anwesenden Wirt die Rolle', wirtDa, P('hostUid'), UID[1], UID[1]);
+  deny('... auch nicht der niedrigste andere Sitz', wirtDa, P('hostUid'), UID[1], UID[1]);
+  deny('... und der Wirt schenkt sie auch nicht weiter', wirtDa, P('hostUid'), UID[0], UID[1]);
+  // Ein nur GETRENNTER Wirt ist ebenfalls kein verbundenes Mitglied mehr - dann darf
+  // die Rolle wandern, sonst haette ein Absturz den Raum stillgelegt.
+  const wirtOffline = raum({ sitze: [0, 1, 2], offline: [0], host: 0 });
+  allow('ist der Wirt getrennt, uebernimmt der niedrigste verbundene Sitz', wirtOffline, P('hostUid'), UID[1], UID[1]);
+  deny('... aber nicht ein hoeherer', wirtOffline, P('hostUid'), UID[2], UID[2]);
+  // Und nach einem Austritt.
+  const wirtFort = raum({ sitze: [1, 2, 4], host: 0 });
+  allow('ist der Wirt gegangen, uebernimmt Sitz 1', wirtFort, P('hostUid'), UID[1], UID[1]);
+  deny('... nicht Sitz 2', wirtFort, P('hostUid'), UID[2], UID[2]);
+  deny('... und nicht Sitz 4', wirtFort, P('hostUid'), UID[4], UID[4]);
+  // Mit Luecken gilt dasselbe: der NIEDRIGSTE verbundene Sitz, nicht der Sitz 1.
+  const luecke = raum({ sitze: [2, 4], host: 0 });
+  allow('bei den Sitzen 2 und 4 uebernimmt Sitz 2', luecke, P('hostUid'), UID[2], UID[2]);
+  deny('... nicht Sitz 4', luecke, P('hostUid'), UID[4], UID[4]);
+  // Und die zweite Nachfolge danach.
+  const nurVier = raum({ sitze: [4], host: 2 });
+  allow('geht auch der Nachfolger, uebernimmt der letzte Verbliebene', nurVier, P('hostUid'), UID[4], UID[4]);
+  // Niemand traegt einen anderen ein - auch nicht den richtigen Nachfolger.
+  deny('niemand traegt einen FREMDEN als Wirt ein', wirtFort, P('hostUid'), UID[2], UID[1]);
+  deny('ein Unbeteiligter uebernimmt nichts', wirtFort, P('hostUid'), UID[5], UID[5]);
+  deny('ohne Anmeldung ebenso wenig', wirtFort, P('hostUid'), UID[1], null);
+  // Die Rolle laesst sich nicht loeschen - ein Raum ohne Wirt koennte nie wieder starten.
+  deny('die Wirtsmarke laesst sich nicht entfernen', wirtFort, P('hostUid'), null, UID[1]);
+  // Und ein alter Wirt, der den Raum verlassen hat, startet nichts mehr - auch nicht,
+  // bevor die Nachfolge geschrieben ist.
+  startDeny('ein ausgetretener Wirt startet kein Match mehr', wirtFort, 1, ptVon([1, 2, 4]), UID[0]);
+  // Die aeltere Fassungen behalten ihre unveraenderliche Wirtsmarke.
+  const zehnOhneWirt = { rooms: { VEFB: { v: 10, hostUid: UID[0], config: CFG(), gen: 1, state: 'lobby',
+    p: { 1: { s: TAB(1), on: true, t: NOW } },
+    players: { 1: { id: 'VEFBPID1', name: 'P1', tab: TAB(1), uid: UID[1] } },
+    created: NOW - 5000, g: { 0: {}, 1: {} } } }, publicRooms: {} };
+  deny('in einem v10-Raum wandert die Wirtsmarke NICHT', zehnOhneWirt, P('hostUid'), UID[1], UID[1]);
+}
+
+// ══ SITZWECHSEL ══════════════════════════════════════════════════════════════
+abschnitt('Sitzwechsel  (ein neuer Inhaber erbt keinerlei Lobbyzustand)');
+{
+  // Frueher stand hier eine Bereitschaft, die ein Nachfolger haette erben koennen.
+  // Die gibt es nicht mehr - und damit gibt es ueberhaupt keinen Lobbyzustand am
+  // Sitz ausser Praesenz und Rostereintrag. Beide gehoeren dem, der JETZT dort
+  // sitzt. Das wird hier nachgewiesen, statt es zu behaupten.
+  const nachWechsel = raum({ sitze: [0, 2], host: 0 });
+  deny('unter g/<gen+1> gibt es keinen Bereitschaftsknoten mehr', nachWechsel, P('g/1/rd/2'), UID[2], UID[2]);
+  deny('... auch nicht als nackte Zusage', nachWechsel, P('g/1/rd/2'), true, UID[2]);
+  deny('... und auch nicht fuer die laufende Generation', nachWechsel, P('g/0/rd/0'), UID[0], UID[0]);
+  // Der neue Inhaber ist schlicht ein Mitglied - er zaehlt mit, sobald er da ist.
+  startAllow('der neue Inhaber zaehlt beim naechsten Start mit', nachWechsel, 1, ptVon([0, 2]), UID[0]);
+  startDeny('... und laesst sich nicht uebergehen', nachWechsel, 1, ptVon([0]), UID[0]);
 }
 
 // ══ DER MATCHSTART ═══════════════════════════════════════════════════════════
 abschnitt('Matchstart  (gen + state + Teilnehmerliste in EINEM Schritt)');
 {
-  const bereit2 = raum({ sitze: [0, 1], rd: rdVon([0, 1]) });
-  startAllow('zwei verbundene, beide bereit', bereit2, 1, ptVon([0, 1]), UID[0]);
-  startAllow('... und jeder von ihnen darf den Start ausloesen', bereit2, 1, ptVon([0, 1]), UID[1]);
-  const bereit5 = raum({ sitze: [0, 1, 2, 3, 4], rd: rdVon([0, 1, 2, 3, 4]) });
-  startAllow('fuenf verbundene, alle bereit', bereit5, 1, ptVon([0, 1, 2, 3, 4]), UID[2]);
+  const zwei = raum({ sitze: [0, 1], host: 0 });
+  startAllow('zwei verbundene Spieler', zwei, 1, ptVon([0, 1]), UID[0]);
+  const fuenf = raum({ sitze: [0, 1, 2, 3, 4], host: 2 });
+  startAllow('fuenf verbundene Spieler', fuenf, 1, ptVon([0, 1, 2, 3, 4]), UID[2]);
+  // Der Wirt darf mit ZWEI bis FUENF starten - er muss nicht warten, bis der Raum voll ist.
+  for (const n of [2, 3, 4, 5]) {
+    const sitze = [0, 1, 2, 3, 4].slice(0, n);
+    startAllow('der Wirt startet mit ' + n + ' Spielern', raum({ sitze, host: 0 }), 1, ptVon(sitze), UID[0]);
+  }
   // Die entscheidende Neuerung: LUECKEN sind erlaubt.
-  const luecke = raum({ sitze: [0, 2, 4], rd: rdVon([0, 2, 4]) });
+  const luecke = raum({ sitze: [0, 2, 4], host: 4 });
   startAllow('drei Spieler auf den Sitzen 0, 2 und 4', luecke, 1, ptVon([0, 2, 4]), UID[4]);
   // Und die Gegenproben.
-  startDeny('einer allein startet kein Match', raum({ sitze: [0], rd: rdVon([0]) }), 1, ptVon([0]), UID[0]);
-  startDeny('nicht, solange einer noch nicht bereit ist', raum({ sitze: [0, 1, 2], rd: rdVon([0, 1]) }), 1, ptVon([0, 1, 2]), UID[0]);
-  startDeny('niemand laesst einen anwesenden Spieler einfach weg', raum({ sitze: [0, 1, 2], rd: rdVon([0, 1, 2]) }), 1, ptVon([0, 1]), UID[0]);
-  startDeny('niemand nimmt einen abwesenden Spieler mit', raum({ sitze: [0, 1], rd: rdVon([0, 1]) }), 1, ptVon([0, 1, 2]), UID[0]);
+  startDeny('einer allein startet kein Match', raum({ sitze: [0], host: 0 }), 1, ptVon([0]), UID[0]);
+  startDeny('der Wirt laesst keinen anwesenden Spieler weg', raum({ sitze: [0, 1, 2], host: 0 }), 1, ptVon([0, 1]), UID[0]);
+  startDeny('... auch nicht sich selbst', raum({ sitze: [0, 1, 2], host: 0 }), 1, ptVon([1, 2]), UID[0]);
+  startDeny('niemand nimmt einen abwesenden Spieler mit', zwei, 1, ptVon([0, 1, 2]), UID[0]);
   startDeny('niemand nimmt einen getrennten Spieler mit',
-    raum({ sitze: [0, 1, 2], offline: [2], rd: rdVon([0, 1]) }), 1, ptVon([0, 1, 2]), UID[0]);
-  startDeny('ein getrennter Spieler blockiert die Liste nicht, fehlt aber auch nicht unbemerkt',
-    raum({ sitze: [0, 1, 2], offline: [2], rd: rdVon([0, 1, 2]) }), 1, ptVon([0, 1, 2]), UID[0]);
-  startDeny('die Generation darf nicht springen', bereit2, 2, ptVon([0, 1]), UID[0]);
-  startDeny('und nicht stehenbleiben', bereit2, 0, ptVon([0, 1]), UID[0]);
-  startDeny('ein Unbeteiligter startet nichts', bereit2, 1, ptVon([0, 1]), UID[5]);
+    raum({ sitze: [0, 1, 2], offline: [2], host: 0 }), 1, ptVon([0, 1, 2]), UID[0]);
+  startAllow('ein getrennter Spieler zaehlt einfach nicht mit',
+    raum({ sitze: [0, 1, 2], offline: [2], host: 0 }), 1, ptVon([0, 1]), UID[0]);
+  startDeny('die Generation darf nicht springen', zwei, 2, ptVon([0, 1]), UID[0]);
+  startDeny('und nicht stehenbleiben', zwei, 0, ptVon([0, 1]), UID[0]);
   startDeny('aus einem laufenden Match heraus startet niemand ein zweites',
-    raum({ sitze: [0, 1], state: 'playing', pt: ptVon([0, 1]), rd: rdVon([0, 1]) }), 1, ptVon([0, 1]), UID[0]);
+    raum({ sitze: [0, 1], state: 'playing', pt: ptVon([0, 1]), host: 0 }), 1, ptVon([0, 1]), UID[0]);
   // Die Liste ist unveraenderlich, sobald sie steht.
-  const laeuft = raum({ sitze: [0, 1, 2], state: 'playing', gen: 1, pt: ptVon([0, 1]) });
+  const laeuft = raum({ sitze: [0, 1, 2], state: 'playing', gen: 1, pt: ptVon([0, 1]), host: 0 });
   deny('die Teilnehmerliste eines laufenden Matches ist unveraenderlich', laeuft, P('g/1/pt'), ptVon([0, 1, 2]), UID[0]);
   deny('... auch nicht einzeln erweiterbar', laeuft, P('g/1/pt/2'), true, UID[2]);
   deny('... und nicht loeschbar', laeuft, P('g/1/pt/1'), null, UID[0]);
@@ -162,14 +222,14 @@ abschnitt('Doppelstart  (genau ein Uebergang, auch wenn alle gleichzeitig sehen)
 {
   // Der zweite Start scheitert an der Vorbedingung: nach dem ersten steht gen bereits
   // auf 1 und state auf 'playing'. Beides prueft die Regel ausdruecklich.
-  const nachStart = raum({ sitze: [0, 1], gen: 1, state: 'playing', pt: ptVon([0, 1]), rd: rdVon([0, 1]) });
+  const nachStart = raum({ sitze: [0, 1], gen: 1, state: 'playing', pt: ptVon([0, 1]), host: 0 });
   startDeny('ein zweiter Start auf dieselbe Generation', nachStart, 1, ptVon([0, 1]), UID[1]);
   startDeny('ein Start auf die naechste Generation waehrend des Matches', nachStart, 2, ptVon([0, 1]), UID[1]);
   // Und ohne die drei Pfade zusammen geht gar nichts.
-  const bereit = raum({ sitze: [0, 1], rd: rdVon([0, 1]) });
-  deny('die Generation allein weiterzuschalten reicht nicht', bereit, P('gen'), 1, UID[0]);
-  deny('der Zustand allein ebenso wenig', bereit, P('state'), 'playing', UID[0]);
-  deny('und die Teilnehmerliste allein auch nicht', bereit, P('g/1/pt'), ptVon([0, 1]), UID[0]);
+  const lobby = raum({ sitze: [0, 1], host: 0 });
+  deny('die Generation allein weiterzuschalten reicht nicht', lobby, P('gen'), 1, UID[0]);
+  deny('der Zustand allein ebenso wenig', lobby, P('state'), 'playing', UID[0]);
+  deny('und die Teilnehmerliste allein auch nicht', lobby, P('g/1/pt'), ptVon([0, 1]), UID[0]);
 }
 
 // ══ DER ZUSTANDSKREISLAUF ════════════════════════════════════════════════════
@@ -180,7 +240,7 @@ abschnitt('Zustandskreislauf  (playing -> lobby und wieder zurueck)');
   deny('ein Unbeteiligter beendet kein Match', laeuft, P('state'), 'lobby', UID[5]);
   deny('ohne Anmeldung ebenso wenig', laeuft, P('state'), 'lobby', null);
   // Und der Kreislauf laeuft weiter: aus der zurueckgewonnenen Lobby startet das naechste.
-  const zurueck = raum({ sitze: [0, 1, 2], state: 'lobby', gen: 1, pt: ptVon([0, 1, 2]), rd: rdVon([0, 1, 2]) });
+  const zurueck = raum({ sitze: [0, 1, 2], state: 'lobby', gen: 1, pt: ptVon([0, 1, 2]), host: 0 });
   startAllow('aus der zurueckgewonnenen Lobby startet das naechste Match', zurueck, 2, ptVon([0, 1, 2]), UID[0]);
   // v10 bleibt die Einbahnstrasse, die es war.
   const zehn = { rooms: { VEFB: { v: 10, hostUid: UID[0], config: CFG(), gen: 0, state: 'playing', seats: 2,
@@ -274,23 +334,29 @@ abschnitt('Auffindbarkeit  (ein v11-Raum kehrt nach dem Match in die Liste zurue
     'publicRooms/VEFB', null, UID[2]);
 }
 
-// ══ DER WIRT ═════════════════════════════════════════════════════════════════
-abschnitt('Der Wirt  (in v11 eine Anzeige, keine Befugnis)');
+// ══ DER WIRT GEHT ════════════════════════════════════════════════════════════
+abschnitt('Der Wirt geht  (der Raum lebt weiter - aber erst mit einem neuen Wirt)');
 {
-  // In v8 bis v10 startet der Wirt das Match. In v11 tut das die Bereitschaft aller,
-  // und jeder verbundene Spieler darf den Uebergang ausloesen. Daraus folgt: geht der
-  // Wirt, bleibt der Raum vollstaendig benutzbar. Das ist keine Behauptung, sondern
-  // hier nachgewiesen - der Wirt sitzt nicht einmal mehr im Raum.
-  const ohneWirt = raum({ sitze: [2, 4], gen: 1, state: 'lobby', host: 0, rd: rdVon([2, 4]) });
+  // Der Wirt hat den Raum verlassen. Der Raum ist damit vollstaendig benutzbar -
+  // aber starten kann erst wieder jemand, wenn die Nachfolge geschrieben ist. Das
+  // ist der Preis dafuer, dass es GENAU EINEN gibt, der startet.
+  const ohneWirt = raum({ sitze: [2, 4], gen: 1, state: 'lobby', host: 0 });
   t('[INFO]  der Wirt (Sitz 0) hat den Raum verlassen', true);
-  allow('die Verbliebenen melden sich weiterhin bereit', ohneWirt, P('g/2/rd/4'), true, UID[4]);
-  startAllow('und starten das naechste Match ohne ihn', ohneWirt, 2, ptVon([2, 4]), UID[2]);
+  startDeny('vor der Nachfolge startet niemand', ohneWirt, 2, ptVon([2, 4]), UID[2]);
+  allow('der niedrigste verbliebene Sitz uebernimmt die Wirtsrolle', ohneWirt, P('hostUid'), UID[2], UID[2]);
+  const neuerWirt = raum({ sitze: [2, 4], gen: 1, state: 'lobby', host: 2 });
+  startAllow('und startet danach das naechste Match', neuerWirt, 2, ptVon([2, 4]), UID[2]);
+  startDeny('der andere weiterhin nicht', neuerWirt, 2, ptVon([2, 4]), UID[4]);
+  // Das Matchende gehoert dagegen JEDEM verbundenen Mitglied: waehrend eines Matches
+  // kann der Wirt verschwinden, und dann muss der Raum trotzdem in seine Lobby
+  // zurueckfallen koennen.
   const laeuftOhneWirt = raum({ sitze: [2, 4], gen: 2, state: 'playing', host: 0, pt: ptVon([2, 4]) });
-  allow('sie beenden es auch ohne ihn', laeuftOhneWirt, P('state'), 'lobby', UID[4]);
-  // Und die Kehrseite: die Wirtsmarke selbst ist unveraenderlich. Niemand kann sie an
-  // sich reissen, solange der Raum steht - auch nicht in v11.
-  deny('niemand ernennt sich selbst zum Wirt', ohneWirt, P('hostUid'), UID[2], UID[2]);
-  deny('... auch nicht, wenn der bisherige Wirt weg ist', laeuftOhneWirt, P('hostUid'), UID[4], UID[4]);
+  allow('das Matchende meldet jedes verbundene Mitglied', laeuftOhneWirt, P('state'), 'lobby', UID[4]);
+  deny('ein Unbeteiligter nicht', laeuftOhneWirt, P('state'), 'lobby', UID[5]);
+  // Und waehrend das Match laeuft, darf die Nachfolge bereits geschrieben werden -
+  // so steht sie, wenn der Raum in die Lobby zurueckfaellt.
+  allow('die Nachfolge darf schon waehrend des Matches geschrieben werden',
+    laeuftOhneWirt, P('hostUid'), UID[2], UID[2]);
 }
 
 // ══ FASSUNGSGRENZE ═══════════════════════════════════════════════════════════
@@ -305,7 +371,7 @@ abschnitt('Fassungsgrenze  (kein v10-Verhalten in einem v11-Raum)');
     p: { 0: { s: TAB(0), on: true, t: NOW }, 1: { s: TAB(1), on: true, t: NOW } },
     players: { 0: { id: 'VEFBPID0', name: 'P0', tab: TAB(0), uid: UID[0] }, 1: { id: 'VEFBPID1', name: 'P1', tab: TAB(1), uid: UID[1] } },
     created: NOW - 5000, g: { 0: {}, 1: {} } } }, publicRooms: {} };
-  deny('ein v10-Raum kennt keine Bereitschaft', zehn, P('g/1/rd/0'), true, UID[0]);
+  deny('den Bereitschaftsknoten gibt es in KEINER Fassung mehr', zehn, P('g/1/rd/0'), UID[0], UID[0]);
   deny('ein v10-Raum kennt keine Teilnehmerliste', zehn, P('g/1/pt'), ptVon([0, 1]), UID[0]);
 }
 

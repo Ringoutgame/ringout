@@ -33,7 +33,10 @@ t('v outdated (VER-1) -> reject', validateRoom(room({ v: VER - 1 })).reason === 
 // bedienen kann - nicht mehr alles ausser der eigenen Zahl.
 t('v 7 (nicht mehr bedient) -> reject', validateRoom(room({ v: 7 })).reason === VMSG);
 t('v 10 (dynamische Arena-Besetzung) -> ok', validateRoom(room({ v: 10 })).ok === true);
-t('v 11 (unbekannt) -> reject', validateRoom(room({ v: 11 })).reason === VMSG);
+// v11: der Raum, der sein Match ueberlebt. Derselbe Beitritt wie v10 - nur dass er
+// auch nach einem Match wieder in seiner Lobby steht.
+t('v 11 (Raum ueberlebt das Match) -> ok', validateRoom(room({ v: 11 })).ok === true);
+t('v 12 (unbekannt) -> reject', validateRoom(room({ v: 12 })).reason === VMSG);
 t('v string -> reject (strict)', validateRoom(room({ v: String(VER) })).reason === VMSG);
 t('v null -> reject', validateRoom(room({ v: null })).reason === VMSG);
 

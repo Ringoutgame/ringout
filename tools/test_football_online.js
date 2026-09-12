@@ -723,7 +723,7 @@ function makeClient(db, code, opts) {
     const showGame=()=>ui.log.push('showGame');
     function hidePublicUI(){} function startPublicListing(){} function stopPublicListing(){}
     function removePublicListing(){} function writePublicListing(){return Promise.resolve();}
-    let roomPublic=false, createVisibility='private';
+    let roomPublic=false, roomOeffentlich=false, createVisibility='private';
     const LOGICAL=1000, cx=500, cy=500, R0=LOGICAL*0.485; let BR=LOGICAL*0.032, R=R0;
     function maxPull(){return R0*MAXPULL_FRAC;}
     const REVEAL_MS=600, RESULT_MS=950, REDUCED_MOTION=false;

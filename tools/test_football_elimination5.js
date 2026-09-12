@@ -684,12 +684,12 @@ const untilMorph = (E) => { for (let i = 0; i < 600 && E.goalState() !== 'morph'
   // dieses - die Variantenvorgabe. Kein zweiter Zaehlweg im Produktcode.
   ok(/function fbElimPlayers\(\)\{\s*if\(fbElimStartN>=2\)return fbElimStartN;\s*return fbVariant===FOOTBALL_VARIANT_ELIM4\?FOOTBALL_ELIM4_PLAYERS:FOOTBALL_ELIM_START_PLAYERS;\s*\}/.test(HTML),
      'die Startspielerzahl kommt aus genau einer Funktion');
-  // Gesetzt wird die Startbesetzung an genau SECHS Stellen (lokale Partie zweimal —
-  // einmal auf null, einmal aus der Einrichtung —, der EINE Onlineeinstieg, Startsignal,
-  // Rueckkehr, Verlassen); dazu die Deklaration und die zwei Lesestellen in
-  // fbElimPlayers. Seit v8 fuehren Produkt- und Dev-Tuer beide ueber fbOnlineEnter, es
-  // gibt dort also nur noch EINE Zuweisung statt zwei.
-  ok((HTML.match(/fbElimStartN/g) || []).length === 9,
+  // Gesetzt wird die Startbesetzung an genau NEUN Stellen (lokale Partie zweimal —
+  // einmal auf null, einmal aus der Einrichtung —, der EINE Onlineeinstieg, das
+  // Startsignal bis v10, der v11-Start aus der Teilnehmerliste, die Rueckkehr in beiden
+  // Fassungen, der v11-Rueckweg in die Lobby, das Verlassen); dazu die Deklaration und
+  // die zwei Lesestellen in fbElimPlayers (die in einer Zeile stehen).
+  ok((HTML.match(/fbElimStartN/g) || []).length === 12,
      'die Startbesetzung wird nur an den benannten Stellen gesetzt');
   ok((HTML.match(/fmt=FB_ONLINE_FMT; fbElimStartN=0;/g) || []).length === 1,
      'und der Onlineeinstieg ueberlaesst sie dem Startsignal');

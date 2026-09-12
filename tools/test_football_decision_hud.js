@@ -444,7 +444,7 @@ abschnitt('8. Das HUD erklaert - es fangt nichts ab');
   // Eine Lage, EIN Etikett: die alte Ruecklaufzeile behauptet online keine Reihenfolge mehr.
   const phasenText = grabFunction(HTML, 'setPhaseText');
   t('online nennt die Statuszeile keinen einzelnen Zielenden',
-    phasenText.indexOf("else if(phase==='aim'&&online&&(roomProto===9||roomProto===10))p.textContent='';") > 0);
+    phasenText.indexOf("else if(phase==='aim'&&online&&(roomProto===9||roomProto===10||roomProto===11))p.textContent='';") > 0);
   t('... und der sequentielle Satz steht weiterhin fuer die lokalen Modi bereit',
     phasenText.indexOf('zielt – verdeckt') > 0);
   t('... waehrend das gemeinsame lokale Fenster seinen eigenen Satz behaelt',

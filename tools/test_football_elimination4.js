@@ -892,9 +892,13 @@ console.log('ARENA FOOTBALL - ELIMINATION: ZWEI LEBEN + ADAPTIVE ARENA + FAIRER 
   // Zwischenzustand mit neuer Arena und alten Positionen (oder umgekehrt).
   ok(/fbElimPhaseN=n;\n  fbElimSpawnBodies\(\);/.test(elimBlockSrc),
      'Arenawechsel und faire Startaufstellung passieren atomar im selben Tick');
-  // placeBalls und der Respawn teilen sich dieselbe Spawnregel.
-  ok(/balls\.push\(mkBall\(fbElimSpawnX\(o\),fbElimSpawnY\(o\),o\)\)/.test(HTML),
+  // placeBalls und der Respawn teilen sich dieselbe Spawnregel - und beide laufen ueber
+  // den TORSLOT: die Figur steht vor IHREM Tor, auch wenn die Sitze Luecken haben (v11).
+  // Bei dichter Besetzung ist der Slot die Sitznummer, Zeichen fuer Zeichen wie bisher.
+  ok(/const D=fbElimDirs\(\);\n\s*for\(let sl=0;sl<D\.length;sl\+\+\)\{\n\s*const o=fbElimSlotOwner\(sl\);\n\s*if\(o<0\)continue;\n\s*balls\.push\(mkBall\(fbElimSpawnX\(sl\),fbElimSpawnY\(sl\),o\)\);/.test(HTML),
      'die Startaufstellung des Matches nutzt dieselbe Spawnregel wie der Respawn');
+  ok(/for\(let s=0;s<D\.length;s\+\+\)\{\n\s*const o=fbElimSlotOwner\(s\);/.test(elimBlockSrc),
+     'der Respawn laeuft ueber dieselbe Slotschleife');
 
   // -- Goal Detection nutzt die AKTIVE Arena --
   const G2 = buildEnv('elimination4');
@@ -1528,8 +1532,14 @@ console.log('ARENA FOOTBALL - ELIMINATION: ZWEI LEBEN + ADAPTIVE ARENA + FAIRER 
   ok(/tickCollapse\(now\);/.test(loopSrc), 'der bestehende Ring-Collapse-Timer laeuft unveraendert weiter');
   ok(/const fbElimActive=\[true,true,true,true,true\];/.test(elimBlockSrc),
      'fbElimActive traegt die Aktiv-Liste in Maximallaenge');
-  ok(/fbElimActive\[o\]=o<fbElimPlayers\(\);fbElimSlots\[o\]=o<fbElimPlayers\(\)\?o:-1;fbElimLives\[o\]=FB_ELIM_LIVES;\}\n  fbElimPhaseN=fbElimPlayers\(\);/.test(elimBlockSrc),
-     'der Reset setzt Aktiv-Liste, Torslots, Leben und Arenaphase auf die Startspielerzahl');
+  ok(/fbElimActive\[o\]=o<fbElimPlayers\(\)&&fbElimDabei\(o\);fbElimSlots\[o\]=-1;fbElimLives\[o\]=FB_ELIM_LIVES;\}\n  const act=fbElimActiveOwners\(\);\n  for\(let k=0;k<FOOTBALL_ELIM_MAX_PLAYERS;k\+\+\)fbElimSlots\[k\]=k<act\.length\?act\[k\]:-1;\n  fbElimPhaseN=act\.length;/.test(elimBlockSrc),
+     'der Reset setzt Aktiv-Liste, Torslots, Leben und Arenaphase aus den Teilnehmern');
+  // v11: wer mitspielt, beantwortet EINE Funktion. Bis v10 ist ihre Antwort die dichte
+  // Sitzfolge - dort aendert der Reset kein Bit.
+  ok(/function fbElimDabei\(o\)\{\s*return fbElimTeil\?fbElimTeil\.indexOf\(o\)>=0:o<fbElimPlayers\(\);/.test(elimBlockSrc),
+     'die Teilnahmefrage hat genau eine Stelle');
+  ok(/let fbElimTeil=null;/.test(elimBlockSrc),
+     'ohne Vorgabe ist die Teilnehmerliste null - die dichte Bestandsbesetzung');
   ok(/footballElimConcede\(own\);/.test(elimBlockSrc),
      'die Wertung geht ueber genau EINE Stelle: footballElimConcede');
   ok(/if\(fbElimLives\[o\]>0\)fbElimLives\[o\]--;\s*\n\s*if\(fbElimLives\[o\]<=0\)footballElimEliminate\(o\);/.test(elimBlockSrc),

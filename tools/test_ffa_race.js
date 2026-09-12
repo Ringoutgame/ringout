@@ -468,7 +468,7 @@ function makeClient(db, code, forcePid) {
     // Public-Lobby (feature/public-lobby-mvp): UI-only symbols the extracted online
     // functions reference. This suite exercises the turn/claim race arbiter, not the
     // discovery list, so these are inert stubs (private default -> listing never touched).
-    let roomPublic=false, createVisibility='private';
+    let roomPublic=false, roomOeffentlich=false, createVisibility='private';
     function removePublicListing(){} function writePublicListing(){return Promise.resolve();}
     function publicListingRef(){return null;} function hidePublicUI(){}
     function startPublicListing(){} function stopPublicListing(){} function setOn(){}

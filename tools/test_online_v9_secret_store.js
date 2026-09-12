@@ -349,8 +349,8 @@ abschnitt('Waechter');
   const q = HTML.slice(HTML.indexOf('const FB_V9_STORE_PREFIX'), ENDE);
   const code = q.split(NL).map(z => { const k = z.indexOf('//');
     return k >= 0 ? z.slice(0, k) : z; }).join(NL);
-  t('der ausgelieferte Client steht auf Protokoll 10',
-    /const ONLINE_PROTOCOL_VERSION=10;/.test(HTML));
+  t('der ausgelieferte Client steht auf Protokoll 11',
+    /const ONLINE_PROTOCOL_VERSION=11;/.test(HTML));
   t('der Speicher benutzt sessionStorage', code.indexOf('sessionStorage') > 0);
   t('und ausdruecklich KEIN localStorage', code.indexOf('localStorage') < 0);
   t('und kein IndexedDB', code.indexOf('indexedDB') < 0 && code.indexOf('IDBFactory') < 0);
@@ -367,6 +367,11 @@ abschnitt('Waechter');
   // Seit V9.4D2 kommen die ECHTEN Einstiege dazu: der Rejoin ruft die Rehydrierung,
   // der frische Start delegiert an sie. Mehr Namen darf das Produkt nicht nennen.
   const HAKEN = ['fbV9LebenNeueRunde', 'fbV9LebenStop', 'fbV9Wirken',
+                 // v11: die gemeinsame Sitzlisten-Vokabel. Das Spiel prueft mit ihr die
+                 // Teilnehmerliste einer Generation - und zwar mit derselben Instanz,
+                 // mit der das Protokoll sie prueft. Eine zweite waere eine zweite
+                 // Vorstellung davon, was eine gueltige Besetzung ist.
+                 'fbV9Sitze',
                  'fbV9RaumStart', 'fbV9RaumIst9', 'fbV9Rehydrieren', 'fbV9LebenCtx',
                  // V9.5B: der Eingabeweg in applyCommit. Gezaehlt wird er in
                  // test_online_v9_coordinator.js, nicht hier.

@@ -908,8 +908,8 @@ abschnitt('Erschoepfte Wiederholungen bleiben erschoepft');
 abschnitt('Waechter: die Steuerung ruht');
 {
   const NL = String.fromCharCode(10);
-  t('der ausgelieferte Client steht auf Protokoll 10',
-    /const ONLINE_PROTOCOL_VERSION=10;/.test(HTML));
+  t('der ausgelieferte Client steht auf Protokoll 11',
+    /const ONLINE_PROTOCOL_VERSION=11;/.test(HTML));
   // SEIT V9.4C ruft das Spiel an genau zwei Stellen in den ruhenden Bereich hinein:
   // beim Rundenbeginn und am Settlement. Dazu kommt das Abraeumen an den bestehenden
   // Grenzen. Mehr darf es nicht sein - und genau das wird hier gezaehlt, statt jede
@@ -923,6 +923,11 @@ abschnitt('Waechter: die Steuerung ruht');
   // und vorerst letzte benannte Beruehrungspunkt - er wird unten EINZELN gezaehlt, damit
   // die Aufnahme in diese Liste den Waechter nicht aufweicht.
   const HAKEN = ['fbV9LebenNeueRunde', 'fbV9LebenStop', 'fbV9Wirken',
+                 // v11: die gemeinsame Sitzlisten-Vokabel. Das Spiel prueft mit ihr die
+                 // Teilnehmerliste einer Generation - und zwar mit derselben Instanz,
+                 // mit der das Protokoll sie prueft. Eine zweite waere eine zweite
+                 // Vorstellung davon, was eine gueltige Besetzung ist.
+                 'fbV9Sitze',
                  'fbV9RaumStart', 'fbV9RaumIst9', 'fbV9Rehydrieren', 'fbV9LebenCtx',
                  'fbV9LebenAn', 'fbV9LebenHandeln', 'fbV9RaumHier',
                  // Hydrations-Barriere: das Eingabetor - whoCanAim und die Stand-Taste fragen,
@@ -938,7 +943,7 @@ abschnitt('Waechter: die Steuerung ruht');
     ohneHaken(HTML.split(BEREICH).join('')).indexOf('fbV9') < 0);
   t('die Haken bleiben zaehlbar',
     (HTML.match(/fbV9LebenNeueRunde\(\)/g) || []).length === 4 &&
-    (HTML.match(/fbV9LebenStop\(\)/g) || []).length === 8 &&
+    (HTML.match(/fbV9LebenStop\(\)/g) || []).length === 9 &&
     (HTML.match(/fbV9Wirken\(/g) || []).length === 3,
     (HTML.match(/fbV9LebenNeueRunde\(\)/g) || []).length + '/' +
     (HTML.match(/fbV9LebenStop\(\)/g) || []).length + '/' +

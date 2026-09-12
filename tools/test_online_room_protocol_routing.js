@@ -52,21 +52,23 @@ console.log('=== Stufe 2A: die Fassung gehoert dem Raum ===');
 // ══ DIE AUSBAUSTUFE ══════════════════════════════════════════════════════════
 abschnitt('Der ausgelieferte Client kann beide Familien');
 {
-  t('seine Ausbaustufe ist 10', M.VER === 10, M.VER);
+  t('seine Ausbaustufe ist 11', M.VER === 11, M.VER);
   t('er bedient v8', M.fbRaumFassungOk(8) === true);
   t('und v9', M.fbRaumFassungOk(9) === true);
   t('und v10', M.fbRaumFassungOk(10) === true);
-  for (const v of [4, 5, 6, 7, 11, 0, -1, null, undefined, '9', '10', 9.5])
+  t('und v11', M.fbRaumFassungOk(11) === true);
+  for (const v of [4, 5, 6, 7, 12, 0, -1, null, undefined, '9', '10', '11', 9.5])
     t('aber nicht die Fassung ' + JSON.stringify(v), M.fbRaumFassungOk(v) === false);
 }
 
 // ══ NEUE RAEUME ══════════════════════════════════════════════════════════════
 abschnitt('Ein NEUER Raum bekommt seine Fassung aus seiner Konfiguration');
 {
-  // v10: der Fuenf-Sitz-Lives-Raum ist der dynamische FFA-Raum (Start mit 2-5). Nur ihn legt
-  // das Produkt noch an; die Sollbesetzungen 3 und 4 bleiben v9-Raeume (Bestand).
-  t('Football Lives mit 5 Sitzen wird v10',
-    M.fbRaumFassung(cfgFootball('lives', 5)) === 10, M.fbRaumFassung(cfgFootball('lives', 5)));
+  // v11: der Fuenf-Sitz-Lives-Raum ist der dynamische Arena-Raum (Start mit 2-5), und er
+  // ueberlebt sein Match. Nur ihn legt das Produkt noch an; die Sollbesetzungen 3 und 4
+  // bleiben v9-Raeume (Bestand), v10-Raeume gibt es nur noch im Bestand.
+  t('Football Lives mit 5 Sitzen wird v11',
+    M.fbRaumFassung(cfgFootball('lives', 5)) === 11, M.fbRaumFassung(cfgFootball('lives', 5)));
   for (const cap of [3, 4])
     t('Football Lives mit ' + cap + ' Sitzen bleibt v9',
       M.fbRaumFassung(cfgFootball('lives', cap)) === 9, M.fbRaumFassung(cfgFootball('lives', cap)));
@@ -110,11 +112,11 @@ abschnitt('Die Weiche haengt an den richtigen Stellen');
   t('das Verlassen leert die Fassung', /roomCode=''; roomProto=0;/.test(HTML));
   // Die v9-Wege haengen am RAUM.
   t('fbV9RaumHier fragt den Raum, nicht die Ausbaustufe',
-    /function fbV9RaumHier\(\)\{ return !!online && \(roomProto===9\|\|roomProto===10\); \}/.test(HTML));
+    /function fbV9RaumHier\(\)\{ return !!online && \(roomProto===9\|\|roomProto===10\|\|roomProto===11\); \}/.test(HTML));
   t('fbV9LebenAn ebenso',
-    /return !fbV9Nachspielen && !!online && \(roomProto===9\|\|roomProto===10\) && mode==='football'/.test(HTML));
+    /return !fbV9Nachspielen && !!online && \(roomProto===9\|\|roomProto===10\|\|roomProto===11\) && mode==='football'/.test(HTML));
   t('und die Startweiche liest die Fassung DES gelesenen Raums',
-    /return !!raum && \(raum\.v===9\|\|raum\.v===10\) && ONLINE_PROTOCOL_VERSION>=raum\.v;/.test(HTML));
+    /return !!raum && \(raum\.v===9\|\|raum\.v===10\|\|raum\.v===11\) && ONLINE_PROTOCOL_VERSION>=raum\.v;/.test(HTML));
   // Der Zugslot bleibt v8 vorbehalten - und die Sperre haengt jetzt am Raum.
   const wts = grab(/function writeTurnSlot\(s,payload,opts\)\{[\s\S]*?\n\}/, 'writeTurnSlot');
   t('writeTurnSlot sperrt genau dann, wenn der RAUM ein v9-Raum ist',

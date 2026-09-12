@@ -58,6 +58,8 @@ function bauen() {
     'function fbTactical(){return istTaktik;}',
     'function fbElimSpawnX(o){return o;}',
     'function fbElimSpawnY(o){return o;}',
+    'function fbElimDirs(){const d=[];for(let i=0;i<elimN;i++)d.push([1,0]);return d;}',
+    'function fbElimSlotOwner(sl){return sl<elimN?sl:-1;}',
     'function fbArena(){return {spawn:6};}',
     'function teamOf(o){return o%2;}'
   ].join('\n');
