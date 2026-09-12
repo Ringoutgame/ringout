@@ -50,6 +50,9 @@ const REGIONEN = [
   /async function fbV9MakeCommit\(ctx,zug\)\{[\s\S]*?\n\}/,
   /function fbV9MakePass\(\)\{[^\n]*/, /function fbV9MakeReveal\(ctx\)\{[\s\S]*?\n\}/,
   /function fbV9TerminalOk\(rec\)\{[\s\S]*?\n\}/, /function fbV9ResultOk\(rec\)\{[\s\S]*?\n\}/,
+  // PLAYER LOOP 01A: die Barrieren zaehlen ueber eine Sitzliste. Der Umrechner ist
+  // ihre gemeinsame Quelle und gehoert mit in die Sandbox.
+  /function fbV9Sitze\(besetzung\)\{[\s\S]*?\n\}/,
   /function fbV9CommitsComplete\(cap,c\)\{[\s\S]*?\n\}/,
   /function fbV9ResultsComplete\(cap,c,r\)\{[\s\S]*?\n\}/,
   /async function fbV9VerifyPair\(ctx,seat,commit,reveal\)\{[\s\S]*?\n\}/,

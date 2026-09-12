@@ -9420,9 +9420,25 @@ function fbV9ResultOk(rec){
 }
 // Barriere 1: jeder Sitz der unveraenderlichen Sollbesetzung hat genau ein erkanntes
 // Terminal. Gefragt wird cap - nie der Spielzustand, nie die blosse Zahl der Kinder.
+// Die Sitze, ueber die eine Barriere zaehlt. Eine ZAHL meint die Sitze 0 bis n-1 - so
+// war es bis v10 und so bleibt es dort. Eine LISTE meint genau diese Sitze und darf
+// Luecken haben; das ist die Teilnehmerliste einer v11-Generation. Beides laeuft durch
+// dieselbe Stelle, damit es nie zwei Vorstellungen davon gibt, wer mitspielt.
+function fbV9Sitze(besetzung){
+  if(Array.isArray(besetzung)){
+    if(besetzung.length<2||besetzung.length>FB_ONLINE_SEATS)return null;
+    for(const x of besetzung)if(!Number.isInteger(x)||x<0||x>=FB_ONLINE_SEATS)return null;
+    // Aufsteigend und ohne Wiederholung - die Reihenfolge ist Teil des Vertrags.
+    for(let i=1;i<besetzung.length;i++)if(besetzung[i]<=besetzung[i-1])return null;
+    return besetzung;
+  }
+  if(!Number.isInteger(besetzung)||besetzung<2||besetzung>FB_ONLINE_SEATS)return null;
+  const a=[]; for(let i=0;i<besetzung;i++)a.push(i); return a;
+}
 function fbV9CommitsComplete(cap,c){
-  if(!Number.isInteger(cap)||cap<2||cap>FB_ONLINE_SEATS||!c||typeof c!=='object')return false;
-  for(let s=0;s<cap;s++)if(!fbV9TerminalOk(c[s]))return false;
+  const sitze=fbV9Sitze(cap);
+  if(!sitze||!c||typeof c!=='object')return false;
+  for(const s of sitze)if(!fbV9TerminalOk(c[s]))return false;
   return true;
 }
 // Barriere 2: zu jedem `move` gehoert ein Ergebnis. Die vier Nullterminals brauchen
@@ -9430,7 +9446,7 @@ function fbV9CommitsComplete(cap,c){
 function fbV9ResultsComplete(cap,c,r){
   if(!fbV9CommitsComplete(cap,c))return false;
   if(!r||typeof r!=='object')r={};
-  for(let s=0;s<cap;s++){
+  for(const s of fbV9Sitze(cap)){
     if(c[s].k!=='move')continue;
     if(!fbV9ResultOk(r[s]))return false;
   }
@@ -9471,7 +9487,7 @@ async function fbV9VerifyPair(ctx,seat,commit,reveal){
 async function fbV9AcceptedSet(ctx,cap,c,r){
   const raus=[];
   if(!fbV9ResultsComplete(cap,c,r))return null;   // Barriere offen -> noch nichts zu sagen
-  for(let s=0;s<cap;s++){
+  for(const s of fbV9Sitze(cap)){
     const t=c[s];
     if(t.k!=='move'){ raus.push({seat:s,kind:t.k,status:FB_V9_VALID,move:null}); continue; }
     const p=await fbV9VerifyPair(ctx,s,t,r&&r[s]);
@@ -9505,6 +9521,11 @@ function fbV9CtxOk(ctx){
   if(!Number.isInteger(ctx.turn)||ctx.turn<0||ctx.turn>9999)return false;
   if(!Number.isInteger(ctx.seat)||ctx.seat<0||ctx.seat>=ctx.cap)return false;
   return true;
+}
+// Die Besetzung, die zu diesem Kontext gehoert: bis v10 die Zahl der Sitze, ab v11 die
+// Teilnehmerliste der Generation. Alles, was ueber Sitze zaehlt, fragt hier.
+function fbV9CtxBesetzung(ctx){
+  return (ctx&&Array.isArray(ctx.teil))?ctx.teil:(ctx?ctx.cap:null);
 }
 function fbV9Path(ctx,rest){
   return 'rooms/'+ctx.code+'/g/'+ctx.gen+'/'+rest;
@@ -9814,9 +9835,10 @@ function fbV9ReadySeatState(turn,q,e,x){
 // Fristschluss OHNE Disqualifikation befreit ausdruecklich NICHT: sonst waere eine
 // einzelne Zeitueberschreitung eine stille Dauerbefreiung.
 function fbV9ReadyComplete(cap,turn,q,e,x){
-  if(!Number.isInteger(cap)||cap<2||cap>FB_ONLINE_SEATS)return false;
+  const sitze=fbV9Sitze(cap);
+  if(!sitze)return false;
   if(!Number.isInteger(turn)||turn<0)return false;
-  for(let s=0;s<cap;s++){
+  for(const s of sitze){
     const z=fbV9ReadySeatState(turn,q&&q[s],e&&e[s],x&&x[s]);
     if(z!==FB_V9_RS_READY&&z!==FB_V9_RS_EVICTED&&z!==FB_V9_RS_DISQUALIFIED)return false;
   }
@@ -10144,7 +10166,7 @@ function fbV9WakeStopAll(lauf){ fbV9WakeStop(lauf,'commits'); fbV9WakeStop(lauf,
 // eintreffen. Genau das trennt ein erneutes Nachdenken von blossem Rauschen.
 function fbV9Marke(cap,c,r){
   let m='';
-  for(let i=0;i<cap;i++){
+  for(const i of (fbV9Sitze(cap)||[])){
     const t=c&&c[i];
     m+=fbV9TerminalOk(t)?(t.k==='move'?'m':'n'):'-';
     if(r!==undefined)m+=fbV9ResultOk(r&&r[i])?'r':'.';
@@ -10208,7 +10230,7 @@ function fbV9WakeArm(lauf,art,ms,tun){
 async function fbV9CloseCommits(lauf){
   const st=lauf.stand, c=st.commits||{};
   let nochmal=false;
-  for(let s=0;s<lauf.ctx.cap;s++){          // aufsteigend - die Reihenfolge ist fest
+  for(const s of (fbV9Sitze(fbV9CtxBesetzung(lauf.ctx))||[])){   // aufsteigend - die Reihenfolge ist fest
     if(fbV9Aus(lauf))return false;
     if(fbV9TerminalOk(c[s]))continue;       // steht schon: nichts zu tun
     const r=await fbV9NetWriteLate(lauf.ctx,s);
@@ -10223,7 +10245,7 @@ async function fbV9CloseCommits(lauf){
 async function fbV9CloseResults(lauf){
   const st=lauf.stand, c=st.commits||{}, r0=st.results||{};
   let nochmal=false;
-  for(let s=0;s<lauf.ctx.cap;s++){
+  for(const s of (fbV9Sitze(fbV9CtxBesetzung(lauf.ctx))||[])){
     if(fbV9Aus(lauf))return false;
     if(!fbV9TerminalOk(c[s])||c[s].k!=='move')continue;
     if(fbV9ResultOk(r0[s]))continue;
@@ -10358,12 +10380,12 @@ async function fbV9Schritt(lauf){
     }
     // (3) Warten, bis JEDER Sitz der Sollbesetzung ein Terminal hat.
     fbV9Stufe(lauf,FB_V9_WAIT_COMMITS);
-    if(!fbV9CommitsComplete(lauf.ctx.cap,st.commits)){
+    if(!fbV9CommitsComplete(fbV9CtxBesetzung(lauf.ctx),st.commits)){
       // Warten - aber nicht endlos. Der Wecker klopft kurz nach der geschaetzten
       // Frist einmal an; ob sie wirklich vorbei ist, sagen die Rules.
       const frist=fbV9FristMs(lauf.ctx);
       fbV9WakePlan(lauf,'commits',st.turnOpen.o+frist,
-                   fbV9Marke(lauf.ctx.cap,st.commits),()=>fbV9CloseCommits(lauf),frist);
+                   fbV9Marke(fbV9CtxBesetzung(lauf.ctx),st.commits),()=>fbV9CloseCommits(lauf),frist);
       return;
     }
     fbV9WakeStop(lauf,'commits');   // die Barriere steht: der Wecker ist gegenstandslos
@@ -10421,17 +10443,17 @@ async function fbV9Schritt(lauf){
     }
     // (6) Warten, bis zu jedem Abschuss ein Ergebnis vorliegt.
     fbV9Stufe(lauf,FB_V9_WAIT_RESULTS);
-    if(!fbV9ResultsComplete(lauf.ctx.cap,st.commits,st.results)){
+    if(!fbV9ResultsComplete(fbV9CtxBesetzung(lauf.ctx),st.commits,st.results)){
       if(Number.isFinite(st.revealOpen))
         fbV9WakePlan(lauf,'results',st.revealOpen+FB_V9_DEADLINE_MS,
-                     fbV9Marke(lauf.ctx.cap,st.commits,st.results),
+                     fbV9Marke(fbV9CtxBesetzung(lauf.ctx),st.commits,st.results),
                      ()=>fbV9CloseResults(lauf));
       return;
     }
     fbV9WakeStop(lauf,'results');
     if(lauf.finaleLaeuft)return;
     lauf.finaleLaeuft=true;
-    const menge=await fbV9AcceptedSet(fbV9EngineCtx(lauf.ctx),lauf.ctx.cap,st.commits,st.results);
+    const menge=await fbV9AcceptedSet(fbV9EngineCtx(lauf.ctx),fbV9CtxBesetzung(lauf.ctx),st.commits,st.results);
     if(fbV9Aus(lauf))return;
     if(!menge)return fbV9Scheitern(lauf,'Zugmenge unvollstaendig');
     lauf.menge=menge;
@@ -10678,7 +10700,7 @@ function fbV9RScheitern(lauf,grund){
 // Sollbesetzung. Gleiche Marke heisst gleicher Zustand - egal wie oft er eintrifft.
 function fbV9ReadyMarke(cap,turn,q,e,x){
   let m='';
-  for(let i=0;i<cap;i++)m+=fbV9ReadySeatState(turn,q&&q[i],e&&e[i],x&&x[i]).charAt(0)
+  for(const i of (fbV9Sitze(cap)||[]))m+=fbV9ReadySeatState(turn,q&&q[i],e&&e[i],x&&x[i]).charAt(0)
                           +(fbV9ReadySeatState(turn,q&&q[i],e&&e[i],x&&x[i])==='TIMEOUT_PENDING_X'?'p':'');
   return m;
 }
@@ -10792,7 +10814,7 @@ async function fbV9ReadySchliessen(lauf){
 // Ein eigener Schreibvorgang auf q begruendet hier nichts.
 function fbV9ReadyRausMarke(cap,turn,q,e,x){
   let m='';
-  for(let i=0;i<cap;i++)
+  for(const i of (fbV9Sitze(cap)||[]))
     if(fbV9ReadySeatState(turn,q&&q[i],e&&e[i],x&&x[i])===FB_V9_RS_TIMEOUT)m+=i+',';
   return m;
 }
@@ -10990,9 +11012,9 @@ function fbV9HudStand(){
   // Ohne autoritative Eroeffnung gibt es kein Entscheidungsfenster - und damit nichts
   // anzuzeigen. Ein geratener Beginn waere genau die Uhr, die dieser Pass verbietet.
   if(!st.d||!Number.isFinite(st.d.o))return null;
-  const cap=L.ctx.cap, seat=L.ctx.seat, c=st.c||{};
+  const seat=L.ctx.seat, c=st.c||{};
   let gesamt=0, bereit=0;
-  for(let i=0;i<cap;i++){
+  for(const i of (fbV9Sitze(fbV9CtxBesetzung(L.ctx))||[])){
     // Der NENNER sind die Sitze, die in dieser Runde noch handeln duerfen. Ein
     // ausgeschiedener Sitz bleibt Teil der Protokollbarriere (sein Slot wird geschlossen),
     // aber er ist kein Mitspieler mehr, auf den jemand wartet.
@@ -11135,7 +11157,7 @@ function fbV9LebenDraussen(st,i){
 }
 function fbV9LebenRausMarke(L,st){
   let m='';
-  for(let i=0;i<L.ctx.cap;i++)
+  for(const i of (fbV9Sitze(fbV9CtxBesetzung(L.ctx))||[]))
     m+=fbV9LebenDraussen(st,i)?(fbV9TerminalOk(st.c&&st.c[i])?'t':'o'):'-';
   return m;
 }
@@ -11165,7 +11187,7 @@ async function fbV9LebenRaus(L){
   if(!st||!st.d)return false;
   L.rausLaeuft=true;
   let nochmal=false;
-  for(let i=0;i<L.ctx.cap;i++){                 // aufsteigend - die Reihenfolge ist fest
+  for(const i of (fbV9Sitze(fbV9CtxBesetzung(L.ctx))||[])){   // aufsteigend - die Reihenfolge ist fest
     if(!fbV9LebenAktuell(L))break;
     if(!fbV9LebenDraussen(st,i))continue;
     if(fbV9TerminalOk(st.c&&st.c[i]))continue;  // steht schon: nichts zu tun
@@ -11218,9 +11240,11 @@ const FB_V9_NULLZUG=['pass','skip','remove','late'];
 // Zweifel wird nichts angewandt. Ein Eintrag ausserhalb dieses Vertrags ist kein
 // Anlass zu raten.
 function fbV9AcceptedOk(menge,cap){
-  if(!Array.isArray(menge)||menge.length!==cap)return false;
-  for(let i=0;i<cap;i++){
-    const e=menge[i];
+  const sitze=fbV9Sitze(cap);
+  if(!sitze||!Array.isArray(menge)||menge.length!==sitze.length)return false;
+  for(let k=0;k<sitze.length;k++){
+    const i=sitze[k];
+    const e=menge[k];
     if(!e||typeof e!=='object'||e.seat!==i)return false;
     if(e.kind==='move'){
       if(e.status===FB_V9_VALID){
@@ -11245,7 +11269,7 @@ function fbV9AcceptedOk(menge,cap){
 // das Nachspielen der Historie. Es gibt keine zweite Uebersetzung.
 function fbV9Wirken(menge,cap){
   if(!fbV9AcceptedOk(menge,cap))return false;
-  const kap=cap;
+  const kap=menge.length;   // Zahl der EINTRAEGE - jeder traegt seinen Raumsitz selbst
   // (1) PROTOKOLLAUSSCHLUESSE ZUERST, in kanonischer Sitzreihenfolge. Eine Kugel, die
   //     diesen Abschuss verwirkt hat, darf in ihm nicht mehr mitkollidieren - deshalb
   //     erst ausscheiden, dann starten. Benutzt wird die BESTEHENDE Eliminierung.

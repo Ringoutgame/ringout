@@ -33,6 +33,7 @@ const QUELLE = [
   grab(HTML, /const FOOTBALL_SIM_HZ=60;[^\n]*/, 'FOOTBALL_SIM_HZ'),
   grab(HTML, /const FOOTBALL_SHOT_URGENT_TICKS=[^\n]*/, 'FOOTBALL_SHOT_URGENT_TICKS'),
   grab(HTML, /const GEN_MAX=[^\n]*/, 'GEN_MAX'),
+  grab(HTML, /const FB_ONLINE_SEATS=[^\n]*/, 'FB_ONLINE_SEATS'),
   grab(HTML, /const FB_V9_TERMINALS=[^\n]*/, 'FB_V9_TERMINALS'),
   grab(HTML, /const FB_V9_HEX_SALT_RE=[^\n]*/, 'FB_V9_HEX_RE'),
   grab(HTML, /const FB_V9_DEADLINE_MS=6000;[^\n]*/, 'FB_V9_DEADLINE_MS'),
@@ -41,6 +42,10 @@ const QUELLE = [
   grabFunction(HTML, 'fbV9TerminalOk'),
   grabFunction(HTML, 'fbV9DisqualifyOk'),
   grabFunction(HTML, 'fbV9LebenDraussen'),
+  // PLAYER LOOP 01A: die Auskunft zaehlt ueber die Besetzung des Kontexts - bis v10
+  // eine Zahl, ab v11 die Teilnehmerliste. Beide Helfer gehoeren mit in die Sandbox.
+  grabFunction(HTML, 'fbV9Sitze'),
+  grabFunction(HTML, 'fbV9CtxBesetzung'),
   grabFunction(HTML, 'fbV9HudStand'),
   grabFunction(HTML, 'fbV9HudRest'),
   grab(HTML, /let fbStateShown='';/, 'fbStateShown'),

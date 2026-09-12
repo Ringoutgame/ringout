@@ -260,6 +260,37 @@ abschnitt('Auffindbarkeit  (ein v11-Raum kehrt nach dem Match in die Liste zurue
     raum({ sitze: [0, 1], state: 'playing', gen: 1, pt: ptVon([0, 1]), cfg: { visibility: 'public' }, pub: { VEFB: { created: NOW - 1000 } } }),
     'publicRooms/VEFB', null, UID[1]);
   deny('ein privater v11-Raum wird nicht gelistet', raum({ sitze: [0] }), 'publicRooms/VEFB', { created: SV }, UID[0]);
+  // Der Eintrag haengt NICHT am Sitz 0: in v11 darf auch der Erste gehen, und ein Raum
+  // mit den Sitzen 2 und 4 ist eine vollwertige offene Lobby.
+  const ohneNull = raum({ sitze: [2, 4], gen: 1, state: 'lobby', cfg: { visibility: 'public' }, pt: ptVon([0, 1, 2, 3, 4]) });
+  allow('auch ein Raum ohne Sitz 0 wird gelistet', ohneNull, 'publicRooms/VEFB', { created: SV }, UID[2]);
+  // Und der Eintrag einer gesunden Lobby ist geschuetzt - sonst koennte ihn jeder
+  // jederzeit entfernen und den Raum unauffindbar machen.
+  deny('der Eintrag einer gesunden v11-Lobby bleibt stehen',
+    raum({ sitze: [2, 4], gen: 1, state: 'lobby', cfg: { visibility: 'public' }, pub: { VEFB: { created: NOW - 1000 } } }),
+    'publicRooms/VEFB', null, UID[4]);
+  allow('... und verschwindet, sobald niemand mehr da ist',
+    raum({ sitze: [2, 4], offline: [2, 4], gen: 1, state: 'lobby', cfg: { visibility: 'public' }, pub: { VEFB: { created: NOW - 1000 } } }),
+    'publicRooms/VEFB', null, UID[2]);
+}
+
+// ══ DER WIRT ═════════════════════════════════════════════════════════════════
+abschnitt('Der Wirt  (in v11 eine Anzeige, keine Befugnis)');
+{
+  // In v8 bis v10 startet der Wirt das Match. In v11 tut das die Bereitschaft aller,
+  // und jeder verbundene Spieler darf den Uebergang ausloesen. Daraus folgt: geht der
+  // Wirt, bleibt der Raum vollstaendig benutzbar. Das ist keine Behauptung, sondern
+  // hier nachgewiesen - der Wirt sitzt nicht einmal mehr im Raum.
+  const ohneWirt = raum({ sitze: [2, 4], gen: 1, state: 'lobby', host: 0, rd: rdVon([2, 4]) });
+  t('[INFO]  der Wirt (Sitz 0) hat den Raum verlassen', true);
+  allow('die Verbliebenen melden sich weiterhin bereit', ohneWirt, P('g/2/rd/4'), true, UID[4]);
+  startAllow('und starten das naechste Match ohne ihn', ohneWirt, 2, ptVon([2, 4]), UID[2]);
+  const laeuftOhneWirt = raum({ sitze: [2, 4], gen: 2, state: 'playing', host: 0, pt: ptVon([2, 4]) });
+  allow('sie beenden es auch ohne ihn', laeuftOhneWirt, P('state'), 'lobby', UID[4]);
+  // Und die Kehrseite: die Wirtsmarke selbst ist unveraenderlich. Niemand kann sie an
+  // sich reissen, solange der Raum steht - auch nicht in v11.
+  deny('niemand ernennt sich selbst zum Wirt', ohneWirt, P('hostUid'), UID[2], UID[2]);
+  deny('... auch nicht, wenn der bisherige Wirt weg ist', laeuftOhneWirt, P('hostUid'), UID[4], UID[4]);
 }
 
 // ══ FASSUNGSGRENZE ═══════════════════════════════════════════════════════════
