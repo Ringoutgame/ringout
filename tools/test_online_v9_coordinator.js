@@ -927,7 +927,11 @@ abschnitt('Waechter: die Steuerung ruht');
                  'fbV9LebenAn', 'fbV9LebenHandeln', 'fbV9RaumHier',
                  // Hydrations-Barriere: das Eingabetor - whoCanAim und die Stand-Taste fragen,
                  // ob der eigene Slot der laufenden Runde schon bekannt ist. Unten gezaehlt.
-                 'fbV9EingabeOffen'];
+                 'fbV9EingabeOffen',
+                 // PASS 04: der Entscheidungszustand im HUD. Er wird GEZEICHNET, nicht
+                 // entschieden - der Zustand selbst kommt aus dem autoritativen
+                 // Schnappschuss und bleibt im ruhenden Bereich. Unten einzeln gezaehlt.
+                 'fbV9HudPaint'];
   const ohneHaken = (txt) => txt.split(/\r?\n/)
     .filter(zl => !HAKEN.some(h => zl.indexOf(h) >= 0)).join('\n');
   t('ausserhalb des ruhenden Bereichs nennt keine Zeile eine v9-Funktion',
@@ -957,6 +961,16 @@ abschnitt('Waechter: die Steuerung ruht');
     /if\(online\)return \(aimSet\[myPlayer\]\|\|!aliveCount\(myPlayer\)\|\|\(typeof fbV9EingabeOffen==='function'&&!fbV9EingabeOffen\(\)\)\)\?-1:myPlayer;/.test(AUSSEN));
   t('... und in der Stand-Taste nur fuer online, vor dem Nullzug',
     /if\(online&&typeof fbV9EingabeOffen==='function'&&!fbV9EingabeOffen\(\)\)return;/.test(AUSSEN));
+  // PASS 04: der HUD-Haken steht GENAU EINMAL ausserhalb, typeof-gesichert wie jeder
+  // andere. Ein zweiter Aufruf waere ein zweiter, ungezaehlter Beruehrungspunkt - und
+  // die beiden Auskuenfte darunter (Stand und Restzeit) duerfen draussen gar nicht
+  // vorkommen, sonst entstuende dort ein zweites Zustandsmodell.
+  t('der HUD-Haken steht genau einmal ausserhalb - im Bildaufbau',
+    (AUSSEN.match(/fbV9HudPaint/g) || []).length === 2
+    && AUSSEN.indexOf("if(typeof fbV9HudPaint==='function')fbV9HudPaint();") > 0,
+    (AUSSEN.match(/fbV9HudPaint/g) || []).length);
+  t('... und die Auskuenfte darunter bleiben drinnen',
+    AUSSEN.indexOf('fbV9HudStand') < 0 && AUSSEN.indexOf('fbV9HudRest') < 0);
   // writeTurnSlot steht seit V9.5B bewusst NICHT mehr in dieser Liste: es ist der einzige
   // Schreibpfad in den v8-Zugslot und traegt deshalb die Sperre, die ihn in einem
   // v9-Raum schweigen laesst. Geprueft wird stattdessen genau diese eine Nennung.

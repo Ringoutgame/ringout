@@ -177,5 +177,117 @@ abschnitt('publicRooms  (v10 darf gelistet werden, v9 weiterhin nicht)');
   deny('der Eintrag einer offenen v10-Lobby bleibt stehen', raum({ state: 'lobby', n: 1, seats: null, cfg: { visibility: 'public' }, pub: { VDYN: { created: NOW - 1000 } } }), 'publicRooms/VDYN', null, UID[3]);
 }
 
+
+// ══ PASS 04: DIE ENTSCHEIDUNGSFRIST GEHOERT DEM RAUM ═════════════════════════
+// v10 gibt dem Entscheidungsfenster ACHT Sekunden, v9 behaelt seine SECHS. Die Frist
+// steht in den Rules, nicht im Client - ein neuer Client kann einem laufenden v9-Raum
+// seine Zeitregel also nicht aufdraengen, und ein alter Client kann in einem v10-Raum
+// nicht frueher schliessen, als der Server es zulaesst.
+abschnitt('PASS 04  Entscheidungsfrist  v10 = 8 s, v9 = 6 s');
+{
+  // Eine Runde, die vor `ms` Millisekunden autoritativ eroeffnet wurde.
+  const alt = (ms) => { const d = {}; d[0] = { n: 0, o: NOW - ms }; return d; };
+  const v10 = (ms) => raum({ n: 3, seats: 3, d: alt(ms) });
+  const v9  = (ms) => raum({ v: 9, n: 3, seats: 3, cfg: { cap: 3 }, d: alt(ms) });
+
+  // ── der eigene Zug ──
+  allow('v10: der eigene Zug nach 5,0 s', v10(5000), P('g/0/c/0/1'), O_MOVE, UID[1]);
+  allow('v10: ... auch nach 7,0 s - das Fenster ist acht Sekunden lang', v10(7000), P('g/0/c/0/1'), O_MOVE, UID[1]);
+  allow('v10: ... und in der letzten Zehntelsekunde', v10(7900), P('g/0/c/0/1'), O_MOVE, UID[1]);
+  deny('v10: aber nicht nach 8,1 s', v10(8100), P('g/0/c/0/1'), O_MOVE, UID[1]);
+  allow('v9: der eigene Zug nach 5,0 s', v9(5000), P('g/0/c/0/1'), O_MOVE, UID[1]);
+  deny('v9: aber nicht nach 7,0 s - dort bleibt es bei sechs Sekunden', v9(7000), P('g/0/c/0/1'), O_MOVE, UID[1]);
+  deny('v9: und erst recht nicht nach 8,1 s', v9(8100), P('g/0/c/0/1'), O_MOVE, UID[1]);
+
+  // ── der Fristschluss durch einen Mitspieler ──
+  // Er ist das Gegenstueck und darf GENAU DANN, wenn der eigene Zug nicht mehr darf.
+  deny('v10: kein Fristschluss nach 7,0 s - da darf der Sitz noch ziehen', v10(7000), P('g/0/c/0/2'), { k: 'late', ts: SV }, UID[1]);
+  allow('v10: Fristschluss nach 8,1 s', v10(8100), P('g/0/c/0/2'), { k: 'late', ts: SV }, UID[1]);
+  allow('v9: Fristschluss schon nach 7,0 s', v9(7000), P('g/0/c/0/2'), { k: 'late', ts: SV }, UID[1]);
+
+  // ── kein Zeitfenster ohne autoritative Eroeffnung ──
+  deny('v10: ohne eroeffnete Runde gilt keine Frist und kein Zug', raum({ n: 3, seats: 3 }), P('g/0/c/0/1'), O_MOVE, UID[1]);
+
+  // ── die Enthuellungsfrist bleibt woertlich ──
+  // Sie ist keine Spielerentscheidung: dort wird nichts ueberlegt, sondern ein bereits
+  // festgelegter Zug offengelegt. PASS 04 fasst sie deshalb ausdruecklich nicht an.
+  const HEXN = '0'.repeat(32);
+  const enthuellung = (v, ms) => raum({ v: v, n: 2, seats: 2, cfg: v === 9 ? { cap: 2 } : undefined,
+    d: alt(20000), c: { 0: { 0: O_MOVE, 1: O_MOVE } }, ro: { 0: NOW - ms } });
+  // idx MUSS der eigene Sitz sein, sp liegt zwischen -1 und 1 - die Enthuellung wird
+  // hier nicht erfunden, sondern so gebaut, wie die Rules sie ohnehin verlangen.
+  const REVEAL = { k: 'reveal', idx: 1, dx: 10, dy: 10, sp: 0.5, n: HEXN, ts: SV };
+  allow('v10: eine Enthuellung nach 5,0 s', enthuellung(10, 5000), P('g/0/r/0/1'), REVEAL, UID[1]);
+  deny('v10: keine Enthuellung nach 7,0 s - die Enthuellungsfrist bleibt bei sechs Sekunden', enthuellung(10, 7000), P('g/0/r/0/1'), REVEAL, UID[1]);
+  deny('v9: ebenso wenig nach 7,0 s', enthuellung(9, 7000), P('g/0/r/0/1'), REVEAL, UID[1]);
+}
+
+
+// ══ PASS 04: DER FRUEHE ABSCHLUSS IST AUTORITATIV, NICHT LOKAL ══════════════
+// Sind alle bereit, soll die Runde sofort weitergehen - aber NIEMAND darf sie im
+// Alleingang weiterschieben. Die Befugnis dafuer ist der Reveal-Anker ro/<turn>: er
+// verlangt fuer JEDEN Sitz der Startbesetzung ein Terminal in c/<turn> und kennt
+// bewusst KEINE Fristbedingung. Genau das ist die gemeinsame, deterministische
+// Weiche - erst danach wird ueberhaupt enthuellt, also kann nichts durchsickern.
+abschnitt('PASS 04  frueher Abschluss  nur bei vollstaendiger Barriere');
+{
+  const jetzt = (ms) => { const d = {}; d[0] = { n: 0, o: NOW - ms }; return d; };
+  // Drei Sitze, die Runde laeuft seit einer Sekunde - also LANGE vor jeder Frist.
+  const mitCommits = (n, wie) => { const c = {}; c[0] = {}; for (let i = 0; i < n; i++) if (wie[i]) c[0][i] = wie[i]; return c; };
+  const M = { k: "move", h: HEX64, ts: NOW - 500 };
+  const NULLZUG = { k: "pass", ts: NOW - 500 };
+
+  // Vollstaendig: der Anker darf - eine Sekunde nach Rundenbeginn, sieben Sekunden
+  // vor Fristende. Das IST die zugesagte sofortige Aufloesung.
+  allow("vollstaendige Barriere: der Reveal-Anker darf sofort - ohne auf die Frist zu warten",
+    raum({ n: 3, seats: 3, d: jetzt(1000), c: mitCommits(3, [M, M, M]) }),
+    P("g/0/ro/0"), SV, UID[1]);
+  // Auch mit verdeckten Nullzuegen - eine Nullhandlung ist ein Terminal wie jedes andere.
+  allow("... auch wenn Nullzuege dabei sind",
+    raum({ n: 3, seats: 3, d: jetzt(1000), c: mitCommits(3, [M, NULLZUG, M]) }),
+    P("g/0/ro/0"), SV, UID[2]);
+
+  // Unvollstaendig: NIEMAND kann die Runde vorziehen - auch der Wirt nicht.
+  for (const wer of [0, 1, 2])
+    deny("ein fehlendes Terminal: Sitz " + wer + " kann den Anker nicht erzwingen",
+      raum({ n: 3, seats: 3, d: jetzt(1000), c: mitCommits(3, [M, M, null]) }),
+      P("g/0/ro/0"), SV, UID[wer]);
+  deny("zwei fehlende Terminals ebenso wenig",
+    raum({ n: 3, seats: 3, d: jetzt(1000), c: mitCommits(3, [M, null, null]) }),
+    P("g/0/ro/0"), SV, UID[0]);
+  // Und auch nicht, wenn die Frist laengst vorbei ist: offen ist offen.
+  deny("auch nach Fristende bleibt eine offene Barriere offen",
+    raum({ n: 3, seats: 3, d: jetzt(20000), c: mitCommits(3, [M, M, null]) }),
+    P("g/0/ro/0"), SV, UID[0]);
+
+  // Die Barriere zaehlt bis seats, nicht bis cap: ein Fuenferraum mit Dreierstart ist
+  // mit drei Terminals vollstaendig - sonst waere der frueheste Abschluss unerreichbar.
+  allow("die Barriere zaehlt bis seats, nicht bis config.cap",
+    raum({ n: 3, seats: 3, d: jetzt(1000), c: mitCommits(3, [M, M, M]) }),
+    P("g/0/ro/0"), SV, UID[0]);
+  deny("in einem Fuenferstart reichen drei Terminals nicht",
+    raum({ n: 5, seats: 5, d: jetzt(1000), c: mitCommits(5, [M, M, M, null, null]) }),
+    P("g/0/ro/0"), SV, UID[0]);
+  allow("... fuenf dagegen schon",
+    raum({ n: 5, seats: 5, d: jetzt(1000), c: mitCommits(5, [M, M, M, M, M]) }),
+    P("g/0/ro/0"), SV, UID[0]);
+
+  // Ein Aussenstehender kann den Anker nicht setzen - der Schreiber muss ein
+  // verbundener, nicht ausgeschiedener Sitz des Raums sein.
+  deny("ein Fremder kann den Anker nicht setzen",
+    raum({ n: 3, seats: 3, d: jetzt(1000), c: mitCommits(3, [M, M, M]) }),
+    P("g/0/ro/0"), SV, UID[5]);
+
+  // VOR dem Anker gibt es keine Enthuellung - deshalb kann der frueheste Abschluss
+  // keinen fremden Zug verraten.
+  const REV = { k: "reveal", idx: 1, dx: 10, dy: 10, sp: 0.5, n: "0".repeat(32), ts: SV };
+  deny("ohne Anker ist keine Enthuellung moeglich",
+    raum({ n: 3, seats: 3, d: jetzt(1000), c: mitCommits(3, [M, M, M]) }),
+    P("g/0/r/0/1"), REV, UID[1]);
+  allow("mit Anker schon",
+    raum({ n: 3, seats: 3, d: jetzt(1000), c: mitCommits(3, [M, M, M]), ro: { 0: NOW - 200 } }),
+    P("g/0/r/0/1"), REV, UID[1]);
+}
+
 console.log('\nOnline-V10: ' + pass + ' passed, ' + fail + ' failed');
 process.exit(fail ? 1 : 0);

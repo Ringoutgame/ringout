@@ -373,7 +373,10 @@ abschnitt('Waechter');
                  'fbV9LebenAn', 'fbV9LebenHandeln', 'fbV9RaumHier',
                  // Hydrations-Barriere: das Eingabetor (whoCanAim, Stand-Taste). Gezaehlt in
                  // test_online_v9_coordinator.js.
-                 'fbV9EingabeOffen'];
+                 'fbV9EingabeOffen',
+                 // PASS 04: der Entscheidungszustand im HUD. Gezaehlt wird er in
+                 // test_online_v9_coordinator.js, nicht hier.
+                 'fbV9HudPaint'];
   const ohneHaken = (txt) => txt.split(/\r?\n/)
     .filter(zl => !HAKEN.some(h => zl.indexOf(h) >= 0)).join('\n');
   t('ausserhalb des ruhenden Bereichs nennt keine Zeile eine v9-Funktion',
