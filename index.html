@@ -424,38 +424,37 @@ header{width:100%;max-width:460px;display:flex;align-items:center;justify-conten
    Countdown, damit die Rangfolge auch ohne Etikett stimmt. */
 #game.fb .ffabar .frnd.fclk{font-size:15px;color:rgba(255,201,64,.86);
   font-variant-numeric:tabular-nums;letter-spacing:.02em;margin-right:6px}
-/* Die beiden Zeilen gehoeren AUSSCHLIESSLICH zu Arena Football. Ohne diese Regel waeren
-   sie in Ring Out reguläre Rasterelemente der Statusleiste - null Pixel hoch, aber mit
-   Rasterluecke, und die Leiste waere dort sieben Pixel hoeher als vorher. */
-.fbstate,.fbsub{display:none}
-#game.fb .fbstate,#game.fb .fbsub{display:block}
-/* ONLINE-ENTSCHEIDUNGSZUSTAND. Bewusst KLEINER als der Countdown der lokalen Modi:
-   hier steht Text neben der Zahl, und er muss auch auf 390 px in eine Zeile passen.
-   Dieselbe Kante, dieselbe Zifferndarstellung, dieselbe Zeigerdurchlaessigkeit. */
+/* Die Zeile gehoert AUSSCHLIESSLICH zu Arena Football. Ohne diese Regel waere sie in
+   Ring Out ein regulaeres Rasterelement der Statusleiste - null Pixel hoch, aber mit
+   Rasterluecke, und die Leiste waere dort hoeher als vorher. */
+.fbstate{display:none}
+#game.fb .fbstate{display:block}
+/* ONLINE-ENTSCHEIDUNGSZUSTAND. EINE Zeile an derselben Kante wie der Countdown der
+   lokalen Modi, und immer nur eine Sache darin. Sie ist bewusst zurueckhaltend: die
+   Arena ist der Held, nicht die Anzeige. */
 #game.fb .fbstate{position:absolute;left:50%;top:100%;margin-top:5px;
   transform:translate(-50%,0);z-index:59;pointer-events:none;white-space:nowrap;
-  opacity:0;transition:opacity .12s ease;
-  font-size:17px;font-weight:900;line-height:1.1;
-  font-variant-numeric:tabular-nums;letter-spacing:.02em;
-  color:rgba(255,201,64,.96);text-shadow:0 1px 3px rgba(0,0,0,.9),0 2px 12px rgba(0,0,0,.7)}
+  opacity:0;transition:opacity .14s ease;
+  font-size:16px;font-weight:800;line-height:1.1;
+  font-variant-numeric:tabular-nums;letter-spacing:.14em;text-transform:uppercase;
+  color:rgba(214,224,240,.9);text-shadow:0 2px 10px rgba(0,0,0,.55)}
 #game.fb .fbstate.show{opacity:1}
-#game.fb .fbstate.urgent{color:rgba(255,222,120,.99);animation:fbclk 1s ease-in-out infinite}
-/* BEREIT ist kein Alarm, sondern eine Bestaetigung - deshalb ruhiges Gruen statt Gold. */
-#game.fb .fbstate.done{color:rgba(150,226,170,.95);animation:none}
-/* ZEIT ABGELAUFEN ist eine Auskunft, kein Fehler: gedaempft, nicht rot. */
-#game.fb .fbstate.late{color:rgba(214,224,240,.9);animation:none}
-#game.fb .fbsub{position:absolute;left:50%;top:100%;margin-top:27px;
-  transform:translate(-50%,0);z-index:59;pointer-events:none;white-space:nowrap;
-  opacity:0;transition:opacity .12s ease;
-  font-size:10.5px;font-weight:800;letter-spacing:.16em;text-transform:uppercase;
-  color:rgba(236,242,253,.96);text-shadow:0 1px 3px rgba(0,0,0,.92),0 2px 10px rgba(0,0,0,.7)}
-#game.fb .fbsub.show{opacity:1}
-@media(max-width:430px){#game.fb .fbstate{font-size:15px}
-  #game.fb .fbsub{font-size:9.5px;letter-spacing:.12em;margin-top:24px}}
+/* Der Countdown ist eine ZAHL: etwas groesser, ohne Sperrung, in ruhigem Gold. */
+#game.fb .fbstate.uhr{font-size:24px;font-weight:900;letter-spacing:.01em;
+  color:rgba(255,196,48,.98)}
+#game.fb .fbstate.uhr.urgent{color:rgba(255,222,120,.99);animation:fbclk 1s ease-in-out infinite}
+/* BEREIT ist kein Alarm, sondern eine Bestaetigung - ruhiges Gruen, keine Bewegung.
+   Satt genug, um auf dem hellen Himmel der Arena zu stehen: ein helles Mint verlor sich
+   dort, und eine Bestaetigung, die man suchen muss, bestaetigt nichts. */
+#game.fb .fbstate.done{color:rgba(52,196,112,1)}
+/* ZEIT ABGELAUFEN ist eine Auskunft, kein Fehler - es traegt schlicht die gedaempfte
+   Grundfarbe der Zeile und braucht keine eigene Regel. */
+@media(max-width:430px){#game.fb .fbstate{font-size:14px;letter-spacing:.12em}
+  #game.fb .fbstate.uhr{font-size:21px}}
 @media(prefers-reduced-motion:reduce){#game.fb .fbshot{transition:none}
   #game.fb .fbshot.urgent{animation:none}
-  #game.fb .fbstate,#game.fb .fbsub{transition:none}
-  #game.fb .fbstate.urgent{animation:none}}
+  #game.fb .fbstate{transition:none}
+  #game.fb .fbstate.uhr.urgent{animation:none}}
 .rinfo{font-size:7.5px;color:#8b99b4;text-transform:uppercase;letter-spacing:.22em;text-align:center;font-weight:800}
 
 /* ── Arena Football: Match-HUD ────────────────────────────────────────────────
@@ -1088,15 +1087,11 @@ body.fbctx .proom .pr-game{color:#cfe0ef}
          benutzt die Kurzmeldung diese Stelle nicht (dort steht sie im Kopf der
          Chipleiste), es gibt also keine Kollision. -->
     <div class="fbshot" id="fbShot"></div>
-    <!-- ARENA FOOTBALL ONLINE: der Entscheidungszustand dieser Runde. Erste Zeile der
-         Hauptzustand mit dem Countdown, zweite Zeile die Nebenauskunft (wie viele
-         bereit sind, worauf gewartet wird). Beide rein erklaerend: pointer-events:none,
-         damit unter ihnen weiter gezielt werden kann. -->
-    <div class="fbstate" id="fbState"></div>
-    <!-- Angesagt wird die Nebenzeile: sie aendert sich nur, wenn sich wirklich etwas
-         aendert. Die Hauptzeile traegt den Countdown und wechselt zehnmal je Sekunde -
-         eine Vorlesehilfe wuerde sie zehnmal je Sekunde vorlesen. -->
-    <div class="fbsub" id="fbSub" aria-live="polite"></div>
+    <!-- ARENA FOOTBALL ONLINE: der Entscheidungszustand dieser Runde - EINE Zeile, und
+         immer nur eine Sache: der Countdown, solange entschieden werden kann; danach
+         BEREIT; nach der Frist ZEIT ABGELAUFEN. Rein erklaerend, pointer-events:none,
+         damit unter ihr weiter gezielt werden kann. -->
+    <div class="fbstate" id="fbState" aria-live="polite"></div>
   </div>
   <div class="arena-wrap"><canvas id="cv"></canvas></div>
   <!-- Ring-Collapse-Timer (nur lokales Bot Training): kleine Matchzeit + grosser 5..1-Countdown -->
@@ -2365,8 +2360,7 @@ en:{tagline:'PULL BACK · RELEASE · KNOCK THEM OUT',chip:'FEATURED',
   createBtn:'Create',createSub:'Your room is open right away – friends and other players join from the list.',
   joinTitle:'Join with a code',joinSub:'Got a 4-letter code from a friend? Enter it here.',orLbl:'OR',refresh:'REFRESH',
   hostTag:'HOST',fbLobbyHow1:'Pull your sphere → release → wait for the others.',fbLobbyHow2:'All players shoot at the same time.',
-  fbAllAim:'EVERYONE AIMS',fbReadyState:'READY',fbWaitOthers:'WAITING FOR THE OTHERS',
-  fbReadyCount:'{n}/{m} READY',fbTimeUp:'TIME UP',fbAimNext:'AIM AGAIN NEXT ROUND',
+  fbReadyState:'READY',fbTimeUp:'TIME UP',
   createRoom:'Create room',join:'Join',enterCode:'ENTER CODE',back:'↩ Back',yourCode:'YOUR CODE',waitMate:'Waiting for opponent…',lobby:'LOBBY',lobbyGo:'▶ Start',
   leaveT:'Leave online match?',leaveS:'Your opponent can’t continue without you.',leaveNo:'Cancel',leaveYes:'Leave match',
   rematch:'🔄 Rematch',replayB:'🎬 Watch replay',menuB:'↩ Menu',fbNewMatch:'🔄 New match',
@@ -2455,8 +2449,7 @@ de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'FEATURED',
   createBtn:'Erstellen',createSub:'Dein Raum ist sofort offen – Freunde und andere Spieler treten über die Liste bei.',
   joinTitle:'Mit Code beitreten',joinSub:'Hast du einen 4-stelligen Code von einem Freund? Hier eingeben.',orLbl:'ODER',refresh:'AKTUALISIEREN',
   hostTag:'HOST',fbLobbyHow1:'Zieh deine Kugel → loslassen → auf die anderen warten.',fbLobbyHow2:'Alle Spieler schießen gleichzeitig.',
-  fbAllAim:'ALLE ZIELEN',fbReadyState:'BEREIT',fbWaitOthers:'WARTE AUF DIE ANDEREN',
-  fbReadyCount:'{n}/{m} BEREIT',fbTimeUp:'ZEIT ABGELAUFEN',fbAimNext:'NÄCHSTE RUNDE WIEDER ZIELEN',
+  fbReadyState:'BEREIT',fbTimeUp:'ZEIT ABGELAUFEN',
   createRoom:'Raum erstellen',join:'Beitreten',enterCode:'CODE EINGEBEN',back:'↩ Zurück',yourCode:'DEIN CODE',waitMate:'Warte auf Gegner…',lobby:'LOBBY',lobbyGo:'▶ Start',
   leaveT:'Online-Match verlassen?',leaveS:'Dein Gegner kann dann nicht weiterspielen.',leaveNo:'Abbrechen',leaveYes:'Match verlassen',
   rematch:'🔄 Rematch',replayB:'🎬 Replay ansehen',menuB:'↩ Menü',fbNewMatch:'🔄 Neues Match',
@@ -2545,8 +2538,7 @@ tr:{tagline:'GERİ ÇEK · BIRAK · DIŞARI İT',chip:'FEATURED',
   createBtn:'Oda kur',createSub:'Odan hemen açık olur – arkadaşlar ve diğer oyuncular listeden katılır.',
   joinTitle:'Kodla katıl',joinSub:'Arkadaşından 4 haneli kod aldın mı? Buraya gir.',
   hostTag:'HOST',fbLobbyHow1:'Topunu çek → bırak → diğerlerini bekle.',fbLobbyHow2:'Tüm oyuncular aynı anda vurur.',orLbl:'VEYA',refresh:'YENİLE',
-  fbAllAim:'HERKES NİŞAN ALIYOR',fbReadyState:'HAZIR',fbWaitOthers:'DİĞERLERİNİ BEKLE',
-  fbReadyCount:'{n}/{m} HAZIR',fbTimeUp:'SÜRE DOLDU',fbAimNext:'SONRAKİ TURDA TEKRAR NİŞAN AL',
+  fbReadyState:'HAZIR',fbTimeUp:'SÜRE DOLDU',
   createRoom:'Oda kur',join:'Katıl',enterCode:'KOD GİR',back:'↩ Geri',yourCode:'KODUN',waitMate:'Rakip bekleniyor…',lobby:'LOBİ',lobbyGo:'▶ Başlat',
   leaveT:'Online maçtan çıkılsın mı?',leaveS:'Rakibin sensiz devam edemez.',leaveNo:'İptal',leaveYes:'Maçtan çık',
   rematch:'🔄 Rövanş',replayB:'🎬 Tekrarı izle',menuB:'↩ Menü',fbNewMatch:'🔄 Yeni maç',
@@ -11029,61 +11021,70 @@ function fbV9HudRest(h){
   // liegen; das darf nicht als LAENGERES Fenster erscheinen, als der Raum eines hat.
   return Math.max(0,Math.min(h.fenster,h.frist-jetzt));
 }
-// ── PASS 04: ARENA FOOTBALL ONLINE - DER ENTSCHEIDUNGSZUSTAND IM HUD ────────
+// ── ARENA FOOTBALL ONLINE - DER ENTSCHEIDUNGSZUSTAND IM HUD ─────────────────
 // Die Anzeige ist eine FOLGE des autoritativen Protokollzustands, kein eigener Zustand
-// daneben. Sie kennt genau die sechs Lagen aus dem Auftrag:
-//   A offen, selbst noch nicht festgelegt -> ALLE ZIELEN mit Countdown
-//   B offen, eigenes Terminal steht       -> BEREIT, warte auf die anderen
-//   C alle bereit                          -> derselbe Satz ohne "warte", dann Aufloesung
-//   D Frist vorbei ohne eigenes Terminal   -> ZEIT ABGELAUFEN, naechste Runde wieder
-//   E Physik laeuft                        -> nichts (phase!=='aim')
-//   F ausgeschieden                        -> nur noch der Stand der anderen
-// Widersprechende Beschriftungen kann es nicht geben, weil genau EIN Zweig greift.
-let fbStateShown='', fbSubShown='';
+// daneben - und sie zeigt immer nur EINE Sache:
+//   offen, selbst noch nicht festgelegt -> die blosse Restzeit, sonst nichts
+//   eigenes Terminal steht              -> BEREIT (kein Countdown mehr daneben)
+//   Frist vorbei ohne eigenes Terminal  -> ZEIT ABGELAUFEN
+//   Physik, Ergebnis, Sieg, Menue       -> nichts
+//   ausgeschieden                       -> nichts; Zusehen ist ein ruhiger Zustand
+// Dass alle gleichzeitig ziehen, erklaert die Lobby. Das Match bleibt still: kein
+// Bereitschaftszaehler, keine Aufforderung, kein zweiter Erklaersatz. Widersprechende
+// Beschriftungen kann es nicht geben, weil genau EIN Zweig greift.
+let fbStateShown='';
 function fbV9HudPaint(){
-  const el=document.getElementById('fbState'), sub=document.getElementById('fbSub');
-  if(!el||!sub)return;
-  let txt='', klasse='', subTxt='';
+  const el=document.getElementById('fbState');
+  if(!el)return;
+  let txt='', klasse='';
   const h=(typeof fbV9LebenAn==='function'&&fbV9LebenAn()&&typeof fbV9HudStand==='function')
           ?fbV9HudStand():null;
   // Waehrend Flug, Settlement, Torablauf, Menue und nach dem Sieg gibt es keine
-  // Entscheidung - und deshalb auch keine Aufforderung, eine zu treffen.
+  // Entscheidung - und deshalb auch nichts anzusagen.
   const sichtbar=!!h&&phase==='aim'&&footballWinner===null&&!menuVisible
                  &&!(typeof inputLocked==='function'&&inputLocked());
   if(sichtbar){
     const rest=fbV9HudRest(h);
-    const zahl=rest>=0?(' — '+(rest/1000).toFixed(1)+' s'):'';
-    const zaehler=T('fbReadyCount').replace('{n}',h.bereit).replace('{m}',h.gesamt);
     const dringlich=rest>=0&&rest<=FOOTBALL_SHOT_URGENT_TICKS/FOOTBALL_SIM_HZ*1000;
-    if(h.draussen)subTxt=zaehler;                       // F
-    else if(h.eigenVerpasst||(rest===0&&!h.eigenBereit)){   // D
-      txt=T('fbTimeUp'); klasse='late'; subTxt=T('fbAimNext');
-    }
-    else if(h.eigenBereit){                                // B / C
-      txt=T('fbReadyState')+zahl; klasse='done';
-      // Steht die Barriere schon vollstaendig, wartet niemand mehr auf irgendwen -
-      // dann waere "warte auf die anderen" schlicht falsch.
-      subTxt=(h.bereit<h.gesamt?T('fbWaitOthers')+' · ':'')+zaehler;
-    }
-    else{                                                  // A
-      txt=T('fbAllAim')+zahl; klasse=dringlich?'urgent':''; subTxt=zaehler;
-    }
+    // Wer ausgeschieden ist, hat keine Entscheidung mehr - und bekommt deshalb auch
+    // keine Anzeige. Zusehen ist ein ruhiger Zustand.
+    if(h.draussen){ /* absichtlich nichts */ }
+    // Die Frist ist ohne eigenes Terminal vorbei, oder ein Mitspieler hat den Slot
+    // geschlossen. Eine Zeile, kein zweiter Erklaersatz: die naechste Runde bringt den
+    // Countdown von selbst zurueck.
+    else if(h.eigenVerpasst||(rest===0&&!h.eigenBereit)){ txt=T('fbTimeUp'); klasse='late'; }
+    // Das eigene Terminal steht autoritativ im Raum. Ab hier gibt es nichts mehr zu
+    // entscheiden - also auch keinen Countdown mehr. Dass gewartet wird, sagt das Spiel
+    // selbst, indem es weiterlaeuft; es braucht keinen Satz darueber.
+    else if(h.eigenBereit){ txt=T('fbReadyState'); klasse='done'; }
+    // Offen und noch nicht festgelegt: NUR die Zahl. Dass alle gleichzeitig ziehen,
+    // steht in der Lobby - im Match bleibt es still.
+    else if(rest>=0){ txt=(rest/1000).toFixed(1); klasse=dringlich?'uhr urgent':'uhr'; }
   }
   // Nur schreiben, wenn sich wirklich etwas geaendert hat - sonst ginge jedes Bild ins DOM.
   const key=txt+'|'+klasse;
-  if(key!==fbStateShown){
-    fbStateShown=key;
-    el.textContent=txt;
-    el.classList.toggle('show',!!txt);
-    el.classList.toggle('urgent',klasse==='urgent');
-    el.classList.toggle('done',klasse==='done');
-    el.classList.toggle('late',klasse==='late');
-  }
-  if(subTxt!==fbSubShown){
-    fbSubShown=subTxt;
-    sub.textContent=subTxt;
-    sub.classList.toggle('show',!!subTxt);
-  }
+  if(key===fbStateShown)return;
+  fbStateShown=key;
+  const uhr=klasse.indexOf('uhr')>=0;
+  el.classList.toggle('show',!!txt);
+  el.classList.toggle('uhr',uhr);
+  el.classList.toggle('urgent',klasse.indexOf('urgent')>=0);
+  el.classList.toggle('done',klasse==='done');
+  el.classList.toggle('late',klasse==='late');
+  // VORLESEN: eine laufende Zahl ist fuer eine Sprachausgabe Laerm, kein Inhalt. Sie
+  // wird deshalb verschwiegen - aber NICHT, indem die Live-Region selbst versteckt und
+  // spaeter wieder gezeigt wuerde: eine Region, die kommt und geht, sagt je nach
+  // Vorlesehilfe gar nichts mehr, und dann verstummten genau die beiden Zustaende, die
+  // etwas bedeuten. Die Region bleibt durchgehend im Baum; die Ziffern stehen in einem
+  // eigenen, fuer die Ansage unsichtbaren Kind. Ihr angesagter Text ist waehrend des
+  // Countdowns schlicht leer und wechselt nur bei BEREIT und ZEIT ABGELAUFEN.
+  el.textContent='';
+  if(!txt)return;
+  if(!uhr){ el.textContent=txt; return; }
+  const ziffern=document.createElement('span');
+  ziffern.setAttribute('aria-hidden','true');
+  ziffern.textContent=txt;
+  el.appendChild(ziffern);
 }
 // Die Handlung dieser Runde. Sie kommt NICHT von hier: was dieser Sitz zieht,
 // entscheidet die Spieleingabe, und die Bruecke dorthin ist V9.4D. Bis dahin bleibt

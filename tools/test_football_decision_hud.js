@@ -43,7 +43,7 @@ const QUELLE = [
   grabFunction(HTML, 'fbV9LebenDraussen'),
   grabFunction(HTML, 'fbV9HudStand'),
   grabFunction(HTML, 'fbV9HudRest'),
-  grab(HTML, /let fbStateShown='', fbSubShown='';/, 'fbStateShown'),
+  grab(HTML, /let fbStateShown='';/, 'fbStateShown'),
   grabFunction(HTML, 'fbV9HudPaint')
 ].join('\n');
 
@@ -63,11 +63,30 @@ function sprache(code) {
 const I18N = { en: sprache('en'), de: sprache('de'), tr: sprache('tr') };
 
 // Eine Anzeigeflaeche, die genau das kann, was der Anstrich benutzt.
+// Ein Kindknoten, wie der Anstrich ihn fuer die Ziffern erzeugt.
+function knoten() {
+  return { textContent: '', attribute: {}, setAttribute(n, v){ this.attribute[n] = v; } };
+}
+// Die Anzeigeflaeche. Sie kann genau das, was der Anstrich benutzt - und beantwortet
+// zwei verschiedene Fragen: was man SIEHT, und was eine Vorlesehilfe HOERT. Ein Kind
+// mit aria-hidden gehoert zum ersten, aber nicht zum zweiten.
 function feld() {
   const kl = new Set();
   return {
-    textContent: '',
+    kinder: [],
+    eigen: '',
+    // textContent='' raeumt im echten DOM auch die Kinder weg.
+    set textContent(v){ this.eigen = v; this.kinder = []; },
+    get textContent(){ return this.eigen + this.kinder.map(k => k.textContent).join(''); },
+    appendChild(k){ this.kinder.push(k); },
     classList: { toggle: (n, an) => { if (an) kl.add(n); else kl.delete(n); }, has: (n) => kl.has(n) },
+    attribute: {},
+    setAttribute(n, v){ this.attribute[n] = v; },
+    attr(n){ return this.attribute[n]; },
+    // Was eine Vorlesehilfe ansagt: der eigene Text plus die Kinder, die nicht
+    // ausdruecklich verschwiegen werden.
+    ansage(){ return this.eigen + this.kinder.filter(k => k.attribute['aria-hidden'] !== 'true')
+                                             .map(k => k.textContent).join(''); },
     // 'show' ist die Sichtbarkeit; die LAGE sind die uebrigen Klassen.
     klassen: () => [...kl].filter(n => n !== 'show').sort().join(' ')
   };
@@ -88,8 +107,8 @@ function bauen() {
     'let lebenAn=true;',
     'function fbV9LebenAn(){return lebenAn;}',
     'function fbV9LebenAktuell(L){return !!L&&L===fbV9Leben;}',
-    'const __felder={fbState:__feld(),fbSub:__feld()};',
-    'const document={getElementById:(id)=>__felder[id]||null};'
+    'const __felder={fbState:__feld()};',
+    'const document={getElementById:(id)=>__felder[id]||null,createElement:()=>__knoten()};'
   ].join('\n');
   const fuss = [
     'return {',
@@ -109,7 +128,7 @@ function bauen() {
     '  KONST:{v9:FB_V9_DEADLINE_MS,v10:FB_V10_DEADLINE_MS}',
     '};'
   ].join('\n');
-  return new Function('__I18N', '__feld', [kopf, QUELLE, fuss].join('\n'))(I18N, feld);
+  return new Function('__I18N', '__feld', '__knoten', [kopf, QUELLE, fuss].join('\n'))(I18N, feld, knoten);
 }
 
 // Ein Lebenslauf mit genau dem Schnappschuss, den die Ablaufsteuerung auch saehe.
@@ -260,153 +279,163 @@ abschnitt('5. Die Restzeit kommt aus der Serverzeit');
   t('... auch nicht in einem v9-Raum', S.rest(S.stand()) === 6000, S.rest(S.stand()));
 }
 
-// ══ 6. DIE SECHS LAGEN DER ANZEIGE ══════════════════════════════════════════
-abschnitt('6. Die Anzeige folgt dem Protokollzustand - genau ein Zweig');
+// ══ 6. EINE SACHE ZUR ZEIT ══════════════════════════════════════════════════
+abschnitt('6. Die Anzeige zeigt immer genau eine Sache');
 {
   const S = bauen();
   const F = S.felder();
-  const zeig = () => { S.malen(); return { haupt: F.fbState.textContent, neben: F.fbSub.textContent,
-                                           kl: F.fbState.klassen(), an: F.fbState.classList.has('show') }; };
+  const zeig = () => { S.malen(); return { txt: F.fbState.textContent, kl: F.fbState.klassen(),
+                                           an: F.fbState.classList.has('show'),
+                                           stumm: F.fbState.attr('aria-hidden') }; };
   const DE = I18N.de;
 
-  // A: offen, selbst noch nicht festgelegt.
+  // A: offen, selbst noch nicht festgelegt -> NUR die Zahl.
   S.setzen({ leben: leben({ cap: 5, seat: 0 }), jetzt: T0 + 600, phase: 'aim' });
   let z = zeig();
-  t('A: offen und unentschieden -> ALLE ZIELEN mit Countdown', z.haupt === DE.fbAllAim + ' — 7.4 s', z.haupt);
-  t('A: daneben steht der Stand', z.neben === '0/5 BEREIT', z.neben);
-  t('A: und die Zeile ist sichtbar', z.an === true);
-  t('A: ohne Dringlichkeit, ohne Bestaetigung', z.kl === '');
+  t('A: offen und unentschieden -> nur der Countdown', z.txt === '7.4', z.txt);
+  t('A: die Zeile ist sichtbar', z.an === true);
+  t('A: und traegt die Zifferndarstellung', z.kl === 'uhr', z.kl);
+  t('A: KEINE Aufforderung zum Zielen', z.txt.indexOf('ZIELEN') < 0 && z.txt.indexOf('AIM') < 0);
+  t('A: KEIN Bereitschaftszaehler', /\d+\/\d+/.test(z.txt) === false, z.txt);
+  t('A: kein Wort, nur die Zahl', /^[0-9]+\.[0-9]$/.test(z.txt), z.txt);
 
-  // A in der letzten Sekunde: dringlich.
+  // Der Countdown laeuft und wird zum Schluss dringlich.
+  S.setzen({ jetzt: T0 + 3000 });
+  t('A: der Countdown laeuft', zeig().txt === '5.0', zeig().txt);
   S.setzen({ jetzt: T0 + 6500 });
-  t('A: in den letzten zwei Sekunden wird der Countdown dringlich', zeig().kl === 'urgent');
+  t('A: in den letzten zwei Sekunden wird er dringlich', zeig().kl === 'uhr urgent', zeig().kl);
   S.setzen({ jetzt: T0 + 5800 });
-  t('A: davor nicht', zeig().kl === '');
+  t('A: davor nicht', zeig().kl === 'uhr', zeig().kl);
 
-  // B: eigenes Terminal steht, andere fehlen.
+  // B: eigenes Terminal steht -> NUR BEREIT, kein Countdown daneben.
   S.setzen({ leben: leben({ cap: 5, seat: 0, c: { 0: MOVE, 1: MOVE, 2: MOVE } }), jetzt: T0 + 3000 });
   z = zeig();
-  t('B: mit eigenem Terminal steht BEREIT statt einer Aufforderung', z.haupt === DE.fbReadyState + ' — 5.0 s', z.haupt);
-  t('B: die Nebenzeile sagt, worauf gewartet wird', z.neben === DE.fbWaitOthers + ' · 3/5 BEREIT', z.neben);
-  t('B: und sie ist eine Bestaetigung, kein Alarm', z.kl === 'done');
-  t('B: ALLE ZIELEN steht nicht mehr da', z.haupt.indexOf(DE.fbAllAim) < 0);
+  t('B: mit eigenem Terminal steht nur BEREIT', z.txt === DE.fbReadyState, z.txt);
+  t('B: der Countdown verschwindet dabei', /[0-9]\.[0-9]/.test(z.txt) === false, z.txt);
+  t('B: kein "warte auf die anderen"', z.txt.indexOf('WARTE') < 0 && z.txt.indexOf('WAIT') < 0);
+  t('B: kein Bereitschaftszaehler', /\d+\/\d+/.test(z.txt) === false, z.txt);
+  t('B: es ist eine Bestaetigung, kein Alarm', z.kl === 'done', z.kl);
 
-  // C: alle bereit - dann wartet niemand mehr auf irgendwen.
+  // C: alle bereit - dieselbe eine Zeile, nichts Zusaetzliches.
   S.setzen({ leben: leben({ cap: 5, seat: 0, c: { 0: MOVE, 1: MOVE, 2: MOVE, 3: MOVE, 4: MOVE } }), jetzt: T0 + 3000 });
   z = zeig();
-  t('C: bei vollstaendiger Barriere steht 5/5 BEREIT', z.neben === '5/5 BEREIT', z.neben);
-  t('C: und ausdruecklich kein "warte auf die anderen"', z.neben.indexOf(DE.fbWaitOthers) < 0);
+  t('C: bei voller Barriere steht weiterhin nur BEREIT', z.txt === DE.fbReadyState, z.txt);
+  t('C: und kein 5/5', z.txt.indexOf('5/5') < 0, z.txt);
 
-  // D: Frist vorbei, kein eigenes Terminal.
+  // D: Frist vorbei ohne eigenes Terminal -> eine knappe Zeile, kein zweiter Satz.
   S.setzen({ leben: leben({ cap: 5, seat: 0, c: { 1: MOVE } }), jetzt: T0 + 8000 });
   z = zeig();
-  t('D: nach der Frist ohne eigenes Terminal -> ZEIT ABGELAUFEN', z.haupt === DE.fbTimeUp, z.haupt);
-  t('D: mit dem Hinweis auf die naechste Runde', z.neben === DE.fbAimNext, z.neben);
-  t('D: gedaempft, nicht als Fehler', z.kl === 'late');
-  // D auch dann, wenn ein Mitspieler den Slot geschlossen hat - noch VOR der Frist.
+  t('D: nach der Frist steht ZEIT ABGELAUFEN', z.txt === DE.fbTimeUp, z.txt);
+  t('D: ohne zweiten Erklaersatz', z.txt.indexOf('NÄCHSTE') < 0 && z.txt.indexOf('NEXT') < 0, z.txt);
+  t('D: gedaempft, nicht als Fehler', z.kl === 'late', z.kl);
   S.setzen({ leben: leben({ cap: 5, seat: 0, c: { 0: LATE } }), jetzt: T0 + 3000 });
   z = zeig();
-  t('D: ein fremd geschlossener Slot sagt dasselbe', z.haupt === DE.fbTimeUp && z.kl === 'late');
-  t('D: und behauptet nie, der spaete Zug sei angekommen', z.haupt.indexOf(DE.fbReadyState) < 0);
+  t('D: ein fremd geschlossener Slot sagt dasselbe', z.txt === DE.fbTimeUp && z.kl === 'late');
+  t('D: und behauptet nie, der spaete Zug sei angekommen', z.txt.indexOf(DE.fbReadyState) < 0);
 
-  // E: Physik laeuft - keine Aufforderung, nichts Altes.
+  // E: Physik, Ergebnis, Torablauf, Sieg, Menue - nichts.
   S.setzen({ leben: leben({ cap: 5, seat: 0, c: { 0: MOVE } }), jetzt: T0 + 3000, phase: 'sim' });
   z = zeig();
-  t('E: waehrend der Physik steht keine Zeile', z.haupt === '' && z.neben === '');
-  t('E: und sie ist auch nicht sichtbar', z.an === false);
+  t('E: waehrend der Physik steht nichts da', z.txt === '' && z.an === false, z.txt);
   S.setzen({ phase: 'result' });
-  t('E: im Ergebnis ebenso wenig', zeig().haupt === '');
+  t('E: im Ergebnis ebenso wenig', zeig().txt === '');
   S.setzen({ phase: 'aim', sperre: true });
-  t('E: waehrend des Torablaufs ebenso wenig', zeig().haupt === '');
+  t('E: waehrend des Torablaufs ebenso wenig', zeig().txt === '');
   S.setzen({ sperre: false, sieger: 1 });
-  t('E: nach dem Sieg ebenso wenig', zeig().haupt === '');
+  t('E: nach dem Sieg ebenso wenig', zeig().txt === '');
   S.setzen({ sieger: null, menue: true });
-  t('E: und im Menue ebenso wenig', zeig().haupt === '');
+  t('E: und im Menue ebenso wenig', zeig().txt === '');
   S.setzen({ menue: false });
 
-  // F: selbst ausgeschieden - nur noch der Stand der anderen.
+  // F: selbst ausgeschieden - Zusehen ist ein ruhiger Zustand.
   S.setzen({ leben: leben({ cap: 5, seat: 4, e: { 4: true }, c: { 0: MOVE } }), jetzt: T0 + 3000 });
   z = zeig();
-  t('F: wer draussen ist, wird nicht mehr zum Zielen aufgefordert', z.haupt === '');
-  t('F: sieht aber den Stand der anderen', z.neben === '1/4 BEREIT', z.neben);
+  t('F: wer draussen ist, bekommt keine Anzeige', z.txt === '' && z.an === false, z.txt);
 
-  // Kein Football, kein Online: gar nichts.
+  // Ausserhalb eines v9/v10-Onlinespiels: gar nichts.
   S.setzen({ lebenAn: false, leben: leben({}), jetzt: T0 + 1000 });
-  z = zeig();
-  t('ausserhalb eines v9/v10-Onlinespiels steht nichts da', z.haupt === '' && z.neben === '');
+  t('ausserhalb eines v9/v10-Onlinespiels steht nichts da', zeig().txt === '');
   S.setzen({ lebenAn: true });
 
-  // Ohne Serveruhr: Zustand ja, Zahl nein.
+  // Ohne Serveruhr wird keine Zahl erfunden - und dann steht auch nichts anderes da.
   S.setzen({ leben: leben({ cap: 3, seat: 0 }), uhr: false });
   z = zeig();
-  t('ohne Serveruhr steht der Zustand ohne erfundene Zahl da', z.haupt === DE.fbAllAim, z.haupt);
-  t('... und der Stand bleibt trotzdem ablesbar', z.neben === '0/3 BEREIT');
+  t('ohne Serveruhr wird keine Zahl erfunden', z.txt === '', z.txt);
   S.setzen({ uhr: true });
+
+  // VORLESEN. Geprueft wird, was eine Vorlesehilfe WIRKLICH liest: der Text der Region
+  // ohne die ausdruecklich verschwiegenen Kinder. Die Region selbst bleibt dabei immer
+  // im Baum - eine Live-Region, die verschwindet und wiederkommt, sagt je nach
+  // Vorlesehilfe gar nichts mehr, und dann verstummten genau die beiden Zustaende, die
+  // etwas bedeuten.
+  S.setzen({ leben: leben({ cap: 5, seat: 0 }), jetzt: T0 + 600 });
+  S.malen();
+  t('der laufende Countdown wird nicht vorgelesen', F.fbState.ansage() === '', JSON.stringify(F.fbState.ansage()));
+  t('... steht aber sichtbar da', F.fbState.textContent === '7.4', F.fbState.textContent);
+  t('... und die Region wird nie versteckt', F.fbState.attr('aria-hidden') === undefined, String(F.fbState.attr('aria-hidden')));
+  S.setzen({ leben: leben({ cap: 5, seat: 0, c: { 0: MOVE } }), jetzt: T0 + 600 });
+  S.malen();
+  t('BEREIT wird vorgelesen', F.fbState.ansage() === DE.fbReadyState, JSON.stringify(F.fbState.ansage()));
+  S.setzen({ leben: leben({ cap: 5, seat: 0, c: { 0: LATE } }), jetzt: T0 + 600 });
+  S.malen();
+  t('ZEIT ABGELAUFEN wird vorgelesen', F.fbState.ansage() === DE.fbTimeUp, JSON.stringify(F.fbState.ansage()));
+  S.setzen({ phase: 'sim' });
+  S.malen();
+  t('und die leere Zeile sagt nichts', F.fbState.ansage() === '' && F.fbState.textContent === '');
+  S.setzen({ phase: 'aim' });
 }
 
 // ══ 7. DREI SPRACHEN, KEINE ROHEN SCHLUESSEL ════════════════════════════════
 abschnitt('7. Drei Sprachen, keine rohen Schluessel');
 {
-  const KEYS = ['fbAllAim', 'fbReadyState', 'fbWaitOthers', 'fbReadyCount', 'fbTimeUp', 'fbAimNext',
-                'fbLobbyHow1', 'fbLobbyHow2'];
+  // Nur noch zwei Zustandswoerter - und die Lobby-Erklaerung, die bleibt.
+  const KEYS = ['fbReadyState', 'fbTimeUp', 'fbLobbyHow1', 'fbLobbyHow2'];
   for (const k of KEYS)
     for (const l of ['en', 'de', 'tr'])
       t(l + ': ' + k + ' ist uebersetzt', typeof I18N[l][k] === 'string' && I18N[l][k].length > 0 && I18N[l][k] !== k);
-  for (const k of ['fbReadyCount'])
-    for (const l of ['en', 'de', 'tr'])
-      t(l + ': ' + k + ' traegt beide Platzhalter', I18N[l][k].indexOf('{n}') >= 0 && I18N[l][k].indexOf('{m}') >= 0);
-  // Die drei Tabellen sagen nicht dasselbe - sonst waere eine davon nie gepflegt worden.
   t('die drei Sprachen unterscheiden sich wirklich',
-    I18N.en.fbAllAim !== I18N.de.fbAllAim && I18N.de.fbAllAim !== I18N.tr.fbAllAim);
-  // Und der Anstrich benutzt sie auch.
+    I18N.en.fbReadyState !== I18N.de.fbReadyState && I18N.de.fbReadyState !== I18N.tr.fbReadyState);
+  // Und was nicht mehr erscheint, wird auch nicht mehr gepflegt.
+  for (const tot of ['fbAllAim', 'fbWaitOthers', 'fbReadyCount', 'fbAimNext'])
+    for (const l of ['en', 'de', 'tr'])
+      t(l + ': ' + tot + ' ist entfernt', I18N[l][tot] === undefined);
+  t('und im Quelltext steht keiner von ihnen mehr',
+    ['fbAllAim', 'fbWaitOthers', 'fbReadyCount', 'fbAimNext'].every(k => HTML.indexOf(k) < 0));
+
   const S = bauen();
   const F = S.felder();
-  S.setzen({ leben: leben({ cap: 2, seat: 0 }), jetzt: T0 + 1000, sprache: 'en' });
+  S.setzen({ leben: leben({ cap: 2, seat: 0, c: { 0: MOVE } }), jetzt: T0 + 1000, sprache: 'en' });
   S.malen();
-  t('en: die englische Zeile erscheint', F.fbState.textContent.indexOf(I18N.en.fbAllAim) === 0, F.fbState.textContent);
-  t('en: und der englische Stand', F.fbSub.textContent === '0/2 READY', F.fbSub.textContent);
+  t('en: das englische Wort erscheint', F.fbState.textContent === I18N.en.fbReadyState, F.fbState.textContent);
   S.setzen({ sprache: 'tr' });
   S.malen();
-  t('tr: die tuerkische Zeile erscheint', F.fbState.textContent.indexOf(I18N.tr.fbAllAim) === 0, F.fbState.textContent);
-  t('tr: und der tuerkische Stand', F.fbSub.textContent === '0/2 ' + I18N.tr.fbReadyState, F.fbSub.textContent);
-  // Kein Schluesselname darf je sichtbar werden.
+  t('tr: das tuerkische Wort erscheint', F.fbState.textContent === I18N.tr.fbReadyState, F.fbState.textContent);
   for (const l of ['en', 'de', 'tr']) {
     S.setzen({ sprache: l });
     S.malen();
-    t(l + ': kein roher Schluessel im Text',
-      F.fbState.textContent.indexOf('fb') < 0 && F.fbSub.textContent.indexOf('fb') < 0);
+    t(l + ': kein roher Schluessel im Text', F.fbState.textContent.indexOf('fb') < 0);
   }
 }
 
 // ══ 8. DAS HUD FAENGT KEINE EINGABE AB ══════════════════════════════════════
 abschnitt('8. Das HUD erklaert - es fangt nichts ab');
 {
-  const css = grab(HTML, /#game\.fb \.fbstate\{[\s\S]*?\n#game\.fb \.fbsub\.show\{[^}]*\}/, 'HUD-CSS');
+  const css = grab(HTML, /#game\.fb \.fbstate\{[\s\S]*?\n#game\.fb \.fbstate\.done\{[^}]*\}/, 'HUD-CSS');
   t('die Zustandszeile ist zeigerdurchlaessig', /#game\.fb \.fbstate\{[^}]*pointer-events:none/.test(css));
-  t('die Nebenzeile ebenso', /#game\.fb \.fbsub\{[^}]*pointer-events:none/.test(css));
-  t('beide haengen an der Statusleiste, nicht ueber dem Spielfeld',
-    (css.match(/top:100%/g) || []).length === 2);
-  t('beide bleiben einzeilig', (css.match(/white-space:nowrap/g) || []).length === 2);
+  t('sie haengt an der Statusleiste, nicht ueber dem Spielfeld', /top:100%/.test(css));
+  t('sie bleibt einzeilig', /white-space:nowrap/.test(css));
   t('auf schmalen Geraeten wird die Schrift kleiner, nicht die Zeile laenger',
-    /@media\(max-width:430px\)\{#game\.fb \.fbstate\{font-size:15px\}/.test(HTML));
-  // Die Markup-Seite: zwei Elemente, in der Statusleiste, ohne eigene Ebene darueber.
-  t('beide Elemente stehen im Markup', HTML.indexOf('<div class="fbstate" id="fbState">') > 0
-                                     && HTML.indexOf('<div class="fbsub" id="fbSub" aria-live="polite">') > 0);
-  // Sie sind Kinder der Statusleiste, gehoeren aber NUR zu Arena Football: ohne den
-  // Football-Kontext gibt es sie nicht, und sie koennen die Ring-Out-Leiste nicht
-  // hoeher machen. Ohne diese Regel waeren sie dort nullhohe Rasterelemente - mit
-  // Rasterluecke, also sieben Pixel Unterschied.
-  t('ausserhalb von Arena Football gibt es die Zeilen gar nicht',
-    HTML.indexOf('.fbstate,.fbsub{display:none}') > 0
-    && HTML.indexOf('#game.fb .fbstate,#game.fb .fbsub{display:block}') > 0);
-  // Angesagt wird der ZUSTAND, nicht der Countdown: die Hauptzeile wechselt zehnmal je
-  // Sekunde und machte eine Vorlesehilfe zum Ticker.
-  t('die Nebenzeile meldet sich Screenreadern, die Countdown-Zeile nicht',
-    HTML.indexOf('<div class="fbsub" id="fbSub" aria-live="polite">') > 0
-    && HTML.indexOf('id="fbState" aria-live') < 0);
+    /@media\(max-width:430px\)\{#game\.fb \.fbstate\{font-size:14px/.test(HTML));
+  t('... und der Countdown bekommt dort seine eigene, kleinere Groesse',
+    /#game\.fb \.fbstate\.uhr\{font-size:21px\}/.test(HTML));
+  // Es gibt genau EIN Element - die zweite Zeile ist fort.
+  t('genau ein Element steht im Markup',
+    HTML.indexOf('<div class="fbstate" id="fbState" aria-live="polite">') > 0
+    && HTML.indexOf('fbSub') < 0 && HTML.indexOf('fbsub') < 0);
+  t('ausserhalb von Arena Football gibt es die Zeile gar nicht',
+    HTML.indexOf('.fbstate{display:none}') > 0 && HTML.indexOf('#game.fb .fbstate{display:block}') > 0);
   t('es entsteht KEIN Overlay ueber der Arena',
     HTML.indexOf('id="fbStateOv"') < 0 && HTML.indexOf('class="cover" id="fbState') < 0);
-  // Der lokale Countdown bleibt unangetastet.
   // Eine Lage, EIN Etikett: die alte Ruecklaufzeile behauptet online keine Reihenfolge mehr.
   const phasenText = grabFunction(HTML, 'setPhaseText');
   t('online nennt die Statuszeile keinen einzelnen Zielenden',
@@ -424,18 +453,21 @@ abschnitt('9. Ring Out bleibt unberuehrt');
 {
   // Jede neue Regel haengt an #game.fb - dem Football-Kontext. Ohne ihn gibt es die
   // Zeilen nicht, und der Anstrich selbst verlaesst sich auf denselben Zusammenhang.
-  const neu = (HTML.match(/\.fbstate|\.fbsub/g) || []).length;
-  const imKontext = (HTML.match(/#game\.fb \.fbstate|#game\.fb \.fbsub/g) || []).length;
-  t('jede CSS-Regel der neuen Zeilen steht im Football-Kontext',
-    // Genau ZWEI Nennungen stehen ausserhalb: die Grundregel, die beide Zeilen ueberall
-    // dort abschaltet, wo kein Arena Football laeuft. Jede weitere waere ein Stilrest,
-    // der in Ring Out wirkte.
-    neu - imKontext === 2, (neu - imKontext) + ' Nennung(en) ohne Football-Kontext');
-  t('... und die beiden Ausnahmen sind genau die Abschaltung',
-    HTML.indexOf('.fbstate,.fbsub{display:none}') > 0);
+  const neu = (HTML.match(/\.fbstate/g) || []).length;
+  const imKontext = (HTML.match(/#game\.fb \.fbstate/g) || []).length;
+  t('jede CSS-Regel der Zustandszeile steht im Football-Kontext',
+    // Genau EINE Nennung steht ausserhalb: die Grundregel, die die Zeile ueberall dort
+    // abschaltet, wo kein Arena Football laeuft. Jede weitere waere ein Stilrest, der
+    // in Ring Out wirkte.
+    neu - imKontext === 1, (neu - imKontext) + ' Nennung(en) ohne Football-Kontext');
+  t('... und die Ausnahme ist genau die Abschaltung',
+    HTML.indexOf('.fbstate{display:none}') > 0);
   const paint = grabFunction(HTML, 'fbV9HudPaint');
   t('der Anstrich malt nur bei aktivem v9/v10-Football', /fbV9LebenAn\(\)/.test(paint));
-  t('... und schreibt nichts ins Netz', /(set|update|push|runTransaction|NetWrite)/.test(paint) === false);
+  // Die Frage ist, ob der Anstrich SCHREIBT - nicht, ob irgendein Wort mit "set" beginnt.
+  t('... und schreibt nichts ins Netz',
+    ['window.FB', 'runTransaction', 'NetWrite', 'fbV9Net', 'rRef(', 'onValue'].every(w => paint.indexOf(w) < 0)
+    && !/\.set\(|\.update\(|\.push\(/.test(paint));
   t('... und beruehrt keinen Spielzustand',
     ['aimSet', 'applyLaunch', 'setPhase', 'score', 'balls[', 'fbElimLives', 'roundNo']
       .every(w => paint.indexOf(w) < 0));
