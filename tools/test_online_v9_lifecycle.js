@@ -645,7 +645,7 @@ abschnitt('Waechter');
     ff && ff[0].indexOf('turns[turnNo]') > 0 && ff[0].indexOf('processSlot(s,slots[s])') > 0 &&
     ff[0].indexOf('allAliveCommitted()') > 0);
   t('und der v9-Zweig benutzt AUSSCHLIESSLICH die gemeinsame Wirkung',
-    ff && ff[0].indexOf('fbV9Wirken(menge,np())') > 0 &&
+    ff && ff[0].indexOf('fbV9Wirken(menge,(typeof fbElimTeilnehmer===') > 0 &&
     (ff[0].match(/fbV9[A-Za-z]*/g) || []).join(',') === 'fbV9Wirken');
   const al = HTML.match(/function applyLaunch\([^)]*\)\{[\s\S]*?\n\}/);
   t('applyLaunch ist unberuehrt', al && al[0].indexOf('fbV9') < 0);

@@ -359,6 +359,133 @@ abschnitt('Der Wirt geht  (der Raum lebt weiter - aber erst mit einem neuen Wirt
     laeuftOhneWirt, P('hostUid'), UID[2], UID[2]);
 }
 
+// ══ DER AUSTRITT AUS DEM LAUFENDEN MATCH ═════════════════════════════════════
+abschnitt('Austritt aus dem laufenden Match  (Anker und Marker in EINEM Schritt)');
+{
+  // Der kanonische Austritt ist EIN atomares update: beide Anker zurueck - und, wenn
+  // der Sitz am laufenden Match teilnimmt, der Austragungsmarker DIESER Generation
+  // dazu. Der Server verlangt genau diese Kopplung. Wer sie nicht herstellt, kann ein
+  // laufendes Match ueberhaupt nicht mehr verlassen: die Ruecknahme wird abgewiesen,
+  // der Sitz bleibt stehen, und die Uebrigen warten auf einen, der schon fort ist.
+  const austritt = (db, g, sitz, uid, mitMarker) => {
+    const auch = { ['rooms/VEFB/p/' + sitz]: null, ['rooms/VEFB/players/' + sitz]: null };
+    if (mitMarker) auch['rooms/VEFB/g/' + g + '/e/' + sitz] = true;
+    const teile = Object.keys(auch).map(pf => tryWrite(db, pf, auch[pf], uid, auch));
+    return { alle: teile.every(Boolean), teile: teile.join('/') };
+  };
+  const austrittAllow = (n, db, g, sitz, uid, mit) => { const r = austritt(db, g, sitz, uid, mit); t('[ALLOW] ' + n, r.alle, r.teile); };
+  const austrittDeny = (n, db, g, sitz, uid, mit) => { const r = austritt(db, g, sitz, uid, mit); t('[DENY]  ' + n, !r.alle, r.teile); };
+
+  // Zwei Teilnehmer, das Match laeuft, der Gast geht.
+  const zwei = raum({ sitze: [0, 1], gen: 1, state: 'playing', pt: ptVon([0, 1]) });
+  austrittDeny('ohne Austragungsmarker weist der Server den Austritt ab', zwei, 1, 1, UID[1], false);
+  austrittAllow('mit dem Marker der laufenden Generation geht er durch', zwei, 1, 1, UID[1], true);
+  // Der Wirt ist kein Sonderfall: auch er verlaesst sein eigenes Match.
+  austrittDeny('der Wirt ebenfalls nicht ohne Marker', zwei, 1, 0, UID[0], false);
+  austrittAllow('… und mit Marker ebenso wie jeder andere', zwei, 1, 0, UID[0], true);
+  // Der Marker gehoert in die LAUFENDE Generation - nicht in die vorige, nicht in die
+  // naechste.
+  austrittDeny('ein Marker in der vorigen Generation traegt nichts aus', zwei, 0, 1, UID[1], true);
+  austrittDeny('… und einer in der naechsten ebenso wenig', zwei, 2, 1, UID[1], true);
+  // Drei und fuenf Teilnehmer: derselbe Vorgang, unabhaengig von der Groesse.
+  const drei = raum({ sitze: [0, 1, 2], gen: 1, state: 'playing', pt: ptVon([0, 1, 2]) });
+  austrittAllow('aus einem Dreier-Match tritt der mittlere Sitz aus', drei, 1, 1, UID[1], true);
+  austrittDeny('… ohne Marker auch hier nicht', drei, 1, 1, UID[1], false);
+  const fuenf = raum({ sitze: [0, 1, 2, 3, 4], gen: 1, state: 'playing', pt: ptVon([0, 1, 2, 3, 4]) });
+  for (const s of [0, 1, 2, 3, 4])
+    austrittAllow('aus einem Fuenfer-Match tritt Sitz ' + s + ' aus', fuenf, 1, s, UID[s], true);
+  // Luecken: der Marker trifft den Sitz, nicht seine Position in einer Reihe.
+  const luecke = raum({ sitze: [0, 2, 4], gen: 1, state: 'playing', pt: ptVon([0, 2, 4]) });
+  austrittAllow('aus einer lueckenhaften Besetzung tritt Sitz 2 aus', luecke, 1, 2, UID[2], true);
+  austrittDeny('… ohne Marker nicht', luecke, 1, 2, UID[2], false);
+  austrittAllow('… und Sitz 4 ebenso', luecke, 1, 4, UID[4], true);
+  // Ein Raummitglied, das beim laufenden Match NICHT dabei ist, traegt sich aus nichts
+  // aus - und darf es auch nicht.
+  const zuschauer = raum({ sitze: [0, 1, 2], gen: 1, state: 'playing', pt: ptVon([0, 1]) });
+  austrittAllow('ein Nichtteilnehmer geht ohne Marker', zuschauer, 1, 2, UID[2], false);
+  austrittDeny('… und kann sich gar nicht erst austragen', zuschauer, 1, 2, UID[2], true);
+  // Und in der Lobby gibt es nichts auszutragen.
+  const lobby = raum({ sitze: [0, 1], gen: 1, state: 'lobby' });
+  austrittAllow('aus einer Lobby geht man ohne Marker', lobby, 1, 1, UID[1], false);
+  austrittDeny('… ein Marker waere dort eine Falschaussage', lobby, 1, 1, UID[1], true);
+  // Write-once: ein bereits gesetzter Marker bleibt stehen; die Anker muessen trotzdem
+  // zurueckgenommen werden koennen.
+  const schonAus = raum({ sitze: [0, 1], gen: 1, state: 'playing', pt: ptVon([0, 1]), e: { 1: true } });
+  austrittAllow('ist der Sitz bereits ausgetragen, genuegen die Anker', schonAus, 1, 1, UID[1], false);
+  austrittDeny('… und der Marker wird kein zweites Mal geschrieben', schonAus, 1, 1, UID[1], true);
+  // Und niemand traegt einen FREMDEN Sitz ueber diesen Weg aus.
+  austrittDeny('ein Mitspieler nimmt niemandem die Anker weg', zwei, 1, 1, UID[0], true);
+}
+
+// ══ DER FREI GEWORDENE SITZ ══════════════════════════════════════════════════
+abschnitt('Der frei gewordene Sitz  (der Marker gehoert seiner Generation)');
+{
+  // Ein Austragungsmarker sagt: DIESER Sitz nimmt an DIESEM Match nicht mehr teil.
+  // Solange das Match laeuft, sperrt er die Rueckkehr - das ist der ganze Sinn. Faellt
+  // der Raum danach in seine Lobby zurueck, ist das Match vorbei; der Marker bleibt als
+  // Geschichte seiner Generation stehen, sperrt aber nichts mehr. Sonst waere ein
+  // bleibender Raum nach dem ersten Austritt unbrauchbar: niemand koennte nachruecken,
+  // und ohne zweiten Spieler startet auch keine neue Generation, die den Marker
+  // hinter sich liesse.
+  const belegt = (state, over) => {
+    const db = raum(Object.assign({ sitze: [0, 1], gen: 1, state: state, pt: ptVon([0, 1]), e: { 1: true } }, over || {}));
+    // Sitz 1 ist reserviert (on:false) - der neue Mitspieler hat ihn sich genommen.
+    db.rooms.VEFB.p[1] = { s: TAB(9), on: false, t: NOW };
+    db.rooms.VEFB.players[1] = { id: 'VEFBPID9', name: 'P9', tab: TAB(9), uid: UID[3] };
+    return db;
+  };
+  const anmelden = (db, sitz, uid, tab) => tryWrite(db, P('p/' + sitz), { s: tab === undefined ? TAB(9) : tab, on: true, t: NOW }, uid);
+
+  // A. Waehrend das Match laeuft, bleibt die Sperre.
+  t('[DENY]  ein ausgetragener Sitz kehrt im LAUFENDEN Match nicht zurueck',
+    anmelden(belegt('playing'), 1, UID[3]) === false);
+  t('[DENY]  auch nicht unter der urspruenglichen Kennung',
+    (() => { const db = belegt('playing'); db.rooms.VEFB.players[1].uid = UID[1];
+             return anmelden(db, 1, UID[1]) === false; })());
+  // B. In der Lobby ist das Match vorbei - der Sitz ist wieder ein Sitz.
+  t('[ALLOW] in der LOBBY darf der frei gewordene Sitz wieder besetzt werden',
+    anmelden(belegt('lobby'), 1, UID[3]) === true);
+  t('[ALLOW] auch die frische Reservierung geht wie immer',
+    tryWrite(raum({ sitze: [0], gen: 1, state: 'lobby', pt: ptVon([0, 1]), e: { 1: true } }),
+      P('p/1'), { s: TAB(9), on: false, t: NOW }, UID[3],
+      { [P('players/1')]: { id: 'VEFBPID9', name: 'P9', tab: TAB(9), uid: UID[3] } }) === true);
+  // C. Was NICHT gelockert wird: ein besetzter Sitz bleibt besetzt.
+  const wirtDa = raum({ sitze: [0, 1], gen: 1, state: 'lobby', pt: ptVon([0, 1]), e: { 1: true } });
+  t('[DENY]  ein belegter, verbundener Sitz laesst sich nicht uebernehmen',
+    anmelden(wirtDa, 0, UID[3], TAB(0)) === false);
+  t('[DENY]  ... auch der frei gewordene nicht, wenn er inzwischen einem anderen gehoert',
+    (() => { const db = belegt('lobby'); return anmelden(db, 1, UID[4]) === false; })());
+  // D. Eigentum bleibt Eigentum: der Anmeldung liegt derselbe Token zugrunde wie der
+  //    Reservierung - ein fremder Token wird abgewiesen.
+  t('[DENY]  ein fremder Token meldet den Sitz nicht an',
+    anmelden(belegt('lobby'), 1, UID[3], TAB(4)) === false);
+  // Ein Altsitz ohne Kennung ist seit jeher uebernehmbar - aber nur von dem, der ihn
+  // reserviert hat. An diesem Token aendert die Lockerung nichts.
+  t('[DENY]  auch ein kennungsloser Altsitz bleibt an seinen Token gebunden',
+    (() => { const db = belegt('lobby'); delete db.rooms.VEFB.players[1].uid;
+             return anmelden(db, 1, UID[5], TAB(4)) === false; })());
+  // E./F. Die alten Fassungen bleiben, wie sie sind: dort sperrt der Marker weiter.
+  const alt = (v) => {
+    const db = raum({ sitze: [0, 1], gen: 1, state: 'lobby', v: v, seats: 2, pt: null, e: { 1: true } });
+    db.rooms.VEFB.p[1] = { s: TAB(9), on: false, t: NOW };
+    db.rooms.VEFB.players[1] = { id: 'VEFBPID9', name: 'P9', tab: TAB(9), uid: UID[3] };
+    return db;
+  };
+  t('[DENY]  v10 kennt diese Lockerung nicht', anmelden(alt(10), 1, UID[3]) === false);
+  t('[DENY]  v9 ebenso wenig', anmelden(alt(9), 1, UID[3]) === false);
+  t('[DENY]  und v8 auch nicht', anmelden(alt(8), 1, UID[3]) === false);
+  // G. Der Marker selbst ist und bleibt unveraenderlich.
+  const mitMarker = raum({ sitze: [0, 1], gen: 1, state: 'playing', pt: ptVon([0, 1]), e: { 1: true } });
+  deny('ein gesetzter Marker laesst sich nicht zuruecknehmen', mitMarker, P('g/1/e/1'), null, UID[1]);
+  deny('... und nicht ueberschreiben', mitMarker, P('g/1/e/1'), true, UID[1]);
+  const lobbyMarker = raum({ sitze: [0, 1], gen: 1, state: 'lobby', pt: ptVon([0, 1]), e: { 1: true } });
+  deny('auch in der Lobby bleibt er stehen', lobbyMarker, P('g/1/e/1'), null, UID[1]);
+  deny('und es entsteht dort auch kein neuer', lobbyMarker, P('g/1/e/0'), true, UID[0]);
+  // Und die naechste Generation beginnt unbelastet: der alte Marker sagt ueber sie nichts.
+  const zurueck = raum({ sitze: [0, 1], gen: 1, state: 'lobby', pt: ptVon([0, 1]), e: { 1: true } });
+  startAllow('die naechste Generation startet mit der jetzigen Besetzung', zurueck, 2, ptVon([0, 1]), UID[0]);
+}
+
 // ══ FASSUNGSGRENZE ═══════════════════════════════════════════════════════════
 abschnitt('Fassungsgrenze  (kein v10-Verhalten in einem v11-Raum)');
 {

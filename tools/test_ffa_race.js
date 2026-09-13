@@ -136,6 +136,7 @@ const SRC = [
   fn('fbPermanentLeaveRequired'),
   fn('fbLeaveCtxValid'),
   fn('fbBeginCanonicalLeave'),
+  fn('fbLeaveAktiverTeilnehmer'),
   fn('fbCanonicalLeave'),
   fn('fbLeaveRetry'),
   fn('fbLeaveFinish'),

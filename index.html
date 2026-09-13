@@ -11425,6 +11425,17 @@ function fbV9AcceptedOk(menge,cap){
 function fbV9Wirken(menge,cap){
   if(!fbV9AcceptedOk(menge,cap))return false;
   const kap=menge.length;   // Zahl der EINTRAEGE - jeder traegt seinen Raumsitz selbst
+  // (0) DIE AUSTRAGUNG. Ein terminales `remove` heisst nicht "dieser Sitz schiesst diese
+  //     Runde nichts", sondern: dieser Teilnehmer ist aus dem laufenden Match heraus.
+  //     Vorgemerkt wird hier - angewandt deterministisch an der naechsten Eingabegrenze
+  //     (fbApplyPendingRemovals), also auf DEMSELBEN Weg und in DEMSELBEN Augenblick wie
+  //     in v8. Die Wirkung haengt damit an der kanonischen Zughistorie, die jeder Client
+  //     gleich liest, und nicht am Eviction-Marker, der sie zu verschiedenen Zeitpunkten
+  //     erreicht (dieselbe Begruendung wie bei fbWinnerEligible).
+  //     AUSDRUECKLICH NUR v11: v9 und v10 sind Vertraege der Vergangenheit - ein
+  //     laufender Bestandsraum darf seine Spielwirkung nicht nachtraeglich aendern.
+  if(typeof fbV11Raum==='function'&&fbV11Raum())
+    for(let k=0;k<kap;k++)if(menge[k].kind===TURN_REMOVE)fbRemovePending[menge[k].seat]=true;
   // (1) PROTOKOLLAUSSCHLUESSE ZUERST, in kanonischer Sitzreihenfolge. Eine Kugel, die
   //     diesen Abschuss verwirkt hat, darf in ihm nicht mehr mitkollidieren - deshalb
   //     erst ausscheiden, dann starten. Benutzt wird die BESTEHENDE Eliminierung.
@@ -11434,9 +11445,9 @@ function fbV9Wirken(menge,cap){
   //     ueberhaupt noch etwas bewirkt. Ein bereits ausgeschiedener Sitz kann nicht
   //     entscheiden; er wuerde sofort zurueckkehren, und niemand nennte den Ausgang.
   const stapel=[];
-  for(let i=0;i<kap;i++){
-    const e=menge[i];
-    if(e.kind==='move'&&FB_V9_RAUS.indexOf(e.status)>=0)stapel.push(i);
+  for(let k=0;k<kap;k++){
+    const e=menge[k];
+    if(e.kind==='move'&&FB_V9_RAUS.indexOf(e.status)>=0)stapel.push(e.seat);
   }
   const wirksam=stapel.filter(i=>fbElimActive[i]);
   const entscheider=wirksam.length?wirksam[wirksam.length-1]:-1;
@@ -11448,13 +11459,13 @@ function fbV9Wirken(menge,cap){
   // (3) Nur gueltige Zuege, und zwar EXAKT die verifizierten Werte: keine erneute
   //     Begrenzung, keine Zufallskomponente, keine Zielhilfe.
   resetCommits();
-  for(let i=0;i<kap;i++){
-    const e=menge[i];
+  for(let k=0;k<kap;k++){
+    const e=menge[k];
     if(e.kind!=='move'||e.status!==FB_V9_VALID)continue;
     const b=balls[e.move.idx];
     if(!b||!b.alive)continue;                   // gerade ausgeschieden: kein Abschuss
-    commitIdx[i]=e.move.idx; commitAim[i]={dx:e.move.dx,dy:e.move.dy};
-    commitSpin[i]=e.move.sp; aimSet[i]=true;
+    commitIdx[e.seat]=e.move.idx; commitAim[e.seat]={dx:e.move.dx,dy:e.move.dy};
+    commitSpin[e.seat]=e.move.sp; aimSet[e.seat]=true;
   }
   // (4) Der BESTEHENDE gemeinsame Abschussweg - kein zweiter. Ab hier laeuft alles
   //     wie im lokalen Spiel: Physik, Tore, Leben, Settlement, naechste Bereitschaft.
@@ -11467,9 +11478,12 @@ function fbV9ApplyAccepted(L,menge){
   if(!fbV9LebenAn()||!fbV9LebenAktuell(L))return false;
   if(L.angewandt)return false;
   if(L.turn!==turnNo)return false;              // veraltete Runde: nichts anwenden
-  if(!fbV9AcceptedOk(menge,L.ctx.cap))return false;
+  // Dieselbe Sollbesetzung, gegen die die Menge gebaut wurde (s. fbV9AcceptedSet):
+  // in v11 die Teilnehmerliste der Generation, sonst unveraendert die Sitzzahl.
+  const soll=fbV9CtxBesetzung(L.ctx);
+  if(!fbV9AcceptedOk(menge,soll))return false;
   L.angewandt=true;
-  return fbV9Wirken(menge,L.ctx.cap);
+  return fbV9Wirken(menge,soll);
 }
 
 
@@ -11507,16 +11521,19 @@ async function fbV9RehydrierPlan(ctx,hist){
   if(!fbV9CtxOk(ctx))return {fehler:'Zusammenhang ungueltig'};
   if(!hist||typeof hist!=='object')return {fehler:'keine Historie'};
   const z=hist.z||{}, c=hist.c||{}, r=hist.r||{}, mengen=[];
+  // Dieselbe Sollbesetzung wie im laufenden Spiel - sonst rechnete der Rueckkehrer eine
+  // andere Runde als alle anderen.
+  const soll=fbV9CtxBesetzung(ctx);
   for(let n=0;n<GEN_MAX;n++){
     if(!fbV9AnkerOk(z[n]))break;         // ab hier ist es die LAUFENDE Runde
-    if(!fbV9CommitsComplete(ctx.cap,c[n]))
+    if(!fbV9CommitsComplete(soll,c[n]))
       return {fehler:'Runde '+n+': Commit-Barriere unvollstaendig'};
-    if(!fbV9ResultsComplete(ctx.cap,c[n],r[n]))
+    if(!fbV9ResultsComplete(soll,c[n],r[n]))
       return {fehler:'Runde '+n+': Ergebnisbarriere unvollstaendig'};
     let menge=null;
-    try{ menge=await fbV9AcceptedSet({room:ctx.code,gen:ctx.gen,turn:n},ctx.cap,c[n],r[n]); }
+    try{ menge=await fbV9AcceptedSet({room:ctx.code,gen:ctx.gen,turn:n},soll,c[n],r[n]); }
     catch(e){ return {fehler:'Runde '+n+': Zugmenge nicht bestimmbar'}; }
-    if(!menge||!fbV9AcceptedOk(menge,ctx.cap))
+    if(!menge||!fbV9AcceptedOk(menge,soll))
       return {fehler:'Runde '+n+': Zugmenge unbrauchbar'};
     mengen.push(menge);
   }
@@ -13184,7 +13201,8 @@ function fastForwardMatch(turns,mengen){
         const menge=mengen[turnNo];
         if(!menge)break;                 // ab hier ist es die LAUFENDE Runde
         if(turnUnsub){turnUnsub();turnUnsub=null;}
-        if(!fbV9Wirken(menge,np()))break;
+        // Auch hier die Teilnehmerliste, wenn es eine gibt - dieselbe Quelle wie ueberall.
+        if(!fbV9Wirken(menge,(typeof fbElimTeilnehmer==='function'&&fbElimTeilnehmer())||np()))break;
       }else{
       const slots=turns&&turns[turnNo];
       if(!slots)break;
@@ -13656,6 +13674,23 @@ function fbBeginCanonicalLeave(after){
   fbCanonicalLeave(0);
   return true;
 }
+// Ist DIESER Sitz Teilnehmer des LAUFENDEN Matches? Die Antwort kommt aus der Quelle,
+// die das jeweilige Protokoll dafuer fuehrt - und aus keiner anderen:
+//   v8/v9/v10 - die bei Matchbeginn eingefrorene Sitzzahl `seats`
+//   v11       - die Teilnehmerliste der laufenden Generation, g/<gen>/pt
+// Ein v11-Raum hat absichtlich kein `seats`; die Bedingung las dort undefined, liess den
+// Austragungsmarker weg, und die Rules wiesen daraufhin den GESAMTEN Austritt ab - ein
+// laufendes v11-Match konnte niemand mehr verlassen. Geprueft wird genau das, was die
+// Rules pruefen: pt/<sitz>===true. Nicht mehr und nicht weniger.
+function fbLeaveAktiverTeilnehmer(d,g,seat){
+  if(!d||d.state!=='playing')return false;
+  if(roomGame(d.config)!==ROOM_GAME_FOOTBALL)return false;
+  if(d.v===11){
+    const gn=d.g&&d.g[g];
+    return !!(gn&&gn.pt&&gn.pt[seat]===true);
+  }
+  return d.seats>=2&&d.seats<=FB_ONLINE_SEATS;
+}
 function fbCanonicalLeave(attempt){
   const ctx={sid:onlineSessionId,room:roomCode,seat:myPlayer,uid:fbUid(),tab:onlineTab};
   let p;
@@ -13683,8 +13718,7 @@ function fbCanonicalLeave(attempt){
     if(pres)upd['p/'+ctx.seat]=null;
     if(rec)upd['players/'+ctx.seat]=null;
     // Der Marker gehoert in die JETZT gueltige Generation - nicht in die lokal bekannte.
-    if(!schonMarkiert&&d.state==='playing'&&roomGame(d.config)===ROOM_GAME_FOOTBALL
-       &&d.seats>=2&&d.seats<=FB_ONLINE_SEATS)
+    if(!schonMarkiert&&fbLeaveAktiverTeilnehmer(d,g,ctx.seat))
       upd['g/'+g+'/e/'+ctx.seat]=true;
     if(!Object.keys(upd).length){ fbLeaveFinish(ctx); return; }
     window.FB.update(window.FB.ref(window.FB.db,'rooms/'+ctx.room),upd)

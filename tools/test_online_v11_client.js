@@ -72,6 +72,10 @@ const QUELLE = [
   grabFunction(HTML, 'fbV11Schritt'),
   grabFunction(HTML, 'fbV11Aus'),
   grabFunction(HTML, 'fbV11An'),
+  // ── der kanonische Austritt ──
+  grab(HTML, /const ROOM_GAME_RINGOUT='ringout', ROOM_GAME_FOOTBALL='football';/, 'ROOM_GAME'),
+  grabFunction(HTML, 'roomGame'),
+  grab(HTML, /const LEAVE_TRIES=3;[\s\S]*?\nfunction fbLeaveGiveUp\(ctx,err\)\{[\s\S]*?\n\}/, 'kanonischer Austritt'),
   // ── die Teilnehmerliste im Spiel ──
   grab(HTML, /const FB_ELIM_LIVES=[^\n]*/, 'FB_ELIM_LIVES'),
   grab(HTML, /const fbElimActive=\[[^\n]*/, 'fbElimActive'),
@@ -117,6 +121,11 @@ function fbUid(){ return UID[myPlayer]; }
 function rRef(p){ return {pfad:'rooms/'+roomCode+(p?'/'+p:'')}; }
 const SFX={ footballGoalStop(){}, fbTransitionStop(){} };
 function fbV9LebenStop(){ PROTOKOLL.push({op:'fbV9LebenStop'}); }
+let onlineTab='TAB0';
+function fbOnlineRoom(){ return mode==='football'; }
+function isOnlineTerminated(){ return false; }
+function showGame(){ PROTOKOLL.push({op:'showGame'}); }
+function leaveOnline(after){ PROTOKOLL.push({op:'leaveOnline'}); if(typeof after==='function')after(); }
 const UID=['U0','U1','U2','U3','U4'];
 // Die nachgebaute Datenbank: sie speichert, sie entscheidet nichts. Was erlaubt ist,
 // beweist der Rules-Pruefstand - hier wird gemessen, WAS der Client schreiben will.
@@ -200,6 +209,12 @@ return {
   dabei:(o)=>fbElimDabei(o),
   reset:()=>fbElimReset(),
   ctxOk:(c)=>fbV9CtxOk(c),
+  austritt:(n)=>fbCanonicalLeave(n||0),
+  austrittNoetig:()=>fbPermanentLeaveRequired(),
+  aktivImMatch:(d,g,sitz)=>fbLeaveAktiverTeilnehmer(d,g,sitz),
+  austrittStand:()=>({busy:fbLeaveBusy,fehler:fbLeaveError,zurueck:fbLeaveRetired}),
+  merkeVor:(sitz)=>{ fbRemovePending[sitz]=true; },
+  vorgemerkt:()=>fbRemovePending.slice(),
 };`;
 
 function neu() {
@@ -790,6 +805,178 @@ abschnitt('Raumzustand und Wirtsmarke laufen auf EINE Stelle zu');
   t('ein v10-Raum bekommt keinen v11-Beobachter', M.WACHEN.every(w => w.ab));
 }
 
+// ══ 12b. DER AUSTRITT AUS DEM LAUFENDEN MATCH ════════════════════════════════
+// Wer ein laufendes Match verlaesst, nimmt seine beiden Anker zurueck UND traegt sich
+// aus der laufenden Generation aus - in EINEM atomaren Vorgang. Der Server verlangt
+// genau das; fehlt der Marker, weist er den gesamten Austritt ab.
+//
+// Woran haengt der Marker? Daran, ob dieser Sitz am LAUFENDEN Match teilnimmt. Und das
+// steht je nach Protokoll woanders: bis v10 in der eingefrorenen Sitzzahl `seats`, ab
+// v11 in der Teilnehmerliste der Generation. Ein v11-Raum hat kein `seats` - wer dort
+// danach fragt, bekommt undefined und laesst den Marker weg. Genau das war der Befund:
+// aus einem laufenden v11-Match konnte niemand mehr austreten.
+abschnitt('Der Austritt traegt den Marker der laufenden Generation - je nach Protokoll');
+{
+  const RAUM = (o) => Object.assign({
+    v: 11, config: { game: 'football', mode: 'lives', cap: 5, fmt: 'elimination' },
+    gen: 1, state: 'playing', p: PRAESENZ([0, 1]), players: ROSTER([0, 1]),
+    g: { 1: { pt: { 0: true, 1: true } } },
+  }, o || {});
+  // Ein Austritt, gefahren wie im Produkt: der echte kanonische Weg gegen einen
+  // autoritativen Raumzustand. Gemessen wird, WAS er schreiben will.
+  async function austritt(raum, sitz) {
+    const M = neu();
+    M.sitz(sitz); M.laeuft(true); M.gen(raum.gen);
+    M.setz({ onlineTab: 'TAB' + sitz });
+    M.db('rooms/VEFB', raum);
+    M.leeren();
+    M.austritt(0); await tick();
+    const u = M.P.filter(x => x.op === 'update');
+    return { M: M, upd: u.length === 1 ? u[0].upd : null, pfad: u.length === 1 ? u[0].pfad : '', n: u.length };
+  }
+  const schluessel = (upd) => Object.keys(upd || {}).sort().join(' ');
+
+  // ── A. v11, laufendes Match, der Sitz ist Teilnehmer ──────────────────────
+  {
+    const r = await austritt(RAUM(), 1);
+    t('A ein einziger atomarer Vorgang', r.n === 1 && r.pfad === 'rooms/VEFB', r.n + ' ' + r.pfad);
+    t('A … mit dem Austragungsmarker DIESER Generation', r.upd && r.upd['g/1/e/1'] === true, r.upd);
+    t('A … und beiden Ankern zurueck',
+      r.upd && r.upd['p/1'] === null && r.upd['players/1'] === null, r.upd);
+    t('A … und nichts sonst', schluessel(r.upd) === 'g/1/e/1 p/1 players/1', schluessel(r.upd));
+    t('A der Austritt gilt als bestaetigt', r.M.austrittStand().zurueck === true && r.M.austrittStand().fehler === '');
+  }
+  // ── B. v11, laufendes Match, der Sitz ist NICHT Teilnehmer ────────────────
+  // Ein Raummitglied, das beim laufenden Match nur zusieht. Es traegt sich aus nichts
+  // aus - ein erfundener Marker waere eine Falschaussage ueber das Match (und wuerde
+  // vom Server ohnehin abgewiesen).
+  {
+    const raum = RAUM({ p: PRAESENZ([0, 1, 2]), players: ROSTER([0, 1, 2]) });
+    const r = await austritt(raum, 2);
+    t('B ein Nichtteilnehmer bekommt keinen Marker', schluessel(r.upd) === 'p/2 players/2', schluessel(r.upd));
+  }
+  // ── C. v11, Lobby ─────────────────────────────────────────────────────────
+  {
+    const r = await austritt(RAUM({ state: 'lobby' }), 1);
+    t('C wer eine Lobby verlaesst, wird aus keinem Match ausgetragen',
+      schluessel(r.upd) === 'p/1 players/1', schluessel(r.upd));
+  }
+  // ── D. v10 - der Bestandsvertrag bleibt, wie er war ───────────────────────
+  {
+    const zehn = (o) => RAUM(Object.assign({ v: 10, seats: 3, g: { 1: {} } }, o || {}));
+    const r = await austritt(zehn(), 1);
+    t('D v10 entscheidet weiterhin ueber seats', schluessel(r.upd) === 'g/1/e/1 p/1 players/1', schluessel(r.upd));
+    const r2 = await austritt(zehn({ seats: 1 }), 1);
+    t('D … und zwar nur innerhalb seiner Grenzen (1)', schluessel(r2.upd) === 'p/1 players/1', schluessel(r2.upd));
+    const r3 = await austritt(zehn({ seats: 6 }), 1);
+    t('D … und (6)', schluessel(r3.upd) === 'p/1 players/1', schluessel(r3.upd));
+    const r4 = await austritt(zehn({ state: 'lobby' }), 1);
+    t('D … und nie in der Lobby', schluessel(r4.upd) === 'p/1 players/1', schluessel(r4.upd));
+    // v10 liest KEINE Teilnehmerliste - auch dann nicht, wenn zufaellig eine da waere.
+    const r5 = await austritt(zehn({ seats: undefined, g: { 1: { pt: { 0: true, 1: true } } } }), 1);
+    t('D v10 wird nicht heimlich auf pt umgestellt', schluessel(r5.upd) === 'p/1 players/1', schluessel(r5.upd));
+  }
+  // ── E. v9 und ein RingOut-Raum ────────────────────────────────────────────
+  {
+    const r = await austritt(RAUM({ v: 9, seats: 2, g: { 1: {} } }), 1);
+    t('E v9 bleibt unveraendert', schluessel(r.upd) === 'g/1/e/1 p/1 players/1', schluessel(r.upd));
+    const ring = RAUM({ v: 8, seats: 2, config: { game: 'ringout', fmt: 'ffa' }, g: { 1: {} } });
+    const r2 = await austritt(ring, 1);
+    t('E ein RingOut-Raum kennt gar keine Austragung', schluessel(r2.upd) === 'p/1 players/1', schluessel(r2.upd));
+  }
+  // ── F. eine Teilnehmerliste mit Luecken ───────────────────────────────────
+  {
+    const raum = RAUM({ p: PRAESENZ([0, 2, 4]), players: ROSTER([0, 2, 4]),
+                        g: { 1: { pt: { 0: true, 2: true, 4: true } } } });
+    const r = await austritt(raum, 2);
+    t('F der Marker trifft GENAU den austretenden Sitz',
+      schluessel(r.upd) === 'g/1/e/2 p/2 players/2', schluessel(r.upd));
+    t('F … und kein Nachbar wird mitgenommen',
+      r.upd && r.upd['p/0'] === undefined && r.upd['p/4'] === undefined
+      && r.upd['g/1/e/0'] === undefined && r.upd['g/1/e/4'] === undefined, r.upd);
+  }
+  // ── G. der Wirt verlaesst sein eigenes Match ──────────────────────────────
+  {
+    const r = await austritt(RAUM(), 0);
+    t('G auch der Wirt traegt sich aus', schluessel(r.upd) === 'g/1/e/0 p/0 players/0', schluessel(r.upd));
+    t('G … und fasst die Wirtsmarke dabei NICHT an - die Nachfolge ist ein eigener Weg',
+      r.upd && r.upd['hostUid'] === undefined, r.upd);
+  }
+  // ── H. zwei Teilnehmer: danach ist genau einer uebrig ─────────────────────
+  {
+    const raum = RAUM();
+    const r = await austritt(raum, 1);
+    const pt = Object.keys(raum.g[1].pt).filter(k => raum.g[1].pt[k] === true);
+    const uebrig = pt.filter(s => r.upd['g/1/e/' + s] !== true);
+    t('H nach dem Austritt ist genau ein Teilnehmer nicht ausgetragen',
+      uebrig.length === 1 && uebrig[0] === '0', uebrig);
+  }
+  // ── I. drei Teilnehmer: die anderen beiden bleiben unberuehrt ─────────────
+  {
+    const raum = RAUM({ p: PRAESENZ([0, 1, 2]), players: ROSTER([0, 1, 2]),
+                        g: { 1: { pt: { 0: true, 1: true, 2: true } } } });
+    const r = await austritt(raum, 1);
+    t('I genau ein Sitz wird ausgetragen', schluessel(r.upd) === 'g/1/e/1 p/1 players/1', schluessel(r.upd));
+    const uebrig = ['0', '1', '2'].filter(s => r.upd['g/1/e/' + s] !== true);
+    t('I … die beiden anderen spielen weiter', JSON.stringify(uebrig) === '["0","2"]', uebrig);
+  }
+  // ── Der Marker ist einmalig ───────────────────────────────────────────────
+  {
+    // Ein Mitspieler hat den Sitz nach Fristablauf bereits ausgetragen. Der Marker ist
+    // write-once: er bleibt stehen, die Anker muessen trotzdem zurueck.
+    const raum = RAUM({ g: { 1: { pt: { 0: true, 1: true }, e: { 1: true } } } });
+    const r = await austritt(raum, 1);
+    t('ein bereits gesetzter Marker wird nicht zweimal geschrieben',
+      schluessel(r.upd) === 'p/1 players/1', schluessel(r.upd));
+  }
+  // ── Die Entscheidung selbst, als Wahrheitstafel ───────────────────────────
+  {
+    const M = neu();
+    const v11 = RAUM();
+    t('die Zugehoerigkeit kommt in v11 aus pt', M.aktivImMatch(v11, 1, 1) === true);
+    t('… und nur aus der LAUFENDEN Generation',
+      M.aktivImMatch(RAUM({ gen: 2, g: { 1: { pt: { 0: true, 1: true } }, 2: { pt: { 0: true } } } }), 2, 1) === false);
+    t('… eine fehlende Liste macht niemanden zum Teilnehmer',
+      M.aktivImMatch(RAUM({ g: { 1: {} } }), 1, 1) === false);
+    t('… und ein anderer Wert als true auch nicht',
+      M.aktivImMatch(RAUM({ g: { 1: { pt: { 0: true, 1: 1 } } } }), 1, 1) === false);
+    t('in v10 kommt sie aus seats',
+      M.aktivImMatch(RAUM({ v: 10, seats: 2, g: { 1: {} } }), 1, 1) === true);
+    t('… und ein v11-Raum wird niemals ueber seats beurteilt',
+      M.aktivImMatch(RAUM({ seats: 5, g: { 1: {} } }), 1, 1) === false);
+  }
+  // ── Die Austragung gehoert ihrer Generation ───────────────────────────────
+  {
+    // Der Marker und seine Spielwirkung gelten fuer DIESES Match. Mit dem Rueckweg in
+    // die Lobby ist beides erledigt: die naechste Generation beginnt unbelastet und
+    // bekommt ihren eigenen Beobachter.
+    const M = neu();
+    M.roster(ROSTER([0, 1])); M.praesenz(PRAESENZ([0, 1]));
+    M.wirt('U0'); M.sitz(0); M.gen(1); M.stand('lobby'); M.laeuft(true);
+    M.merkeVor(1);
+    t('vor dem Rueckweg steht die Austragung', M.vorgemerkt()[1] === true);
+    M.leeren();
+    M.zurueck();
+    t('der Rueckweg in die Lobby raeumt sie ab',
+      M.vorgemerkt().filter(Boolean).length === 0, M.vorgemerkt());
+    t('… und stellt die Beobachtung fuer die naechste Generation neu auf',
+      M.P.some(x => x.op === 'startEvictionWatch'));
+  }
+  // ── J. die Lobby danach traegt keinen Ausgetretenen mehr ──────────────────
+  {
+    // Der Raum faellt nach dem Match in seine Lobby zurueck. Der Ausgetretene ist aus
+    // Praesenz und Roster fort - die naechste Teilnehmerliste darf ihn nicht kennen.
+    const M = neu();
+    M.roster(ROSTER([0, 2])); M.praesenz(PRAESENZ([0, 2]));
+    M.wirt('U0'); M.sitz(0); M.gen(1); M.stand('lobby'); M.leeren();
+    await M.starten();
+    const u = M.P.filter(x => x.op === 'update')[0];
+    t('J die naechste Generation kennt den Ausgetretenen nicht',
+      u && JSON.stringify(u.upd['g/2/pt']) === '{"0":true,"2":true}',
+      u && JSON.stringify(u.upd['g/2/pt']));
+  }
+}
+
 // ══ 13. DIE VERDRAHTUNG IM PRODUKT ═══════════════════════════════════════════
 abschnitt('Die Fassung 11 ist erreichbar - und nur ueber die benannten Wege');
 {
@@ -820,6 +1007,25 @@ abschnitt('Die Fassung 11 ist erreichbar - und nur ueber die benannten Wege');
     /if\(ctx\.sid===onlineSessionId&&ctx\.room===roomCode\)fbV11Schritt\(\);/.test(HTML));
   t('eine fehlende Liste fuehrt zuerst in die Wartestelle, nicht in die Meldung',
     /if\(!sitze\)\{ fbV11PtWarten\(\); return; \}/.test(HTML));
+  // Der Austritt: EIN Weg, eine Entscheidung, und die Entscheidung fragt die Quelle,
+  // die das jeweilige Protokoll fuehrt.
+  t('der kanonische Austritt entscheidet ueber eine protokollgerechte Zugehoerigkeit',
+    /if\(!schonMarkiert&&fbLeaveAktiverTeilnehmer\(d,g,ctx\.seat\)\)\n      upd\['g\/'\+g\+'\/e\/'\+ctx\.seat\]=true;/.test(HTML));
+  t('… und es gibt genau eine solche Stelle: eine Erklaerung, ein Aufruf',
+    HTML.split('fbLeaveAktiverTeilnehmer').length - 1 === 2,
+    HTML.split('fbLeaveAktiverTeilnehmer').length - 1);
+  {
+    const h = grabFunction(HTML, 'fbLeaveAktiverTeilnehmer');
+    t('v11 liest dort die Teilnehmerliste der Generation',
+      /if\(d\.v===11\)\{/.test(h) && /gn&&gn\.pt&&gn\.pt\[seat\]===true/.test(h));
+    t('… und die alten Fassungen weiterhin seats',
+      /return d\.seats>=2&&d\.seats<=FB_ONLINE_SEATS;/.test(h));
+    t('… nur waehrend eines laufenden Football-Matches',
+      /if\(!d\|\|d\.state!=='playing'\)return false;/.test(h)
+      && /if\(roomGame\(d\.config\)!==ROOM_GAME_FOOTBALL\)return false;/.test(h));
+    t('es entsteht kein zweiter Austrittsweg neben dem kanonischen',
+      HTML.indexOf('fbV11Austritt') < 0 && HTML.indexOf('fbV11Leave') < 0);
+  }
   t('die Nachfolge wartet die volle Rueckkehrzeit ab, wenn der Wirt nur getrennt ist',
     /const frist=fbV11HostGemerkt\(\)\?FB_V11_HOST_FRIST_MS:0;/.test(HTML)
     && /const FB_V11_HOST_FRIST_MS=SEAT_STALE_MS\+LOBBY_HOST_GRACE_MS;/.test(HTML));

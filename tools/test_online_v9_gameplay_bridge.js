@@ -60,6 +60,16 @@ const START = HTML.indexOf('const FB_V9_PREIMAGE_BYTES=60');
 const ENDE = HTML.indexOf('// ════ ENDE V9-SPIELANBINDUNG ════');
 if (START < 0 || ENDE < 0) { console.log('V9-Bereich nicht gefunden'); process.exit(2); }
 const BEREICH = HTML.slice(START, ENDE);
+// C4B: der BESTEHENDE Austragungsweg. v11 merkt vor, er wendet an - beides aus dem
+// echten Quelltext, damit hier nicht die Attrappe geprueft wird, sondern das Produkt.
+const hol = (re, was) => { const m = HTML.match(re); if (!m) { console.log('nicht gefunden: ' + was); process.exit(2); } return m[0]; };
+const C4B = [
+  hol(/const TURN_MOVE='move'[^\n]*/, 'TURN_*'),
+  hol(/function fbV11Raum\(\)\{[^\n]*/, 'fbV11Raum'),
+  hol(/function fbWinnerEligible\(o\)\{[\s\S]*?\n\}/, 'fbWinnerEligible'),
+  hol(/function fbEligibleOwners\(\)\{[\s\S]*?\n\}/, 'fbEligibleOwners'),
+  hol(/function fbApplyPendingRemovals\(\)\{[\s\S]*?\n\}/, 'fbApplyPendingRemovals'),
+].join('\n');
 const GLOBAL = ['online', 'mode', 'roomCode', 'myPlayer', 'gen', 'turnNo', 'phase',
                 'footballWinner', 'onlineSessionId', 'ONLINE_PROTOCOL_VERSION', 'roomProto'];
 const baue = (a, welt) => new Function('window', 'crypto', 'GEN_MAX', 'FB_ONLINE_SEATS',
@@ -71,6 +81,8 @@ const baue = (a, welt) => new Function('window', 'crypto', 'GEN_MAX', 'FB_ONLINE
   function fbElimPlayers(){ return welt.cap; }
   function fbUid(){ return welt.uid; }
   function fbEvicted(s){ return !!(welt.evicted && welt.evicted[s]); }
+  function fbElimTeilnehmer(){ return welt.teil ? welt.teil.slice() : null; }
+  function fbElimActiveOwners(){ const a=[]; for(let o=0;o<welt.cap;o++)if(fbElimActive[o])a.push(o); return a; }
   // Der Spielteil als Attrappe - genau die Funktionen, die die Bruecke benutzt, mit
   // einer SPUR fuer die Reihenfolge.
   let balls = [], commitIdx = [], commitAim = [], commitSpin = [], aimSet = [];
@@ -95,20 +107,33 @@ const baue = (a, welt) => new Function('window', 'crypto', 'GEN_MAX', 'FB_ONLINE
     welt.spur.push('raus:'+o); fbElimActive[o]=false;
     for(const b of balls)if(b.owner===o){b.alive=false;b.vx=0;b.vy=0;}
     if(stapel){ welt.spur.push('stapel:'+o); return; }
-    const uebrig=[]; for(let i=0;i<welt.cap;i++)if(fbElimActive[i])uebrig.push(i);
+    const uebrig=fbEligibleOwners();   // die ECHTE Regel: aktiv und nicht ausgetragen
     // Wie footballMatchEnd: gameOver spielt SFX.win() - deshalb wird jede Entscheidung
     // festgehalten, auch die siegreiche.
     if(uebrig.length===0){ footballWinner=null; phase='over';
                            welt.spur.push('ohne Sieger'); }
     else if(uebrig.length===1){ footballWinner=uebrig[0]; phase='over';
                                 welt.spur.push('SIEGERKLANG'); welt.spur.push('Sieger '+uebrig[0]); } }
+  // Was NACH der Austragung kommt, ist hier Attrappe - die Austragung selbst nicht.
+  let fbRemovePending = [];
+  let fbGoalState = 'play';
+  function fbOnlineRoom(){ return welt.elim4; }
+  function footballMatchEnd(){ welt.spur.push('Matchende:'+footballWinner); phase='over'; }
+  function footballMatchEndNoWinner(){ welt.spur.push('Matchende ohne Sieger'); phase='over'; }
+  function footballElimResetBall(){ welt.spur.push('arenaNeu'); }
+  function updateHud(){}
+  ${C4B}
   function fbV9WeltAufbauen(){ balls=[];
     for(let i=0;i<welt.cap;i++)balls.push({owner:i,alive:true,vx:0,vy:0,spin:0});
     resetCommits(); }
   fbV9WeltAufbauen();
   ${BEREICH}
   return { sync, fbV9LebenBereit, fbV9LebenNeueRunde, fbV9LebenStop, fbV9LebenAn,
-           fbV9ApplyAccepted, fbV9AcceptedOk, leben: () => fbV9Leben,
+           fbV9ApplyAccepted, fbV9AcceptedOk, fbV9Wirken, leben: () => fbV9Leben,
+           austragen: () => fbApplyPendingRemovals(),
+           vorgemerkt: () => Array.from({ length: welt.cap }, (_, i) => !!fbRemovePending[i]),
+           berechtigt: () => fbEligibleOwners(),
+           aktiv: () => fbElimActive.slice(0, welt.cap),
            sicht: () => ({ commitIdx, commitAim, commitSpin, aimSet, balls, phase,
                            footballWinner }),
            FB_V9_VALID, FB_V9_NO_REVEAL, FB_V9_MISMATCH, FB_V9_MALFORMED };
@@ -136,8 +161,9 @@ function lauf(welt) {
   const M = baue(a, welt);
   const L = { sid: welt.onlineSessionId, room: welt.roomCode, gen: welt.gen,
               turn: welt.turnNo, seat: welt.myPlayer, stufe: 'PROTOKOLL',
-              ctx: { v: 9, code: welt.roomCode, gen: welt.gen, turn: welt.turnNo,
+              ctx: Object.assign({ v: 9, code: welt.roomCode, gen: welt.gen, turn: welt.turnNo,
                      seat: welt.myPlayer, cap: welt.cap, uid: welt.uid },
+                     welt.teil ? { teil: welt.teil } : {}),
               bereit: null, lauf: null, aktion: null, uebergeben: true,
               bereitFertig: true, rausAb: null, rausStand: null, rausLaeuft: false,
               wecker: {}, angewandt: false };
@@ -147,6 +173,134 @@ function lauf(welt) {
 console.log('=== V9.4D1: Spielbruecke (ruhend) ===');
 
 (async () => {
+
+// ══ V11: DAS TERMINALE remove IST EINE AUSTRAGUNG ════════════════════════════
+// Ein Teilnehmer verlaesst das laufende Match. Die Protokollschicht schliesst seinen
+// Slot jede Runde mit dem kanonischen REMOVE. Bis hierher war das ein Nullzug: der
+// Sitz schoss nichts, blieb aber mit Figur, Leben und Siegberechtigung stehen - eine
+// Statue. Jetzt ist es, was es heisst: dieser Teilnehmer ist aus dem Match heraus.
+abschnitt('V11 - wer ausgetragen ist, spielt nicht mehr mit');
+{
+  const welt11 = (x) => welt9(Object.assign({ ONLINE_PROTOCOL_VERSION: 11, roomProto: 11 }, x || {}));
+  // Eine Runde fahren, wie sie das Produkt faehrt: Zugmenge anwenden, dann die
+  // naechste Eingabegrenze (dort wendet fbApplyPendingRemovals an).
+  const runde = (welt, menge) => {
+    const g = lauf(welt);
+    const L = g.M.fbV9LebenBereit(0);
+    const ok = g.M.fbV9ApplyAccepted(L, menge);
+    return { M: g.M, ok: ok };
+  };
+
+  // ── 2 -> 1: der Verbliebene gewinnt ──────────────────────────────────────
+  {
+    const welt = welt11({ cap: 2, teil: [0, 1], aktiv: [true, true] });
+    const r = runde(welt, [gueltig(0, 5, 5, 0), nullzug(1, 'remove')]);
+    t('die Runde wird angewandt', r.ok === true);
+    t('der Ausgetretene ist sofort nicht mehr siegberechtigt',
+      JSON.stringify(r.M.berechtigt()) === '[0]', r.M.berechtigt());
+    t('… und die Austragung ist fuer die naechste Grenze vorgemerkt',
+      JSON.stringify(r.M.vorgemerkt()) === '[false,true]', r.M.vorgemerkt());
+    r.M.austragen();
+    t('an der Eingabegrenze ist er aus dem Match',
+      JSON.stringify(r.M.aktiv()) === '[true,false]', r.M.aktiv());
+    t('… seine Figur spielt nicht mehr mit',
+      r.M.sicht().balls.filter(b => b.owner === 1 && b.alive).length === 0);
+    t('… und das Match ist entschieden',
+      r.M.sicht().footballWinner === 0 && welt.spur.indexOf('Matchende:0') >= 0, welt.spur);
+    t('keine Statue: es bleibt genau ein Aktiver',
+      r.M.aktiv().filter(Boolean).length === 1);
+  }
+  // ── Der Ausgetretene kann nicht gewinnen ─────────────────────────────────
+  {
+    // Beide Sitze gehen in derselben Runde: einer tritt aus, einer verwirkt sein
+    // Protokoll. Es darf KEINEN Sieger geben - und schon gar nicht den Fortgegangenen.
+    const welt = welt11({ cap: 2, teil: [0, 1], aktiv: [true, true] });
+    const r = runde(welt, [raus(0, 'NO_REVEAL'), nullzug(1, 'remove')]);
+    r.M.austragen();
+    t('wer ausgetragen ist, wird nicht Sieger',
+      r.M.sicht().footballWinner !== 1, r.M.sicht().footballWinner);
+    t('… und der Ausgang ist siegerlos',
+      welt.spur.indexOf('ohne Sieger') >= 0 || welt.spur.indexOf('Matchende ohne Sieger') >= 0, welt.spur);
+  }
+  // ── 3 -> 2: das Match geht weiter ────────────────────────────────────────
+  {
+    const welt = welt11({ cap: 3, teil: [0, 1, 2], aktiv: [true, true, true] });
+    const r = runde(welt, [gueltig(0, 1, 1, 0), nullzug(1, 'remove'), gueltig(2, 2, 2, 0)]);
+    r.M.austragen();
+    t('genau der Ausgetretene ist heraus',
+      JSON.stringify(r.M.aktiv()) === '[true,false,true]', r.M.aktiv());
+    t('… es gibt noch keinen Sieger', r.M.sicht().footballWinner === null);
+    t('… und die Arena stellt sich auf die Verbliebenen um',
+      welt.spur.indexOf('arenaNeu') >= 0, welt.spur);
+    t('die beiden anderen behalten ihre Sitze',
+      JSON.stringify(r.M.berechtigt()) === '[0,2]', r.M.berechtigt());
+  }
+  // ── Luecken: 0, 2, 4 ─────────────────────────────────────────────────────
+  {
+    // Die Teilnehmerliste dieser Generation hat Luecken. Der dritte EINTRAG ist Sitz 4 -
+    // wer ueber den Laufindex ginge, traefe Sitz 2. Niemand wird umnummeriert.
+    const welt = welt11({ cap: 5, teil: [0, 2, 4], myPlayer: 0,
+                          aktiv: [true, false, true, false, true] });
+    const r = runde(welt, [gueltig(0, 3, 0, 0), nullzug(2, 'remove'), gueltig(4, -3, 0, 0)]);
+    t('auch eine lueckenhafte Zugmenge wird angewandt', r.ok === true);
+    t('vorgemerkt ist GENAU Sitz 2',
+      JSON.stringify(r.M.vorgemerkt()) === '[false,false,true,false,false]', r.M.vorgemerkt());
+    t('… und die Abschuesse liegen auf ihren SITZEN, nicht auf Laufindizes',
+      r.M.sicht().aimSet[0] === true && r.M.sicht().aimSet[4] === true
+      && r.M.sicht().aimSet[1] !== true && r.M.sicht().aimSet[3] !== true,
+      JSON.stringify(r.M.sicht().aimSet));
+    t('… Sitz 4 traegt seinen eigenen Vektor',
+      r.M.sicht().commitIdx[4] === 4 && r.M.sicht().commitAim[4].dx === -3,
+      JSON.stringify(r.M.sicht().commitAim[4]));
+    r.M.austragen();
+    t('nach der Austragung bleiben 0 und 4',
+      JSON.stringify(r.M.berechtigt()) === '[0,4]', r.M.berechtigt());
+    t('… und kein Nachbar wurde mitgenommen',
+      JSON.stringify(r.M.aktiv()) === '[true,false,false,false,true]', r.M.aktiv());
+  }
+  // ── Einmaligkeit ─────────────────────────────────────────────────────────
+  {
+    // Derselbe Austritt wird jede Runde erneut als Terminal gelesen - und darf genau
+    // EINMAL wirken.
+    const welt = welt11({ cap: 3, teil: [0, 1, 2], aktiv: [true, true, true] });
+    const r = runde(welt, [gueltig(0, 1, 1, 0), nullzug(1, 'remove'), gueltig(2, 2, 2, 0)]);
+    r.M.austragen();
+    const austraege = () => welt.spur.filter(x => /^raus:|^Matchende|^arenaNeu|Sieger/.test(x));
+    const nachher = austraege();
+    r.M.austragen(); r.M.austragen();
+    t('eine zweite Anwendung derselben Vormerkung tut nichts',
+      JSON.stringify(austraege()) === JSON.stringify(nachher), austraege());
+    // Und die naechste Runde bringt dasselbe Terminal noch einmal.
+    r.M.fbV9Wirken([gueltig(0, 1, 1, 0), nullzug(1, 'remove'), gueltig(2, 2, 2, 0)], [0, 1, 2]);
+    r.M.austragen();
+    t('auch ein erneutes Terminal scheidet niemanden ein zweites Mal aus',
+      JSON.stringify(austraege()) === JSON.stringify(nachher), austraege());
+    t('… und der Zustand steht unveraendert',
+      JSON.stringify(r.M.aktiv()) === '[true,false,true]', r.M.aktiv());
+  }
+  // ── Die Bestandsvertraege bleiben, wie sie sind ──────────────────────────
+  {
+    for (const proto of [9, 10]) {
+      const welt = welt9({ cap: 2, aktiv: [true, true], ONLINE_PROTOCOL_VERSION: proto, roomProto: proto });
+      const r = runde(welt, [gueltig(0, 5, 5, 0), nullzug(1, 'remove')]);
+      t('v' + proto + ': ein remove merkt nichts vor',
+        JSON.stringify(r.M.vorgemerkt()) === '[false,false]', r.M.vorgemerkt());
+      r.M.austragen();
+      t('v' + proto + ': und traegt niemanden aus',
+        JSON.stringify(r.M.aktiv()) === '[true,true]', r.M.aktiv());
+    }
+  }
+  // ── Und die uebrigen Nullterminals bleiben Nullzuege ─────────────────────
+  {
+    for (const art of ['pass', 'skip', 'late']) {
+      const welt = welt11({ cap: 2, teil: [0, 1], aktiv: [true, true] });
+      const r = runde(welt, [gueltig(0, 5, 5, 0), nullzug(1, art)]);
+      r.M.austragen();
+      t('ein ' + art + ' traegt niemanden aus',
+        JSON.stringify(r.M.aktiv()) === '[true,true]', r.M.aktiv());
+    }
+  }
+}
 
 // ══ GUELTIGE ZUEGE ═══════════════════════════════════════════════════════════
 abschnitt('Gueltige Zuege - exakt die verifizierten Werte');
@@ -557,7 +711,7 @@ abschnitt('Waechter');
     ff && ff[0].indexOf('turns[turnNo]') > 0 && ff[0].indexOf('processSlot(s,slots[s])') > 0 &&
     ff[0].indexOf('allAliveCommitted()') > 0);
   t('und der v9-Zweig benutzt AUSSCHLIESSLICH die gemeinsame Wirkung',
-    ff && ff[0].indexOf('fbV9Wirken(menge,np())') > 0 &&
+    ff && ff[0].indexOf('fbV9Wirken(menge,(typeof fbElimTeilnehmer===') > 0 &&
     (ff[0].match(/fbV9[A-Za-z]*/g) || []).join(',') === 'fbV9Wirken');
   t('die v9-Rehydrierung ist vorhanden und ruhend',
     /async function fbV9Rehydrieren\(ctx\)\{/.test(HTML));
