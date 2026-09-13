@@ -1276,8 +1276,8 @@ if (glb) {
 
 // ── Renderer-Einbindung: statische Pruefung des echten initR3D-Codes in index.html ──
 // Genau EIN Ladevorgang fuer das GERADE Tor-GLB; das gebogene Tor ist vollstaendig weg.
-ok(/\.load\('assets\/arena_football_goal\.glb'/.test(HTML), 'Loader-Pfad ist assets/arena_football_goal.glb (gerades Tor)');
-const loadCount = (HTML.match(/\.load\('assets\/arena_football_goal\.glb'/g) || []).length;
+ok(/\.load\(assetUrl\('assets\/arena_football_goal\.glb'\)/.test(HTML), 'Loader-Pfad ist assets/arena_football_goal.glb (gerades Tor)');
+const loadCount = (HTML.match(/\.load\(assetUrl\('assets\/arena_football_goal\.glb'\)/g) || []).length;
 ok(loadCount === 1, "Tor-GLB wird genau EINMAL geladen (erhalten: " + loadCount + ')');
 ok(!/arena_football_goal_curved/.test(HTML), 'Das gekruemmte Kreis-Tor (arena_football_goal_curved.glb) wird nicht mehr geladen');
 // Zweite Instanz ist ein Clone desselben geladenen Assets (geteilte Geometrie/Materialien).
@@ -1399,7 +1399,7 @@ if (band) {
 // ════════════════════════════════════════════════════════════════════════════
 
 // ── Genau EIN Band-GLB-Load (kein Mehrfach-Laden/Duplizieren) ──
-const bandLoadCount = (HTML.match(/\.load\('assets\/arena_football_band\.glb'/g) || []).length;
+const bandLoadCount = (HTML.match(/\.load\(assetUrl\('assets\/arena_football_band\.glb'\)/g) || []).length;
 ok(bandLoadCount === 1, 'Band-GLB wird genau EINMAL geladen (erhalten: ' + bandLoadCount + ')');
 // ── Nur Materialquelle: keine Szeneninstanz des Band-GLB mehr ──
 ok(!/bandGroup/.test(HTML), 'Keine bandGroup mehr — das Band-GLB haengt nicht mehr als Instanz in der Szene');

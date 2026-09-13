@@ -1524,6 +1524,27 @@ const $=id=>document.getElementById(id);
 const cv=$('cv'),ctx=cv.getContext('2d');
 
 // ── 3D-Render-Adapter (M4-T2/M4-T4): Standard-Renderer; ?r2d=1 erzwingt 2D, ?r3d=1 bleibt kompatibel ──
+// Woher kommen die grossen Spielassets? Aus genau EINER Quelle der Wahrheit. Ohne
+// Angabe sind es die relativen Pfade dieser Seite - unveraendert wie bisher. Wird eine
+// Basis genannt (Meta-Tag "ringout-asset-base" oder window.RINGOUT_ASSET_BASE), liegen
+// die grossen Dateien dort. Das ist der EINZIGE Ort, der das weiss.
+const ASSET_BASE=(()=>{
+  let b='';
+  try{ const m=document.querySelector('meta[name="ringout-asset-base"]');
+       b=String(window.RINGOUT_ASSET_BASE||(m&&m.getAttribute('content'))||'').trim(); }catch(e){}
+  if(!b)return '';
+  return /\/$/.test(b)?b:b+'/';
+})();
+// Welche Dateien liegen AUSSERHALB der Seite? Zurzeit KEINE - und das ist das Ziel:
+// seit der Texturdiaet passt auch die Arena-Geometrie (14,5 MB) in eine gewoehnliche
+// statische Auslieferung. Die Liste bleibt trotzdem stehen, denn sie ist der Vertrag
+// zwischen Paket und Client: was hier stuende, MUESSTE ausgelagert sein, und was
+// ausgelagert waere, MUESSTE hier stehen. Der Bauvorgang prueft genau das.
+const ASSET_EXTERN=[];
+function assetUrl(p){
+  const r=String(p||'');
+  return (ASSET_BASE&&ASSET_EXTERN.indexOf(r)>=0)?ASSET_BASE+r.replace(/^\/+/,''):r;
+}
 const R3D_WANTED=new URLSearchParams(location.search).get('r2d')!=='1';
 const R3D_ORBIT=R3D_WANTED&&new URLSearchParams(location.search).get('orbit')==='1';   // reiner Ansichts-Testmodus
 let r3dActive=false,r3d=null,r3dOrbit=false;   // r3dActive erst true, wenn three+HDRI+GLB erfolgreich geladen
@@ -2348,6 +2369,7 @@ en:{tagline:'PULL BACK · RELEASE · KNOCK THEM OUT',chip:'FEATURED',
   ffaGa:'GA',ffaDanger:'DANGER',ffaOut:'OUT',
   fbOnlineT:'ONLINE',fbOnlineS:'2–5 PLAYERS · PLAY WITH FRIENDS',
   fbNo3d:'Arena Football needs the real 3D scene (not available).',
+  szeneLaedt:'Loading the arena …',
   onSubFb:'Elimination · 2 to 5 players · two lives each',
   secPlay:'PLAY',secRooms:'ONLINE ROOMS',secHow:'HOW TO PLAY',viewAll:'VIEW ALL',
   joinCodeBtn:'JOIN CODE',howLead:'Learn the rules and master the ring.',
@@ -2441,6 +2463,7 @@ de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'FEATURED',
   ffaGa:'GT',ffaDanger:'GEFAHR',ffaOut:'RAUS',
   fbOnlineT:'ONLINE',fbOnlineS:'2–5 SPIELER · MIT FREUNDEN SPIELEN',
   fbNo3d:'Arena Football benötigt die echte 3D-Szene (nicht verfügbar).',
+  szeneLaedt:'Arena wird geladen …',
   onSubFb:'Elimination · 2 bis 5 Spieler · je 2 Leben',
   secPlay:'SPIELEN',secRooms:'ONLINE-RÄUME',secHow:'SO WIRD GESPIELT',viewAll:'ALLE ANZEIGEN',
   scrollHint:'SCROLLEN FÜR MEHR',soonT:'BALD MEHR',soonS:'Neue Modi und Features sind in Arbeit.',
@@ -2530,6 +2553,7 @@ tr:{tagline:'GERİ ÇEK · BIRAK · DIŞARI İT',chip:'FEATURED',
   ffaGa:'YG',ffaDanger:'TEHLİKE',ffaOut:'ELENDİ',
   fbOnlineT:'ONLINE',fbOnlineS:'2–5 OYUNCU · ARKADAŞLARINLA OYNA',
   fbNo3d:'Arena Football gerçek 3B sahneye ihtiyaç duyar (kullanılamıyor).',
+  szeneLaedt:'Arena yükleniyor …',
   onSubFb:'Eliminasyon · 2-5 oyuncu · her birine 2 can',
   secPlay:'OYNA',secRooms:'ONLINE ODALAR',secHow:'NASIL OYNANIR',viewAll:'TÜMÜNÜ GÖR',
   scrollHint:'KAYDIR VE KEŞFET',soonT:'ÇOK YAKINDA DAHA FAZLASI',soonS:'Yeni modlar ve özellikler yolda.',
@@ -2723,12 +2747,15 @@ $('cardRingout').onclick=()=>selectMenuMode(roSel);   // zurueck zum zuletzt gew
 FB_HUB_MODES.forEach((d,i)=>{const el=$(d.card);if(el)el.onclick=()=>fbHubKarte(i);});
 $('modePrev').onclick=()=>stepMenuMode(-1);
 $('modeNext').onclick=()=>stepMenuMode(1);
-$('ctaBtn').onclick=()=>{
+$('ctaBtn').onclick=async()=>{
   SFX.unlock();
+  // Von hier fuehrt jeder Weg in ein Spiel - und jedes Spiel rendert in derselben Szene.
+  // Sie kommt jetzt, nicht beim Oeffnen der Startseite.
+  await r3dSichern();
   // ARENA FOOTBALL: Modusauswahl statt Sofortstart. Ein gueltiger Dev-Direktlink
   // (?dev=1&fb=classic|tactical|elimination|elimination4) ueberspringt die Auswahl bewusst.
   if(menuSel==='football'){if(SFX.click())vibrateMs(VIBE_CLICK_MS);   // oeffnet nur die Auswahl — wie beim Bot-Dialog
-    if(!r3dActive){toast(T('fbNo3d'));return;}
+    if(!r3dActive){toast(T('fbNo3d'));return;}   // die Szene wurde oben angefordert; steht sie nicht, ist Arena Football nicht spielbar
     if(DEV_FB_VARIANT==='classic'||DEV_FB_VARIANT===FOOTBALL_VARIANT_TACTICAL||DEV_FB_VARIANT===FOOTBALL_VARIANT_ELIM
      ||DEV_FB_VARIANT===FOOTBALL_VARIANT_TEAM2||DEV_FB_VARIANT===FOOTBALL_VARIANT_ELIM4){startFootball(DEV_FB_VARIANT);return;}
     // HUB: die Kategorie steht bereits auf der Startseite. Der CTA tut genau das, was
@@ -2815,10 +2842,10 @@ $('fbElimBack').onclick=()=>{$('fbElimOv').classList.remove('show');$('fbModeOv'
 // Lobby, Host-Start, Reconnect und der kanonische Austritt sind unveraendert dieselben
 // wie bisher. menuMode bleibt bewusst unberuehrt - der Zurueck-Weg stellt damit den
 // zuletzt im Menue gewaehlten Modus wieder her (wie bei Online-FFA).
-$('fbOnlineBtn').onclick=()=>{
+$('fbOnlineBtn').onclick=async()=>{
   if(SFX.click())vibrateMs(VIBE_CLICK_MS);
   if(TUNE){toast('Tuning aktiv — Online deaktiviert');return;}
-  if(!r3dActive){toast(T('fbNo3d'));return;}
+  if(!(await r3dSichern())){toast(T('fbNo3d'));return;}
   $('fbModeOv').classList.remove('show');
   fbOnModeShow();
 };
@@ -2923,9 +2950,9 @@ function fbOnlineFrei(m){ return typeof fbModeReleased==='function' && fbModeRel
 // Spielerzahl entscheidet die Lobby, nicht ein Vorauswahlschirm (v10: der Raum fasst
 // fuenf, gestartet wird ab zwei). Gesetzt wird nur der Kontext - Raumanlage, Raumliste,
 // Lobby und Start sind unveraendert die der gemeinsamen Shell.
-function fbFfaOnlineOeffnen(){
+async function fbFfaOnlineOeffnen(){
   if(TUNE){toast('Tuning aktiv — Online deaktiviert');return;}
-  if(!r3dActive){toast(T('fbNo3d'));return;}
+  if(!(await r3dSichern())){toast(T('fbNo3d'));return;}
   if(!fbOnlineFrei(FB_ONLINE_MODE_LIVES)){toast(T('onModeLocked'));return;}
   fbOnlineMode=FB_ONLINE_MODE_LIVES; fbOnlineCap=FB_ONLINE_SEATS;
   fbOnlineEnter();
@@ -3071,7 +3098,7 @@ function showMenu(){menuVisible=true;$('menu').style.display='flex';$('game').st
   if(r3dActive&&r3d&&r3d.flushEnvProfile)r3d.flushEnvProfile();   // waehrend des Matches aufgeschobenen Env-Wechsel jetzt (sicherer Idle) anwenden
   updHomeRejoin();   // gemerkter Raum kann sich seit dem letzten Menuebesuch geaendert haben
   whenFB(()=>{if(fbReady()&&menuVisible)startPublicListing();});updScrollHint();}   // Home-Rooms-Vorschau reaktivieren
-function showGame(){menuVisible=false;$('menu').style.display='none';$('game').style.display='flex';stopPublicListing();updScrollHint();}   // Gameplay-Framing kommt via newGame()->resize()
+function showGame(){if(!r3dActive)r3dSichern();menuVisible=false;$('menu').style.display='none';$('game').style.display='flex';stopPublicListing();updScrollHint();}   // Gameplay-Framing kommt via newGame()->resize()
 // Scroll-Cue der Startseite: transienter Onboarding-Hinweis — sichtbar nur solange
 // das Menue oben steht UND scrollbar ist; nach dem ersten Scroll oder ein paar
 // Sekunden endgueltig ausgeblendet (ueberdeckt nie dauerhaft Inhalte am Viewport-Rand).
@@ -9200,7 +9227,13 @@ function buildRoomRow(code,view,ausDemMenue){
   // Beitritt aus einer Vorschau: erst die Online-Seite des RICHTIGEN Raums oeffnen
   // (Status/Fehler sichtbar), dann der unveraenderte joinPublicRoom->joinRoom-Pfad —
   // keine zweite Join-Implementierung, keine eigene Sitzvergabe.
-  btn.onclick=ausDemMenue?()=>{openOnlineForRoom(view);joinPublicRoom(code);}:()=>joinPublicRoom(code);
+  btn.onclick=async()=>{
+    // Ein Arena-Football-Raum wird in der 3D-Szene gespielt; ohne sie fuehrt der Beitritt
+    // in einen unspielbaren Zustand. Ring-Out-Raeume warten hier nicht.
+    if(view.game===ROOM_GAME_FOOTBALL&&!(await r3dSichern())){toast(T('fbNo3d'));return;}
+    if(ausDemMenue)openOnlineForRoom(view);
+    joinPublicRoom(code);
+  };
   wireBtnFx(btn,true);
   row.appendChild(prev); row.appendChild(dot); row.appendChild(main); row.appendChild(btn);
   return row;
@@ -12078,7 +12111,7 @@ function joinRoom(){
       // Weg ueber einen Raumcode muss dieselbe Bedingung erfuellen - sonst besetzt ein
       // nicht spielbarer Client einen Sitz, und das Match wartet auf einen Zug, der nie
       // kommt (bis Frist und REMOVE greifen).
-      if(joinFb&&!r3dActive){ setStatus(T('fbNo3d')); return; }
+      if(joinFb&&!(await r3dSichern())){ setStatus(T('fbNo3d')); return; }
       if(joinFb||v.fmt==='ffa'||v.fmt==='triple_ffa'||v.fmt==='team_duel'){   // M8-T3c: Seat per atomaren write-once-Claim statt fix p/1
         // v8: die Sollbesetzung des RAUMS begrenzt den Claim. Ein fuenfter Spieler kann
         // einem Team-2v2-Raum damit nicht beitreten - der Sitzindex existiert dort nicht,
@@ -12685,7 +12718,7 @@ async function attemptRejoin(code){
     const rjFb=roomIsFootball(d.config);
     // Auch die Rueckkehr: ein Sitz gehoert nur einem Client, der ihn auch spielen kann.
     // Der gespeicherte Raum bleibt bestehen - mit verfuegbarer 3D-Szene gelingt sie.
-    if(rjFb&&!r3dActive){ setStatus(T('fbNo3d')); return false; }
+    if(rjFb&&!(await r3dSichern())){ setStatus(T('fbNo3d')); return false; }
     const ffa=rjFb||v.fmt==='ffa'||v.fmt==='triple_ffa'||v.fmt==='team_duel';
     // v11: wer beim laufenden Match dabei ist, sagt die Teilnehmerliste der Generation.
     // Sie wird gelesen, BEVOR irgendeine globale Variable steht - fehlt oder taugt sie
@@ -14677,7 +14710,7 @@ async function initR3D(){
     // (deduped). Totalausfall -> rej (initial: 2D-Fallback ueber outer catch; live: bestehendes bleibt).
     const loadEnvHDR=(paths)=>new Promise((res,rej)=>{const l=new RGBELoader();let i=0;
       const next=()=>{ if(i>=paths.length){rej(new Error('HDRI failed'));return;}
-        const path=paths[i++];l.load(path,t=>res({tex:t,path}),undefined,next); };
+        const path=paths[i++];l.load(assetUrl(path),t=>res({tex:t,path}),undefined,next); };
       next();});
     let envGen=0;            // Async-Race-Token: nur das jeweils neueste Ladeergebnis darf angewendet werden
     let envApplied=null;     // aktuell sichtbares Profil
@@ -14754,7 +14787,7 @@ async function initR3D(){
      for(let k=0;k<3;k++)addCloud([5800,6300],-560,-440,520,930,.3,.42);}
     // Akzeptiertes Arena-GLB (Pflicht im MVP; Fehler -> Fallback 2D)
     const glbT0=performance.now();
-    const glb=await new Promise((res,rej)=>new GLTFLoader().load('assets/arena_platform.glb',res,undefined,rej));
+    const glb=await new Promise((res,rej)=>new GLTFLoader().load(assetUrl('assets/arena_platform.glb'),res,undefined,rej));
     perfGlbMs=Math.round(performance.now()-glbT0);
     // Gameplay-Lesbarkeit: Kristalle + obere Sockel von der Randebene ENTFERNEN (wirken wie
     // Hindernisse/Fangpunkte). Nur hier im Spiel-Renderer — Asset & prototype3d bleiben unberuehrt.
@@ -14931,7 +14964,7 @@ async function initR3D(){
       // geraden Stirnseite der Rounded-Rectangle-Arena. Genau EIN GLB; die zweite Instanz
       // ist ein Clone. Das fruehere konzentrisch gekruemmte Tor der Kreisarena wurde mit der
       // Arena-Finalisierung entfernt (Kreis ist kein Produktpfad mehr).
-      const goalGlb=await new Promise((res,rej)=>new GLTFLoader().load('assets/arena_football_goal.glb',res,undefined,rej));
+      const goalGlb=await new Promise((res,rej)=>new GLTFLoader().load(assetUrl('assets/arena_football_goal.glb'),res,undefined,rej));
       const goalProto=goalGlb.scene;
       goalProto.traverse(o=>{if(o.isMesh){o.castShadow=o.receiveShadow=true;}});
       // Kanonische Tor-Skalierung — 1 Blender-Einheit == 1 Balldurchmesser (Asset-Konvention).
@@ -15154,7 +15187,7 @@ async function initR3D(){
     // Bande entsteht in fbBuildShape aus derselben Grundform wie die Physikgrenze.
     // Additiv: fehlt/streikt das GLB, faellt nur der prozedurale Aufbau aus (fbMat leer).
     try{
-      const bandGlb=await new Promise((res,rej)=>new GLTFLoader().load('assets/arena_football_band.glb',res,undefined,rej));
+      const bandGlb=await new Promise((res,rej)=>new GLTFLoader().load(assetUrl('assets/arena_football_band.glb'),res,undefined,rej));
       const bandProto=bandGlb.scene;
       // Material-Veredelung im Renderer (nur Optik; Geometrie/Asset unveraendert). Die Szene hat ein
       // HDRI-Environment (scene.environment, ACES) -> echtes IBL fuer klares Glas & ruhigen Metallglanz.
@@ -16161,7 +16194,19 @@ async function initR3D(){
     finishBoot();   // 3D fehlgeschlagen -> Loader weg, Fallback-Menue zeigen
   }
 }
-if(R3D_WANTED)initR3D();
+// Die Szene wird GENAU EINMAL geholt - beim ersten Weg in ein Spiel, nicht beim Oeffnen
+// der Startseite. Jeder weitere Aufruf bekommt dieselbe Zusage zurueck; parallele Klicks
+// starten keinen zweiten Ladevorgang. Rueckgabe: ob die Szene steht.
+let r3dLaden=null;
+function r3dSichern(){
+  if(!R3D_WANTED)return Promise.resolve(false);
+  if(r3dActive)return Promise.resolve(true);
+  if(!r3dLaden){
+    toast(T('szeneLaedt'));
+    r3dLaden=Promise.resolve(initR3D()).then(()=>r3dActive).catch(()=>false);
+  }
+  return r3dLaden;
+}
 
 // ── Boot-Ende: idempotent. Ausloeser sind (a) erster gerenderter 3D-Frame (loop),
 //    (b) 2D-Modus (?r2d=1), (c) initR3D-Fehler, (d) 10-s-Sicherheits-Timeout —
@@ -16298,7 +16343,7 @@ resize();initArenaGeo();newGame();applyLang();   // applyLang (inkl. selectMenuM
 updScrollHint();                                            // Scroll-Cue initial bewerten (Menue ist der Startscreen)
 setTimeout(()=>{scrollHintDone=true;updScrollHint();},8000);   // Onboarding-Cue ist transient (Timer ab Script-Start, Boot ~2s) — nie dauerhaft ueber Inhalten
 whenFB(()=>{ if(fbReady()&&menuVisible)startPublicListing(); });   // Home-Rooms-Vorschau ab Boot (best-effort, ohne FB stiller Leerzustand)
-if(!R3D_WANTED)finishBoot();                     // 2D-Modus: kein 3D-Warten, Menue direkt
+finishBoot();                                    // die Startseite wartet auf nichts mehr - die Szene kommt auf Abruf
 setTimeout(finishBoot,10000);                    // Sicherheitsnetz: nie im Loader haengen bleiben
 requestAnimationFrame(loop);
 })();

@@ -67,7 +67,7 @@ const tacticalBlockSrc   = grab(/\/\/ ══ ARENA FOOTBALL TACTICAL[\s\S]*?\nfu
 // Menue-/Startpfad: Modusauswahl, Dev-Direktlink und der einzige Football-Startpunkt.
 const startFootballSrc   = grab(/function startFootball\(variant,rules\)\{[\s\S]*?\n\}/, 'startFootball');
 const devFbVariantSrc    = grab(/const DEV_FB_VARIANT=[^\n]*/, 'DEV_FB_VARIANT');
-const ctaSrc             = grab(/\$\('ctaBtn'\)\.onclick=\(\)=>\{[\s\S]*?\n\};/, 'CTA-Handler');
+const ctaSrc             = grab(/\$\('ctaBtn'\)\.onclick=async\(\)=>\{[\s\S]*?\n\};/, 'CTA-Handler');
 
 // ── Sandbox ──────────────────────────────────────────────────────────────────────
 // Exakt das Muster von tools/test_football_shell.js: DOM-, Audio- und Renderer-Aufrufe sind
@@ -354,7 +354,7 @@ console.log('ARENA FOOTBALL — Produktsuite: Classic 1v1 (Standard) + Tactical 
   // Match, sondern uebergibt an den bestehenden Onlinebildschirm.
   ok((HTML.match(/startFootball\(/g) || []).length === 9,
      'kein zweiter Startpfad neben startFootball() (erhalten: ' + (HTML.match(/startFootball\(/g) || []).length + ')');
-  const onlineHandler = grab(/\$\('fbOnlineBtn'\)\.onclick=\(\)=>\{[\s\S]*?\n\};/, 'fbOnlineBtn-Handler');
+  const onlineHandler = grab(/\$\('fbOnlineBtn'\)\.onclick=async\(\)=>\{[\s\S]*?\n\};/, 'fbOnlineBtn-Handler');
   ok(!/startFootball/.test(onlineHandler), 'ONLINE startet kein lokales Match');
   // Seit Protokoll v8 traegt der Onlineraum seinen MODUS und seine SOLLBESETZUNG. Der
   // Einstieg setzt den Kontext deshalb nicht mehr selbst, sondern fuehrt zuerst in die
@@ -370,7 +370,7 @@ console.log('ARENA FOOTBALL — Produktsuite: Classic 1v1 (Standard) + Tactical 
      'und uebergibt an den BESTEHENDEN Onlinebildschirm - kein zweiter Ablauf');
   ok(/\$\('fbModeOv'\)\.classList\.remove\('show'\);/.test(onlineHandler),
      'die Modusauswahl schliesst sich dabei');
-  ok(/if\(TUNE\)/.test(onlineHandler) && /r3dActive/.test(onlineHandler),
+  ok(/if\(TUNE\)/.test(onlineHandler) && /r3dSichern\(\)/.test(onlineHandler),
      'und es gelten dieselben Vorbedingungen wie fuer die lokalen Modi (Tuning, 3D-Szene)');
   // Der Produktweg ist NICHT an ?dev=1 gebunden - genau das ist der Zweck.
   ok(!/DEV_MENU/.test(onlineHandler), 'der Produktweg verlangt kein ?dev=1');

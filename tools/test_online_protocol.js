@@ -487,7 +487,7 @@ t('Beitritt: die Ablehnung nennt die Versionsunvertraeglichkeit',
   // Beide Einstiegs-Handler fuehren in die Modusauswahl. Geprueft wird JEDER Handler
   // einzeln, nicht die Gesamtzahl der Aufrufe - der Zurueck-Weg aus der Spielerzahl
   // ruft dieselbe Funktion und darf die Zusicherung nicht verwaessern.
-  const handler = (id) => (src.match(new RegExp("\\$\\('" + id + "'\\)\\.onclick=\\(\\)=>\\{[\\s\\S]*?\\n\\};")) || [''])[0];
+  const handler = (id) => (src.match(new RegExp("\\$\\('" + id + "'\\)\\.onclick=(?:async)?\\(\\)=>\\{[\\s\\S]*?\\n\\};")) || [''])[0];
   t('der Produkteinstieg fuehrt in die Modusauswahl',
     handler('fbOnlineBtn').indexOf('fbOnModeShow();') >= 0);
   t('und der Dev-Einstieg in dieselbe',
@@ -533,9 +533,9 @@ t('Beitritt: die Ablehnung nennt die Versionsunvertraeglichkeit',
     (src.match(/const op=newJoinOp\(\);/g) || []).length === 3);   // createRoom, joinRoom, attemptRejoin
   // Arena Football verlangt die echte 3D-Szene - an JEDEM Weg in einen Sitz.
   t('der Beitritt lehnt einen Client ohne 3D-Szene ab',
-    src.indexOf("if(joinFb&&!r3dActive){ setStatus(T('fbNo3d')); return; }") >= 0);
+    src.indexOf("if(joinFb&&!(await r3dSichern())){ setStatus(T('fbNo3d')); return; }") >= 0);
   t('die Rueckkehr ebenfalls',
-    src.indexOf("if(rjFb&&!r3dActive){ setStatus(T('fbNo3d')); return false; }") >= 0);
+    src.indexOf("if(rjFb&&!(await r3dSichern())){ setStatus(T('fbNo3d')); return false; }") >= 0);
   t('und der Einstieg benutzt dieselbe Meldung',
     (src.match(/T\('fbNo3d'\)/g) || []).length >= 3);
   t('die es dreisprachig gibt', (src.match(/fbNo3d:'/g) || []).length === 3);

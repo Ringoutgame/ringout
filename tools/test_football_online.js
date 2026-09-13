@@ -687,6 +687,8 @@ function makeClient(db, code, opts) {
     // Beitritt um (view2d) - der 2D-Zweig prueft die reine Eingabelogik, der 3D-Zweig
     // zusaetzlich die Trefferpruefung ueber die echte Projektion.
     let r3dActive=${opts.no3d ? 'false' : 'true'};
+    // Die Szene wird angefordert, nicht vorausgesetzt - der Harness antwortet wie das Produkt.
+    function r3dSichern(){ return Promise.resolve(r3dActive); }
     // Der Online-Football-Prototyp haengt vollstaendig an ?dev=1. Der Harness stellt
     // beide Faelle dar, damit die Grenze selbst geprueft werden kann.
     const DEV_MENU=${opts.dev === false ? 'false' : 'true'};

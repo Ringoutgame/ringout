@@ -216,7 +216,8 @@ t('remove: created NaN', view({ created: NaN }).remove === true);
     && /for\(const id of \['onPublicList','homeRoomsList','fbRoomsList'\]\)/.test(H));
   t('each row names its game', /game\.textContent=roomGameLabel\(view\.game\);/.test(H) && /function roomGameLabel\(game\)\{ return game===ROOM_GAME_FOOTBALL\?'ARENA FOOTBALL':'RING OUT'; \}/.test(H));
   t('der Beitritt aus einer Vorschau oeffnet den Bildschirm des RAUMS',
-    /btn\.onclick=ausDemMenue\?\(\)=>\{openOnlineForRoom\(view\);joinPublicRoom\(code\);\}/.test(H));
+    /if\(ausDemMenue\)openOnlineForRoom\(view\);\n    joinPublicRoom\(code\);/.test(H)
+    && /if\(view\.game===ROOM_GAME_FOOTBALL&&!\(await r3dSichern\(\)\)\)\{toast\(T\('fbNo3d'\)\);return;\}/.test(H));
   t('… und behaelt dabei den Modus des Raums, nicht FFA',
     /fbOnlineMode=\(typeof fbModeValid==='function'&&fbModeValid\(view\.mode\){2}\?view\.mode:FB_ONLINE_MODE_LIVES;/.test(H));
   t('die Beschriftung kommt aus EINER Stelle',

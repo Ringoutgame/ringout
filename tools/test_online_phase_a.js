@@ -21,6 +21,9 @@ const RULES = require('fs').readFileSync(
 
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; } else { fail++; console.error('FAIL: ' + m); } };
+// Einzelne Abschnitte pruefen asynchrone Wege (die 3D-Szene wird angefordert). Sie legen
+// ihre Zusage hier ab; das Ende der Suite wartet sie ab, bevor es zaehlt.
+const WARTEN = [];
 
 // Das echte Register und seine Abfragen - woertlich aus index.html.
 const R = new Function(`
@@ -768,29 +771,30 @@ const R = new Function(`
     const o = Object.assign({ TUNE: false, r3d: true, frei: true }, opt || {});
     return new Function('o', `
       const TUNE=o.TUNE; let r3dActive=o.r3d;
+      // Die Szene wird angefordert, nicht vorausgesetzt: der Pruefstand antwortet wie das
+      // Produkt - sie steht oder sie steht nicht.
+      function r3dSichern(){ return Promise.resolve(o.r3d); }
       const T=k=>k; const spur=[]; const toast=m=>spur.push('toast:'+m);
       const FB_ONLINE_MODE_LIVES='lives', FB_ONLINE_SEATS=5;
       function fbModeReleased(m){ return !!o.frei && m==='lives'; }
       let fbOnlineMode='', fbOnlineCap=0;
       function fbOnlineEnter(){ spur.push('enter'); }
       ${grab(/function fbOnlineFrei\(m\)\{[^\n]*\}/, 'fbOnlineFrei')}
-      ${grab(/function fbFfaOnlineOeffnen\(\)\{[\s\S]*?\n\}/, 'fbFfaOnlineOeffnen')}
-      fbFfaOnlineOeffnen();
-      return { spur, mode:fbOnlineMode, cap:fbOnlineCap };
+      ${grab(/async function fbFfaOnlineOeffnen\(\)\{[\s\S]*?\n\}/, 'fbFfaOnlineOeffnen')}
+      return fbFfaOnlineOeffnen().then(()=>({ spur, mode:fbOnlineMode, cap:fbOnlineCap }));
     `)(o);
   };
-  const gut = lauf();
-  ok(gut.spur.join(',') === 'enter', 'FFA fuehrt ohne Zwischenschritt in den bestehenden Onlineeinstieg');
-  ok(gut.mode === 'lives', 'und setzt die Lebensregel als FFA-Regel des Produkts');
-  ok(gut.cap === 5, 'die Hoechstbesetzung ist fuenf - es gibt keine Spielerzahl-Vorwahl mehr');
-  const ohne3d = lauf({ r3d: false });
-  ok(ohne3d.spur.indexOf('enter') < 0 && ohne3d.spur.join(',').indexOf('fbNo3d') > 0,
-     'ohne 3D-Szene fuehrt der Weg nicht hinein, sondern sagt es');
-  const tune = lauf({ TUNE: true });
-  ok(tune.spur.indexOf('enter') < 0, 'im Tuningbetrieb ebenso wenig');
-  const gesperrt = lauf({ frei: false });
-  ok(gesperrt.spur.indexOf('enter') < 0 && gesperrt.spur.join(',').indexOf('onModeLocked') > 0,
-     'und ein nicht freigegebener Modus bleibt zu - das Freigabetor gilt auch hier');
+  WARTEN.push(Promise.all([lauf(), lauf({ r3d: false }), lauf({ TUNE: true }), lauf({ frei: false })])
+    .then(([gut, ohne3d, tune, gesperrt]) => {
+      ok(gut.spur.join(',') === 'enter', 'FFA fuehrt ohne Zwischenschritt in den bestehenden Onlineeinstieg');
+      ok(gut.mode === 'lives', 'und setzt die Lebensregel als FFA-Regel des Produkts');
+      ok(gut.cap === 5, 'die Hoechstbesetzung ist fuenf - es gibt keine Spielerzahl-Vorwahl mehr');
+      ok(ohne3d.spur.indexOf('enter') < 0 && ohne3d.spur.join(',').indexOf('fbNo3d') > 0,
+         'ohne 3D-Szene fuehrt der Weg nicht hinein, sondern sagt es');
+      ok(tune.spur.indexOf('enter') < 0, 'im Tuningbetrieb ebenso wenig');
+      ok(gesperrt.spur.indexOf('enter') < 0 && gesperrt.spur.join(',').indexOf('onModeLocked') > 0,
+         'und ein nicht freigegebener Modus bleibt zu - das Freigabetor gilt auch hier');
+    }));
 
   // ── Die Karten: EIN aktiver Modus, drei ehrlich gesperrte ──
   const reg = grab(/const FB_HUB_MODES=\[[\s\S]*?\];/, 'FB_HUB_MODES');
@@ -811,7 +815,7 @@ const R = new Function(`
      'der CTA nennt einen gesperrten Modus beim Namen, statt einen Start zu versprechen');
 
   // ── Der CTA: aktiver Modus direkt, gesperrter ehrlich, Legacy nur mit ?dev=1 ──
-  const cta = grab(/\$\('ctaBtn'\)\.onclick=\(\)=>\{[\s\S]*?\n\};/, 'CTA-Handler');
+  const cta = grab(/\$\('ctaBtn'\)\.onclick=async\(\)=>\{[\s\S]*?\n\};/, 'CTA-Handler');
   ok(/if\(fbW&&fbW\.direkt\)\{fbFfaOnlineOeffnen\(\);return;\}/.test(cta), 'der CTA fuehrt FFA direkt in die Lobby');
   ok(/if\(typeof DEV_MENU!=='undefined'&&DEV_MENU\)\{\$\('fbModeOv'\)\.classList\.add\('show'\);return;\}/.test(cta),
      'die alte Modusauswahl oeffnet sich nur noch mit ?dev=1');
@@ -883,5 +887,7 @@ const R = new Function(`
      'der RingOut-Weg in den Onlinebildschirm ist derselbe wie bisher');
 }
 
-console.log('\nOnline-Phase-A: ' + pass + ' passed, ' + fail + ' failed');
-process.exit(fail ? 1 : 0);
+Promise.all(WARTEN).then(() => {
+  console.log('\nOnline-Phase-A: ' + pass + ' passed, ' + fail + ' failed');
+  process.exit(fail ? 1 : 0);
+});
