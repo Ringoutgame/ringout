@@ -12274,12 +12274,20 @@ const FB_V11_ENDE_MAX_MS=20000;
 // danach ist er wirklich weg. Wer BEWUSST geht, loescht seinen Rostereintrag - dann
 // wird gar nicht gewartet.
 const FB_V11_HOST_FRIST_MS=SEAT_STALE_MS+LOBBY_HOST_GRACE_MS;
+// Wie lange auf die Teilnehmerliste einer spielenden Generation gewartet wird, bevor
+// sie als wirklich fehlend gilt. Das ist die Spanne zwischen dem eigenen, lokal schon
+// sichtbaren Schreibvorgang und seiner Bestaetigung durch den Server - grosszuegig
+// bemessen, aber endlich.
+const FB_V11_PT_FRIST_MS=15000;
 
 let fbV11State='';          // zuletzt gesehener Raumzustand ('' = noch keiner)
 let fbV11StateUnsub=null, fbV11HostUnsub=null;
 let fbV11StartBusy=false, fbV11NachfolgeBusy=false, fbV11NachfolgeTimer=null;
 let fbV11EndeBusy=false, fbV11PtBusy=false;
 let fbV11Gestartet=-1;      // Generation, deren Match dieser Client schon aufgenommen hat
+// Die Wartestelle auf die Teilnehmerliste. Sie gehoert immer GENAU EINER Generation;
+// wechselt die Generation oder der Raum, ist sie gegenstandslos.
+let fbV11PtUnsub=null, fbV11PtTimer=null, fbV11PtGen=-1;
 let fbV11ErgTimer=null, fbV11ErgAb=0, fbV11ErgSeit=0;
 // Hat der Spieler das Ergebnis gelesen und will weiter? Dann wird nicht mehr auf die
 // Frist gewartet - aber sehr wohl darauf, dass der Raum das Matchende bestaetigt hat.
@@ -12370,6 +12378,11 @@ async function fbV11Starten(){
   let abgewiesen=false;
   try{
     await window.FB.update(rRef(''),upd);
+    // JETZT steht die Teilnehmerliste nachweislich - der Server hat bestaetigt. Der
+    // eigene Client hat den Wechsel vielleicht schon optimistisch gesehen und dabei ins
+    // Leere gelesen; deshalb hier ausdruecklich noch einmal. Damit braucht der Regelfall
+    // die Wartestelle gar nicht erst.
+    if(ctx.sid===onlineSessionId&&ctx.room===roomCode)fbV11Schritt();
     // Der Raum spielt: er gehoert nicht mehr in die oeffentliche Liste.
     if(ctx.pub&&ctx.room===roomCode){ removePublicListing(ctx.room); roomPublic=false; }
   }catch(e){ abgewiesen=true; }
@@ -12398,6 +12411,40 @@ function fbV11PtSitze(v){
   }
   return (typeof fbV9Sitze==='function')?fbV9Sitze(a):null;
 }
+function fbV11PtWarteAus(){
+  if(fbV11PtUnsub){ try{ fbV11PtUnsub(); }catch(e){} fbV11PtUnsub=null; }
+  if(fbV11PtTimer){ clearTimeout(fbV11PtTimer); fbV11PtTimer=null; }
+  fbV11PtGen=-1;
+}
+// Auf die Teilnehmerliste DIESER Generation warten - einmal, begrenzt. Ein zweiter
+// Aufruf fuer dieselbe Generation richtet nichts Neues ein; ein Aufruf fuer eine
+// andere loest die alte Wartestelle ab.
+function fbV11PtWarten(){
+  if(!fbV11Raum()||!window.FB||!roomCode)return;
+  if(fbV11PtUnsub&&fbV11PtGen===gen)return;
+  fbV11PtWarteAus();
+  fbV11PtGen=gen;
+  const ctx={sid:onlineSessionId,room:roomCode,gen:gen};
+  const gilt=()=>ctx.sid===onlineSessionId&&ctx.room===roomCode&&ctx.gen===gen;
+  try{
+    fbV11PtUnsub=window.FB.onValue(window.FB.ref(window.FB.db,'rooms/'+ctx.room+'/g/'+ctx.gen+'/pt'),snap=>{
+      if(!gilt()){ fbV11PtWarteAus(); return; }
+      if(!fbV11PtSitze(snap.val()))return;   // noch nicht da - die Frist laeuft weiter
+      fbV11PtWarteAus();
+      fbV11MatchAufnehmen();
+    },()=>{});
+  }catch(e){ fbV11PtGen=-1; return; }
+  fbV11PtTimer=setTimeout(()=>{
+    fbV11PtTimer=null;
+    const daheim=gilt();
+    fbV11PtWarteAus();
+    if(!daheim||gameStarted||fbV11Gestartet===gen||fbV11State!=='playing')return;
+    // Jetzt ist es kein Warten mehr, sondern ein Befund: diese Generation spielt ohne
+    // Teilnehmerliste. Die Generation gilt als behandelt, damit nichts von vorn beginnt.
+    fbV11Gestartet=gen;
+    setStatus('Teilnehmerliste dieses Matches fehlt — bitte neu laden.');
+  },FB_V11_PT_FRIST_MS);
+}
 // Der Raum sagt 'playing' und traegt eine Teilnehmerliste: DAS ist der Startbefehl.
 // Gelesen wird sie genau einmal je Generation - sie kann sich nicht mehr aendern.
 async function fbV11MatchAufnehmen(){
@@ -12413,7 +12460,10 @@ async function fbV11MatchAufnehmen(){
   fbV11PtBusy=false;
   if(ctx.sid!==onlineSessionId||ctx.room!==roomCode||ctx.gen!==gen)return;
   if(gameStarted||fbV11State!=='playing')return;
-  if(!sitze){ setStatus('Teilnehmerliste dieses Matches fehlt — bitte neu laden.'); return; }
+  // Noch nicht da heisst nicht: nicht vorhanden. Gewartet wird begrenzt (s. oben);
+  // erst wenn die Frist ablaeuft, ist es ein Befund.
+  if(!sitze){ fbV11PtWarten(); return; }
+  fbV11PtWarteAus();
   if(sitze.indexOf(myPlayer)<0){
     // Das Match laeuft ohne diesen Sitz. Das ist kein Fehler und kein Rauswurf: wer
     // zum Startzeitpunkt nicht verbunden war, schaut zu und ist beim naechsten Mal
@@ -12493,6 +12543,7 @@ function fbV11ZurueckInLobby(){
   if(fbV11State!=='lobby')return;
   if(fbV11ErgTimer){ clearTimeout(fbV11ErgTimer); fbV11ErgTimer=null; }
   fbV11ErgAb=0; fbV11ErgSeit=0; fbV11ErgWeg=false; fbV11Gestartet=-1;
+  fbV11PtWarteAus();
   if(typeof fbV9LebenStop==='function')fbV9LebenStop();
   try{ if(turnUnsub)turnUnsub(); }catch(e){}
   turnUnsub=null; turnNo=-1; runningGen=-1;
@@ -12546,6 +12597,7 @@ function fbV11Schritt(){
   if(!fbV11Raum())return;
   if(fbV11State==='playing'){ fbV11MatchAufnehmen(); return; }
   if(fbV11State!=='lobby')return;
+  fbV11PtWarteAus();   // der Raum spielt nicht mehr - es gibt nichts zu erwarten
   // Erst das Ergebnis, dann die Lobby - es sei denn, der Spieler hat es gelesen.
   if(gameStarted){ if(fbV11ErgWeg)fbV11ZurueckInLobby(); else fbV11ErgebnisFrist(); return; }
   if(ffaRoom())renderLobby(lobbyP);   // der Raum spielt nicht mehr - die Lobby sagt es auch
@@ -12554,7 +12606,7 @@ function fbV11Schritt(){
 function fbV11Aus(){
   if(fbV11StateUnsub){ try{ fbV11StateUnsub(); }catch(e){} fbV11StateUnsub=null; }
   if(fbV11HostUnsub){ try{ fbV11HostUnsub(); }catch(e){} fbV11HostUnsub=null; }
-  fbV11NachfolgeStop();
+  fbV11NachfolgeStop(); fbV11PtWarteAus();
   if(fbV11ErgTimer){ clearTimeout(fbV11ErgTimer); fbV11ErgTimer=null; }
   fbV11State=''; fbV11StartBusy=false; fbV11EndeBusy=false; fbV11PtBusy=false;
   fbV11NachfolgeBusy=false;

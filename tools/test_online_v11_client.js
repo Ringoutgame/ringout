@@ -61,6 +61,8 @@ const QUELLE = [
   grabFunction(HTML, 'fbV11Nachfolge'),
   grabFunction(HTML, 'fbV11Starten'),
   grabFunction(HTML, 'fbV11PtSitze'),
+  grabFunction(HTML, 'fbV11PtWarteAus'),
+  grabFunction(HTML, 'fbV11PtWarten'),
   grabFunction(HTML, 'fbV11MatchAufnehmen'),
   grabFunction(HTML, 'fbV11MatchVorbei'),
   grabFunction(HTML, 'fbV11ErgebnisFrist'),
@@ -89,6 +91,7 @@ let runningGen=-1, turnNo=-1, onlineSessionId=1, roomP={}, lobbyP={}, playersRos
 let roomPublic=false, roomOeffentlich=false, mode='football', fmt='elimination';
 let roomHostUid='U0';
 const SEAT_STALE_MS=40, LOBBY_HOST_GRACE_MS=80;   // im Pruefstand kurz - der Produktwert wird eigens geprueft
+const FB_V11_PT_FRIST_MS=150;                     // dito: gemessen wird DASS gewartet wird
 let fbRemovePending=[], fbExitBusy={}, replaying=false, repPlaying=false;
 let menuVisible=false, phase='aim', turnUnsub=null, fbElimPhaseN=5;
 const PROTOKOLL=[];    // jeder Schreibvorgang, in der Reihenfolge
@@ -178,6 +181,8 @@ return {
                      hostSitz:fbV11HostSitz(), binHost:fbV11BinHost()}; },
   // die echten Funktionen
   ptSitze:(v)=>fbV11PtSitze(v),
+  warten:()=>fbV11PtWarten(),
+  wartestelle:()=>({ gen:fbV11PtGen, offen:!!fbV11PtUnsub }),
   anwesend:(p)=>fbV11Anwesend(p),
   hostSitz:(p)=>fbV11HostSitz(p),
   binHost:(p)=>fbV11BinHost(p),
@@ -466,7 +471,8 @@ abschnitt('Der Startbefehl ist state=playing plus die Teilnehmerliste');
   M.sitz(0); M.gen(1); M.stand('playing'); M.leeren();
   await M.aufnehmen(); await tick();
   t('ohne Teilnehmerliste beginnt gar nichts', !M.P.some(x => x.op === 'maybeStart'));
-  t('… und es wird gesagt', /Teilnehmerliste/.test(String(M.zustand().status)));
+  t('… und es wird zunaechst gewartet, statt den Raum fuer kaputt zu erklaeren',
+    M.wartestelle().offen === true && !/fehlt/.test(String(M.zustand().status)), M.zustand().status);
 }
 {
   const M = neu();
@@ -476,6 +482,102 @@ abschnitt('Der Startbefehl ist state=playing plus die Teilnehmerliste');
   await M.aufnehmen(); await tick();
   t('eine unbrauchbare Teilnehmerliste startet kein Match',
     !M.P.some(x => x.op === 'maybeStart'));
+}
+
+// ══ 6b. DIE TEILNEHMERLISTE DARF EINEN AUGENBLICK BRAUCHEN ═══════════════════
+abschnitt('Wer selbst startet, liest seinen eigenen Schreibvorgang zu frueh');
+{
+  // Die Reihenfolge, die gegen das echte Projekt dreimal von drei Malen auftrat: der
+  // Raum sagt schon 'playing', die Liste steht aber noch nicht. Frueher war das ein
+  // Verderb - jetzt wird gewartet.
+  const M = neu();
+  M.sitz(0); M.gen(1); M.stand('playing');
+  M.roster(ROSTER([0, 1])); M.praesenz(PRAESENZ([0, 1]));
+  M.leeren();
+  await M.aufnehmen(); await tick();
+  t('der erste Griff geht ins Leere', !M.P.some(x => x.op === 'maybeStart'));
+  t('… und das ist noch kein Befund - keine Meldung',
+    !/fehlt/.test(String(M.zustand().status)), M.zustand().status);
+  const w = M.wartestelle();
+  t('… sondern eine Wartestelle auf GENAU diese Generation', w.offen === true && w.gen === 1, w);
+  t('… und zwar genau eine', M.WACHEN.filter(x => !x.ab && /\/g\/1\/pt$/.test(x.pfad)).length === 1);
+  // Jetzt kommt die Liste an.
+  M.db('rooms/VEFB/g/1/pt', { 0: true, 1: true });
+  M.melden('rooms/VEFB/g/1/pt', { 0: true, 1: true });
+  await tick(); await warten(30); await tick();
+  t('sobald sie da ist, beginnt das Match', M.P.some(x => x.op === 'maybeStart'));
+  t('… mit der richtigen Teilnehmerliste', JSON.stringify(M.zustand().teil) === '[0,1]', M.zustand().teil);
+  t('… und die Wartestelle ist abgeraeumt', M.wartestelle().offen === false);
+  t('… ohne Meldung', !/fehlt/.test(String(M.zustand().status)), M.zustand().status);
+}
+{
+  // Und die Gegenprobe: eine Generation, die wirklich keine Liste hat, bleibt kaputt.
+  const M = neu();
+  M.sitz(0); M.gen(1); M.stand('playing');
+  M.roster(ROSTER([0, 1])); M.praesenz(PRAESENZ([0, 1]));
+  M.leeren();
+  await M.aufnehmen(); await tick();
+  t('auch hier wird zunaechst gewartet', M.wartestelle().offen === true);
+  await warten(300); await tick();
+  t('nach der Frist ist es ein Befund', /fehlt/.test(String(M.zustand().status)), M.zustand().status);
+  t('… die Wartestelle ist fort', M.wartestelle().offen === false);
+  t('… und es beginnt kein Match', !M.P.some(x => x.op === 'maybeStart'));
+  // Fail closed: auch ein weiterer Anlauf faengt nicht von vorn an.
+  M.leeren();
+  await M.aufnehmen(); await tick();
+  t('und nichts beginnt von vorn', M.wartestelle().offen === false && M.P.length === 0);
+}
+{
+  // Drei Ausloeser zugleich - EIN Match. Der optimistische Raumwechsel, die
+  // eintreffende Liste und die Bestaetigung des Servers fallen zusammen.
+  const M = neu();
+  M.sitz(0); M.gen(1); M.stand('playing');
+  M.roster(ROSTER([0, 1])); M.praesenz(PRAESENZ([0, 1]));
+  M.db('rooms/VEFB/g/1/pt', { 0: true, 1: true });
+  M.leeren();
+  await Promise.all([M.aufnehmen(), M.aufnehmen(), M.aufnehmen()]);
+  M.schritt(); M.schritt();
+  await tick(); await warten(30); await tick();
+  t('das Match wird GENAU EINMAL aufgenommen',
+    M.P.filter(x => x.op === 'maybeStart').length === 1,
+    M.P.filter(x => x.op === 'maybeStart').length);
+  t('… und es steht keine zweite Wartestelle offen',
+    M.WACHEN.filter(x => !x.ab && /\/pt$/.test(x.pfad)).length === 0);
+}
+{
+  // Eine Wartestelle auf eine ALTE Generation darf spaeter nichts mehr ausloesen.
+  const M = neu();
+  M.sitz(0); M.gen(1); M.stand('playing');
+  M.roster(ROSTER([0, 1])); M.praesenz(PRAESENZ([0, 1]));
+  M.leeren();
+  await M.aufnehmen(); await tick();
+  t('die Wartestelle gehoert Generation 1', M.wartestelle().gen === 1);
+  M.gen(2);                                  // der Raum ist weitergezogen
+  M.melden('rooms/VEFB/g/1/pt', { 0: true, 1: true });
+  await tick(); await warten(30); await tick();
+  t('eine spaete Liste der alten Generation startet nichts',
+    !M.P.some(x => x.op === 'maybeStart'));
+  t('… und die alte Wartestelle ist abgeraeumt', M.wartestelle().offen === false);
+}
+{
+  // Sie endet auch, wenn der Raum wieder Lobby ist.
+  const M = neu();
+  M.sitz(0); M.gen(1); M.stand('playing');
+  M.roster(ROSTER([0, 1])); M.praesenz(PRAESENZ([0, 1]));
+  await M.aufnehmen(); await tick();
+  t('es wird gewartet', M.wartestelle().offen === true);
+  M.stand('lobby'); M.schritt(); await tick();
+  t('… und mit dem Matchende endet das Warten', M.wartestelle().offen === false);
+}
+{
+  // Und mit dem Verlassen des Raums.
+  const M = neu();
+  M.sitz(0); M.gen(1); M.stand('playing');
+  M.roster(ROSTER([0, 1])); M.praesenz(PRAESENZ([0, 1]));
+  await M.aufnehmen(); await tick();
+  M.aus();
+  t('das Verlassen raeumt die Wartestelle ab', M.wartestelle().offen === false);
+  t('… und meldet alles ab', M.WACHEN.every(x => x.ab));
 }
 
 // ══ 7. DER NICHTTEILNEHMER IM SPIEL ══════════════════════════════════════════
@@ -713,6 +815,11 @@ abschnitt('Die Fassung 11 ist erreichbar - und nur ueber die benannten Wege');
     HTML.indexOf('fbV11Ready') < 0 && HTML.indexOf('fbV11Rd') < 0
     && HTML.indexOf('fbV11BereitSitze') < 0 && HTML.indexOf('fbV11StartPruefen') < 0
     && HTML.indexOf('fbV11StartSchreiben') < 0);
+  t('die Wartestelle hat eine ausdrueckliche Frist', /const FB_V11_PT_FRIST_MS=15000;/.test(HTML));
+  t('der Starter sagt seinem Lebenszyklus Bescheid, sobald der Server bestaetigt hat',
+    /if\(ctx\.sid===onlineSessionId&&ctx\.room===roomCode\)fbV11Schritt\(\);/.test(HTML));
+  t('eine fehlende Liste fuehrt zuerst in die Wartestelle, nicht in die Meldung',
+    /if\(!sitze\)\{ fbV11PtWarten\(\); return; \}/.test(HTML));
   t('die Nachfolge wartet die volle Rueckkehrzeit ab, wenn der Wirt nur getrennt ist',
     /const frist=fbV11HostGemerkt\(\)\?FB_V11_HOST_FRIST_MS:0;/.test(HTML)
     && /const FB_V11_HOST_FRIST_MS=SEAT_STALE_MS\+LOBBY_HOST_GRACE_MS;/.test(HTML));
@@ -785,8 +892,15 @@ abschnitt('Kein zweiter Weg neben den benannten');
     (modul.match(/rRef\('state'\)/g) || []).length === 2
     && /window\.FB\.set\(rRef\('state'\),'lobby'\)/.test(modul)
     && /window\.FB\.onValue\(rRef\('state'\)/.test(modul));
-  t('es gibt genau eine Stelle, die die Teilnehmerliste liest',
-    (modul.match(/fbV11PtSitze\(/g) || []).length === 2);
+  // Gelesen wird die Liste an drei Stellen, und jede hat ihren Grund: die Deutung
+  // selbst, der einmalige Griff beim Aufnehmen, und die Wartestelle, die erkennt, ob
+  // das Eingetroffene schon eine brauchbare Liste ist.
+  t('die Teilnehmerliste wird nur ueber DIESE eine Deutung gelesen',
+    (modul.match(/fbV11PtSitze\(/g) || []).length === 3
+    && (modul.match(/function fbV11PtSitze/g) || []).length === 1);
+  t('der Lebenszyklus taktet nicht - er wartet begrenzt',
+    modul.indexOf('setInterval') < 0
+    && (modul.match(/setTimeout/g) || []).length === 3);
 }
 
 console.log('\nOnline-V11-Client: ' + pass + ' passed, ' + fail + ' failed');
