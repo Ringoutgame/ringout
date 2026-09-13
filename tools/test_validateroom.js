@@ -8,7 +8,7 @@ const verSrc = grab(html, /const ONLINE_PROTOCOL_VERSION=[^\n]*/, 'ONLINE_PROTOC
 const protoSrc = grab(html, /const ROOM_GAME_RINGOUT=[\s\S]*?\nfunction validateTurnRecord\(rec,game,seat\)\{[\s\S]*?\n\}/, 'Protokoll v4');
 // Stufe 2A: die Raumpruefung fragt, ob eine Fassung BEDIENBAR ist.
 const fassungSrc = grab(html, /function fbRaumFassungOk\(v\)\{[^\n]*\}/, 'fbRaumFassungOk');
-const vrSrc = grab(html, /function validateRoom\(d\)\{[\s\S]*?\n\}/, 'validateRoom');
+const vrSrc = grab(html, /function validateRoom\(d,jetzt\)\{[\s\S]*?\n\}/, 'validateRoom');
 // Join snippets with newlines, never ';': an extracted line may end in a
 // // comment, which only a real line break (absent on Linux/LF) terminates.
 const validateRoom = new Function([verSrc, genSrc, protoSrc, fassungSrc, vrSrc, 'return validateRoom;'].join('\n'))();

@@ -25,6 +25,16 @@ const SRC = [
   // Stufe 2A: die Raumpruefungen fragen, ob eine Fassung BEDIENBAR ist.
   grabFunction(html, 'fbRaumFassungOk'),
   grabFunction(html, 'fbRaumFassung'),
+  // Die Belegungsbegriffe gehoeren zur Raumpruefung - sie liest sie.
+  grab(html, new RegExp('const SEAT_STALE_MS=[^\\n]*'), 'SEAT_STALE_MS'),
+  grab(html, new RegExp('const LOBBY_HOST_GRACE_MS=[^\\n]*'), 'LOBBY_HOST_GRACE_MS'),
+  grab(html, new RegExp('const FB_V11_HOST_FRIST_MS=[^\\n]*'), 'FB_V11_HOST_FRIST_MS'),
+  grabFunction(html, 'jetztServer'),
+  grabFunction(html, 'seatLage'),
+  grabFunction(html, 'seatAnyActive'),
+  grabFunction(html, 'freieSitze'),
+  grabFunction(html, 'v11HostLage'),
+  grabFunction(html, 'roomHostSeat'),
   grabFunction(html, 'validateRoom'),
   grabFunction(html, 'validateRejoinRoom'),
   // Die dritte Raumpruefung: sie entscheidet, was in der oeffentlichen Liste ueberhaupt
@@ -47,7 +57,10 @@ const P = new Function(`
     MOVE: TURN_MOVE, SKIP: TURN_SKIP, REMOVE: TURN_REMOVE,
     roomGame, roomIsFootball, validGamePair, roomSeatCap,
     fbTurnMove, fbTurnSkip, fbTurnRemove, validateTurnRecord,
-    validateRoom, validateRejoinRoom, publicListingView, validModeCap, modeReachable
+    validateRoom, validateRejoinRoom, publicListingView, validModeCap, modeReachable,
+    pickFreeSeat, seatActive, roomSeatCap,
+    seatLage, freieSitze, v11HostLage, seatAnyActive,
+    SEAT_STALE_MS, FB_V11_HOST_FRIST_MS
   };
 `)();
 
@@ -603,6 +616,159 @@ t('Beitritt: die Ablehnung nennt die Versionsunvertraeglichkeit',
   t('und raeumt deren Eintraege weg',
     P.publicListingView(pub(4), Date.now()).remove === true &&
     P.publicListingView(pub(5), Date.now()).remove === true);
+}
+
+// ── (9) BELEGUNG: WANN IST EIN RAUM WIRKLICH VOLL? ───────────────────────────────
+// Anlass: aus dem Freundeskreis kam die Meldung, ein Raum habe sich als voll gemeldet,
+// obwohl er es nicht war. Nachgestellt waren es zwei Wege - Karteileichen auf Sitzen und
+// ein kurz getrennter Wirt. Hier steht, was seither gilt.
+//
+// DER MASSSTAB IST EINER: SEAT_STALE_MS. Dieselbe Frist pruefen die ausgelieferten Rules,
+// bevor sie einen Sitz zur Uebernahme freigeben; dieselbe benutzen Rueckkehr und
+// Austragung. Fuer den WIRT gilt die laengere Rueckkehrzeit seiner Nachfolge.
+{
+  const CFG = { game: 'football', fmt: 'elimination', winTarget: 3, mode: 'lives', cap: 5, visibility: 'public' };
+  const JETZT = 1000000;
+  const FRISCH = JETZT - 2000;                       // eben erst getrennt
+  const ALT = JETZT - P.SEAT_STALE_MS - 1;           // Frist um
+  const UR_ALT = JETZT - P.FB_V11_HOST_FRIST_MS - 1; // auch die Wirtsfrist ist um
+  const AN = (i) => ({ s: 'TAB' + i, on: true, t: JETZT - 1 });
+  const AUS = (i, t) => ({ s: 'TAB' + i, on: false, t: t });
+  const raum = (p, over) => Object.assign({ v: 11, hostUid: 'UID0', config: CFG, gen: 0, state: 'lobby',
+    p: p, players: Object.keys(p).reduce((a, k) => (a[k] = { id: 'P' + k, name: 'N' + k, tab: 'TAB' + k, uid: 'UID' + k }, a), {}),
+    created: 1 }, over || {});
+  const pruef = (d) => P.validateRoom(d, JETZT);
+
+  // ── Die vier Lagen eines Sitzes ────────────────────────────────────────────
+  t('ein fehlender Eintrag ist leer', P.seatLage({}, 3, JETZT) === 'leer');
+  t('on:true heisst verbunden', P.seatLage({ 3: AN(3) }, 3, JETZT) === 'verbunden');
+  t('frisch getrennt heisst: die Frist laeuft', P.seatLage({ 3: AUS(3, FRISCH) }, 3, JETZT) === 'frist');
+  t('nach der Frist ist er abgelaufen', P.seatLage({ 3: AUS(3, ALT) }, 3, JETZT) === 'abgelaufen');
+  t('genau AUF der Schwelle gilt er als abgelaufen',
+    P.seatLage({ 3: AUS(3, JETZT - P.SEAT_STALE_MS) }, 3, JETZT) === 'abgelaufen');
+  t('eine Millisekunde davor noch nicht',
+    P.seatLage({ 3: AUS(3, JETZT - P.SEAT_STALE_MS + 1) }, 3, JETZT) === 'frist');
+  t('ohne Zeitstempel wird niemand enteignet',
+    P.seatLage({ 3: { s: 'X', on: false } }, 3, JETZT) === 'frist');
+  t('ein Zeitstempel aus der Zukunft entscheidet nichts',
+    P.seatLage({ 3: AUS(3, JETZT + 60000) }, 3, JETZT) === 'frist');
+
+  // ── A. Zwei Verbundene in einem Fuenfsitzer ────────────────────────────────
+  {
+    const v = pruef(raum({ 0: AN(0), 1: AN(1) }));
+    t('A zwei Verbundene: ein dritter Beitritt ist moeglich', v.ok === true && v.freeSeat === 2, v);
+    t('A die Kandidaten sind die leeren Sitze', JSON.stringify(v.kandidaten) === '[2,3,4]', v.kandidaten);
+    t('A die Sollbesetzung ist fuenf', v.cap === 5, v.cap);
+  }
+  // ── B. Karteileichen halten keinen Platz mehr besetzt ──────────────────────
+  {
+    const v = pruef(raum({ 0: AN(0), 1: AUS(1, ALT), 2: AUS(2, ALT), 3: AUS(3, ALT), 4: AUS(4, ALT) }));
+    t('B vier abgelaufene Eintraege und EIN Verbundener: der Raum ist beitretbar', v.ok === true, v);
+    t('B … und zwar auf genau diesen abgelaufenen Sitzen',
+      JSON.stringify(v.kandidaten) === '[1,2,3,4]', v.kandidaten);
+    t('B der Sitz des Wirts ist nie dabei', (v.kandidaten || []).indexOf(0) < 0);
+  }
+  // ── C. Was noch in seiner Frist steht, wird nicht genommen ─────────────────
+  {
+    const v = pruef(raum({ 0: AN(0), 1: AUS(1, FRISCH), 2: AUS(2, FRISCH), 3: AUS(3, FRISCH), 4: AUS(4, FRISCH) }));
+    t('C frisch getrennte Sitze bleiben ihren Leuten', v.ok === false && /voll/.test(v.reason), v);
+    const halb = pruef(raum({ 0: AN(0), 1: AUS(1, FRISCH), 2: AUS(2, ALT) }));
+    t('C … waehrend daneben ein leerer und ein abgelaufener Sitz offenstehen',
+      halb.ok === true && JSON.stringify(halb.kandidaten) === '[3,4,2]', halb.kandidaten);
+    t('C leere Sitze kommen VOR den abgelaufenen', (halb.kandidaten || [])[0] === 3);
+  }
+  // ── D. Eine zurueckgenommene Reservierung gibt den Platz frei ──────────────
+  {
+    t('D waehrend der Reservierung gilt der Sitz als vergeben',
+      P.seatLage({ 2: AUS(2, FRISCH) }, 2, JETZT) === 'frist');
+    const ohne = pruef(raum({ 0: AN(0) }));
+    t('D nach der Ruecknahme ist er wieder frei', JSON.stringify(ohne.kandidaten) === '[1,2,3,4]', ohne.kandidaten);
+  }
+  // ── E. Fuenf wirklich Verbundene ───────────────────────────────────────────
+  {
+    const voll = pruef(raum({ 0: AN(0), 1: AN(1), 2: AN(2), 3: AN(3), 4: AN(4) }));
+    t('E fuenf Verbundene: der sechste wird abgewiesen', voll.ok === false, voll);
+    t('E und zwar mit der zutreffenden Begruendung', voll.reason === 'Raum ist schon voll.');
+  }
+  // ── F. Ein laufendes Match ist kein volles Wartezimmer ─────────────────────
+  {
+    const spielt = pruef(raum({ 0: AN(0) }, { state: 'playing' }));
+    t('F ein laufendes Match sagt "Match laeuft bereits."', /Match l/.test(spielt.reason), spielt);
+    t('F … auch wenn dabei nur ein einziger Sitz belegt ist', spielt.ok === false);
+    const spieltVoll = pruef(raum({ 0: AN(0), 1: AN(1), 2: AN(2), 3: AN(3), 4: AN(4) }, { state: 'playing' }));
+    t('F … und ebenso bei voller Besetzung', /Match l/.test(spieltVoll.reason), spieltVoll.reason);
+  }
+  // ── G. Der Wirt ist kurz weg ───────────────────────────────────────────────
+  {
+    const kurz = pruef(raum({ 0: AUS(0, FRISCH), 1: AN(1) }));
+    t('G ein kurz getrennter Wirt macht den Raum NICHT verwaist', kurz.ok === true, kurz);
+    t('G sein Sitz bleibt ihm - er steht nicht zur Vergabe', (kurz.kandidaten || []).indexOf(0) < 0, kurz.kandidaten);
+    const alleinKurz = pruef(raum({ 0: AUS(0, FRISCH) }));
+    t('G auch wenn er der Einzige ist, bleibt sein Raum betretbar', alleinKurz.ok === true, alleinKurz);
+    // Ueber seine Rueckkehrzeit hinaus entscheidet die Nachfolge: solange noch jemand
+    // verbunden ist, lebt der Raum weiter.
+    const lange = pruef(raum({ 0: AUS(0, UR_ALT), 1: AN(1) }));
+    t('G ist er wirklich fort, traegt der Verbliebene den Raum', lange.ok === true, lange);
+    t('G und sein Sitz wird danach wieder vergeben', (lange.kandidaten || []).indexOf(0) >= 0, lange.kandidaten);
+  }
+  // ── H. Wirklich verwaist ───────────────────────────────────────────────────
+  {
+    const tot = pruef(raum({ 0: AUS(0, UR_ALT), 1: AUS(1, ALT) }));
+    t('H niemand verbunden, der Wirt endgueltig fort: verwaist',
+      tot.ok === false && /verwaist/.test(tot.reason), tot);
+    const ohneWirt = pruef(raum({ 1: AUS(1, ALT) }));
+    t('H und ein Raum ohne jede Wirtskennung ebenso',
+      ohneWirt.ok === false && /verwaist/.test(ohneWirt.reason), ohneWirt);
+    const nurGast = pruef(raum({ 1: AN(1) }));
+    t('H aber ein verbundener Gast haelt ihn am Leben', nurGast.ok === true, nurGast);
+  }
+  // ── I. Die alten Fassungen bleiben, wie sie sind ───────────────────────────
+  {
+    const alt10 = (p2, over) => P.validateRoom(Object.assign(raum(p2, over), { v: 10, seats: 2 }), JETZT);
+    t('I v10: ein getrennter Wirt gilt weiterhin sofort als verwaist',
+      alt10({ 0: AUS(0, FRISCH), 1: AN(1) }).reason === 'Raum ist verwaist.');
+    t('I v10: abgelaufene Eintraege gelten weiterhin als belegt',
+      alt10({ 0: AN(0), 1: AUS(1, ALT), 2: AUS(2, ALT), 3: AUS(3, ALT), 4: AUS(4, ALT) }).reason === 'Raum ist schon voll.');
+    t('I v10: der gewoehnliche Beitritt geht unveraendert',
+      alt10({ 0: AN(0) }).ok === true && alt10({ 0: AN(0) }).freeSeat === 1);
+    const ring = P.validateRoom({ v: 8, hostUid: 'UID0', gen: 0, state: 'lobby',
+      config: { game: 'ringout', fmt: 'ffa', winTarget: 3, visibility: 'public', mode: 'lives', cap: 5 },
+      p: { 0: AN(0), 1: AUS(1, ALT), 2: AUS(2, ALT), 3: AUS(3, ALT), 4: AUS(4, ALT) },
+      players: { 0: { id: 'P0', name: 'N0', tab: 'TAB0', uid: 'UID0' } }, created: 1 }, JETZT);
+    t('I Ring Out bleibt unberuehrt', ring.reason === 'Raum ist schon voll.', ring);
+  }
+  // ── K. Liste und Beitritt sagen dasselbe ──────────────────────────────────
+  // Die oeffentliche Liste zaehlt seit jeher VERBUNDENE, nicht Eintraege. Seit der
+  // Beitritt dasselbe tut, koennen beide sich nicht mehr widersprechen: was die Liste
+  // als frei zeigt, ist auch betretbar.
+  {
+    const mitLeichen = raum({ 0: AN(0), 1: AUS(1, ALT), 2: AUS(2, ALT), 3: AUS(3, ALT), 4: AUS(4, ALT) },
+      { created: JETZT - 60000 });
+    const v = P.publicListingView(mitLeichen, JETZT);
+    t('K die Liste zeigt den Raum weiterhin', v.show === true, v);
+    t('K … und zaehlt die Menschen, nicht die Eintraege', v.active === 1 && v.capacity === 5, { a: v.active, c: v.capacity });
+    t('K und genau dieser Raum ist auch betretbar', pruef(mitLeichen).ok === true);
+    const wirklichVoll = raum({ 0: AN(0), 1: AN(1), 2: AN(2), 3: AN(3), 4: AN(4) }, { created: JETZT - 60000 });
+    t('K ein wirklich voller Raum verschwindet aus der Liste',
+      P.publicListingView(wirklichVoll, JETZT).show === false);
+    t('K … und ist auch nicht betretbar', pruef(wirklichVoll).ok === false);
+  }
+  // ── J. Die Verdrahtung im Produkt ──────────────────────────────────────────
+  {
+    t('J der Beitritt fragt die Raumpruefung nach Kandidaten',
+      /const kand=v\.kandidaten&&v\.kandidaten\.length\?v\.kandidaten:\[v\.freeSeat\];/.test(html));
+    t('J ein abgelaufener Sitz wird UEBERNOMMEN, kein leerer wird geloescht',
+      /const r=uebernahme\?await reclaimSeat\(code,seat,uebernahme\.name\|\|'',false,team2\)/.test(html));
+    t('J die Zahl der Anlaeufe ist fest und klein',
+      /const FB_V11_BEITRITT_ANLAEUFE=3;/.test(html)
+      && /for\(let anlauf=0;anlauf<FB_V11_BEITRITT_ANLAEUFE;anlauf\+\+\)\{/.test(html));
+    t('J die Absage nennt den Grund des RAUMS, nicht "voll" auf Verdacht',
+      /if\(c\.seat<0\)\{ setStatus\(c\.grund\|\|T\('roomFull'\)\); return; \}/.test(html));
+    t('J und es gibt genau EINE Frist, keine zweite',
+      (html.match(/SEAT_STALE_MS/g) || []).length > 3
+      && html.indexOf('STALE_JOIN_MS') < 0 && html.indexOf('RECLAIM_MS') < 0);
+    t('J die Uhr ist ueberall dieselbe', /function jetztServer\(\)\{ return \(typeof serverNow==='function'\)\?serverNow\(\):Date\.now\(\); \}/.test(html));
+  }
 }
 
 console.log('\nOnline-Protokoll: ' + pass + ' passed, ' + fail + ' failed');

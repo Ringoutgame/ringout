@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<link rel="icon" href="favicon.ico" sizes="32x32">
 <title>Ring Out</title>
 <style>
 :root{
@@ -1944,9 +1945,14 @@ async function releaseReservation(code,seat,dc,tok){
 // just-written data via releaseReservation and never touches foreign state.
 // Outcomes: {ok:true,dc} activated · {lost:true} reserve lost (no partial state,
 // caller tries the next seat) · {stale:true} op superseded (own writes rolled back).
-async function claimSeatSlot(code,seat,op,extra,team2){
+async function claimSeatSlot(code,seat,op,extra,team2,uebernahme){
   const tok=onlineTab;   // Token DIESER Reservierung — der Rollback prueft genau dieses
-  const r=await reserveSeat(code,seat,team2);
+  // Zwei Formen, EIN Weg: ein leerer Sitz wird reserviert, ein abgelaufener uebernommen.
+  // Beide schreiben p und players in EINEM atomaren Update; welche Form zulaessig ist,
+  // entscheiden allein die Rules (die Uebernahme verlangt dort einen anderen Token, die
+  // Lobby und die volle Frist). Der Client schlaegt vor, der Server entscheidet.
+  const r=uebernahme?await reclaimSeat(code,seat,uebernahme.name||'',false,team2)
+                    :await reserveSeat(code,seat,team2);
   if(!r.ok)return {ok:false,lost:true,dc:null};
   if(op!=null&&!joinOpCurrent(op)){ await releaseReservation(code,seat,null,tok); return {ok:false,stale:true,dc:null}; }
   let dc=null;
@@ -2419,6 +2425,7 @@ en:{tagline:'PULL BACK · RELEASE · KNOCK THEM OUT',chip:'FEATURED',
   fbGolden:'GOLDEN GOAL',
   creating:'Creating room…',ffaShare:'FFA · Share the code with 1–4 friends.',shareCode:'Share the code with your friend.',
   code4:'Please enter the 4-letter code.',joining:'Joining…',noRoom:'Room not found.',roomFull:'Room is already full.',
+  joinBusy:'Seats are being taken right now — please try again.',
   connWait:'Connected! Waiting for the host…',connStart:'Connected! Game starting…',
   noFb:'⚠ No connection to Firebase. Check internet & config.',noAuth:'⚠ Sign-in failed. Please reload the page.',err:'Error: ',errRules:'The server rules are older than this client — please deploy the database rules.',noOnlineReset:'Not available in online mode.',loading:'Loading arena...',
   victory:'VICTORY',defeat:'DEFEAT',wins:'WINS',finalScore:'FINAL SCORE',elimDone:'ELIMINATION COMPLETE',ringout:'RINGOUT',round:'ROUND',
@@ -2509,6 +2516,7 @@ de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'FEATURED',
   fbGolden:'GOLDEN GOAL',
   creating:'Erstelle Raum…',ffaShare:'FFA · Schick den Code an 1–4 Freunde.',shareCode:'Schick den Code an deinen Kumpel.',
   code4:'Bitte 4-stelligen Code eingeben.',joining:'Trete bei…',noRoom:'Raum nicht gefunden.',roomFull:'Raum ist schon voll.',
+  joinBusy:'Gerade wird um die Plätze gerungen — bitte nochmal versuchen.',
   connWait:'Verbunden! Warte auf den Host…',connStart:'Verbunden! Spiel startet…',
   noFb:'⚠ Keine Verbindung zu Firebase. Internet & Config prüfen.',noAuth:'⚠ Anmeldung fehlgeschlagen. Bitte Seite neu laden.',err:'Fehler: ',errRules:'Die Regeln am Server sind älter als dieser Client — bitte die Datenbankregeln veröffentlichen.',noOnlineReset:'Im Online-Modus nicht verfügbar.',loading:'Arena wird geladen...',
   victory:'SIEG',defeat:'NIEDERLAGE',wins:'GEWINNT',finalScore:'ENDSTAND',elimDone:'ELIMINATION BEENDET',ringout:'RINGOUT',round:'RUNDE',
@@ -2599,6 +2607,7 @@ tr:{tagline:'GERİ ÇEK · BIRAK · DIŞARI İT',chip:'FEATURED',
   fbGolden:'ALTIN GOL',
   creating:'Oda kuruluyor…',ffaShare:'FFA · Kodu 1–4 arkadaşına gönder.',shareCode:'Kodu arkadaşına gönder.',
   code4:'Lütfen 4 haneli kodu gir.',joining:'Katılınıyor…',noRoom:'Oda bulunamadı.',roomFull:'Oda zaten dolu.',
+  joinBusy:'Şu anda yerler kapılıyor — lütfen tekrar dene.',
   connWait:'Bağlandı! Host bekleniyor…',connStart:'Bağlandı! Oyun başlıyor…',
   noFb:'⚠ Firebase bağlantısı yok. İnterneti ve yapılandırmayı kontrol et.',noAuth:'⚠ Giriş başarısız. Lütfen sayfayı yeniden yükle.',err:'Hata: ',errRules:'Sunucu kuralları bu istemciden eski — lütfen veritabanı kurallarını yayınlayın.',noOnlineReset:'Online modda kullanılamaz.',loading:'Arena yükleniyor...',
   victory:'ZAFER',defeat:'MAĞLUBİYET',wins:'KAZANDI',finalScore:'SON SKOR',elimDone:'ELEME TAMAMLANDI',ringout:'RINGOUT',round:'RAUNT',
@@ -11802,6 +11811,54 @@ function validModeCap(cfg){
 // die Verwaisungspruefung fragte fest nach p/0. In einem Team-2v2-Raum, den ein
 // ROT-Ersteller angelegt hat, sitzt der Host aber auf Sitz 2 - p/0 existiert dort gar
 // nicht, und JEDER Beitritt wurde als "Raum ist verwaist" abgewiesen.
+// ── WER SITZT WIRKLICH DA? (v11) ────────────────────────────────────────────
+// Ein Sitzeintrag ist kein Mensch. Vier Lagen sind zu unterscheiden, und nur zwei davon
+// geben einen Platz frei:
+//   'leer'        es gibt keinen Eintrag
+//   'verbunden'   on===true - da sitzt jemand
+//   'frist'       getrennt oder frisch reserviert, die Rueckkehrzeit laeuft noch
+//   'abgelaufen'  getrennt, die Zeit ist um - die ausgelieferten Rules geben den Sitz
+//                 ab genau dieser Schwelle zur Uebernahme frei
+// Gerechnet wird mit SEAT_STALE_MS - derselben Frist, die die Rules pruefen und die
+// auch Rueckkehr, Wirtsnachfolge und Austragung benutzen. Es gibt keine zweite.
+// Ohne brauchbaren Zeitstempel wird NICHT enteignet: im Zweifel bleibt der Sitz besetzt.
+function jetztServer(){ return (typeof serverNow==='function')?serverNow():Date.now(); }
+function seatLage(p,s,jetzt,frist){
+  const e=p&&p[s];
+  if(!e)return 'leer';
+  if(e.on===true)return 'verbunden';
+  const t=Number(e.t);
+  if(!Number.isFinite(t))return 'frist';
+  const alter=jetzt-t;
+  if(!(alter>=0))return 'frist';                 // Zeitstempel aus der Zukunft: nicht entscheiden
+  return alter>=(frist||SEAT_STALE_MS)?'abgelaufen':'frist';
+}
+function seatAnyActive(p,cap){
+  for(let s=0;s<cap;s++)if(p&&p[s]&&p[s].on===true)return true;
+  return false;
+}
+// Welche Sitze darf ein BEITRETENDER versuchen - und in welcher Reihenfolge? Zuerst die
+// leeren, danach die abgelaufenen. Der Sitz des Wirts bleibt aussen vor: die Wirtsrolle
+// wandert ueber die Nachfolge, niemals ueber einen Beitritt.
+function freieSitze(d,cap,jetzt,hostSitz){
+  const p=(d&&d.p)||{}, leer=[], alt=[];
+  for(let s=0;s<cap;s++){
+    if(s===hostSitz)continue;
+    const l=seatLage(p,s,jetzt);
+    if(l==='leer')leer.push(s);
+    else if(l==='abgelaufen')alt.push(s);
+  }
+  return leer.concat(alt);
+}
+// Der Wirt eines v11-Raums: auf welchem Sitz sitzt er, und wie steht es um ihn? Traegt
+// KEIN Sitz die Wirtskennung, gibt es keinen Wirtssitz (-1) - dann entscheidet die
+// Nachfolge, nicht ein Rueckfall auf Sitz 0.
+function v11HostLage(d,jetzt){
+  const hs=roomHostSeat(d), pl=d&&d.players;
+  const echt=!!(pl&&pl[hs]&&typeof d.hostUid==='string'&&d.hostUid&&pl[hs].uid===d.hostUid);
+  if(!echt)return {sitz:-1,lage:'ohne'};
+  return {sitz:hs,lage:seatLage(d&&d.p,hs,jetzt,FB_V11_HOST_FRIST_MS)};
+}
 function roomHostSeat(d){
   const h=d&&d.hostUid, pl=d&&d.players;
   if(typeof h!=='string'||!h||!pl||typeof pl!=='object')return 0;
@@ -11867,7 +11924,7 @@ function fbRaumFassung(cfg){
 // Produkt: v8 ueber den Zugslot, v9 ueber Commit und Enthuellung. Eine aeltere Fassung
 // bleibt abgewiesen - dort rechnet die Simulation anders.
 function fbRaumFassungOk(v){ return v===8||(ONLINE_PROTOCOL_VERSION>=9&&v===9)||(ONLINE_PROTOCOL_VERSION>=10&&v===10)||(ONLINE_PROTOCOL_VERSION>=11&&v===11); }
-function validateRoom(d){
+function validateRoom(d,jetzt){
   if(!d||typeof d!=='object')return{ok:false,reason:'Raumdaten ungültig.'};
   if(!fbRaumFassungOk(d.v))return{ok:false,reason:'Versionen stimmen nicht überein — bitte beide Seite neu laden.'};
   const cfg=d.config;
@@ -11892,6 +11949,29 @@ function validateRoom(d){
   if(!Number.isSafeInteger(d.gen)||d.gen<0||d.gen>GEN_MAX)
     return{ok:false,reason:'Raum-Konfiguration ungültig.'};
   const p=d.p;
+  // ── v11: der bleibende Raum wird anders gelesen ───────────────────────────
+  // Er ueberlebt einen kurz getrennten Wirt (Bildschirmsperre, Funkloch) und er ist
+  // nicht voll, nur weil Karteileichen herumstehen. Verwaist ist er erst, wenn weder
+  // der Wirt innerhalb seiner Rueckkehrzeit noch sonst jemand verbunden ist - dann
+  // gibt es auch niemanden, an den die Nachfolge gehen koennte.
+  // v11 ist der bleibende Arena-Football-Raum - und nur er. Ein RingOut-Raum dieser
+  // Fassung existiert nicht (die Rules lassen ihn gar nicht erst zu); die Weiche sagt es
+  // trotzdem ausdruecklich, damit kein Pruefstand und kein Altbestand hier hineinrutscht.
+  if(d.v===11&&roomIsFootball(cfg)){
+    const nun=Number.isFinite(jetzt)?jetzt:jetztServer();
+    const cap11=roomSeatCap(cfg);
+    const w=v11HostLage(d,nun);
+    const wirtDa=(w.lage==='verbunden'||w.lage==='frist');
+    if(!wirtDa&&!seatAnyActive(p,cap11))return{ok:false,reason:'Raum ist verwaist.'};
+    if(d.state!=='lobby')return{ok:false,reason:'Match läuft bereits.'};
+    // Solange die Wirtskennung gilt, bleibt SEIN Sitz unangetastet - die Rolle wandert
+    // ueber die Nachfolge, nicht ueber einen Beitritt. Ist er ueber seine Rueckkehrzeit
+    // hinaus fort, ist sein Sitz ein Sitz wie jeder andere.
+    const frei=freieSitze(d,cap11,nun,wirtDa?w.sitz:-1);
+    if(!frei.length)return{ok:false,reason:'Raum ist schon voll.'};
+    return{ok:true,winTarget:cfg.winTarget,fmt:cfg.fmt,game:roomGame(cfg),gen:d.gen,
+           freeSeat:frei[0],kandidaten:frei,cap:cap11,mode:cfg.mode||'',hostUid:d.hostUid};
+  }
   // Verwaist heisst: der HOST ist nicht da - nicht "Sitz 0 ist leer". Seit der
   // Host/Sitz-Entkopplung sind das zwei verschiedene Aussagen.
   const hs=roomHostSeat(d);
@@ -12075,6 +12155,44 @@ async function claimSeat(code,op,maxSeats,kandidaten,team2){
   }
   return {seat:-1,dc:null};
 }
+// ── V11: BEITRETEN MIT BEGRENZTER NEUBEWERTUNG ──────────────────────────────
+// Jeder Anlauf liest den Raum FRISCH, laesst die Raumpruefung entscheiden und versucht
+// den ersten zulaessigen Sitz. Verliert er das Rennen (jemand war schneller, oder der
+// Sitz ist inzwischen zurueck), wird neu gelesen statt geraten. Die Zahl der Anlaeufe ist
+// klein und fest: drei. Danach sagt der RAUM, woran es lag - nicht ein alter
+// Schnappschuss.
+const FB_V11_BEITRITT_ANLAEUFE=3;
+async function fbV11Beitritt(code,op,cap){
+  const lesen=async()=>{
+    const snap=await window.FB.get(window.FB.ref(window.FB.db,'rooms/'+code));
+    return snap.exists()?(snap.val()||{}):null;
+  };
+  for(let anlauf=0;anlauf<FB_V11_BEITRITT_ANLAEUFE;anlauf++){
+    if(!joinOpCurrent(op))return {seat:-1,stale:true};
+    const d=await lesen();
+    if(!joinOpCurrent(op))return {seat:-1,stale:true};
+    if(!d)return {seat:-1,grund:T('noRoom')};
+    const v=validateRoom(d,jetztServer());
+    if(!v.ok)return {seat:-1,grund:v.reason};
+    const kand=v.kandidaten&&v.kandidaten.length?v.kandidaten:[v.freeSeat];
+    const sitz=kand[0];
+    // Traegt der Sitz noch einen abgelaufenen Eintrag, ist es eine Uebernahme; sonst
+    // eine gewoehnliche Reservierung. Der Name des Vorgaengers wird nur mitgegeben,
+    // damit der eigene Datensatz die Namenspflicht der Rules erfuellt, wenn dieser
+    // Client selbst keinen gespeicherten Namen hat.
+    const alt=d.p&&d.p[sitz];
+    const ueber=alt?{name:(d.players&&d.players[sitz]&&d.players[sitz].name)||''}:null;
+    const r=await claimSeatSlot(code,sitz,op,undefined,false,ueber);
+    if(r.stale)return {seat:-1,stale:true};
+    if(r.ok)return {seat:sitz,dc:r.dc};
+    // Rennen verloren: der naechste Anlauf liest den Raum neu.
+  }
+  // Auch nach drei Anlaeufen kein Sitz: der autoritative Zustand sagt, warum.
+  const d=await lesen();
+  if(!d)return {seat:-1,grund:T('noRoom')};
+  const v=validateRoom(d,jetztServer());
+  return {seat:-1,grund:v.ok?T('joinBusy'):v.reason};
+}
 function joinRoom(){
   if(TUNE){toast('Tuning aktiv — Online deaktiviert');return;}
   const code=($('onInput').value||'').toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,4);
@@ -12097,6 +12215,7 @@ function joinRoom(){
       const v=validateRoom(d);
       if(v.ok)roomProto=d.v;   // ab hier gilt die Fassung DIESES Raums
       if(!v.ok){ setStatus(v.reason); return; }
+      const v11Raum=(d.v===11&&v.game===ROOM_GAME_FOOTBALL);   // dieselbe Weiche wie in validateRoom
       // Capture whether the room carries a discovery listing, but commit it to the
       // roomPublic global ONLY after a successful seat claim below. A lost race,
       // permission_denied or stale op returns before the commit and must leave no
@@ -12153,11 +12272,15 @@ function joinRoom(){
             c=null;
           }
           if(!c||c.seat<0){ setStatus(T('roomFull')); return; }
+        }else if(v11Raum){
+          // v11: Kandidaten aus der Raumpruefung, Uebernahme abgelaufener Sitze,
+          // begrenzte Neubewertung - und eine Absage, die den wirklichen Grund nennt.
+          c=await fbV11Beitritt(code,op,cap);
         }else{
           c=await claimSeat(code,op,cap);   // rolls its own writes back if the op goes stale
         }
         if(c.stale)return;                  // op superseded -> globals stay untouched (offline)
-        if(c.seat<0){ setStatus(T('roomFull')); return; }
+        if(c.seat<0){ setStatus(c.grund||T('roomFull')); return; }
         // remote claim complete -> NOW commit the globals + UI + listeners
         roomCode=code; myPlayer=c.seat; online=true; runningGen=-1; gameStarted=false; seatLeft=[]; seatGone=[]; playersRoster=d.players||{};
         fbRoomMode=v.mode||''; fbRoomCap=Number.isInteger(v.cap)?v.cap:0; roomHostUid=v.hostUid||'';
@@ -12169,6 +12292,7 @@ function joinRoom(){
         rememberRoom(code,c.seat);
         hidePublicUI();   // entered a room -> stop the listener, hide the public UI
         setOnTitle(true);
+        $('onCode').textContent=roomCode;   // derselbe Code, den auch der Wirt sieht
         $('onActions').style.display='none';$('onLobby').style.display='';
         setStatus(T('connWait'));
         attachRoomListeners();
@@ -12186,6 +12310,7 @@ function joinRoom(){
       setzeVorspiel(mode,fmt);   // Kulisse der Lobby: die Koerper des Spiels, dem man beitritt
       rememberRoom(code,1);
       hidePublicUI();   // entered a room -> stop the listener, hide the public UI
+      $('onCode').textContent=roomCode;   // auch im Zweierraum sieht der Gast den Code
       setStatus(T('connStart'));
       attachRoomListeners();
     }catch(e){ if(joinOpCurrent(op))setStatus(T('err')+(e.message||e)); } })();

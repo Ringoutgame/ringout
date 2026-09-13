@@ -144,7 +144,7 @@ const SRC = [
   grab(/function setStatus\(t\)\{[^\n]*/, 'setStatus'),
   // Protokoll v4: Raumtyp + Football-Kontrakt + kanonische Zugereignisse, woertlich.
   grab(/const ROOM_GAME_RINGOUT=[\s\S]*?\nfunction validateTurnRecord\(rec,game,seat\)\{[\s\S]*?\n\}/, 'Protokoll v4'),
-  grab(/function validateRoom\(d\)\{[\s\S]*?\n\}/, 'validateRoom'),
+  grab(/function validateRoom\(d,jetzt\)\{[\s\S]*?\n\}/, 'validateRoom'),
   grab(/function pickFreeSeat\(p,max\)\{[^\n]*/, 'pickFreeSeat'),
   grab(/function validateRejoinRoom\(d\)\{[\s\S]*?\n\}/, 'validateRejoinRoom'),
   grab(/function seatCount\(p\)\{[^\n]*/, 'seatCount'),
@@ -229,7 +229,7 @@ const SRC = [
   grab(/async function armPresence\(code,seat\)\{[\s\S]*?\n\}/, 'armPresence'),
   grab(/async function activateSeat\(code,seat,extra\)\{[\s\S]*?\n\}/, 'activateSeat'),
   fn('releaseReservation'),
-  grab(/async function claimSeatSlot\(code,seat,op,extra,team2\)\{[\s\S]*?\n\}/, 'claimSeatSlot'),
+  grab(/async function claimSeatSlot\(code,seat,op,extra,team2,uebernahme\)\{[\s\S]*?\n\}/, 'claimSeatSlot'),
   fn('reclaimSeat'),
   grab(/async function releaseReclaim\(code,seat,dc\)\{[\s\S]*?\n\}/, 'releaseReclaim'),
   fn('reclaimSeatSlot'),

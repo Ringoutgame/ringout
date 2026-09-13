@@ -475,7 +475,7 @@ abschnitt('Waechter: der Adapter ruht');
     // Stufe 2A: sie vergleichen nicht mehr gegen die Ausbaustufe, sondern fragen, ob
     // eine Fassung BEDIENBAR ist - der Client betritt v8- wie v9-Raeume.
     t(fn + '() prueft ueber fbRaumFassungOk',
-      grab(new RegExp('function ' + fn + '\\(d\\)\\{[\\s\\S]*?' + NL + '\\}'), fn)
+      grab(new RegExp('function ' + fn + '\\(d(?:,jetzt)?\\)\\{[\\s\\S]*?' + NL + '\\}'), fn)
         .indexOf('fbRaumFassungOk(d.v)') > 0);
   // Der Adapter beruehrt keinen Spielzustand.
   // Die SPIELANBINDUNG ist die einzige Schicht, die das Spiel ueberhaupt kennen

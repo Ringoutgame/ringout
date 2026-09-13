@@ -18,7 +18,7 @@ const genSrc = grab(html, /const GEN_MAX=[^\n]*/, 'GEN_MAX');
 const protoSrc = grab(html, /const ROOM_GAME_RINGOUT=[\s\S]*?\nfunction validateTurnRecord\(rec,game,seat\)\{[\s\S]*?\n\}/, 'Protokoll v4');
 // Stufe 2A: die Raumpruefung fragt, ob eine Fassung BEDIENBAR ist.
 const fassungSrc = grab(html, /function fbRaumFassungOk\(v\)\{[^\n]*\}/, 'fbRaumFassungOk');
-const vrSrc = grab(html, /function validateRoom\(d\)\{[\s\S]*?\n\}/, 'validateRoom');
+const vrSrc = grab(html, /function validateRoom\(d,jetzt\)\{[\s\S]*?\n\}/, 'validateRoom');
 const pfsSrc = grab(html, /function pickFreeSeat\(p,max\)\{[^\n]*/, 'pickFreeSeat');
 const aacSrc = grab(html, /function allAliveCommitted\(\)\{[^\n]*/, 'allAliveCommitted');
 const saSrc = grab(html, /function seatActive\(p,s\)\{[^\n]*/, 'seatActive');

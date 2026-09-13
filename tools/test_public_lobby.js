@@ -15,7 +15,7 @@ const ageSrc = grab(html, /const ROOM_MAX_AGE_MS=[^\n]*/, 'ROOM_MAX_AGE_MS');
 const protoSrc = grab(html, /const ROOM_GAME_RINGOUT=[\s\S]*?\nfunction validateTurnRecord\(rec,game,seat\)\{[\s\S]*?\n\}/, 'Protokoll v4');
 // Stufe 2A: die Raumpruefung fragt, ob eine Fassung BEDIENBAR ist.
 const fassungSrc = grab(html, /function fbRaumFassungOk\(v\)\{[^\n]*\}/, 'fbRaumFassungOk');
-const vrSrc = grab(html, /function validateRoom\(d\)\{[\s\S]*?\n\}/, 'validateRoom');
+const vrSrc = grab(html, /function validateRoom\(d,jetzt\)\{[\s\S]*?\n\}/, 'validateRoom');
 const plvSrc = grab(html, /function publicListingView\(d,now\)\{[\s\S]*?\n\}/, 'publicListingView');
 // 01B: welche Fassungen der Auffindbarkeits-Index ueberhaupt fuehren darf. Das
 // Modusregister (FB_ONLINE_MODES, fbModeDef, fbModeReleased) steckt bereits im

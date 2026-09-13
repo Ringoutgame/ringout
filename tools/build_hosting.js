@@ -23,6 +23,9 @@ const OUT = path.join(ROOT, 'public');
 // Genau diese Dateien werden veroeffentlicht - nichts sonst.
 const DATEIEN = [
   'index.html',
+  // Das Sinnbild der Seite: ohne diese Datei beantwortet die Auslieferung /favicon.ico
+  // mit der Startseite - ein Megabyte HTML fuer ein Symbol.
+  'favicon.ico',
   // Game Hub: die freigegebenen Spielkarten-Motive der Startseite
   'assets/hub/hero_ringout.webp',
   'assets/hub/hero_football.webp',

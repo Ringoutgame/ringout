@@ -110,7 +110,7 @@ const R = new Function(`
      'der Beitritt fragt dasselbe Freigabetor');
   ok(/if\(!cfg\|\|!roomIsFootball\(cfg\)\)return true;/.test(reach),
      'und laesst RingOut-Raeume unberuehrt');
-  const vr = grab(/function validateRoom\(d\)\{[\s\S]*?\n\}/, 'validateRoom');
+  const vr = grab(/function validateRoom\(d,jetzt\)\{[\s\S]*?\n\}/, 'validateRoom');
   ok(/if\(!modeReachable\(cfg\)\)return\{ok:false,reason:'Dieser Onlinemodus ist noch nicht freigegeben\.'\};/.test(vr),
      'der Beitritt per Raumcode wird mit klarem Grund abgewiesen');
   const vj = grab(/function validateRejoinRoom\(d\)\{[\s\S]*?\n\}/, 'validateRejoinRoom');
@@ -539,7 +539,7 @@ const R = new Function(`
      'nur der dynamisch besetzte Arena-Raum schreibt einen oeffentlichen Eintrag - aeltere Football-Raeume nicht');
 
   // Die Raumpruefungen verlangen die Kennung und geben sie weiter.
-  const vr2 = grab(/function validateRoom\(d\)\{[\s\S]*?\n\}/, 'validateRoom');
+  const vr2 = grab(/function validateRoom\(d,jetzt\)\{[\s\S]*?\n\}/, 'validateRoom');
   ok(/if\(typeof d\.hostUid!=='string'\|\|!d\.hostUid\)return\{ok:false/.test(vr2),
      'ein v8-Raum ohne Hostkennung ist ungueltig');
   ok(/hostUid:d\.hostUid/.test(vr2), 'und die Pruefung reicht sie durch');
@@ -601,7 +601,7 @@ const R = new Function(`
      'und eine Kennung ohne passenden Sitz faellt sicher auf 0 zurueck');
   ok(hs(null) === 0 && hs({}) === 0, 'ein leerer Schnappschuss ergibt 0, nicht undefined');
 
-  const vr3 = grab(/function validateRoom\(d\)\{[\s\S]*?\n\}/, 'validateRoom');
+  const vr3 = grab(/function validateRoom\(d,jetzt\)\{[\s\S]*?\n\}/, 'validateRoom');
   ok(/const hs=roomHostSeat\(d\);/.test(vr3)
      && /if\(!p\|\|typeof p!=='object'\|\|!\(p\[hs\]&&p\[hs\]\.on===true\)\)/.test(vr3),
      'die Verwaisungspruefung fragt nach dem HOSTSITZ, nicht nach Sitz 0');
