@@ -118,7 +118,15 @@ const mitHost = (r) => { if (r && r.v === 8 && r.hostUid === undefined) {
 // damit ein noch offener v6-Raum nicht faelschlich fuer den heutigen Stand gehalten
 // wird). Alle drei muessen bedient werden, sonst waeren noch offene Raeume sofort tot.
 const V_ALT = [4, 5, 6];
-const GRACE = 15000;
+// Die Sitzfrist kommt AUS DEM PRODUKT, nicht aus dieser Datei: eine hier gepflegte
+// Zahl waere die zweite Wahrheit neben der einzigen, die zaehlt. tools/test_timeouts.js
+// haelt Client und Rules zusammen; diese Suite prueft das Verhalten an genau dieser Zahl.
+const GRACE = (() => {
+  const html = require('fs').readFileSync(require('path').join(__dirname, '..', 'index.html'), 'utf8');
+  const m = html.match(/const SEAT_STALE_MS=(\d+);/);
+  if (!m) { console.log('SEAT_STALE_MS nicht gefunden'); process.exit(2); }
+  return Number(m[1]);
+})();
 const H_TAB = 'HOSTTAB0', G_TAB = 'GTAB0001', G2_TAB = 'GTAB0002';
 // Durable roster records; players/<seat>.tab MUST equal p/<seat>.s (coupling).
 // v4: jeder Rostereintrag traegt seinen Eigentuemer. Die Basisfixtures benutzen die
@@ -231,7 +239,7 @@ deny('ACTIVATE foreign token', db1({ p: { 0: P(H_TAB, true), 1: P(G_TAB, false) 
 deny('ACTIVATE from already on:true (no-op online write)', db1({ p: { 0: P(H_TAB, true), 1: P(G_TAB, true) } }, 'ffa'), 'rooms/KX7P/p/1', P(G_TAB, true));
 // e is pre-seeded here only to assert the ACTIVATE branch still honours the e-guard;
 // no client can actually write e while Fund 2 is deferred (see section 11).
-deny('ACTIVATE with e pre-seeded (e-guard, playing)', db1({ state: 'playing', p: { 0: P(H_TAB, true), 1: P(G_TAB, false, NOW - 16000) }, g: { 0: { e: { 1: true } } } }, 'ffa'), 'rooms/KX7P/p/1', P(G_TAB, true));
+deny('ACTIVATE with e pre-seeded (e-guard, playing)', db1({ state: 'playing', p: { 0: P(H_TAB, true), 1: P(G_TAB, false, NOW - GRACE - 1000) }, g: { 0: { e: { 1: true } } } }, 'ffa'), 'rooms/KX7P/p/1', P(G_TAB, true));
 
 // ── (5) DISCONNECT — same token, on:true -> on:false, s frozen ──
 allow('DISCONNECT p/1 (same token)', db1({ p: { 0: P(H_TAB, true), 1: P(G_TAB, true) } }), 'rooms/KX7P/p/1', P(G_TAB, false));
@@ -261,17 +269,17 @@ deny('players seat 2 in single (seat guard)', db1({ p: { 0: P(H_TAB, false), 2: 
 
 // ── (7) recycling — lobby only, offline seat, now-t >= 15s; ID mutable only here ──
 deny('recycle p/1 before grace (foreign token)', db1({ p: { 0: P(H_TAB, false), 1: P(G_TAB, false, NOW - 3000) } }), 'rooms/KX7P/p/1', P(G2_TAB, false));
-allow('recycle p/1 after grace (roster already cleared)', db1({ p: { 0: P(H_TAB, false), 1: P(G_TAB, false, NOW - 16000) } }), 'rooms/KX7P/p/1', P(G2_TAB, false));
-deny('recycle p/1 alone rejected while roster still bound (coupling forces atomic)', db1({ p: { 0: P(H_TAB, false), 1: P(G_TAB, false, NOW - 16000) }, players: { 0: HOST, 1: REC('GUEST001', G_TAB) } }), 'rooms/KX7P/p/1', P(G2_TAB, false));
+allow('recycle p/1 after grace (roster already cleared)', db1({ p: { 0: P(H_TAB, false), 1: P(G_TAB, false, NOW - GRACE - 1000) } }), 'rooms/KX7P/p/1', P(G2_TAB, false));
+deny('recycle p/1 alone rejected while roster still bound (coupling forces atomic)', db1({ p: { 0: P(H_TAB, false), 1: P(G_TAB, false, NOW - GRACE - 1000) }, players: { 0: HOST, 1: REC('GUEST001', G_TAB) } }), 'rooms/KX7P/p/1', P(G2_TAB, false));
 // recycling a seat to a new identity requires a FULL joint token rotation: the new
 // players.tab must differ from the old AND must equal the freshly rotated p.s. Neither
 // single-leg form is valid on its own (Fund 3) — the atomic both-leg rotation is proven
 // in tools/e2e/spike.js. An id switch that keeps the old token, or rotates the token on
 // the players leg alone without the coupled p.s rotation, is rejected.
-deny('recycle players/1 id switch WITHOUT token rotation (tab unchanged)', db1({ p: { 0: P(H_TAB, false), 1: P(G_TAB, false, NOW - 16000) }, players: { 0: HOST, 1: { id: 'GUEST001', name: 'x', tab: G_TAB } } }), 'rooms/KX7P/players/1', REC('NEW00001', G_TAB));
-deny('recycle players/1 id+tab switch WITHOUT coupled p.s rotation (single-leg)', db1({ p: { 0: P(H_TAB, false), 1: P(G_TAB, false, NOW - 16000) }, players: { 0: HOST, 1: { id: 'GUEST001', name: 'x', tab: G_TAB } } }), 'rooms/KX7P/players/1', REC('NEW00001', 'GTAB0009'));
-deny('recycle players/1 id switch while seat still online', db1({ p: { 0: P(H_TAB, false), 1: P(G_TAB, true, NOW - 16000) }, players: { 0: HOST, 1: { id: 'GUEST001', name: 'x', tab: G_TAB } } }), 'rooms/KX7P/players/1', REC('NEW00001', G_TAB));
-deny('recycle players/1 id switch in PLAYING (lobby only)', db1({ state: 'playing', p: { 0: P(H_TAB, true), 1: P(G_TAB, false, NOW - 16000) }, players: { 0: HOST, 1: { id: 'GUEST001', name: 'x', tab: G_TAB } } }), 'rooms/KX7P/players/1', REC('NEW00001', G_TAB));
+deny('recycle players/1 id switch WITHOUT token rotation (tab unchanged)', db1({ p: { 0: P(H_TAB, false), 1: P(G_TAB, false, NOW - GRACE - 1000) }, players: { 0: HOST, 1: { id: 'GUEST001', name: 'x', tab: G_TAB } } }), 'rooms/KX7P/players/1', REC('NEW00001', G_TAB));
+deny('recycle players/1 id+tab switch WITHOUT coupled p.s rotation (single-leg)', db1({ p: { 0: P(H_TAB, false), 1: P(G_TAB, false, NOW - GRACE - 1000) }, players: { 0: HOST, 1: { id: 'GUEST001', name: 'x', tab: G_TAB } } }), 'rooms/KX7P/players/1', REC('NEW00001', 'GTAB0009'));
+deny('recycle players/1 id switch while seat still online', db1({ p: { 0: P(H_TAB, false), 1: P(G_TAB, true, NOW - GRACE - 1000) }, players: { 0: HOST, 1: { id: 'GUEST001', name: 'x', tab: G_TAB } } }), 'rooms/KX7P/players/1', REC('NEW00001', G_TAB));
+deny('recycle players/1 id switch in PLAYING (lobby only)', db1({ state: 'playing', p: { 0: P(H_TAB, true), 1: P(G_TAB, false, NOW - GRACE - 1000) }, players: { 0: HOST, 1: { id: 'GUEST001', name: 'x', tab: G_TAB } } }), 'rooms/KX7P/players/1', REC('NEW00001', G_TAB));
 
 // ── (8) state start — 1v1/2v2 ACTIVATE needs an online, unchanged host + p/1 ──
 allow('start: lobby->playing (host online + p/1 online)', db1({ p: { 0: P(H_TAB, true), 1: P(G_TAB, true) } }), 'rooms/KX7P/state', 'playing');
@@ -571,10 +579,10 @@ deny('ffa move idx 5', ffaMatch, 'rooms/KX7P/g/0/t/0/0', { idx: 5, dx: 0, dy: 0,
 // removed, so an offline seat's slot can no longer be filled by anyone — neither a
 // real move (the seat is offline) nor a zero "sentinel". The turn stalls on a
 // disconnect by design until the authoritative turn-pointer package lands.
-deny('real move for offline seat (grace-sentinel deferred)', playing({ p: { 0: P(H_TAB, true), 1: P(G_TAB, false, NOW - 16000) } }), 'rooms/KX7P/g/0/t/0/1', MOVE);
-deny('zero leave-sentinel for offline seat past grace (deferred)', playing({ p: { 0: P(H_TAB, true), 1: P(G_TAB, false, NOW - 16000) } }), 'rooms/KX7P/g/0/t/0/1', { idx: 1, dx: 0, dy: 0, sp: 0 });
+deny('real move for offline seat (grace-sentinel deferred)', playing({ p: { 0: P(H_TAB, true), 1: P(G_TAB, false, NOW - GRACE - 1000) } }), 'rooms/KX7P/g/0/t/0/1', MOVE);
+deny('zero leave-sentinel for offline seat past grace (deferred)', playing({ p: { 0: P(H_TAB, true), 1: P(G_TAB, false, NOW - GRACE - 1000) } }), 'rooms/KX7P/g/0/t/0/1', { idx: 1, dx: 0, dy: 0, sp: 0 });
 deny('zero leave-sentinel for fully-absent seat (deferred, no anchor)', playing({ p: { 0: P(H_TAB, true) } }, 'ffa'), 'rooms/KX7P/g/0/t/0/1', { idx: 1, dx: 0, dy: 0, sp: 0 });
-deny('move for eliminated seat (e pre-seeded)', playing({ p: { 0: P(H_TAB, true), 1: P(G_TAB, false, NOW - 16000) }, g: { 0: { e: { 1: true } } } }), 'rooms/KX7P/g/0/t/1/1', MOVE);
+deny('move for eliminated seat (e pre-seeded)', playing({ p: { 0: P(H_TAB, true), 1: P(G_TAB, false, NOW - GRACE - 1000) }, g: { 0: { e: { 1: true } } } }), 'rooms/KX7P/g/0/t/1/1', MOVE);
 
 // ── (11) elimination latch g/<gen>/e/<seat> — DEFERRED (Fund 2). Until the
 //        authoritative turn-pointer lands (later match-reconnect package), EVERY
@@ -586,7 +594,7 @@ deny('move for eliminated seat (e pre-seeded)', playing({ p: { 0: P(H_TAB, true)
 // bereits an players/<seat>.exists(), und ohne getrennte uids waere der "Peer" in
 // Wahrheit der Eigentuemer - der Test bewiese ueber den Raumtyp dann gar nichts.
 const RO_EV = (pOver, fmt) => playing({ players: { 0: RO_H, 1: RO_G },
-  p: pOver || { 0: P(H_TAB, true), 1: P(G_TAB, false, NOW - 16000) } }, fmt);
+  p: pOver || { 0: P(H_TAB, true), 1: P(G_TAB, false, NOW - GRACE - 1000) } }, fmt);
 // RingOut kennt kein REMOVE: eine dort gesetzte Eviction waere eine Sperre, die kein
 // RingOut-Pfad je aufloest - sie wuerde Praesenz-Reaktivierung und weitere Zuege des
 // Sitzes dauerhaft blockieren. Der Marker gehoert deshalb ausschliesslich Football.

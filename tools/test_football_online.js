@@ -433,7 +433,7 @@ function makeDB() {
         if (pl && pl.tab === val.s) {
           const ge = room.g && room.g[room.gen];
           if (room.state === 'playing' && !(ge && ge.e && ge.e[seat] === true)) return;
-          if (room.state === 'lobby' && (nowMs - cur.t) >= 15000) return;
+          if (room.state === 'lobby' && (nowMs - cur.t) >= SEAT_STALE_FROM_SOURCE) return;
         }
       }
       throw new Error('PERMISSION_DENIED: p token mismatch');
@@ -569,7 +569,7 @@ function makeDB() {
         if (writer < 0) throw new Error('PERMISSION_DENIED: eviction writer must be a connected peer');
         if (on(seat)) throw new Error('PERMISSION_DENIED: eviction target is online');
         const t0 = room.p && room.p[seat] && room.p[seat].t;
-        if (!(typeof t0 === 'number' && (nowMs - t0) >= 15000))
+        if (!(typeof t0 === 'number' && (nowMs - t0) >= SEAT_STALE_FROM_SOURCE))
           throw new Error('PERMISSION_DENIED: eviction target not stale enough');
         return;
       }
@@ -1979,8 +1979,8 @@ async function eliminateSeat(db, cs, seat, maxRounds) {
   // ── Der behobene Fehler ──
   t('S1 kein 1v1-Overlay: das Match wird NICHT fuer beendet erklaert',
     v.wt === '' && v.ws === '', v);
-  t('S2 der Ausfall wird gemeldet, ohne das Match zu beenden',
-    v.toasts.some(x => x.indexOf('nicht mehr verbunden') >= 0), v.toasts);
+  t('S2 der Ausfall wird gemeldet - mit dem NAMEN, ohne das Match zu beenden',
+    v.toasts.some(x => /hat den Raum verlassen/.test(x)), v.toasts);
   t('S3 der Sitz ist als ausgefallen vermerkt', v.left[3] === true, v.left);
 
   // ── Sicherheitsvertrag: nichts am Spielzustand darf sich bewegt haben ──
@@ -2453,11 +2453,11 @@ async function eliminateSeat(db, cs, seat, maxRounds) {
       cs[0].grace(off).since === sinceAfterSkip, { vorher: sinceAfterSkip, nachher: cs[0].grace(off).since });
 
     // Jetzt die Schwelle.
-    db.advanceServer(14900); await tick(db, 20);
-    t('C3F nach 14,9 s: weiterhin reserviert', cs[0].grace(off).state === 'reserved', cs[0].grace(off));
+    db.advanceServer(SEAT_STALE_FROM_SOURCE - 100); await tick(db, 20);
+    t('C3F kurz vor der Schwelle: weiterhin reserviert', cs[0].grace(off).state === 'reserved', cs[0].grace(off));
     t('C3F und weiterhin kein Kandidat', cs[0].candidates().length === 0, cs[0].candidates());
     db.advanceServer(200); await tick(db, 20);
-    t('C3F ab 15 s: abgelaufen', cs[0].grace(off).state === 'expired', cs[0].grace(off));
+    t('C3F nach der vollen Frist: abgelaufen', cs[0].grace(off).state === 'expired', cs[0].grace(off));
     t('C3F der Sitz ist jetzt Kandidat fuer die spaetere Entfernung',
       cs[0].candidates().join(',') === String(off), cs[0].candidates());
 
@@ -2497,7 +2497,7 @@ async function eliminateSeat(db, cs, seat, maxRounds) {
     const code = 'C3GA', off = 2;
     db.publishOffset(); await tick(db, 20);
     db.setPresence(code, off, false); db.publishOffset(); await tick(db, 20);
-    db.advanceServer(20000); await tick(db, 20);
+    db.advanceServer(SEAT_STALE_FROM_SOURCE + 5000); await tick(db, 20);
     t('C3GA Vorbedingung: abgelaufen und Kandidat in Generation 0',
       cs[0].grace(off).state === 'expired' && cs[0].candidates().indexOf(off) >= 0,
       { g: cs[0].grace(off), k: cs[0].candidates() });
@@ -2512,7 +2512,7 @@ async function eliminateSeat(db, cs, seat, maxRounds) {
     t('C3GA die Frist rechnet ab dem Generationsbeginn, nicht ab dem alten Zeitstempel',
       cs[0].grace(off).state === 'reserved' && cs[0].grace(off).raw < cs[0].grace(off).since,
       cs[0].grace(off));
-    db.advanceServer(16000); await tick(db, 20);
+    db.advanceServer(SEAT_STALE_FROM_SOURCE + 1000); await tick(db, 20);
     t('C3GA nach den eigenen 15 s der neuen Generation ist er wieder Kandidat',
       cs[0].candidates().indexOf(off) >= 0, cs[0].candidates());
 
@@ -2521,7 +2521,7 @@ async function eliminateSeat(db, cs, seat, maxRounds) {
     db.setPresence(code, off, false); db.publishOffset(); await tick(db, 20);
     t('C3GA eine frische Trennung ist zunaechst reserviert',
       cs[0].grace(off).state === 'reserved' && cs[0].candidates().indexOf(off) < 0, cs[0].grace(off));
-    db.advanceServer(16000); await tick(db, 20);
+    db.advanceServer(SEAT_STALE_FROM_SOURCE + 1000); await tick(db, 20);
     t('C3GA und wird nach ihren eigenen 15 s wieder Kandidat',
       cs[0].candidates().indexOf(off) >= 0, cs[0].candidates());
   }
@@ -2556,7 +2556,7 @@ async function eliminateSeat(db, cs, seat, maxRounds) {
       cs[0].genStart().at > 0 && cs[0].genStart().pending === false, cs[0].genStart());
 
     db.setPresence(code, off, false); db.publishOffset(); await tick(db, 20);
-    db.advanceServer(20000); await tick(db, 20);
+    db.advanceServer(SEAT_STALE_FROM_SOURCE + 5000); await tick(db, 20);
     t('C3F1d mit Grenze wird der Sitz benannt', cs[0].candidates().indexOf(off) >= 0,
       cs[0].candidates());
   }
@@ -2603,7 +2603,7 @@ async function eliminateSeat(db, cs, seat, maxRounds) {
     for (const c of cs) if (c.idx !== off) c.commitVec(80, 10, 0);
     await tick(db, 30);
     // Mitten in der Rechenphase laeuft die Frist ab.
-    db.advanceServer(20000); await tick(db, 20);
+    db.advanceServer(SEAT_STALE_FROM_SOURCE + 5000); await tick(db, 20);
     t('C3F3 der Ablauf ist waehrend der Simulation sichtbar',
       cs[0].grace(off).state === 'expired', cs[0].grace(off));
     t('C3F3 aber der Spielzustand wurde dadurch nicht angefasst',
@@ -2646,7 +2646,7 @@ async function eliminateSeat(db, cs, seat, maxRounds) {
     db.publishOffset(); await tick(db, 20);
     const before = cs[0].st();
     db.setPresence(code, off, false); db.publishOffset(); await tick(db, 20);
-    db.advanceServer(16000); await tick(db, 20);
+    db.advanceServer(SEAT_STALE_FROM_SOURCE + 1000); await tick(db, 20);
     t('C4B-1 Vorbedingung: C3 benennt den Sitz', cs[0].candidates().indexOf(off) >= 0, cs[0].candidates());
 
     cs[0].seatGoneNow(off); await tick(db, 40);      // der Weckruf der Frist
@@ -2703,7 +2703,7 @@ async function eliminateSeat(db, cs, seat, maxRounds) {
     const code = 'C4CC', off = 1;
     db.publishOffset(); await tick(db, 20);
     db.setPresence(code, off, false); db.publishOffset(); await tick(db, 20);
-    db.advanceServer(16000); await tick(db, 20);
+    db.advanceServer(SEAT_STALE_FROM_SOURCE + 1000); await tick(db, 20);
     db.setPresence(code, off, true); db.publishOffset(); await tick(db, 20);   // er ist zurueck
     cs[0].seatGoneNow(off); await tick(db, 40);
     t('C4B-3 nach der Rueckkehr entsteht KEINE Eviction', evOf(db, code)[off] === undefined,
@@ -2725,7 +2725,7 @@ async function eliminateSeat(db, cs, seat, maxRounds) {
     db.setPresence(code, 2, false); db.publishOffset(); await tick(db, 20);
     t('C4B-3b ein getrennter Sitz VOR Fristablauf wird nicht ausgetragen',
       cs[0].tryEvict(2) === false, cs[0].grace(2));
-    db.advanceServer(16000); await tick(db, 20);
+    db.advanceServer(SEAT_STALE_FROM_SOURCE + 1000); await tick(db, 20);
     t('C4B-3b erst nach Fristablauf wird ausgetragen', cs[0].tryEvict(2) === true, cs[0].grace(2));
   }
 
@@ -2738,7 +2738,7 @@ async function eliminateSeat(db, cs, seat, maxRounds) {
     const code = 'C4CI', off = 3;
     db.publishOffset(); await tick(db, 20);
     db.setPresence(code, off, false); db.publishOffset(); await tick(db, 20);
-    db.advanceServer(16000); await tick(db, 20);
+    db.advanceServer(SEAT_STALE_FROM_SOURCE + 1000); await tick(db, 20);
     cs[0].seatGoneNow(off); await tick(db, 40);
     t('C4B-3c Vorbedingung: der Sitz ist ausgetragen', cs[0].ev()[off] === true, cs[0].ev());
     await nextBoundary(db, cs);
@@ -2760,7 +2760,7 @@ async function eliminateSeat(db, cs, seat, maxRounds) {
     // Erst auf zwei Aktive bringen.
     for (const off of [4, 3, 2]) {
       db.setPresence(code, off, false); db.publishOffset(); await tick(db, 20);
-      db.advanceServer(16000); await tick(db, 20);
+      db.advanceServer(SEAT_STALE_FROM_SOURCE + 1000); await tick(db, 20);
       const w = cs.find(c => seatOf(c) !== off && cs[0].st().active[seatOf(c)]);
       w.seatGoneNow(off); await tick(db, 40);
       await nextBoundary(db, cs); await nextBoundary(db, cs);
@@ -2770,7 +2770,7 @@ async function eliminateSeat(db, cs, seat, maxRounds) {
     // Und jetzt gehen BEIDE in derselben Runde.
     db.setPresence(code, 0, false); db.setPresence(code, 1, false);
     db.publishOffset(); await tick(db, 20);
-    db.advanceServer(16000); await tick(db, 20);
+    db.advanceServer(SEAT_STALE_FROM_SOURCE + 1000); await tick(db, 20);
     cs[1].seatGoneNow(0); cs[0].seatGoneNow(1); await tick(db, 40);
     await nextBoundary(db, cs); await nextBoundary(db, cs);
     const st = cs[0].st();
@@ -2799,7 +2799,7 @@ async function eliminateSeat(db, cs, seat, maxRounds) {
     // ueberschritten hat. Der Praesenzwechsel setzt den SKIP an; er liegt in der
     // Warteschlange, denn geflusht wird erst spaeter.
     const r = db.data.rooms[code];
-    r.p[off] = { s: r.p[off].s, on: false, t: db.now - 20000 };
+    r.p[off] = { s: r.p[off].s, on: false, t: db.now - (SEAT_STALE_FROM_SOURCE + 5000) };
     db.publishOffset();                       // meldet die Trennung -> SKIP wird angesetzt
 
     // ... und GENAU JETZT gewinnt die Eviction das Rennen.
@@ -2832,7 +2832,7 @@ async function eliminateSeat(db, cs, seat, maxRounds) {
     const code = 'C4CD', off = 4;
     db.publishOffset(); await tick(db, 20);
     db.setPresence(code, off, false); db.publishOffset(); await tick(db, 20);
-    db.advanceServer(16000); await tick(db, 20);
+    db.advanceServer(SEAT_STALE_FROM_SOURCE + 1000); await tick(db, 20);
     for (const c of cs) if (seatOf(c) !== off) c.seatGoneNow(off);   // alle vier gleichzeitig
     await tick(db, 40);
     t('C4B-4 genau ein Eviction-Marker', evOf(db, code)[off] === true
@@ -2849,7 +2849,7 @@ async function eliminateSeat(db, cs, seat, maxRounds) {
     const code = 'C4CE', off = 0;
     db.publishOffset(); await tick(db, 20);
     db.setPresence(code, off, false); db.publishOffset(); await tick(db, 20);
-    db.advanceServer(16000); await tick(db, 20);
+    db.advanceServer(SEAT_STALE_FROM_SOURCE + 1000); await tick(db, 20);
     cs[1].seatGoneNow(off); await tick(db, 40);
     await nextBoundary(db, cs);
     await nextBoundary(db, cs);
@@ -2877,7 +2877,7 @@ async function eliminateSeat(db, cs, seat, maxRounds) {
     let i = 0;
     for (const off of [4, 3, 2]) {
       db.setPresence(code, off, false); db.publishOffset(); await tick(db, 20);
-      db.advanceServer(16000); await tick(db, 20);
+      db.advanceServer(SEAT_STALE_FROM_SOURCE + 1000); await tick(db, 20);
       const writer = cs.find(c => seatOf(c) !== off && cs[0].st().active[seatOf(c)]);
       writer.seatGoneNow(off); await tick(db, 40);
       await nextBoundary(db, cs);   // die laufende Runde schliesst der SKIP
@@ -2909,7 +2909,7 @@ async function eliminateSeat(db, cs, seat, maxRounds) {
     const lives0 = cs[0].st().lives.join(',');
     for (const off of [4, 3, 2]) {
       db.setPresence(code, off, false); db.publishOffset(); await tick(db, 20);
-      db.advanceServer(16000); await tick(db, 20);
+      db.advanceServer(SEAT_STALE_FROM_SOURCE + 1000); await tick(db, 20);
       const w = cs.find(c => seatOf(c) !== off && cs[0].st().active[seatOf(c)]);
       w.seatGoneNow(off); await tick(db, 40);
       await nextBoundary(db, cs);
@@ -2919,7 +2919,7 @@ async function eliminateSeat(db, cs, seat, maxRounds) {
       cs[0].st().active);
     // Und nun geht auch der zweite.
     db.setPresence(code, 1, false); db.publishOffset(); await tick(db, 20);
-    db.advanceServer(16000); await tick(db, 20);
+    db.advanceServer(SEAT_STALE_FROM_SOURCE + 1000); await tick(db, 20);
     cs[0].seatGoneNow(1); await tick(db, 40);
     await nextBoundary(db, cs);
     await nextBoundary(db, cs);
@@ -2950,7 +2950,7 @@ async function eliminateSeat(db, cs, seat, maxRounds) {
     // Auf zwei Aktive bringen.
     for (const off of [4, 3, 2]) {
       db.setPresence(code, off, false); db.publishOffset(); await tick(db, 20);
-      db.advanceServer(16000); await tick(db, 20);
+      db.advanceServer(SEAT_STALE_FROM_SOURCE + 1000); await tick(db, 20);
       const w = cs.find(c => seatOf(c) !== off && cs[0].st().active[seatOf(c)]);
       w.seatGoneNow(off); await tick(db, 40);
       await nextBoundary(db, cs); await nextBoundary(db, cs);
@@ -2960,7 +2960,7 @@ async function eliminateSeat(db, cs, seat, maxRounds) {
     // Sitz 1 wird ausgetragen - waehrend fuer Sitz 0 bereits eine Eviction vorliegt.
     db.setPresence(code, 1, false); db.setPresence(code, 0, false);
     db.publishOffset(); await tick(db, 20);
-    db.advanceServer(16000); await tick(db, 20);
+    db.advanceServer(SEAT_STALE_FROM_SOURCE + 1000); await tick(db, 20);
     t('C4B-5a ein ausgetragener Sitz ist nicht mehr siegberechtigt',
       cs[0].eligible().indexOf(0) >= 0 || cs[0].eligible().indexOf(1) >= 0
       || cs[0].eligible().length === 0, cs[0].eligible());
@@ -2983,14 +2983,14 @@ async function eliminateSeat(db, cs, seat, maxRounds) {
     db.publishOffset(); await tick(db, 20);
     for (const off of [4, 3, 2]) {
       db.setPresence(code, off, false); db.publishOffset(); await tick(db, 20);
-      db.advanceServer(16000); await tick(db, 20);
+      db.advanceServer(SEAT_STALE_FROM_SOURCE + 1000); await tick(db, 20);
       const w = cs.find(c => seatOf(c) !== off && cs[0].st().active[seatOf(c)]);
       w.seatGoneNow(off); await tick(db, 40);
       await nextBoundary(db, cs); await nextBoundary(db, cs);
     }
     db.setPresence(code, 0, false); db.setPresence(code, 1, false);
     db.publishOffset(); await tick(db, 20);
-    db.advanceServer(16000); await tick(db, 20);
+    db.advanceServer(SEAT_STALE_FROM_SOURCE + 1000); await tick(db, 20);
     cs[1].seatGoneNow(0); cs[0].seatGoneNow(1); await tick(db, 40);
     await nextBoundary(db, cs); await nextBoundary(db, cs);
     const st = cs[0].st();
@@ -3011,7 +3011,7 @@ async function eliminateSeat(db, cs, seat, maxRounds) {
     const code = 'C4CP', off = 2;
     db.publishOffset(); await tick(db, 20);
     db.setPresence(code, off, false); db.publishOffset(); await tick(db, 20);
-    db.advanceServer(16000); await tick(db, 20);
+    db.advanceServer(SEAT_STALE_FROM_SOURCE + 1000); await tick(db, 20);
     cs[0].seatGoneNow(off); await tick(db, 40);
     t('C4B-5e Vorbedingung: ein Austritt liegt vor', cs[0].exitHappened() === true, cs[0].ev());
     const lauf0 = cs[0].st().runningGen;
@@ -3033,7 +3033,7 @@ async function eliminateSeat(db, cs, seat, maxRounds) {
     // Einen Sitz austragen lassen, aber den REMOVE noch NICHT anwenden: er ist
     // evictiert und damit nicht mehr siegberechtigt.
     db.setPresence(code, 1, false); db.publishOffset(); await tick(db, 20);
-    db.advanceServer(16000); await tick(db, 20);
+    db.advanceServer(SEAT_STALE_FROM_SOURCE + 1000); await tick(db, 20);
     cs[0].seatGoneNow(1); await tick(db, 40);
     // Der Marker allein ist eine Berechtigung, kein Spielzug: solange kein REMOVE in
     // der Historie steht, bleibt der Sitz Teilnehmer. Sonst entschiede die
@@ -3064,7 +3064,7 @@ async function eliminateSeat(db, cs, seat, maxRounds) {
 
     // Jetzt ein dauerhafter Austritt.
     db.setPresence(code, off, false); db.publishOffset(); await tick(db, 20);
-    db.advanceServer(16000); await tick(db, 20);
+    db.advanceServer(SEAT_STALE_FROM_SOURCE + 1000); await tick(db, 20);
     cs[0].seatGoneNow(off); await tick(db, 40);
     t('C4B-5c der Austritt ist vermerkt', cs[0].exitHappened() === true, cs[0].ev());
     const gen1 = db.data.rooms[code].gen;
@@ -3117,7 +3117,7 @@ async function eliminateSeat(db, cs, seat, maxRounds) {
   // Einen Sitz dauerhaft austragen (Marker + Anwendung), damit die Runde schrumpft.
   const austragen = async (db, cs, code, off) => {
     db.setPresence(code, off, false); db.publishOffset(); await tick(db, 20);
-    db.advanceServer(16000); await tick(db, 20);
+    db.advanceServer(SEAT_STALE_FROM_SOURCE + 1000); await tick(db, 20);
     const w = cs.find(c => seatOf(c) !== off && cs[0].st().active[seatOf(c)]);
     w.seatGoneNow(off); await tick(db, 40);
     await nextBoundary(db, cs); await nextBoundary(db, cs);
@@ -3141,7 +3141,7 @@ async function eliminateSeat(db, cs, seat, maxRounds) {
     // Fuer Sitz 0 liegt ein REMOVE vor, ist aber noch nicht angewandt - genau das
     // Zeitfenster, in dem ein Zug aufgeloest wird.
     db.setPresence(code, 0, false); db.publishOffset(); await tick(db, 20);
-    db.advanceServer(16000); await tick(db, 20);
+    db.advanceServer(SEAT_STALE_FROM_SOURCE + 1000); await tick(db, 20);
     cs[1].seatGoneNow(0); await tick(db, 40);
     await nextBoundary(db, cs);
     t('C4B-6a der REMOVE fuer Sitz 0 ist vorgemerkt, aber noch nicht angewandt',
@@ -3186,7 +3186,7 @@ async function eliminateSeat(db, cs, seat, maxRounds) {
     const toreVorher = cs[2].sfx().goal;
     db.setPresence(code, 0, false); db.setPresence(code, 1, false);
     db.publishOffset(); await tick(db, 20);
-    db.advanceServer(16000); await tick(db, 20);
+    db.advanceServer(SEAT_STALE_FROM_SOURCE + 1000); await tick(db, 20);
     // Ein ausgeschiedener, aber verbundener Mitspieler traegt beide aus.
     cs[2].seatGoneNow(0); await tick(db, 40);
     cs[2].seatGoneNow(1); await tick(db, 40);
@@ -3227,7 +3227,7 @@ async function eliminateSeat(db, cs, seat, maxRounds) {
     // Sitze 1 und 2 fallen dauerhaft aus: Marker und kanonischer REMOVE entstehen.
     db.setPresence(code, 1, false); db.setPresence(code, 2, false);
     db.publishOffset(); await tick(db, 20);
-    db.advanceServer(16000); await tick(db, 20);
+    db.advanceServer(SEAT_STALE_FROM_SOURCE + 1000); await tick(db, 20);
     cs[3].seatGoneNow(1); await tick(db, 40);
     cs[3].seatGoneNow(2); await tick(db, 40);
     await nextBoundary(db, cs);
@@ -3238,7 +3238,7 @@ async function eliminateSeat(db, cs, seat, maxRounds) {
     // Sitz 0 wird ausgetragen - der Marker erreicht cs[3] sofort, cs[4] gar nicht.
     db.hold(cs[4].uid, 'e');
     db.setPresence(code, 0, false); db.publishOffset(); await tick(db, 20);
-    db.advanceServer(16000); await tick(db, 20);
+    db.advanceServer(SEAT_STALE_FROM_SOURCE + 1000); await tick(db, 20);
     cs[3].seatGoneNow(0); await tick(db, 5);
     t('C4B-6d die beiden Clients sehen den Marker unterschiedlich',
       cs[3].ev()[0] === true && cs[4].ev()[0] !== true, { a: cs[3].ev(), b: cs[4].ev() });
@@ -3279,7 +3279,7 @@ async function eliminateSeat(db, cs, seat, maxRounds) {
     const code = 'C4DC', off = 2;
     db.publishOffset(); await tick(db, 20);
     db.setPresence(code, off, false); db.publishOffset(); await tick(db, 20);
-    db.advanceServer(16000); await tick(db, 20);
+    db.advanceServer(SEAT_STALE_FROM_SOURCE + 1000); await tick(db, 20);
     cs[0].seatGoneNow(off); await tick(db, 40);
     t('C4B-6c Vorbedingung: ein Austritt liegt vor', cs[0].exitHappened() === true, cs[0].ev());
 
@@ -3327,7 +3327,7 @@ async function eliminateSeat(db, cs, seat, maxRounds) {
       db.data.rooms[code].gen);
 
     db.setPresence(code, 2, false); db.publishOffset(); await tick(db, 20);
-    db.advanceServer(16000); await tick(db, 20);
+    db.advanceServer(SEAT_STALE_FROM_SOURCE + 1000); await tick(db, 20);
     cs[0].seatGoneNow(2); await tick(db, 40);
     t('C4B-7a der Austritt steht in der Historie', cs[0].ev()[2] === true, cs[0].ev());
 
@@ -3489,7 +3489,7 @@ async function eliminateSeat(db, cs, seat, maxRounds) {
     db.publishOffset(); await tick(db, 20);
     db.hold(cs[3].uid, 'e');            // dieser Client erfaehrt vom Austritt nichts
     db.setPresence(code, off, false); db.publishOffset(); await tick(db, 20);
-    db.advanceServer(16000); await tick(db, 20);
+    db.advanceServer(SEAT_STALE_FROM_SOURCE + 1000); await tick(db, 20);
     cs[0].seatGoneNow(off); await tick(db, 40);
     t('C4B-8b der eine Client kennt den Austritt, der andere nicht',
       cs[0].exitHappened() === true && cs[3].exitHappened() === false,
@@ -3549,7 +3549,7 @@ async function eliminateSeat(db, cs, seat, maxRounds) {
     const code = 'C4FD', off = 4;
     db.publishOffset(); await tick(db, 20);
     db.setPresence(code, off, false); db.publishOffset(); await tick(db, 20);
-    db.advanceServer(16000); await tick(db, 20);
+    db.advanceServer(SEAT_STALE_FROM_SOURCE + 1000); await tick(db, 20);
     cs[0].seatGoneNow(off); await tick(db, 40);
     const evJetzt = () => { const r = db.data.rooms[code];
       return (r && r.g && r.g[r.gen] && r.g[r.gen].e) || {}; };
@@ -3873,7 +3873,7 @@ async function eliminateSeat(db, cs, seat, maxRounds) {
 
     // Dauerhaft weg: Frist, Eviction, REMOVE, Umbau auf zwei.
     db.setPresence(code, off, false); db.publishOffset(); await tick(db, 20);
-    db.advanceServer(16000); await tick(db, 20);
+    db.advanceServer(SEAT_STALE_FROM_SOURCE + 1000); await tick(db, 20);
     cs[0].seatGoneNow(off); await tick(db, 40);
     t('C5-10 der dauerhafte Austritt ist vermerkt', cs[0].ev()[off] === true, cs[0].ev());
     await nextBoundary(db, cs); await nextBoundary(db, cs);

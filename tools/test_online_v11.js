@@ -152,6 +152,16 @@ abschnitt('Hostnachfolge  (nur wenn der Wirt weg ist, und nur an den niedrigsten
   // Niemand traegt einen anderen ein - auch nicht den richtigen Nachfolger.
   deny('niemand traegt einen FREMDEN als Wirt ein', wirtFort, P('hostUid'), UID[2], UID[1]);
   deny('ein Unbeteiligter uebernimmt nichts', wirtFort, P('hostUid'), UID[5], UID[5]);
+  // PASS 01C: nach einer rechtmaessigen Nachfolge kehrt der alte Wirt zurueck. Seine
+  // Rolle ist weg - und er holt sie sich nicht zurueck, solange der neue Wirt verbunden
+  // dasitzt. Dieselbe Regel, nur aus der anderen Richtung gelesen.
+  const nachNachfolge = raum({ sitze: [0, 1, 2], host: 1 });
+  deny('der alte Wirt holt sich die Rolle nicht zurueck', nachNachfolge, P('hostUid'), UID[0], UID[0]);
+  deny('... und niemand traegt sie ihm zurueck', nachNachfolge, P('hostUid'), UID[0], UID[2]);
+  // Faellt AUCH der neue Wirt aus, geht sie regulaer weiter - an den niedrigsten
+  // verbundenen Sitz, und das kann der frueher Zurueckgekehrte sein.
+  const neuerWeg = raum({ sitze: [0, 1, 2], offline: [1], host: 1 });
+  allow('faellt der neue Wirt aus, rueckt der niedrigste Verbundene nach', neuerWeg, P('hostUid'), UID[0], UID[0]);
   deny('ohne Anmeldung ebenso wenig', wirtFort, P('hostUid'), UID[1], null);
   // Die Rolle laesst sich nicht loeschen - ein Raum ohne Wirt koennte nie wieder starten.
   deny('die Wirtsmarke laesst sich nicht entfernen', wirtFort, P('hostUid'), null, UID[1]);
@@ -305,6 +315,76 @@ abschnitt('Barrieren  (q, d, c, ro, r, z zaehlen ueber pt - auch bei Luecken)');
   const spaet = (ms) => { const d = {}; d[0] = { n: 0, o: NOW - ms }; return d; };
   allow('v11 entscheidet ebenfalls acht Sekunden lang', basis({ d: spaet(7000) }), P('g/1/c/0/2'), O_MOVE, UID[2]);
   deny('nach 8,1 s ist auch in v11 Schluss', basis({ d: spaet(8100) }), P('g/1/c/0/2'), O_MOVE, UID[2]);
+}
+
+// ══ GETRENNT IST NICHT STUMM ═════════════════════════════════════════════════
+// Ein Sitz, den der AUTORITATIVE Praesenzstand als getrennt ausweist, darf sofort mit
+// dem kanonischen Nullterminal geschlossen werden - ohne die Achtsekundenfrist. Sein
+// Platz bleibt ihm trotzdem: das ist die Rueckkehrfrist, eine ganz andere Groesse.
+// Ebenso wenig haelt er die naechste Runde auf.
+//
+// Wer VERBUNDEN ist und einfach nichts tut, ist NICHT getrennt - fuer ihn bleibt alles,
+// wie es war: acht Sekunden, dann `late`.
+abschnitt('Getrennt ist nicht stumm  (v11: sofort schliessen, aber nur den Getrennten)');
+{
+  const sitze = [0, 1, 2];
+  const O_MOVE = { k: 'move', h: HEX64, ts: SV };
+  const SKIP = { k: 'skip', ts: SV };
+  const LATE = { k: 'late', ts: SV };
+  // Frisch getrennt: on=false, aber der Zeitstempel ist SEKUNDEN alt - die
+  // Rueckkehrfrist laeuft noch. Genau darum geht es: das eine hat mit dem anderen
+  // nichts zu tun.
+  const frischWeg = (db, seat) => { db.rooms.VEFB.p[seat].t = NOW - 2000; return db; };
+  const basis = (over, weg) => {
+    const db = raum(Object.assign({ sitze, state: 'playing', gen: 1, pt: ptVon(sitze),
+                                    offline: weg === undefined ? [2] : weg }, over || {}));
+    for (const i of (weg === undefined ? [2] : weg)) frischWeg(db, i);
+    return db;
+  };
+  const offen = (ms) => { const d = {}; d[0] = { n: 0, o: NOW - (ms === undefined ? 1000 : ms) }; return d; };
+
+  allow('der offene Slot eines frisch Getrennten schliesst SOFORT',
+    basis({ d: offen(1000) }), P('g/1/c/0/2'), SKIP, UID[0]);
+  deny('ein VERBUNDENER Sitz wird nicht geschlossen - auch nicht frueh',
+    basis({ d: offen(1000) }, []), P('g/1/c/0/2'), SKIP, UID[0]);
+  deny('... und auch nach der Frist nicht mit skip',
+    basis({ d: offen(9000) }, []), P('g/1/c/0/2'), SKIP, UID[0]);
+  allow('fuer den Stummen bleibt es beim late nach acht Sekunden',
+    basis({ d: offen(9000) }, []), P('g/1/c/0/2'), LATE, UID[0]);
+  deny('late bleibt an die Frist gebunden - auch fuer einen Getrennten',
+    basis({ d: offen(1000) }), P('g/1/c/0/2'), LATE, UID[0]);
+  deny('ein bereits abgegebener Zug wird nicht ueberschrieben',
+    basis({ d: offen(1000), c: { 0: { 2: O_MOVE } } }), P('g/1/c/0/2'), SKIP, UID[0]);
+  deny('niemand zieht fuer einen anderen',
+    basis({ d: offen(1000) }), P('g/1/c/0/2'), O_MOVE, UID[0]);
+  deny('ein selbst getrennter Schreiber schliesst nichts',
+    basis({ d: offen(1000) }, [0, 2]), P('g/1/c/0/2'), SKIP, UID[0]);
+  deny('ein Nichtteilnehmer wird nicht geschlossen',
+    raum({ sitze: [0, 1, 2, 3], state: 'playing', gen: 1, pt: ptVon([0, 1, 2]),
+           offline: [3], d: { 0: { n: 0, o: NOW - 1000 } } }), P('g/1/c/0/3'), SKIP, UID[0]);
+  deny('ein bereits ausgetragener Sitz bekommt kein skip',
+    basis({ d: offen(1000), e: { 2: true } }), P('g/1/c/0/2'), SKIP, UID[0]);
+  deny('die Fassungen davor behalten ihre Frist',
+    raum({ v: 10, seats: 3, sitze, state: 'playing', gen: 1, offline: [2],
+           d: { 0: { n: 0, o: NOW - 1000 } } }), P('g/1/c/0/2'), SKIP, UID[0]);
+
+  // Und die Runde davor: ein Getrennter haelt sie nicht auf.
+  const bereitQ = (turn, wer) => { const q = {}; q[turn] = {}; for (const x of wer) q[turn][x] = { k: 'ready', n: Number(turn), ts: NOW - 1000 }; return q; };
+  allow('die naechste Runde beginnt ohne die Bereitschaft eines Getrennten',
+    basis({ q: bereitQ('0', [0, 1]) }), P('g/1/d/0'), { n: 0, o: SV }, UID[0]);
+  deny('... aber nicht ohne die eines VERBUNDENEN',
+    basis({ q: bereitQ('0', [0, 1]) }, []), P('g/1/d/0'), { n: 0, o: SV }, UID[0]);
+  // Eine spaetere Runde haengt zusaetzlich am vollstaendigen Abschluss ihrer
+  // Vorgaengerin: deren Terminals UND ihr Abschlussanker.
+  const spaeter = (() => { const db = basis({ q: bereitQ('3', [0, 1]) });
+    const NULLZUG = { k: 'skip', ts: NOW - 600 };
+    db.rooms.VEFB.g[1].c = { 2: { 0: NULLZUG, 1: NULLZUG, 2: NULLZUG } };
+    db.rooms.VEFB.g[1].z = { 2: { ts: NOW - 500 } }; return db; })();
+  allow('dasselbe gilt fuer eine spaetere Runde',
+    spaeter, P('g/1/d/3'), { n: 3, o: SV }, UID[0]);
+  deny('in v10 wartet die Runde weiterhin auf jeden Sitz',
+    raum({ v: 10, seats: 3, sitze, state: 'playing', gen: 1, offline: [2],
+           q: bereitQ('0', [0, 1]) }), P('g/1/d/0'), { n: 0, o: SV }, UID[0]);
 }
 
 // ══ OEFFENTLICHE AUFFINDBARKEIT ══════════════════════════════════════════════

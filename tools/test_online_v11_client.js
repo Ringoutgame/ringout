@@ -57,6 +57,7 @@ const QUELLE = [
   grabFunction(HTML, 'fbV11HostSitz'),
   grabFunction(HTML, 'fbV11HostGemerkt'),
   grabFunction(HTML, 'fbV11NachfolgeStop'),
+  grabFunction(HTML, 'fbV11WirtRest'),
   grabFunction(HTML, 'fbV11BinHost'),
   grabFunction(HTML, 'fbV11Nachfolge'),
   grabFunction(HTML, 'fbV11Starten'),
@@ -94,9 +95,14 @@ let online=true, roomProto=11, roomCode='VEFB', myPlayer=0, gen=0, gameStarted=f
 let runningGen=-1, turnNo=-1, onlineSessionId=1, roomP={}, lobbyP={}, playersRoster={};
 let roomPublic=false, roomOeffentlich=false, mode='football', fmt='elimination';
 let roomHostUid='U0';
-const SEAT_STALE_MS=40, LOBBY_HOST_GRACE_MS=80;   // im Pruefstand kurz - der Produktwert wird eigens geprueft
+const SEAT_STALE_MS=40, LOBBY_HOST_GRACE_MS=80, HOST_EXTRA_GRACE_MS=80;   // im Pruefstand kurz - die Produktwerte werden eigens geprueft
 const FB_V11_PT_FRIST_MS=150;                     // dito: gemessen wird DASS gewartet wird
-let fbRemovePending=[], fbExitBusy={}, replaying=false, repPlaying=false;
+// Die Serveruhr des Produkts - im Pruefstand zunaechst NICHT angeglichen. So laufen alle
+// bestehenden Faelle unveraendert ueber den sicheren Rueckfall (volle Frist ab jetzt);
+// die Faelle mit Zeitstempel schalten sie ausdruecklich ein.
+let serverClockReady=false, serverVersatz=0;
+function serverNow(){ return Date.now()+serverVersatz; }
+let fbRemovePending=[], fbExitBusy={}, fbV11Passiv=[], replaying=false, repPlaying=false;
 let menuVisible=false, phase='aim', turnUnsub=null, fbElimPhaseN=5;
 const PROTOKOLL=[];    // jeder Schreibvorgang, in der Reihenfolge
 const DOM={};
@@ -196,6 +202,9 @@ return {
   hostSitz:(p)=>fbV11HostSitz(p),
   binHost:(p)=>fbV11BinHost(p),
   nachfolge:(p)=>fbV11Nachfolge(p),
+  wirtRest:(p)=>fbV11WirtRest(p),
+  uhr(bereit, versatz){ serverClockReady=!!bereit; serverVersatz=versatz||0; },
+  frist:()=>FB_V11_HOST_FRIST_MS,
   starten:()=>fbV11Starten(),
   aufnehmen:()=>fbV11MatchAufnehmen(),
   vorbei:()=>fbV11MatchVorbei(),
@@ -355,6 +364,117 @@ abschnitt('Die Rolle wandert - nur wenn sie frei ist, und nur an den Niedrigsten
   M3.nachfolge(); await warten(40); await tick();
   t('geht auch der Nachfolger, uebernimmt der letzte Verbliebene',
     M3.P.some(x => x.op === 'set' && x.wert === 'U4'));
+}
+// ══ PASS 01D: DIE WIRTSFRIST ZAEHLT AB DER ECHTEN TRENNUNG ══════════════════════
+// Frueher begann die Wartezeit jedes Mal von vorn, wenn der Raum in seine Lobby
+// zurueckfiel. Jetzt steht nur noch der REST aus - gerechnet ab dem Zeitstempel, den der
+// Server beim Trennen selbst schreibt (p/<wirtssitz>/t). Im Pruefstand ist die Frist
+// kurz (Rueckkehrfrist 40 ms + Wirtszuschlag 80 ms = 120 ms); gerechnet wird mit
+// Anteilen, nicht mit Sekunden.
+abschnitt('Die Wirtsfrist zaehlt ab der echten Trennung');
+{
+  const wirtWeg = (seit) => ({ 0: { s: 'TAB0', on: false, t: Date.now() - seit }, 1: P_AN(1), 2: P_AN(2) });
+  const bau = (praesenz) => { const M = neu();
+    M.roster(ROSTER([0, 1, 2])); M.praesenz(praesenz);
+    M.wirt('U0'); M.sitz(1); M.stand('lobby'); M.laeuft(false); M.uhr(true); M.leeren();
+    return M; };
+  const gesetzt = (M) => M.P.filter(x => x.op === 'set' && x.pfad === 'rooms/VEFB/hostUid');
+  {
+    const M = bau(wirtWeg(0));
+    t('H - die volle Wirtsfrist ist Rueckkehrfrist plus Wirtszuschlag', M.frist() === 40 + 80, M.frist());
+  }
+  // ── A: der Wirt ist seit 20 % der Frist fort -> rund 80 % stehen noch aus ──
+  {
+    const M = bau(wirtWeg(24));
+    const r = M.wirtRest();
+    t('A - kurz vor der Lobby getrennt: der groessere Teil der Frist steht noch aus',
+      r.sicher === true && r.rest > 85 && r.rest <= 96, JSON.stringify(r));
+    M.nachfolge(); await warten(40); await tick();
+    t('A - … und so lange rueckt niemand nach', gesetzt(M).length === 0);
+    await warten(90); await tick();
+    t('A - danach uebernimmt der niedrigste verbundene Sitz', gesetzt(M).some(x => x.wert === 'U1'));
+  }
+  // ── B: seit 80 % fort -> rund 20 % stehen noch aus ──
+  {
+    const M = bau(wirtWeg(96));
+    const r = M.wirtRest();
+    t('B - lange vor der Lobby getrennt: nur der Rest steht aus',
+      r.sicher === true && r.rest > 10 && r.rest <= 24, JSON.stringify(r));
+    M.nachfolge(); await warten(60); await tick();
+    t('B - die Nachfolge faellt nach dem REST, nicht nach einer neuen vollen Frist',
+      gesetzt(M).some(x => x.wert === 'U1'));
+  }
+  // ── C: laenger fort als die ganze Frist -> sofort ──
+  {
+    const M = bau(wirtWeg(500));
+    const r = M.wirtRest();
+    t('C - laenger fort als die Frist: nichts steht mehr aus', r.sicher === true && r.rest === 0, JSON.stringify(r));
+    M.nachfolge(); await warten(5); await tick();
+    t('C - der Nachfolger uebernimmt beim Eintritt in die Lobby sofort',
+      gesetzt(M).some(x => x.wert === 'U1'));
+  }
+  // ── D: kommt der Wirt vor Ablauf zurueck, bleibt er Wirt ──
+  {
+    const M = bau(wirtWeg(24));
+    M.nachfolge(); await warten(20); await tick();
+    M.praesenz(PRAESENZ([0, 1, 2]));
+    M.nachfolge();
+    await warten(150); await tick();
+    t('D - der rechtzeitig Zurueckgekehrte behaelt die Rolle', gesetzt(M).length === 0);
+  }
+  // ── E: nach einer rechtmaessigen Nachfolge holt sich der alte Wirt nichts zurueck ──
+  {
+    const M = neu();
+    M.roster(ROSTER([0, 1, 2])); M.praesenz(PRAESENZ([0, 1, 2]));
+    M.wirt('U1'); M.sitz(0); M.stand('lobby'); M.laeuft(false); M.uhr(true); M.leeren();
+    M.nachfolge(); await warten(150); await tick();
+    t('E - der zurueckgekehrte alte Wirt schreibt keine Wirtsmarke', gesetzt(M).length === 0);
+    t('E - … und darf nicht starten', M.binHost() === false);
+  }
+  // ── F: ein bewusster Austritt (Rostereintrag fort) bleibt sofort ──
+  {
+    const M = neu();
+    M.roster(ROSTER([1, 2])); M.praesenz(PRAESENZ([1, 2]));
+    M.wirt('U0'); M.sitz(1); M.stand('lobby'); M.laeuft(false); M.uhr(true); M.leeren();
+    M.nachfolge(); await warten(5); await tick();
+    t('F - wer bewusst geht, wird ohne Wartezeit ersetzt', gesetzt(M).some(x => x.wert === 'U1'));
+  }
+  // ── Unbrauchbare Zeitstempel: im Zweifel die volle Frist ab jetzt ──
+  {
+    const faelle = [
+      ['ohne Zeitstempel', { 0: { s: 'TAB0', on: false }, 1: P_AN(1) }, true],
+      ['mit einem Text statt einer Zahl', { 0: { s: 'TAB0', on: false, t: 'gestern' }, 1: P_AN(1) }, true],
+      ['mit einem Zeitstempel aus der Zukunft', { 0: { s: 'TAB0', on: false, t: Date.now() + 60000 }, 1: P_AN(1) }, true],
+      ['ohne angeglichene Serveruhr', { 0: { s: 'TAB0', on: false, t: Date.now() - 500 }, 1: P_AN(1) }, false],
+      ['ohne Praesenzeintrag des Wirts', { 1: P_AN(1) }, true],
+    ];
+    for (const [name, praesenz, uhr] of faelle) {
+      const M = bau(praesenz); M.uhr(uhr);
+      const r = M.wirtRest();
+      t('ein Stempel ' + name + ' nimmt niemandem die Rolle vorzeitig',
+        r.sicher === false && r.rest === M.frist(), JSON.stringify(r));
+    }
+    // … und das auch im Ablauf: nach kurzer Zeit wird nicht geschrieben.
+    const M = bau({ 0: { s: 'TAB0', on: false, t: Date.now() + 60000 }, 1: P_AN(1), 2: P_AN(2) });
+    M.nachfolge(); await warten(40); await tick();
+    t('ein Stempel aus der Zukunft loest keine vorzeitige Nachfolge aus', gesetzt(M).length === 0);
+    await warten(120); await tick();
+    t('… die volle Frist ab jetzt gilt trotzdem - es bleibt nichts haengen',
+      gesetzt(M).some(x => x.wert === 'U1'));
+  }
+  // ── Im laufenden Match wird nicht nachgefolgt ──
+  {
+    const M = bau(wirtWeg(500));
+    M.laeuft(true); M.stand('playing');
+    M.nachfolge(); await warten(150); await tick();
+    t('im laufenden Match uebernimmt niemand die Rolle - auch nicht nach Ablauf',
+      gesetzt(M).length === 0);
+    // Dann faellt der Raum in seine Lobby: die Zeit, die der Wirt schon fort war, zaehlt.
+    M.laeuft(false); M.stand('lobby');
+    M.nachfolge(); await warten(5); await tick();
+    t('in der Lobby zaehlt die Zeit, die er schon fort war - die Nachfolge faellt sofort',
+      gesetzt(M).some(x => x.wert === 'U1'));
+  }
 }
 {
   // Zweimal hintereinander greift nicht zweimal.
@@ -1026,9 +1146,21 @@ abschnitt('Die Fassung 11 ist erreichbar - und nur ueber die benannten Wege');
     t('es entsteht kein zweiter Austrittsweg neben dem kanonischen',
       HTML.indexOf('fbV11Austritt') < 0 && HTML.indexOf('fbV11Leave') < 0);
   }
-  t('die Nachfolge wartet die volle Rueckkehrzeit ab, wenn der Wirt nur getrennt ist',
-    /const frist=fbV11HostGemerkt\(\)\?FB_V11_HOST_FRIST_MS:0;/.test(HTML)
-    && /const FB_V11_HOST_FRIST_MS=SEAT_STALE_MS\+LOBBY_HOST_GRACE_MS;/.test(HTML));
+  // PASS 01D: gewartet wird der REST der Wirtsfrist - gerechnet ab dem autoritativen
+  // Trennzeitpunkt -, nicht jedes Mal eine neue volle Frist.
+  t('die Nachfolge wartet den REST der Wirtsfrist ab, wenn der Wirt nur getrennt ist',
+    /const lage=gemerkt\?fbV11WirtRest\(p\):\{rest:0,sicher:true\};/.test(HTML)
+    && /\},lage\.rest\);/.test(HTML)
+    && /const FB_V11_HOST_FRIST_MS=SEAT_STALE_MS\+HOST_EXTRA_GRACE_MS;/.test(HTML));
+  t('der Rest wird aus p/<wirtssitz>/t gegen die angeglichene Serveruhr gerechnet',
+    /const alter=serverNow\(\)-t;/.test(HTML) && /!serverClockReady\)return voll;/.test(HTML));
+  t('im laufenden Match wird nicht nachgefolgt',
+    /if\(gameStarted\|\|fbV11State==='playing'\)\{ fbV11NachfolgeStop\(\); return; \}/.test(HTML));
+  // Und sie ist die Rueckkehrzeit PLUS einem eigenen Wirtszuschlag - nicht die
+  // Lobbyfrist der Bestandsfassungen, die einem anderen Zweck dient.
+  t('der Wirtszuschlag ist ein eigener, benannter Wert',
+    /const HOST_EXTRA_GRACE_MS=(\d+);/.test(HTML)
+    && HTML.indexOf('FB_V11_HOST_FRIST_MS=SEAT_STALE_MS+LOBBY_HOST_GRACE_MS') < 0);
   t('in v11 schliesst kein Host die Lobby',
     /if\(typeof fbV11Raum==='function'&&fbV11Raum\(\)\)return;/.test(grabFunction(HTML, 'evalLobbyHostPresence')));
   t('ein dauerhafter Austritt beendet in v11 nicht den Raum',

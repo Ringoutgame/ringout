@@ -936,7 +936,10 @@ abschnitt('Waechter: die Steuerung ruht');
                  // PASS 04: der Entscheidungszustand im HUD. Er wird GEZEICHNET, nicht
                  // entschieden - der Zustand selbst kommt aus dem autoritativen
                  // Schnappschuss und bleibt im ruhenden Bereich. Unten einzeln gezaehlt.
-                 'fbV9HudPaint'];
+                 'fbV9HudPaint',
+                 // PASS 01B: der Praesenzwechsel. Das Spiel meldet ihn, die v9-Schicht
+                 // entscheidet, was daraus folgt (Bereitschaft und offener Slot).
+                 'fbV9Praesenzwechsel'];
   const ohneHaken = (txt) => txt.split(/\r?\n/)
     .filter(zl => !HAKEN.some(h => zl.indexOf(h) >= 0)).join('\n');
   t('ausserhalb des ruhenden Bereichs nennt keine Zeile eine v9-Funktion',

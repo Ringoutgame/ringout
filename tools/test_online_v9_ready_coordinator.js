@@ -104,9 +104,12 @@ function speicher() { const m = new Map();
            setItem: (k, v) => { m.set(k, String(v)); }, removeItem: (k) => { m.delete(k); } }; }
 const baue = (a, uhr) => new Function('window', 'crypto', 'GEN_MAX', 'FB_ONLINE_SEATS',
     'FB_ONLINE_BALL_IDX', 'serverNow', 'setTimeout', 'clearTimeout', 'sessionStorage', `
+  let roomP = {}, roomPSeen = false;
+  function seatActive(p, s){ return !!(p && p[s] && p[s].on === true); }
   ${BEREICH}
-  return { fbV9ReadyStart, fbV9ReadyLocal, fbV9ReadyStop, fbV9ReadyMarke,
-           fbV9ReadySeatState, fbV9ReadyComplete, fbV9ReadyAnchor, fbV9Start,
+  return { fbV9ReadyStart, fbV9ReadyLocal, fbV9ReadyStop, fbV9ReadyMarke, fbV9ReadySchritt,
+           praesenz: (m) => { roomP = m || {}; roomPSeen = true; },
+           fbV9Getrennt, fbV9ReadySeatState, fbV9ReadyComplete, fbV9ReadyAnchor, fbV9Start,
            fbV9SecretClear, FB_V9_READY_DEADLINE_MS,
            FB_V9_R_ANCHOR, FB_V9_R_SELF, FB_V9_R_BARRIER, FB_V9_R_COMPLETE,
            FB_V9_R_FAILED, FB_V9_R_STOPPED, FB_V9_COMPLETE, FB_V9_VALID };
@@ -318,6 +321,155 @@ abschnitt('Die Barriere - allein auf autoritativen Daten');
     t('ein Eintrag ausserhalb der Sollbesetzung ersetzt keinen fehlenden Sitz',
       l.stufe === M.FB_V9_R_BARRIER, l.stufe);
     l.stop();
+  }
+}
+
+// ══ V11: DIE BESETZUNG EINER GENERATION ══════════════════════════════════════
+// Eine v11-Generation traegt ihre Teilnehmer ausdruecklich bei sich - und die Liste darf
+// LUECKEN haben: wer vor dem Start die Lobby verlassen hat, hinterlaesst einen Sitz, auf
+// dem in dieser Generation niemand spielt. Die Barriere darf auf so einen Sitz nicht
+// warten: seine Bereitschaft kann niemand schreiben (die Rules kennen ihn in dieser
+// Generation nicht), und seine Disqualifikation ebenso wenig. Sie wartet ausschliesslich
+// auf die Teilnehmer - dieselbe Besetzung, ueber die auch Commit- und
+// Enthuellungsbarriere zaehlen.
+abschnitt('V11 - die Barriere wartet nur auf Teilnehmer');
+{
+  const u = uhrwerk(4000000);
+  const bau = (vor) => { const a = attrappe(Object.assign({ [P('s')]: { ts: TS } }, vor), u);
+                         return { a, M: baue(a, u) }; };
+  // Der Kontext traegt weiterhin v:9 - das ist die FASSUNG DES PROTOKOLLS, nicht die
+  // des Raums. Was diese Generation zur v11-Generation macht, ist die Teilnehmerliste.
+  const LUECKE = mit({ cap: 5, seat: 0, teil: [0, 2, 4] });
+  const teilBereit = (aus) => { const q = {};
+    for (const i of [0, 2, 4]) if (!aus || aus.indexOf(i) < 0) q[i] = Q_READY(0); return q; };
+  {
+    const { M } = bau({ [P('q/0')]: teilBereit() });
+    const l = M.fbV9ReadyStart(LUECKE);
+    await settle();
+    t('sind alle TEILNEHMER gemeldet, ist die Barriere geschlossen',
+      l.stufe === M.FB_V9_R_COMPLETE, l.stufe + ' ' + (l.grund || ''));
+    t('auf die Luecken 1 und 3 wurde nicht gewartet', u.anzahl() === 0, u.anzahl());
+  }
+  {
+    const { M } = bau({ [P('q/0')]: teilBereit([4]) });
+    const l = M.fbV9ReadyStart(LUECKE);
+    await settle();
+    t('fehlt ein echter Teilnehmer, bleibt sie offen', l.stufe === M.FB_V9_R_BARRIER, l.stufe);
+    l.stop();
+  }
+  {
+    const q = teilBereit(); q[1] = { k: 'ready' };   // unbrauchbar, aber kein Teilnehmer
+    const { M } = bau({ [P('q/0')]: q });
+    const l = M.fbV9ReadyStart(LUECKE);
+    await settle();
+    t('ein unbrauchbarer Eintrag auf einem Nichtteilnehmer laesst die Runde nicht scheitern',
+      l.stufe === M.FB_V9_R_COMPLETE, l.stufe + ' ' + (l.grund || ''));
+  }
+  {
+    const { M } = bau({ [P('q/0')]: teilBereit([2]), [P('e')]: { 2: true } });
+    const l = M.fbV9ReadyStart(LUECKE);
+    await settle();
+    t('ein passiver Teilnehmer befreit die Barriere sofort',
+      l.stufe === M.FB_V9_R_COMPLETE, l.stufe);
+    t('… ohne dass auf die Frist gewartet wuerde', u.anzahl() === 0, u.anzahl());
+  }
+  {
+    // Nach der Frist werden GENAU die offenen Teilnehmersitze geschlossen - kein
+    // Schreibvorgang auf eine Luecke.
+    const u2 = uhrwerk(4000000);
+    const a = attrappe({ [P('s')]: { ts: TS }, [P('q/0')]: teilBereit([2, 4]) }, u2);
+    a.setzeFehler(P('x/2'), new Error('permission_denied'));
+    a.setzeFehler(P('x/4'), new Error('permission_denied'));
+    const M = baue(a, u2);
+    const l = M.fbV9ReadyStart(LUECKE);
+    await settle();
+    M.fbV9ReadyLocal(l);
+    await settle();
+    u2.vor(M.FB_V9_READY_DEADLINE_MS + 1200);
+    await settle();
+    const ziele = qPfad(a, 0).map(w => w.pfad.slice(P('q/0/').length)).sort();
+    t('der Fristschluss trifft nur Teilnehmer',
+      ziele.indexOf('1') < 0 && ziele.indexOf('3') < 0, ziele.join(','));
+    t('… und zwar die offenen', ziele.indexOf('2') >= 0 && ziele.indexOf('4') >= 0, ziele.join(','));
+    l.stop();
+  }
+}
+
+// ══ V11: GETRENNT IST NICHT STUMM ════════════════════════════════════════════
+// Die Bereitschaftsbarriere fragt, ob die naechste Runde beginnen darf. Auf einen Sitz,
+// den der AUTORITATIVE Praesenzstand als getrennt ausweist, wartet sie nicht mehr: er
+// rechnet nichts, er meldet nichts, und die Rules erlauben den Rundenbeginn ohne ihn.
+// Sein PLATZ bleibt ihm davon unberuehrt - das ist die Rueckkehrfrist, eine andere
+// Groesse. Wer verbunden ist und schweigt, haelt die Runde weiterhin auf: fuer ihn gilt
+// unveraendert die Frist.
+abschnitt('V11 - ein Getrennter haelt die naechste Runde nicht auf');
+{
+  const u = uhrwerk(4000000);
+  const V11 = mit({ cap: 3, seat: 0, teil: [0, 1, 2] });
+  const bau = (vor, praesenz) => {
+    const a = attrappe(Object.assign({ [P('s')]: { ts: TS } }, vor), u);
+    const M = baue(a, u);
+    M.praesenz(praesenz);
+    return { a, M };
+  };
+  const DA = { 0: { on: true }, 1: { on: true }, 2: { on: true } };
+  const WEG = { 0: { on: true }, 1: { on: true }, 2: { on: false, t: TS - 2000 } };
+  const zweiBereit = { 0: Q_READY(0), 1: Q_READY(0) };
+  {
+    const { M } = bau({ [P('q/0')]: zweiBereit }, WEG);
+    const l = M.fbV9ReadyStart(V11);
+    await settle();
+    t('ein getrennter Teilnehmer haelt die Barriere nicht auf',
+      l.stufe === M.FB_V9_R_COMPLETE, l.stufe + ' ' + (l.grund || ''));
+    t('und es bleibt kein Wecker stehen', u.anzahl() === 0, u.anzahl());
+  }
+  {
+    const { M } = bau({ [P('q/0')]: zweiBereit }, DA);
+    const l = M.fbV9ReadyStart(V11);
+    await settle();
+    t('ein VERBUNDENER, der nur schweigt, haelt sie weiterhin auf',
+      l.stufe === M.FB_V9_R_BARRIER, l.stufe);
+    l.stop();
+  }
+  {
+    // Der Praesenzstand bewegt sich, waehrend gewartet wird: DASSELBE Ergebnis, nur
+    // spaeter. Angestossen wird die Neubewertung von aussen - genau wie im Produkt.
+    const { M } = bau({ [P('q/0')]: zweiBereit }, DA);
+    const l = M.fbV9ReadyStart(V11);
+    await settle();
+    t('Vorbedingung: die Barriere steht offen', l.stufe === M.FB_V9_R_BARRIER, l.stufe);
+    M.praesenz(WEG);
+    M.fbV9ReadySchritt(l);
+    await settle();
+    t('faellt er waehrend des Wartens aus, geht es sofort weiter',
+      l.stufe === M.FB_V9_R_COMPLETE, l.stufe);
+  }
+  {
+    // Der eigene Sitz ist nie "getrennt" - sonst befreite sich ein Client selbst.
+    const { M } = bau({ [P('q/0')]: { 1: Q_READY(0), 2: Q_READY(0) } },
+                      { 0: { on: false, t: TS - 2000 }, 1: { on: true }, 2: { on: true } });
+    const l = M.fbV9ReadyStart(V11);
+    await settle();
+    t('der eigene Sitz befreit die Barriere nicht', l.stufe !== M.FB_V9_R_COMPLETE, l.stufe);
+    l.stop();
+  }
+  {
+    // Die Fassungen davor kennen diese Regel nicht: dort steht keine Teilnehmerliste im
+    // Kontext, und die Barriere wartet wie eh und je.
+    const { M } = bau({ [P('q/0')]: zweiBereit }, WEG);
+    const l = M.fbV9ReadyStart(mit({ cap: 3, seat: 0 }));
+    await settle();
+    t('ohne Teilnehmerliste (v9/v10) aendert der Praesenzstand nichts',
+      l.stufe === M.FB_V9_R_BARRIER, l.stufe);
+    l.stop();
+  }
+  {
+    const { M } = bau({}, WEG);
+    t('fbV9Getrennt nennt genau den getrennten Teilnehmer',
+      M.fbV9Getrennt(V11, 2) === true && M.fbV9Getrennt(V11, 1) === false
+      && M.fbV9Getrennt(V11, 0) === false);
+    t('… und in einer Generation ohne Teilnehmerliste niemanden',
+      M.fbV9Getrennt(mit({ cap: 3, seat: 0 }), 2) === false);
   }
 }
 

@@ -944,7 +944,10 @@ abschnitt('Waechter');
                  'fbV9EingabeOffen',
                  // PASS 04: der Entscheidungszustand im HUD. Gezaehlt wird er in
                  // test_online_v9_coordinator.js, nicht hier.
-                 'fbV9HudPaint'];
+                 'fbV9HudPaint',
+                 // PASS 01B: der Praesenzwechsel. Das Spiel meldet ihn, die v9-Schicht
+                 // entscheidet, was daraus folgt (Bereitschaft und offener Slot).
+                 'fbV9Praesenzwechsel'];
   const ohneHaken = (txt) => txt.split(/\r?\n/)
     .filter(zl => !HAKEN.some(h => zl.indexOf(h) >= 0)).join('\n');
   t('ausserhalb des ruhenden Bereichs nennt keine Zeile eine v9-Funktion',

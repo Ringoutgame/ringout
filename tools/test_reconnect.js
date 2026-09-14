@@ -359,13 +359,13 @@ function makeDB() {
       }
       // Different token — B2 reclaim: identity-bound re-take of an OFFLINE seat.
       // playing: immediately (unless rules-eliminated via g/<gen>/e); lobby: only
-      // after the 15s stale window. players/<seat> must ride in the SAME update.
+      // after the stale window of the PRODUCT. players/<seat> must ride in the SAME update.
       if (cur.on === false && val.on === false) {
         const pl = merged.players(seat);
         if (pl && pl.tab === val.s) {
           const ge = room.g && room.g[room.gen];
           if (room.state === 'playing' && !(ge && ge.e && ge.e[seat] === true)) return;
-          if (room.state === 'lobby' && (nowMs - cur.t) >= 15000) return;
+          if (room.state === 'lobby' && (nowMs - cur.t) >= SEAT_STALE_FROM_SOURCE) return;
         }
       }
       throw new Error('PERMISSION_DENIED: p token mismatch (reclaim gate)');
@@ -942,7 +942,7 @@ async function playTurn(clients, moves) {
     const g2 = makeClient(db, 'X', gpid); g2.setMenu('online');   // frischer Tab OHNE lokalen Namen
     const early = await g2.rejoin('LOB1'); await tick();
     t('RC10 lobby rejoin inside the stale window rejected (rejoinWait)', early === false && g2.status() === 'rejoinWait');
-    db.advance(15001);
+    db.advance(SEAT_STALE_FROM_SOURCE + 1);
     const ok = await g2.rejoin('LOB1'); await tick();
     t('RC10 lobby rejoin restores the same seat', ok === true && g2.st().myPlayer === 1 && db.data.rooms.LOB1.p[1].on === true);
     t('RC10 roster name restored from the canonical record', db.data.rooms.LOB1.players[1].name === 'Zoe' && db.data.rooms.LOB1.players[1].id === gpid);
@@ -1401,7 +1401,7 @@ async function playTurn(clients, moves) {
     // Knoten bleibt, on:false - das ist eine Trennung, kein Weggang.
     room().p[1] = { s: room().p[1].s, on: false, t: db.now() };
     db.publishOffset(); await tick(6);
-    db.advanceServer(16000); await tick(10);
+    db.advanceServer(SEAT_STALE_FROM_SOURCE + 1000); await tick(10);
     t('C4A-1 der Weckruf entscheidet nach Ablauf', h.fireGrace(1) === 'act');
     await tick(6);
     t('C4A-1 Vorbedingung: die Frist ist abgelaufen und der Sitz vermerkt',
@@ -1443,7 +1443,7 @@ async function playTurn(clients, moves) {
     const A = await c4aRoom('C4AC');
     A.room().p[1] = { s: A.room().p[1].s, on: false, t: A.db.now() };
     A.db.publishOffset(); await tick(6);
-    A.db.advanceServer(16000); await tick(10);
+    A.db.advanceServer(SEAT_STALE_FROM_SOURCE + 1000); await tick(10);
     A.h.fireGrace(1); await tick(6);
     A.room().gen = 1; A.db.touch(); await tick(12);
 
@@ -1452,7 +1452,7 @@ async function playTurn(clients, moves) {
     B.room().gen = 1; B.db.touch(); await tick(12);
     B.room().p[1] = { s: B.room().p[1].s, on: false, t: B.db.now() };
     B.db.publishOffset(); await tick(6);
-    B.db.advanceServer(16000); await tick(10);
+    B.db.advanceServer(SEAT_STALE_FROM_SOURCE + 1000); await tick(10);
 
     t('C4A-3 (a) Trennung vor dem Wechsel: kein Vermerk aus der alten Generation',
       A.h.left(1) === false, A.h.left(1));
@@ -1512,7 +1512,7 @@ async function playTurn(clients, moves) {
     const { db, h, room } = await c4aRoom('C4AE');
     room().p[1] = { s: room().p[1].s, on: false, t: db.now() };
     db.publishOffset(); await tick(6);
-    db.advanceServer(16000); await tick(10);
+    db.advanceServer(SEAT_STALE_FROM_SOURCE + 1000); await tick(10);
     h.fireGrace(1); await tick(6);
     room().gen = 1; db.touch(); await tick(12);
     // Rueckkehr in der neuen Generation: die Praesenz wird ganz normal wieder aktiv.
@@ -1556,14 +1556,14 @@ async function playTurn(clients, moves) {
     await dropSeat(db, 'C3AA', 1);
     t('C3-A unmittelbar nach der Trennung: reserviert', h.grace(1).state === 'reserved', h.grace(1));
 
-    db.advanceServer(14900); await tick(6);
-    t('C3-A nach 14,9 s: weiterhin reserviert', h.grace(1).state === 'reserved', h.grace(1));
+    db.advanceServer(SEAT_STALE_FROM_SOURCE - 100); await tick(6);
+    t('C3-A kurz vor der Schwelle: weiterhin reserviert', h.grace(1).state === 'reserved', h.grace(1));
     t('C3-A und noch kein Kandidat', h.candidates().length === 0, h.candidates());
 
     db.advanceServer(200); await tick(6);
-    t('C3-A ab 15,0 s: abgelaufen', h.grace(1).state === 'expired', h.grace(1));
+    t('C3-A ab der vollen Frist: abgelaufen', h.grace(1).state === 'expired', h.grace(1));
     t('C3-A das Alter zaehlt ab dem autoritativen Uebergang',
-      h.grace(1).age >= 15000 && h.grace(1).age < 16000, h.grace(1).age);
+      h.grace(1).age >= SEAT_STALE_FROM_SOURCE && h.grace(1).age < SEAT_STALE_FROM_SOURCE + 1000, h.grace(1).age);
   }
 
   // ── C3-B: zwei durchgehend anwesende Beobachter sind sich EINIG ──
@@ -1580,7 +1580,7 @@ async function playTurn(clients, moves) {
     const other = gs[1];                       // Sitz 2 - durchgehend im Raum
     room().p[1] = { s: room().p[1].s, on: false, t: db.now() };
     db.publishOffset(); await tick(6);
-    db.advanceServer(15100); await tick(8);
+    db.advanceServer(SEAT_STALE_FROM_SOURCE + 100); await tick(8);
     t('C3-B beide sehen denselben Zustand',
       h.grace(1).state === 'expired' && other.grace(1).state === 'expired',
       { h: h.grace(1), other: other.grace(1) });
@@ -1608,7 +1608,7 @@ async function playTurn(clients, moves) {
     const pid = late.pid(), uid = late.uid();
     room().p[1] = { s: room().p[1].s, on: false, t: db.now() };
     db.publishOffset(); await tick(6);
-    db.advanceServer(10000); await tick(6);
+    db.advanceServer(SEAT_STALE_FROM_SOURCE - 5000); await tick(6);
 
     late.drop();
     const fresh = makeClient(db, 'C3B1', pid, uid);
@@ -1627,15 +1627,15 @@ async function playTurn(clients, moves) {
   }
 
   // ── C3-B2: die Restwartezeit richtet sich nach dem Uebergang, nicht nach der
-  //     eigenen Beobachtung. Wer eine zehn Sekunden alte Trennung zum ersten Mal
-  //     sieht, wartet noch fuenf Sekunden - nicht wieder fuenfzehn.
+  //     eigenen Beobachtung. Wer eine Trennung erst kurz vor ihrem Ablauf zum ersten
+  //     Mal sieht, wartet nur noch den Rest - nicht wieder die ganze Frist.
   {
     const { db, h } = await c3Room('C3B2');
     await dropSeat(db, 'C3B2', 1);
     t('C3-B2 frisch getrennt: die volle Frist steht aus',
-      Math.abs(h.graceWait(1) - 15000) < 500, h.graceWait(1));
-    db.advanceServer(10000); await tick(6);
-    t('C3-B2 nach zehn Sekunden bleiben noch rund fuenf',
+      Math.abs(h.graceWait(1) - SEAT_STALE_FROM_SOURCE) < 500, h.graceWait(1));
+    db.advanceServer(SEAT_STALE_FROM_SOURCE - 5000); await tick(6);
+    t('C3-B2 fuenf Sekunden vor der Schwelle bleiben noch rund fuenf',
       h.graceWait(1) > 4000 && h.graceWait(1) < 6000, h.graceWait(1));
     db.advanceServer(6000); await tick(6);
     t('C3-B2 jenseits der Schwelle bleibt nichts mehr auszuwarten', h.graceWait(1) === 0,
@@ -1666,7 +1666,7 @@ async function playTurn(clients, moves) {
     const { db, h, room } = await c3Room('C3B4');
     await dropSeat(db, 'C3B4', 1);
     t('C3-B4 innerhalb der Frist: erneut wecken', h.timerAction(1) === 'rearm', h.grace(1));
-    db.advanceServer(16000); await tick(6);
+    db.advanceServer(SEAT_STALE_FROM_SOURCE + 1000); await tick(6);
     t('C3-B4 nach Ablauf: entscheiden', h.timerAction(1) === 'act', h.grace(1));
     await backSeat(db, 'C3B4', 1);
     t('C3-B4 wieder verbunden: nichts tun', h.timerAction(1) === 'stop', h.grace(1));
@@ -1695,7 +1695,7 @@ async function playTurn(clients, moves) {
       h.grace(1).state === 'unknown' && h.grace(1).reason === 'noClock', h.grace(1));
     t('C3-B5 der Weckruf faellt auf das bisherige Verhalten zurueck',
       h.timerAction(1) === 'act', h.timerAction(1));
-    t('C3-B5 die volle Frist stand dafuer aus', h.graceWait(1) === 15000, h.graceWait(1));
+    t('C3-B5 die volle Frist stand dafuer aus', h.graceWait(1) === SEAT_STALE_FROM_SOURCE, h.graceWait(1));
   }
 
   // ── C3-C: Rueckkehr innerhalb der Frist ──
@@ -1734,8 +1734,8 @@ async function playTurn(clients, moves) {
     db.advanceServer(5000); await tick(6);
     t('C3-E die zweite Trennung rechnet von vorn - nicht aus der alten Frist weiter',
       h.grace(1).state === 'reserved' && h.grace(1).age >= 5000 && h.grace(1).age < 6000, h.grace(1));
-    db.advanceServer(10100); await tick(6);
-    t('C3-E und laeuft erst nach ihren eigenen 15 s ab', h.grace(1).state === 'expired', h.grace(1));
+    db.advanceServer(SEAT_STALE_FROM_SOURCE - 5000 + 100); await tick(6);
+    t('C3-E und laeuft erst nach ihrer eigenen vollen Frist ab', h.grace(1).state === 'expired', h.grace(1));
   }
 
   // ── C3-F: der Ablauf entfernt NICHTS ──
@@ -1811,11 +1811,11 @@ async function playTurn(clients, moves) {
       db.advanceServer(5000); await tick(6);
       room().p[3] = { s: room().p[3].s, on: false, t: db.now() };
       db.publishOffset(); await tick(6);
-      db.advanceServer(10100); await tick(6);
+      db.advanceServer(SEAT_STALE_FROM_SOURCE - 5000 + 100); await tick(6);
       t('C3-H der zuerst Getrennte ist abgelaufen', h.grace(1).state === 'expired', h.grace(1));
       t('C3-H der spaeter Getrennte ist noch reserviert', h.grace(3).state === 'reserved', h.grace(3));
       db.advanceServer(5000); await tick(6);
-      t('C3-H und laeuft erst nach seinen eigenen 15 s ab', h.grace(3).state === 'expired', h.grace(3));
+      t('C3-H und laeuft erst nach seiner eigenen vollen Frist ab', h.grace(3).state === 'expired', h.grace(3));
     } else {
       t('C3-H Aufbau: zwei Gaeste vorhanden', false, Object.keys(room().p || {}));
     }

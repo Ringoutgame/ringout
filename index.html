@@ -1734,11 +1734,17 @@ let onlinePid='', onlineTab='', onlineName='';
 let playersRoster={};      // last players/<seat> snapshot -> lobby + HUD names
 let rosterUnsub=null;
 let lobbyHostGraceTimer=null;
-// B2: client mirror of the rules' 15s stale-reservation window — a p/<seat> node
-// holding a FOREIGN token may only be re-taken in the lobby after this long
-// without a presence write. The same value paces the in-match disconnect grace,
-// so a short reload can never eliminate a seat before its player could return.
-const SEAT_STALE_MS=15000;
+// DIE EINE RUECKKEHRFRIST DES PRODUKTS - fuer Ring Out wie fuer Arena Football.
+// Sie beantwortet genau eine Frage: wie lange gehoert ein Sitz noch dem Menschen, der
+// gerade nicht verbunden ist? So lange darf ihn niemand uebernehmen (Lobby), so lange
+// wird er im Match nicht ausgetragen, und so lange kann sein Spieler auf denselben Sitz
+// zurueckkehren. Die Rules pruefen DENSELBEN Wert serverseitig (p/$i, players/$i,
+// g/<gen>/e/$seat); tools/test_timeouts.js laesst die beiden nicht auseinanderlaufen.
+//
+// Sie ist AUSDRUECKLICH NICHT die Zugfrist: auf einen Getrennten wartet in Arena
+// Football keine Runde. Reserviert bleibt sein Sitz trotzdem - das eine schuetzt
+// seinen Platz, das andere schuetzt die Zeit der anderen.
+const SEAT_STALE_MS=30000;
 // lobby-only: a host reload must not close the room at once. Must OUTLAST the
 // reclaim window above, or guests close the lobby before the host is even
 // ALLOWED to re-take seat 0 under the rules.
@@ -9718,6 +9724,37 @@ function fbV9CtxOk(ctx){
 function fbV9CtxBesetzung(ctx){
   return (ctx&&Array.isArray(ctx.teil))?ctx.teil:(ctx?ctx.cap:null);
 }
+// ── GETRENNT IST NICHT DASSELBE WIE STUMM (nur v11) ─────────────────────────
+// Auf einen Sitz, den der AUTORITATIVE Praesenzstand als getrennt ausweist, wartet
+// weder die Bereitschaftsbarriere noch das Entscheidungsfenster: sein Slot wird sofort
+// mit dem kanonischen Nullterminal geschlossen, und die naechste Runde darf ohne seine
+// Bereitschaftsmeldung beginnen. Die Rules erlauben genau das - und nur das - fuer v11.
+// Sein Sitz bleibt ihm trotzdem die volle Rueckkehrfrist erhalten (SEAT_STALE_MS), seine
+// Figur bleibt im Spiel, und ein bereits abgegebener Zug bleibt stehen: geschlossen wird
+// nur ein OFFENER Slot (write-once).
+//
+// Ein Sitz, der verbunden ist und einfach nichts tut, ist NICHT getrennt - fuer ihn gilt
+// unveraendert die Achtsekundenfrist.
+//
+// Der Praesenzstand gehoert nicht zur Protokollschicht. Er wird deshalb vorsichtig
+// gelesen: wo es ihn nicht gibt (Pruefstaende, fruehe Bootphase), wird auf niemanden
+// verzichtet.
+function fbV9Getrennt(ctx,i){
+  if(!ctx||!Array.isArray(ctx.teil))return false;   // nur v11-Generationen
+  if(i===ctx.seat)return false;                     // der eigene Sitz ist nie getrennt
+  try{
+    if(typeof seatActive!=='function')return false;
+    if(typeof roomPSeen==='undefined'||!roomPSeen)return false;
+    return !seatActive(roomP,i);
+  }catch(e){ return false; }
+}
+// Die Praesenzlage der Sollbesetzung als Zeichenkette - damit ein Wecker sein Budget
+// erneuert, sobald sich an ihr etwas aendert.
+function fbV9GetrenntMarke(ctx,soll){
+  let m='|';
+  for(const i of (fbV9Sitze(soll)||[]))m+=fbV9Getrennt(ctx,i)?'a':'-';
+  return m;
+}
 function fbV9Path(ctx,rest){
   return 'rooms/'+ctx.code+'/g/'+ctx.gen+'/'+rest;
 }
@@ -10025,13 +10062,18 @@ function fbV9ReadySeatState(turn,q,e,x){
 // Sitzreihenfolge - nie ueber die Zahl der Kinder eines Schnappschusses. Ein
 // Fristschluss OHNE Disqualifikation befreit ausdruecklich NICHT: sonst waere eine
 // einzelne Zeitueberschreitung eine stille Dauerbefreiung.
-function fbV9ReadyComplete(cap,turn,q,e,x){
+function fbV9ReadyComplete(cap,turn,q,e,x,getrennt){
   const sitze=fbV9Sitze(cap);
   if(!sitze)return false;
   if(!Number.isInteger(turn)||turn<0)return false;
   for(const s of sitze){
     const z=fbV9ReadySeatState(turn,q&&q[s],e&&e[s],x&&x[s]);
-    if(z!==FB_V9_RS_READY&&z!==FB_V9_RS_EVICTED&&z!==FB_V9_RS_DISQUALIFIED)return false;
+    if(z===FB_V9_RS_READY||z===FB_V9_RS_EVICTED||z===FB_V9_RS_DISQUALIFIED)continue;
+    // v11: ein autoritativ getrennter Teilnehmer haelt die naechste Runde nicht auf.
+    // Dieselbe Bedingung steht in den Rules - der Client bildet sie nach, er erfindet
+    // sie nicht: ohne die Zustimmung des Servers entstuende die Runde gar nicht erst.
+    if(getrennt&&getrennt(s))continue;
+    return false;
   }
   return true;
 }
@@ -10935,12 +10977,14 @@ async function fbV9ReadySchritt(lauf){
     // Terminal wird nie ueberschrieben. Der Sitz wartet auf seine Disqualifikation.
     // (3) Die Barriere - ausgewertet allein auf autoritativen Daten.
     fbV9RStufe(lauf,FB_V9_R_BARRIER);
-    for(let i=0;i<c.cap;i++){
+    const soll=fbV9CtxBesetzung(c);
+    for(const i of (fbV9Sitze(soll)||[])){
       if(fbV9ReadySeatState(c.turn,st.bereit&&st.bereit[i],st.weg&&st.weg[i],
                             st.raus&&st.raus[i])===FB_V9_RS_MALFORMED)
         return fbV9RScheitern(lauf,'unbrauchbarer Bereitschaftsstand an Sitz '+i);
     }
-    if(fbV9ReadyComplete(c.cap,c.turn,st.bereit,st.weg,st.raus)){
+    const getrennt=(i)=>fbV9Getrennt(c,i);
+    if(fbV9ReadyComplete(soll,c.turn,st.bereit,st.weg,st.raus,getrennt)){
       fbV9WakeStop(lauf,'bereit');
       lauf.stufe=FB_V9_R_COMPLETE;
       fbV9RAufloesen(lauf);
@@ -10949,7 +10993,7 @@ async function fbV9ReadySchritt(lauf){
     // (3b) Sitze mit autoritativem Fristschluss werden SOFORT disqualifiziert - die
     //      Frist ist fuer sie nachweislich schon vorbei. Gleiche Menge, gleiche Marke:
     //      ein erschoepftes Budget bleibt erschoepft.
-    const rausMarke=fbV9ReadyRausMarke(c.cap,c.turn,st.bereit,st.weg,st.raus);
+    const rausMarke=fbV9ReadyRausMarke(soll,c.turn,st.bereit,st.weg,st.raus);
     if(rausMarke){
       if(!lauf.wecker['raus'])lauf.wecker['raus']={timer:null,frist:null,marke:null,versuche:0,laeuft:false};
       const w=lauf.wecker['raus'];
@@ -10962,7 +11006,7 @@ async function fbV9ReadySchritt(lauf){
     // (4) Warten - aber nicht endlos. Der Wecker klopft kurz nach der geschaetzten
     //     Frist einmal an; ob sie wirklich vorbei ist, sagen die Rules.
     fbV9WakePlan(lauf,'bereit',anker+FB_V9_READY_DEADLINE_MS,
-                 fbV9ReadyMarke(c.cap,c.turn,st.bereit,st.weg,st.raus),
+                 fbV9ReadyMarke(soll,c.turn,st.bereit,st.weg,st.raus)+fbV9GetrenntMarke(c,soll),
                  ()=>fbV9ReadySchliessen(lauf),FB_V9_READY_DEADLINE_MS);
   }finally{
     lauf.beschaeftigt=false;
@@ -10978,7 +11022,7 @@ async function fbV9ReadySchritt(lauf){
 async function fbV9ReadySchliessen(lauf){
   const st=lauf.stand, c=lauf.ctx;
   let nochmal=false;
-  for(let i=0;i<c.cap;i++){
+  for(const i of (fbV9Sitze(fbV9CtxBesetzung(c))||[])){
     if(fbV9RAus(lauf))return false;
     const z=fbV9ReadySeatState(c.turn,st.bereit&&st.bereit[i],st.weg&&st.weg[i],
                                st.raus&&st.raus[i]);
@@ -11013,7 +11057,7 @@ function fbV9ReadyRausMarke(cap,turn,q,e,x){
 async function fbV9ReadyRaus(lauf){
   const st=lauf.stand, c=lauf.ctx;
   let nochmal=false;
-  for(let i=0;i<c.cap;i++){
+  for(const i of (fbV9Sitze(fbV9CtxBesetzung(c))||[])){
     if(fbV9RAus(lauf))return false;
     if(fbV9ReadySeatState(c.turn,st.bereit&&st.bereit[i],st.weg&&st.weg[i],
                           st.raus&&st.raus[i])!==FB_V9_RS_TIMEOUT)continue;
@@ -11352,10 +11396,20 @@ function fbV9LebenUebergabe(L){
 function fbV9LebenDraussen(st,i){
   return (st.e&&st.e[i]===true)||fbV9DisqualifyOk(st.x&&st.x[i]);
 }
+// Zu schliessen ist ein Slot aus zwei Gruenden: der Sitz ist ausgetragen (dann traegt
+// das Terminal `remove`), oder sein Mensch ist getrennt (dann `skip`). Die Marke haelt
+// BEIDES fest, damit ein Praesenzwechsel das Wiederholungsbudget erneuert.
+function fbV9LebenSchliessgrund(L,st,i){
+  if(fbV9LebenDraussen(st,i))return 'remove';
+  if(fbV9Getrennt(L.ctx,i))return 'skip';
+  return '';
+}
 function fbV9LebenRausMarke(L,st){
   let m='';
-  for(const i of (fbV9Sitze(fbV9CtxBesetzung(L.ctx))||[]))
-    m+=fbV9LebenDraussen(st,i)?(fbV9TerminalOk(st.c&&st.c[i])?'t':'o'):'-';
+  for(const i of (fbV9Sitze(fbV9CtxBesetzung(L.ctx))||[])){
+    const grund=fbV9LebenSchliessgrund(L,st,i);
+    m+=grund?(fbV9TerminalOk(st.c&&st.c[i])?grund.charAt(0):'o'+grund.charAt(0)):'-';
+  }
   return m;
 }
 function fbV9LebenRausStarten(L){
@@ -11377,6 +11431,17 @@ function fbV9LebenRausSchritt(L){
   L.wecker['raus']={timer:null,frist:null,marke:marke,versuche:0,laeuft:false};
   fbV9LebenRausVersuch(L);
 }
+// DER EINE EINGANG FUER EINEN PRAESENZWECHSEL. Das Spiel meldet nur, dass sich der
+// Praesenzstand bewegt hat; was daraus folgt, entscheidet allein diese Schicht - die
+// Bereitschaft VOR der Runde und der offene Slot IN ihr werden neu bewertet. Beide
+// Schritte sind mehrfach gefahrlos und schreiben nur, was der Server ohnehin erlaubt.
+function fbV9Praesenzwechsel(){
+  const L=fbV9Leben;
+  if(!fbV9LebenAktuell(L))return 0;
+  if(L.bereit)fbV9ReadySchritt(L.bereit);
+  if(L.rausStand)fbV9LebenRausSchritt(L);
+  return 0;
+}
 // Rueckgabe: true, wenn ein begrenzter zweiter Anlauf lohnt.
 async function fbV9LebenRaus(L){
   if(!fbV9LebenAktuell(L)||L.rausLaeuft)return false;
@@ -11386,9 +11451,12 @@ async function fbV9LebenRaus(L){
   let nochmal=false;
   for(const i of (fbV9Sitze(fbV9CtxBesetzung(L.ctx))||[])){   // aufsteigend - die Reihenfolge ist fest
     if(!fbV9LebenAktuell(L))break;
-    if(!fbV9LebenDraussen(st,i))continue;
-    if(fbV9TerminalOk(st.c&&st.c[i]))continue;  // steht schon: nichts zu tun
-    const r=await fbV9NetWriteRemove(L.ctx,i);
+    const grund=fbV9LebenSchliessgrund(L,st,i);
+    if(!grund)continue;
+    if(fbV9TerminalOk(st.c&&st.c[i]))continue;  // steht schon: nichts zu tun - auch ein
+                                                // bereits abgegebener Zug bleibt so stehen
+    const r=grund==='remove'?await fbV9NetWriteRemove(L.ctx,i)
+                            :await fbV9NetWriteSkip(L.ctx,i);
     // COMMITTED und EXISTS sind beide in Ordnung - aber KEINES davon fuellt die
     // Barriere. Das tut allein der naechste autoritative Schnappschuss.
     if(r.status===FB_V9_DENIED||r.status===FB_V9_ERROR)nochmal=true;
@@ -11467,30 +11535,36 @@ function fbV9AcceptedOk(menge,cap){
 function fbV9Wirken(menge,cap){
   if(!fbV9AcceptedOk(menge,cap))return false;
   const kap=menge.length;   // Zahl der EINTRAEGE - jeder traegt seinen Raumsitz selbst
-  // (0) DIE AUSTRAGUNG. Ein terminales `remove` heisst nicht "dieser Sitz schiesst diese
-  //     Runde nichts", sondern: dieser Teilnehmer ist aus dem laufenden Match heraus.
-  //     Vorgemerkt wird hier - angewandt deterministisch an der naechsten Eingabegrenze
-  //     (fbApplyPendingRemovals), also auf DEMSELBEN Weg und in DEMSELBEN Augenblick wie
-  //     in v8. Die Wirkung haengt damit an der kanonischen Zughistorie, die jeder Client
-  //     gleich liest, und nicht am Eviction-Marker, der sie zu verschiedenen Zeitpunkten
-  //     erreicht (dieselbe Begruendung wie bei fbWinnerEligible).
-  //     AUSDRUECKLICH NUR v11: v9 und v10 sind Vertraege der Vergangenheit - ein
-  //     laufender Bestandsraum darf seine Spielwirkung nicht nachtraeglich aendern.
-  if(typeof fbV11Raum==='function'&&fbV11Raum())
-    for(let k=0;k<kap;k++)if(menge[k].kind===TURN_REMOVE)fbRemovePending[menge[k].seat]=true;
-  // (1) PROTOKOLLAUSSCHLUESSE ZUERST, in kanonischer Sitzreihenfolge. Eine Kugel, die
-  //     diesen Abschuss verwirkt hat, darf in ihm nicht mehr mitkollidieren - deshalb
-  //     erst ausscheiden, dann starten. Benutzt wird die BESTEHENDE Eliminierung.
-  //     Mehrere Ausschluesse derselben Runde sind EIN Vorgang: die Reihenfolge ist nur
-  //     Ausfuehrungsordnung, nicht Bedeutung. Deshalb aendern alle bis auf einen nur den
-  //     Zustand, und die Entscheidung faellt genau einmal - beim LETZTEN Ausschluss, der
-  //     ueberhaupt noch etwas bewirkt. Ein bereits ausgeschiedener Sitz kann nicht
-  //     entscheiden; er wuerde sofort zurueckkehren, und niemand nennte den Ausgang.
+  // (0) EIN ABGANG IST KEINE ELIMINIERUNG. `remove` sagt ueber das SPIEL nur: von diesem
+  //     Sitz kommt in dieser Generation kein Zug mehr. Die Figur bleibt stehen, bleibt
+  //     kollidierbar, ihr Tor bleibt ein gueltiges Ziel - sie zielt nur nicht mehr.
+  //     Damit gilt fuer alle vier Nullterminals (pass, skip, remove, late) dieselbe
+  //     Wirkung: kein Abschuss, kein Lebensabzug, keine Sitzverschiebung. Wer gewinnt,
+  //     entscheidet weiterhin allein die Spielregel - nie ein geschlossener Browser.
+  //     Frueher wurde hier fbRemovePending gesetzt; das nahm die Figur aus dem Match und
+  //     konnte den Rest zu Siegern erklaeren. Genau das ist nicht mehr gewollt.
+  const v11=(typeof fbV11Raum==='function')&&fbV11Raum();
+  // (1) WER NICHTS MEHR BEITRAEGT. Zwei Wege fuehren hierher: die Austragung (remove)
+  //     und der Protokollbruch (kein Reveal, falscher Hash, missgebildet).
+  //     v11 macht daraus PASSIVITAET - die Figur bleibt, der Sitz zieht nicht mehr.
+  //       Fuer den Austritt, weil ein geschlossener Browser kein Spielzug ist.
+  //       Fuer den Protokollbruch, weil die Abschreckung dieselbe bleibt: wer sein
+  //       Geheimnis zurueckhaelt, hat in dieser Generation keinen Zug mehr - und sein
+  //       Tor steht weiter offen. Das ist nicht milder als ein Ausschluss, es beendet
+  //       nur nicht das Match eines anderen.
+  //     v9 und v10 sind Vertraege der Vergangenheit: dort bleibt es beim Ausschluss.
   const stapel=[];
   for(let k=0;k<kap;k++){
     const e=menge[k];
-    if(e.kind==='move'&&FB_V9_RAUS.indexOf(e.status)>=0)stapel.push(e.seat);
+    const bruch=(e.kind==='move'&&FB_V9_RAUS.indexOf(e.status)>=0);
+    if(v11){ if(bruch||e.kind===TURN_REMOVE)fbV11Passiv[e.seat]=true; continue; }
+    if(bruch)stapel.push(e.seat);
   }
+  // Mehrere Ausschluesse derselben Runde sind EIN Vorgang: die Reihenfolge ist nur
+  // Ausfuehrungsordnung, nicht Bedeutung. Deshalb aendern alle bis auf einen nur den
+  // Zustand, und die Entscheidung faellt genau einmal - beim LETZTEN Ausschluss, der
+  // ueberhaupt noch etwas bewirkt. Ein bereits ausgeschiedener Sitz kann nicht
+  // entscheiden; er wuerde sofort zurueckkehren, und niemand nennte den Ausgang.
   const wirksam=stapel.filter(i=>fbElimActive[i]);
   const entscheider=wirksam.length?wirksam[wirksam.length-1]:-1;
   for(const i of stapel)footballElimEliminate(i,i!==entscheider);
@@ -11504,6 +11578,10 @@ function fbV9Wirken(menge,cap){
   for(let k=0;k<kap;k++){
     const e=menge[k];
     if(e.kind!=='move'||e.status!==FB_V9_VALID)continue;
+    // Ein passiver Sitz schiesst nicht mehr - auch dann nicht, wenn von dort noch ein
+    // formal gueltiger Zug kaeme. Sonst waere das Zurueckhalten der Enthuellung ein
+    // Zug ohne Folgen: einmal aussetzen, naechste Runde weiterspielen.
+    if(v11&&fbV11Passiv[e.seat])continue;
     const b=balls[e.move.idx];
     if(!b||!b.alive)continue;                   // gerade ausgeschieden: kein Abschuss
     commitIdx[e.seat]=e.move.idx; commitAim[e.seat]={dx:e.move.dx,dy:e.move.dy};
@@ -12442,13 +12520,21 @@ const FB_V11_ERGEBNIS_MS=8000;
 // nur in einem Fall, den es nicht geben sollte: der Raum ist beendet, der eigene
 // Ablauf steht aber nicht. Dann ist die Lobby immer noch besser als das Nichts.
 const FB_V11_ENDE_MAX_MS=20000;
-// Wie lange ein Wirt, der nur GETRENNT ist, seine Rolle behaelt. Die Summe ist kein
-// gegriffener Wert: SEAT_STALE_MS ist die Zeit, in der sein Sitz noch fuer ihn
-// reserviert bleibt (so lange kann er ihn gar nicht zurueckerobern), und
-// LOBBY_HOST_GRACE_MS ist die Frist, die die Lobby ihm ohnehin schon gibt. Erst
-// danach ist er wirklich weg. Wer BEWUSST geht, loescht seinen Rostereintrag - dann
-// wird gar nicht gewartet.
-const FB_V11_HOST_FRIST_MS=SEAT_STALE_MS+LOBBY_HOST_GRACE_MS;
+// Wie lange ein Wirt, der nur GETRENNT ist, seine Rolle behaelt - und damit auch: wie
+// lange die Uebrigen auf ihn warten, bevor die Rolle weiterwandert und wieder jemand
+// starten kann. Die Summe ist kein gegriffener Wert, sondern genau zwei Schritte:
+//   SEAT_STALE_MS        so lange gehoert sein SITZ noch ihm. Vorher kann er ihn nach
+//                        einem Neuladen gar nicht zurueckerobern - die Rules geben ihn
+//                        erst danach frei.
+//   HOST_EXTRA_GRACE_MS  und so viel Zeit bekommt er ZUSAETZLICH, um diesen Weg auch
+//                        wirklich zu gehen: Seite laden, Raum betreten, Sitz nehmen.
+// Mehr nicht. Frueher stand hier die Lobbyfrist der Bestandsfassungen (SEAT_STALE_MS+5s)
+// als zweiter Summand - eine Frist aus einem anderen Zusammenhang, die mit der
+// Verdopplung der Rueckkehrzeit auf 65 Sekunden anwuchs. So lange soll niemand vor einer
+// Lobby sitzen, in der er nichts starten darf.
+// Wer BEWUSST geht, loescht seinen Rostereintrag - dann wird gar nicht gewartet.
+const HOST_EXTRA_GRACE_MS=20000;
+const FB_V11_HOST_FRIST_MS=SEAT_STALE_MS+HOST_EXTRA_GRACE_MS;
 // Wie lange auf die Teilnehmerliste einer spielenden Generation gewartet wird, bevor
 // sie als wirklich fehlend gilt. Das ist die Spanne zwischen dem eigenen, lokal schon
 // sichtbaren Schreibvorgang und seiner Bestaetigung durch den Server - grosszuegig
@@ -12511,27 +12597,69 @@ function fbV11BinHost(p){
 function fbV11NachfolgeStop(){
   if(fbV11NachfolgeTimer){ clearTimeout(fbV11NachfolgeTimer); fbV11NachfolgeTimer=null; }
 }
+// Wie viel von der Wirtsfrist steht NOCH aus? Gerechnet wird ab dem AUTORITATIVEN
+// Trennzeitpunkt p/<wirtssitz>/t - den schreibt der Server selbst (onDisconnect mit
+// serverTimestamp), und dieselbe Zeitbasis traegt auch die gewoehnliche Sitzfrist.
+// Frueher begann die Wartezeit jedes Mal von vorn, wenn der Raum in seine Lobby
+// zurueckfiel: ein Wirt, der das ganze Match ueber fort war, hielt START dann noch
+// einmal volle fuenfzig Sekunden fest.
+// `sicher` sagt, ob die Rechnung auf einem brauchbaren Zeitstempel beruht. Ist sie es
+// nicht - kein Eintrag, keine Zahl, ein Stempel aus der Zukunft, noch keine
+// angeglichene Serveruhr -, gilt die VOLLE Frist ab jetzt: im Zweifel wird niemandem
+// die Rolle genommen.
+function fbV11WirtRest(p){
+  const voll={rest:FB_V11_HOST_FRIST_MS,sicher:false};
+  const q=p||roomP||{};
+  let hs=-1;
+  for(let s=0;s<FFA_MAX_SEATS;s++){
+    const rec=playersRoster&&playersRoster[s];
+    if(rec&&rec.uid===roomHostUid){ hs=s; break; }
+  }
+  const e=hs>=0?q[hs]:null;
+  if(!e||e.on===true)return voll;
+  const t=e.t;
+  if(typeof t!=='number'||!isFinite(t))return voll;
+  if(typeof serverNow!=='function'||typeof serverClockReady==='undefined'||!serverClockReady)return voll;
+  const alter=serverNow()-t;
+  if(!(alter>=0))return voll;                         // Stempel aus der Zukunft: nicht entscheiden
+  return {rest:Math.max(0,FB_V11_HOST_FRIST_MS-alter),sicher:true};
+}
 function fbV11Nachfolge(p){
   if(!fbV11Raum()||!window.FB||!roomCode||myPlayer<0)return;
+  // Die Wirtsrolle zaehlt fuer den START des naechsten Matches - im laufenden Match gibt
+  // es nichts zu uebertragen, und das Matchende braucht keinen Wirt (die Rules lassen es
+  // jeden verbundenen Teilnehmer schreiben). Nachgefolgt wird deshalb erst in der Lobby;
+  // die Zeit, die der Wirt schon fort war, zaehlt dort mit (fbV11WirtRest).
+  if(gameStarted||fbV11State==='playing'){ fbV11NachfolgeStop(); return; }
   if(fbV11HostSitz(p)>=0){ fbV11NachfolgeStop(); return; }   // es gibt einen Wirt - nichts zu tun
   if(fbV11NachfolgeBusy||fbV11NachfolgeTimer)return;
   const da=fbV11Anwesend(p);
   if(da.length===0||da[0]!==myPlayer)return;
-  // Der Wirt ist nur getrennt: er bekommt die Frist der Lobby, bevor jemand nachrueckt.
+  // Der Wirt ist nur getrennt: er bekommt den REST seiner Frist, bevor jemand nachrueckt.
   // Ist sein Eintrag fort, ist er gegangen - dann gibt es nichts zu erwarten.
-  const frist=fbV11HostGemerkt()?FB_V11_HOST_FRIST_MS:0;
+  const gemerkt=fbV11HostGemerkt();
+  const lage=gemerkt?fbV11WirtRest(p):{rest:0,sicher:true};
   const ctx={sid:onlineSessionId,room:roomCode};
   fbV11NachfolgeTimer=setTimeout(()=>{
     fbV11NachfolgeTimer=null;
     if(ctx.sid!==onlineSessionId||ctx.room!==roomCode)return;
     if(!fbV11Raum()||fbV11HostSitz()>=0||fbV11NachfolgeBusy)return;
+    if(gameStarted||fbV11State==='playing')return;
+    // Beruhte die Wartezeit auf dem Zeitstempel, wird beim Feuern nachgerechnet: die
+    // Serveruhr kann sich angeglichen haben, oder der Wirt war kurz da und ist mit einem
+    // NEUEN Stempel wieder fort. Steht noch Zeit aus, wird fuer genau diesen Rest neu
+    // gestellt. Ohne brauchbaren Stempel gilt die abgewartete volle Frist.
+    if(gemerkt&&lage.sicher&&fbV11HostGemerkt()){
+      const jetzt=fbV11WirtRest();
+      if(jetzt.sicher&&jetzt.rest>250){ fbV11Nachfolge(); return; }
+    }
     const jetzt=fbV11Anwesend();
     if(jetzt.length===0||jetzt[0]!==myPlayer)return;
     fbV11NachfolgeBusy=true;
     Promise.resolve(window.FB.set(rRef('hostUid'),fbUid())).catch(()=>{}).then(()=>{
       if(ctx.sid===onlineSessionId&&ctx.room===roomCode)fbV11NachfolgeBusy=false;
     });
-  },frist);
+  },lage.rest);
 }
 
 // ── DER START ───────────────────────────────────────────────────────────────
@@ -12723,7 +12851,7 @@ function fbV11ZurueckInLobby(){
   try{ if(turnUnsub)turnUnsub(); }catch(e){}
   turnUnsub=null; turnNo=-1; runningGen=-1;
   clearAllMatchGrace();
-  clearLeaveState(); fbRemovePending=[]; fbExitBusy={};
+  clearLeaveState(); fbRemovePending=[]; fbExitBusy={}; fbV11Passiv=[];
   gameStarted=false;
   fbElimTeilSetzen(null); fbElimStartN=0;
   startEvictionWatch();   // die Marker gehoeren zur Generation - die naechste bekommt ihren eigenen Beobachter
@@ -13169,7 +13297,7 @@ function seatFinallyGone(s){
     // kein Sieger, keine Sitzverschiebung.
     if(seatLeft[s])return;
     seatLeft[s]=true;
-    toast('Spieler '+(s+1)+' ist nicht mehr verbunden.');
+    toast(nameForSeat(s)+' hat den Raum verlassen.');
     // C4B: Der Fristablauf ist der eine Ausloeser des dauerhaften Austritts - derselbe
     // Weg, den auch ein bewusstes Verlassen nimmt. Geschrieben wird nur, wenn die
     // Pruefungen in fbWriteEviction zustimmen; kehrt der Sitz zurueck, geschieht nichts.
@@ -13183,7 +13311,7 @@ function attachRoomListeners(){
   startPresenceWatch();   // C1: ab hier wacht die Sitzung ueber ihre eigene Praesenz
   startServerClock();     // C3: Frist rechnet gegen die Serverzeit, nicht gegen die lokale Uhr
   clearGenerationStart(); // C3: neue Raumsitzung -> Generationsgrenze wird neu bestimmt
-  fbRemovePending=[]; fbExitBusy={};   // C4B: Austritte gehoeren zur Raumsitzung
+  fbRemovePending=[]; fbExitBusy={}; fbV11Passiv=[];   // C4B: Austritte gehoeren zur Raumsitzung
   startEvictionWatch();   // C4B: Marker dieser Generation beobachten   // P0-Fix: neue Session je Raumbeitritt/-erstellung -> Transaction-/Listener-Ergebnisse einer fruehreren Session werden ungueltig
   onlineTerminatedSession=-1;   // neue Session startet nie im terminalen Abbruchzustand
   clearAllMatchGrace(); roomP={};   // B2: Grace-Timer einer frueheren Session sind gegenstandslos
@@ -13234,7 +13362,12 @@ function attachRoomListeners(){
           // die Merkung gegenstandslos - sonst bekaeme eine ZWEITE Trennung nie wieder
           // einen Weckruf. Fuer FFA bleibt seatLeft unangetastet: dort bedeutet es
           // "hat das Match verlassen" und steuert die Sentinel-Nachfuellung.
-          if(fbOnlineRoom()&&seatLeft[s])seatLeft[s]=false;
+          if(fbOnlineRoom()&&seatLeft[s]){
+            seatLeft[s]=false;
+            // Ebenso beilaeufig wie der Abgang: wer zurueckkommt, wird genannt, nicht
+            // gefeiert. Nur im laufenden Match - in der Lobby sagt das die Liste selbst.
+            if(gameStarted&&!isOnlineTerminated())toast(nameForSeat(s)+' ist wieder da.');
+          }
           continue;
         }
         if((mode==='ffa'||fbOnlineRoom())&&seatLeft[s])continue;
@@ -13285,7 +13418,7 @@ function attachRoomListeners(){
     }
     // C4A: VOR dem Neustart leeren - die Sentinel-Nachfuellung der neuen Runde darf die
     // Altlast der vorigen Generation nicht mehr sehen.
-    if(genChanged){ clearLeaveState(); fbRemovePending=[]; fbExitBusy={}; startEvictionWatch(); }
+    if(genChanged){ clearLeaveState(); fbRemovePending=[]; fbExitBusy={}; fbV11Passiv=[]; startEvictionWatch(); }
     // v11 startet NICHT aus der Generation allein: erst die Teilnehmerliste dieser
     // Generation sagt, wer spielt - und ohne sie gaebe es keine Partie, nur eine Welt
     // aus Vermutungen. Der Startbefehl ist state='playing' (s. fbV11MatchAufnehmen).
@@ -13456,6 +13589,18 @@ function writeTurnSlot(s,payload,opts){
 // Wahrheit darueber, wer dauerhaft draussen ist; der REMOVE-Datensatz macht daraus den
 // deterministischen Spielzug.
 let roomEv={}, evUnsub=null, fbExitBusy={}, fbRemovePending=[];
+// ── PASSIV (nur v11) ────────────────────────────────────────────────────────
+// Von diesem Sitz kommt in DIESER Generation kein Zug mehr. Das ist etwas anderes als
+// ausgeschieden: die Figur bleibt stehen, bleibt kollidierbar, ihr Tor bleibt ein
+// gueltiges Ziel - sie zielt nur nicht mehr. Passiv wird ein Sitz ausschliesslich aus
+// der KANONISCHEN Zughistorie, die jeder Client gleich liest:
+//   remove                             der Sitz ist ausgetragen (bewusster Austritt
+//                                      oder abgelaufene Rueckkehrfrist)
+//   NO_REVEAL / MISMATCH / MALFORMED   der Sitz hat das Protokoll verlassen
+// Damit haengt die Passivitaet an derselben Quelle wie jede andere Spielfolge - nicht
+// an der Praesenz, nicht am Zustellzeitpunkt eines Markers, nicht an einer Uhr.
+// Sie gilt bis zum Ende der Generation und wird mit ihr zurueckgesetzt.
+let fbV11Passiv=[];
 function fbEvicted(s){ return roomEv&&roomEv[s]===true; }
 // Wer kann ueberhaupt noch gewinnen? Die Antwort haengt AUSSCHLIESSLICH an der
 // kanonischen Zughistorie: aktiv sein und keinen bereits gelesenen REMOVE offen haben.
@@ -13630,6 +13775,10 @@ function fbWriteSkip(s,attempt){
 // Alle offenen Sitze einer Runde pruefen. Mehrere Clients duerfen das gleichzeitig tun:
 // die Write-once-Transaction laesst genau einen Datensatz entstehen.
 function fbMaybeSkipOffline(){
+  // v11 hat keinen Turn-Slot, den man fuellen koennte: dort haengt beides am Lebenslauf
+  // der Runde. Diese Schicht sagt nur, DASS sich die Praesenz bewegt hat.
+  if((typeof fbV11Raum==='function')&&fbV11Raum())
+    return (typeof fbV9Praesenzwechsel==='function')?fbV9Praesenzwechsel():0;
   if(!fbSkipBoundary())return 0;
   let n=0;
   for(let s=0;s<np();s++)if(fbWriteSkip(s,0))n++;
@@ -13933,7 +14082,7 @@ function leaveOnline(after){
   stopPresenceWatch();   // C1: bewusstes Verlassen -> keine Wiederherstellung mehr
   stopServerClock();     // C3: und keine Zeitangleichung mehr
   clearGenerationStart();
-  stopEvictionWatch(); fbRemovePending=[]; fbExitBusy={};   // C4B
+  stopEvictionWatch(); fbRemovePending=[]; fbExitBusy={}; fbV11Passiv=[];   // C4B
   // Deliberate leave is immediate: drop own presence AND own roster record (frees
   // the seat for recycling and signals "left, not reloading" to the others), then
   // best-effort remove the whole room. v3: the rules only allow a p/<seat> delete
@@ -14658,8 +14807,16 @@ function drawSpinPreview(b,fx,fy,spin){
     if(mode==='football'?fbPreviewOut(x,y)
       :Math.sqrt((x-cx)*(x-cx)+(y-cy)*(y-cy))>R)break;
   }
-  if(r3dActive){ctx.strokeStyle='rgba(240,234,220,.28)';ctx.lineWidth=Math.max(1,BR*0.14*q0.s);ctx.setLineDash([BR*0.3*q0.s,BR*0.5*q0.s]);}
-  else{ctx.strokeStyle='rgba(255,255,255,.35)';ctx.lineWidth=BR*0.22*q0.s;ctx.setLineDash([BR*0.45*q0.s,BR*0.5*q0.s]);}
+  if(r3dActive){
+    const w=Math.max(1.6,BR*0.17*q0.s);
+    ctx.lineCap='round';ctx.lineJoin='round';
+    ctx.setLineDash([BR*0.34*q0.s,BR*0.46*q0.s]);
+    ctx.lineWidth=w+Math.max(1.8,w*0.9);ctx.strokeStyle='rgba(10,13,18,.50)';ctx.stroke();   // Saum
+    ctx.lineWidth=w;ctx.strokeStyle='rgba(255,252,246,.92)';ctx.stroke();                    // Kern
+    ctx.setLineDash([]);
+    return;
+  }
+  ctx.strokeStyle='rgba(255,255,255,.35)';ctx.lineWidth=BR*0.22*q0.s;ctx.setLineDash([BR*0.45*q0.s,BR*0.5*q0.s]);
   ctx.lineCap='round';ctx.stroke();ctx.setLineDash([]);
 }
 function drawSling(b,cdx,cdy){
@@ -14670,17 +14827,26 @@ function drawSling(b,cdx,cdy){
     // freistehende, leichte Prozentzahl. Kein Ring, keine Zug-Linie, kein Chip —
     // visuelle Ruhe auf dem hellen Marmor; nur der eigene Aim-Hinweis ist sichtbar.
     if(len>BR*0.25){
-      const w=Math.max(1.4,BR*0.09*p0.s);
+      const w=Math.max(2,BR*0.125*p0.s);
+      const a=Math.atan2(p2.y-p0.y,p2.x-p0.x),h=BR*0.5*p0.s;
+      const spitze=()=>{ ctx.beginPath();
+        ctx.moveTo(p2.x-Math.cos(a-0.42)*h,p2.y-Math.sin(a-0.42)*h);ctx.lineTo(p2.x,p2.y);
+        ctx.lineTo(p2.x-Math.cos(a+0.42)*h,p2.y-Math.sin(a+0.42)*h); };
       ctx.save();ctx.lineCap='round';ctx.lineJoin='round';
-      ctx.shadowColor='rgba(255,255,255,.5)';ctx.shadowBlur=w*1.6;          // feiner heller Saum -> lesbar auf Marmor
+      // (1) Der helle Saum: EIN Durchgang unter Strahl und Spitze. Er traegt die
+      //     Lesbarkeit vor dunkler Arenageometrie und vor Spielerkoerpern.
+      ctx.strokeStyle='rgba(255,255,255,.62)';
+      ctx.beginPath();ctx.moveTo(p0.x,p0.y);ctx.lineTo(p2.x,p2.y);
+      ctx.lineWidth=w+Math.max(1.8,w*0.75);ctx.stroke();
+      spitze();ctx.lineWidth=w+Math.max(1.8,w*0.75);ctx.stroke();
+      // (2) Der anthrazitfarbene Kern. Er beginnt an der Figur weich und steht schon
+      //     nach einem Viertel der Laenge voll da - vorher verlor sich genau das Stueck,
+      //     an dem die Richtung abgelesen wird.
       const g=ctx.createLinearGradient(p0.x,p0.y,p2.x,p2.y);
-      g.addColorStop(0,'rgba(22,26,32,0)');g.addColorStop(.3,'rgba(22,26,32,.68)');g.addColorStop(1,'rgba(22,26,32,.92)');
+      g.addColorStop(0,'rgba(22,26,32,0)');g.addColorStop(.25,'rgba(22,26,32,.86)');g.addColorStop(1,'rgba(22,26,32,.98)');
       ctx.beginPath();ctx.moveTo(p0.x,p0.y);ctx.lineTo(p2.x,p2.y);
       ctx.lineWidth=w;ctx.strokeStyle=g;ctx.stroke();
-      const a=Math.atan2(p2.y-p0.y,p2.x-p0.x),h=BR*0.42*p0.s;
-      ctx.beginPath();ctx.moveTo(p2.x-Math.cos(a-0.42)*h,p2.y-Math.sin(a-0.42)*h);ctx.lineTo(p2.x,p2.y);
-      ctx.lineTo(p2.x-Math.cos(a+0.42)*h,p2.y-Math.sin(a+0.42)*h);
-      ctx.lineWidth=w*1.15;ctx.strokeStyle='rgba(22,26,32,.92)';ctx.stroke(); // feine, praezise Spitze
+      spitze();ctx.lineWidth=w*1.2;ctx.strokeStyle='rgba(22,26,32,.98)';ctx.stroke();
       ctx.restore();
     }
     // freistehende Prozentzahl — editorial, kraeftiges Anthrazit; weicher Halo + zweiter

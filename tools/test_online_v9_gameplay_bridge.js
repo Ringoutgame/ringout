@@ -116,6 +116,7 @@ const baue = (a, welt) => new Function('window', 'crypto', 'GEN_MAX', 'FB_ONLINE
                                 welt.spur.push('SIEGERKLANG'); welt.spur.push('Sieger '+uebrig[0]); } }
   // Was NACH der Austragung kommt, ist hier Attrappe - die Austragung selbst nicht.
   let fbRemovePending = [];
+  let fbV11Passiv = [];
   let fbGoalState = 'play';
   function fbOnlineRoom(){ return welt.elim4; }
   function footballMatchEnd(){ welt.spur.push('Matchende:'+footballWinner); phase='over'; }
@@ -132,6 +133,9 @@ const baue = (a, welt) => new Function('window', 'crypto', 'GEN_MAX', 'FB_ONLINE
            fbV9ApplyAccepted, fbV9AcceptedOk, fbV9Wirken, leben: () => fbV9Leben,
            austragen: () => fbApplyPendingRemovals(),
            vorgemerkt: () => Array.from({ length: welt.cap }, (_, i) => !!fbRemovePending[i]),
+           passiv: () => Array.from({ length: welt.cap }, (_, i) => !!fbV11Passiv[i]),
+           ausscheiden: (o) => footballElimEliminate(o),
+           passivLeeren: () => { fbV11Passiv = []; },
            berechtigt: () => fbEligibleOwners(),
            aktiv: () => fbElimActive.slice(0, welt.cap),
            sicht: () => ({ commitIdx, commitAim, commitSpin, aimSet, balls, phase,
@@ -174,77 +178,95 @@ console.log('=== V9.4D1: Spielbruecke (ruhend) ===');
 
 (async () => {
 
-// ══ V11: DAS TERMINALE remove IST EINE AUSTRAGUNG ════════════════════════════
-// Ein Teilnehmer verlaesst das laufende Match. Die Protokollschicht schliesst seinen
-// Slot jede Runde mit dem kanonischen REMOVE. Bis hierher war das ein Nullzug: der
-// Sitz schoss nichts, blieb aber mit Figur, Leben und Siegberechtigung stehen - eine
-// Statue. Jetzt ist es, was es heisst: dieser Teilnehmer ist aus dem Match heraus.
-abschnitt('V11 - wer ausgetragen ist, spielt nicht mehr mit');
+// ══ V11: EIN ABGANG IST KEIN AUSSCHEIDEN ════════════════════════════════════
+// Ein Teilnehmer verlaesst das laufende Match oder faellt aus. Die Protokollschicht
+// schliesst seinen Slot jede Runde mit dem kanonischen REMOVE. Was das fuer das SPIEL
+// heisst, ist eine Produktentscheidung - und sie lautet: die Figur bleibt. Sie steht
+// weiter im Feld, sie ist weiter zu treffen, ihr Tor bleibt ein gueltiges Ziel. Nur
+// zielen tut sie nicht mehr. Ein geschlossener Browser ist kein Spielzug und darf
+// niemanden zum Sieger machen.
+abschnitt('V11 - wer geht, laesst seine Figur da');
 {
   const welt11 = (x) => welt9(Object.assign({ ONLINE_PROTOCOL_VERSION: 11, roomProto: 11 }, x || {}));
-  // Eine Runde fahren, wie sie das Produkt faehrt: Zugmenge anwenden, dann die
-  // naechste Eingabegrenze (dort wendet fbApplyPendingRemovals an).
   const runde = (welt, menge) => {
     const g = lauf(welt);
     const L = g.M.fbV9LebenBereit(0);
     const ok = g.M.fbV9ApplyAccepted(L, menge);
     return { M: g.M, ok: ok };
   };
+  const lebendig = (M, o) => M.sicht().balls.filter(b => b.owner === o && b.alive).length === 1;
 
-  // ── 2 -> 1: der Verbliebene gewinnt ──────────────────────────────────────
+  // ── Zwei Spieler, einer geht: das Match laeuft weiter ────────────────────
   {
     const welt = welt11({ cap: 2, teil: [0, 1], aktiv: [true, true] });
     const r = runde(welt, [gueltig(0, 5, 5, 0), nullzug(1, 'remove')]);
     t('die Runde wird angewandt', r.ok === true);
-    t('der Ausgetretene ist sofort nicht mehr siegberechtigt',
-      JSON.stringify(r.M.berechtigt()) === '[0]', r.M.berechtigt());
-    t('… und die Austragung ist fuer die naechste Grenze vorgemerkt',
-      JSON.stringify(r.M.vorgemerkt()) === '[false,true]', r.M.vorgemerkt());
+    t('niemand wird ausgetragen vorgemerkt',
+      JSON.stringify(r.M.vorgemerkt()) === '[false,false]', r.M.vorgemerkt());
     r.M.austragen();
-    t('an der Eingabegrenze ist er aus dem Match',
-      JSON.stringify(r.M.aktiv()) === '[true,false]', r.M.aktiv());
-    t('… seine Figur spielt nicht mehr mit',
-      r.M.sicht().balls.filter(b => b.owner === 1 && b.alive).length === 0);
-    t('… und das Match ist entschieden',
-      r.M.sicht().footballWinner === 0 && welt.spur.indexOf('Matchende:0') >= 0, welt.spur);
-    t('keine Statue: es bleibt genau ein Aktiver',
-      r.M.aktiv().filter(Boolean).length === 1);
+    t('beide Sitze bleiben im Match',
+      JSON.stringify(r.M.aktiv()) === '[true,true]', r.M.aktiv());
+    t('die Figur des Fortgegangenen steht weiter im Feld', lebendig(r.M, 1));
+    t('es gibt KEINEN Sieger aus dem Abgang',
+      r.M.sicht().footballWinner === null, r.M.sicht().footballWinner);
+    t('… und niemand wurde eliminiert',
+      welt.spur.filter(x => x.indexOf('raus:') === 0).length === 0, welt.spur.join(','));
+    t('beide bleiben siegberechtigt',
+      JSON.stringify(r.M.berechtigt()) === '[0,1]', r.M.berechtigt());
+    t('der Verbliebene schiesst ganz normal',
+      r.M.sicht().commitIdx[0] === 0 && r.M.sicht().aimSet[0] === true);
+    t('der Fortgegangene schiesst nicht',
+      r.M.sicht().commitIdx[1] === -1 && r.M.sicht().aimSet[1] === false);
+    t('… und der Sitz ist als passiv vermerkt',
+      JSON.stringify(r.M.passiv()) === '[false,true]', r.M.passiv());
   }
-  // ── Der Ausgetretene kann nicht gewinnen ─────────────────────────────────
+  // ── Dasselbe Terminal, Runde um Runde ────────────────────────────────────
   {
-    // Beide Sitze gehen in derselben Runde: einer tritt aus, einer verwirkt sein
-    // Protokoll. Es darf KEINEN Sieger geben - und schon gar nicht den Fortgegangenen.
     const welt = welt11({ cap: 2, teil: [0, 1], aktiv: [true, true] });
-    const r = runde(welt, [raus(0, 'NO_REVEAL'), nullzug(1, 'remove')]);
-    r.M.austragen();
-    t('wer ausgetragen ist, wird nicht Sieger',
-      r.M.sicht().footballWinner !== 1, r.M.sicht().footballWinner);
-    t('… und der Ausgang ist siegerlos',
-      welt.spur.indexOf('ohne Sieger') >= 0 || welt.spur.indexOf('Matchende ohne Sieger') >= 0, welt.spur);
+    const r = runde(welt, [gueltig(0, 5, 5, 0), nullzug(1, 'remove')]);
+    for (let i = 0; i < 4; i++) {
+      r.M.fbV9Wirken([gueltig(0, 1, 1, 0), nullzug(1, 'remove')], [0, 1]);
+      r.M.austragen();
+    }
+    t('auch nach vier weiteren Runden bleibt die Figur',
+      JSON.stringify(r.M.aktiv()) === '[true,true]' && lebendig(r.M, 1), r.M.aktiv());
+    t('… und es gibt weiterhin keinen Sieger', r.M.sicht().footballWinner === null);
   }
-  // ── 3 -> 2: das Match geht weiter ────────────────────────────────────────
+  // ── Fuenf Sitze, einer und dann zwei fallen aus ──────────────────────────
   {
-    const welt = welt11({ cap: 3, teil: [0, 1, 2], aktiv: [true, true, true] });
-    const r = runde(welt, [gueltig(0, 1, 1, 0), nullzug(1, 'remove'), gueltig(2, 2, 2, 0)]);
+    const welt = welt11({ cap: 5, teil: [0, 1, 2, 3, 4], myPlayer: 0,
+                          aktiv: [true, true, true, true, true] });
+    const r = runde(welt, [gueltig(0, 1, 0, 0), gueltig(1, 1, 0, 0), nullzug(2, 'remove'),
+                           gueltig(3, 1, 0, 0), gueltig(4, 1, 0, 0)]);
     r.M.austragen();
-    t('genau der Ausgetretene ist heraus',
-      JSON.stringify(r.M.aktiv()) === '[true,false,true]', r.M.aktiv());
-    t('… es gibt noch keinen Sieger', r.M.sicht().footballWinner === null);
-    t('… und die Arena stellt sich auf die Verbliebenen um',
-      welt.spur.indexOf('arenaNeu') >= 0, welt.spur);
-    t('die beiden anderen behalten ihre Sitze',
-      JSON.stringify(r.M.berechtigt()) === '[0,2]', r.M.berechtigt());
+    t('bei fuenf Sitzen bleibt der Ausgefallene stehen',
+      JSON.stringify(r.M.aktiv()) === '[true,true,true,true,true]', r.M.aktiv());
+    t('… die vier anderen schiessen weiter',
+      [0, 1, 3, 4].every(i => r.M.sicht().aimSet[i] === true));
+    r.M.fbV9Wirken([gueltig(0, 1, 0, 0), gueltig(1, 1, 0, 0), nullzug(2, 'remove'),
+                    nullzug(3, 'remove'), gueltig(4, 1, 0, 0)], [0, 1, 2, 3, 4]);
+    r.M.austragen();
+    t('auch bei ZWEI Ausfaellen scheidet niemand aus',
+      JSON.stringify(r.M.aktiv()) === '[true,true,true,true,true]', r.M.aktiv());
+    t('… es gibt keinen Sieger', r.M.sicht().footballWinner === null);
+    t('… die drei Uebrigen ziehen normal',
+      [0, 1, 4].every(i => r.M.sicht().aimSet[i] === true) &&
+      r.M.sicht().aimSet[2] === false && r.M.sicht().aimSet[3] === false,
+      JSON.stringify(r.M.sicht().aimSet));
+    t('… und genau die beiden Ausgefallenen sind passiv',
+      JSON.stringify(r.M.passiv()) === '[false,false,true,true,false]', r.M.passiv());
   }
-  // ── Luecken: 0, 2, 4 ─────────────────────────────────────────────────────
+  // ── Luecken: 0, 2, 4 - es wird nichts umnummeriert ───────────────────────
   {
-    // Die Teilnehmerliste dieser Generation hat Luecken. Der dritte EINTRAG ist Sitz 4 -
-    // wer ueber den Laufindex ginge, traefe Sitz 2. Niemand wird umnummeriert.
     const welt = welt11({ cap: 5, teil: [0, 2, 4], myPlayer: 0,
                           aktiv: [true, false, true, false, true] });
     const r = runde(welt, [gueltig(0, 3, 0, 0), nullzug(2, 'remove'), gueltig(4, -3, 0, 0)]);
     t('auch eine lueckenhafte Zugmenge wird angewandt', r.ok === true);
-    t('vorgemerkt ist GENAU Sitz 2',
-      JSON.stringify(r.M.vorgemerkt()) === '[false,false,true,false,false]', r.M.vorgemerkt());
+    r.M.austragen();
+    t('die Teilnehmer bleiben, wie sie waren',
+      JSON.stringify(r.M.aktiv()) === '[true,false,true,false,true]', r.M.aktiv());
+    t('… passiv ist GENAU Sitz 2',
+      JSON.stringify(r.M.passiv()) === '[false,false,true,false,false]', r.M.passiv());
     t('… und die Abschuesse liegen auf ihren SITZEN, nicht auf Laufindizes',
       r.M.sicht().aimSet[0] === true && r.M.sicht().aimSet[4] === true
       && r.M.sicht().aimSet[1] !== true && r.M.sicht().aimSet[3] !== true,
@@ -252,31 +274,49 @@ abschnitt('V11 - wer ausgetragen ist, spielt nicht mehr mit');
     t('… Sitz 4 traegt seinen eigenen Vektor',
       r.M.sicht().commitIdx[4] === 4 && r.M.sicht().commitAim[4].dx === -3,
       JSON.stringify(r.M.sicht().commitAim[4]));
-    r.M.austragen();
-    t('nach der Austragung bleiben 0 und 4',
-      JSON.stringify(r.M.berechtigt()) === '[0,4]', r.M.berechtigt());
-    t('… und kein Nachbar wurde mitgenommen',
-      JSON.stringify(r.M.aktiv()) === '[true,false,false,false,true]', r.M.aktiv());
   }
-  // ── Einmaligkeit ─────────────────────────────────────────────────────────
+  // ── Der Protokollbruch: passiv statt ausgeschieden, aber wirklich passiv ──
   {
-    // Derselbe Austritt wird jede Runde erneut als Terminal gelesen - und darf genau
-    // EINMAL wirken.
+    // Wer sein Geheimnis zurueckhaelt, verliert in dieser Generation JEDEN weiteren
+    // Zug - auch dann, wenn von seinem Sitz spaeter wieder ein formal gueltiger Zug
+    // kaeme. Sonst waere das Zurueckhalten ein Aussetzen ohne Preis.
     const welt = welt11({ cap: 3, teil: [0, 1, 2], aktiv: [true, true, true] });
-    const r = runde(welt, [gueltig(0, 1, 1, 0), nullzug(1, 'remove'), gueltig(2, 2, 2, 0)]);
+    const r = runde(welt, [gueltig(0, 1, 1, 0), raus(1, 'NO_REVEAL'), gueltig(2, 2, 2, 0)]);
     r.M.austragen();
-    const austraege = () => welt.spur.filter(x => /^raus:|^Matchende|^arenaNeu|Sieger/.test(x));
-    const nachher = austraege();
-    r.M.austragen(); r.M.austragen();
-    t('eine zweite Anwendung derselben Vormerkung tut nichts',
-      JSON.stringify(austraege()) === JSON.stringify(nachher), austraege());
-    // Und die naechste Runde bringt dasselbe Terminal noch einmal.
-    r.M.fbV9Wirken([gueltig(0, 1, 1, 0), nullzug(1, 'remove'), gueltig(2, 2, 2, 0)], [0, 1, 2]);
+    t('ein ausgebliebener Reveal scheidet in v11 NICHT aus',
+      JSON.stringify(r.M.aktiv()) === '[true,true,true]', r.M.aktiv());
+    t('… der Sitz ist aber passiv', r.M.passiv()[1] === true, r.M.passiv());
+    r.M.fbV9Wirken([gueltig(0, 1, 1, 0), gueltig(1, 9, 9, 0), gueltig(2, 2, 2, 0)], [0, 1, 2]);
+    t('… und ein spaeterer Zug von diesem Sitz wirkt nicht mehr',
+      r.M.sicht().aimSet[1] === false && r.M.sicht().commitIdx[1] === -1,
+      JSON.stringify(r.M.sicht().aimSet));
+    t('… waehrend die anderen weiter schiessen',
+      r.M.sicht().aimSet[0] === true && r.M.sicht().aimSet[2] === true);
+    for (const status of ['HASH_MISMATCH', 'MALFORMED']) {
+      const w2 = welt11({ cap: 2, teil: [0, 1], aktiv: [true, true] });
+      const r2 = runde(w2, [gueltig(0, 1, 1, 0), raus(1, status)]);
+      r2.M.austragen();
+      t(status + ': niemand scheidet aus, der Sitz wird passiv',
+        JSON.stringify(r2.M.aktiv()) === '[true,true]' && r2.M.passiv()[1] === true,
+        r2.M.aktiv() + '/' + r2.M.passiv());
+      t(status + ': und es gibt keinen Sieger', r2.M.sicht().footballWinner === null);
+    }
+  }
+  // ── Das Match bleibt entscheidbar ────────────────────────────────────────
+  {
+    // Eine passive Figur ist kein unsterblicher Block: sie kassiert Gegentore wie jede
+    // andere, und wenn die SPIELREGEL sie aus dem Match nimmt, endet das Match ganz
+    // normal. Nur das Netz entscheidet das nicht mehr.
+    const welt = welt11({ cap: 2, teil: [0, 1], aktiv: [true, true] });
+    const r = runde(welt, [gueltig(0, 5, 5, 0), nullzug(1, 'remove')]);
     r.M.austragen();
-    t('auch ein erneutes Terminal scheidet niemanden ein zweites Mal aus',
-      JSON.stringify(austraege()) === JSON.stringify(nachher), austraege());
-    t('… und der Zustand steht unveraendert',
-      JSON.stringify(r.M.aktiv()) === '[true,false,true]', r.M.aktiv());
+    t('vor dem letzten Gegentor laeuft das Match noch',
+      r.M.sicht().footballWinner === null && r.M.aktiv().filter(Boolean).length === 2);
+    r.M.ausscheiden(1);            // der Weg der Lebensregel: zweites Gegentor
+    t('nimmt die Spielregel die passive Figur heraus, endet das Match',
+      r.M.sicht().footballWinner === 0, r.M.sicht().footballWinner);
+    t('… und zwar ueber den bestehenden Siegerweg',
+      welt.spur.indexOf('Sieger 0') >= 0, welt.spur.join(','));
   }
   // ── Die Bestandsvertraege bleiben, wie sie sind ──────────────────────────
   {
@@ -288,6 +328,12 @@ abschnitt('V11 - wer ausgetragen ist, spielt nicht mehr mit');
       r.M.austragen();
       t('v' + proto + ': und traegt niemanden aus',
         JSON.stringify(r.M.aktiv()) === '[true,true]', r.M.aktiv());
+      t('v' + proto + ': dort wird auch nichts passiv vermerkt',
+        JSON.stringify(r.M.passiv()) === '[false,false]', r.M.passiv());
+      const w2 = welt9({ cap: 2, aktiv: [true, true], ONLINE_PROTOCOL_VERSION: proto, roomProto: proto });
+      const r2 = runde(w2, [gueltig(0, 5, 5, 0), raus(1, 'NO_REVEAL')]);
+      t('v' + proto + ': ein ausgebliebener Reveal scheidet dort weiterhin aus',
+        JSON.stringify(r2.M.aktiv()) === '[true,false]', r2.M.aktiv());
     }
   }
   // ── Und die uebrigen Nullterminals bleiben Nullzuege ─────────────────────
@@ -298,6 +344,8 @@ abschnitt('V11 - wer ausgetragen ist, spielt nicht mehr mit');
       r.M.austragen();
       t('ein ' + art + ' traegt niemanden aus',
         JSON.stringify(r.M.aktiv()) === '[true,true]', r.M.aktiv());
+      t('ein ' + art + ' macht auch niemanden dauerhaft passiv',
+        JSON.stringify(r.M.passiv()) === '[false,false]', r.M.passiv());
     }
   }
 }

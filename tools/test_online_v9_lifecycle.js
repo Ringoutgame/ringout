@@ -118,6 +118,12 @@ const baue = (a, uhr, welt) => new Function('window', 'crypto', 'GEN_MAX', 'FB_O
   function fbElimPlayers(){ return welt.cap; }
   function fbUid(){ return welt.uid; }
   function fbEvicted(s){ return !!(welt.evicted && welt.evicted[s]); }
+  function fbElimTeilnehmer(){ return welt.teil ? welt.teil.slice() : null; }
+  // Der Praesenzstand, wie ihn der Raum meldet - und die EINE Frage, die das Produkt
+  // daran stellt.
+  let roomP = (welt.praesenz || {}), roomPSeen = !!welt.praesenz;
+  function seatActive(p, s){ return !!(p && p[s] && p[s].on === true); }
+  function setzePraesenz(m){ roomP = m || {}; roomPSeen = true; }
   // Der Spielteil als Attrappe: genau die Funktionen, die die Bruecke benutzt. Sie
   // fuehren welt.spur mit, damit die REIHENFOLGE der Wirkungen pruefbar ist.
   let balls = [], commitIdx = [], commitAim = [], commitSpin = [], aimSet = [];
@@ -151,7 +157,8 @@ const baue = (a, uhr, welt) => new Function('window', 'crypto', 'GEN_MAX', 'FB_O
     resetCommits(); }
   fbV9WeltAufbauen();
   ${BEREICH}
-  return { sync, fbV9LebenAn, fbV9LebenBereit, fbV9LebenNeueRunde, fbV9LebenHandeln,
+  return { sync, setzePraesenz, fbV9Praesenzwechsel,
+           fbV9LebenAn, fbV9LebenBereit, fbV9LebenNeueRunde, fbV9LebenHandeln,
            fbV9LebenStop, leben: () => fbV9Leben,
            fbV9ApplyAccepted, fbV9AcceptedOk, fbV9WeltAufbauen,
            sicht: () => ({ commitIdx, commitAim, commitSpin, aimSet, balls, phase }),
@@ -421,6 +428,86 @@ abschnitt('Ausgetragene und disqualifizierte Sitze werden sofort geschlossen');
 }
 
 // ══ AUFRAEUMEN UND VERALTETE RUECKRUFE ═══════════════════════════════════════
+abschnitt('V11 - der offene Slot eines Getrennten schliesst sofort');
+{
+  // Dieselbe Maschine wie bei der Austragung, nur ein anderer Grund: nicht "der Sitz ist
+  // draussen", sondern "sein Mensch ist gerade nicht da". Geschlossen wird deshalb mit
+  // dem anderen kanonischen Nullterminal - `skip` statt `remove` -, und der Platz bleibt
+  // ihm erhalten. Gewartet wird auf ihn nicht: weder acht Sekunden noch die volle
+  // Rueckkehrfrist.
+  const DA = { 0: { on: true }, 1: { on: true }, 2: { on: true } };
+  const WEG = { 0: { on: true }, 1: { on: true }, 2: { on: false, t: TS - 2000 } };
+  const welt11 = (x) => welt9(Object.assign({ ONLINE_PROTOCOL_VERSION: 11, roomProto: 11,
+                                              teil: [0, 1, 2], turnNo: 0 }, x || {}));
+  const bauLauf = async (vor, welt) => {
+    const u = uhrwerk(4000000);
+    const a = attrappe(Object.assign({ [P('s')]: { ts: TS },
+                                       [P('q/0')]: bereitAlle(3, 0) }, vor || {}), u);
+    const M = baue(a, u, welt);
+    const L = M.fbV9LebenNeueRunde();
+    await settle();
+    M.fbV9LebenHandeln({ pass: true });
+    await settle();
+    return { u, a, M, L };
+  };
+  const skips = (a) => cPfad(a, 0).filter(w => w.vorschlag && w.vorschlag.k === 'skip');
+  const removes = (a) => cPfad(a, 0).filter(w => w.vorschlag && w.vorschlag.k === 'remove');
+  {
+    const g = await bauLauf({}, welt11({ praesenz: WEG }));
+    t('der Slot des Getrennten wird geschlossen', skips(g.a).length === 1, skips(g.a).length);
+    t('auf seinem Slot', skips(g.a).length === 1 && skips(g.a)[0].pfad === P('c/0/2'),
+      skips(g.a).map(w => w.pfad).join(','));
+    t('mit dem kanonischen Nullterminal, nicht mit einer Austragung', removes(g.a).length === 0);
+    t('und ohne eine einzige Sekunde zu warten', g.u.jetzt() === 4000000);
+    g.M.fbV9LebenStop();
+  }
+  {
+    const g = await bauLauf({}, welt11({ praesenz: DA }));
+    t('wer verbunden ist und schweigt, wird NICHT geschlossen', skips(g.a).length === 0,
+      skips(g.a).map(w => w.pfad).join(','));
+    g.M.fbV9LebenStop();
+  }
+  {
+    // Faellt der Sitz erst waehrend der offenen Runde aus, meldet das Spiel nur den
+    // Praesenzwechsel - was daraus folgt, entscheidet die Protokollschicht.
+    const g = await bauLauf({}, welt11({ praesenz: DA }));
+    t('Vorbedingung: noch nichts geschlossen', skips(g.a).length === 0);
+    g.M.setzePraesenz(WEG);
+    g.M.fbV9Praesenzwechsel();
+    await settle();
+    t('ein Ausfall MITTEN in der Runde schliesst den Slot sofort',
+      skips(g.a).length === 1 && skips(g.a)[0].pfad === P('c/0/2'),
+      skips(g.a).map(w => w.pfad).join(','));
+    g.M.fbV9LebenStop();
+  }
+  {
+    const g = await bauLauf({ [P('c/0')]: { 2: { k: 'move', h: 'a'.repeat(64), ts: TS } } },
+                            welt11({ praesenz: WEG }));
+    t('ein bereits abgegebener Zug wird nicht angetastet', skips(g.a).length === 0,
+      skips(g.a).map(w => w.pfad).join(','));
+    g.M.fbV9LebenStop();
+  }
+  {
+    const g = await bauLauf({ [P('e')]: { 2: true } }, welt11({ praesenz: WEG }));
+    t('ist der Sitz ausgetragen, bleibt es bei der Austragung',
+      removes(g.a).length === 1 && skips(g.a).length === 0,
+      'remove=' + removes(g.a).length + ' skip=' + skips(g.a).length);
+    g.M.fbV9LebenStop();
+  }
+  {
+    const g = await bauLauf({}, welt11({ praesenz: { 0: { on: true }, 1: { on: false, t: TS - 2000 }, 2: { on: true } } }));
+    t('der EIGENE Sitz wird nie geschlossen', skips(g.a).length === 0,
+      skips(g.a).map(w => w.pfad).join(','));
+    g.M.fbV9LebenStop();
+  }
+  {
+    const g = await bauLauf({}, welt9({ turnNo: 0, praesenz: WEG }));
+    t('die Fassungen davor kennen diesen Weg nicht', skips(g.a).length === 0,
+      skips(g.a).map(w => w.pfad).join(','));
+    g.M.fbV9LebenStop();
+  }
+}
+
 abschnitt('Aufraeumen und veraltete Rueckrufe');
 {
   const u = uhrwerk(4000000);

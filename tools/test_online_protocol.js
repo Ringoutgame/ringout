@@ -15,6 +15,10 @@
 //
 const { loadIndexHtml, grab, grabFunction } = require('./extract.js');
 const html = loadIndexHtml();
+// Die gemeinsame Rueckkehrfrist des Produkts - gelesen, nicht wiederholt.
+// tools/test_timeouts.js haelt Client und Rules zusammen.
+const SEAT_STALE_AUS_QUELLE = Number((html.match(/const SEAT_STALE_MS=(\d+)/) || [])[1]);
+if (!Number.isFinite(SEAT_STALE_AUS_QUELLE)) { console.log('SEAT_STALE_MS nicht gefunden'); process.exit(2); }
 
 const SRC = [
   grab(html, /const ONLINE_PROTOCOL_VERSION=[^\n]*/, 'ONLINE_PROTOCOL_VERSION'),
@@ -28,6 +32,7 @@ const SRC = [
   // Die Belegungsbegriffe gehoeren zur Raumpruefung - sie liest sie.
   grab(html, new RegExp('const SEAT_STALE_MS=[^\\n]*'), 'SEAT_STALE_MS'),
   grab(html, new RegExp('const LOBBY_HOST_GRACE_MS=[^\\n]*'), 'LOBBY_HOST_GRACE_MS'),
+  grab(html, new RegExp('const HOST_EXTRA_GRACE_MS=[^\\n]*'), 'HOST_EXTRA_GRACE_MS'),
   grab(html, new RegExp('const FB_V11_HOST_FRIST_MS=[^\\n]*'), 'FB_V11_HOST_FRIST_MS'),
   grabFunction(html, 'jetztServer'),
   grabFunction(html, 'seatLage'),
@@ -459,7 +464,8 @@ t('Beitritt: die Ablehnung nennt die Versionsunvertraeglichkeit',
   t('die Eviction prueft die AKTUELLE Generation', /\$gen === /.test(ev['.write']));
   t('die Eviction verlangt einen angemeldeten Schreiber', /auth\.uid !== null/.test(ev['.write']));
   t('der Peer-Weg verlangt einen offline stehenden Sitz', /child\('on'\)\.val\(\) === false/.test(ev['.write']));
-  t('der Peer-Weg verlangt eine abgelaufene Serverzeit', /\(now - .*\) >= 15000/.test(ev['.write']));
+  t('der Peer-Weg verlangt eine abgelaufene Serverzeit',
+    new RegExp('\(now - .*\) >= ' + SEAT_STALE_AUS_QUELLE).test(ev['.write']));
 }
 
 // ── (9) Online-Football ist ein PRODUKTWEG - mit genau EINEM Netzweg ────────────
