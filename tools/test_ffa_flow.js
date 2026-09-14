@@ -48,7 +48,7 @@ const SRC = [
   grab(/function fbPermanentExitHappened\(\)\{[\s\S]*?\n\}/, 'fbPermanentExitHappened'),
   grab(/function stopEvictionWatch\(\)\{[^\n]*/, 'stopEvictionWatch'),
   grab(/function startEvictionWatch\(\)\{[\s\S]*?\n\}/, 'startEvictionWatch'),
-  grab(/function fbWriteEviction\(seat\)\{[\s\S]*?\n\}/, 'fbWriteEviction'),
+  grab(/function fbWriteEviction\(seat,fertig\)\{[\s\S]*?\n\}/, 'fbWriteEviction'),
   grab(/function fbWriteRemoveFor\(s,attempt\)\{[\s\S]*?\n\}/, 'fbWriteRemoveFor'),
   grab(/function fbCloseSeatSlot\(s,attempt\)\{[\s\S]*?\n\}/, 'fbCloseSeatSlot'),
   grab(/function fbMaybeWriteRemoves\(\)\{[\s\S]*?\n\}/, 'fbMaybeWriteRemoves'),
@@ -190,6 +190,9 @@ const SRC = [
   grab(/function fbGraceCtxValid\(ctx\)\{[\s\S]*?\n\}/, 'fbGraceCtxValid'),
   grab(/function fbAbsenceCandidates\(\)\{[\s\S]*?\n\}/, 'fbAbsenceCandidates'),
   grab(/function clearAllMatchGrace\(\)\{[^\n]*/, 'clearAllMatchGrace'),
+  // HARDENING 01: clearMatchGrace beendet auch den Nachreich-Lauf des Passiv-Markers -
+  // der Block kommt deshalb woertlich mit (fbEvictStop, fbEvictStopAlle, ...).
+  grab(/const FB_EVICT_VERSUCHE=[\s\S]*?\nfunction fbEvictSchritt\(s\)\{[\s\S]*?\n\}/, 'Passiv-Marker-Nachreichlauf'),
   grab(/function startMatchGrace\(s\)\{[\s\S]*?\n\}/, 'startMatchGrace'),
   grab(/function clearLeaveState\(\)\{[^\n]*/, 'clearLeaveState'),
   grab(/function rederiveLeaveState\(\)\{[\s\S]*?\n\}/, 'rederiveLeaveState'),

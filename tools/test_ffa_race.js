@@ -110,7 +110,7 @@ const SRC = [
   grab(/function fbPermanentExitHappened\(\)\{[\s\S]*?\n\}/, 'fbPermanentExitHappened'),
   grab(/function stopEvictionWatch\(\)\{[^\n]*/, 'stopEvictionWatch'),
   grab(/function startEvictionWatch\(\)\{[\s\S]*?\n\}/, 'startEvictionWatch'),
-  grab(/function fbWriteEviction\(seat\)\{[\s\S]*?\n\}/, 'fbWriteEviction'),
+  grab(/function fbWriteEviction\(seat,fertig\)\{[\s\S]*?\n\}/, 'fbWriteEviction'),
   grab(/function fbWriteRemoveFor\(s,attempt\)\{[\s\S]*?\n\}/, 'fbWriteRemoveFor'),
   grab(/function fbCloseSeatSlot\(s,attempt\)\{[\s\S]*?\n\}/, 'fbCloseSeatSlot'),
   grab(/function fbMaybeWriteRemoves\(\)\{[\s\S]*?\n\}/, 'fbMaybeWriteRemoves'),

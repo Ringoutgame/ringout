@@ -13209,7 +13209,7 @@ function fbAbsenceCandidates(){
   }
   return out;
 }
-function clearMatchGrace(s){ if(matchGraceTimer[s]){clearTimeout(matchGraceTimer[s]);matchGraceTimer[s]=null;} delete matchGraceGen[s]; }
+function clearMatchGrace(s){ if(matchGraceTimer[s]){clearTimeout(matchGraceTimer[s]);matchGraceTimer[s]=null;} delete matchGraceGen[s]; fbEvictStop(s); }
 // C3: Ein Generationswechsel entwertet jeden laufenden Weckruf - er traegt den alten
 // Generationskontext. Ein gen-Write erzeugt aber KEINEN neuen Praesenz-Callback, also
 // bekaemen weiterhin getrennte Sitze in der neuen Generation nie wieder einen Ablauf:
@@ -13225,7 +13225,7 @@ function rearmMatchGrace(){
     startMatchGrace(s);                    // ... neuer Weckruf mit der neuen Generation
   }
 }
-function clearAllMatchGrace(){ for(const s in matchGraceTimer)clearMatchGrace(s); }
+function clearAllMatchGrace(){ for(const s in matchGraceTimer)clearMatchGrace(s); fbEvictStopAlle(); }
 // Der Timer ist nur noch ein WECKRUF, keine Entscheidung. Geweckt wird fruehestens
 // nach der Restfrist, die sich aus dem autoritativen Zeitstempel ergibt; ist die Frist
 // beim Aufwachen noch nicht abgelaufen (spaeter Beobachter, verschobene Uhr), wird fuer
@@ -13301,7 +13301,10 @@ function seatFinallyGone(s){
     // C4B: Der Fristablauf ist der eine Ausloeser des dauerhaften Austritts - derselbe
     // Weg, den auch ein bewusstes Verlassen nimmt. Geschrieben wird nur, wenn die
     // Pruefungen in fbWriteEviction zustimmen; kehrt der Sitz zurueck, geschieht nichts.
-    fbWriteEviction(s);
+    // v11 reicht den Marker begrenzt nach (fbEvictSichern); v9 und v10 bleiben bei
+    // ihrem einen Versuch.
+    if((typeof fbV11Raum==='function')&&fbV11Raum())fbEvictSichern(s);
+    else fbWriteEviction(s);
   }
   else onOppLeft();
 }
@@ -13601,6 +13604,76 @@ let roomEv={}, evUnsub=null, fbExitBusy={}, fbRemovePending=[];
 // an der Praesenz, nicht am Zustellzeitpunkt eines Markers, nicht an einer Uhr.
 // Sie gilt bis zum Ende der Generation und wird mit ihr zurueckgesetzt.
 let fbV11Passiv=[];
+// ── DER ENDGUELTIGE PASSIV-MARKER, ABGESICHERT (nur v11) ─────────────────────
+// fbWriteEviction ist EIN Versuch. Faellt er genau auf die Grenze der Rueckkehrfrist,
+// kann der Server ihn noch abweisen: die angeglichene Serveruhr des Clients steht dann
+// eine Winzigkeit vor der des Servers. Frueher war das zugleich der letzte Versuch -
+// seatLeft war gesetzt, und ein zweiter kam erst mit einem fremden Praesenzereignis in
+// der Zielphase. Der Sitz blieb so laenger als vorgesehen nicht endgueltig passiv.
+//
+// Hier wird der Marker deshalb BEGRENZT nachgereicht:
+//   * hoechstens FB_EVICT_VERSUCHE Schreibversuche je Sitz und Generation;
+//   * jeder erst, wenn die AUTORITATIVE Restzeit um ist (p/<sitz>/t gegen die
+//     Serveruhr, fbGraceWait) - vorher wird nie geschrieben;
+//   * nach einer Abweisung nie schneller als der bestehende Wiederholungsabstand
+//     SENTINEL_RETRY_MAX_MS - es gibt keinen neuen Zeitwert;
+//   * beendet, sobald der Marker steht, der Sitz zurueck ist, die Generation wechselt,
+//     der Raum nicht mehr spielt oder die Sitzung endet. Den Abbruch traegt derselbe
+//     Weg wie der Rueckkehrweckruf dieses Sitzes (clearMatchGrace/clearAllMatchGrace):
+//     beide gehoeren zu derselben Abwesenheit und enden gemeinsam.
+// Ohne brauchbare Zeitbasis (keine Serveruhr, kein Zeitstempel) wird nicht geschrieben
+// und nicht endlos gewartet: dann bleibt es beim bisherigen, praesenzgetriebenen Weg.
+const FB_EVICT_VERSUCHE=3;
+let fbEvictLauf={};   // sitz -> {sid, room, gen, versuche, timer, aufgegeben}
+function fbEvictStop(s){
+  const l=fbEvictLauf[s];
+  if(l&&l.timer)clearTimeout(l.timer);
+  delete fbEvictLauf[s];
+}
+function fbEvictStopAlle(){ for(const s in fbEvictLauf)fbEvictStop(s); }
+function fbEvictGueltig(l){
+  return !!l&&l.sid===onlineSessionId&&l.room===roomCode&&l.gen===gen
+    &&online&&gameStarted&&!isOnlineTerminated()&&fbOnlineRoom()
+    &&(typeof fbV11Raum==='function')&&fbV11Raum();
+}
+function fbEvictPlanen(s,ms){
+  const l=fbEvictLauf[s];
+  if(!l)return;
+  if(l.timer)clearTimeout(l.timer);
+  l.timer=setTimeout(()=>{
+    if(fbEvictLauf[s]!==l)return;          // abgebrochen oder durch einen neuen Lauf ersetzt
+    l.timer=null;
+    fbEvictSchritt(s);
+  },ms);
+}
+function fbEvictSichern(s){
+  if(fbEvictLauf[s])return;                 // derselbe Sitz laeuft bereits
+  fbEvictLauf[s]={sid:onlineSessionId,room:roomCode,gen:gen,versuche:0,timer:null,aufgegeben:false};
+  fbEvictSchritt(s);
+}
+function fbEvictSchritt(s){
+  const l=fbEvictLauf[s];
+  if(!fbEvictGueltig(l)){ fbEvictStop(s); return; }
+  if(fbEvicted(s)){ fbEvictStop(s); return; }              // der Marker steht: fertig
+  if(seatActive(roomP,s)){ fbEvictStop(s); return; }        // zurueck: nichts zu tun
+  if(l.aufgegeben)return;
+  const lage=fbSeatGrace(s);
+  if(lage.state==='reserved'){ fbEvictPlanen(s,Math.max(fbGraceWait(s),SENTINEL_RETRY_BASE_MS)); return; }
+  if(lage.state!=='expired'){ fbEvictStop(s); return; }     // keine Zeitbasis: nicht raten
+  if(fbExitBusy[s]){ fbEvictPlanen(s,SENTINEL_RETRY_MAX_MS); return; }   // ein anderer Weg schreibt gerade
+  if(l.versuche>=FB_EVICT_VERSUCHE){
+    l.aufgegeben=true;
+    console.warn('[online] Passiv-Marker fuer Sitz '+s+' nach '+FB_EVICT_VERSUCHE+' Versuchen nicht gesetzt');
+    return;
+  }
+  const begonnen=fbWriteEviction(s,(steht)=>{
+    if(fbEvictLauf[s]!==l)return;           // inzwischen abgebrochen - nichts mehr tun
+    if(steht){ fbEvictStop(s); return; }
+    fbEvictPlanen(s,Math.max(fbGraceWait(s),SENTINEL_RETRY_MAX_MS));
+  });
+  if(begonnen)l.versuche++;
+  else fbEvictPlanen(s,Math.max(fbGraceWait(s),SENTINEL_RETRY_MAX_MS));
+}
 function fbEvicted(s){ return roomEv&&roomEv[s]===true; }
 // Wer kann ueberhaupt noch gewinnen? Die Antwort haengt AUSSCHLIESSLICH an der
 // kanonischen Zughistorie: aktiv sein und keinen bereits gelesenen REMOVE offen haben.
@@ -13649,7 +13722,7 @@ function startEvictionWatch(){
 // Versuche mehrerer Clients hinterlassen genau einen Marker. Geprueft wird vorher
 // dasselbe, was die Rules serverseitig noch einmal pruefen - im Zweifel wird nicht
 // geschrieben.
-function fbWriteEviction(seat){
+function fbWriteEviction(seat,fertig){
   if(!online||!fbOnlineRoom()||!gameStarted||isOnlineTerminated())return false;
   if(seat<0||seat>=fbElimPlayers())return false;
   if(fbEvicted(seat)||fbExitBusy[seat])return false;
@@ -13659,11 +13732,15 @@ function fbWriteEviction(seat){
   const ctx={sid:onlineSessionId,room:roomCode,gen:gen};
   fbExitBusy[seat]=true;
   const ref=window.FB.ref(window.FB.db,'rooms/'+ctx.room+'/g/'+ctx.gen+'/e/'+seat);
+  // `fertig` (optional) erfaehrt, ob der Marker danach AUTORITATIV steht - gleich, ob
+  // dieser Versuch ihn geschrieben hat oder ein anderer Client schneller war. Eine
+  // Abweisung durch die Rules ist ausdruecklich KEIN Erfolg.
+  const melde=(ok)=>{ if(typeof fertig==='function'){ try{ fertig(ok); }catch(e){} } };
   try{
     window.FB.runTransaction(ref,cur=>cur==null?true:undefined,{applyLocally:false})
-      .then(()=>{ delete fbExitBusy[seat]; })
-      .catch(()=>{ delete fbExitBusy[seat]; });
-  }catch(e){ delete fbExitBusy[seat]; }
+      .then((erg)=>{ delete fbExitBusy[seat]; melde(!!(erg&&erg.snapshot&&erg.snapshot.val()===true)); })
+      .catch(()=>{ delete fbExitBusy[seat]; melde(false); });
+  }catch(e){ delete fbExitBusy[seat]; melde(false); }
   return true;
 }
 // Ist ein Sitz dauerhaft draussen, wird sein offener Slot mit dem typisierten REMOVE
