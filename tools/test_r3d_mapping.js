@@ -127,7 +127,9 @@ for (const [vw, vh] of [[800, 600], [390, 780], [1400, 900]]) {   // Landscape, 
 {
   const orig = "const r=cv.getBoundingClientRect();const sc=LOGICAL/(r.width||dispS);let x=(e.clientX-r.left)*sc,y=(e.clientY-r.top)*sc;const va=viewAngle();if(va===Math.PI){x=2*cx-x;y=2*cy-y;}else if(va){const dx=x-cx,dy=y-cy,c=Math.cos(va),s=Math.sin(va);x=cx+dx*c+dy*s;y=cy-dx*s+dy*c;}return{x:x,y:y};";
   t('localPt 2D-Zweig byte-identisch', HTML.includes(orig));
-  t('localPt 3D-Zweig gated', HTML.includes("if(r3dActive)return r3d.s2w(e.clientX,e.clientY);"));
+  // RingOut-Delta B1 (Quelle 2c2a6af): s2w erhaelt flaechenrelative Koordinaten (derselbe
+  // Ursprung wie pickOwnBall3D). Weiterhin exakter Substring: 3D-Zweig gated UND flaechenrelativ.
+  t('localPt 3D-Zweig gated', HTML.includes("if(r3dActive){const g=(typeof gameSurface==='function')?gameSurface():{l:0,t:0};return r3d.s2w(e.clientX-g.l,e.clientY-g.t);}"));
 }
 
 // 7b) viewAngle: eigene Kugel liegt fuer JEDEN Seat vorne/unten (Spawnwinkel

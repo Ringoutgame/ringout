@@ -2382,6 +2382,8 @@ en:{tagline:'PULL BACK · RELEASE · KNOCK THEM OUT',chip:'FEATURED',
   fbOnlineT:'ONLINE',fbOnlineS:'2–5 PLAYERS · PLAY WITH FRIENDS',
   fbNo3d:'Arena Football needs the real 3D scene (not available).',
   szeneLaedt:'Loading the arena …',
+  r3dRecovering:'Restoring graphics …',
+  r3dRecoveryFailed:'Graphics could not be restored.\nPlease reload the page.',
   onSubFb:'Elimination · 2 to 5 players · two lives each',
   secPlay:'PLAY',secRooms:'ONLINE ROOMS',secHow:'HOW TO PLAY',viewAll:'VIEW ALL',
   joinCodeBtn:'JOIN CODE',howLead:'Learn the rules and master the ring.',
@@ -2477,6 +2479,8 @@ de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'FEATURED',
   fbOnlineT:'ONLINE',fbOnlineS:'2–5 SPIELER · MIT FREUNDEN SPIELEN',
   fbNo3d:'Arena Football benötigt die echte 3D-Szene (nicht verfügbar).',
   szeneLaedt:'Arena wird geladen …',
+  r3dRecovering:'Grafik wird wiederhergestellt …',
+  r3dRecoveryFailed:'Grafik konnte nicht wiederhergestellt werden.\nBitte die Seite neu laden.',
   onSubFb:'Elimination · 2 bis 5 Spieler · je 2 Leben',
   secPlay:'SPIELEN',secRooms:'ONLINE-RÄUME',secHow:'SO WIRD GESPIELT',viewAll:'ALLE ANZEIGEN',
   scrollHint:'SCROLLEN FÜR MEHR',soonT:'BALD MEHR',soonS:'Neue Modi und Features sind in Arbeit.',
@@ -2568,6 +2572,8 @@ tr:{tagline:'GERİ ÇEK · BIRAK · DIŞARI İT',chip:'FEATURED',
   fbOnlineT:'ONLINE',fbOnlineS:'2–5 OYUNCU · ARKADAŞLARINLA OYNA',
   fbNo3d:'Arena Football gerçek 3B sahneye ihtiyaç duyar (kullanılamıyor).',
   szeneLaedt:'Arena yükleniyor …',
+  r3dRecovering:'Grafikler geri yükleniyor …',
+  r3dRecoveryFailed:'Grafikler geri yüklenemedi.\nLütfen sayfayı yenileyin.',
   onSubFb:'Eliminasyon · 2-5 oyuncu · her birine 2 can',
   secPlay:'OYNA',secRooms:'ONLINE ODALAR',secHow:'NASIL OYNANIR',viewAll:'TÜMÜNÜ GÖR',
   scrollHint:'KAYDIR VE KEŞFET',soonT:'ÇOK YAKINDA DAHA FAZLASI',soonS:'Yeni modlar ve özellikler yolda.',
@@ -3104,7 +3110,9 @@ $('nameInput').addEventListener('input',e=>{ setOnlineName(e.target.value);
 // rejoinWait) zeigt die Bar wieder — ausser der Raum ist tot (savedRoom weg).
 $('rejoinBtn').onclick=()=>{ const sr=savedRoom(); if(!sr)return; $('onRejoin').style.display='none';
   attemptRejoin(sr.code).then(ok=>{ if(!ok&&savedRoom()&&!online)$('onRejoin').style.display=''; }); };
-function showMenu(){menuVisible=true;$('menu').style.display='flex';$('game').style.display='none';updateMenuPreview();resize();
+function showMenu(){menuVisible=true;
+  if(typeof clearGameOverOverlayTimer==='function')clearGameOverOverlayTimer();   // Rueckweg ins Menue: kein nachlaufendes Ergebnisfenster (B1)
+  $('menu').style.display='flex';$('game').style.display='none';updateMenuPreview();resize();
   applyFootballHud();          // Football-HUD-Klasse, Anstosshinweis und Score-Animation restlos abraeumen
   footballResetMatchState();   // zurueck im Menue: kein Football-Latch, keine Eingabesperre und kein Gewinner bleiben stehen (in anderen Modi wirkungslos)
   fbVariant='classic';         // Menue zeigt immer den Standardmodus — startFootball() setzt die Variante beim Start ohnehin neu
@@ -4353,12 +4361,82 @@ wireMenuClickFeedback();
 // Die Anzeige wird nur skaliert -> Optik & Schaerfe bleiben unveraendert, kein Desync zwischen Handys.
 const LOGICAL=1000;
 let W=LOGICAL,H=LOGICAL,DPR=1,dispS=LOGICAL,cx=LOGICAL/2,cy=LOGICAL/2,R0=LOGICAL*0.485,BR=LOGICAL*0.032,R=R0;
+// ── WebGL-Context-Recovery (RingOut-Delta B1, Quelle 134cf90 + da9af16) ──────────
+// Ein verlorener WebGL-Kontext (auf Mobilgeraeten der uebliche Ausgang bei Speicherdruck)
+// blieb unbemerkt: der Zeichenpuffer fiel auf 0x0, Eingabe und Spiel liefen blind weiter,
+// und ohne preventDefault stellt der Browser den Kontext nie wieder her. Seitdem gilt:
+// Verlust erkennen, JEDE lokale Eingabe sperren (Match- und Netzwerkzustand bleiben
+// unangetastet), danach den Renderer kontrolliert neu aufbauen; erst ein bestaetigter
+// Frame gibt die Eingabe wieder frei. Der Renderer ist geteilt - das gilt fuer beide Spiele.
+let r3dContextLost=false,r3dRecoveryFailed=false,r3dHintEl=null;
+// Monotone Recovery-Generation: jeder Verlust startet einen neuen Zyklus; ein ueberholter,
+// langsamer Restore darf einen neueren Verlust nie wieder entsperren.
+let r3dRecoveryGen=0;
+// EIN Gate fuer den Recovery-Zustand, ausgewertet an den bestehenden Freigaben
+// (canCommitInput, whoCanAim, Kamerageste) - keine verstreuten Sonderbedingungen.
+function r3dInputBlocked(){return r3dContextLost;}
+// Beim Verlust werden ALLE laufenden lokalen Gesten commit-frei verworfen: kein Zug, kein
+// Kamera-Reset. Die naechste Geste nach dem Restore beginnt garantiert bei Null.
+function r3dCancelLocalGestures(){
+  if(typeof cancelAimDrag==='function')cancelAimDrag();        // Aim + Drall, gibt Capture frei
+  for(const pid of [camPid,cam2Pid]){if(pid>=0){try{cv.releasePointerCapture(pid);}catch(_){}}}
+  camPid=-1;cam2Pid=-1;
+  camTapT=0;   // kein Doppeltipp-Fenster ueber den Verlust hinweg -> kein cam.reset()
+}
+function r3dRecoveryHint(show,msg){
+  if(!show){if(r3dHintEl){r3dHintEl.remove();r3dHintEl=null;}return;}
+  if(!r3dHintEl){
+    r3dHintEl=document.createElement('div');
+    r3dHintEl.id='r3dRecovery';
+    r3dHintEl.style.cssText='position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);'+
+      'background:rgba(8,14,22,.92);color:#dfe7f3;font:700 14px/1.5 system-ui,sans-serif;'+
+      'border:1px solid rgba(150,170,210,.28);border-radius:12px;padding:14px 20px;'+
+      'text-align:center;white-space:pre-line;pointer-events:none;z-index:350;max-width:80vw';
+    document.body.appendChild(r3dHintEl);
+  }
+  r3dHintEl.textContent=msg||T('r3dRecovering');
+}
+
+// ── Kanonische Spielflaeche (RingOut-Delta B1, Quelle 6439629 + 2c2a6af) ─────────
+// Zeichenpuffer, Projektion und Picking mussten frueher aus DREI Quellen zusammenpassen:
+// renderer.setSize() nahm innerWidth/innerHeight, die sichtbare CSS-Flaeche von #cv3d kam
+// aus position:fixed+100%, und pickOwnBall3D() mass live per getBoundingClientRect().
+// Auf Mobilgeraeten laufen sie auseinander, sobald die Browserleiste ein- oder ausfaehrt:
+// das 3D-Bild wird gestreckt (unschaerfer) und die sichtbare Kugel wandert vom
+// Trefferpunkt weg. Seitdem gibt es GENAU EINE Messung - das Rect von #cv3d. Daraus folgen
+// Overlay-Canvas, Zeichenpuffer, Projektion und Picking. Der Projektionsrahmen ist damit
+// flaechenrelativ (Ursprung 0/0); den Versatz der Flaeche rechnet nur der Eingabepfad heraus.
+let gsRect={l:0,t:0,w:0,h:0},gsDirty=true,gsPending=false;
+function markGameSurfaceDirty(){gsDirty=true;gsPending=true;}
+function gameSurface(){
+  if(gsDirty||!gsRect.w){
+    const e=document.getElementById('cv3d');
+    if(e){const r=e.getBoundingClientRect();
+      if(r.width>0&&r.height>0)gsRect={l:r.left,t:r.top,w:r.width,h:r.height};}
+    else gsRect={l:0,t:0,w:innerWidth,h:innerHeight};   // 2D bzw. vor dem Laden der Szene
+    gsDirty=false;
+  }
+  return gsRect;
+}
+// Hoechstens einmal pro Frame und nur nach einem Invalidierungsereignis neu messen. Nur eine
+// GROESSENaenderung baut Overlay/Puffer/Projektion neu auf; ein reiner Ursprungswechsel
+// (iOS Safari pannt eine gezoomte Seite, WebKit #170981) steht bereits in gsRect und wird
+// vom Eingabepfad genutzt - ein resize() wuerde nur den WebGL-Puffer leeren und flackern.
+function gameSurfaceSync(){
+  if(!gsPending)return false;
+  gsPending=false;
+  const o=gsRect;gsDirty=true;
+  const g=gameSurface();
+  if(g.w!==o.w||g.h!==o.h){resize();return true;}
+  return false;
+}
 function resize(){
   const wrap=cv.parentElement,rect=wrap.getBoundingClientRect();
   const s=Math.min(rect.width,rect.height)||320;
   DPR=Math.min(window.devicePixelRatio||1,2);
   if(r3dActive&&r3d){                                       // 3D: Overlay = ganzer Viewport (kein Rand-Clipping)
-    const vw=innerWidth||s,vh=innerHeight||s;
+    gsDirty=true;                                           // resize() ist ein expliziter Aktualisierungspfad
+    const gs=gameSurface(),vw=gs.w||s,vh=gs.h||s;           // EINE Quelle fuer Overlay, Puffer und Projektion
     dispS=vw;
     cv.width=Math.round(vw*DPR);cv.height=Math.round(vh*DPR);cv.style.width=vw+'px';cv.style.height=vh+'px';
     const k=(vw*DPR)/LOGICAL;ctx.setTransform(k,0,0,k,0,0);
@@ -4370,7 +4448,10 @@ function resize(){
   cv.width=Math.round(s*DPR);cv.height=Math.round(s*DPR);cv.style.width=s+'px';cv.style.height=s+'px';
   const k=(s*DPR)/LOGICAL;ctx.setTransform(k,0,0,k,0,0);   // logisch -> Geraete-Pixel (voll scharf)
 }
-window.addEventListener('resize',resize);   // R0 ist konstant -> R bleibt unveraendert
+window.addEventListener('resize',()=>{markGameSurfaceDirty();resize();});   // R0 ist konstant -> R bleibt unveraendert
+// Pinch-Zoom/Pan des Visual Viewports (Mobile) verschiebt den Ursprung der fixen Spielflaeche
+// ohne window-resize -> nur den gecachten Ursprung invalidieren (Groesse bleibt, kein resize()).
+if(window.visualViewport){visualViewport.addEventListener('scroll',markGameSurfaceDirty);visualViewport.addEventListener('resize',markGameSurfaceDirty);}
 
 // ════ STATE ════
 // Kugel: {x,y,vx,vy,sx,sy,owner,alive}. Single = 2 Kugeln (owner 0/1). Double = 4 Kugeln (owner 0,0,1,1).
@@ -4467,6 +4548,7 @@ function inputLocked(){return (collapseActive()&&collapseState==='expired')||(ty
 // commitAutoStand() passiert die Sperre, und der setzt ausschliesslich "stehen bleiben".
 // Online bleibt unberuehrt — dort ist die DB der Write-once-Arbiter (s. commit()).
 function canCommitInput(who){
+  if(typeof r3dInputBlocked==='function'&&r3dInputBlocked())return false;   // Context-Recovery: kein lokaler Commit, auch online nicht
   if(online)return true;
   if(phase!=='aim')return false;
   if(inputLocked())return false;
@@ -4764,7 +4846,9 @@ function placeBalls(){
     balls.push(mkBall(cx,cy+off,0),mkBall(cx,cy-off,1));}
 }
 
-function newGame(){resize();R=R0;score=[];for(let p=0;p<np();p++)score.push(0);roundNo=1;particles=[];fx3=[];recFrames=[];
+function newGame(){resize();
+  if(typeof clearGameOverOverlayTimer==='function')clearGameOverOverlayTimer();   // neues Match/Rematch: ein offener Overlay-Auftrag des alten Matches ist ungueltig (B1)
+  R=R0;score=[];for(let p=0;p<np();p++)score.push(0);roundNo=1;particles=[];fx3=[];recFrames=[];
   resetCollapseTimer();                              // Rematch/neues Match: Timer 2:00, Collapse-State + Radius zuruecksetzen
   footballResetMatchState();                         // neues/verlassenes Football-Match: Torablauf + Gewinner sauber initialisiert (Score startet 0:0)
   SFX.footballGoalStop();                            // Rematch: Torsound des letzten Matches klingt nicht in die erste Runde hinein
@@ -5321,7 +5405,7 @@ $('actBtn').onclick=()=>{if(r3dOrbit)return;if(phase!=='aim')return;const who=on
 
 // ════ INPUT (slingshot: drag back, fling forward) ════
 function localPt(e){
-  if(r3dActive)return r3d.s2w(e.clientX,e.clientY);   // 3D: Ray-Ebene-Schnitt -> LOGICAL (P2 steckt in der Kamera)
+  if(r3dActive){const g=(typeof gameSurface==='function')?gameSurface():{l:0,t:0};return r3d.s2w(e.clientX-g.l,e.clientY-g.t);}   // 3D: Ray-Ebene-Schnitt -> LOGICAL, flaechenrelativ wie pickOwnBall3D (P2 steckt in der Kamera); typeof: Offline-Harnesse ohne Flaechenblock rechnen wie bisher
   const r=cv.getBoundingClientRect();const sc=LOGICAL/(r.width||dispS);let x=(e.clientX-r.left)*sc,y=(e.clientY-r.top)*sc;const va=viewAngle();if(va===Math.PI){x=2*cx-x;y=2*cy-y;}else if(va){const dx=x-cx,dy=y-cy,c=Math.cos(va),s=Math.sin(va);x=cx+dx*c+dy*s;y=cy-dx*s+dy*c;}return{x:x,y:y};}
 // Dev-Diagnose (?dev=1): WARUM ist die Eingabe gerade gesperrt? whoCanAim() liefert
 // nur -1; fuer einen Test auf echten Geraeten braucht es die entscheidende Bedingung.
@@ -5345,7 +5429,7 @@ function devAimBlock(){
     +' aimSet='+aimSet.map(v=>v?1:0).join('')
     +' pending='+Object.keys(pendingSlot).join(','));
 }
-function whoCanAim(){if(r3dOrbit)return -1;if(phase!=='aim')return -1;
+function whoCanAim(){if(r3dOrbit||(typeof r3dInputBlocked==='function'&&r3dInputBlocked()))return -1;if(phase!=='aim')return -1;
   if(inputLocked())return -1;   // Timer abgelaufen: kein neuer Zug, bis der Collapse ausgewertet ist
   if(online)return (aimSet[myPlayer]||!aliveCount(myPlayer)||(typeof fbV9EingabeOffen==='function'&&!fbV9EingabeOffen()))?-1:myPlayer;if(mode==='bot')return aimSet[0]?-1:0;
   // Gemeinsames Fenster: gezielt werden darf, solange irgendein aktiver Spieler offen
@@ -5365,8 +5449,12 @@ function pickOwnBall(who,p){const viele=Array.isArray(who);let best=-1,bd=1e9;ba
 // flacher Kamera/Zoom, weil die Silhouette ueber ihrem Bodenpunkt liegt. Naechste Kugel gewinnt.
 function pickOwnBall3D(who,e){
   const viele=Array.isArray(who);
-  const r=cv.getBoundingClientRect(),sc=LOGICAL/(r.width||dispS);
-  const px=(e.clientX-r.left)*sc,py=(e.clientY-r.top)*sc,minR=52*sc;
+  // Dieselbe kanonische Flaeche wie Projektion und Zeichenpuffer: ein zweites, live
+  // gemessenes Rect wuerde den Versatz zwischen gezeichneter und greifbarer Kugel wieder aufreissen.
+  // typeof: Offline-Harnesse uebernehmen pickOwnBall3D ohne den Flaechenblock und messen wie bisher.
+  const g=(typeof gameSurface==='function')?gameSurface():(()=>{const r=cv.getBoundingClientRect();return {l:r.left,t:r.top,w:r.width};})();
+  const sc=LOGICAL/(g.w||dispS);
+  const px=(e.clientX-g.l)*sc,py=(e.clientY-g.t)*sc,minR=52*sc;
   let best=-1,bd=1e9;
   balls.forEach((b,i)=>{if(b.alive&&(viele?who.indexOf(b.owner)>=0:b.owner===who)){
     const q=OP(b.x,b.y,BR);
@@ -5390,6 +5478,7 @@ function cancelAimDrag(){
   dragStart={x:0,y:0};dragCur={x:0,y:0};dragPull={x:0,y:0};dragSpin=0;
 }
 cv.addEventListener('pointerdown',e=>{
+  if(r3dActive&&typeof markGameSurfaceDirty==='function')markGameSurfaceDirty();   // Ursprung der Flaeche frisch messen (gezoomte Seite: Pan ohne Event)
   if(!r3dActive){                                   // ── 2D: Originalverhalten, unveraendert ──
     const who=whoCanAim();if(who<0){devAimBlock();return;}const p=localPt(e);
     if(aimPid<0){                                   // 1. Finger: eigene Kugel greifen + zuruekziehen
@@ -5423,7 +5512,7 @@ cv.addEventListener('pointerdown',e=>{
     try{cv.setPointerCapture(e.pointerId);}catch(_){}
     spinPid=e.pointerId;spinStartX=e.clientX;return;// Drall in Screen-px: kamerafest, rechts = +Drall
   }
-  if(r3dOrbit||aimPid>=0)return;
+  if(r3dOrbit||aimPid>=0||r3dInputBlocked())return;   // Context-Recovery: auch Kamera-Drag und Doppeltipp-Reset gesperrt
   if(camPid<0){                                     // Kamera-Drag starten (Doppeltipp = Reset)
     const now=performance.now();
     if(now-camTapT<300&&Math.hypot(e.clientX-camTapX,e.clientY-camTapY)<24){r3d.cam.reset();camTapT=0;return;}
@@ -5487,6 +5576,23 @@ window.addEventListener('pointercancel',e=>{
   if(e.pointerId===aimPid){SFX.charge.stop();dragging=false;aimPid=-1;spinPid=-1;dragShooter=-1;dragOwner=-1;}});
 // Desktop-Zoom im 3D-Modus (Mausrad); 2D unveraendert
 cv.addEventListener('wheel',e=>{if(r3dActive&&!r3dOrbit&&r3d){e.preventDefault();r3d.cam.zoom(e.deltaY>0?1.08:1/1.08);}},{passive:false});
+// iOS Safari (RingOut-Delta B1, Quelle 4026130): touch-action:none ist KEINE verlaessliche
+// Sperre gegen das native Seiten-Pinch-Zoom und das Pannen einer bereits gezoomten Seite
+// (user-scalable=no wird seit iOS 10 ignoriert). Uebernimmt Safari die Geste, feuert es
+// pointercancel: Kamera-Pinch/-Drehung brechen ab und die Seite bleibt gezoomt. Die einzig
+// verlaessliche Sperre ist ein cancelbares (nicht passives) touchmove auf dem Spiel-Canvas
+// selbst. Nur #cv: Buttons, Menue-Scrolling und Eingaben bleiben unberuehrt, Pointer-Events
+// feuern weiter - Aim-, Drall- und Kamera-Handler bleiben unveraendert.
+const blockNativeTouchGesture=e=>{if(e.cancelable)e.preventDefault();};
+cv.addEventListener('touchmove',blockNativeTouchGesture,{passive:false});
+cv.addEventListener('gesturestart',blockNativeTouchGesture,{passive:false});   // nur Safari; anderswo wirkungslos
+// Seiten-Pinch-Zoom ausserhalb des Canvas (Quelle 2c2a6af): eine gezoomte Seite skaliert der
+// Browser hoch (sichtbar unschaerferes Bild). Gesperrt nur fuer Zwei-Finger-Bewegungen und nur
+// solange die Seite ungezoomt ist - eine bereits gezoomte Seite laesst sich immer auf 1x
+// zurueckziehen; Ein-Finger-Scrollen und alle Buttons bleiben unberuehrt.
+document.addEventListener('touchmove',e=>{
+  if(e.touches.length>1&&e.cancelable&&(!window.visualViewport||visualViewport.scale<=1.01))e.preventDefault();
+},{passive:false});
 
 // Deterministic + idempotent move sanitizer. Applied at BOTH lockstep ends
 // (sender in commit(), receiver in onlineTurnValue()) so both clients always
@@ -5772,7 +5878,10 @@ function applyLaunch(){
   for(let p=0;p<commitIdx.length;p++){const idx=commitIdx[p];if(idx<0||!balls[idx])continue;
     const sp=Math.hypot(commitAim[p].dx,commitAim[p].dy);
     if(mode==='football'){ if(sp>BR*0.25&&typeof fbFeelLaunch==='function')fbFeelLaunch(balls[idx],Math.min(1,sp/maxPull())); }
-    else if(sp>BR&&!r3dActive)spawn(balls[idx].x,balls[idx].y,5,[PCOLS[colorSlot(balls[idx].owner)].ui],sp*0.02,0.6);}
+    else if(r3dActive){               // RingOut 3D (B1, Quelle a10e91d): Abstoss-Effekt je gezogener Kugel - reine Darstellung
+      if(sp>0&&typeof fx3Launch==='function'&&!(typeof fbFxMute!=='undefined'&&fbFxMute)&&!replaying)
+        fx3Launch(balls[idx].x,balls[idx].y,commitAim[p].dx,commitAim[p].dy,sp/maxPull(),balls[idx].owner); }
+    else if(sp>BR)spawn(balls[idx].x,balls[idx].y,5,[PCOLS[colorSlot(balls[idx].owner)].ui],sp*0.02,0.6);}
   setPhase('sim');setPhaseText();
 }
 // TEAM DUEL: roundWinner traegt den TEAM-Index (0/1 = PCOLS Blau/Rot); -2 ist der
@@ -7869,6 +7978,7 @@ function footballMatchEndNoWinner(){
   $('rematchBtn').style.display=v11?'':'none';
   if(v11)$('rematchBtn').textContent=rematchLabel();
   $('replayBtn').style.display='none';
+  if(typeof clearGameOverOverlayTimer==='function')clearGameOverOverlayTimer();   // sofortiges Ergebnis ohne Sieger: kein zweiter, spaeter Einblendauftrag (B1)
   $('ov').classList.add('show');
   if(typeof fbMusicResult==='function')fbMusicResult(false);   // ohne Sieger: ruhige Aufloesung, dann Stille
   if(typeof fbV11MatchVorbei==='function')fbV11MatchVorbei();
@@ -8550,7 +8660,25 @@ function stepSim(){
               else if(typeof fbFeelPlayers==='function')fbFeelPlayers(kx,ky,nx,ny,mag,a.owner,b.owner);
             }
             const mx=(a.x+b.x)/2,my=(a.y+b.y)/2;
-            if(r3dActive)fx3Hit(mx,my,mag);
+            if(r3dActive){
+              fx3Hit(mx,my,mag);                       // Grundfeedback, unveraendert
+              // RingOut (B1, Quelle a10e91d): erst ab der kraeftigen Kontaktstufe ein heller Kern,
+              // beim harten Treffer zusaetzlich ein Stossring in der Farbe der schnelleren Kugel.
+              // Rein darstellend: kein Impuls, keine Zahl der Simulation aendert sich; Football
+              // behaelt ausschliesslich seine eigene Rueckmeldung.
+              if(mode!=='football'&&typeof fbFxTier==='function'&&typeof fx3Flash==='function'
+                 &&!(typeof fbFxMute!=='undefined'&&fbFxMute)&&!replaying){
+                const st=fbFxTier(mag);
+                if(st>=2){
+                  fx3Flash(mx,my,mag,'255,248,224');
+                  if(st>=3&&typeof fx3Shock==='function'){
+                    const fast=(a.vx*a.vx+a.vy*a.vy)>=(b.vx*b.vx+b.vy*b.vy)?a:b;
+                    const pc=(typeof pcol==='function')?pcol(colorSlot(fast.owner)):null;
+                    fx3Shock(mx,my,mag,pc?pc.rgb:'255,246,225');
+                  }
+                }
+              }
+            }
             else spawn(mx,my,14+Math.floor(mag*16),['#00d4ff','#ff4d4d','#ffffff','#ffc940'],Math.abs(vn)*0.7+2,1);
             bgPulse=Math.max(bgPulse,mag*0.5);bgPulseRGB='255,235,180';}
           }
@@ -8761,6 +8889,35 @@ function showRingout(){
   el.classList.remove('show');void el.offsetWidth;el.classList.add('show');   // Animation sauber retriggern
   clearTimeout(koT);koT=setTimeout(()=>el.classList.remove('show'),980);
 }
+// ── Verzoegertes Game-Over-Overlay (RingOut-Delta B1, Quelle 1b5a81b) ────────────
+// Das Ergebnisfenster erscheint bewusst GAMEOVER_OVERLAY_DELAY_MS nach dem Sieg-Sound.
+// Frueher lief dafuer ein nackter Timeout: startete in diesem Fenster ein Rematch, eine neue
+// Generation oder ein Leave, blendete er #ov NACH dem Abraeumen erneut ein - ein
+// unsichtbares Vollbild-Overlay (position:fixed; inset:0; z-index:100) lag ueber der Arena,
+// schluckte jede Canvas-Eingabe, und ein Tippen nahe der eigenen Kugel traf #ovMenuBtn.
+// Jetzt: genau EIN verwalteter Timer, der an allen Zustandswechseln abgebrochen wird, UND
+// ein Callback, der vor dem Einblenden prueft, ob sein Match noch gilt. gameOver ist das
+// gemeinsame Ergebnisfenster beider Spiele - der Schutz gilt fuer beide.
+const GAMEOVER_OVERLAY_DELAY_MS=500;
+let gameOverOvTimer=null;
+function clearGameOverOverlayTimer(){if(gameOverOvTimer){clearTimeout(gameOverOvTimer);gameOverOvTimer=null;}}
+// Gilt der geplante Einblendauftrag noch? Das Match muss weiterhin beendet sein; online
+// zusaetzlich dieselbe Session, derselbe Raum und dieselbe Generation.
+function gameOverOverlayCurrent(ctx){
+  if(!ctx||phase!=='over'||ctx.online!==online)return false;
+  return online?(ctx.sid===onlineSessionId&&ctx.room===roomCode&&ctx.gen===gen):true;
+}
+// Plant das Einblenden neu; ein evtl. noch offener Auftrag wird zuerst verworfen - mehrfaches
+// Game Over kann so nie zwei Timer gleichzeitig halten.
+function scheduleGameOverOverlay(){
+  clearGameOverOverlayTimer();
+  const ctx={online:online,sid:onlineSessionId,room:roomCode,gen:gen};
+  gameOverOvTimer=setTimeout(()=>{
+    gameOverOvTimer=null;
+    if(!gameOverOverlayCurrent(ctx))return;   // Rematch/neue Generation/Leave dazwischen -> nicht einblenden
+    $('ov').classList.add('show');
+  },GAMEOVER_OVERLAY_DELAY_MS);
+}
 function gameOver(winner){setPhase('over');setPhaseText();
   // TEAM DUEL: winner ist der TEAM-Index (0/1) -> Ich gewinne, wenn MEIN Team gewinnt.
   const team=fmt==='team_duel';
@@ -8790,7 +8947,8 @@ function gameOver(winner){setPhase('over');setPhaseText();
   // Pfad spult Runden ueber phase 'sim'/'result' zurueck — den kennt der Football-Torablauf
   // nicht, deshalb bleibt er hier ausgeblendet. Alle anderen Modi unveraendert.
   $('rematchBtn').textContent=rematchLabel();
-  SFX.win();setTimeout(()=>$('ov').classList.add('show'),500);}
+  // B1: verwalteter, kontextgebundener Overlay-Timer; Offline-Harnesse ohne ihn behalten den bisherigen Timeout.
+  SFX.win();if(typeof scheduleGameOverOverlay==='function')scheduleGameOverOverlay();else setTimeout(()=>$('ov').classList.add('show'),500);}
 
 // ════ ONLINE (Firebase Realtime DB · Lockstep) ════
 function whenFB(cb){ if(window.__FB_READY) cb(); else window.addEventListener('fb-ready',cb,{once:true}); }
@@ -12857,6 +13015,7 @@ function fbV11ZurueckInLobby(){
   startEvictionWatch();   // die Marker gehoeren zur Generation - die naechste bekommt ihren eigenen Beobachter
   replaying=false; repPlaying=false;
   $('replay').classList.remove('show');
+  if(typeof clearGameOverOverlayTimer==='function')clearGameOverOverlayTimer();   // Rueckweg in die Lobby: kein nachlaufendes Ergebnisfenster (B1)
   $('ov').classList.remove('show');
   footballResetMatchState();
   applyFootballHud();
@@ -13455,7 +13614,7 @@ function attachRoomListeners(){
   });
 }
 function maybeStart(){ if(gameStarted)return; gameStarted=true; if(roomPublic&&isHost()){removePublicListing(roomCode);roomPublic=false;} $('online').classList.remove('show'); showGame(); if(typeof fbV9RaumStart!=='function'||!fbV9RaumStart())startOnlineGame(); toast(T('youAre')+' '+(fmt==='team_duel'?T(teamOf(myPlayer)===0?'teamBlue':'teamRed'):T('col'+colSlot4Name(myPlayer)))); }
-function startOnlineGame(){ replaying=false;repPlaying=false;$('replay').classList.remove('show'); if(typeof fbV9LebenStop==='function')fbV9LebenStop(); runningGen=gen; turnNo=-1; if(turnUnsub){turnUnsub();turnUnsub=null;} $('ov').classList.remove('show'); newGame(); }
+function startOnlineGame(){ if(typeof clearGameOverOverlayTimer==='function')clearGameOverOverlayTimer(); replaying=false;repPlaying=false;$('replay').classList.remove('show'); if(typeof fbV9LebenStop==='function')fbV9LebenStop(); runningGen=gen; turnNo=-1; if(turnUnsub){turnUnsub();turnUnsub=null;} $('ov').classList.remove('show'); newGame(); }
 // ════ B2 canonical match rehydration ════
 // Rebuilds a RUNNING match purely from the turn history under
 // rooms/<code>/g/<gen>/t. The lockstep sim is deterministic, so replaying every
@@ -13522,6 +13681,7 @@ function fastForwardMatch(turns,mengen){
 // Opponent presence lost: reuse the end overlay as a clear way back to the
 // menu — rematch/replay are pointless without a peer, so only "Menü" remains.
 function onOppLeft(){
+  if(typeof clearGameOverOverlayTimer==='function')clearGameOverOverlayTimer();   // eigenes Abbruch-Overlay -> ein offener Game-Over-Auftrag ist gegenstandslos (B1)
   toast('Gegner hat den Raum verlassen.');
   $('wVic').style.display='none';   // kein VICTORY-Header auf dem Disconnect-Overlay
   $('wt').style.display='';         // gameOver blendet wt bei Sieg aus — hier wieder zeigen
@@ -13909,6 +14069,7 @@ function onlineConnectionLost(ctx){
   if(ctx&&!isCurrentCtx(ctx))return;
   if(isOnlineTerminated())return;                 // idempotent: nur der erste gueltige Aufruf dieser Session bricht ab
   onlineTerminatedSession=onlineSessionId;         // ab hier sind alle async Pfade dieser Session wirkungslos
+  if(typeof clearGameOverOverlayTimer==='function')clearGameOverOverlayTimer();   // eigenes Abbruch-Overlay -> ein offener Game-Over-Auftrag ist gegenstandslos (B1)
   clearAllSentinelRetries();
   clearAllMatchGrace();
   pendingSlot={};                                  // Pending-State entwerten: spaete Transaction-Callbacks laufen ins Leere (settleSlot: p!==ctx)
@@ -14140,6 +14301,7 @@ function fbLeaveGiveUp(ctx,err){
   else if(gameStarted)showGame();
 }
 function leaveOnline(after){
+  if(typeof clearGameOverOverlayTimer==='function')clearGameOverOverlayTimer();   // VOR jedem Early-Return: ein Leave entwertet jeden offenen Overlay-Auftrag (B1)
   // C4B: der dauerhafte Austritt wird zuerst serverseitig bestaetigt (s. oben). Erst
   // sein Rueckruf fuehrt hierher zurueck - mit fbLeaveRetired. `after` ist der Uebergang
   // des Aufrufers (in der Regel showMenu): er raeumt den Matchzustand ab und darf
@@ -15096,8 +15258,8 @@ async function initR3D(){
         const chain=[p.hdri,...ENV_FALLBACKS].filter((v,i,a)=>a.indexOf(v)===i);
         let r;
         try{ r=await loadEnvHDR(chain); }
-        catch(e){ if(initial)throw e; return; }      // live: bestehendes funktionierendes Environment sichtbar lassen
-        if(gen!==envGen){ r.tex.dispose(); return; } // schnelles Umschalten -> dieses Ergebnis ist veraltet
+        catch(e){ if(initial)throw e; return false; } // live: bestehendes funktionierendes Environment sichtbar lassen
+        if(gen!==envGen){ r.tex.dispose(); return false; } // schnelles Umschalten -> dieses Ergebnis ist veraltet
         tex=r.tex;texPath=r.path;
         tex.mapping=THREE.EquirectangularReflectionMapping;
       }
@@ -15113,6 +15275,7 @@ async function initR3D(){
        sun.position.set(cx+Math.cos(el)*Math.cos(az)*D, Math.sin(el)*D, cy+Math.cos(el)*Math.sin(az)*D);}
       if(old&&old!==tex)old.dispose();               // erst jetzt entsorgen (nur die eigene, ersetzte Texture)
       envApplied=key;envTexPath=texPath;
+      return true;   // eindeutiger Erfolg - der Context-Restore darf sich nicht auf eine alte Referenz verlassen
     }
     await applyEnvProfile(envProfile,true);          // initialer Load: Totalausfall -> outer catch -> 2D-Fallback
     // Wolkenmeer-Sprites unter der Arena (Prototyp-Baender, x57.7 skaliert)
@@ -16267,9 +16430,9 @@ async function initR3D(){
       for(let it=0;it<4;it++){
         const m=r3dCamMath({ex:cx+dist*spol*Math.sin(yawW),ey:35+dist*cpol,ez:cy+dist*spol*Math.cos(yawW),
           tx:cx,ty:35,tz:cy,fov:45,vw:g.vw,vh:g.vh,ox:g.ox,oy:g.oy,os:g.os,shx:g.shx,shy:g.shy,py:0});
-        const mitte=g.oy+m.w2s(cx,cy,BR).y*g.os/1000;
+        const mitte=(g.st||0)+g.oy+m.w2s(cx,cy,BR).y*g.os/1000;   // Bildschirm-y wie die DOM-Rechtecke: Flaechenursprung + flaechenrelativer Punkt
         let ymin=Infinity,ymax=-Infinity;
-        for(const p of rand){const q=m.w2s(p[0],p[1],BR);const y=g.oy+q.y*g.os/1000,r=BR*q.s*g.os/1000;
+        for(const p of rand){const q=m.w2s(p[0],p[1],BR);const y=(g.st||0)+g.oy+q.y*g.os/1000,r=BR*q.s*g.os/1000;
           if(y-r<ymin)ymin=y-r;if(y+r>ymax)ymax=y+r;}
         const fu=(ymax>unten&&unten>mitte)?(ymax-mitte)/(unten-mitte):1;
         const fo=(ymin<oben&&oben<mitte)?(mitte-ymin)/(mitte-oben):1;
@@ -16280,7 +16443,7 @@ async function initR3D(){
       return dist;
     }
     function frame(){                                // voll: Viewport/Rect/Renderer (Resize, Seitenwechsel)
-      const vw=innerWidth,vh=innerHeight,aspect=vw/vh;
+      const gs=gameSurface(),vw=gs.w||innerWidth,vh=gs.h||innerHeight,aspect=vw/vh;   // EINE Flaechenmessung (B1)
       const tanV=Math.tan(45*Math.PI/360), need=530;         // sichtbarer Plattform-Aussenradius + knapper Rand
       // Rounded-Rectangle-Arena: in Torrichtung laenger als quer -> getrennte Bedarfe, sonst
       // wuerde die Arena je nach Variante beschnitten oder unnoetig klein gerahmt. Der Rand
@@ -16307,9 +16470,13 @@ async function initR3D(){
         // Gameplay-Framing (else) und r3dCamMath bleiben unveraendert.
         geo={vw,vh,baseDist:baseDist*0.87,ox:0,oy:0,os:vw,shx:0,shy:-vh*0.13};
       }else{
-      const rect=cv.getBoundingClientRect(),wr=cv.parentElement.getBoundingClientRect();
-      geo={vw,vh,baseDist,ox:rect.left,oy:rect.top,os:rect.width||1,
-           shx:wr.left+wr.width/2-vw/2,shy:wr.top+wr.height/2-vh/2};   // Principal Point -> Wrap-Zentrum (cv ist jetzt Viewport-gross)
+      const wr=cv.parentElement.getBoundingClientRect();
+      // ox/oy/os stammen aus DERSELBEN Messung wie vw/vh - kein zweites Rect mehr. Der
+      // Projektionsrahmen ist flaechenrelativ (Ursprung 0/0); den Versatz der Flaeche auf dem
+      // Schirm rechnet ausschliesslich der Eingabepfad heraus (localPt/pickOwnBall3D).
+      // sl/st tragen den Flaechenursprung fuer Vergleiche mit DOM-Rechtecken (fbSafeBaseDist).
+      geo={vw,vh,baseDist,ox:0,oy:0,os:vw||1,sl:gs.l,st:gs.t,
+           shx:wr.left-gs.l+wr.width/2-vw/2,shy:wr.top-gs.t+wr.height/2-vh/2};   // Principal Point -> Wrap-Zentrum, flaechenrelativ (cv ist Viewport-gross)
       if(fbFrame){
         geo.baseDist=fbSafeBaseDist(geo);            // Football: Figuren nie unter Kopf-/Knopfleiste
         // Musste die Rahmung weichen, ist die sichere Rahmung zugleich die Zoomgrenze:
@@ -16522,8 +16689,9 @@ async function initR3D(){
       cam:{ // Spieler-Kamera (nur ?r3d=1): Gesten setzen Ziele, sync() daempft -> Mapping bleibt exakt
         // Grab-Metapher: Wisch nach rechts -> Arena dreht sichtbar nach rechts, d. h. die
         // Kamera orbitet entgegengesetzt (-dx). Vertikal war bereits trackball-natuerlich.
-        rotate(dx,dy){camYawT-=dx*.005;camPolarT=Math.min(1.15,Math.max(.3,camPolarT-dy*.004));},
-        zoom(f){camDistFT=Math.min(1.5,Math.max(geo.zoomMin||.75,camDistFT*f));},
+        // Context-Recovery: die Geste wird ignoriert, camPid/Orbit-Logik bleibt unberuehrt.
+        rotate(dx,dy){if(r3dInputBlocked())return;camYawT-=dx*.005;camPolarT=Math.min(1.15,Math.max(.3,camPolarT-dy*.004));},
+        zoom(f){if(r3dInputBlocked())return;camDistFT=Math.min(1.5,Math.max(geo.zoomMin||.75,camDistFT*f));},
         reset(){camYawT=0;camPolarT=POLAR0;camDistFT=1;}
       },
       render(){sync();renderer.render(scene,camera);},
@@ -16546,6 +16714,58 @@ async function initR3D(){
     }
     document.body.classList.add('r3d');   // 3D-scoped UI-Styles (u. a. lesbarer Hinweistext)
     r3dActive=true;resize();
+    // Invalidierung der Spielflaeche (B1): window-resize deckt den klassischen Fall ab, der
+    // ResizeObserver zusaetzlich jede Aenderung der tatsaechlich sichtbaren Flaeche ohne
+    // resize-Event (Mobile: dynamische Browserleisten, Safe-Area). Beide markieren nur
+    // 'dirty'; gemessen wird hoechstens einmal pro Frame (gameSurfaceSync in loop).
+    try{if(typeof ResizeObserver==='function')new ResizeObserver(markGameSurfaceDirty).observe(c3);}catch(_){}
+    // ── Context-Loss und -Restore (B1, Quelle 134cf90 + da9af16) ─────────────────
+    // preventDefault() ist die Voraussetzung dafuer, dass der Browser den Kontext ueberhaupt
+    // wiederherstellen darf. Match, Score, Simulation und Netzwerk werden NICHT angefasst -
+    // nur lokale Eingabe und Rendering pausieren. Die Listener haengen genau einmal an der
+    // einen Szene (initR3D laeuft pro Sitzung einmal).
+    c3.addEventListener('webglcontextlost',(e)=>{
+      e.preventDefault();
+      r3dRecoveryGen++;                    // neuer Zyklus: alle aelteren Restores sind ab jetzt veraltet
+      r3dContextLost=true;r3dRecoveryFailed=false;
+      r3dCancelLocalGestures();            // Aim, Drall und Kamerazeiger commit-frei verwerfen
+      r3dRecoveryHint(true);
+    });
+    c3.addEventListener('webglcontextrestored',()=>{r3dRestore();});
+    // Kontrollierter Wiederaufbau: Renderer-Konfiguration (identisch zur Initialisierung),
+    // Geometrie, Environment, Schatten - danach ein bestaetigter Frame, erst dann Eingabe frei.
+    async function r3dRestore(){
+      // Nur der aktuelle Zyklus darf bestaetigen, entsperren oder einen Fehlerzustand melden.
+      const myGen=r3dRecoveryGen, current=()=>myGen===r3dRecoveryGen;
+      try{
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,2));
+        renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+        renderer.toneMapping=THREE.ACESFilmicToneMapping;
+        renderer.outputColorSpace=THREE.SRGBColorSpace;
+        markGameSurfaceDirty();resize();          // Flaechenvertrag: eine Messung, frame() zieht nach
+        // Das Environment ueberlebt den Verlust nicht (PMREM in kontextgebundenen Render-
+        // Targets). envTexPath zuruecksetzen erzwingt im vorhandenen Helper einen frischen
+        // Aufbau - keine zweite Ladepfad-Kopie.
+        envTexPath=null;
+        const envOk=await applyEnvProfile(envApplied||envProfile,false);
+        if(!current())return;                     // ueberholt: nichts rendern, nichts freigeben
+        if(!envOk)throw new Error('Environment-Neuaufbau fehlgeschlagen');
+        renderer.shadowMap.needsUpdate=true;      // Schattenkarten neu zeichnen
+        r3d.render();                             // ein bestaetigter Frame aus dem AKTUELLEN Spielzustand
+        const gl=renderer.getContext();
+        if(gl.isContextLost()||gl.drawingBufferWidth<=0)throw new Error('Kontext weiterhin ungueltig');
+        if(!scene.environment)throw new Error('Environment nicht wiederhergestellt');
+        if(!current())return;                     // letzte Pruefung vor dem Entsperren
+        r3dContextLost=false;r3dRecoveryFailed=false;r3dRecoveryHint(false);
+      }catch(err){
+        // Fehlgeschlagene Wiederherstellung: Eingabe bleibt gesperrt, klarer Zustand, kein
+        // stilles Weiterspielen, kein automatischer Reload, kein Match-Reset.
+        if(!current())return;                     // ein ueberholter Zyklus meldet keinen Fehler
+        r3dRecoveryFailed=true;
+        r3dRecoveryHint(true,T('r3dRecoveryFailed'));
+        console.error('r3d: Context-Restore fehlgeschlagen',err&&err.message||err);
+      }
+    }
     // Einmaliger Paritaets-Selbstcheck: eigene Projektion vs. three.js (nur Warnung, kein Eingriff)
     {const v=new THREE.Vector3(cx+200,0,cy-150).project(camera);
      const sx=(v.x+1)/2*camP.vw,sy=(1-v.y)/2*camP.vh;
@@ -16695,15 +16915,16 @@ function loop(now){
   if(PERF)perfTick(now);
   simAdvance(now);
   fbMusicSync();   // reaktive Musik: reine Ausgabe. Steht VOR der Wiedergabe-Abkuerzung, damit sie waehrend eines Replays verstummt statt weiterzulaufen.
-  if(replaying){ SFX.rollUpdate(null,false); if(r3dActive)r3d.render(); requestAnimationFrame(loop); return; }
+  if(replaying){ SFX.rollUpdate(null,false); if(r3dActive&&!r3dContextLost)r3d.render(); requestAnimationFrame(loop); return; }
   tickCollapse(now);   // Ring-Collapse-Timer (nur Bot Training): zaehlt nur in der Planungsphase, loest Auto-Stand + Collapse aus
   // RINGOUT-Feedback + Dev-Sync-Log: reiner Phasen-Watcher (stepSim/Physik unangetastet)
   if(phase!==prevPhaseFx){if(phase==='result')showRingout();devSync('phase->'+phase);prevPhaseFx=phase;}
   SFX.rollUpdate(balls,phase==='sim');
   fbClockPaint();   // Restzeit im HUD nachziehen: reine Ausgabe, die Uhr laeuft in simStep
   draw();
-  if(r3dActive)r3d.render();
+  if(r3dActive&&!r3dContextLost)r3d.render();   // verlorener Kontext: kein WebGL-Aufruf
   if(r3dActive&&!bootDone)finishBoot();   // erster gerenderter 3D-Frame -> Menue einblenden
+  if(r3dActive)gameSurfaceSync();   // gemeldete Flaechenaenderung genau einmal pro Frame nachziehen (B1)
   requestAnimationFrame(loop);
 }
 
