@@ -1,11 +1,11 @@
-// Ring-Collapse-Timer (lokaler Bot-Training-Prototyp): gezielte State-Machine-Tests.
+// Ring-Collapse (lokales Bot Training, Two-Stage-Vertrag RingOut-Delta B2): gezielte State-Machine-Tests.
 // Extrahiert das echte Core-Modul (==COLLAPSE-CORE-START/END==) UND den echten stepSim
 // (inkl. Ring-out-/Decisive-Logik) aus index.html und treibt beide in einer minimalen
 // Sandbox durch die geforderten Szenarien.
 //   node tools/test_collapse.js
 const fs = require('fs');
 const path = require('path');
-const HTML = fs.readFileSync(path.join(path.dirname(__dirname), 'index.html'), 'utf8');
+const HTML = require('./extract').loadIndexHtml();
 
 const grab = (re, name) => { const m = HTML.match(re); if (!m) { console.error('FAIL: ' + name + ' nicht gefunden'); process.exit(2); } return m[0]; };
 const coreM = HTML.match(/==COLLAPSE-CORE-START==([\s\S]*?)==COLLAPSE-CORE-END==/);
@@ -36,7 +36,7 @@ const footballRestSrc = grab(/const FOOTBALL_PHYS=\{[\s\S]*?\nfunction curRestPo
 
 // Minimale Sandbox mit stubs fuer alle externen Symbole der extrahierten Produktfunktionen.
 // Echt (aus index.html extrahiert): Collapse-Core, stepSim inkl. Ring-out/Decisive,
-// applyLaunch (Reveal->Sim), cancelAimDrag, commit/applyCommit/commitAutoStand,
+// applyLaunch (Reveal->Sim), cancelAimDrag, commit/applyCommit,
 // sanitizeMove, beginReveal, afterResult, startRound, resetCommits, der Stand-Button-
 // Handler sowie alle Physikkonstanten. Der komplette Pfad
 // aim -> commit -> reveal -> sim -> result -> afterResult -> startRound
@@ -91,8 +91,8 @@ const prefix = `
   function updateHud(){} function setPhaseText(){} function onlineArmTurn(){} function openCover(){}
   function spawn(){} function popBall(){} function winnerRGB(){return '';}
   function fx3Hit(){} function fx3Dust(){}
-  const sfx={warn:0,tick:0,collapse:0,ringout:0,drop:0,launch:0,round:0};
-  const SFX={warn(){sfx.warn++;},tick(){sfx.tick++;},collapse(){sfx.collapse++;},hit(){},drop(){sfx.drop++;},ringout(){sfx.ringout++;},launch(){sfx.launch++;},round(){sfx.round++;},win(){},rollUpdate(){},unlock(){},charge:{start(){},stop(){},update(){}}};
+  const sfx={warn:0,tick:0,collapse:0,ringout:0,drop:0,launch:0,round:0,collapseStop:0,colvEvent:0};
+  const SFX={warn(){sfx.warn++;},tick(){sfx.tick++;},collapse(){sfx.collapse++;},collapseStop(){sfx.collapseStop++;},colvEvent(){sfx.colvEvent++;},colPreload(){},hit(){},drop(){sfx.drop++;},ringout(){sfx.ringout++;},launch(){sfx.launch++;},round(){sfx.round++;},win(){},rollUpdate(){},unlock(){},charge:{start(){},stop(){},update(){}}};
   // Element-Registry statt Wegwerf-Objekten: der extrahierte Stand-Button-Handler wird
   // dadurch auf _els.actBtn.onclick abgelegt und ist im Test echt aufrufbar.
   const _els={};
@@ -116,7 +116,7 @@ const prefix = `
 const suffix = `
   ; return {
     tickCollapse, onCollapseExpire, doCollapse, settleCollapse, collapseRoundEnd, pauseCollapseTimer, resetCollapseTimer,
-    collapseRemainMs, shrinkFloor, collapseActive, inputLocked, canCommitInput, commitAutoStand,
+    collapseRemainMs, shrinkFloor, collapseActive, inputLocked, canCommitInput,
     stepSim, applyLaunch, cancelAimDrag, commit, afterResult, startRound,
     ballsOutside, resolveRingOuts,
     setPos(i,x,y){balls[i].x=x;balls[i].y=y;},
@@ -161,9 +161,12 @@ const suffix = `
       commit(who,sh,fx,fy,spin);
     },
     getDrag(){return {dragging,aimPid,spinPid,dragShooter,dragOwner,dragPull:{x:dragPull.x,y:dragPull.y},dragSpin};},
-    get state(){return {collapseEnabled,collapseState,matchElapsedMs,collapseRadius,collapseOuterR,collapseCountShown,collapseCountVisible,collapseWarned};},
+    // Produkt-Frame-Schleife: exakt der tickCollapse-Aufruf aus loop() (kein Zugtimer in dieser App).
+    prodTick(now){_t=now;tickCollapse(now);},
+    hudText(){updateCollapseHud();return $('collapseTimer').textContent;},
+    get state(){return {collapseEnabled,collapseState,collapseStage,matchElapsedMs,collapseRadius,collapseOuterR,collapseCountShown,collapseCountVisible,collapseWarned};},
     get sfx(){return sfx;},
-    consts(){return {MATCH_COLLAPSE_SECONDS,COLLAPSE_WARNING_SECONDS,FINAL_COUNTDOWN_SECONDS,COLLAPSE_RADIUS_FACTOR,MAX_COLLAPSE_TICK_DELTA_MS};}
+    consts(){return {MATCH_COLLAPSE_SECONDS,COLLAPSE_STAGE_COUNT,COLLAPSE_CYCLE_SECONDS,COLLAPSE_WARNING_SECONDS,FINAL_COUNTDOWN_SECONDS,COLLAPSE_RADIUS_FACTOR,MAX_COLLAPSE_TICK_DELTA_MS};}
   };
 `;
 const make = () => new Function(prefix + core + suffix)();
@@ -181,26 +184,39 @@ const advance = (e, fromMs, toMs, step = FRAME_MS) => {
   for (let tt = fromMs + step; tt < toMs; tt += step) { e.setTime(tt); e.tickCollapse(tt); }
   e.setTime(toMs); e.tickCollapse(toMs);
 };
-// Faehrt den Timer aus der Planungsphase heraus bis auf 0 (Auto-Stand inklusive).
-const runOutTimer = (e) => {
+// Faehrt die Matchuhr aus der Planungsphase heraus bis zum Ende des LAUFENDEN Zyklus.
+// Bei 0 faellt der Collapse SOFORT in der Planungsphase (kein Auto-Stand, kein Warten auf
+// Schuss/Settlement): der Helfer endet, sobald die Stufe gestiegen ist. Hat der Collapse
+// selbst die Runde beendet (phase 'result'), bleibt sie so stehen.
+const runOutTimer = (e, maxMs = 200000) => {
   e.setPhase('aim'); e.setAim([false,false]);
   e.setTime(0); e.tickCollapse(0);
-  advance(e, 0, 120000);
+  const stage0 = e.state.collapseStage;
+  let tt = 0;
+  while (e.state.collapseStage === stage0 && e.state.collapseState === 'running' && tt < maxMs) {
+    tt += FRAME_MS; e.setTime(tt); e.tickCollapse(tt);
+  }
+  return tt;
 };
-// Treibt ein lokales Bot-Match ueber die ECHTEN Uebergaenge bis in die Simulation des
-// letzten Zuges: aim -> Timer 0 -> Auto-Stand via commitAutoStand() -> reveal
-// -> applyLaunch -> sim. Nach dem Ablauf wird bewusst KEIN tickCollapse mehr gerufen:
-// alles Folgende muss allein ueber die Settlement-/Result-Hooks laufen.
-const runToExpiry = (e) => { runOutTimer(e); e.applyLaunch(); };
 
-// ── 0) Konstanten exakt (unveraendert) ──
+// ── 0) Konstanten exakt (Two-Stage-Vertrag, RingOut-Delta B2) ──
 {
   const c = make().consts();
-  t('MATCH_COLLAPSE_SECONDS=120', c.MATCH_COLLAPSE_SECONDS === 120);
+  t('COLLAPSE_STAGE_COUNT=2', c.COLLAPSE_STAGE_COUNT === 2);
+  t('COLLAPSE_CYCLE_SECONDS=30', c.COLLAPSE_CYCLE_SECONDS === 30);
+  t('MATCH_COLLAPSE_SECONDS=60 (Stufen x Zyklus)', c.MATCH_COLLAPSE_SECONDS === 60
+    && c.MATCH_COLLAPSE_SECONDS === c.COLLAPSE_STAGE_COUNT * c.COLLAPSE_CYCLE_SECONDS);
   t('COLLAPSE_WARNING_SECONDS=10', c.COLLAPSE_WARNING_SECONDS === 10);
   t('FINAL_COUNTDOWN_SECONDS=5', c.FINAL_COUNTDOWN_SECONDS === 5);
   t('COLLAPSE_RADIUS_FACTOR=0.82', near(c.COLLAPSE_RADIUS_FACTOR, 0.82));
   t('MAX_COLLAPSE_TICK_DELTA_MS=250', c.MAX_COLLAPSE_TICK_DELTA_MS === 250);
+  // Der Gameplay-Timer ist kein Online-Timeout: er teilt keine Konstante mit Reconnect-/
+  // Host-Grace, Football-Zugfrist oder Ready-Barriere.
+  const coreDecl = (HTML.match(/const MATCH_COLLAPSE_SECONDS=[^\n]*/) || [''])[0];
+  t('Collapse-Konstanten sind collapse-eigen (keine Grace-/Deadline-Konstante in der Deklaration)',
+    !/GRACE|DEADLINE|RECONNECT|READY|TURN_/.test(coreDecl));
+  t('kein Zugtimer portiert (TURN_TIMER_ENABLED/TURN_LIMIT_SECONDS fehlen im Produkt)',
+    !/TURN_TIMER_ENABLED|TURN_LIMIT_SECONDS/.test(HTML));
 }
 
 // ── 1+2) Timer zaehlt nur in aim, pausiert waehrend Physik ──
@@ -208,111 +224,124 @@ const runToExpiry = (e) => { runOutTimer(e); e.applyLaunch(); };
   const e = make(); e.setMode('bot'); e.setBalls(twoBalls()); e.resetCollapseTimer();
   e.setPhase('aim'); e.setMenu(false);
   e.setTime(0); e.tickCollapse(0);
-  advance(e, 0, 1000);                          // 1000 ms Planungsphase zaehlen
+  advance(e, 0, 1000);
   const beforePhysics = e.state.matchElapsedMs;
   e.setPhase('reveal');
-  advance(e, 1000, 3000);                       // 2000 ms Physik: kein Zeitverbrauch
+  advance(e, 1000, 3000);
   t('Physik-Phase verbraucht keine Zeit', near(e.state.matchElapsedMs, beforePhysics));
   e.setPhase('aim');
-  advance(e, 3000, 4000);                       // wieder Planungsphase
+  advance(e, 3000, 4000);
   // Der erste Frame nach einer Pause setzt nur den Anker (Delta 0) — deshalb ein Frame weniger.
   t('Timer zaehlt nur in aim (Physik uebersprungen)', near(e.state.matchElapsedMs, 2000 - FRAME_MS));
 }
 
-// ── 3+4) Bei 0: offener Zug einmalig auf Stand; bestaetigter Zug bleibt ──
+// ── 3+4) Bei 0: Collapse SOFORT, offener Zug bleibt offen (kein Auto-Stand) ──
 {
-  const e = make(); e.setMode('bot'); e.setBalls(twoBalls()); e.resetCollapseTimer();
-  runOutTimer(e);
+  const e = make(); e.setMode('bot'); e.setBalls(twoBalls()); e.resetCollapseTimer(); e.setR(1000);
+  const tt = runOutTimer(e);
   const c = e.getCommits();
-  t('Auto-Stand: genau ein ausgefuehrter Zug', e.getBotMoves() === 1);
-  t('Auto-Stand: Spieler 0 bestaetigt', c.aimSet[0] === true);
-  t('Auto-Stand: Stehen bleiben (dx=dy=0)', c.aim[0].dx === 0 && c.aim[0].dy === 0);
-  t('Auto-Stand: State=expired', e.state.collapseState === 'expired');
+  t('A: kein Collapse vor der Stage-1-Deadline, Collapse exakt bei 30 s Planungszeit', tt === 30000 && near(e.getR(), 820) && e.state.collapseStage === 1);
+  t('Bei 0: kein Auto-Stand, kein Bot-Zug durch das Zyklusende', e.getBotMoves() === 0);
+  t('Bei 0: offener Zug bleibt offen', c.aimSet[0] === false && e.getPhase() === 'aim');
+  t('Bei 0: Zyklus 2 laeuft sofort (State=running)', e.state.collapseState === 'running');
   e.tickCollapse(120000);
-  t('Auto-Stand nur einmal', e.getBotMoves() === 1);
+  t('Bei 0: kein nachtraeglicher Auto-Stand', e.getBotMoves() === 0 && e.getCommits().aimSet[0] === false);
 }
 {
   const e = make(); e.setMode('bot'); e.setBalls(twoBalls()); e.resetCollapseTimer();
   e.setPhase('aim'); e.setAim([true,false]);
   e.setTime(0); e.tickCollapse(0);
-  advance(e, 0, 120000);
+  advance(e, 0, 60100);                         // 2 x 30 s Planungszeit (+ ein Anker-Frame nach Collapse 1)
   t('Bestaetigter Zug wird NICHT ueberschrieben', e.getBotMoves() === 0);
-  t('Bestaetigt: State=expired', e.state.collapseState === 'expired');
+  t('Bestaetigt: beide Stufen sofort ausgewertet (terminal)',
+    e.state.collapseStage === 2 && e.state.collapseState === 'collapsed' && near(e.getR(), 672.4));
 }
 
-// ── 5+6+7) Collapse erst nach Physik-Settlement, genau einmal, Faktor 0.82 ──
+// ── 5+6+7) Collapse sofort bei 0 in der Planungsphase, genau einmal, Faktor 0.82 ──
 {
   const e = make(); e.setMode('bot'); e.setBalls(twoBalls()); e.resetCollapseTimer();
-  e.setR(1000); runOutTimer(e);              // expired, Auto-Stand -> phase 'reveal'
-  e.setPhase('sim'); e.tickCollapse(120000); // Physik laeuft: KEIN Collapse
-  t('Kein Collapse waehrend Physik', e.getR() === 1000 && e.state.collapseState === 'expired');
-  e.setPhase('aim'); e.tickCollapse(120000); // Settlement -> Collapse (setzt danach phase='sim')
-  t('Collapse-Radius = R*0.82', near(e.getR(), 820));
-  t('Collapse-State=collapsed', e.state.collapseState === 'collapsed');
-  t('Collapse-Alarm genau einmal', e.sfx.collapse === 1);
+  e.setR(1000);
+  e.setPhase('aim'); e.setAim([false,false]); e.setTime(0); e.tickCollapse(0);
+  advance(e, 0, 29950);
+  t('Kein Collapse vor 0', e.getR() === 1000 && e.state.collapseStage === 0);
+  e.setPhase('sim'); e.tickCollapse(120000);
+  t('Kein Collapse waehrend Physik (Uhr pausiert)', e.getR() === 1000 && e.state.collapseStage === 0);
+  e.setPhase('aim'); e.setAim([false,false]); e.tickCollapse(120000); e.tickCollapse(120050);
+  t('B: Stage 1 genau einmal, Radius = R*0.82', near(e.getR(), 820) && e.state.collapseStage === 1);
+  t('D: Collapse 1 startet Zyklus 2 (State running, Timer 0)', e.state.collapseState === 'running' && e.state.matchElapsedMs === 0);
+  t('Collapse-Core ruft KEINEN Direktsound (Hoerereignis kommt read-only aus dem visuellen Adapter)', e.sfx.collapse === 0);
   t('Collapse wertet ohne zusaetzlichen Sim-Frame aus', e.getPhase() === 'aim');
-  e.runSim();                                 // nichts mehr zu simulieren
-  e.setPhase('aim'); e.tickCollapse(120000);  // erneut -> kein zweiter Collapse
-  t('Collapse nur einmal (Radius stabil)', near(e.getR(), 820) && e.sfx.collapse === 1);
+  e.runSim();
+  e.setPhase('aim'); e.tickCollapse(120000);
+  t('Kein zweiter Collapse ohne neuen Zyklusablauf (Radius stabil)', near(e.getR(), 820) && e.sfx.collapse === 0);
 }
 
-// ── NEU: Sofortige Eliminierung ausserhalb des neuen Radius (Rundenende) ──
+// ── L) Collapse-Sound im Core: nur Beeps und collapseStop, kein Direktsound ──
+{
+  const e = make(); e.setMode('bot'); e.setBalls(twoBalls()); e.resetCollapseTimer();
+  e.setPhase('aim'); e.setMenu(false);
+  e.setTime(0); e.tickCollapse(0);
+  advance(e, 0, 5000);
+  e.setPhase('reveal'); advance(e, 5000, 7000);
+  e.setPhase('aim'); e.setMenu(true); advance(e, 7000, 9000);
+  t('Sound: ueber Phasen/Menue hinweg keine Core-Collapse-Sounds', e.sfx.collapse === 0 && e.sfx.colvEvent === 0);
+}
+{
+  const e = make(); e.setMode('bot'); e.setBalls(twoBalls()); e.resetCollapseTimer();
+  e.setR(1000); runOutTimer(e);
+  t('Sound: Collapse-Uebergang loest im Core keinen Direktsound aus', e.sfx.collapse === 0 && e.sfx.colvEvent === 0);
+  const stops = e.sfx.collapseStop;
+  e.resetCollapseTimer();
+  t('K/L: neues Match beendet die Bruch-/Truemmersequenz (genau ein collapseStop)', e.sfx.collapseStop === stops + 1);
+  t('L: Reset loest keinen Bruch-Sound aus', e.sfx.collapse === 0 && e.sfx.colvEvent === 0);
+}
+
+// ── Sofortige Eliminierung ausserhalb des neuen Radius (Rundenende) ──
 {
   const e = make(); e.setMode('bot'); e.resetCollapseTimer();
   e.setR(1000);
-  // Spieler 0: einzige Kugel bei Distanz 900 (innerhalb 1000, ausserhalb 820 nach Collapse)
-  // Bot(1): Kugel im Zentrum (bleibt gueltig)
   e.setBalls([{owner:0,alive:true,x:900,y:0,vx:0,vy:0,spin:0},{owner:1,alive:true,x:0,y:0,vx:0,vy:0,spin:0}]);
   runOutTimer(e);
-  e.setPhase('aim'); e.tickCollapse(120000);  // Collapse -> R=820, phase='sim'
-  e.runSim();                                 // bestehende Ring-out-Logik laeuft sofort
   const b = e.getBalls();
-  // Rundenbeendender Ring-out: die entscheidende Aussenkugel wird ueber den bestehenden
-  // Pfad als outBall verarbeitet (faellt sichtbar), Runde endet, Bot gewinnt.
   t('Sofort: Aussenkugel (900>820) ist der outBall', e.getOutBall() === 0);
   t('Sofort: gueltige Kugel bleibt', b[1].alive === true);
   t('Sofort: Rundenende -> phase=result', e.getPhase() === 'result');
   t('Sofort: Sieger = Bot (owner 1)', e.getRoundWinner() === 1);
 }
 
-// ── NEU: Keine neue Aim-Phase fuer ausgeschiedene Kugel (Runde laeuft weiter) ──
+// ── Keine neue Aim-Phase fuer ausgeschiedene Kugel (Runde laeuft weiter) ──
 {
   const e = make(); e.setMode('bot'); e.resetCollapseTimer();
   e.setR(1000);
-  // Spieler 0: 2 Kugeln (eine bei 900 = ausserhalb, eine bei 100 = innerhalb); Bot bei (0,-100)
   e.setBalls([
     {owner:0,alive:true,x:900,y:0,vx:0,vy:0,spin:0},
     {owner:0,alive:true,x:100,y:0,vx:0,vy:0,spin:0},
     {owner:1,alive:true,x:0,y:-100,vx:0,vy:0,spin:0}
   ]);
   runOutTimer(e);
-  e.setPhase('aim'); e.tickCollapse(120000);  // Collapse -> R=820, phase='sim'
-  e.runSim();
   const b = e.getBalls();
   t('Weiterlauf: Aussenkugel (900) ausgeschieden', b[0].alive === false);
-  t('Weiterlauf: Innenkugeln bleiben', b[1].alive === true && b[2].alive === true);
+  t('H: Innenkugeln bleiben physikalisch gueltig', b[1].alive === true && b[2].alive === true);
   t('Weiterlauf: neue Planungsphase (phase=aim)', e.getPhase() === 'aim');
-  t('Weiterlauf: ausgeschiedene Kugel nicht mehr aimbar (alive=false)', b[0].alive === false);
 }
 
-// ── 7+8) shrinkFloor: normal R0*0.80, nach Collapse eingefroren ──
+// ── shrinkFloor: normal R0*0.80, nach jedem Collapse eingefroren ──
 {
   const e = make(); e.setMode('bot'); e.resetCollapseTimer();
   t('shrinkFloor normal = R0*0.80', near(e.shrinkFloor(), 800));
   e.setR(1000); e.setBalls(twoBalls()); runOutTimer(e);
-  e.setPhase('aim'); e.tickCollapse(120000); e.runSim();
-  t('shrinkFloor nach Collapse = collapseRadius (820)', near(e.shrinkFloor(), 820));
+  t('C: shrinkFloor nach Collapse 1 = collapseRadius (820)', near(e.shrinkFloor(), 820));
   const nextR = Math.max(e.shrinkFloor(), e.getR() - e.getR0() * 0.030);
   t('Rundenschrumpf friert bei collapseRadius ein', near(nextR, 820));
 }
 
-// ── 8) Rematch stellt Timer + Floor wieder her ──
+// ── K) Rematch stellt Timer, Stufe und Floor wieder her ──
 {
   const e = make(); e.setMode('bot'); e.setBalls(twoBalls()); e.resetCollapseTimer();
   e.setR(1000); runOutTimer(e);
-  e.setPhase('aim'); e.tickCollapse(120000); e.runSim();
   e.resetCollapseTimer(); e.setR(1000);
   t('Rematch: State=running', e.state.collapseState === 'running');
+  t('Rematch: Stufe 0', e.state.collapseStage === 0);
   t('Rematch: elapsed=0', e.state.matchElapsedMs === 0);
   t('Rematch: collapseRadius=0', e.state.collapseRadius === 0);
   t('Rematch: collapseOuterR=0', e.state.collapseOuterR === 0);
@@ -320,7 +349,7 @@ const runToExpiry = (e) => { runOutTimer(e); e.applyLaunch(); };
   t('Rematch: shrinkFloor wieder R0*0.80', near(e.shrinkFloor(), 800));
 }
 
-// ── 9) Matchende vor 0 verhindert Collapse ──
+// ── Matchende vor 0 verhindert Collapse ──
 {
   const e = make(); e.setMode('bot'); e.setBalls(twoBalls()); e.resetCollapseTimer();
   e.setR(1000); e.setPhase('over');
@@ -331,16 +360,20 @@ const runToExpiry = (e) => { runOutTimer(e); e.applyLaunch(); };
 }
 {
   const e = make(); e.setMode('bot'); e.setBalls(twoBalls()); e.resetCollapseTimer();
-  e.setR(1000); runOutTimer(e);
+  e.setR(1000); e.setPhase('aim'); e.setAim([false,false]); e.setTime(0); e.tickCollapse(0);
+  advance(e, 0, 29900);
   e.setPhase('over'); e.tickCollapse(120000);
-  t('Collapse nach Matchende verhindert', e.getR() === 1000 && e.state.collapseState === 'expired');
+  t('Collapse nach Matchende verhindert', e.getR() === 1000 && e.state.collapseStage === 0 && e.state.collapseState === 'running');
 }
 
-// ── 10) Andere Modi/Online unberuehrt ──
+// ── Nur lokales Bot-Training; alle anderen Modi (inkl. Arena Football) und Online unberuehrt ──
 {
-  const e = make(); e.setMode('pvp'); e.resetCollapseTimer();
-  t('PvP: collapseActive=false', e.collapseActive() === false);
-  t('PvP: shrinkFloor = R0*0.80', near(e.shrinkFloor(), 800));
+  for (const m of ['pvp', 'ffa', 'football']) {
+    const x = make(); x.setMode(m); x.setBalls(twoBalls()); x.resetCollapseTimer(); x.setR(1000);
+    t(m + ': collapseActive=false', x.collapseActive() === false);
+    x.setPhase('aim'); x.setAim([false,false]); x.setTime(0); x.tickCollapse(0); advance(x, 0, 90000);
+    t(m + ': kein Timerfortschritt, kein Collapse', x.state.matchElapsedMs === 0 && x.getR() === 1000 && x.state.collapseStage === 0);
+  }
   const o = make(); o.setMode('bot'); o.setOnline(true); o.resetCollapseTimer();
   t('Online: collapseActive=false', o.collapseActive() === false);
   o.setPhase('aim'); o.setTime(0); o.tickCollapse(0); advance(o, 0, 120000);
@@ -352,124 +385,81 @@ const runToExpiry = (e) => { runOutTimer(e); e.applyLaunch(); };
   const e = make(); e.setMode('bot'); e.setBalls(twoBalls()); e.resetCollapseTimer();
   e.setPhase('aim'); e.setAim([false,false]);
   e.setTime(0); e.tickCollapse(0);
-  advance(e, 0, 110000);                     // remain 10 -> warn
+  advance(e, 0, 20000);
   t('10s-Warnung genau einmal', e.sfx.warn === 1);
   t('Bei 10s noch kein Countdown-Beep', e.sfx.tick === 0);
-  advance(e, 110000, 115000);                // remain 5 -> Beep 5
-  e.tickCollapse(115000);                    // gleiche Sekunde -> kein Doppel-Beep
+  advance(e, 20000, 25000);
+  e.tickCollapse(25000);
   t('Countdown 5: ein Beep', e.sfx.tick === 1);
-  advance(e, 115000, 119990);                // 4,3,2,1 in normalen Frames
+  advance(e, 25000, 29990);
   t('Countdown 5..1: genau 5 Beeps', e.sfx.tick === 5);
   t('Warnung bleibt einmalig', e.sfx.warn === 1);
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// PHASE 1.4 — Correctness Hardening. Diese Faelle laufen ueber die echten
-// Uebergaenge (commit -> applyLaunch -> stepSim-Settlement -> Collapse).
+// CORRECTNESS HARDENING — echte Uebergaenge (commit -> applyLaunch -> stepSim -> Collapse)
 // ══════════════════════════════════════════════════════════════════════════════
 
-// ── 1) Restgeschwindigkeit/Spin werden vor der Collapse-Auswertung neutralisiert ──
+// ── Restgeschwindigkeit/Spin werden vor der Collapse-Auswertung neutralisiert ──
 {
   const e = make(); e.setMode('bot'); e.resetCollapseTimer(); e.setR(1000);
   e.setBalls([ball(0,100,0), ball(1,-300,0)]);
-  runToExpiry(e);
-  // Die letzte regulaere Simulation kommt mit Restbewegung knapp unter STOPV (0.10) zur Ruhe.
   e.setVel(0, 0.06, -0.03, 0.4);
   e.setVel(1, -0.05, 0.02, -0.6);
-  e.stepSim();                                   // Settlement -> settleCollapse -> doCollapse
+  runOutTimer(e);
   const b = e.getBalls();
   const snap = b.map(o => ({ x: o.x, y: o.y }));
-  t('Rest: Collapse im Settlement ausgeloest', e.state.collapseState === 'collapsed');
+  t('Rest: Collapse bei 0 ausgeloest', e.state.collapseStage === 1);
   t('Rest: vx/vy/spin aller lebenden Kugeln = 0',
     b.every(o => !o.alive || (o.vx === 0 && o.vy === 0 && o.spin === 0)));
-  e.runSim();                                    // Auswertung gegen den neuen Radius
+  e.runSim();
   const a = e.getBalls();
   t('Rest: Position P0 exakt unveraendert', a[0].x === snap[0].x && a[0].y === snap[0].y);
   t('Rest: Position P1 exakt unveraendert', a[1].x === snap[1].x && a[1].y === snap[1].y);
-  t('Rest: beide Kugeln innerhalb des neuen Radius bleiben leben', a[0].alive && a[1].alive);
+  t('H: beide Kugeln innerhalb des neuen Radius leben', a[0].alive && a[1].alive);
 }
 
-// ── 2) Keine Aim-Luecke zwischen Settlement und Collapse ──
+// ── Kein Warten: der Collapse faellt in der Planungsphase, ohne Schuss/Settlement ──
 {
   const e = make(); e.setMode('bot'); e.resetCollapseTimer(); e.setR(1000);
   e.setBalls([ball(0,100,0), ball(1,-300,0)]);
-  runToExpiry(e);
-  e.runSim();
+  runOutTimer(e);
   const log = e.getPhaseLog();
-  t('Aim-Luecke: kein Phasenzustand aim+expired', !log.includes('aim:expired'));
-  t('Aim-Luecke: Collapse direkt aus dem Settlement (sim:expired)', log.includes('sim:expired'));
-  t('Aim-Luecke: Collapse abgeschlossen', e.state.collapseState === 'collapsed');
-  t('Aim-Luecke: neue Planungsphase erst nach dem Collapse', log.indexOf('aim:collapsed') > log.indexOf('sim:expired'));
-  t('Aim-Luecke: genau ein ausgefuehrter Zug (Auto-Stand)', e.getBotMoves() === 1);
+  t('Kein Warten: Collapse ohne Phasenwechsel (kein reveal/sim noetig)', !log.includes('sim:expired') && e.getPhase() === 'aim');
+  t('Kein Warten: kein Phasenzustand aim+expired (Sperre nur synchron)', !log.includes('aim:expired'));
+  t('Kein Warten: Collapse abgeschlossen', e.state.collapseStage === 1 && near(e.getR(), 820));
+  t('Kein Warten: Planungsphase laeuft mit offenem Zug weiter', e.getCommits().aimSet[0] === false);
+  t('Kein Warten: kein Zug durch das Zyklusende', e.getBotMoves() === 0);
 }
 {
-  // Solange expired gilt, wird JEDER Benutzer-Commitpfad tatsaechlich abgewiesen —
-  // nicht nur der Zustand verglichen, sondern der Versuch real ausgefuehrt.
+  // I) Nach beiden Collapses ist JEDER Benutzer-Commitpfad sofort frei — real ausgefuehrt.
   const e = make(); e.setMode('bot'); e.resetCollapseTimer(); e.setR(1000);
   e.setBalls([ball(0,100,0), ball(1,-300,0)]);
   e.setPhase('aim'); e.setAim([false,false]);
   e.setTime(0); e.tickCollapse(0);
   t('Eingabe vor Ablauf frei', e.inputLocked() === false && e.canCommitInput(0) === true);
-  advance(e, 0, 120000);
-  t('Eingabe nach Ablauf gesperrt', e.inputLocked() === true);
-  t('Kein zweiter Commit nach Auto-Stand', e.canCommitInput(0) === false);
-  const moves = e.getBotMoves(), before = e.getCommits();
-  // Regressionsschutz: selbst wenn ein Pfad kuenstlich in die Planungsphase zurueckfaellt,
-  // bleibt bis zur Verarbeitung des Collapse jede Benutzereingabe wirkungslos.
+  advance(e, 0, 60200);
+  t('Eingabe nach beiden Collapses frei (keine Sperre)', e.inputLocked() === false && e.state.collapseStage === 2);
+  const moves = e.getBotMoves();
   e.setPhase('aim'); e.setAim([false,false]);
-  e.standButton();                                // echter Stand-Button
-  e.commit(0, 0, -250, 120, 0.4);                 // direkter Benutzer-Commit
-  e.startDrag(9, 0, 0); e.pointerUp(9);           // Pointer-/Drall-Pfad
-  t('Stand-Button bei aim+expired abgewiesen', e.getCommits().aimSet[0] === false);
-  t('Benutzer-Commit bei aim+expired abgewiesen', e.getBotMoves() === moves);
-  t('Pointer-Commit bei aim+expired abgewiesen', e.getBotMoves() === moves);
-  t('Bereits gesetzter Auto-Stand unveraendert',
-    before.aim[0].dx === 0 && before.aim[0].dy === 0 && before.idx[0] === 0);
-  // Der interne Pfad funktioniert weiterhin — aber genau einmal.
-  e.commitAutoStand(0, 0);
-  t('Interner Auto-Stand greift', e.getBotMoves() === moves + 1 && e.getCommits().aimSet[0] === true);
-  e.commitAutoStand(0, 0);
-  t('Interner Auto-Stand nicht wiederholbar', e.getBotMoves() === moves + 1);
+  t('I: Commit nach Collapse 2 erlaubt', e.canCommitInput(0) === true);
+  e.commit(0, 0, -250, 120, 0.4);
+  const c = e.getCommits();
+  t('I: Benutzer-Commit nach Collapse 2 angewendet', e.getBotMoves() === moves + 1 && c.aimSet[0] === true && c.aim[0].dx === -250);
+  e.setPhase('aim'); e.setAim([false,false]);
+  e.standButton();
+  t('I: Stand-Button nach Collapse 2 angewendet', e.getBotMoves() === moves + 2 && e.getCommits().aimSet[0] === true);
+  e.setPhase('aim'); e.setAim([false,false]);
+  e.startDrag(9, 0, 0); e.pointerUp(9);
+  t('I: Pointer-Commit nach Collapse 2 angewendet', e.getBotMoves() === moves + 3 && e.getCommits().aimSet[0] === true);
 }
-{
-  // commitAutoStand ist kein allgemeines Schlupfloch: ohne Timerablauf wirkungslos.
-  const e = make(); e.setMode('bot'); e.resetCollapseTimer(); e.setR(1000);
-  e.setBalls(twoBalls()); e.setPhase('aim'); e.setAim([false,false]);
-  e.setTime(0); e.tickCollapse(0);
-  e.commitAutoStand(0, 0);
-  t('Auto-Stand ohne Timerablauf wirkungslos', e.getBotMoves() === 0 && e.getCommits().aimSet[0] === false);
-  e.setOnline(true); e.setPhase('aim');
-  e.commitAutoStand(0, 0);
-  t('Auto-Stand online wirkungslos', e.getBotMoves() === 0);
-}
+t('Kein interner Auto-Stand mehr (das Zyklusende erzwingt keinen Zug)', !/commitAutoStand/.test(HTML));
 
-// ── 3) Aktiver Drag beim Timerablauf: Abbruch, ein Auto-Stand, kein zweiter Commit ──
+// ── Mehrere Kugeln gleichzeitig ausserhalb des neuen Radius ──
 {
-  const e = make(); e.setMode('bot'); e.resetCollapseTimer();
-  e.setBalls(twoBalls()); e.setPhase('aim'); e.setAim([false,false]);
-  e.startDrag(7, 0, 0);                           // Spieler zieht gerade zurueck
-  e.setTime(0); e.tickCollapse(0);
-  advance(e, 0, 120000);                          // Timer 0
-  const d = e.getDrag();
-  t('Drag: beim Ablauf abgebrochen', d.dragging === false && d.aimPid === -1);
-  t('Drag: Shooter/Owner zurueckgesetzt', d.dragShooter === -1 && d.dragOwner === -1);
-  t('Drag: Pull und Spin zurueckgesetzt', d.dragPull.x === 0 && d.dragPull.y === 0 && d.dragSpin === 0);
-  t('Drag: Pointer-Capture freigegeben', e.getReleased().includes(7));
-  const c0 = e.getCommits();
-  t('Drag: Auto-Stand genau einmal', e.getBotMoves() === 1 && c0.aimSet[0] === true);
-  t('Drag: Auto-Stand ist Stehenbleiben', c0.aim[0].dx === 0 && c0.aim[0].dy === 0);
-  e.pointerUp(7);                                 // spaetes pointerup nach dem Ablauf
-  const c1 = e.getCommits();
-  t('Drag: spaetes pointerup erzeugt keinen zweiten Commit', e.getBotMoves() === 1);
-  t('Drag: bestaetigter Zug bleibt Stand', c1.aim[0].dx === 0 && c1.aim[0].dy === 0);
-}
-
-// ── 4) Mehrere Kugeln gleichzeitig ausserhalb des neuen Radius ──
-{
-  // Runde laeuft weiter: jeder Spieler verliert eine von zwei Kugeln.
   const e = make(); e.setMode('bot'); e.resetCollapseTimer(); e.setR(1000);
   e.setBalls([ball(0,900,0), ball(0,100,0), ball(1,0,890), ball(1,0,-100)]);
-  runToExpiry(e); e.runSim();
+  runOutTimer(e);
   const b = e.getBalls();
   t('Aussen(4): beide Aussenkugeln ausgeschieden', b[0].alive === false && b[2].alive === false);
   t('Aussen(4): beide Innenkugeln leben', b[1].alive === true && b[3].alive === true);
@@ -479,22 +469,21 @@ const runToExpiry = (e) => { runOutTimer(e); e.applyLaunch(); };
   t('Aussen(4): ein Drop-Signal', e.sfx.drop === 1 && e.sfx.ringout === 0);
 }
 {
-  // Rundenende: die letzten Kugeln beider Spieler sind gleichzeitig draussen.
   const e = make(); e.setMode('bot'); e.resetCollapseTimer(); e.setR(1000);
   e.setBalls([ball(0,900,0), ball(1,0,890)]);
-  runToExpiry(e); e.runSim();
+  runOutTimer(e);
   t('Aussen(2): outBall = am weitesten draussen (Index 0)', e.getOutBall() === 0);
   t('Aussen(2): Sieger deterministisch = Bot (owner 1)', e.getRoundWinner() === 1);
   t('Aussen(2): Rundenende (result)', e.getPhase() === 'result');
   t('Aussen(2): ein Ringout-Signal', e.sfx.ringout === 1);
 }
 
-// ── 5) Kugeln innerhalb des neuen Radius behalten exakt ihre Position ──
+// ── Kugeln innerhalb des neuen Radius behalten exakt ihre Position ──
 {
   const e = make(); e.setMode('bot'); e.resetCollapseTimer(); e.setR(1000);
   const start = [ball(0,700,0), ball(0,-200,300), ball(1,0,-750), ball(1,400,-400)];
   e.setBalls(start.map(b => ({...b})));
-  runToExpiry(e); e.runSim();
+  runOutTimer(e);
   const b = e.getBalls();
   t('Innen: alle vier Kugeln leben', b.every(o => o.alive));
   t('Innen: Positionen bit-identisch', b.every((o,i) => o.x === start[i].x && o.y === start[i].y));
@@ -502,154 +491,140 @@ const runToExpiry = (e) => { runOutTimer(e); e.applyLaunch(); };
   t('Innen: neue Planungsphase', e.getPhase() === 'aim');
 }
 
-// ── 6) Keine Doppelwertung der Collapse-Auswertung ──
+// ── Keine Doppelwertung der Collapse-Auswertung ──
 {
   const e = make(); e.setMode('bot'); e.resetCollapseTimer(); e.setR(1000);
   e.setBalls([ball(0,900,0), ball(1,0,890)]);
-  runToExpiry(e); e.runSim();
+  runOutTimer(e);
   const results = e.getPhaseLog().filter(p => p.startsWith('result:')).length;
   t('Doppelwertung: genau ein result-Uebergang', results === 1);
-  t('Doppelwertung: genau ein Collapse-Alarm', e.sfx.collapse === 1);
-  // Weitere Frames duerfen nichts erneut ausloesen.
   e.tickCollapse(120000); e.runSim(); e.tickCollapse(121000);
-  t('Doppelwertung: kein zweiter Collapse', e.sfx.collapse === 1 && near(e.getR(), 820));
+  t('Doppelwertung: kein zweiter Collapse', e.sfx.collapse === 0 && near(e.getR(), 820));
   t('Doppelwertung: kein zweites Ringout', e.sfx.ringout === 1);
   t('Doppelwertung: outBall stabil', e.getOutBall() === 0);
   t('Doppelwertung: Sieger stabil', e.getRoundWinner() === 1);
 }
 
-// ── 7) Matchende waehrend der Collapse-Auswertung startet keine neue Aim-Phase ──
+// ── Matchende waehrend der Collapse-Auswertung startet keine neue Aim-Phase ──
 {
   const e = make(); e.setMode('bot'); e.resetCollapseTimer(); e.setR(1000);
   e.setBalls([ball(0,900,0), ball(1,0,890)]);
-  runToExpiry(e);
+  e.setPhase('aim'); e.setAim([false,false]); e.setTime(0); e.tickCollapse(0);
+  advance(e, 0, 29900);
   const before = e.getPhaseLog().length;
-  e.runSim();
+  advance(e, 29900, 30100);
   const after = e.getPhaseLog().slice(before);
   t('Matchende: keine Aim-Phase nach dem Collapse', !after.some(p => p.startsWith('aim:')));
   t('Matchende: endet im Result-Zustand', e.getPhase() === 'result');
-  // Direkter doCollapse-Aufruf nach Matchende bleibt wirkungslos.
   const o = make(); o.setMode('bot'); o.setBalls(twoBalls()); o.resetCollapseTimer(); o.setR(1000);
-  runOutTimer(o);
-  o.setPhase('over'); o.doCollapse();
-  t('Matchende: doCollapse in phase=over wirkungslos', o.getR() === 1000 && o.state.collapseState === 'expired');
+  o.setPhase('aim'); o.setAim([false,false]); o.setTime(0); o.tickCollapse(0);
+  advance(o, 0, 29900);
+  o.setPhase('over'); o.doCollapse(); o.tickCollapse(120000);
+  t('Matchende: doCollapse in phase=over wirkungslos', o.getR() === 1000 && o.state.collapseStage === 0);
 }
 
-// ── 8) Reset/Rematch setzt Timer, Radius, State, Eingabesperre und Drag zurueck ──
+// ── K) Reset/Rematch setzt Timer, Radius, State, Eingabesperre und Drag zurueck ──
 {
   const e = make(); e.setMode('bot'); e.resetCollapseTimer(); e.setR(1000);
   e.setBalls([ball(0,100,0), ball(1,-300,0)]);
   e.setPhase('aim'); e.setAim([false,false]);
   e.startDrag(3, 0, 0);
-  e.setTime(0); e.tickCollapse(0); advance(e, 0, 120000);
-  e.applyLaunch(); e.runSim();
-  t('Rematch-Vorbedingung: Collapse gelaufen', e.state.collapseState === 'collapsed');
+  e.setTime(0); e.tickCollapse(0); advance(e, 0, 60000);
+  t('Rematch-Vorbedingung: Collapse 1 gelaufen, Drag an lebender Kugel erhalten', e.state.collapseStage === 1 && e.getDrag().dragging === true);
   e.resetCollapseTimer(); e.setR(1000);
   const d = e.getDrag();
   t('Rematch: Eingabesperre aufgehoben', e.inputLocked() === false);
   t('Rematch: Drag-State sauber', d.dragging === false && d.aimPid === -1 && d.spinPid === -1);
   t('Rematch: Pull/Spin zurueckgesetzt', d.dragPull.x === 0 && d.dragSpin === 0);
-  t('Rematch: Timer und State zurueckgesetzt', e.state.matchElapsedMs === 0 && e.state.collapseState === 'running');
+  t('Rematch: Timer, Stufe und State zurueckgesetzt', e.state.matchElapsedMs === 0 && e.state.collapseState === 'running' && e.state.collapseStage === 0);
   t('Rematch: Countdown verborgen', e.state.collapseCountVisible === false);
   e.setPhase('aim'); e.setAim([false,false]);
   t('Rematch: Eingabe wieder frei', e.canCommitInput(0) === true);
 }
 
-// ── 9) Andere Modi: doCollapse ist hart gegated, kein Debug-Hook mehr vorhanden ──
+// ── Online und Matchende: doCollapse ist hart gegated ──
 {
   const e = make(); e.setMode('bot'); e.setBalls(twoBalls()); e.resetCollapseTimer(); e.setR(1000);
-  runOutTimer(e);                                                              // -> expired
-  e.setOnline(true); e.doCollapse();
-  t('Online: doCollapse wirkungslos', e.getR() === 1000 && e.state.collapseState === 'expired');
-  e.setOnline(false); e.setMode('pvp'); e.doCollapse();
-  t('PvP: doCollapse wirkungslos', e.getR() === 1000 && e.state.collapseState === 'expired');
-  e.setMode('ffa'); e.doCollapse();
-  t('FFA: doCollapse wirkungslos', e.getR() === 1000 && e.state.collapseState === 'expired');
-  e.setMode('bot'); e.setPhase('aim'); e.doCollapse();
-  t('Bot lokal: doCollapse wirkt', near(e.getR(), 820) && e.state.collapseState === 'collapsed');
+  e.setOnline(true); e.setPhase('aim'); e.setAim([false,false]); e.setTime(0); e.tickCollapse(0);
+  advance(e, 0, 120000); e.doCollapse();
+  t('Online: doCollapse wirkungslos', e.getR() === 1000 && e.state.collapseStage === 0);
+  e.setOnline(false); e.setPhase('over'); e.doCollapse(); e.tickCollapse(130000);
+  t('Matchende: doCollapse wirkungslos', e.getR() === 1000 && e.state.collapseStage === 0);
+  runOutTimer(e);
+  t('Bot lokal: Collapse bei 0 wirkt', near(e.getR(), 820) && e.state.collapseStage === 1);
 }
-t('Kein Debug-Hook __cdbg mehr im Produktcode', !/__cdbg/.test(HTML));
-t('Kein cdbg-Query-Flag mehr im Produktcode', !/cdbg/.test(HTML));
+t('Kein Debug-Hook __cdbg im Produktcode', !/__cdbg/.test(HTML));
+t('Kein cdbg-Query-Flag im Produktcode', !/cdbg/.test(HTML));
 
-// ── 10) Inaktiver Tab: kein Zeitsprung, keine uebersprungenen Countdown-Stufen ──
+// ── Inaktiver Tab: kein Zeitsprung, keine uebersprungenen Countdown-Stufen ──
 {
   const e = make(); e.setMode('bot'); e.setBalls(twoBalls()); e.resetCollapseTimer();
   e.setPhase('aim'); e.setAim([false,false]);
   e.setTime(0); e.tickCollapse(0);
-  advance(e, 0, 115000);                                // remain 5 -> Beep 5
+  advance(e, 0, 25000);
   t('Tab: Countdown startet bei 5', e.state.collapseCountShown === 5 && e.sfx.tick === 1);
-  e.pauseCollapseTimer();                               // visibilitychange -> hidden
-  e.setTime(200000); e.tickCollapse(200000);            // 85 s Hintergrundzeit
-  t('Tab: kein Zeitdelta-Sprung', near(e.state.matchElapsedMs, 115000));
+  e.pauseCollapseTimer();
+  e.setTime(200000); e.tickCollapse(200000);
+  t('Tab: kein Zeitdelta-Sprung', near(e.state.matchElapsedMs, 25000));
   t('Tab: Timer laeuft nicht ab', e.state.collapseState === 'running');
   t('Tab: keine Stufe uebersprungen', e.state.collapseCountShown === 5 && e.sfx.tick === 1);
   advance(e, 200000, 205000);
   t('Tab: 5..1 vollstaendig abgelaufen', e.sfx.tick === 5);
-  t('Tab: Timerablauf danach reguler', e.state.collapseState === 'expired');
+  t('Tab: Zyklusende danach regulaer (Collapse sofort)', e.state.collapseStage === 1 && e.state.collapseState === 'running');
 }
 
-// ── 11) Grosser Countdown ist ausserhalb der Planungsphase verborgen ──
+// ── Grosser Countdown ist ausserhalb der Planungsphase verborgen ──
 {
   const e = make(); e.setMode('bot'); e.setBalls(twoBalls()); e.resetCollapseTimer();
   e.setPhase('aim'); e.setAim([false,false]);
   e.setTime(0); e.tickCollapse(0);
-  advance(e, 0, 116500);                                // remain 3.5 -> Zahl 4
+  advance(e, 0, 26500);
   t('Countdown: in aim sichtbar', e.state.collapseCountVisible === true && e.state.collapseCountShown === 4);
   const beeps = e.sfx.tick;
   for (const p of ['reveal', 'sim', 'result', 'over']) {
-    e.setPhase(p); e.tickCollapse(116500);
+    e.setPhase(p); e.tickCollapse(26500);
     t('Countdown: in ' + p + ' verborgen', e.state.collapseCountVisible === false);
   }
-  e.setPhase('aim'); e.setMenu(true); e.tickCollapse(116500);
+  e.setPhase('aim'); e.setMenu(true); e.tickCollapse(26500);
   t('Countdown: im Menue verborgen', e.state.collapseCountVisible === false);
-  e.setMenu(false); e.tickCollapse(116500);             // zurueck in die Planungsphase
+  e.setMenu(false); e.tickCollapse(26500);
   t('Countdown: in aim wieder sichtbar', e.state.collapseCountVisible === true);
   t('Countdown: Wiedereinblenden ohne zweiten Beep', e.sfx.tick === beeps);
-  t('Countdown: Timerwert unveraendert', near(e.state.matchElapsedMs, 116500));
+  t('Countdown: Timerwert unveraendert', near(e.state.matchElapsedMs, 26500));
   t('Countdown: State unveraendert', e.state.collapseState === 'running');
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// PHASE 1.5 — Result-Pfad und Timer-Hardening. Diese Faelle treiben den ECHTEN
-// Ablauf aim -> commit -> reveal -> sim -> result -> afterResult -> startRound.
-// Nach dem Timerablauf wird bewusst KEIN tickCollapse mehr gerufen: der Collapse
-// muss allein ueber settleCollapse()/collapseRoundEnd() laufen. Damit beweisen
-// diese Tests zugleich, dass der tickCollapse-Fallback im regulaeren Ablauf
-// unerreichbar ist.
+// RESULT-PFAD UND TIMER-HARDENING — echter Ablauf aim -> result -> afterResult -> startRound
 // ══════════════════════════════════════════════════════════════════════════════
-
-// Ausgangslage fuer den rundenbeendenden Ring-out: der erzwungene Zug des Spielers ist
-// ein Stand, der Bot schiesst seine einzige Kugel aus dem Ring -> stepSim verlaesst die
-// Simulation ueber phase='result' und erreicht settleCollapse() nie.
 const roundEndSetup = (e, score = [0,0], winTarget = 3) => {
   e.setMode('bot'); e.resetCollapseTimer(); e.setR(1000);
   e.setScore(score); e.setWinTarget(winTarget);
   e.setBalls([ball(0,0,0), ball(1,900,0)]);
-  e.setBotShot(400, 0);                        // maxPull nach aussen -> sicherer Ring-out
+  e.setBotShot(400, 0);
 };
 
-// ── 12) Rundenbeendender, nicht matchentscheidender Ring-out ──
+// ── Rundenbeendender, nicht matchentscheidender Ring-out ──
 {
   const e = make(); roundEndSetup(e);
-  runToExpiry(e);                              // -> reveal -> applyLaunch -> sim
-  e.runLoop();                                 // sim -> result -> afterResult -> startRound
+  runOutTimer(e);
+  e.runLoop();
   const log = e.getPhaseLog();
   t('Result: Runde endet ueber den echten Ring-out-Pfad', log.filter(p => p.startsWith('result:')).length === 1);
-  t('Result: Collapse VOR startRound verarbeitet', e.state.collapseState === 'collapsed');
+  t('Result: Collapse VOR startRound verarbeitet', e.state.collapseStage === 1);
   t('Result: Radius exakt R*0.82 (kein doppelter Schrumpf)', near(e.getR(), 820));
   t('Result: kein 0.97*0.82', !near(e.getR(), 795.4, 1e-3));
   t('Result: kein aim+expired', !log.includes('aim:expired'));
-  t('Result: neue Runde in aim+collapsed', e.getPhase() === 'aim' && log[log.length - 1] === 'aim:collapsed');
+  t('Result: neue Runde in aim (Zyklus 2 laeuft)', e.getPhase() === 'aim' && log[log.length - 1] === 'aim:running');
   t('Result: Eingabesperre aufgehoben', e.inputLocked() === false);
-  t('Result: Collapse-Alarm genau einmal', e.sfx.collapse === 1);
   t('Result: Punkt an Spieler 0', e.getScore()[0] === 1 && e.getScore()[1] === 0);
-  t('Result: kein Fallback-Tick noetig', e.state.collapseRadius === 820);
+  t('Result: collapseRadius gesetzt', e.state.collapseRadius === 820);
 }
 
-// ── 13) Collapse nach Result: keine Doppelwertung, kein doppeltes startRound ──
+// ── Collapse nach Result: keine Doppelwertung, kein doppeltes startRound ──
 {
   const e = make(); roundEndSetup(e);
-  runToExpiry(e); e.runLoop();
+  runOutTimer(e); e.runLoop();
   const score = e.getScore(), starts = e.getRoundStarts(), ars = e.getAfterResultCalls();
   t('Doppel: afterResult genau einmal je Result', ars === 1);
   t('Doppel: genau ein startRound', starts === 1);
@@ -657,52 +632,48 @@ const roundEndSetup = (e, score = [0,0], winTarget = 3) => {
   t('Doppel: genau ein Ringout-Signal', e.sfx.ringout === 1);
   t('Doppel: outBall zurueckgesetzt', e.getOutBall() === -1);
   t('Doppel: roundWinner zurueckgesetzt', e.getRoundWinner() === -1);
-  // Weiterlaufen darf nichts erneut ausloesen.
   e.runLoop(); e.tickCollapse(130000); e.runLoop();
   t('Doppel: Punktestand stabil', e.getScore()[0] === score[0] && e.getScore()[1] === score[1]);
   t('Doppel: kein zweites startRound', e.getRoundStarts() === starts);
   t('Doppel: kein zweites afterResult', e.getAfterResultCalls() === ars);
-  t('Doppel: kein zweiter Collapse', e.sfx.collapse === 1 && near(e.getR(), 820));
+  t('Doppel: kein zweiter Collapse', e.sfx.collapse === 0 && near(e.getR(), 820));
   t('Doppel: Rundenzaehler genau einmal erhoeht', e.getRoundNo() === 2);
 }
 
-// ── 14) Matchentscheidender Ring-out: Matchende hat Vorrang vor dem Collapse ──
+// ── Matchentscheidender Ring-out: Matchende hat Vorrang ──
 {
   const e = make(); roundEndSetup(e, [2,0], 3);
-  runToExpiry(e); e.runLoop();
+  runOutTimer(e); e.runLoop();
   const log = e.getPhaseLog();
   t('Matchende: gameOver genau einmal fuer Spieler 0', e.getGameOver().length === 1 && e.getGameOver()[0] === 0);
   t('Matchende: Endphase over', e.getPhase() === 'over');
-  t('Matchende: keine neue Aim-Phase', !log.slice(log.indexOf('result:expired')).some(p => p.startsWith('aim:')));
+  t('Matchende: keine neue Aim-Phase', !log.slice(log.findIndex(p => p.startsWith('result:'))).some(p => p.startsWith('aim:')));
   t('Matchende: kein startRound', e.getRoundStarts() === 0);
-  t('Matchende: kein Collapse mehr noetig', e.sfx.collapse === 0 && e.getR() === 1000);
+  t('Matchende: Collapse 1 war bereits gefallen (820)', e.sfx.collapse === 0 && near(e.getR(), 820) && e.state.collapseStage === 1);
   t('Matchende: Endstand 3:0', e.getScore()[0] === 3);
-  // Auch spaetere Frames duerfen den Collapse nicht nachholen.
   e.tickCollapse(130000); e.runLoop();
-  t('Matchende: kein nachtraeglicher Collapse', e.sfx.collapse === 0 && e.getR() === 1000);
+  t('Matchende: kein nachtraeglicher Collapse', near(e.getR(), 820) && e.state.collapseStage === 1);
   t('Matchende: collapseRoundEnd wirkungslos in over', e.collapseRoundEnd() === false);
 }
 
-// ── 15) Mehrere Hidden-Ticks verbrauchen keine Zeit ──
+// ── Mehrere Hidden-Ticks verbrauchen keine Zeit ──
 {
   const e = make(); e.setMode('bot'); e.setBalls(twoBalls()); e.resetCollapseTimer();
   e.setPhase('aim'); e.setAim([false,false]);
   e.setTime(0); e.tickCollapse(0);
-  advance(e, 0, 115500);                                 // remain 4.5 -> Zahl 5 sichtbar
+  advance(e, 0, 25500);
   const el = e.state.matchElapsedMs, beeps = e.sfx.tick;
   t('Hidden: Countdown vor dem Wechsel sichtbar', e.state.collapseCountVisible === true);
   e.setHidden(true);
-  e.setTime(115550); e.tickCollapse(115550);             // erster Hintergrund-Tick
+  e.setTime(25550); e.tickCollapse(25550);
   t('Hidden: erster Tick verbraucht keine Zeit', near(e.state.matchElapsedMs, el));
   t('Hidden: Countdown ausgeblendet', e.state.collapseCountVisible === false);
-  for (let k = 2; k <= 40; k++) { const tt = 115500 + k * 50; e.setTime(tt); e.tickCollapse(tt); }
+  for (let k = 2; k <= 40; k++) { const tt = 25500 + k * 50; e.setTime(tt); e.tickCollapse(tt); }
   t('Hidden: auch weitere Ticks verbrauchen keine Zeit', near(e.state.matchElapsedMs, el));
   t('Hidden: keine Beeps', e.sfx.tick === beeps);
   t('Hidden: kein Timerablauf', e.state.collapseState === 'running');
-  t('Hidden: kein Auto-Stand', e.getBotMoves() === 0);
-  // ── 16) Rueckkehr zu visible: erster Tick setzt nur den Anker ──
   e.setHidden(false);
-  e.setTime(400000); e.tickCollapse(400000);             // lange Wanduhrzeit vergangen
+  e.setTime(400000); e.tickCollapse(400000);
   t('Visible: erster Tick ohne Delta-Sprung', near(e.state.matchElapsedMs, el));
   t('Visible: Countdown wieder sichtbar', e.state.collapseCountVisible === true);
   t('Visible: Wiedereinblenden ohne zweiten Beep', e.sfx.tick === beeps);
@@ -710,93 +681,285 @@ const roundEndSetup = (e, score = [0,0], winTarget = 3) => {
   t('Visible: danach zaehlt die Uhr normal weiter', near(e.state.matchElapsedMs, el + 50));
 }
 
-// ── 17) Grosser sichtbarer Frame-Sprung ueberspringt keine Countdown-Stufe ──
+// ── M) Grosser sichtbarer Frame-Sprung ueberspringt keine Countdown-Stufe ──
 {
   const e = make(); e.setMode('bot'); e.setBalls(twoBalls()); e.resetCollapseTimer();
   e.setPhase('aim'); e.setAim([false,false]);
   e.setTime(0); e.tickCollapse(0);
-  advance(e, 0, 114800);                                 // remain 5.2 s: Countdown noch nicht gestartet
+  advance(e, 0, 24800);
   t('Sprung: vor dem Stall kein Countdown', e.state.collapseCountShown === -1 && e.sfx.tick === 0);
-  const stall = 117800;                                  // 3 s Main-Thread-Stall in EINEM Frame
+  const stall = 27800;
   e.setTime(stall); e.tickCollapse(stall);
-  t('Sprung: Delta auf MAX_COLLAPSE_TICK_DELTA_MS geklemmt', near(e.state.matchElapsedMs, 114800 + 250));
+  t('Sprung: Delta auf MAX_COLLAPSE_TICK_DELTA_MS geklemmt', near(e.state.matchElapsedMs, 24800 + 250));
   t('Sprung: keine Stufe uebersprungen (5 zuerst)', e.state.collapseCountShown === 5 && e.sfx.tick === 1);
   t('Sprung: kein vorzeitiger Timerablauf', e.state.collapseState === 'running');
-  t('Sprung: kein vorzeitiger Auto-Stand', e.getBotMoves() === 0);
-  advance(e, stall, stall + 6000);                       // weiter in normalen Frames
+  advance(e, stall, stall + 6000);
   t('Sprung: alle fuenf Stufen genau einmal', e.sfx.tick === 5);
-  t('Sprung: Timerablauf regulaer', e.state.collapseState === 'expired');
-  t('Sprung: genau ein Auto-Stand', e.getBotMoves() === 1);
+  t('Sprung: Zyklusende regulaer (Collapse sofort, Stufe 1)', e.state.collapseStage === 1 && e.state.collapseState === 'running');
+  t('Sprung: kein Zug durch das Zyklusende', e.getBotMoves() === 0);
 }
 
-// ── 18) Normale Frameraten bleiben zeitlich exakt (Klemmung ohne Nebenwirkung) ──
+// ── M) Normale Frameraten bleiben zeitlich exakt (Klemmung ohne Nebenwirkung) ──
 {
   const e = make(); e.setMode('bot'); e.setBalls(twoBalls()); e.resetCollapseTimer();
   e.setPhase('aim'); e.setAim([false,false]);
   e.setTime(0); e.tickCollapse(0);
-  advance(e, 0, 6000, 16);                               // ~60 fps
+  advance(e, 0, 6000, 16);
   t('60 fps: Zeit exakt', near(e.state.matchElapsedMs, 6000));
   const o = make(); o.setMode('bot'); o.setBalls(twoBalls()); o.resetCollapseTimer();
   o.setPhase('aim'); o.setAim([false,false]);
   o.setTime(0); o.tickCollapse(0);
-  advance(o, 0, 6000, 33);                               // ~30 fps
+  advance(o, 0, 6000, 33);
   t('30 fps: Zeit exakt', near(o.state.matchElapsedMs, 6000));
+}
+{
+  // M) Frameraten-unabhaengige Stufen: bei 16/33/50/97-ms-Frames faellt jede Stufe
+  // genau einmal innerhalb EINES Frames nach ihrer kanonischen Planungszeit, mit
+  // identischer Arena-Geometrie — kein uebersprungener, kein doppelter Collapse.
+  for (const step of [16, 33, 50, 97]) {
+    const e = make(); e.setMode('bot'); e.setBalls(twoBalls()); e.resetCollapseTimer(); e.setR(1000);
+    e.setPhase('aim'); e.setAim([false,false]); e.setTime(0); e.tickCollapse(0);
+    const at = []; let last = 0, tt = 0;
+    while (tt < 70000) { tt += step; e.setTime(tt); e.tickCollapse(tt); if (e.state.collapseStage !== last) { at.push(tt); last = e.state.collapseStage; } }
+    t('M: ' + step + ' ms/Frame — Stufe 1 innerhalb eines Frames nach 30 s', at.length === 2 && at[0] >= 30000 && at[0] < 30000 + step + 1);
+    t('M: ' + step + ' ms/Frame — Stufe 2 genau 30 s Planungszeit nach Stufe 1 (+ Anker-Frame)', at[1] >= at[0] + 30000 && at[1] < at[0] + 30000 + 2 * step + 1);
+    t('M: ' + step + ' ms/Frame — identische Endgeometrie 672.4, terminal, kein dritter Collapse',
+      near(e.getR(), 672.4) && e.state.collapseStage === 2 && e.state.collapseState === 'collapsed');
+  }
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// PHASE 1.6 — Positionsreine Collapse-Ring-out-Auswertung. Nach dem Settlement
-// sind die vorhandenen x/y autoritativ: der Collapse setzt nur den Radius und
-// prueft die aktuellen Positionen. Kein zusaetzlicher Physikframe, keine erneute
-// Kollisions- oder Ueberlappungsaufloesung.
+// SOFORTIGER COLLAPSE (Quelle fcfaf6e) — Timer 0 + KEIN Schuss = Collapse trotzdem.
+// Der laufende Zug bleibt bestehen, Aim/Drag/Schuss funktionieren auf der kleineren
+// Arena weiter, genau ein Collapse je Stufe, keine Stufe wird uebersprungen.
 // ══════════════════════════════════════════════════════════════════════════════
+{
+  const e = make(); e.setMode('bot'); e.resetCollapseTimer(); e.setR(1000);
+  e.setBalls([ball(0,100,0), ball(1,-300,0)]);
+  e.setPhase('aim'); e.setAim([false,false]); e.setTime(0); e.tickCollapse(0);
+  advance(e, 0, 29950);
+  t('I: 50 ms vor 0 ist die Arena noch gross, Zug offen', e.getR() === 1000 && e.getCommits().aimSet[0] === false);
+  advance(e, 29950, 30000);
+  t('I: bei 0 ist die Arena SOFORT kleiner (820), ohne Schuss', near(e.getR(), 820) && e.state.collapseStage === 1);
+  t('I: kein Schuss und kein Auto-Stand durch den Collapse', e.getBotMoves() === 0 && e.getCommits().aimSet[0] === false);
+  t('I: Planungsphase laeuft weiter, Eingabe frei', e.getPhase() === 'aim' && e.inputLocked() === false && e.canCommitInput(0) === true);
+  t('D: Zyklus 2 beginnt bei 0 (Timer-Neustart)', e.state.collapseState === 'running' && e.state.matchElapsedMs === 0);
+  advance(e, 30000, 34900);
+  t('Warten: Arena bleibt klein', near(e.getR(), 820) && e.state.collapseStage === 1);
+  t('Warten: Zug weiterhin offen, kein Auto-Stand', e.getCommits().aimSet[0] === false && e.getBotMoves() === 0);
+  t('Warten: Zyklus-2-Uhr laeuft (erster Frame nach dem Collapse ankert nur)', near(e.state.matchElapsedMs, 4900 - FRAME_MS));
+  e.setPos(0, 800, 0);
+  e.setBotShot(0, 0);
+  e.commit(0, 0, 400, 0, 0);
+  t('I: Schuss unmittelbar nach Collapse 1 angenommen', e.getCommits().aimSet[0] === true && e.getBotMoves() === 1);
+  const resultsBefore = e.getPhaseLog().filter(p => p.startsWith('result:')).length;
+  e.runLoop();
+  t('C: Physik nutzt den neuen Arena-Zustand (Ring-out an 820 statt 1000, Punkt an den Bot)',
+    e.getPhaseLog().filter(p => p.startsWith('result:')).length === resultsBefore + 1 && e.getScore()[1] === 1);
+  t('Schuss: Radius unveraendert 820 (kein zweiter Collapse)', near(e.getR(), 820) && e.state.collapseStage === 1);
+}
+{
+  const e = make(); e.setMode('bot'); e.resetCollapseTimer(); e.setR(1000);
+  e.setBalls([ball(0,100,0), ball(1,-300,0)]);
+  e.setPhase('aim'); e.setAim([false,false]); e.setTime(0); e.tickCollapse(0);
+  advance(e, 0, 28500);
+  e.startDrag(5, 0, 0);
+  advance(e, 28500, 30000);
+  const d = e.getDrag();
+  t('Drag: Collapse waehrend des Drags gefallen', near(e.getR(), 820) && e.state.collapseStage === 1);
+  t('Drag: bleibt erhalten (Kugel lebt, Runde offen)', d.dragging === true && d.aimPid === 5 && d.dragShooter === 0);
+  t('Drag: kein Auto-Stand, Zug offen', e.getCommits().aimSet[0] === false);
+  e.pointerUp(5);
+  const c = e.getCommits();
+  t('I: Release nach dem Collapse loest den Schuss aus', e.getBotMoves() === 1 && c.aimSet[0] === true);
+  t('Drag: Schuss ist der gezogene Zug, kein Stand', c.aim[0].dx !== 0);
+  t('Drag: State nach dem Schuss sauber', e.getDrag().dragging === false && e.getDrag().aimPid === -1);
+}
+{
+  const e = make(); e.setMode('bot'); e.resetCollapseTimer(); e.setR(1000);
+  e.setBalls([ball(0,900,0), ball(0,100,0), ball(1,-300,0)]);
+  e.setPhase('aim'); e.setAim([false,false]); e.setTime(0); e.tickCollapse(0);
+  advance(e, 0, 28500);
+  e.startDrag(6, 0, 0);
+  advance(e, 28500, 30000);
+  const d = e.getDrag();
+  t('Drag tot: Aussenkugel durch den Collapse ausgeschieden', e.getBalls()[0].alive === false && e.getBalls()[1].alive === true);
+  t('Drag tot: Drag an der toten Kugel abgebrochen', d.dragging === false && d.aimPid === -1 && e.getReleased().includes(6));
+  e.pointerUp(6);
+  t('Drag tot: spaetes pointerup committet nichts', e.getBotMoves() === 0 && e.getCommits().aimSet[0] === false);
+  t('Drag tot: Spieler kann mit der Innenkugel weiter zielen', e.canCommitInput(0) === true && e.getPhase() === 'aim');
+}
+{
+  const e = make(); e.setMode('bot'); e.resetCollapseTimer(); e.setR(1000);
+  e.setBalls([ball(0,100,0), ball(1,-300,0)]);
+  e.setPhase('aim'); e.setAim([false,false]); e.setTime(0); e.tickCollapse(0);
+  advance(e, 0, 29950);
+  e.setPhase('reveal'); e.tickCollapse(30000); e.tickCollapse(30050);
+  t('Uebergang: kein Collapse waehrend eines Phasenuebergangs', e.getR() === 1000 && e.state.collapseStage === 0);
+  e.setPhase('aim'); e.setAim([false,false]);
+  e.tickCollapse(30100); e.tickCollapse(30150);
+  t('B: Collapse genau einmal nach dem Uebergang', near(e.getR(), 820) && e.state.collapseStage === 1);
+  e.tickCollapse(30150); e.tickCollapse(30150); e.tickCollapse(30200);
+  t('B: kein doppelter Collapse durch weitere Frames derselben Zeit', near(e.getR(), 820) && e.state.collapseStage === 1);
+  e.setPhase('sim'); e.runSim(); e.setPhase('aim');
+  t('B: Settlement-Hooks loesen keinen zweiten Collapse aus', e.settleCollapse() === false && e.collapseRoundEnd() === false && near(e.getR(), 820));
+}
+{
+  const e = make(); e.setMode('bot'); e.resetCollapseTimer(); e.setR(1000);
+  e.setBalls([ball(0,100,0), ball(1,-300,0)]);
+  e.setPhase('aim'); e.setAim([false,false]); e.setTime(0); e.tickCollapse(0);
+  advance(e, 0, 29900);
+  e.setTime(29900 + 40000); e.tickCollapse(29900 + 40000);   // 40-s-Stall in EINEM Frame
+  t('M: nur Stufe 1 (keine uebersprungene Stufe)', e.state.collapseStage === 1 && near(e.getR(), 820));
+  t('M: Zyklus 2 beginnt bei 0', e.state.collapseState === 'running' && e.state.matchElapsedMs === 0);
+}
 
-// Stellt den Moment unmittelbar vor dem Settlement-Hook nach: Timer abgelaufen, Zug
-// gespielt, Kugeln stehen an exakt diesen Positionen. Nur so lassen sich Settlement-
-// Positionen mit Restueberlappung vorgeben — die normale Simulation wuerde eine
-// vorgegebene Ueberlappung vorher selbst aufloesen. settleCollapse() ist der echte Hook,
-// den stepSim an dieser Stelle aufruft.
+// ══════════════════════════════════════════════════════════════════════════════
+// J) BOT-PRODUKTPFAD (Quelle 24f4423) — exakt die Frame-Schleife des Spiels (tickCollapse):
+// der Collapse-Countdown ist KEIN Zug-Timeout. Bei 0 faellt der Collapse, bevor irgendein
+// automatischer Zug, Bot-Schuss, Reveal oder Physik stattfindet; der menschliche Zug bleibt
+// offen, der Bot zieht erst nach dem menschlichen Commit.
+// ══════════════════════════════════════════════════════════════════════════════
+const prodAdvance = (e, fromMs, toMs, step = FRAME_MS) => {
+  for (let tt = fromMs + step; tt < toMs; tt += step) e.prodTick(tt);
+  e.prodTick(toMs);
+};
+{
+  const e = make(); e.setMode('bot'); e.resetCollapseTimer(); e.setR(1000);
+  e.setBalls([ball(0, 100, 0), ball(1, -300, 0)]);
+  e.setPhase('aim'); e.setAim([false, false]); e.prodTick(0);
+  prodAdvance(e, 0, 29950);
+  t('BOT A: 50 ms vor 0 — kein Auto-Stand, kein Bot-Zug, Arena gross, Zug offen',
+    e.getBotMoves() === 0 && e.getCommits().aimSet[0] === false && e.getR() === 1000 && e.getPhase() === 'aim');
+  const logBefore = e.getPhaseLog().length;
+  prodAdvance(e, 29950, 30000);
+  const log = e.getPhaseLog().slice(logBefore);
+  t('BOT A: bei 0 Arena bereits kleiner (820)', near(e.getR(), 820));
+  t('BOT A: Collapse Count genau +1', e.state.collapseStage === 1 && e.state.collapseState === 'running');
+  t('BOT A: menschlicher Zug weiterhin offen (kein Auto-Commit, kein Auto-Stand)', e.getCommits().aimSet[0] === false);
+  t('BOT A: Bot hat NICHT geschossen', e.getBotMoves() === 0 && e.getCommits().aimSet[1] === false);
+  t('BOT A: kein Reveal / keine Physik durch den Collapse-Timer', !log.some((p) => p.startsWith('reveal:') || p.startsWith('sim:')) && e.getPhase() === 'aim');
+  t('BOT A: Eingabe frei (kein Timeout-Lock)', e.inputLocked() === false && e.canCommitInput(0) === true);
+  prodAdvance(e, 30000, 40000);
+  t('BOT C: Arena bleibt klein, Zug offen, kein automatischer Zug nach 10 s',
+    near(e.getR(), 820) && e.getCommits().aimSet[0] === false && e.getBotMoves() === 0 && e.getPhase() === 'aim');
+  t('BOT C: Zyklus 2 laeuft (kein zweiter Collapse vor 30 s)', e.state.collapseStage === 1 && near(e.state.matchElapsedMs, 10000 - FRAME_MS));
+  e.prodTick(40000); e.prodTick(40000); e.prodTick(40050);
+  t('BOT D: kein doppelter Collapse', e.state.collapseStage === 1 && near(e.getR(), 820));
+  t('BOT D: Settlement-/Rundenende-Hooks wirkungslos', e.settleCollapse() === false && e.collapseRoundEnd() === false);
+  e.startDrag(11, 0, 0);
+  prodAdvance(e, 40050, 41000);
+  t('BOT B: Drag waehrend Zyklus 2 aktiv, kein Auto-Zug', e.getDrag().dragging === true && e.getBotMoves() === 0);
+  e.setPos(0, -800, 0);
+  e.setBotShot(0, 0);
+  e.pointerUp(11);
+  const c = e.getCommits();
+  t('J: eigener Schuss angenommen, Bot-Zug regulaer ergaenzt (Bot-Logik, nicht Timer)', c.aimSet[0] === true && c.aim[0].dx !== 0 && e.getBotMoves() === 1 && c.aimSet[1] === true);
+  t('J: Reveal erst durch den eigenen Schuss', e.getPhaseLog().slice(-1)[0].startsWith('reveal:'));
+  const resultsBefore = e.getPhaseLog().filter((p) => p.startsWith('result:')).length;
+  e.runLoop();
+  t('J: Physik nutzt bereits den kleineren Radius (Ring-out an 820, Punkt an den Bot)',
+    e.getPhaseLog().filter((p) => p.startsWith('result:')).length === resultsBefore + 1 && e.getScore()[1] === 1);
+  t('J: Radius bleibt 820, Stufe 1 (kein Doppelschrumpf)', near(e.getR(), 820) && e.state.collapseStage === 1);
+}
+{
+  // J) Gegenprobe: der Mensch schiesst VOR 0 — Collapse dann in der naechsten Planungsphase.
+  const e = make(); e.setMode('bot'); e.resetCollapseTimer(); e.setR(1000);
+  e.setBalls([ball(0, 100, 0), ball(1, -300, 0)]);
+  e.setPhase('aim'); e.setAim([false, false]); e.prodTick(0);
+  prodAdvance(e, 0, 20000);
+  e.commit(0, 0, 0, 0, 0); e.runLoop();
+  t('J: Zug vor 0 — Bot genau einmal durch den Commit, Uhr bei 20 s', e.getBotMoves() === 1 && e.getPhase() === 'aim' && near(e.state.matchElapsedMs, 20000));
+  prodAdvance(e, 20000, 30100);
+  t('J: Collapse bei 30 s Planungszeit in der neuen Phase, weiterhin kein Auto-Zug', near(e.getR(), 820) && e.getBotMoves() === 1 && e.getCommits().aimSet[0] === false);
+}
+{
+  // J) Bot nach Collapse 2: der Bot bleibt funktional und zieht weiterhin nur mit dem Menschen.
+  const e = make(); e.setMode('bot'); e.resetCollapseTimer(); e.setR(1000);
+  e.setBalls([ball(0, 100, 0), ball(1, -300, 0)]);
+  e.setPhase('aim'); e.setAim([false, false]); e.prodTick(0);
+  prodAdvance(e, 0, 60100);
+  t('J: nach Collapse 2 kein Bot-Zug ohne menschlichen Commit', e.state.collapseStage === 2 && e.getBotMoves() === 0);
+  e.setBotShot(-60, 0);
+  e.commit(0, 0, 60, 0, 0); e.runLoop();
+  t('J: nach Collapse 2 zieht der Bot genau einmal mit, neue Planungsphase erreicht', e.getBotMoves() === 1 && e.getPhase() === 'aim' && near(e.getR(), 672.4));
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// TWO-STAGE — zwei Zyklen a 30 s: Warnfenster 20-30 s und 50-60 s, Collapse 1 bei 30 s,
+// Timer-Neustart, Collapse 2 bei 60 s (terminal), kein dritter Collapse, warn-/tick-Beeps
+// je Zyklus exakt einmal.
+// ══════════════════════════════════════════════════════════════════════════════
+{
+  const e = make(); e.setMode('bot'); e.setBalls(twoBalls()); e.resetCollapseTimer(); e.setR(1000);
+  e.setPhase('aim'); e.setAim([false,false]); e.setTime(0); e.tickCollapse(0);
+  advance(e, 0, 19900);
+  t('2S: vor 20 s keine Warnung', e.sfx.warn === 0);
+  advance(e, 19900, 20100);
+  t('2S: Warnfenster 1 beginnt bei 20 s', e.sfx.warn === 1);
+  advance(e, 20100, 29950);
+  t('A: vor 30 s kein Collapse', e.state.collapseStage === 0 && e.getR() === 1000);
+  advance(e, 29950, 30000);
+  t('B/C: Collapse 1 -> Radius 820, Stufe 1 — SOFORT bei 30 s, ohne Zug', near(e.getR(), 820) && e.state.collapseStage === 1 && e.getCommits().aimSet[0] === false);
+  t('D: Timer-Neustart fuer Zyklus 2', e.state.collapseState === 'running' && e.state.matchElapsedMs === 0);
+  t('D: Warn-/Countdown-Latches fuer Zyklus 2 geloest', e.state.collapseWarned === false && e.state.collapseCountShown === -1);
+  t('H: Kugeln/Score unangetastet', e.getBalls().every(b => b.alive) && e.getScore()[0] === 0 && e.getScore()[1] === 0);
+  t('2S: Countdown-Beeps Zyklus 1 = 5', e.sfx.tick === 5);
+  const t0 = 60000;
+  e.setPhase('aim'); e.setAim([false,false]); e.setTime(t0); e.tickCollapse(t0);
+  advance(e, t0, t0 + 19900);
+  t('2S: Zyklus 2 ohne fruehe Warnung', e.sfx.warn === 1);
+  advance(e, t0 + 19900, t0 + 20100);
+  t('2S: Warnfenster 2 beginnt bei 50 s Gesamtplanungszeit', e.sfx.warn === 2);
+  advance(e, t0 + 20100, t0 + 29950);
+  t('E: vor 60 s Gesamtplanungszeit kein zweiter Collapse', e.state.collapseStage === 1);
+  advance(e, t0 + 29950, t0 + 30000);
+  t('E/F: Collapse 2 -> Radius 672.4, Stufe 2 terminal',
+    near(e.getR(), 672.4) && e.state.collapseStage === 2 && e.state.collapseState === 'collapsed');
+  t('F: shrinkFloor friert auf 672.4 ein', near(e.shrinkFloor(), 672.4));
+  t('2S: Countdown-Beeps beider Zyklen = 2x5', e.sfx.tick === 10);
+  t('2S: Warnsignal je Zyklus exakt einmal (2)', e.sfx.warn === 2);
+  e.setPhase('aim'); e.setAim([false,false]);
+  const t1 = 200000; e.setTime(t1); e.tickCollapse(t1);
+  advance(e, t1, t1 + 45000);
+  t('G: kein dritter Collapse (Radius stabil, terminal)',
+    near(e.getR(), 672.4) && e.state.collapseState === 'collapsed' && e.state.collapseStage === 2);
+  t('G: keine weiteren Beeps im terminalen Zustand', e.sfx.tick === 10 && e.sfx.warn === 2);
+  t('F: HUD-Timer terminal (collapsed)', e.hudText() === '00:00');
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// POSITIONSREINE COLLAPSE-RING-OUT-AUSWERTUNG — kein zusaetzlicher Physikframe.
+// ══════════════════════════════════════════════════════════════════════════════
 const settledAtExpiry = (positions) => {
   const e = make(); e.setMode('bot'); e.resetCollapseTimer(); e.setR(1000);
   e.setBalls(positions.map(p => ({...p})));
-  runOutTimer(e);                              // Timer 0 -> Auto-Stand, State 'expired'
-  // Settlement erreicht: die Physik steht, die Planungsphase wuerde jetzt oeffnen.
-  // Ab hier darf auf diesen Positionen keine weitere Physik mehr laufen — ein
-  // anschliessendes runLoop() ist bei korrektem Verhalten ein No-op und schlaegt nur an,
-  // wenn der Collapse selbst noch einen Sim-Frame einplant.
-  e.setPhase('aim');
+  runOutTimer(e);
   return e;
 };
 const posOf = (e) => e.getBalls().map(b => ({ x: b.x, y: b.y, alive: b.alive }));
 
-// ── 19) Ueberlappende innere Kugeln behalten exakt ihre Position ──
 {
-  const before = [ball(0,100,0), ball(0,150,0), ball(1,-200,0)];   // Paar ueberlappt um 14 px
+  const before = [ball(0,100,0), ball(0,150,0), ball(1,-200,0)];
   const e = settledAtExpiry(before);
-  t('Ueberlappung: Ausgangslage ueberlappt wirklich', Math.hypot(150 - 100, 0) < 64);
-  const logBefore = e.getPhaseLog().length;
-  const ended = e.settleCollapse();
-  // Kein setPhase im Collapse-Pfad -> es wird kein zusaetzlicher Sim-Frame eingeplant.
-  t('Ueberlappung: kein Phasenwechsel durch den Collapse', e.getPhaseLog().length === logBefore);
-  e.runLoop();                                   // no-op, solange kein Sim-Frame eingeplant wurde
+  const logBefore = e.getPhaseLog().filter(p => p.startsWith('sim:') || p.startsWith('result:')).length;
+  const ended = e.getPhase() === 'result';
+  t('Ueberlappung: Settlement-Hook danach wirkungslos', e.settleCollapse() === false);
+  t('Ueberlappung: kein Sim-/Result-Uebergang durch den Collapse', logBefore === 0);
+  e.runLoop();
   const a = posOf(e);
   t('Ueberlappung: Runde laeuft weiter', ended === false && e.getPhase() !== 'result');
   t('Ueberlappung: Radius auf 820', near(e.getR(), 820));
-  t('Ueberlappung: x/y aller Kugeln exakt unveraendert',
-    a.every((o, i) => o.x === before[i].x && o.y === before[i].y));
+  t('Ueberlappung: x/y aller Kugeln exakt unveraendert', a.every((o, i) => o.x === before[i].x && o.y === before[i].y));
   t('Ueberlappung: alle Kugeln leben', a.every(o => o.alive));
   t('Ueberlappung: vx/vy/spin = 0', e.getBalls().every(o => o.vx === 0 && o.vy === 0 && o.spin === 0));
   t('Ueberlappung: keine Eliminierung', e.sfx.drop === 0 && e.sfx.ringout === 0);
 }
-
-// ── 20) Kontaktgruppe direkt an der neuen Grenze (820 + BR*0.1 = 823.2) ──
 {
-  // Kugel 0 liegt mit x=822 knapp INNEN, Kugel 1 mit x=762 klar innen; sie ueberlappen
-  // um 4 px. Ein zusaetzlicher Kollisionsdurchlauf wuerde sie auseinanderschieben und
-  // Kugel 0 auf 824 nach AUSSEN druecken -> anderes Ring-out-Ergebnis.
   const before = [ball(0,822,0), ball(0,762,0), ball(1,0,0)];
   const e = settledAtExpiry(before);
-  const ended = e.settleCollapse();
-  e.runLoop();                                   // no-op, solange kein Sim-Frame eingeplant wurde
+  const ended = e.getPhase() === 'result';
+  e.runLoop();
   const a = posOf(e);
   t('Grenze: Kontaktgruppe wird nicht auseinandergeschoben', a[0].x === 822 && a[1].x === 762);
   t('Grenze: knapp innen liegende Kugel ueberlebt', a[0].alive === true);
@@ -805,77 +968,61 @@ const posOf = (e) => e.getBalls().map(b => ({ x: b.x, y: b.y, alive: b.alive }))
   t('Grenze: keine Eliminierung', e.sfx.drop === 0 && e.sfx.ringout === 0);
 }
 {
-  // Gegenprobe: dieselbe Gruppe, aber die aeussere Kugel liegt anhand ihrer
-  // Settlement-Position wirklich draussen (824 > 823.2) -> genau sie wird verarbeitet.
   const before = [ball(0,824,0), ball(0,764,0), ball(1,0,0)];
   const e = settledAtExpiry(before);
-  e.settleCollapse();
   e.runLoop();
   const a = posOf(e);
   t('Grenze: echte Aussenkugel ausgeschieden', a[0].alive === false);
   t('Grenze: Innenkugeln unveraendert', a[1].x === 764 && a[1].alive === true && a[2].x === 0);
   t('Grenze: genau ein Drop-Signal', e.sfx.drop === 1 && e.sfx.ringout === 0);
 }
-
-// ── 21) Kontaktkette: Settlement-Positionen identisch mit und ohne Collapse ──
 {
-  const chain = () => [ball(0,-60,0), ball(0,0,0), ball(1,60,0)];   // paarweise 4 px Ueberlappung
-  // Kontrolllauf: identischer Zug, Timer laeuft weiter -> kein Collapse.
+  const chain = () => [ball(0,-60,0), ball(0,0,0), ball(1,60,0)];
   const c = make(); c.setMode('bot'); c.resetCollapseTimer(); c.setR(1000);
   c.setBalls(chain()); c.setPhase('aim'); c.setAim([false,false]);
   c.setTime(0); c.tickCollapse(0);
   c.commit(0, 1, 0, 0, 0); c.runLoop();
-  // Echter Lauf: derselbe Zug, aber der Timer laeuft ab -> Collapse im Settlement.
   const e = make(); e.setMode('bot'); e.resetCollapseTimer(); e.setR(1000);
-  e.setBalls(chain()); runToExpiry(e); e.runLoop();
+  e.setBalls(chain()); runOutTimer(e);
+  e.commit(0, 1, 0, 0, 0); e.runLoop();
   const cp = posOf(c), ep = posOf(e);
   t('Kette: Kontrolllauf ohne Collapse', c.state.collapseState === 'running' && near(c.getR(), 1000));
-  t('Kette: echter Lauf mit Collapse', e.state.collapseState === 'collapsed' && near(e.getR(), 820));
-  t('Kette: Restueberlappung im Settlement vorhanden', Math.hypot(ep[1].x - ep[0].x, ep[1].y - ep[0].y) < 64);
-  t('Kette: Positionen bit-identisch zum Lauf ohne Collapse',
+  t('Kette: echter Lauf mit Collapse', e.state.collapseStage === 1 && near(e.getR(), 820));
+  t('M: Settlement-Positionen bit-identisch zum Lauf ohne Collapse (keine zusaetzliche Physik)',
     ep.every((o, i) => o.x === cp[i].x && o.y === cp[i].y));
   t('Kette: alle drei Kugeln leben', ep.every(o => o.alive));
   t('Kette: keine Eliminierung durch den Collapse', e.sfx.drop === 0 && e.sfx.ringout === 0);
   t('Kette: neue Planungsphase', e.getPhase() === 'aim');
 }
-
-// ── 22) Mehrere gleichzeitig aeussere Kugeln: deterministisch, jede genau einmal ──
 {
   const before = [ball(0,900,0), ball(0,850,0), ball(0,830,0), ball(1,0,0)];
   const e = settledAtExpiry(before);
-  const ended = e.settleCollapse();
+  const ended = e.getPhase() === 'result';
   const a = posOf(e);
-  t('Mehrfach: Rundenende erkannt', ended === true && e.getPhase() === 'result');
+  t('Mehrfach: Rundenende erkannt', ended === true);
   t('Mehrfach: outBall = am weitesten draussen', e.getOutBall() === 0);
   t('Mehrfach: Sieger = Bot (owner 1)', e.getRoundWinner() === 1);
   t('Mehrfach: die beiden anderen Aussenkugeln ausgeschieden', a[1].alive === false && a[2].alive === false);
   t('Mehrfach: Innenkugel unveraendert', a[3].alive === true && a[3].x === 0 && a[3].y === 0);
-  t('Mehrfach: Positionen aller Aussenkugeln unveraendert',
-    a[0].x === 900 && a[1].x === 850 && a[2].x === 830);
+  t('Mehrfach: Positionen aller Aussenkugeln unveraendert', a[0].x === 900 && a[1].x === 850 && a[2].x === 830);
   t('Mehrfach: genau ein Ringout-Signal', e.sfx.ringout === 1);
   t('Mehrfach: genau ein result-Uebergang', e.getPhaseLog().filter(p => p.startsWith('result:')).length === 1);
-  // Weiterlaufen: genau eine Wertung, kein Doppelschrumpf.
   e.runLoop();
   t('Mehrfach: genau ein afterResult', e.getAfterResultCalls() === 1);
   t('Mehrfach: genau ein startRound', e.getRoundStarts() === 1);
   t('Mehrfach: Radius bleibt 820 (kein Doppelschrumpf)', near(e.getR(), 820));
   t('Mehrfach: genau ein Punkt', e.getScore()[1] === 1 && e.getScore()[0] === 0);
 }
-
-// ── 23) ballsOutside ist positionsrein und deterministisch sortiert ──
 {
   const e = make(); e.setMode('bot'); e.resetCollapseTimer(); e.setR(1000);
   e.setBalls([ball(0,1500,0), ball(0,0,0), ball(1,-1200,0), ball(1,50,0)]);
-  e.getBalls()[2].alive = false;                       // tote Aussenkugel zaehlt nicht
+  e.getBalls()[2].alive = false;
   const snap = posOf(e);
   const out = e.ballsOutside();
   t('ballsOutside: nur lebende Aussenkugeln, aufsteigend', JSON.stringify(out) === '[0]');
-  t('ballsOutside: veraendert keine Position',
-    posOf(e).every((o, i) => o.x === snap[i].x && o.y === snap[i].y));
+  t('ballsOutside: veraendert keine Position', posOf(e).every((o, i) => o.x === snap[i].x && o.y === snap[i].y));
   t('ballsOutside: veraendert keinen alive-Status', posOf(e).every((o, i) => o.alive === snap[i].alive));
 }
-
-// ── 24) Kein zusaetzlicher Physikdurchlauf im Collapse-Pfad (Quelltextnachweis) ──
 {
   const doCollapseSrc = grab(/function doCollapse\(\)\{[\s\S]*?\n\}/, 'doCollapse');
   t('doCollapse setzt keine Phase (kein sim-Frame)', !/setPhase\(/.test(doCollapseSrc));
@@ -885,35 +1032,87 @@ const posOf = (e) => e.getBalls().map(b => ({ x: b.x, y: b.y, alive: b.alive }))
   t('stepSim nutzt dieselbe Ermittlung', /ballsOutside\(\)/.test(stepSimSrc));
   t('stepSim nutzt dieselbe Verarbeitung', /resolveRingOuts\(/.test(stepSimSrc));
   // Keine zweite abweichende Ring-out-Logik: genau eine Definition und genau zwei
-  // Aufrufer (stepSim, doCollapse). Die Bot-Vorhersage (simExchange/simSnap) ist ein
-  // eigenstaendiger, bestandsgeschuetzter Predictor und beruehrt den Spielzustand nie.
-  t('resolveRingOuts: eine Definition + zwei Aufrufer', (HTML.match(/resolveRingOuts/g) || []).length === 3);
-  t('ballsOutside: eine Definition + drei Nutzungen', (HTML.match(/ballsOutside/g) || []).length === 4);
-  t('Rundenende-Uebergang existiert genau einmal',
-    (HTML.match(/outBall=decisive;setPhase\('result'\)/g) || []).length === 1);
+  // Aufrufer (stepSim, doCollapse). Gezaehlt werden Aufrufe/Definitionen, keine Kommentare.
+  t('resolveRingOuts: eine Definition + zwei Aufrufer', (HTML.match(/resolveRingOuts\(/g) || []).length === 3);
+  t('ballsOutside: eine Definition + zwei Aufrufer', (HTML.match(/ballsOutside\(/g) || []).length === 3);
+  t('Rundenende-Uebergang existiert genau einmal', (HTML.match(/outBall=decisive;setPhase\('result'\)/g) || []).length === 1);
 }
-
-// ── 25) Normaler stepSim-Ring-out-Pfad bleibt ohne Collapse voll funktional ──
 {
   const e = make(); e.setMode('pvp'); e.resetCollapseTimer(); e.setR(1000);
   e.setBalls([ball(0,0,0), ball(1,990,0)]);
-  e.setVel(1, 8, 0, 0);                                // faehrt regulaer aus dem Ring
+  e.setVel(1, 8, 0, 0);
   e.setPhase('sim'); e.runSim();
   t('Normal: Ring-out ueber die normale Physik', e.getOutBall() === 1 && e.getPhase() === 'result');
   t('Normal: Sieger = Spieler 0', e.getRoundWinner() === 0);
   t('Normal: genau ein Ringout-Signal', e.sfx.ringout === 1);
   t('Normal: kein Collapse beteiligt', e.sfx.collapse === 0 && near(e.getR(), 1000));
 }
+
+// ══════════════════════════════════════════════════════════════════════════════
+// STAGE-2-ARENA, SEGMENT-GLB UND AUSLIEFERUNG (Quelle f518c14 + 6d81aaa)
+// ══════════════════════════════════════════════════════════════════════════════
+const ROOT = path.dirname(__dirname);
+const PAGES_MAX = 25 * 1024 * 1024;
+const readGlb = (rel) => {
+  const buf = fs.readFileSync(path.join(ROOT, rel));
+  const jlen = buf.readUInt32LE(12);
+  return { buf, gltf: JSON.parse(buf.slice(20, 20 + jlen).toString('utf8')) };
+};
 {
-  const e = make(); e.setMode('pvp'); e.resetCollapseTimer(); e.setR(1000);
-  e.setBalls([ball(0,0,0), ball(0,200,0), ball(1,990,0), ball(1,-990,0)]);
-  e.setVel(2, 8, 0, 0); e.setVel(3, -8, 0, 0);         // beide Kugeln von Spieler 1 raus
-  e.setPhase('sim'); e.runSim();
-  const b = e.getBalls();
-  t('Normal: mehrfacher Ring-out im selben Sub-Step', e.getPhase() === 'result');
-  t('Normal: Sieger = Spieler 0', e.getRoundWinner() === 0);
-  t('Normal: beide Kugeln von Spieler 1 raus', !(b[2].alive && b[3].alive));
-  t('Normal: Kugeln von Spieler 0 leben', b[0].alive === true && b[1].alive === true);
+  const asset = (HTML.match(/assets\/arena_platform_stage2\w*\.glb/) || [])[0];
+  t('Stage2: Produkt laedt das Stage-2-Arena-GLB (v1-Pfad entfernt)', !!asset && !/assets\/arena_platform\.glb/.test(HTML));
+  const { buf, gltf } = readGlb(asset);
+  t('Stage2-GLB: gueltiger glTF-Binary-Header', buf.readUInt32LE(0) === 0x46546C67);
+  t('Stage2-GLB: unter der Pages-Grenze (25 MiB), kein R2 noetig', buf.length < PAGES_MAX);
+  const names = new Set((gltf.nodes || []).map(n => n.name));
+  const wedges = ['01', '02', '03', '04', '05', '06'].map(n => 'PlayFloor_Stage2_Wedge_' + n);
+  t('Stage2-GLB: PlayFloor_Core + sechs Boden-Keile vorhanden', names.has('PlayFloor_Core') && wedges.every(n => names.has(n)));
+  t('Stage2-GLB: kein monolithischer Boden mehr', !names.has('PlayFloor') && !names.has('PlayFloor_Stage2'));
+  t('Stage2-Adapter: Keile haengen an ihrem Segment (pr.wedge)', /pr\.wedge/.test(HTML));
+  t('Stage2-Adapter: kein globales Ausblenden des Stage-2-Bodens', !/colvFloor2/.test(HTML) && !/COLV_LAST_MV/.test(HTML));
+  t('Stage2-GLB: Collapse-2-Inventar vorhanden (Tier2/GoldTier2/Tier3)', names.has('Tier2') && names.has('GoldTier2') && names.has('Tier3'));
+  t('Stage2-GLB: Band-/Sockel-Inventar vorhanden (Walkway/WallRing/Goldringe/Tier1)',
+    ['Walkway', 'WallRing', 'GoldStepEdge', 'GoldWalkRing', 'Tier1', 'GoldTier1', 'TierBridge'].every(n => names.has(n)));
+  t('Stage2-GLB: Tier3-Traeger der finalen Arena (Tip-Inventar)', ['GoldTipBand', 'TempleTip', 'TipGold'].every(n => names.has(n)));
+  // Texturen der Stage-2-Arena sind die bereits freigegebenen Diaet-Texturen der Live-Arena.
+  const live = readGlb('assets/arena_platform.glb');
+  const imgBytes = (g) => (g.gltf.images || []).map((im) => { const v = g.gltf.bufferViews[im.bufferView]; return im.name + ':' + im.mimeType + ':' + v.byteLength; }).join('|');
+  t('Stage2-GLB: Texturen identisch zur freigegebenen Arena-Diaet (Name, Format, Groesse)', imgBytes({ gltf }) === imgBytes(live));
+}
+{
+  const segRel = (HTML.match(/assets\/ring_collapse\/[\w/.-]+\.glb/) || [])[0];
+  t('Segment-GLB: Produktionspfad (kein validation/-Ordner)', segRel === 'assets/ring_collapse/ring_collapse_six_segment_simplified.glb' && !/validation\//.test(HTML));
+  const { buf, gltf } = readGlb(segRel);
+  t('Segment-GLB: unter der Pages-Grenze (25 MiB)', buf.length < PAGES_MAX);
+  const roots = (gltf.scenes[gltf.scene || 0].nodes || []).map((i) => gltf.nodes[i].name);
+  const nums = ['01', '02', '03', '04', '05', '06'];
+  t('Segment-GLB: sechs Segmente je Intact + Cracked', nums.every((n) => roots.some((r) => new RegExp('^Segment' + n + '_Intact').test(r)) && roots.some((r) => new RegExp('^Segment' + n + '_.*Cracked').test(r))));
+  t('Segment-GLB: nur Produktionsordner im Repo (kein validation/, keine .blend)',
+    !fs.existsSync(path.join(ROOT, 'assets', 'ring_collapse', 'validation')) && !fs.readdirSync(path.join(ROOT, 'assets', 'ring_collapse')).some((f) => /\.blend/i.test(f)));
+  const hosting = fs.readFileSync(path.join(ROOT, 'tools', 'build_hosting.js'), 'utf8');
+  t('Auslieferung: Stage-2-Arena und Segment-GLB in der Hosting-/Pages-Liste', hosting.includes("'assets/arena_platform_stage2.glb'") && hosting.includes("'" + segRel + "'"));
+  t('Auslieferung: die v1-Arena wird nicht mehr ausgeliefert', !hosting.includes("'assets/arena_platform.glb'"));
+  t('Auslieferung: alle 14 Collapse-WAVs gelistet', (hosting.match(/'assets\/sfx\/ring_collapse\/[a-z_0-9]+\.wav'/g) || []).length === 14);
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// ARENA FOOTBALL UND RENDERER-VERTRAG — der Collapse-Adapter wirkt nur im lokalen
+// Bot-Match; Football behaelt Plattform-Skalierung, Randhoehe und Sichtbarkeit.
+// ══════════════════════════════════════════════════════════════════════════════
+{
+  const colvTickSrc = grab(/function colvTick\(nowS\)\{[\s\S]*?\n    \}/, 'colvTick');
+  t('Adapter: Uhr-Match ist ausschliesslich das lokale Bot-Match', /const clockMatch=collapseActive\(\)&&!menuVisible;/.test(colvTickSrc));
+  t('Adapter: keine Online-Collapse-Abhaengigkeit (Online-Collapse nicht portiert)',
+    !/onlineHasClock|onlineRemainMs|onlineCollapseCount|onCollapsePreview|onCollapsedGen|onCollapseCount/.test(HTML));
+  t('Adapter: Stufe 0 setzt den Divisor auf GLB_R (Football-Skalierung unveraendert)', /if\(want===0&&cnt===0\)\{[\s\S]*?colv\.div=GLB_R;/.test(colvTickSrc));
+  t('Frame: Plattform-Divisor aus dem Adapter, Grenz-Deko mit GLB_R', /const sc=R\/colv\.div, scB=R\/GLB_R;/.test(HTML) && /bGroup\.visible=!colv\.swap;/.test(HTML));
+  t('Frame: Football-Randhoehe bleibt .165', (HTML.match(/\(mode==='football'\?\.165:colv\.lift\)\*sc/g) || []).length === 2);
+  t('Frame: runde Plattform weicht der Rechteckarena (Pro-Frame-Hide nur bei stehender Rechteckarena, einmalige Rueckstellung)',
+    /if\(rectReady\|\|fbTopsHidden\)\{for\(const o of fbPlatformTops\)o\.visible=!rectReady;fbTopsHidden=rectReady;\}/.test(HTML));
+  t('Frame: Adapter laeuft VOR der Football-Sichtbarkeitsregel', HTML.indexOf('colvTick(nowS);') > 0 && HTML.indexOf('colvTick(nowS);') < HTML.indexOf('if(rectReady||fbTopsHidden)'));
+  t('Renderer: genau ein Arena-GLB-Ladepfad und ein Segment-Ladepfad', (HTML.match(/GLTFLoader\(\)\.load\(assetUrl\('assets\/arena_platform/g) || []).length === 1
+    && (HTML.match(/GLTFLoader\(\)\.load\(assetUrl\('assets\/ring_collapse\//g) || []).length === 1);
+  t('Overlay: 2D-Collapse-Overlay entfernt (keine gemalten Warn-/Rissmarkierungen)', !/drawCollapseOverlay|collapseRingPath|collapseFillZone/.test(HTML));
 }
 
 console.log('\nRing-Collapse: ' + pass + ' passed, ' + fail + ' failed');

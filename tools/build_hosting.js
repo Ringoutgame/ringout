@@ -40,8 +40,11 @@ const DATEIEN = [
   'assets/hub/modes/ringout_teamduel.webp',
   'assets/hub/modes/ringout_versus.webp',
   'assets/hub/modes/ringout_bot.webp',
-  // 3D-Geometrie
-  'assets/arena_platform.glb',
+  // 3D-Geometrie. Die Arena ist die Stage-2-Variante (Boden in Kern + sechs Collapse-Keile);
+  // sie ersetzt arena_platform.glb an der einzigen Ladestelle von index.html.
+  'assets/arena_platform_stage2.glb',
+  // Ring-Collapse (RingOut Bot Training): freigegebenes Sechs-Segment-Band beider Stufen
+  'assets/ring_collapse/ring_collapse_six_segment_simplified.glb',
   'assets/arena_football_goal.glb',
   'assets/arena_football_band.glb',
   // Umgebungslicht: Profil "dawn", Profil "day" und die gemeinsame Fallbackkette
@@ -55,7 +58,22 @@ const DATEIEN = [
   'assets/audio/arena-football-menu.webm',
   'assets/audio/arena_football_transition_reconfigure.wav',
   'assets/audio/arena_football_transition_lock.wav',
-  'assets/sfx/marble_roll_loop.m4a'
+  'assets/sfx/marble_roll_loop.m4a',
+  // Ring-Collapse-Klang: die vierzehn Laufzeit-Derivate (Lizenzen: assets/sfx/README.md)
+  'assets/sfx/ring_collapse/break_main.wav',
+  'assets/sfx/ring_collapse/crack_1.wav',
+  'assets/sfx/ring_collapse/crack_2.wav',
+  'assets/sfx/ring_collapse/crack_3.wav',
+  'assets/sfx/ring_collapse/crack_4.wav',
+  'assets/sfx/ring_collapse/fragc_1.wav',
+  'assets/sfx/ring_collapse/fragc_2.wav',
+  'assets/sfx/ring_collapse/fragc_3.wav',
+  'assets/sfx/ring_collapse/fragf_1.wav',
+  'assets/sfx/ring_collapse/fragf_2.wav',
+  'assets/sfx/ring_collapse/fragf_3.wav',
+  'assets/sfx/ring_collapse/seg_1.wav',
+  'assets/sfx/ring_collapse/seg_2.wav',
+  'assets/sfx/ring_collapse/seg_3.wav'
 ];
 
 // Sicherheitsnetz gegen ein versehentlich erweitertes DATEIEN-Array: nichts aus diesen

@@ -34,6 +34,8 @@ const SUITES = [
   { name: 'Football-Musik',   file: 'test_football_music.js',  expectPassed: 376 },   // Menue-/Lobbymusik als Asset (Energiekurve leicht -> voll, Schleife nur ueber die volle Phase, Menuepegel 0,30, Matchblende, ein Kontext); das prozedurale Thema bleibt liegen, wird aber in jedem Bild auf 'off' gehalten
   { name: 'Fixed-Timestep',  file: 'test_fixed_timestep.js', expectPassed: 202 },  // Gameplay laeuft in festen 60-Hz-Schritten, unabhaengig von der Bildwiederholrate
   { name: 'r3d-Mapping',      file: 'test_r3d_mapping.js',    expectPassed: 52 },
+  { name: 'Ring-Collapse',    file: 'test_collapse.js',       expectPassed: 330 },   // RingOut-Delta B2: Two-Stage-Collapse (2 x 30 s, sofort bei 0), Bot-Produktpfad, Stage-2-Arena/Auslieferung
+  { name: 'Collapse-SFX',     file: 'test_collapse_sfx.js',   expectPassed: 130 },   // RingOut-Delta B2: Collapse-Klang read-only aus dem sichtbaren Adapter, 14 WAV-Derivate
   { name: 'Sanitize',         file: 'test_sanitize.js',       expectPassed: 24 },
   { name: 'Identity',         file: 'test_identity.js',       expectPassed: 45 },
   { name: 'ValidateRoom',     file: 'test_validateroom.js',   expectPassed: 48 },

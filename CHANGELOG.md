@@ -6,6 +6,15 @@ Alle abgeschlossenen Änderungen am Projekt, neueste zuerst.
 
 ## [Unreleased]
 
+### RingOut — Zweistufiger Arena-Collapse (B2 / B2A / B2B)
+- feat(ringout): **zweistufiger Collapse im lokalen Bot Training** (2026-09-16) — zwei Zyklen zu je 30 s Planungszeit; bei 0 faellt der Collapse SOFORT in der Planungsphase (kein Auto-Stand, offener Zug bleibt offen), Radius je Stufe x0.82 (1000 -> 820 -> 672,4), nach der zweiten Stufe terminal. Portiert aus `feat/protocol-v4-bc` (6d81aaa, fcfaf6e, 24f4423).
+- feat(visuals): **Collapse Visual v6** (2026-09-16) — sechs Segmente reissen, kippen und stuerzen, der Stage-2-Boden faellt keilweise mit; das alte 2D-Warn-/Grenz-Overlay entfaellt (c6fcbe7, f518c14). Neue Produktarena `assets/arena_platform_stage2.glb` mit den bereits freigegebenen Diaet-Texturen.
+- feat(audio): **Collapse-Klang aus 14 CC0-WAV-Derivaten** (2026-09-16) — ausgeloest read-only aus den sichtbaren Zustandswechseln des visuellen Adapters, kein eigener Timer (50fcbf9).
+- fix(visuals): **Deko-Goldring verschwindet ab Stufe 1** (2026-09-16, B2A) — der feste 358er-Torus stand nach Collapse 1 weiter aussen als der Sockel und las sich als Rest der alten Arena.
+- perf(assets): **Segment-GLB 21,80 -> 16,51 MiB** (2026-09-16, B2B) — nur die sechs zur Laufzeit ersetzten, nachweislich unerreichbaren Texturen entfernt; Geometrie, Accessoren, Knoten, Transforms und Materialnamen unveraendert.
+- test: Ring-Collapse **330/0**, Collapse-SFX **130/0**, Runner **57/57**; Browserlauf ueber beide Stufen inkl. WebGL-Recovery; Arena Football unveraendert (21/0).
+- **Nicht enthalten** (2026-09-16): Online-Collapse, Protokollaenderung, Firebase Rules, Arena-Football-Aenderungen.
+
 ### Arena Football — Modushierarchie (H02)
 - feat(hub): **vier Kategorien statt flacher Modusliste** (2026-09-09) — Arena Football öffnet auf **1V1, 2V2, FFA und BOT TRAINING**. Produktcommit `133333a7ca15d6eac85abc34f651bb09e3eb3d8a`.
 - feat(hub): **ONLINE ist keine Kategorie mehr, sondern eine Spielumgebung** (2026-09-09) — sie steht am ENDE des jeweiligen Moduspfads: 1V1 → Classic/Tactical → LOCAL/ONLINE; 2V2 → Team 2v2 direkt → LOCAL/ONLINE; FFA → Lives/Timed FFA → 3/4/5 Spieler → LOCAL/ONLINE.
