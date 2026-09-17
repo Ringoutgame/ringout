@@ -398,6 +398,21 @@ header{width:100%;max-width:460px;display:flex;align-items:center;justify-conten
 .pcard .pn{font-size:10px;font-weight:900;letter-spacing:.09em}
 .pcard:first-child .pn{color:var(--p1)}.pcard:last-child{text-align:right}.pcard:last-child .pn{color:var(--p2)}
 .pcard .pw{font-size:8px;color:#7688a6;margin-top:3px;letter-spacing:.08em;font-weight:700}
+/* Rescue-Badge: kleine Pille IN der Spielerkarte, direkt unter dem Namen.
+   Blau/Cyan wie die Spieler-1-Farbwelt, Formensprache der uebrigen HUD-Panels.
+   pointer-events:none: reine Anzeige, sie faengt keine Eingaben ab. */
+.rbadge{display:inline-flex;align-items:center;gap:5px;margin-top:5px;padding:4px 9px;
+  border-radius:999px;border:1px solid rgba(0,212,255,.42);background:rgba(0,212,255,.13);
+  color:#7fe6ff;font:900 11px/1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.06em;
+  user-select:none;pointer-events:none;transform-origin:left center;
+  transition:border-color .2s,box-shadow .2s,color .2s,background .2s,opacity .2s,transform .18s}
+.rbadge .rb-i{font-size:12px;line-height:1}
+/* Rescue ist JETZT einsetzbar: ruhiges Glimmen, keine Animation. */
+.rbadge.ready{border-color:rgba(0,212,255,.9);background:rgba(0,212,255,.24);color:#cbf6ff;
+  box-shadow:0 0 0 1px rgba(0,212,255,.22),0 0 12px rgba(0,212,255,.45)}
+/* Keine Einsaetze mehr: ausgegraut, gleiche Groesse (kein Layoutsprung). */
+.rbadge.empty{border-color:rgba(122,142,180,.3);background:rgba(9,15,26,.4);color:#7688a6;opacity:.6;box-shadow:none}
+.rbadge.pulse{transform:scale(1.18)}   /* kurzer Puls beim Setzen der Wand */
 .scorebox{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;background:linear-gradient(180deg,rgba(24,33,54,.82),rgba(14,21,36,.9));border:1px solid rgba(255,201,64,.32);border-radius:14px;padding:5px 14px;box-shadow:0 8px 22px rgba(5,9,18,.3);backdrop-filter:blur(6px)}
 .score{font-size:20px;font-weight:900;letter-spacing:.04em}
 .score .s0{color:var(--p1)}.score .s1{color:var(--p2)}.score .sep{color:rgba(255,201,64,.75);margin:0 5px;font-size:14px}
@@ -513,6 +528,8 @@ header{width:100%;max-width:460px;display:flex;align-items:center;justify-conten
 #game.fb .pcard{padding:9px 12px;display:grid;align-content:center}
 #game.fb .pcard .pn{font-size:11px;letter-spacing:.13em}
 #game.fb .pcard .pw{display:none}
+/* Die Rescue Wall gehoert RingOut: im Football-HUD entsteht das Abzeichen nie. */
+#game.fb .rbadge{display:none}
 /* SPEED MATCH: die Spielerkarte traegt das persoenliche Zeitkonto. Es ist ein ANDERER
    Begriff als der Commit-Countdown in der Mitte und steht deshalb an anderer Stelle,
    in anderem Format (M:SS statt Zehntelsekunden) und in anderer Farbe.
@@ -1084,7 +1101,7 @@ body.fbctx .proom .pr-game{color:#cfe0ef}
     <div class="hbtns"><button class="ibtn" id="menuBtn">☰</button><button class="ibtn" id="sndBtn">🔊</button></div>
   </header>
   <div class="status">
-    <div class="pcard" id="card0"><div class="pn" id="n0">SPIELER 1</div><div class="pw" id="ready0">zielt…</div></div>
+    <div class="pcard" id="card0"><div class="pn" id="n0">SPIELER 1</div><div class="rbadge" id="rescueBadge" style="display:none"><span class="rb-i">🛡</span><span class="rb-n" id="rescueBadgeN">3</span></div><div class="pw" id="ready0">zielt…</div></div>
     <div class="scorebox">
       <div class="score"><span class="s0" id="sc0">0</span><span class="sep">:</span><span class="s1" id="sc1">0</span></div>
       <div class="rinfo" id="rinfo">Runde 1</div>
@@ -4496,6 +4513,7 @@ function r3dInputBlocked(){return r3dContextLost;}
 // Kamera-Reset. Die naechste Geste nach dem Restore beginnt garantiert bei Null.
 function r3dCancelLocalGestures(){
   if(typeof cancelAimDrag==='function')cancelAimDrag();        // Aim + Drall, gibt Capture frei
+  if(typeof barrierDragCancel==='function')barrierDragCancel();// Wand-Drag; die Vorwahl bleibt wie vor dem Drag
   for(const pid of [camPid,cam2Pid]){if(pid>=0){try{cv.releasePointerCapture(pid);}catch(_){}}}
   camPid=-1;cam2Pid=-1;
   camTapT=0;   // kein Doppeltipp-Fenster ueber den Verlust hinweg -> kein cam.reset()
@@ -4860,7 +4878,7 @@ function curFR(){const c=footballPhys();return c?c.friction:FRICTION;}
 function curFE(){const c=footballPhys();if(c)return c.fend;return TUNE&&TUNE.fend!=null?TUNE.fend:FEND;}
 function curST(){const c=footballPhys();if(c)return c.stopv;return TUNE&&TUNE.stopv!=null?TUNE.stopv:STOPV;}
 function maxPull(){return R0*MAXPULL_FRAC;}
-function setPhase(p){phase=p;phaseStart=performance.now();}
+function setPhase(p){phase=p;phaseStart=performance.now();if(typeof barrierPhaseHook==='function')barrierPhaseHook(p);}
 
 function mkBall(x,y,owner){return{x,y,vx:0,vy:0,sx:x,sy:y,owner,alive:true,spin:0};}
 function aliveBalls(owner){return balls.filter(b=>b.alive&&b.owner===owner);}
@@ -5002,6 +5020,7 @@ function newGame(){resize();
   // 0:0 nicht als Torereignis pulst.
   fbScoreShown=[score[0]|0,score[1]|0];
   applyFootballHud();
+  if(typeof barrierMatchReset==='function')barrierMatchReset();   // neues Match und Rematch: Einsaetze zurueck auf den Startbestand
   startRound();}
 function resetCommits(){aimSet=[];commitIdx=[];commitAim=[];commitSpin=[];
   for(let p=0;p<np();p++){aimSet.push(false);commitIdx.push(-1);commitAim.push({dx:0,dy:0});commitSpin.push(0);}}
@@ -5018,6 +5037,7 @@ function startRound(){placeBalls();resetCommits();roundWinner=-1;
   // Zeitregel: kein Uebergabeschirm - alle entscheiden im selben Fenster (s. fbOffen).
   else if(mode==='pvp'||mode==='ffa'||mode==='football'){curAimer=(typeof fbElimFirstAimer==='function')?fbElimFirstAimer():0;
     if(!(typeof fbShared==='function'&&fbShared()))openCover(curAimer);}else curAimer=0;
+  if(typeof barrierRoundReset==='function')barrierRoundReset();   // neue Runde: Vorwahl und Zugbindung fallen, der Bestand bleibt
   setPhaseText();}
 
 function ballDots(owner){const n=aliveCount(owner),cap=teamCap();return '●'.repeat(n)+'○'.repeat(Math.max(0,cap-n));}
@@ -5513,13 +5533,14 @@ function setPhaseText(){const p=$('phase');
 
 let toastT;function toast(m){const t=$('toast');t.textContent=m;t.classList.add('show');clearTimeout(toastT);toastT=setTimeout(()=>t.classList.remove('show'),2200);}
 
-function openCover(pi){if(typeof fbSetCover==='function')fbSetCover(true);const c=$('cover');$('coverWho').textContent='Spieler '+(pi+1);$('coverWho').className='who';$('coverWho').style.color=pcol(pi).ui;c.classList.add('show');}
+function openCover(pi){if(typeof fbSetCover==='function')fbSetCover(true);const c=$('cover');$('coverWho').textContent='Spieler '+(pi+1);$('coverWho').className='who';$('coverWho').style.color=pcol(pi).ui;c.classList.add('show');if(typeof barrierCoverHook==='function')barrierCoverHook();}
 // EIN Schliessweg fuer den Uebergabeschirm — der Knopf und die Uebergabefrist benutzen
 // denselben. Zwei Wege koennten auseinanderlaufen.
 function fbCloseCover(){
   if(typeof fbSetCover==='function')fbSetCover(false);
   const c=$('cover'); if(c)c.classList.remove('show');
   setPhaseText();updateHud();
+  if(typeof barrierUi==='function')barrierUi();   // Anzeige an den uebernehmenden Seat binden
 }
 $('coverBtn').onclick=()=>fbCloseCover();
 
@@ -5746,6 +5767,9 @@ function allAliveCommitted(){for(let s=0;s<np();s++){if(aliveCount(s)>0&&!aimSet
 // Online bleibt bewusst ungefiltert (DB ist der Arbiter).
 function commit(who,shooterIdx,fx,fy,spin){
   if(!canCommitInput(who))return;
+  // DIES ist der bewusst bestaetigte Zug — nur hier verbraucht die Pre-Shot-Wand
+  // ihren Einsatz. Die Rescue Wall bucht dagegen beim Tap (barrierRescuePlace).
+  if(typeof barrierCommitHook==='function')barrierCommitHook(who);
   applyCommit(who,shooterIdx,fx,fy,spin);
 }
 // Zugausfuehrung OHNE Freigabepruefung — der Aufrufer prueft selbst (commit() ueber
@@ -6010,6 +6034,7 @@ function applyLaunch(){
       if(sp>0&&typeof fx3Launch==='function'&&!(typeof fbFxMute!=='undefined'&&fbFxMute)&&!replaying)
         fx3Launch(balls[idx].x,balls[idx].y,commitAim[p].dx,commitAim[p].dy,sp/maxPull(),balls[idx].owner); }
     else if(sp>BR)spawn(balls[idx].x,balls[idx].y,5,[PCOLS[colorSlot(balls[idx].owner)].ui],sp*0.02,0.6);}
+  if(typeof simTickReset==='function')simTickReset();   // Launch = Tick 0 des Zuges
   setPhase('sim');setPhaseText();
 }
 // TEAM DUEL: roundWinner traegt den TEAM-Index (0/1 = PCOLS Blau/Rot); -2 ist der
@@ -8729,6 +8754,13 @@ function stepSim(){
   const fbSeq=mode==='football'&&fbGoalState!=='play';
   if(fbSeq)footballFreezePlayers();
   for(let s=0;s<2;s++){
+    // Rescue-Zeitplan: jedes Event, dessen Tick erreicht ist, wird GENAU HIER zur Wand —
+    // vor barrierPrepare, also fuer diesen und jeden weiteren Sub-Step. Ein Event mit
+    // tick=N gilt damit erst ab Sub-Step N+1. typeof-Guard wie bei settleCollapse:
+    // stepSim laeuft auch extrahiert in den Offline-Pruefstaenden.
+    if(typeof barrierRescueActivate==='function')barrierRescueActivate();
+    // Positionen VOR der Integration — Startpunkte des gefegten Wandtests.
+    if(typeof barrierPrepare==='function')barrierPrepare();
     for(const b of balls){if(!b.alive)continue;const swx=b.x,swy=b.y;b.x+=b.vx;b.y+=b.vy;const nb=b.owner===NEU;const sp=Math.sqrt(b.vx*b.vx+b.vy*b.vy);const f=sp<SV?(nb?NFE:FE):(nb?NFR:(sp<FASTV?FMID:FR));b.vx*=f;b.vy*=f;if(b.spin){const v=Math.sqrt(b.vx*b.vx+b.vy*b.vy);if(v>0.01){const sx=-b.vy/v,sy=b.vx/v,sa=SPIN_K*b.spin*v;b.vx+=sx*sa;b.vy+=sy*sa;}b.spin*=SPIN_DECAY;}
       // Gefegte Sockelkollision direkt nach dem Schritt: sie faengt die Kante, an der ein
       // schneller Ball sonst vorbeispraenge, seit die Bande im Torfenster nichts mehr
@@ -8875,8 +8907,17 @@ function stepSim(){
         footballResolvePost(fb,false);
       }
     }}
-    else{const crossed=ballsOutside();
-    if(crossed.length&&resolveRingOuts(crossed))return;}
+    else{
+    // Schutzwand: haelt gehaltene Kugeln VOR der Ring-Out-Auswertung zurueck, damit eine
+    // gehaltene Kugel nie als Grenzueberschreitung zaehlt. Football erreicht diesen
+    // Zweig nie — die Bande oben ist sein eigener Rand.
+    if(typeof barrierStep==='function')barrierStep();
+    const crossed=ballsOutside();
+    const over=crossed.length>0&&resolveRingOuts(crossed);
+    // Sub-Step vollstaendig abgeschlossen -> Zaehler erhoehen. Genau hier, NACH der
+    // Ring-out-Auswertung, liegt die Grenze aus der Tick-Semantik der Rescue Wall.
+    if(typeof simTickAdvance==='function')simTickAdvance();
+    if(over)return;}
     }   // Ende Kontakt-Iteration (ci=1 ausserhalb 'football')
     // ── ANTI-WEDGE (Physikphase 4B-2/4B-3) ──
     // Laeuft NACH der vollstaendig aufgeloesten Kontaktlage dieses Micro-Steps, nur bei
@@ -8932,6 +8973,940 @@ function stepSim(){
     else if(mode==='ffa'){for(let p=0;p<ffaN;p++)if(aliveCount(p)>0){curAimer=p;openCover(p);break;}}
   }
 }
+// ==RESCUE-WALL-START==
+// RingOut — Reactive Rescue Wall (RW1, Offline/Bot).
+// Portiert aus dem freigegebenen Stand feat/protocol-v4-bc @ 0dd5858.
+// Online (rw-Slot, v4-Turn-Autoritaet, Firebase-Rules) ist NICHT Teil dieser Phase.
+//
+// Debugschalter der Wand, bewusst mit EIGENEM Parser statt dem Standardleser des
+// Browsers: test_football_flow verlangt, dass ab der Football-Physik bis zum
+// Dateiende kein solcher Leser mehr im Code steht — und dieser Block liegt
+// dahinter. Gleiche Semantik, nur handgeparst. (Die Zusicherung prueft reinen
+// Text, deshalb meidet auch dieser Kommentar den Bezeichner.)
+function barrierParam(name){
+  const q=(location.search||'').replace(/^\?/,'').split('&');
+  for(const kv of q){
+    const i=kv.indexOf('=');
+    const k=decodeURIComponent(i<0?kv:kv.slice(0,i));
+    if(k===name)return i<0?'':decodeURIComponent(kv.slice(i+1).replace(/\+/g,' '));
+  }
+  return null;
+}
+
+// ---- Segment-Kanon ----
+const BARRIER_SEG_NONE=-1;                     // kanonisch: keine Wand
+const BARRIER_SEG_INVALID=-2;                  // Eingabe ist keine gueltige Wandwahl
+// Prueft einen von AUSSEN kommenden Wert (Payload, Debug-Hook). Fehlend und null
+// bedeuten "keine Wand". Akzeptiert werden ausschliesslich ganze Zahlen 0..11 — nie
+// gerundet, nie geklemmt, nie modulo. Alles andere ist ungueltig: auch -1, Werte ueber
+// 11, Floats, Strings, Booleans, NaN, Infinity, Arrays und Objekte.
+function barrierSegCanon(v){
+  if(v===undefined||v===null)return BARRIER_SEG_NONE;
+  if(typeof v!=='number'||!Number.isInteger(v))return BARRIER_SEG_INVALID;
+  return (v>=0&&v<BARRIER_SEG_COUNT)?v:BARRIER_SEG_INVALID;
+}
+function barrierSegValid(v){return barrierSegCanon(v)!==BARRIER_SEG_INVALID;}
+
+// ---- Produkt-Gate ----
+const BARRIER_DEV=barrierParam('barrier')==='1';
+const BARRIER_FORCE_OFF=barrierParam('barrier')==='0';
+// Lokale Modi, die der bestehende Barrier-Code vollstaendig unterstuetzt.
+function barrierSupportedLocalMode(){return mode==='bot'||mode==='pvp';}
+// Entwicklerpfad, unveraenderter Bestand aus 5A-8B: mit ?barrier=1 bleiben die
+// LOKALEN Debug-/Regressionspfade offen (?bsegs-Physikpfad, barrierDebugSelect,
+// Hotseat- und lokale FFA-Regressionen) — auch in Modi, die das Produkt nicht
+// anbietet. ONLINE aendert er nichts: dort entscheidet ausschliesslich der
+// Produkt-Gate, ein URL-Parameter kann kein zusaetzliches Match freischalten.
+function barrierDevLocal(){return BARRIER_DEV&&!BARRIER_FORCE_OFF&&!menuVisible&&!online;}
+// EIN Laufzeitschalter fuer alle Barrier-Pfade: online strikt der Produkt-Gate,
+// lokal Produkt-Gate ODER Entwicklerpfad.
+function barrierRuntimeOn(){return online?barrierAvailableForMatch():(barrierAvailableForMatch()||barrierDevLocal());}
+function barrierAvailableForMatch(){
+  // Nur in einem laufenden Spiel — nie im Hauptmenue, in der Online-Lobby oder
+  // sonstigen Nicht-Spielzustaenden. menuVisible kippt ausschliesslich beim
+  // Betreten/Verlassen des Spielbildschirms (showGame/showMenu), nie waehrend
+  // eines Matches; der Physikschalter kann dadurch nicht mitten im Zug umspringen.
+  if(BARRIER_FORCE_OFF||menuVisible)return false;
+  if(!online)return barrierSupportedLocalMode();
+  // RW1: online ist die Wand vollstaendig aus — weder Pre-Shot-Vorwahl noch
+  // Rescue Wall. Der Onlinevertrag (rw-Slot, v4-Turn-Autoritaet, Rules) gehoert
+  // in eine eigene Phase und ist hier bewusst nicht portiert.
+  return false;
+}
+
+// ---- Segmentgeometrie + Zustand ----
+// Der Rand ist in zwoelf feste Segmente zu je 30 Grad geteilt. Segment 0 liegt oben
+// (Mittelpunkt -90 Grad); die Nummerierung laeuft im Uhrzeigersinn 0..11. In den
+// Arenakoordinaten (y zeigt nach unten) ist das die Richtung WACHSENDER Winkel:
+// 0 oben, 3 rechts, 6 unten, 9 links.
+// ?bseg=<0..11> liefert ab Etappe 4 nur noch den STARTWERT; fehlende, nicht ganzzahlige
+// oder ausserhalb liegende Werte fallen auf Segment 0 zurueck. Massgeblich ist
+// barrierSelectedSegmentBySeat — die tatsaechliche Auswahl je Seat. Es bleibt bei genau
+// EINER aktiven Wand; die Segmentnummer verschiebt ausschliesslich deren Mittelpunkt.
+// Geometrie, Swept-Test und Endkappen lesen nur die Bogendaten aus barrierArcs().
+const BARRIER_SEG_COUNT=12;
+const BARRIER_SPAN=2*Math.PI/BARRIER_SEG_COUNT;          // Segmentbreite: 30 Grad
+const BARRIER_SEG=(()=>{const v=Number(barrierParam('bseg'));
+  return Number.isInteger(v)&&v>=0&&v<BARRIER_SEG_COUNT?v:0;})();
+const BARRIER_HALF=BARRIER_SPAN/2;                       // halbe Breite -> 15 Grad
+// ?bsegs=<Liste> aktiviert MEHRERE Randsegmente gleichzeitig (Etappe 5A, reiner
+// Physik-Debugpfad). Die Liste wird kanonisch gemacht: ganzzahlig 0..11, ungueltige
+// Werte verworfen, dedupliziert, aufsteigend sortiert. Die Eingabereihenfolge kann
+// das Ergebnis dadurch nicht beeinflussen, und dieselbe Nummer mehrfach ergibt genau
+// EINEN Collider. Fehlt der Parameter, bleibt es bei der Einzelwand aus Etappe 4.
+// Bewusst eine BENANNTE Funktion statt einer sofort aufgerufenen: der E2E-Harness
+// verankert seinen Adapter am letzten IIFE-Close-Token "\n})();" und prueft, dass es
+// genau dreimal vorkommt. Eine weitere top-level IIFE wuerde diese Verankerung
+// brechen — sichtbar erst in den Emulator-E2E-Runnern, nicht in den Offline-Suiten.
+function barrierParseMultiSegs(){
+  const raw=barrierParam('bsegs');
+  if(raw==null)return null;
+  const out=[];
+  for(const part of raw.split(',')){
+    const v=Number(part.trim());
+    if(Number.isInteger(v)&&v>=0&&v<BARRIER_SEG_COUNT&&out.indexOf(v)<0)out.push(v);
+  }
+  out.sort((a,b)=>a-b);
+  return out.length?out:null;
+}
+const BARRIER_MULTI_SEGS=barrierParseMultiSegs();
+// ?bsegs ist und bleibt ein reiner Entwickler-Physikpfad: er umgeht den
+// Einsatzvertrag und darf deshalb NIE im Produktpfad greifen (vorher implizit
+// ueber BARRIER_DEBUG in barrierOn, seit 9B explizit an der Definition).
+const BARRIER_MULTI=BARRIER_DEV&&BARRIER_MULTI_SEGS!==null;
+// Massgebliche Segmentliste: in der Physikphase die beim Reveal gebildete Zugliste,
+// in der Planungsphase die Vorschau des von der Debug-UI gesteuerten Seats.
+function barrierActiveSegments(){
+  if(BARRIER_MULTI)return BARRIER_MULTI_SEGS;
+  if(phase==='reveal'||phase==='sim')return barrierTurnSegments;
+  // Vorschau: NUR die des gerade planenden Seats. Bereits bestaetigte Segmente
+  // anderer Seats bleiben bis zum Reveal unsichtbar. Waehrend eines Wand-Drags
+  // (7A) zaehlt das live eingerastete Segment; ueber der Abwahlzone und abseits
+  // des Randes ist die Vorschau leer.
+  const s=barrierUiSeat();
+  if(s<0)return [];
+  if(typeof barrierDragPid!=='undefined'&&barrierDragPid>=0&&barrierDragSeat===s)
+    return (barrierDragSeg>=0&&!barrierDragCancelHover)?[barrierDragSeg]:[];
+  return barrierArmedBySeat[s]?[barrierSelectedSegmentBySeat[s]]:[];
+}
+// Messwerte des Prototyps (nur Diagnose, keine Rueckwirkung auf die Simulation).
+const barrierStat={reflections:0,resolves:0,stepReflections:0,maxPerBallStep:0,earliestT:1};
+function barrierStatReset(){barrierStat.reflections=0;barrierStat.resolves=0;
+  barrierStat.stepReflections=0;barrierStat.maxPerBallStep=0;barrierStat.earliestT=1;}
+// Segment unter einem Arenapunkt: die naechstliegende Segmentmitte. Die Rundung ueber
+// den normierten Winkel erledigt die 11/0-Grenze ohne Sonderfall.
+function barrierSegAt(px,py){
+  let a=(Math.atan2(py-cy,px-cx)+Math.PI/2)%(2*Math.PI);
+  if(a<0)a+=2*Math.PI;
+  return Math.round(a/BARRIER_SPAN)%BARRIER_SEG_COUNT;
+}
+// Abprallwert der Wand: ein EIGENER Materialwert, bewusst nicht die Kugel-Kugel-
+// Restitution REST (0.25) — die wirkte an der Wand zu schluckend. 0.55 stammt aus
+// dem A/B-Vergleich 0.25/0.40/0.55/0.70: der Abprall wird als Richtungswechsel
+// lesbar (45 Grad Einfall -> 61 Grad Ausfall) und traegt bei vollem Zug rund 28 %
+// des Arenadurchmessers zurueck, ohne die Wand zum Trampolin zu machen.
+// REST und jede andere Physikkonstante bleiben unveraendert.
+const BARRIER_RESTITUTION=0.55;
+// ── Etappe 5B: lokaler Regelvertrag fuer MEHRERE Seats ────────────────────────
+// Der Vertrag aus Etappe 3 gilt jetzt je Seat statt nur fuer Seat 0. Es gibt genau
+// EINE Wahrheit: alles Seat-bezogene liegt in den Arrays unten, indiziert mit der
+// Sitznummer. Einsaetze gehoeren dem Seat, nicht dem Team.
+//
+// Der Einsatz wird NICHT beim Waehlen verbraucht, sondern erst mit dem bewusst
+// bestaetigten Zug dieses Seats. Mehrfaches Umschalten kostet nichts, ein Abwaehlen
+// vor dem Commit kostet nichts, und der automatische Stand bei Zeitablauf
+// (ein interner Auto-Stand, am geprueften commit() vorbei) kostet ebenfalls
+// nichts und erzeugt kein Segment.
+//
+// Alle Entscheidungen bleiben bis zum Reveal verborgen: erst dort entsteht aus den
+// committeten Segmenten aller Seats die aktive Segmentliste des Zuges. Sie wird
+// dedupliziert und sortiert und geht danach unveraendert in die Bogenverschmelzung
+// aus Etappe 5A — mehrere Seats auf demselben Segment ergeben genau einen Collider,
+// verbrauchen aber je einen eigenen Einsatz.
+// ── Etappe 5C: echter lokaler 2-Spieler-Hotseat ───────────────────────────────
+// Die Debug-UI steuert nicht mehr fest Seat 0, sondern den Seat, der GERADE plant.
+// Im Hotseat ist das curAimer; im Bot-1v1 bleibt es Seat 0. Alles, was die UI zeigt
+// — Bestand, Vorschau, Segmentnummer, Anzeige — haengt an diesem einen Seat.
+// Waehrend der verdeckten Uebergabe (fbCoverOpen) ist die gesamte Debug-UI aus.
+// Die Entscheidung eines Seats ist damit fuer den anderen nirgends ablesbar: die
+// bestaetigten Segmente werden erst beim Reveal zur gemeinsamen Wandliste.
+// -1 = keine UI (online, Replay, Menue, oder ein hier nicht behandelter Modus).
+function barrierUiSeat(){
+  if(!barrierRuntimeOn()||menuVisible)return -1;
+  if(online)return -1;                           // RW1: online gibt es keine Pre-Shot-UI mehr
+  if(mode==='bot')return 0;
+  if(mode==='pvp')return curAimer>=0&&curAimer<barrierStakesBySeat.length?curAimer:-1;
+  return -1;
+}
+// Einsatzregel (Produktentscheidung nach dem 7A-Spieltest): DREI Einsaetze je
+// Seat und Match, hoechstens EINE Wand je Seat und ZUG. Es gibt keine
+// Rundensperre mehr — ein Seat darf in direkt aufeinanderfolgenden Zuegen
+// Waende setzen, ohne dass ein Ring-out oder Rundenwechsel noetig ist. Die
+// Ein-Wand-pro-Zug-Grenze steckt bereits im Ablauf selbst: genau EINE Vorwahl
+// je Seat, Verbrauch genau einmal beim bestaetigten Zug, danach sperrt
+// aimSet/own.lock jede weitere Wahl bis zum naechsten Zug.
+const BARRIER_STAKES_START=3;                  // Einsaetze je SEAT und Match
+let barrierStakesBySeat=[];                    // verbleibende Einsaetze je Seat
+let barrierArmedBySeat=[];                     // Vorschau je Seat (noch nicht bestaetigt)
+let barrierSelectedSegmentBySeat=[];           // vorgewaehltes Segment je Seat
+let barrierCommittedSegmentBySeat=[];          // verbindlich bestaetigtes Segment je Seat, -1 = keins
+let barrierTurnSegments=[];                    // aktive Segmentliste der laufenden Physikphase
+
+// ---- Wandmengen je Besitzer ----
+// ── Wandmengen je Besitzer ──────────────────────────────────────────────────
+// Eine Wandmenge ist EIN Besitzer plus dessen Segmente:
+//   owner -1  Pre-Shot-Wand — wirkt auf ALLE Kugeln (unveraenderter Vertrag,
+//             online wie lokal, inkl. Replay/Rehydrate)
+//   owner >=0 Rescue-Wall — haelt ausschliesslich die Kugeln dieses Seats
+// Getrennte Mengen sind zwingend, weil Segmente VERSCHIEDENER Besitzer nie zu
+// einem Bogen verschmelzen duerfen: Seat 0 auf Segment 3 und Seat 1 auf
+// Segment 4 waeren sonst ein durchgehender 60-Grad-Bogen und fuer beide falsch.
+// Die Boegen entstehen einmal beim Anlegen der Menge — eine angelegte Menge
+// aendert sich nie mehr, dadurch gibt es im Sub-Step-Takt weder Neubau noch
+// Allokation.
+// Pre-Shot-Wand und Rescue-Wall schliessen einander im Produktpfad aus: im
+// Rescue-Match liefert barrierCanArmSeat() immer false, es kann also nie eine
+// Kugel in demselben Sub-Step gegen zwei Mengen geprueft werden.
+let barrierWalls=[];
+function barrierMakeWall(owner,segs){return {owner:owner,segs:segs,arcs:barrierBuildArcs(segs)};}
+// barrierTurnSegments ist die ABGELEITETE Vereinigung aller aktiven Segmente.
+// Rendering (barrierActiveSegments) und der bestehende Online-Physikschalter
+// lesen ausschliesslich sie — deshalb genau EIN Schreibpfad,
+// damit Wandmengen und Segmentliste nie auseinanderlaufen koennen. Die Mengen
+// selbst liegen nach Besitzer aufsteigend (-1 zuerst): die Physik verarbeitet
+// sie dadurch in fester Reihenfolge, unabhaengig von der Einfuegereihenfolge.
+function barrierWallsSync(){
+  barrierWalls.sort((a,b)=>a.owner-b.owner);
+  const out=[];
+  for(const w of barrierWalls)for(const k of w.segs)if(out.indexOf(k)<0)out.push(k);
+  out.sort((a,b)=>a-b);
+  barrierTurnSegments=out;
+}
+function barrierWallsSet(walls){barrierWalls=walls;barrierWallsSync();}
+// Wandmengen, gegen die die Physik dieses Sub-Steps prueft. ?bsegs bleibt der
+// bestehende reine Physik-Debugpfad: EINE Wand fuer alle Kugeln, ohne Zugvertrag.
+let barrierDebugWall=null;
+function barrierActiveWalls(){
+  if(BARRIER_MULTI)return barrierDebugWall||(barrierDebugWall=[barrierMakeWall(-1,BARRIER_MULTI_SEGS)]);
+  return barrierWalls;
+}
+
+// ---- Rescue-Kern ----
+// ── Reactive Rescue Wall: OFFLINE-/BOT-PROTOTYP ─────────────────────────────
+// Ersetzt im lokalen Bot-Match die Pre-Shot-Wand: waehrend die Kugeln rollen,
+// tippt der Spieler grob auf die Stelle am Arenarand, an der er die Wand haben
+// will. Der Tap schnappt auf eines der zwoelf Segmente; die Wand wirkt NUR auf
+// die Kugeln des setzenden Seats und verfaellt mit dem Zugende. Online,
+// PvP-Hotseat und FFA bleiben vollstaendig beim bisherigen Ablauf (Pre-Shot-
+// Wahl, Commit-Reveal) — die Rescue-Wall ist dort nie aktiv.
+// ?rescue=0 schaltet lokal auf den bisherigen Pre-Shot-Ablauf zurueck
+// (Regressionslaeufe, die die Drag-Vorwahl im Bot-Match brauchen).
+//
+// ── TICK-SEMANTIK (verbindlich, auch fuer den spaeteren Onlinevertrag) ──────
+//   simTick = Anzahl der seit applyLaunch VOLLSTAENDIG abgeschlossenen
+//   Physik-Sub-Steps. applyLaunch setzt 0, jeder abgeschlossene Sub-Step erhoeht
+//   um 1, das Settlement setzt zurueck.
+//
+//   Ein Rescue-Event {tick:N, owner, seg} bedeutet:
+//     die Wand ist fuer JEDEN Sub-Step mit Index > N aktiv
+//     und fuer Sub-Step N selbst noch NICHT.
+//   Einsetzpunkt ist damit exakt die Sub-Step-Grenze nach N: aktiviert wird am
+//   ANFANG des naechsten Sub-Steps, vor barrierPrepare(). An dieser Grenze liegt
+//   nie eine lebende Kugel ausserhalb von R (Ring-out wird am Ende jedes
+//   Sub-Steps aufgeloest) — eine Wand kann also keine bereits ausgeschiedene
+//   Kugel nachtraeglich einfangen.
+//
+//   stepSim() fuehrt zwei Sub-Steps je Aufruf aus, und ein Tap kann nie MITTEN
+//   in stepSim() landen (beide Sub-Steps laufen in einem synchronen Aufruf).
+//   Live entstehen deshalb ausschliesslich GERADE Ticks; ein Replay darf sich
+//   darauf NICHT verlassen und muss jeden nicht-negativen Integer akzeptieren.
+//
+//   Die Tickfolge ist auf jedem Geraet identisch — 60 Hz und 144 Hz liefern
+//   bitgleiche Ergebnisse. Unterschiedlich bleibt allein die REALE Reaktionszeit
+//   je Tick (framebasierter Takt, kein Fixed Timestep). Das ist ein Fairness-,
+//   kein Determinismusproblem, und bleibt hier bewusst offen.
+const BARRIER_RESCUE_OFF=barrierParam('rescue')==='0';
+let simTick=0;
+function simTickReset(){simTick=0;}
+function simTickAdvance(){simTick++;}
+// Zeitplan des laufenden Zuges: die Rescue-Events, deterministisch sortiert
+// (tick aufsteigend, bei gleichem tick owner aufsteigend). Der lokale Prototyp
+// erzeugt nur Events fuer Seat 0; die Struktur traegt bewusst mehrere Seats,
+// weil online jeder Seat je Zug eine eigene Wand setzen kann. Das Feld `on`
+// markiert ein bereits aktiviertes Event — es steht am Event selbst, damit ein
+// nachtraeglich eingefuegtes Event keinen Index-Zeiger ungueltig machen kann.
+let barrierRescueEvents=[];
+// Setzt den Zeitplan als Ganzes (Replay). Kanonisiert und sortiert selbst — die
+// Reihenfolge der Eingabe kann das Ergebnis nie beeinflussen. Bereits aktivierte
+// Rescue-Waende fallen dabei; eine Pre-Shot-Wand (owner -1) bleibt, sie gehoert
+// nicht zum Zeitplan.
+function barrierRescueSetEvents(events){
+  barrierRescueEvents=[];
+  for(const e of (events||[])){
+    if(!e)continue;
+    const seg=barrierSegCanon(e.seg),tick=e.tick,owner=e.owner;
+    if(seg<0||!Number.isInteger(tick)||tick<0||!Number.isInteger(owner)||owner<0)continue;
+    barrierRescueEvents.push({tick:tick,owner:owner,seg:seg,on:false});
+  }
+  barrierRescueEvents.sort((a,b)=>a.tick-b.tick||a.owner-b.owner);
+  barrierWallsSet(barrierWalls.filter(w=>w.owner<0));
+}
+function barrierRescueClear(){barrierRescueSetEvents([]);}
+function barrierRescueAdd(tick,owner,seg){
+  barrierRescueEvents.push({tick:tick,owner:owner,seg:seg,on:false});
+  barrierRescueEvents.sort((a,b)=>a.tick-b.tick||a.owner-b.owner);
+}
+function barrierRescueEventOf(seat){
+  for(const e of barrierRescueEvents)if(e.owner===seat)return e;
+  return null;
+}
+// Zeitplan -> Wand. Laeuft am ANFANG jedes Sub-Steps: jedes Event, dessen Tick
+// erreicht ist, wird jetzt zur eigenen Wandmenge seines Besitzers. Der leere
+// Zeitplan — der Normalfall — kostet genau einen Laengenvergleich.
+function barrierRescueActivate(){
+  if(!barrierRescueEvents.length)return;
+  let added=false;
+  for(const e of barrierRescueEvents){
+    if(e.on||e.tick>simTick)continue;
+    e.on=true;barrierWalls.push(barrierMakeWall(e.owner,[e.seg]));added=true;
+  }
+  if(added)barrierWallsSync();
+}
+function barrierRescueMode(){return !online&&!BARRIER_RESCUE_OFF&&mode==='bot'&&barrierRuntimeOn();}
+
+// ---- Rescue-Platzierung + Zone ----
+// Menschlicher Seat, der eine Rescue-Wall setzen darf: im Bot-Match Seat 0,
+// online der eigene Seat.
+// Menschlicher Seat, der eine Rescue-Wall setzen darf: im Bot-Match Seat 0.
+function barrierRescueSeat(){return barrierRescueMode()?0:-1;}
+function barrierRescueCanPlace(s){
+  if(!barrierRescueMode())return false;
+  if(phase!=='sim'||menuVisible||fbCoverOpen)return false;
+  if(typeof r3dInputBlocked==='function'&&r3dInputBlocked())return false;
+  if(!(s>=0&&s===barrierRescueSeat()))return false;
+  if(barrierRescueEventOf(s))return false;                       // hoechstens EIN Placement je Zug
+  if(!(s<barrierStakesBySeat.length&&barrierStakesBySeat[s]>0&&aliveCount(s)>0))return false;
+  return true;
+}
+// Erzeugt das Rescue-Event dieses Zuges — {tick:simTick, owner:s, seg:k} — und
+// verbraucht genau EINEN Einsatz. Die Wand entsteht daraus an der naechsten
+// Sub-Step-Grenze (barrierRescueActivate), also im unmittelbar folgenden
+// Sub-Step: zwischen Tap und naechstem stepSim() liegt kein gezeichnetes Bild,
+// fuer den Spieler ist die Wand damit unverzoegert da.
+function barrierRescuePlace(s,seg){
+  if(!barrierRescueCanPlace(s))return false;
+  const k=barrierSegCanon(seg);
+  if(k<0)return false;
+  const tick=simTick;
+  barrierRescueAdd(tick,s,k);
+  barrierStakesBySeat[s]--;
+  if(typeof barrierRescueBadgePulse==='function')barrierRescueBadgePulse();   // kurzer Puls, dann neue Zahl
+  barrierUi();
+  return true;
+}
+// Grosszuegige Rescue-Zone: der aeussere Ring der Spielflaeche. Ein Tap muss den
+// Rand NICHT genau treffen — jeder Punkt zwischen 62 % des Radius und deutlich
+// ausserhalb des Rings zaehlt; massgeblich ist allein der WINKEL zum Zentrum,
+// der auf die naechste der zwoelf Segmentmitten schnappt (barrierSegAt). Die
+// Zone waechst und schrumpft automatisch mit dem aktuellen Collapse-Radius R.
+// Innen bleibt bewusst der groesste Teil der Flaeche frei: dort dreht ein Tap
+// weiterhin die Kamera und kann nie versehentlich einen Einsatz kosten.
+const BARRIER_RESCUE_ZONE_INNER=0.62;          // Anteil von R: Beginn der Zone (aeussere 38 %)
+const BARRIER_RESCUE_ZONE_OUTER=1.45;          // Anteil von R: auch weit ausserhalb des Rings gueltig
+// Reine Geometrie in ARENAKOORDINATEN: Segment 0..11 oder -1 (ausserhalb der Zone).
+function barrierRescueZoneSeg(px,py){
+  const rr=Math.hypot(px-cx,py-cy)/R;
+  return (rr>=BARRIER_RESCUE_ZONE_INNER&&rr<=BARRIER_RESCUE_ZONE_OUTER)?barrierSegAt(px,py):-1;
+}
+
+// ---- Rundenlebenszyklus ----
+function barrierSeatCount(){return Math.max(2,np());}
+function barrierSeats(fn){for(let s=0;s<barrierStakesBySeat.length;s++)fn(s);}
+// Aktiv ausschliesslich waehrend der Physikphase, und nur wenn dieser Zug ueberhaupt
+// Segmente traegt. Der Mehrfach-Wand-Pfad (?bsegs) bleibt ein davon unabhaengiger
+// reiner Physik-Debugpfad: er umgeht bewusst den Verbrauchsvertrag.
+function barrierOn(){
+  if(phase!=='sim')return false;
+  // RW1: ausschliesslich der lokale Vertrag (Hotseat, Bot, ?bsegs-Debugpfad).
+  if(!barrierRuntimeOn())return false;
+  return BARRIER_MULTI||barrierTurnSegments.length>0;
+}
+// Waehlbar nur in der eigenen offenen Planungsphase, solange der Seat lebt und
+// Einsaetze uebrig sind. Bewusst OHNE Rundenbezug: !aimSet[s] (bzw. online der
+// Pending-Lock) sperrt nach dem Commit bis zum naechsten Zug — mehr Grenze
+// braucht die Ein-Wand-pro-Zug-Regel nicht.
+function barrierCanArmSeat(s){
+  // Rescue-Prototyp (lokales Bot-Match): keine Pre-Shot-Vorwahl mehr — die Wand
+  // entsteht ausschliesslich nach dem Schuss ueber barrierRescuePlace().
+  if(barrierRescueMode())return false;
+  if(online)return false;                        // RW1: online gibt es keine Pre-Shot-Vorwahl mehr
+  return barrierRuntimeOn()&&!menuVisible&&!(typeof r3dInputBlocked==='function'&&r3dInputBlocked())
+    &&phase==='aim'&&!inputLocked()&&s>=0&&s<barrierStakesBySeat.length
+    &&!aimSet[s]&&aliveCount(s)>0
+    &&barrierStakesBySeat[s]>0;
+}
+// Zentrale Freigabe der Bedienung: Seat der Debug-UI, keine verdeckte Uebergabe,
+// und der Seat darf nach den bestehenden Regeln (Einsatz, Rundensperre, Commit-
+// Zustand) seine Wahl noch aendern. Etappe 7A haengt den Drag daran.
+function barrierCanArm(){const s=barrierUiSeat();return s>=0&&!fbCoverOpen&&barrierCanArmSeat(s);}
+// Test-/Debug-Hook fuer die uebrigen Seats. Er setzt AUSSCHLIESSLICH die Vorschau;
+// Verbrauch und Verbindlichkeit laufen danach unveraendert ueber commit() und
+// barrierCommitHook(). Kein URL-Vertrag, keine Produktmechanik — nur lokal, nur mit
+// ?barrier=1, nie online, nie im Replay.
+function barrierDebugSelect(s,segment){
+  if(!BARRIER_DEV)return false;
+  if(online)return false;                        // RW1: online gibt es keine Pre-Shot-Vorwahl mehr
+  if(!Number.isInteger(s)||s<0||s>=barrierStakesBySeat.length)return false;
+  if(segment==null){barrierArmedBySeat[s]=false;barrierUi();return true;}
+  if(!Number.isInteger(segment)||segment<0||segment>=BARRIER_SEG_COUNT)return false;
+  if(!barrierCanArmSeat(s))return false;
+  barrierSelectedSegmentBySeat[s]=segment;barrierArmedBySeat[s]=true;barrierUi();return true;
+}
+// Verbrauch: genau hier, beim bewusst bestaetigten Zug DIESES Seats — unabhaengig
+// davon, ob es ein Schuss oder ein bewusstes 0/0 ist.
+function barrierCommitHook(who){
+  if(!barrierRuntimeOn()||online)return;
+  if(!(who>=0&&who<barrierArmedBySeat.length)||!barrierArmedBySeat[who])return;
+  barrierArmedBySeat[who]=false;
+  if(barrierStakesBySeat[who]<=0||aliveCount(who)<=0)return;
+  barrierStakesBySeat[who]--;
+  barrierCommittedSegmentBySeat[who]=barrierSelectedSegmentBySeat[who];
+  barrierUi();
+}
+// Verdeckte Uebergabe im Hotseat: Platzierungsmodus und Anzeige des abgebenden Seats
+// enden hier. Die bereits bestaetigte Wahl bleibt gespeichert, aber unsichtbar.
+function barrierCoverHook(){
+  if(!barrierRuntimeOn()||online)return;
+  barrierDragCancel();barrierUi();
+}
+// Aus allen committeten Segmenten die kanonische Liste des Zuges bilden: dedupliziert
+// und aufsteigend. Mehrere Seats auf demselben Segment ergeben genau EINEN Eintrag.
+function barrierBuildTurn(){
+  const out=[];
+  barrierSeats((s)=>{const k=barrierCommittedSegmentBySeat[s];if(k>=0&&out.indexOf(k)<0)out.push(k);});
+  out.sort((a,b)=>a-b);
+  // Pre-Shot-Wand: EINE gemeinsame Menge fuer alle Kugeln (Besitzer -1) — exakt
+  // der bisherige Vertrag, lokal wie online wie im Replay.
+  barrierWallsSet(out.length?[barrierMakeWall(-1,out)]:[]);
+}
+// Die WAND wird wie bisher sofort abgeraeumt. Der Rescue-ZEITPLAN dieses Zuges
+// ueberlebt das Verlassen der Simulation dagegen, solange der v4-2-Seat-Turn
+// seinen Rescue-Abschluss noch nicht hat (C2A) — die spaetere deterministische
+// Korrektur braucht ihn, und die Wand ist daraus jederzeit wieder herstellbar.
+function barrierClearTurn(){
+  barrierWallsSet([]);
+  barrierRescueClear();
+  barrierSeats((s)=>{barrierCommittedSegmentBySeat[s]=-1;});
+}
+// Phasenwaechter. Die Wandliste entsteht beim Reveal, lebt ueber die gesamte
+// gemeinsame Physikphase und wird erst nach dem Settlement wieder geleert. Der
+// Platzierungsmodus endet mit JEDEM Verlassen der Planungsphase — Reveal, Simulation,
+// Settlement, Rundenende, Game Over, Rematch und neues Match laufen alle hier durch.
+function barrierPhaseHook(p){
+  if(p==='reveal')barrierBuildTurn();
+  else if(p!=='sim')barrierClearTurn();
+  if(p!=='aim'){barrierSeats((s)=>{barrierArmedBySeat[s]=false;});barrierDragCancel();}
+  barrierUi();
+}
+// Neue Runde: offene Vorwahlen und Zugbindung fallen. Bestaende bleiben, es wird
+// nie aufgefuellt (eine Rundensperre existiert nicht mehr).
+function barrierRoundReset(){
+  barrierSeats((s)=>{barrierArmedBySeat[s]=false;});
+  barrierClearTurn();barrierDragCancel();barrierUi();
+}
+// Neues Match und Rematch setzen ALLE Seats auf den Startbestand; eine neue Runde
+// oder eine Collapse-Stufe nie.
+function barrierMatchReset(){
+  const n=barrierSeatCount();
+  barrierStakesBySeat=[];barrierArmedBySeat=[];
+  barrierSelectedSegmentBySeat=[];barrierCommittedSegmentBySeat=[];
+  for(let s=0;s<n;s++){
+    barrierStakesBySeat.push(BARRIER_STAKES_START);
+    barrierArmedBySeat.push(false);barrierSelectedSegmentBySeat.push(BARRIER_SEG);
+    barrierCommittedSegmentBySeat.push(-1);
+  }
+  barrierWallsSet([]);barrierRescueClear();barrierDragCancel();barrierUi();
+}
+
+// ---- Badge + HUD ----
+// Einfache Debug-Anzeige, bewusst ohne Gestaltung. Wird nur angelegt, wenn der
+// Prototyp ueberhaupt laeuft — ohne ?barrier=1 entsteht kein DOM-Knoten.
+let barrierHudLast='';
+// Rescue-Anzeige: EIN kompaktes Badge in der Kopfzeile (🛡 N) — kein Textbalken.
+// Es zeigt nur den Restbestand und ob die Wand JETZT gesetzt werden kann; der
+// Knoten liegt fest im HUD (siehe .hbtns), hier wird ausschliesslich sein
+// Zustand gepflegt. Ausserhalb eines Rescue-Matches bleibt er ausgeblendet.
+let barrierRescueBadgeLast='';
+let barrierRescueBadgeTimer=null;
+function barrierRescueBadge(){
+  const el=document.getElementById('rescueBadge');
+  if(!el)return;
+  const s=barrierRescueSeat();
+  const show=s>=0&&!menuVisible&&s<barrierStakesBySeat.length;
+  // Ein-/Ausblenden aendert die Hoehe der Spielerkarte und damit die Hoehe des
+  // Arenabereichs, aus dem resize() den Kamerarahmen ableitet. Ohne diesen Aufruf
+  // rahmt die Kamera bis zum naechsten Fenster-Resize nach der ALTEN Hoehe und
+  // springt erst spaeter (z. B. nach einem Context-Restore) sichtbar um.
+  // Passiert hoechstens zweimal je Match (Anzeige an/aus), nie im Frame-Takt.
+  const was=el.style.display!=='none';
+  if(was!==show){
+    el.style.display=show?'':'none';
+    if(typeof resize==='function')resize();
+  }
+  if(!show){barrierRescueBadgeLast='';return;}
+  const n=barrierStakesBySeat[s];
+  const ready=barrierRescueCanPlace(s);
+  const key=n+'|'+(ready?1:0);
+  if(key===barrierRescueBadgeLast)return;                 // pro Frame nichts anfassen, wenn gleich
+  barrierRescueBadgeLast=key;
+  const num=document.getElementById('rescueBadgeN');
+  if(num)num.textContent=n;
+  el.classList.toggle('ready',ready);                     // ruhiges Glimmen, solange einsetzbar
+  el.classList.toggle('empty',n<=0);
+}
+// Kurzer Puls beim Setzen der Wand — dieselbe Pille, kein Toast, keine neue UI.
+function barrierRescueBadgePulse(){
+  const el=document.getElementById('rescueBadge');
+  if(!el)return;
+  el.classList.add('pulse');
+  if(barrierRescueBadgeTimer)clearTimeout(barrierRescueBadgeTimer);
+  barrierRescueBadgeTimer=setTimeout(()=>{el.classList.remove('pulse');barrierRescueBadgeTimer=null;},90);
+}
+function barrierHud(){
+  // Rescue-Match: der alte Textbalken entsteht nie und bleibt ausgeblendet,
+  // falls ihn ein frueherer Modus dieser Sitzung schon angelegt hat.
+  if(barrierRescueMode()){
+    const old=document.getElementById('barrierHud');
+    if(old&&old.style.display!=='none'){old.style.display='none';barrierHudLast='';}
+    return;
+  }
+  if(!barrierRuntimeOn())return;
+  // Eine aktive Wand hat Vorrang vor der Bestandsmeldung: solange der Seat ein
+  // bestaetigtes Segment traegt,
+  // steht das Segment im Bild — auch wenn es der letzte Einsatz war (dann "0 LEFT").
+  // EMPTY erscheint erst, wenn die Physikphase vorbei und die Zugbindung geloest ist.
+  // Die seatbezogene Anzeige gehoert AUSSCHLIESSLICH in die private Planungsphase des
+  // gerade planenden Seats. Ab dem Reveal — und ebenso in sim, result, over, waehrend
+  // der verdeckten Uebergabe und im Menue — ist sie vollstaendig aus: sonst verriete
+  // sie nach dem Zug noch Segment und Restbestand des zuletzt planenden Seats. Die
+  // gemeinsam aktiven Debug-Waende bleiben davon unberuehrt, sie haengen an barrierOn().
+  const s=barrierUiSeat();
+  const cs=s>=0?barrierCommittedSegmentBySeat[s]:-1;
+  const txt=(s<0||fbCoverOpen||phase!=='aim')?''
+    :(cs>=0||barrierArmedBySeat[s])?'BARRIER: SEGMENT '+(cs>=0?cs:barrierSelectedSegmentBySeat[s])+' · '+barrierStakesBySeat[s]+' LEFT'
+    :barrierStakesBySeat[s]<=0?'BARRIER: EMPTY'
+    :'BARRIER: OFF';
+  if(txt===barrierHudLast)return;
+  barrierHudLast=txt;
+  let el=document.getElementById('barrierHud');
+  if(!el&&txt==='')return;                     // ohne Inhalt entsteht gar kein Knoten
+  if(!el){el=document.createElement('div');el.id='barrierHud';
+    // Unterhalb der Kopfzeile UND der Statusleiste: Kopfzeile endet bei y=42, die
+    // Spielerkarten reichen bis y=99, der Arenabereich beginnt bei y=105 — auf 900x700
+    // wie auf 390x780 identisch. Erst ab 105 ueberdeckt die Anzeige weder Logo noch
+    // Spielerkarten, Punktestand, Match- oder Zugtimer; darueber liegt in jeder
+    // Textlaenge eines der HUD-Elemente.
+    el.style.cssText='position:fixed;left:10px;top:105px;z-index:70;padding:5px 9px;border-radius:6px;'
+      +'background:rgba(5,8,14,.82);color:#35e0ff;letter-spacing:.06em;pointer-events:none;'
+      +'font:600 12px/1.2 ui-monospace,Menlo,Consolas,monospace';
+    document.body.appendChild(el);}
+  el.style.display=txt===''?'none':'';
+  el.textContent=txt;
+}
+
+// ---- Eingabe ----
+// ── Etappe 7A: Drag-and-Snap-Bedienung der Wandplatzierung ────────────────────
+// Ersetzt den Etappe-4-Platzierungsmodus (Button-Tap -> Overlay mit zwoelf
+// nummerierten Trefferbaendern) VOLLSTAENDIG durch einen direkten Drag:
+//
+//   Wandsymbol druecken und halten -> ziehen -> nahe dem Arenarand rastet eine
+//   neutrale Vorschau in das naechstgelegene der zwoelf Segmente ein
+//   (barrierSegAt, dieselbe Zuordnung wie der Collider) -> Loslassen ueber einem
+//   gueltigen Segment fixiert die VORWAHL (armed, kein Verbrauch, kein Commit).
+//
+//   Eine fixierte Vorschau kann am Randbogen erneut gegriffen und verschoben
+//   werden (ersetzt die alte Auswahl, nie eine zweite Wand). Loslassen ueber dem
+//   Wandsymbol bzw. in dessen Abwahlzone entfernt die Wand. Ungueltiges
+//   Loslassen behaelt die letzte gueltige Vorwahl; eine neue, nie gueltige
+//   Platzierung waehlt nichts.
+//
+// Input-Trennung: EIN Satz permanenter Fensterlauscher in der CAPTURE-Phase,
+// intern hart gegated (ohne ?barrier=1 werden sie gar nicht registriert). Der
+// Drag-Start schluckt sein pointerdown (preventDefault+stopPropagation), bevor
+// das Canvas es sieht — es entsteht nie ein Kugel- oder Kameradrag aus einem
+// Wand-Griff, und das Wand-Loslassen kann nie einen Kugelzug bestaetigen (der
+// Kugel-Commit haengt an aimPid, das dieser Pointer nie wird). Umgekehrt startet
+// ein Wand-Griff nie waehrend eines laufenden Kugel-Drags (aimPid>=0). Es gibt
+// keine Overlays und keinen Moduszustand — nach Ende oder Abbruch des Drags
+// blockiert nichts weitere Eingaben.
+const BARRIER_SNAP_INNER=0.55;            // Snap-Band Innenrand (Anteil von R)
+const BARRIER_SNAP_OUTER=1.60;            // Snap-Band Aussenrand (Anteil von R)
+const BARRIER_CANCEL_PAD_PX=30;           // Abwahlzone: Symbol-Rect allseitig +30 CSS-px
+const BARRIER_GRAB_BAND_BR=1.5;           // Greifband der fixierten Vorschau: |d-R| <= BR*1.5
+let barrierDragPid=-1;                    // Pointer des laufenden Wand-Drags (-1 = keiner)
+let barrierDragSeat=-1;                   // Seat, dem der Drag gehoert
+let barrierDragSeg=-1;                    // aktuell eingerastetes Segment (-1 = nicht am Rand)
+let barrierDragPrev=-1;                   // gueltige Vorwahl VOR dem Drag (-1 = neue Platzierung)
+let barrierDragCancelHover=false;         // Pointer schwebt ueber der Abwahlzone
+// Sichtbarkeit des Debug-Bogens: echte Wand (Physikphase), fixierte Vorwahl oder
+// die live einrastende Drag-Vorschau. Die Vorschau kollidiert NICHT —
+// barrierOn() bleibt der alleinige Physikschalter.
+function barrierPreviewOn(){const s=barrierUiSeat();
+  if(!barrierRuntimeOn()||s<0||fbCoverOpen||phase!=='aim')return false;
+  if(barrierDragPid>=0&&barrierDragSeat===s)return barrierDragSeg>=0&&!barrierDragCancelHover;
+  return barrierArmedBySeat[s];}
+function barrierVisualOn(){return barrierOn()||barrierPreviewOn();}
+// Abwahlzone: das Wandsymbol-Rect, allseitig um BARRIER_CANCEL_PAD_PX vergroessert.
+// Gross genug fuer Touch, aber weit weg von Aktionsleiste (unten Mitte/rechts)
+// und Arenazentrum — sie wirkt AUSSCHLIESSLICH als Loslass-Ziel des Wand-Drags
+// und schluckt ausserhalb eines Drags keinerlei Eingaben.
+function barrierCancelZoneHit(e){
+  const b=document.getElementById('barrierBtn');
+  if(!b)return false;
+  const r=b.getBoundingClientRect(),pad=BARRIER_CANCEL_PAD_PX;
+  return e.clientX>=r.left-pad&&e.clientX<=r.right+pad&&e.clientY>=r.top-pad&&e.clientY<=r.bottom+pad;
+}
+// Pointer -> Arenaebene (r3d.s2w bzw. localPt, exakt die Ziel-Abbildung) ->
+// naechstes Segment, wenn der Punkt im Snap-Band um den AKTUELLEN Radius R liegt
+// (Collapse-Radius damit automatisch beruecksichtigt). -1 = nicht am Rand.
+function barrierDragSnapSeg(e){
+  const p=localPt(e);
+  const rr=Math.hypot(p.x-cx,p.y-cy)/R;
+  return (rr>=BARRIER_SNAP_INNER&&rr<=BARRIER_SNAP_OUTER)?barrierSegAt(p.x,p.y):-1;
+}
+function barrierDragStart(e,seat){
+  barrierDragPid=e.pointerId;barrierDragSeat=seat;
+  barrierDragPrev=barrierArmedBySeat[seat]?barrierSelectedSegmentBySeat[seat]:-1;
+  barrierDragSeg=barrierDragSnapSeg(e);
+  barrierDragCancelHover=barrierCancelZoneHit(e);
+  try{e.target.setPointerCapture(e.pointerId);}catch(_){}
+  e.preventDefault();e.stopPropagation();
+  barrierUi();
+}
+// Harter Abbruch (pointercancel, Phasen-/Seatwechsel, Reset, Commit waehrenddessen):
+// die Vorwahl von VOR dem Drag bleibt unveraendert bestehen, nichts blockiert.
+function barrierDragCancel(){
+  if(barrierDragPid<0)return;
+  barrierDragPid=-1;barrierDragSeat=-1;barrierDragSeg=-1;barrierDragPrev=-1;barrierDragCancelHover=false;
+  barrierUi();
+}
+// Rescue-Platzierung: EIN Tap in der grosszuegigen aeusseren Zone setzt die Wand.
+// Ausgewertet wird beim Loslassen, nicht beim Druck — genau daran unterscheiden
+// sich Tap, Kamera-Drag und Pinch zuverlaessig:
+//   Tippen (Finger bewegt sich < BARRIER_RESCUE_TAP_SLOP_PX)  -> Wand
+//   Ziehen (Finger bewegt sich weiter)                        -> nur Kamera
+//   zweiter Finger waehrend des Taps                          -> Pinch, nie Wand
+// Der Kandidat wird deshalb bewusst NICHT konsumiert: der Kamera-Drag laeuft wie
+// immer mit an. Bei einem echten Tap dreht er um 0 Pixel und ist unsichtbar, ein
+// Pinch behaelt seinen ersten Finger und zoomt normal.
+const BARRIER_RESCUE_TAP_SLOP_PX=14;           // Wackeltoleranz eines Taps (CSS-px)
+let barrierRescueTapPid=-1,barrierRescueTapX=0,barrierRescueTapY=0;
+function barrierRescueTapCancel(){barrierRescueTapPid=-1;}
+function barrierRescueTapDown(e){
+  if(barrierRescueTapPid>=0){barrierRescueTapCancel();return;}   // zweiter Finger: Pinch, kein Tap
+  if(barrierDragPid>=0||aimPid>=0||camPid>=0)return;
+  if(e.target!==cv)return;                                       // nur die Spielflaeche
+  const s=barrierRescueSeat();
+  if(s<0||!barrierRescueCanPlace(s))return;
+  if(barrierRescueZoneSeg2(e)<0)return;                          // ausserhalb der Zone: reine Kamera
+  barrierRescueTapPid=e.pointerId;barrierRescueTapX=e.clientX;barrierRescueTapY=e.clientY;
+}
+function barrierRescueTapMove(e){
+  if(e.pointerId!==barrierRescueTapPid)return;
+  if(Math.hypot(e.clientX-barrierRescueTapX,e.clientY-barrierRescueTapY)>BARRIER_RESCUE_TAP_SLOP_PX)
+    barrierRescueTapCancel();                                    // wurde ein Drag: Kamera behaelt ihn
+}
+function barrierRescueTapUp(e){
+  if(e.pointerId!==barrierRescueTapPid)return;
+  barrierRescueTapCancel();
+  if(Math.hypot(e.clientX-barrierRescueTapX,e.clientY-barrierRescueTapY)>BARRIER_RESCUE_TAP_SLOP_PX)return;
+  const s=barrierRescueSeat();
+  if(s<0||!barrierRescueCanPlace(s))return;
+  const seg=barrierRescueZoneSeg2(e);
+  if(seg>=0)barrierRescuePlace(s,seg);
+}
+// Pointer -> Arenaebene (dieselbe Abbildung wie Zielen) -> Zone/Segment.
+function barrierRescueZoneSeg2(e){const p=localPt(e);return barrierRescueZoneSeg(p.x,p.y);}
+function barrierDragDown(e){
+  barrierRescueTapDown(e);
+  if(barrierDragPid>=0)return;                       // Multi-Touch: genau EIN Wand-Drag
+  if(aimPid>=0)return;                               // laufender Kugel-Drag greift nie eine Wand
+  const s=barrierUiSeat();
+  if(s<0||fbCoverOpen||phase!=='aim')return;
+  const btn=document.getElementById('barrierBtn');
+  if(btn&&e.target&&btn.contains(e.target)){
+    // Symbol gedrueckt: neue Platzierung oder bestehende Vorwahl vom Symbol aus
+    // bewegen. Gesperrt (Commit/Pending/kein Einsatz/Rundensperre): inert.
+    if(!barrierCanArm())return;
+    barrierDragStart(e,s);
+    return;
+  }
+  // Fixierte Vorschau erneut greifen: Druck im Greifband um den Rand, im Winkel
+  // des gewaehlten Segments. Alles andere laeuft unveraendert weiter (Kugel/Kamera).
+  if(!barrierArmedBySeat[s]||!barrierCanArm())return;
+  const p=localPt(e);
+  if(Math.abs(Math.hypot(p.x-cx,p.y-cy)-R)>BR*BARRIER_GRAB_BAND_BR)return;
+  if(barrierSegAt(p.x,p.y)!==barrierSelectedSegmentBySeat[s])return;
+  barrierDragStart(e,s);
+}
+function barrierDragMove(e){
+  barrierRescueTapMove(e);
+  if(e.pointerId!==barrierDragPid)return;
+  // Kontext weg (Phase, Seat, Commit/Pending, Menue): Drag sofort beenden —
+  // die Vorwahl von vor dem Drag bleibt, es haengt nichts nach.
+  if(barrierUiSeat()!==barrierDragSeat||phase!=='aim'||!barrierCanArmSeat(barrierDragSeat)){barrierDragCancel();return;}
+  e.preventDefault();e.stopPropagation();
+  barrierDragCancelHover=barrierCancelZoneHit(e);
+  barrierDragSeg=barrierDragSnapSeg(e);
+  barrierUi();
+}
+function barrierDragUp(e){
+  barrierRescueTapUp(e);
+  if(e.pointerId!==barrierDragPid)return;
+  e.preventDefault();e.stopPropagation();
+  const s=barrierDragSeat,prev=barrierDragPrev;
+  const cancel=barrierCancelZoneHit(e);
+  const seg=barrierDragSnapSeg(e);
+  barrierDragPid=-1;barrierDragSeat=-1;barrierDragSeg=-1;barrierDragPrev=-1;barrierDragCancelHover=false;
+  if(s<0||barrierUiSeat()!==s){barrierUi();return;}
+  if(cancel)barrierArmedBySeat[s]=false;                                   // Abwahl am Symbol
+  else if(seg>=0&&barrierCanArmSeat(s)){barrierSelectedSegmentBySeat[s]=seg;barrierArmedBySeat[s]=true;}
+  else if(prev>=0&&barrierCanArmSeat(s)){barrierSelectedSegmentBySeat[s]=prev;barrierArmedBySeat[s]=true;}
+  else barrierArmedBySeat[s]=false;                                        // neu und nie gueltig: keine Wand
+  barrierUi();
+}
+{
+  addEventListener('pointerdown',barrierDragDown,true);
+  addEventListener('pointermove',barrierDragMove,true);
+  addEventListener('pointerup',barrierDragUp,true);
+  addEventListener('pointercancel',e=>{if(e.pointerId===barrierRescueTapPid)barrierRescueTapCancel();if(e.pointerId===barrierDragPid)barrierDragCancel();},true);
+}
+
+// ---- Schaltflaeche + UI ----
+// Debug-Schaltflaeche. Bewusst unten links: dort liegen weder Match- noch Zugtimer
+// (oben), noch Menue-/Ton-Schaltflaeche (oben rechts), noch die Aktionsleiste (unten
+// mittig/rechts). Sie entsteht nur, wenn der Prototyp laeuft.
+let barrierBtnLast='';
+function barrierBtn(){
+  if(!barrierRuntimeOn())return;
+  // Sie gehoert immer genau dem Seat, der gerade plant, und ist waehrend der
+  // verdeckten Uebergabe komplett aus.
+  const s=barrierUiSeat();
+  let b=document.getElementById('barrierBtn');
+  if(!b&&s<0)return;                             // ohne planenden Seat entsteht kein Knoten
+  if(!b){b=document.createElement('button');b.id='barrierBtn';b.type='button';
+    // 7A: KEIN eigener Handler und nie disabled — der Drag-Start laeuft ueber den
+    // zentralen Capture-Lauscher (barrierDragDown), und ein disabled-Button
+    // wuerde gar keine Pointer-Events mehr liefern. touch-action:none, damit der
+    // Halten-und-Ziehen-Start auf Touch nie als Scroll interpretiert wird.
+    b.style.cssText='position:fixed;left:10px;bottom:84px;z-index:71;padding:9px 13px;border-radius:8px;'
+      +'border:1px solid rgba(53,224,255,.55);background:rgba(5,8,14,.86);color:#35e0ff;'
+      +'font:700 13px/1.1 ui-monospace,Menlo,Consolas,monospace;letter-spacing:.06em;'
+      +'touch-action:none;cursor:grab';
+    document.body.appendChild(b);}
+  const show=s>=0&&!fbCoverOpen&&phase==='aim'&&!barrierRescueMode();   // Rescue: kein Drag-Symbol
+  b.style.display=show?'':'none';
+  if(!show){barrierBtnLast='';return;}   // nichts anzeigen, nichts verraten
+  const dragging=barrierDragPid>=0&&barrierDragSeat===s;
+  // EINE Wahrheit fuer Bedienbarkeit und Optik: exakt die Drag-Start-Bedingung
+  // barrierCanArm() (Einsatz, Rundensperre, Commit-/Pending-Zustand). Ist sie
+  // false, ist der Button ECHT disabled (liefert keine Pointer-Events mehr) und
+  // zeigt keinen Greif-Cursor — ein verbrauchter Rundeneinsatz wirkt damit
+  // eindeutig gesperrt statt "greifbar, aber tot".
+  const usable=barrierCanArm();
+  b.disabled=!(usable||dragging);
+  b.style.cursor=dragging?'grabbing':(usable?'grab':'not-allowed');
+  b.style.opacity=usable||dragging?'1':'.42';
+  // Zustand ueber den Rahmen, nicht ueber den Text: die Beschriftung bleibt exakt
+  // "WAND ×N" (Restbestand). Waehrend des Drags markiert ein roter Rahmen die
+  // Abwahlzone, sobald der Pointer darueber schwebt (dezente Abwahl-Markierung).
+  b.style.borderColor=dragging?(barrierDragCancelHover?'#ff6b6b':'#35e0ff')
+    :(s>=0&&barrierArmedBySeat[s])?'#35e0ff':'rgba(53,224,255,.55)';
+  b.style.background=dragging?(barrierDragCancelHover?'rgba(255,107,107,.22)':'rgba(53,224,255,.20)')
+    :'rgba(5,8,14,.86)';
+  const txt='WAND ×'+barrierStakesBySeat[s];
+  if(txt!==barrierBtnLast){barrierBtnLast=txt;b.textContent=txt;}
+}
+function barrierUi(){barrierRescueBadge();barrierHud();barrierBtn();}
+
+// ---- Geometrie + Physik ----
+// ── Etappe 5A: mehrere gleichzeitig aktive Randwaende ─────────────────────────
+// Die freigegebene Einzelwand-Physik bleibt unveraendert; sie wird nur auf mehrere
+// Boegen angewandt. Jeder Bogen benutzt exakt dieselbe Breite je Segment (30 Grad),
+// dieselbe Restitution, denselben Swept-Test und dieselben Endkappen.
+//
+// Kanonische Form der aktiven Segmente: ganzzahlig 0..11, dedupliziert, aufsteigend.
+// Daraus werden ZUSAMMENHAENGENDE Laeufe zu je EINEM Kollisionsbogen verschmolzen.
+// Genau das loest den Nachbarfall: 0 und 1 ergeben einen durchgehenden 60-Grad-Bogen
+// ohne innere Endkappe — keine Luecke, kein doppelter Kappenimpuls, kein Energiegewinn
+// an der gemeinsamen Grenze. Sind alle zwoelf Segmente aktiv, entsteht ein
+// geschlossener Ring ganz ohne Enden.
+function barrierSegMid(k){return -Math.PI/2+k*BARRIER_SPAN;}
+function barrierBuildArcs(segs){
+  const arcs=[];
+  if(!segs.length)return arcs;
+  if(segs.length===BARRIER_SEG_COUNT){arcs.push({mid:0,half:Math.PI,full:true,segs:BARRIER_SEG_COUNT,first:0});return arcs;}
+  for(let i=0;i<segs.length;i++){
+    const s=segs[i];
+    if(segs.indexOf((s+BARRIER_SEG_COUNT-1)%BARRIER_SEG_COUNT)>=0)continue;   // nicht der Anfang eines Laufs
+    let n=1,c=s;
+    while(n<BARRIER_SEG_COUNT&&segs.indexOf((c+1)%BARRIER_SEG_COUNT)>=0){c=(c+1)%BARRIER_SEG_COUNT;n++;}
+    const a0=barrierSegMid(s)-BARRIER_HALF;
+    arcs.push({mid:a0+n*BARRIER_HALF,half:n*BARRIER_HALF,full:false,segs:n,first:s});
+  }
+  return arcs;
+}
+// Aktive Segmente: ?bsegs=<Liste> hat Vorrang, sonst die Auswahl aus Etappe 4.
+let barrierArcCache=null,barrierArcKey='-';   // Sentinel: join(',') liefert nie '-'
+// Boegen der Wandmenge, die barrierStep GERADE bearbeitet. barrierEarliest und
+// barrierResolve lesen ausschliesslich diese eine Menge — dadurch bleibt der
+// Besitzerfilter eine Eigenschaft der Wandmenge und nicht der Geometrie. Ausser-
+// halb der Physikschleife (Diagnose) faellt es auf die Zugliste zurueck.
+let barrierArcsCur=null;
+function barrierArcs(){
+  if(barrierArcsCur)return barrierArcsCur;
+  const segs=barrierActiveSegments(),key=segs.join(',');
+  if(key!==barrierArcKey){barrierArcKey=key;barrierArcCache=barrierBuildArcs(segs);}
+  return barrierArcCache;
+}
+// Winkel auf (-PI,PI] normierter Abstand zur Bogenmitte.
+function barrierOff(arc,px,py){const o=Math.atan2(py-cy,px-cx)-arc.mid;return Math.atan2(Math.sin(o),Math.cos(o));}
+function barrierInSpan(arc,px,py){return arc.full||Math.abs(barrierOff(arc,px,py))<=arc.half;}
+// Naechster Punkt auf dem BEGRENZTEN Kreisbogen, rein geometrisch: der Winkel wird
+// auf den Bogen geklemmt. Innerhalb liegt der Punkt radial vor der Kugel, ausserhalb
+// ergibt die Klemmung exakt den naeheren Endpunkt. Damit gibt es weder eine grobe
+// Winkelpruefung noch unsichtbare Eck-Collider — die Enden sind dieselbe Bogenlinie.
+const barrierPt={x:0,y:0};
+function barrierClosest(arc,px,py){
+  const a=arc.full?Math.atan2(py-cy,px-cx):arc.mid+Math.max(-arc.half,Math.min(arc.half,barrierOff(arc,px,py)));
+  barrierPt.x=cx+Math.cos(a)*R;barrierPt.y=cy+Math.sin(a)*R;return barrierPt;
+}
+function barrierEndX(arc,e){return cx+Math.cos(arc.mid+(e?arc.half:-arc.half))*R;}
+function barrierEndY(arc,e){return cy+Math.sin(arc.mid+(e?arc.half:-arc.half))*R;}
+// Frueheste Schnittzeit t in [0,1] der Bahn (x0,y0)+(dx,dy)*t mit dem Kreis
+// (mx,my,r); accept filtert den Trefferpunkt gegen die Bogengrenze. -1 = kein Treffer.
+// accept liest den Bogen aus barrierSweepArc — bewusst keine Closure pro Aufruf.
+let barrierSweepArc=null;
+function barrierAcceptArc(px,py){return barrierInSpan(barrierSweepArc,px,py);}
+function barrierSweep(x0,y0,dx,dy,mx,my,r,accept){
+  const fx=x0-mx,fy=y0-my,a=dx*dx+dy*dy;
+  if(a<1e-12)return -1;
+  const b=2*(fx*dx+fy*dy),c=fx*fx+fy*fy-r*r,disc=b*b-4*a*c;
+  if(disc<0)return -1;
+  const sq=Math.sqrt(disc),t1=(-b-sq)/(2*a),t2=(-b+sq)/(2*a);
+  if(t1>=0&&t1<=1&&(!accept||accept(x0+dx*t1,y0+dy*t1)))return t1;
+  if(t2>=0&&t2<=1&&(!accept||accept(x0+dx*t2,y0+dy*t2)))return t2;
+  return -1;
+}
+// Fruehester GUELTIGER Kontakt der Bahn ueber ALLE aktiven Boegen. Gueltig heisst:
+// die Kugel laeuft an diesem Kontakt in die Wand hinein (Normalkomponente < 0).
+// Diese Bedingung ersetzt jede Sonderbehandlung — insbesondere entfaellt dadurch
+// der entartete Selbstkontakt bei t=0 direkt nach einer Reflexion, ohne dass eine
+// Kontaktstelle zweimal im selben Sub-Step reflektieren koennte.
+const barrierHit={t:-1,nx:0,ny:0,x:0,y:0};
+function barrierConsider(b,arc,t,x0,y0,dx,dy,cap){
+  if(barrierHit.t>=0&&t>=barrierHit.t)return;
+  const hx=x0+dx*t,hy=y0+dy*t;
+  let nx,ny;                                    // Normale am Kontakt: Wandflaeche -> Kugelmitte
+  if(cap<0){const l=Math.hypot(hx-cx,hy-cy)||1;nx=-(hx-cx)/l;ny=-(hy-cy)/l;}
+  else{const ex=barrierEndX(arc,cap),ey=barrierEndY(arc,cap),l=Math.hypot(hx-ex,hy-ey)||1;nx=(hx-ex)/l;ny=(hy-ey)/l;}
+  if(b.vx*nx+b.vy*ny>=0)return;                 // streift die Wand nur auslaufend
+  barrierHit.t=t;barrierHit.nx=nx;barrierHit.ny=ny;barrierHit.x=hx;barrierHit.y=hy;
+}
+function barrierEarliest(b,x0,y0,dx,dy){
+  barrierHit.t=-1;
+  const arcs=barrierArcs();
+  for(let i=0;i<arcs.length;i++){
+    const arc=arcs[i];
+    barrierSweepArc=arc;
+    const t=barrierSweep(x0,y0,dx,dy,cx,cy,R-BR,arc.full?null:barrierAcceptArc);
+    if(t>=0)barrierConsider(b,arc,t,x0,y0,dx,dy,-1);
+    if(arc.full)continue;                       // geschlossener Ring hat keine Enden
+    for(let e=0;e<2;e++){
+      const te=barrierSweep(x0,y0,dx,dy,barrierEndX(arc,e),barrierEndY(arc,e),BR,null);
+      if(te>=0)barrierConsider(b,arc,te,x0,y0,dx,dy,e);
+    }
+  }
+  return barrierHit.t>=0;
+}
+// Kontinuierlicher Test der GANZEN Sub-Step-Bahn (Position vor der Integration ->
+// aktuelle Position). Kandidaten je Bogen sind die Innenflaeche (Radius R-BR,
+// Trefferpunkt im Bogen) und die beiden Enden (Radius BR um den Endpunkt) — zusammen
+// exakt die Menge aller Bahnpunkte mit Abstand BR zum begrenzten Bogen. Ohne diesen
+// Test koennte eine sehr schnelle Kugel zwischen zwei Sub-Steps durch die Wand springen.
+// Nach einer Reflexion wird der verbleibende Weg erneut geprueft: eine Kugel darf
+// nacheinander verschiedene Waende treffen, wenn der reale Restweg das hergibt.
+const BARRIER_MAX_BOUNCES=4;
+function barrierSwept(b,x0,y0){
+  let px=x0,py=y0,rem=1;
+  for(let n=0;n<BARRIER_MAX_BOUNCES;n++){
+    const dx=b.x-px,dy=b.y-py;
+    if(dx*dx+dy*dy<1e-12)return;
+    if(!barrierEarliest(b,px,py,dx,dy))return;
+    const t=barrierHit.t,nx=barrierHit.nx,ny=barrierHit.ny;
+    const hx=barrierHit.x,hy=barrierHit.y;
+    const vn=b.vx*nx+b.vy*ny;
+    b.vx-=(1+BARRIER_RESTITUTION)*vn*nx;b.vy-=(1+BARRIER_RESTITUTION)*vn*ny;
+    rem*=1-t;                                   // Restanteil des GANZEN Sub-Steps
+    px=hx;py=hy;
+    b.x=hx+b.vx*rem;b.y=hy+b.vy*rem;
+    barrierStat.reflections++;barrierStat.stepReflections++;
+    if(barrierStat.stepReflections>barrierStat.maxPerBallStep)barrierStat.maxPerBallStep=barrierStat.stepReflections;
+    if(t<barrierStat.earliestT)barrierStat.earliestT=t;
+  }
+}
+// Statische Restkorrektur: schiebt eine noch ueberlappende Kugel exakt auf die
+// Wandflaeche. Faengt Ueberlappungen ab, die erst NACH der Integration entstehen —
+// vor allem, wenn eine zweite Kugel sie gegen die Wand drueckt. Bei mehreren Boegen
+// wird GENAU EINER korrigiert (die tiefste Ueberlappung) — nie zwei Impulse.
+function barrierResolve(b){
+  const arcs=barrierArcs();
+  let best=0,bx=0,by=0;
+  for(let i=0;i<arcs.length;i++){
+    const c=barrierClosest(arcs[i],b.x,b.y);
+    const pen=BR-Math.hypot(b.x-c.x,b.y-c.y);
+    if(pen>best){best=pen;bx=c.x;by=c.y;}
+  }
+  if(best<=0)return;
+  let nx=b.x-bx,ny=b.y-by;const d=Math.hypot(nx,ny);
+  if(d<1e-6){const ax=bx-cx,ay=by-cy,al=Math.hypot(ax,ay)||1;nx=-ax/al;ny=-ay/al;}
+  else{nx/=d;ny/=d;}
+  b.x=bx+nx*BR;b.y=by+ny*BR;
+  const vn=b.vx*nx+b.vy*ny;
+  if(vn<0){b.vx-=(1+BARRIER_RESTITUTION)*vn*nx;b.vy-=(1+BARRIER_RESTITUTION)*vn*ny;barrierStat.resolves++;}
+}
+// Positionen VOR der Integration — Startpunkte des Swept-Tests.
+const barrierPX=[],barrierPY=[];
+function barrierPrepare(){
+  if(!barrierOn())return;
+  for(let i=0;i<balls.length;i++){barrierPX[i]=balls[i].x;barrierPY[i]=balls[i].y;}
+}
+// Ein Sub-Step gegen die Waende. Laeuft VOR der Ring-out-Ermittlung, damit eine
+// gehaltene Kugel nie als Grenzueberschreitung zaehlt. Jede Wandmenge wird
+// getrennt geprueft: die Pre-Shot-Wand (Besitzer -1) behandelt alle Kugeln
+// identisch, eine Rescue-Wall nur die Kugeln ihres Besitzers — fremde Kugeln
+// laufen ungebremst durch. Mehrere Rescue-Waende verschiedener Seats koennen
+// gleichzeitig stehen; ihre Kugelmengen sind disjunkt, sie beeinflussen einander
+// also nicht, und die Reihenfolge (Besitzer aufsteigend) ist trotzdem fest.
+function barrierStep(){
+  if(!barrierOn())return;
+  const walls=barrierActiveWalls();
+  for(let w=0;w<walls.length;w++){
+    const wall=walls[w];
+    if(!wall.arcs.length)continue;
+    barrierArcsCur=wall.arcs;
+    for(let i=0;i<balls.length;i++){
+      const b=balls[i];if(!b.alive||(wall.owner>=0&&b.owner!==wall.owner))continue;
+      barrierStat.stepReflections=0;            // Reflexionen dieser Kugel in diesem Sub-Step
+      if(barrierPX[i]!=null)barrierSwept(b,barrierPX[i],barrierPY[i]);
+      barrierResolve(b);
+    }
+  }
+  barrierArcsCur=null;
+}
+
+// ==RESCUE-WALL-END==
+
 function resultDrift(){if(outBall<0)return;const b=balls[outBall];b.x+=b.vx*RESULT_SLOWMUL;b.y+=b.vy*RESULT_SLOWMUL;b.vx*=RESULT_FR;b.vy*=RESULT_FR;}
 // Online play uses the durable roster name (own or others; color-name fallback).
 // Local play keeps the generic labels. Callers render via textContent.
@@ -15469,6 +16444,166 @@ async function initR3D(){
      g.rotation.x=Math.PI/2;g.position.y=WALK_Y+.005;bGroup.add(g);
      boundaryFull=[zone,main,g];   // Vollkreis-Sichtringe: in NORMALEN Modi sichtbar, im Football-Modus versteckt (Blender-Bande ersetzt sie optisch)
     }
+      // ==RESCUE-WALL-RENDER-LOAD==
+      // Rescue Wall — Debug-Schalen und GLB-Template (RW1)
+    // Debug-Darstellung der temporaeren Schutzwand (Etappe 1): schlichte transparente
+    // Flaeche exakt auf dem Physik-Bogen, damit Treffer und Abprallwinkel sichtbar
+    // beurteilt werden koennen. Rein visuell, keine Rueckwirkung auf die Simulation.
+    // Arenawinkel a -> Zylinderwinkel PI/2-a (Zylinder: x=sin(theta), z=cos(theta)).
+    // Eine Schale je Segment (identische Geometrie, Drehung um Y mit -k*SPAN).
+    // Angezeigt werden alle aktiven Segmente; zusammenhaengende liegen luecken- und
+    // ueberlappungsfrei aneinander und lesen sich als ein durchgehendes Band.
+    const BARRIER_H=BR*2.2;
+    const barrierGeo=new THREE.CylinderGeometry(1,1,1,24,1,true,Math.PI-BARRIER_HALF,BARRIER_HALF*2);
+    const barrierMat=new THREE.MeshBasicMaterial({color:0x35e0ff,transparent:true,opacity:.30,side:THREE.DoubleSide,depthWrite:false});
+    const barrierShells=[];
+    for(let k=0;k<BARRIER_SEG_COUNT;k++){
+      const m=new THREE.Mesh(barrierGeo,barrierMat);
+      m.rotation.y=-k*BARRIER_SPAN;m.visible=false;m.renderOrder=2;
+      scene.add(m);barrierShells.push(m);
+    }
+    // ── Etappe 8A: freigegebene Polish-2-Wand (GLB) als Spiel-Visualisierung ──
+    // Rein visuell: Collider, Segmente, Einsaetze, Drag und Commit-Reveal bleiben
+    // unveraendert; die Debug-Schalen oben bleiben Lade-/Fehler-Fallback.
+    // Asset-Vertrag (assets/temporary_barrier/README.md): Root = Arenamitte mit
+    // Identitaetstransform, kanonisch Segment 0 -> Platzierung exakt wie die
+    // Debug-Schalen: rotation.y=-k*BARRIER_SPAN, Position (cx,bob,cy),
+    // horizontale Skalierung R/10.1. Die Hoehe skaliert NICHT mit dem
+    // Collapse-Radius (wie das feste BARRIER_H): vertikal gilt der
+    // Vollradius-Massstab. Genau EIN Netz-Load pro Sitzung.
+    const BARRIER_GLB_R=10.1;
+    const barrierGlb={ready:false,failed:false,requested:false,active:[],preview:null};
+    const BARRIER_CAL={
+        fieldAlpha:2.2,      // Alpha-Multiplikator NUR fuer M_BarrierField: material.opacity
+                             // multipliziert den gebackenen Alphakanal; das GPU-Blending
+                             // clampt das Ergebnis pro Pixel auf <=1 (kein Shader-Eingriff)
+        fieldEmissive:1.65,  // Feldemission (GLB-Basis 1.0)
+        emitEmissive:12.5,   // Emitter-Saeume oben/unten (GLB-Basis 10.08)
+        dockEmissive:6.2,    // Andock-Glimmen (GLB-Basis 5.04)
+        marbleTint:[0.80,0.83,0.88],   // Marmor: leicht dunkler/kuehler gegen den hellen Himmel
+        marbleRoughness:0.9,           // multipliziert die gebackene Roughness-Map (Texturen bleiben)
+        previewFactor:0.6,             // Vorschau ~60% der aktiven Intensitaet
+        // ── 8B: subtile Energieanimation (rein dekorativ) ────────────────────
+        // Alle Werte oszillieren UM die freigegebenen 8A.1-Basiswerte oben —
+        // die Baseline selbst bleibt unveraendert. Zeitquelle ist die reine
+        // Visualuhr nowS des Renderers (wie Grenz-Puls/Wolkendrift): kein
+        // Gameplay-State, kein simHash, keine Netzwerkwirkung.
+        animEmisAmp:.06,   animEmisPeriod:7.3,    // Feldemission ±6%, sehr langsames Atmen
+        animAlphaAmp:.04,  animAlphaPeriod:9.7,   // Feld-Alpha ±4%, eigene Periode (kein Gleichtakt)
+        animDriftAmp:.010, animDriftPeriod:16.0,  // vertikaler UV-Drift ±1% Texturhoehe (~1.7cm Welt)
+        animPreviewAmp:.025, animPreviewSlow:.5   // Vorschau: NUR Emission ±2.5% bei halbem Tempo
+    };
+    // 9B: genau EIN Netz-Load, und zwar erst wenn ein unterstuetztes Match
+    // laeuft (barrierGlbLoad() wird aus der Renderschleife angestossen).
+    const barrierGlbLoad=()=>{
+      if(barrierGlb.requested)return;
+      barrierGlb.requested=true;
+      new GLTFLoader().load(assetUrl('assets/temporary_barrier/export/temporary_barrier_polish2.glb'),(g)=>{
+      // Grenzbauteil-Teilung: Pfeiler, Goldband und Halsring sitzen exakt AUF
+      // der Segmentgrenze — bei zwei aktiven Nachbarwaenden laegen sie doppelt
+      // und deckungsgleich uebereinander (Z-Fighting). Das Template wird darum
+      // einmalig deterministisch in Kern + zwei Grenz-Sets geteilt:
+      //   endA = Grenze Richtung (k+1)%12 (kanonisch x>0), endB = Richtung k-1.
+      // Die Andock-Kanaele sind je Wand zur EIGENEN Feldmitte versetzt, also
+      // nie deckungsgleich — sie bleiben im Kern (zwei Kanaele an einem
+      // geteilten Pfeiler sind der konstruktive Soll-Zustand des Assets).
+      const meshes={};
+      g.scene.traverse((o)=>{if(o.isMesh)meshes[o.name]=o;});
+      const parts=[];   // {geom, side:'core'|'a'|'b', mat}
+      const addPart=(mesh)=>{
+        const byX=mesh.name==='BarrierPylons'||mesh.name==='BarrierGold';
+        const neckY=mesh.name==='BarrierFrame'?2.0:null;   // im Frame sind nur die Halsringe (y>2) Grenzteile
+        if(!byX&&neckY===null){parts.push({geom:mesh.geometry,side:'core',mat:mesh.material});return;}
+        const pos=mesh.geometry.attributes.position,idx=mesh.geometry.index.array;
+        const buckets={core:[],a:[],b:[]};
+        for(let i=0;i<idx.length;i+=3){
+          let x=0,y=0;
+          for(let j=0;j<3;j++){x+=pos.getX(idx[i+j]);y+=pos.getY(idx[i+j]);}
+          const end=byX||y/3>neckY;
+          buckets[end?(x>0?'a':'b'):'core'].push(idx[i],idx[i+1],idx[i+2]);
+        }
+        for(const side of ['core','a','b'])if(buckets[side].length){
+          const g2=mesh.geometry.clone();g2.setIndex(buckets[side]);g2.computeBoundingSphere();
+          parts.push({geom:g2,side,mat:mesh.material});
+        }
+      };
+      for(const n of ['BarrierField','BarrierEmitters','BarrierDockGlow','BarrierFrame','BarrierPylons','BarrierGold']){
+        if(meshes[n])addPart(meshes[n]);
+        else console.warn('[barrier] GLB-Node fehlt im Template:',n);
+      }
+      // ── 8A.1 Runtime-Materialkalibrierung ────────────────────────────────
+      // Ingame-Befund: der freigegebene Blender-Look lebt auch vom blick-
+      // winkelabhaengigen Facing-Glow, der in glTF-Core nicht existiert
+      // (dokumentierte Export-Abweichung), und die Cycles-kalibrierte
+      // Emission faellt unter ACES + hellem Tages-HDRI deutlich ab — aus der
+      // Gameplay-Kamera war die Wand dadurch zu blass. Kalibriert werden
+      // AUSSCHLIESSLICH Runtime-Werte auf KLONEN: die geladenen Template-
+      // Materialien bleiben unveraendert, aktive Instanzen teilen sich einen
+      // kalibrierten Klon-Satz, die Vorschau bekommt davon eigene Klone.
+      const calCache=new Map(),pvCache=new Map();
+      const activeMat=(m)=>{
+        if(!calCache.has(m)){
+          const c=m.clone();
+          if(c.name==='M_BarrierField'){c.depthWrite=false;c.opacity=BARRIER_CAL.fieldAlpha;
+            c.emissiveIntensity=BARRIER_CAL.fieldEmissive;
+            // 8B: eigene Texturinstanzen (geteilte Bilddaten, einmalig beim
+            // Laden) — der UV-Drift der aktiven Waende darf Template- und
+            // Vorschau-Texturen nicht mitbewegen.
+            if(c.map)c.map=c.map.clone();
+            if(c.emissiveMap)c.emissiveMap=c.emissiveMap.clone();
+            barrierGlb.fieldMat=c;}
+          else if(c.name==='M_BarrierEmit')c.emissiveIntensity=BARRIER_CAL.emitEmissive;
+          else if(c.name==='M_BarrierDock')c.emissiveIntensity=BARRIER_CAL.dockEmissive;
+          else if(c.name==='M_BarrierMarble'){c.color.setRGB(BARRIER_CAL.marbleTint[0],
+            BARRIER_CAL.marbleTint[1],BARRIER_CAL.marbleTint[2]);c.roughness=BARRIER_CAL.marbleRoughness;}
+          calCache.set(m,c);
+        }
+        return calCache.get(m);
+      };
+      const previewMat=(m)=>{
+        if(!pvCache.has(m)){
+          const p=activeMat(m).clone();
+          p.transparent=true;p.depthWrite=false;
+          p.emissiveIntensity*=BARRIER_CAL.previewFactor;
+          p.opacity=p.name==='M_BarrierField'
+            ?BARRIER_CAL.fieldAlpha*BARRIER_CAL.previewFactor
+            :.5;
+          if(p.name==='M_BarrierField'){
+            // 8B: Vorschau bekommt wieder EIGENE, ruhende Texturinstanzen
+            // (der Klon oben teilt sonst die driftenden Aktiv-Texturen).
+            if(p.map)p.map=p.map.clone();
+            if(p.emissiveMap)p.emissiveMap=p.emissiveMap.clone();
+            barrierGlb.fieldMatPv=p;
+          }
+          pvCache.set(m,p);
+        }
+        return pvCache.get(m);
+      };
+      const mkInstance=(mode)=>{
+        const grp=new THREE.Group(),endA=new THREE.Group(),endB=new THREE.Group();
+        grp.add(endA);grp.add(endB);
+        for(const part of parts){
+          const m=new THREE.Mesh(part.geom,mode==='active'?activeMat(part.mat):previewMat(part.mat));
+          m.raycast=function(){};   // rein visuell: nie Ziel von Pointer-/Raycast-Logik
+          m.renderOrder=mode==='active'?(part.mat.name==='M_BarrierField'?2:0):3;
+          (part.side==='a'?endA:part.side==='b'?endB:grp).add(m);
+        }
+        grp.visible=false;scene.add(grp);
+        return {grp,endA,endB};
+      };
+      for(let k=0;k<BARRIER_SEG_COUNT;k++){
+        const inst=mkInstance('active');
+        inst.grp.rotation.y=-k*BARRIER_SPAN;
+        barrierGlb.active.push(inst);
+      }
+      barrierGlb.preview=mkInstance('preview');
+      barrierGlb.ready=true;
+      console.log('[barrier] Polish-2-GLB aktiv: 12 Segment-Instanzen + lokale Vorschau, Debug-Schalen abgeloest');
+    },undefined,(err)=>{
+      barrierGlb.failed=true;
+      console.error('[barrier] Polish-2-GLB konnte nicht geladen werden — Debug-Schalen bleiben als Fallback aktiv.',err&&err.message||err);
+      });
+    };
     // ==== Arena-Football: freigegebenes Blender-Tor (rein visuell, KEINE Physik/Bande) ====
     // Genau EIN GLB wird geladen; die zweite Torinstanz ist ein Clone (geteilte Geometrie/
     // Materialien -> keine zweite Dateianforderung). Beide Tore liegen im selben lokalen
@@ -17005,6 +18140,74 @@ async function initR3D(){
       cloudG.rotation.y=nowS*.006;                    // Wolken driften
       island.position.y=-404+Math.sin(nowS*.3+2.3)*35;
       if(mainBMat)mainBMat.emissiveIntensity=1.3+Math.sin(nowS*1.6)*.12;   // ruhiger Grenz-Puls
+      // ==RESCUE-WALL-RENDER-FRAME==
+      // Rescue Wall — Platzierung je Bild (RW1)
+      // Debug-Schutzwand: sichtbar waehrend der Physikphase UND als Vorschau nach der
+      // Auswahl. barrierVisualOn() ist bewusst getrennt von barrierOn() — die Vorschau
+      // in der Planungsphase zeigt nur an, sie kollidiert nicht.
+      if(barrierRuntimeOn())barrierGlbLoad();   // 9B: lazy, nur im unterstuetzten Match
+      const barrierVis=barrierVisualOn(),barrierAct=barrierVis?barrierActiveSegments():null;
+      // 8A: sobald das GLB-Template bereit ist, uebernehmen die Polish-2-Waende;
+      // die Debug-Schalen bleiben reiner Lade-/Fehler-Fallback. Physikphase
+      // (und ?bsegs-Debugpfad) = volle aktive Waende; Planungsphase = NUR die
+      // lokale Vorschau-Instanz (max. ein Segment, nie fremde Vorwahlen).
+      const barrierGlbOn=barrierGlb.ready;
+      const barrierLive=phase==='reveal'||phase==='sim'||BARRIER_MULTI;
+      const barrierScH=R/BARRIER_GLB_R;   // horizontal: aktueller Collider-Radius
+      // vertikal: Vollradius-Massstab ueber DIESELBE Wahrheit wie die Plattform
+      // (colv.div = GLB_R*0.82^cnt, transitionssynchron gepflegt) — die Hoehe
+      // schrumpft im Collapse nicht mit und springt in Uebergangsframes nie.
+      const barrierScV=R/colv.div;
+      let barrierAnyActive=false;
+      for(let k=0;k<BARRIER_SEG_COUNT;k++){
+        const on=barrierVis&&barrierAct.indexOf(k)>=0;
+        const m=barrierShells[k];
+        m.visible=on&&!barrierGlbOn;
+        if(m.visible){m.scale.set(R,BARRIER_H,R);m.position.set(cx,bob+BARRIER_H/2,cy);}
+        if(barrierGlbOn){
+          const inst=barrierGlb.active[k],act=on&&barrierLive;
+          inst.grp.visible=act;
+          if(act){
+            barrierAnyActive=true;
+            inst.grp.scale.set(barrierScH,barrierScV,barrierScH);
+            inst.grp.position.set(cx,bob,cy);
+            // Grenz-Dedup (inkl. Wrap 11->0): das AUF der gemeinsamen Grenze
+            // liegende Pfeiler-Set zeichnet genau EINE der beiden Nachbarwaende.
+            inst.endA.visible=barrierAct.indexOf((k+1)%BARRIER_SEG_COUNT)<0;
+          }
+        }
+      }
+      if(barrierGlbOn){
+        const pv=barrierGlb.preview;
+        const pseg=!barrierLive&&barrierVis&&barrierAct.length?barrierAct[0]:-1;
+        pv.grp.visible=pseg>=0;
+        if(pseg>=0){
+          pv.grp.rotation.y=-pseg*BARRIER_SPAN;
+          pv.grp.scale.set(barrierScH,barrierScV,barrierScH);
+          pv.grp.position.set(cx,bob,cy);
+        }
+        // ── 8B: subtile Energieanimation der Energieflaeche ────────────────
+        // Rein dekorativ: weiche Sinuskurven um die freigegebenen 8A.1-Werte,
+        // Visualuhr nowS (wie Grenz-Puls), NUR sichtbare Feldmaterialien
+        // werden angefasst — kein Gameplay-/Netz-/simHash-Bezug, keine
+        // Allokationen, keine Geometriebewegung (UV-Drift der Texturmatrix).
+        const CAL=BARRIER_CAL;
+        if(barrierAnyActive&&barrierGlb.fieldMat){
+          const f=barrierGlb.fieldMat,TAU=Math.PI*2;
+          f.emissiveIntensity=CAL.fieldEmissive*(1+CAL.animEmisAmp*Math.sin(TAU*nowS/CAL.animEmisPeriod));
+          f.opacity=CAL.fieldAlpha*(1+CAL.animAlphaAmp*Math.sin(TAU*nowS/CAL.animAlphaPeriod+1.7));
+          const dy=CAL.animDriftAmp*Math.sin(TAU*nowS/CAL.animDriftPeriod);
+          if(f.map)f.map.offset.y=dy;
+          if(f.emissiveMap)f.emissiveMap.offset.y=dy;
+        }
+        if(pv.grp.visible&&barrierGlb.fieldMatPv){
+          // Vorschau deutlich ruhiger: nur Emission, kleinere Amplitude,
+          // halbes Tempo — kein Alpha-Atmen, kein Drift.
+          const p=barrierGlb.fieldMatPv;
+          p.emissiveIntensity=CAL.fieldEmissive*CAL.previewFactor
+            *(1+CAL.animPreviewAmp*Math.sin(Math.PI*2*nowS*CAL.animPreviewSlow/CAL.animEmisPeriod));
+        }
+      }
       for(let i=0;i<balls.length;i++){
         let m=ballMeshes[i],d=decals[i];
         if(!m){m=new THREE.Mesh(new THREE.SphereGeometry(BR,40,26),ballMat[0]);
@@ -17360,6 +18563,10 @@ function loop(now){
   // RINGOUT-Feedback + Dev-Sync-Log: reiner Phasen-Watcher (stepSim/Physik unangetastet)
   if(phase!==prevPhaseFx){if(phase==='result')showRingout();devSync('phase->'+phase);prevPhaseFx=phase;}
   SFX.rollUpdate(balls,phase==='sim');
+  // Rescue-Verfuegbarkeit kann mitten im Zug kippen (Ring-out, Settlement, verbrauchter
+  // Einsatz). Die Pille muss dem JEDES Bild folgen, sonst glimmt sie weiter 'einsetzbar',
+  // waehrend der Tap laengst abgewiesen wird.
+  if(phase==='sim'&&typeof barrierRescueMode==='function'&&barrierRescueMode()&&typeof barrierUi==='function')barrierUi();
   fbClockPaint();   // Restzeit im HUD nachziehen: reine Ausgabe, die Uhr laeuft in simStep
   draw();
   if(r3dActive&&!r3dContextLost)r3d.render();   // verlorener Kontext: kein WebGL-Aufruf

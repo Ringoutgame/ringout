@@ -45,6 +45,8 @@ const DATEIEN = [
   'assets/arena_platform_stage2.glb',
   // Ring-Collapse (RingOut Bot Training): freigegebenes Sechs-Segment-Band beider Stufen
   'assets/ring_collapse/ring_collapse_six_segment_simplified.glb',
+  // Rescue Wall (RingOut, offline/Bot): freigegebene Polish-2-Wand, ein Segment-Template
+  'assets/temporary_barrier/export/temporary_barrier_polish2.glb',
   'assets/arena_football_goal.glb',
   'assets/arena_football_band.glb',
   // Umgebungslicht: Profil "dawn", Profil "day" und die gemeinsame Fallbackkette

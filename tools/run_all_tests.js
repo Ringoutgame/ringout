@@ -36,6 +36,7 @@ const SUITES = [
   { name: 'r3d-Mapping',      file: 'test_r3d_mapping.js',    expectPassed: 52 },
   { name: 'Ring-Collapse',    file: 'test_collapse.js',       expectPassed: 330 },   // RingOut-Delta B2: Two-Stage-Collapse (2 x 30 s, sofort bei 0), Bot-Produktpfad, Stage-2-Arena/Auslieferung
   { name: 'Collapse-SFX',     file: 'test_collapse_sfx.js',   expectPassed: 130 },   // RingOut-Delta B2: Collapse-Klang read-only aus dem sichtbaren Adapter, 14 WAV-Derivate
+  { name: 'Rescue-Wall',      file: 'test_rescue_wall.js',    expectPassed: 130 },   // RW1: Reactive Rescue Wall offline/Bot — Zone am aktuellen Radius, 3 Einsaetze je Match, Tick-Semantik, Besitzerfilter, Lebensdauer; online ist NICHT Teil dieser Phase
   { name: 'Sanitize',         file: 'test_sanitize.js',       expectPassed: 24 },
   { name: 'Identity',         file: 'test_identity.js',       expectPassed: 45 },
   { name: 'ValidateRoom',     file: 'test_validateroom.js',   expectPassed: 48 },

@@ -6,6 +6,17 @@ Alle abgeschlossenen Änderungen am Projekt, neueste zuerst.
 
 ## [Unreleased]
 
+### RingOut — Rescue Wall (RW1)
+- feat(ringout): **Rescue Wall im lokalen Bot-Training** (2026-09-17) — waehrend die Kugeln rollen (`phase==='sim'`) tippt der Spieler in den aeusseren Ring (62–145 % des AKTUELLEN Radius); der Tap rastet ueber den Winkel auf eines von zwoelf 30-Grad-Segmenten. Die Wand haelt ausschliesslich die Kugeln ihres Besitzers, Restitution 0,55. Portiert aus dem freigegebenen Stand `feat/protocol-v4-bc` (0dd5858).
+- feat(ringout): **drei Einsaetze je Seat und Match, hoechstens einer je Zug** (2026-09-17) — verbraucht wird beim Tap, offline ohne Rueckgabe. Eine neue Runde oder eine Collapse-Stufe fuellt nie auf; nur neues Match und Rematch setzen zurueck.
+- feat(ringout): **Lebensdauer genau ein Zug** (2026-09-17) — das Ereignis wird an der naechsten Sub-Step-Grenze zur Wand und faellt mit jedem Phasenwechsel aus `sim`. Es bleibt kein unsichtbarer Collider zurueck.
+- feat(physics): **Kollision laeuft VOR der Ring-Out-Auswertung** (2026-09-17) — eine gehaltene Kugel zaehlt dadurch nie als Grenzueberschreitung; der Sub-Step-Zaehler steigt erst danach. Alle Einhaengepunkte in `stepSim` sind `typeof`-abgesichert, die Golden-Physik bleibt bitgleich.
+- feat(visuals): **freigegebene Polish-2-Wand als GLB** (2026-09-17) — `assets/temporary_barrier/export/temporary_barrier_polish2.glb` (1,76 MiB), horizontal auf den aktuellen Radius skaliert, vertikal am Vollradius-Massstab; genau ein Netz-Load je Sitzung, lazy erst im unterstuetzten Match.
+- feat(hud): **Einsatz-Abzeichen in der Spielerkarte** (2026-09-17) — zeigt den Restbestand und glimmt, solange die Wand einsetzbar ist. Im Arena-Football-HUD entsteht es nie (`#game.fb .rbadge{display:none}`).
+- test: **neue Suite `test_rescue_wall.js`, 130 Zusicherungen** (2026-09-17) — Zone am aktuellen Radius (geprueft bei R = 1000, 820 und 672), Segmentzuordnung, Einsatzvertrag, Tick-Semantik, Besitzerfilter, Bogenverschmelzung, Lebensdauer, Anzeige und Quelltextvertrag. Runner **58/58**.
+- test: **Collapse-Vertraeglichkeit zur Laufzeit belegt** (2026-09-17) — Stufe 0, Stufe 1 und Stufe 2 im Browser. Nach Stufe 2: Wand auf dem kleinsten Rand gesetzt, Kugel gehalten, kein Ring-out, Wand am Zugende abgeraeumt, dieselbe Randregion danach wieder durchlaessig.
+- **Nicht enthalten** (2026-09-17): Online-Rescue-Wall (`rw`-Slot, v4-Turn-Autoritaet, Einsatz-Ableitung), Protokollaenderung, Firebase Rules, Arena-Football-Aenderungen. RW2 ist nicht begonnen.
+
 ### RingOut — Zweistufiger Arena-Collapse (B2 / B2A / B2B)
 - feat(ringout): **zweistufiger Collapse im lokalen Bot Training** (2026-09-16) — zwei Zyklen zu je 30 s Planungszeit; bei 0 faellt der Collapse SOFORT in der Planungsphase (kein Auto-Stand, offener Zug bleibt offen), Radius je Stufe x0.82 (1000 -> 820 -> 672,4), nach der zweiten Stufe terminal. Portiert aus `feat/protocol-v4-bc` (6d81aaa, fcfaf6e, 24f4423).
 - feat(visuals): **Collapse Visual v6** (2026-09-16) — sechs Segmente reissen, kippen und stuerzen, der Stage-2-Boden faellt keilweise mit; das alte 2D-Warn-/Grenz-Overlay entfaellt (c6fcbe7, f518c14). Neue Produktarena `assets/arena_platform_stage2.glb` mit den bereits freigegebenen Diaet-Texturen.
