@@ -2060,21 +2060,37 @@ async function restoreOwnPresence(ctx){
   }finally{ presenceRestoreBusy=false; }
   return out;
 }
+// GELESEN WIRD GEZIELT - NIE DER GANZE RAUMKNOTEN. Ein Lesevorgang auf 'rooms/<code>'
+// deckt auch den laufenden Zugpfad g/<gen>/t/<turn> mit ab. Registriert der Client seinen
+// Turn-Listener, waehrend ein solcher Lesevorgang noch unterwegs ist, bedient das SDK den
+// Listener aus dessen Schnappschuss und meldet ihn NIE beim Server an: der Sitz sieht von
+// da an keinen fremden Zug mehr und bleibt in der Planungsphase stehen, waehrend der
+// Gegner normal weiterspielt. Beim Gast fielen genau diese beiden Vorgaenge zusammen -
+// attachRoomListeners startet die Praesenzwache, und wenige Millisekunden spaeter armiert
+// startOnlineGame den Zug-Listener. Die Praesenzpruefung braucht ohnehin nur fuenf Felder.
 async function restorePresencePass(ctx){
   try{
-    const snap=await window.FB.get(window.FB.ref(window.FB.db,'rooms/'+ctx.room));
+    const feld=p=>window.FB.get(window.FB.ref(window.FB.db,'rooms/'+ctx.room+'/'+p));
+    // gen wird bei der Anlage gesetzt und lebt so lange wie der Raum - sein Dasein ist
+    // die Existenzpruefung.
+    const [sv,sg,sr,sp]=await Promise.all([feld('v'),feld('gen'),
+      feld('players/'+ctx.seat),feld('p/'+ctx.seat)]);
     if(!presenceCtxValid(ctx))return 'stale';
-    const v=snap.val();
-    if(!v)return 'noRoom';                                  // Raum existiert nicht mehr
+    const v={v:sv.val(),gen:sg.val()};
+    if(!sg.exists())return 'noRoom';                        // Raum existiert nicht mehr
     if(v.v!==roomProto)return 'version';                    // fremdes Protokoll
     if((v.gen|0)!==gen)return 'gen';                        // andere Generation -> nicht raten
-    const uid=fbUid(), rec=v.players&&v.players[ctx.seat], pres=v.p&&v.p[ctx.seat];
+    const uid=fbUid(), rec=sr.val(), pres=sp.val();
     // Eigentum wird VOR jedem Schreiben neu geprueft. Im Zweifel geschieht nichts.
     if(!uid||!rec||rec.uid!==uid)return 'owner';            // nicht (mehr) unser Sitz
     if(rec.tab!==ctx.tab)return 'session';                  // andere Sitzung haelt den Sitz
     if(!pres||pres.s!==ctx.tab)return 'token';              // Praesenztoken passt nicht
-    const ge=v.g&&v.g[String(v.gen)];
-    if(ge&&ge.e&&ge.e[ctx.seat]===true)return 'evicted';    // dauerhaft entfernt -> NICHT wiederbeleben
+    // Der Austragungsmarker gehoert zu GENAU DER Generation, die oben geprueft wurde. Er
+    // wird deshalb erst hier und mit v.gen gelesen - die lokale Generation kann sich
+    // waehrend eines await noch bewegen, und dann laese man am falschen Ort nach.
+    const se=await feld('g/'+String(v.gen)+'/e/'+ctx.seat);
+    if(!presenceCtxValid(ctx))return 'stale';
+    if(se.val()===true)return 'evicted';                    // dauerhaft entfernt -> NICHT wiederbeleben
     // ARM bei JEDER Rueckverbindung - auch wenn die Praesenz schon on:true zeigt. Eine
     // onDisconnect-Registrierung ueberlebt den Abriss nicht; ohne neues ARM bliebe der
     // Sitz beim naechsten Ausfall faelschlich als verbunden stehen.

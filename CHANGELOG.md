@@ -6,6 +6,13 @@ Alle abgeschlossenen Änderungen am Projekt, neueste zuerst.
 
 ## [Unreleased]
 
+### RingOut — Online-Zwei-Client-Desync 01 (P0)
+- fix(online): **Gast fror im ersten Zug ein, Host spielte weiter** (2026-09-17) — im Online-Versus (`fmt='double'`) blieb der Beitretende in der Planungsphase stehen („Warte auf Gegner…“) und sah den Zug des Gegners nie; kein Verbindungsabbruch, kein Overlay, `turnUnsub` gesetzt. Ohne Fix in **6 von 6** Zwei-Client-Läufen reproduzierbar.
+- fix(online): **Ursache — Lesevorgang auf dem ganzen Raumknoten kollidierte mit der Listener-Anmeldung** (2026-09-17) — `restorePresencePass()` las `rooms/<code>`, und dieser Pfad deckt den laufenden Zugpfad `g/<gen>/t/<turn>` mit ab. Beim Gast fällt der Lesevorgang (aus `startPresenceWatch()` in `attachRoomListeners()`) mit dem Armieren des Turn-Listeners zusammen: Firebase bediente den Listener aus dem Schnappschuss des laufenden Reads und meldete ihn **nie beim Server an**. Belegt am Firebase-Websocket — der Host sendet `{"a":"q","p":"/rooms/<code>/g/0/t/0"}`, der Gast auf keinem Zugpfad je ein `q`. Der Host ist nicht betroffen, weil `attachRoomListeners()` bei ihm schon bei der Raumanlage läuft (721 ms Abstand gegen 75 ms).
+- fix(online): **gezielte Feld-Lesevorgänge statt Raumknoten** (2026-09-17) — gelesen werden nur noch `v`, `gen`, `players/<sitz>`, `p/<sitz>` und `g/<gen>/e/<sitz>`; keiner dieser Pfade überdeckt den Zugpfad. Prüfreihenfolge unverändert, der Austragungsmarker weiterhin mit der Generation **aus dem Schnappschuss** und erst nach der Generationsprüfung. **Keine Sleeps, keine Retries, kein Timeout.**
+- test: **2 × 10 Züge mit zwei unabhängigen Browser-Kontexten synchron** (2026-09-17) — einmal Host = A, einmal mit vertauschten Rollen; Spielstand auf beiden Clients identisch. Gegenprobe mit zurückgenommenem Fix holt den Fehler sofort zurück (Zug 1). Runner **58/58**.
+- **Nicht enthalten** (2026-09-17): Firebase Rules, Protokolländerung, Arena Football, Rescue Wall und Collapse — der Fix liegt in genau einer Funktion.
+
 ### RingOut — Rescue Wall (RW1)
 - feat(ringout): **Rescue Wall im lokalen Bot-Training** (2026-09-17) — waehrend die Kugeln rollen (`phase==='sim'`) tippt der Spieler in den aeusseren Ring (62–145 % des AKTUELLEN Radius); der Tap rastet ueber den Winkel auf eines von zwoelf 30-Grad-Segmenten. Die Wand haelt ausschliesslich die Kugeln ihres Besitzers, Restitution 0,55. Portiert aus dem freigegebenen Stand `feat/protocol-v4-bc` (0dd5858).
 - feat(ringout): **drei Einsaetze je Seat und Match, hoechstens einer je Zug** (2026-09-17) — verbraucht wird beim Tap, offline ohne Rueckgabe. Eine neue Runde oder eine Collapse-Stufe fuellt nie auf; nur neues Match und Rematch setzen zurueck.
