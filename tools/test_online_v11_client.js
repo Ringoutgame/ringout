@@ -137,6 +137,9 @@ const UID=['U0','U1','U2','U3','U4'];
 // beweist der Rules-Pruefstand - hier wird gemessen, WAS der Client schreiben will.
 let DB={};
 let SCHREIBFEHLER=null;
+// Einmaliger Haken WAEHREND eines update: bildet ab, was der eigene Listener tut, bevor die
+// Bestaetigung zurueckkommt (Wettlauf zwischen await und Zustands-Listener).
+let BEIM_UPDATE=null;
 // Bewusst ein EIGENES window je Sandkasten, kein globalThis.window: ein
 // aufgeschobener Vorgang eines frueheren Sandkastens loest window erst beim
 // Aufruf auf und schriebe sonst in das Protokoll des NAECHSTEN. Das waere ein
@@ -152,6 +155,7 @@ const window={FB:{
     update(ref,upd){
       if(SCHREIBFEHLER)return Promise.reject(new Error(SCHREIBFEHLER));
       PROTOKOLL.push({op:'update',pfad:ref.pfad,upd:JSON.parse(JSON.stringify(upd))});
+      if(BEIM_UPDATE){ const f=BEIM_UPDATE; BEIM_UPDATE=null; f(); }
       return Promise.resolve();
     },
     get(ref){
@@ -186,6 +190,9 @@ return {
   db(pfad,wert){ DB[pfad]=wert; },
   fehler(v){ SCHREIBFEHLER=v; },
   oeffentlich(a,b){ roomOeffentlich=a; roomPublic=b; },
+  // Was maybeStart beim Wirt tut, sobald sein Listener den Start sieht - hier WAEHREND des
+  // await in fbV11Starten, also vor dessen Fortsetzung.
+  abraeumenBeimStart(){ BEIM_UPDATE=()=>{ if(roomPublic){ removePublicListing(roomCode); roomPublic=false; } }; },
   proto(v){ roomProto=v; },
   melden:melden,
   zustand(){ return {state:fbV11State, hostUid:roomHostUid, gestartet:fbV11Gestartet,
@@ -1094,6 +1101,34 @@ abschnitt('Der Austritt traegt den Marker der laufenden Generation - je nach Pro
     t('J die naechste Generation kennt den Ausgetretenen nicht',
       u && JSON.stringify(u.upd['g/2/pt']) === '{"0":true,"2":true}',
       u && JSON.stringify(u.upd['g/2/pt']));
+  }
+  // ── K. der oeffentliche Eintrag verschwindet beim Start GENAU EINMAL ─────────
+  // Live-Befund: der eigene Listener nahm den Start waehrend des await auf (maybeStart
+  // loescht den Eintrag), danach loeschte fbV11Starten mit einem Schnappschuss von VOR dem
+  // await ein zweites Mal - die Rules lehnen das Loeschen eines fehlenden Eintrags ab
+  // (data.exists), sichtbar als permission_denied.
+  const startOeffentlich = async (wettlauf) => {
+    const M = neu();
+    M.roster(ROSTER([0, 1])); M.praesenz(PRAESENZ([0, 1]));
+    M.wirt('U0'); M.sitz(0); M.gen(1); M.stand('lobby'); M.oeffentlich(true, true); M.leeren();
+    if (wettlauf) M.abraeumenBeimStart();
+    await M.starten(); await tick();
+    return { weg: M.P.filter(x => x.op === 'listeWeg').length, pub: M.zustand().roomPublic };
+  };
+  {
+    const r = await startOeffentlich(false);
+    t('K1 oeffentlicher Raum ohne Wettlauf: der Eintrag wird genau einmal entfernt', r.weg === 1 && r.pub === false, r);
+  }
+  {
+    const r = await startOeffentlich(true);
+    t('K2 der Listener raeumt waehrend des await ab: KEIN zweites Loeschen', r.weg === 1 && r.pub === false, r);
+  }
+  {
+    const M = neu();
+    M.roster(ROSTER([0, 1])); M.praesenz(PRAESENZ([0, 1]));
+    M.wirt('U0'); M.sitz(0); M.gen(1); M.stand('lobby'); M.oeffentlich(false, false); M.leeren();
+    await M.starten(); await tick();
+    t('K3 privater Raum: kein Loeschversuch', M.P.filter(x => x.op === 'listeWeg').length === 0);
   }
 }
 

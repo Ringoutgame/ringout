@@ -13954,7 +13954,7 @@ async function fbV11Starten(){
   const ng=gen+1, upd={}, pt={};
   for(const s of da)pt[s]=true;
   upd['gen']=ng; upd['state']='playing'; upd['g/'+ng+'/pt']=pt;
-  const ctx={sid:onlineSessionId,room:roomCode,pub:roomPublic};
+  const ctx={sid:onlineSessionId,room:roomCode};
   let abgewiesen=false;
   try{
     await window.FB.update(rRef(''),upd);
@@ -13963,8 +13963,12 @@ async function fbV11Starten(){
     // Leere gelesen; deshalb hier ausdruecklich noch einmal. Damit braucht der Regelfall
     // die Wartestelle gar nicht erst.
     if(ctx.sid===onlineSessionId&&ctx.room===roomCode)fbV11Schritt();
-    // Der Raum spielt: er gehoert nicht mehr in die oeffentliche Liste.
-    if(ctx.pub&&ctx.room===roomCode){ removePublicListing(ctx.room); roomPublic=false; }
+    // Der Raum spielt: er gehoert nicht mehr in die oeffentliche Liste. Entscheidend ist das
+    // LEBENDE Flag, kein Schnappschuss von vor dem await: waehrend des Wartens hat der eigene
+    // Listener den Start womoeglich schon aufgenommen (maybeStart) und den Eintrag entfernt.
+    // Ein zweites Loeschen liefe ins Leere und wuerde von den Rules abgewiesen
+    // (data.exists) - sichtbar als permission_denied in der Konsole.
+    if(roomPublic&&ctx.room===roomCode){ removePublicListing(ctx.room); roomPublic=false; }
   }catch(e){ abgewiesen=true; }
   if(ctx.sid!==onlineSessionId||ctx.room!==roomCode)return;
   fbV11StartBusy=false;
