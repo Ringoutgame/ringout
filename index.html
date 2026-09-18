@@ -2899,7 +2899,7 @@ $('fbElimBack').onclick=()=>{$('fbElimOv').classList.remove('show');$('fbModeOv'
 $('fbOnlineBtn').onclick=async()=>{
   if(SFX.click())vibrateMs(VIBE_CLICK_MS);
   if(TUNE){toast('Tuning aktiv — Online deaktiviert');return;}
-  if(!(await r3dSichern())){toast(T('fbNo3d'));return;}
+  if(!(await r3dSichern(true))){toast(T('fbNo3d'));return;}
   $('fbModeOv').classList.remove('show');
   fbOnModeShow();
 };
@@ -3006,7 +3006,7 @@ function fbOnlineFrei(m){ return typeof fbModeReleased==='function' && fbModeRel
 // Lobby und Start sind unveraendert die der gemeinsamen Shell.
 async function fbFfaOnlineOeffnen(){
   if(TUNE){toast('Tuning aktiv — Online deaktiviert');return;}
-  if(!(await r3dSichern())){toast(T('fbNo3d'));return;}
+  if(!(await r3dSichern(true))){toast(T('fbNo3d'));return;}
   if(!fbOnlineFrei(FB_ONLINE_MODE_LIVES)){toast(T('onModeLocked'));return;}
   fbOnlineMode=FB_ONLINE_MODE_LIVES; fbOnlineCap=FB_ONLINE_SEATS;
   fbOnlineEnter();
@@ -10519,10 +10519,11 @@ function buildRoomRow(code,view,ausDemMenue){
   // Beitritt aus einer Vorschau: erst die Online-Seite des RICHTIGEN Raums oeffnen
   // (Status/Fehler sichtbar), dann der unveraenderte joinPublicRoom->joinRoom-Pfad —
   // keine zweite Join-Implementierung, keine eigene Sitzvergabe.
-  btn.onclick=async()=>{
-    // Ein Arena-Football-Raum wird in der 3D-Szene gespielt; ohne sie fuehrt der Beitritt
-    // in einen unspielbaren Zustand. Ring-Out-Raeume warten hier nicht.
-    if(view.game===ROOM_GAME_FOOTBALL&&!(await r3dSichern())){toast(T('fbNo3d'));return;}
+  btn.onclick=()=>{
+    // Sofort auf die Online-Seite: die Szenenpruefung fuer Arena Football macht joinRoom()
+    // selbst, mit dauerhaft sichtbarem Status. Hier vorab zu warten hielt den Menschen bis
+    // zum Ende des Szenenladens (auf dem Telefon viele Sekunden) auf der Liste fest - ohne
+    // jede Rueckmeldung ausser einem kurzen Toast. Das wirkte wie ein toter Knopf.
     if(ausDemMenue)openOnlineForRoom(view);
     joinPublicRoom(code);
   };
@@ -13585,7 +13586,12 @@ function joinRoom(){
       // Weg ueber einen Raumcode muss dieselbe Bedingung erfuellen - sonst besetzt ein
       // nicht spielbarer Client einen Sitz, und das Match wartet auf einen Zug, der nie
       // kommt (bis Frist und REMOVE greifen).
-      if(joinFb&&!(await r3dSichern())){ setStatus(T('fbNo3d')); return; }
+      // Das Laden kann auf dem Telefon lange dauern: solange steht es im Status, nicht nur
+      // in einem kurzen Toast. Danach erneut pruefen, ob dieser Beitritt noch gewollt ist -
+      // wer inzwischen zurueckgegangen ist, darf keinen Sitz mehr belegen.
+      if(joinFb&&!r3dActive)setStatus(T('szeneLaedt'));
+      if(joinFb&&!(await r3dSichern(true))){ if(joinOpCurrent(op))setStatus(T('fbNo3d')); return; }
+      if(!joinOpCurrent(op))return;
       if(joinFb||v.fmt==='ffa'||v.fmt==='triple_ffa'||v.fmt==='team_duel'){   // M8-T3c: Seat per atomaren write-once-Claim statt fix p/1
         // v8: die Sollbesetzung des RAUMS begrenzt den Claim. Ein fuenfter Spieler kann
         // einem Team-2v2-Raum damit nicht beitreten - der Sitzindex existiert dort nicht,
@@ -14253,7 +14259,7 @@ async function attemptRejoin(code){
     const rjFb=roomIsFootball(d.config);
     // Auch die Rueckkehr: ein Sitz gehoert nur einem Client, der ihn auch spielen kann.
     // Der gespeicherte Raum bleibt bestehen - mit verfuegbarer 3D-Szene gelingt sie.
-    if(rjFb&&!(await r3dSichern())){ setStatus(T('fbNo3d')); return false; }
+    if(rjFb&&!(await r3dSichern(true))){ setStatus(T('fbNo3d')); return false; }
     const ffa=rjFb||v.fmt==='ffa'||v.fmt==='triple_ffa'||v.fmt==='team_duel';
     // v11: wer beim laufenden Match dabei ist, sagt die Teilnehmerliste der Generation.
     // Sie wird gelesen, BEVOR irgendeine globale Variable steht - fehlt oder taugt sie
@@ -18448,13 +18454,21 @@ async function initR3D(){
 // Die Szene wird GENAU EINMAL geholt - beim ersten Weg in ein Spiel, nicht beim Oeffnen
 // der Startseite. Jeder weitere Aufruf bekommt dieselbe Zusage zurueck; parallele Klicks
 // starten keinen zweiten Ladevorgang. Rueckgabe: ob die Szene steht.
-let r3dLaden=null;
-function r3dSichern(){
+let r3dLaden=null,r3dLadenFehl=false;
+// pflicht=true: der Aufrufer kann ohne Szene nicht weiter (Arena Football). Ein frueher
+// gescheiterter Versuch bleibt fuer die OPTIONALE Darstellung bestehen - RingOut faellt
+// still auf 2D zurueck und laedt nicht bei jedem Spielstart neu. Wo die Szene aber Pflicht
+// ist, startet ein vom Nutzer ausgeloester Aufruf einen neuen Versuch: sonst sperrte ein
+// einziger Ausfall (Funkloch beim 15-MB-Plattformmodell) jeden Beitritt bis zum Neuladen.
+function r3dSichern(pflicht){
   if(!R3D_WANTED)return Promise.resolve(false);
   if(r3dActive)return Promise.resolve(true);
+  if(pflicht&&r3dLadenFehl)r3dLaden=null;
   if(!r3dLaden){
+    r3dLadenFehl=false;
     toast(T('szeneLaedt'));
-    r3dLaden=Promise.resolve(initR3D()).then(()=>r3dActive).catch(()=>false);
+    r3dLaden=Promise.resolve(initR3D()).then(()=>r3dActive).catch(()=>false)
+      .then(ok=>{ if(!ok)r3dLadenFehl=true; return ok; });
   }
   return r3dLaden;
 }

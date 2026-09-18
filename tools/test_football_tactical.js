@@ -370,7 +370,8 @@ console.log('ARENA FOOTBALL — Produktsuite: Classic 1v1 (Standard) + Tactical 
      'und uebergibt an den BESTEHENDEN Onlinebildschirm - kein zweiter Ablauf');
   ok(/\$\('fbModeOv'\)\.classList\.remove\('show'\);/.test(onlineHandler),
      'die Modusauswahl schliesst sich dabei');
-  ok(/if\(TUNE\)/.test(onlineHandler) && /r3dSichern\(\)/.test(onlineHandler),
+  // Die Szene ist hier PFLICHT: r3dSichern(true) darf nach einem frueheren Ausfall neu laden.
+  ok(/if\(TUNE\)/.test(onlineHandler) && /r3dSichern\(true\)/.test(onlineHandler),
      'und es gelten dieselben Vorbedingungen wie fuer die lokalen Modi (Tuning, 3D-Szene)');
   // Der Produktweg ist NICHT an ?dev=1 gebunden - genau das ist der Zweck.
   ok(!/DEV_MENU/.test(onlineHandler), 'der Produktweg verlangt kein ?dev=1');

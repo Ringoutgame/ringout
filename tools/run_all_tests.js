@@ -46,7 +46,7 @@ const SUITES = [
   { name: 'FFA-Online-Flow',  file: 'test_ffa_flow.js',       expectPassed: 153 },
   { name: 'FFA-Online-Race',  file: 'test_ffa_race.js',       expectPassed: 115 },
         { name: 'Reconnect-B2',     file: 'test_reconnect.js',      expectPassed: 213 },   // 53 Bestand (RC1-RC11) + 14 RC-ENV + 17 RC-UID/RC-UID2: Seat-Eigentum ueber auth.uid, Diebstahlversuch mit bekannter Spieler-ID, Zweittab, Mehrdeutigkeit und Legacy-Rueckfall
-          { name: 'Protokoll',        file: 'test_online_protocol.js', expectPassed: 266 },
+          { name: 'Protokoll',        file: 'test_online_protocol.js', expectPassed: 268 },
   { name: 'Online-PhaseA',   file: 'test_online_phase_a.js', expectPassed: 394 },   // PROTOKOLL v8 PHASE A: ein Modusregister mit Sollbesetzung, Freigabetor fuer noch nicht fertige Onlinemodi, modusbewusste Lobby mit Soll/Ist - und der Nachweis, dass der Zugpfad unveraendert der v7-Pfad ist (kein v9-Mechanismus)   // reine Schema-/Vertragsschicht: Version, Raumtyp, Sitz/Koerper, kanonische Zugereignisse
   { name: 'Raum-Protokollweiche', file: 'test_online_room_protocol_routing.js', expectPassed: 82 },   // STUFE 2A: die Protokollfassung gehoert dem RAUM, nicht dem Client. Ein NEUER Raum bekommt sie aus seiner Konfiguration - Football mit der Lebensregel und drei bis fuenf Sitzen wird v9, alles andere bleibt v8, und der Waehler zieht dieselben Grenzen wie die Rules. Bestehende Raeume behalten ihre Fassung; derselbe ausgelieferte Client betritt beide Familien und ist in einem v8-Raum ausdruecklich KEIN v9-Client. Der Zugslot t bleibt v8 vorbehalten, die v9-Knoten bleiben v9-Raeumen vorbehalten - kein Mischbetrieb.
   { name: 'Online-V9',      file: 'test_online_v9.js', expectPassed: 349 },
@@ -75,7 +75,7 @@ const SUITES = [
         // in genau dieser Sequenz, die offline von der Elimination-Suite gedeckt ist.
   { name: 'Rules',            file: 'test_rules.js',          expectPassed: 592 },   // v4: Seat-Ownership, Football-Raumtyp, typisierte Zuege (move/skip/remove) und die Eviction
   { name: 'Fristen', file: 'test_timeouts.js', expectPassed: 31 },   // FRISTEN-INVENTAR: jede Zahl der Rules mit Pfad und Bedeutung, verglichen mit der Konstante des Clients, die dasselbe meint. Faellt aus, sobald Client und Server auseinanderlaufen - oder eine neue, hier nicht benannte Frist entsteht.
-  { name: 'Public-Lobby',     file: 'test_public_lobby.js',   expectPassed: 101 },
+  { name: 'Public-Lobby',     file: 'test_public_lobby.js',   expectPassed: 109 },
   { name: 'Team-Duel',        file: 'test_team_duel.js',      expectPassed: 36 },
 ];
 

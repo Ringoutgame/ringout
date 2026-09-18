@@ -552,9 +552,13 @@ t('Beitritt: die Ablehnung nennt die Versionsunvertraeglichkeit',
     (src.match(/const op=newJoinOp\(\);/g) || []).length === 3);   // createRoom, joinRoom, attemptRejoin
   // Arena Football verlangt die echte 3D-Szene - an JEDEM Weg in einen Sitz.
   t('der Beitritt lehnt einen Client ohne 3D-Szene ab',
-    src.indexOf("if(joinFb&&!(await r3dSichern())){ setStatus(T('fbNo3d')); return; }") >= 0);
+    src.indexOf("if(joinFb&&!(await r3dSichern(true))){ if(joinOpCurrent(op))setStatus(T('fbNo3d')); return; }") >= 0);
+  t('… waehrend des Szenenladens steht es im Status, nicht nur im Toast',
+    src.indexOf("if(joinFb&&!r3dActive)setStatus(T('szeneLaedt'));") >= 0);
+  t('… und nach dem Warten belegt ein inzwischen verworfener Beitritt keinen Sitz',
+    /if\(joinFb&&!\(await r3dSichern\(true\)\)\)\{[^\n]*\n\s*if\(!joinOpCurrent\(op\)\)return;/.test(src));
   t('die Rueckkehr ebenfalls',
-    src.indexOf("if(rjFb&&!(await r3dSichern())){ setStatus(T('fbNo3d')); return false; }") >= 0);
+    src.indexOf("if(rjFb&&!(await r3dSichern(true))){ setStatus(T('fbNo3d')); return false; }") >= 0);
   t('und der Einstieg benutzt dieselbe Meldung',
     (src.match(/T\('fbNo3d'\)/g) || []).length >= 3);
   t('die es dreisprachig gibt', (src.match(/fbNo3d:'/g) || []).length === 3);

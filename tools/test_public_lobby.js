@@ -216,8 +216,12 @@ t('remove: created NaN', view({ created: NaN }).remove === true);
     && /for\(const id of \['onPublicList','homeRoomsList','fbRoomsList'\]\)/.test(H));
   t('each row names its game', /game\.textContent=roomGameLabel\(view\.game\);/.test(H) && /function roomGameLabel\(game\)\{ return game===ROOM_GAME_FOOTBALL\?'ARENA FOOTBALL':'RING OUT'; \}/.test(H));
   t('der Beitritt aus einer Vorschau oeffnet den Bildschirm des RAUMS',
-    /if\(ausDemMenue\)openOnlineForRoom\(view\);\n    joinPublicRoom\(code\);/.test(H)
-    && /if\(view\.game===ROOM_GAME_FOOTBALL&&!\(await r3dSichern\(\)\)\)\{toast\(T\('fbNo3d'\)\);return;\}/.test(H));
+    /if\(ausDemMenue\)openOnlineForRoom\(view\);\n    joinPublicRoom\(code\);/.test(H));
+  // iPhone-Befund: das Warten auf die 3D-Szene VOR dem Oeffnen hielt den Menschen viele
+  // Sekunden stumm auf der Liste. Die Szenenpruefung macht joinRoom() mit sichtbarem Status.
+  t('… sofort und ohne vorher auf die 3D-Szene zu warten',
+    !/if\(view\.game===ROOM_GAME_FOOTBALL&&!\(await r3dSichern/.test(H)
+    && /btn\.onclick=\(\)=>\{/.test(H));
   t('… und behaelt dabei den Modus des Raums, nicht FFA',
     /fbOnlineMode=\(typeof fbModeValid==='function'&&fbModeValid\(view\.mode\){2}\?view\.mode:FB_ONLINE_MODE_LIVES;/.test(H));
   t('die Beschriftung kommt aus EINER Stelle',
@@ -240,5 +244,42 @@ t('remove: created NaN', view({ created: NaN }).remove === true);
   t('the Arena hint shows only for Football Lives', /infoEl\.style\.display=\(fmt===FB_ONLINE_FMT&&fbLobbyMode\(\)===FB_ONLINE_MODE_LIVES\)\?'':'none';/.test(lob));
   t('the lobby names the 2-5 span for the dynamic room', /fbRaumDynamisch\(\)\?\(FB_DYN_MIN_START\+'–'\+cap\):cap/.test(lob));
 }
-console.log(`\n${pass} passed, ${fail} failed`);
-process.exit(fail ? 1 : 0);
+// ── iPhone-Befund: ein einziger Ladeausfall sperrte jeden weiteren Football-Beitritt ──
+// Die ECHTE r3dSichern aus index.html; gesteuert wird nur initR3D (Erfolg/Ausfall). Ein
+// Ausfall bleibt fuer die optionale Darstellung (RingOut, 2D-Rueckfall) bestehen; nur ein
+// Pflicht-Aufruf (Arena Football) darf einen neuen Versuch starten.
+(async () => {
+  const { grabFunction } = require('./extract');
+  const src = grabFunction(html, 'r3dSichern');
+  const neuSandkasten = (plan) => new Function('plan', `
+    let R3D_WANTED=true, r3dActive=false, r3dLaden=null, r3dLadenFehl=false, versuche=0, toasts=0;
+    function toast(){ toasts++; } function T(k){ return k; }
+    function initR3D(){
+      const p = plan[versuche++];
+      if (p === 'wirf') return Promise.reject(new Error('GLB'));
+      if (p === 'offen') return new Promise(r => { setTimeout(() => { r3dActive = true; r(); }, 5); });
+      if (p === true) r3dActive = true;
+      return Promise.resolve();          // initR3D faengt selbst: Ausfall = r3dActive bleibt false
+    }
+    ${src}
+    return { sichern: (pf) => r3dSichern(pf), versuche: () => versuche };`)(plan);
+
+  let s = neuSandkasten([false, true]);
+  t('R1 erster Versuch scheitert', (await s.sichern()) === false && s.versuche() === 1);
+  t('R2 optionaler Aufruf danach laedt NICHT neu (RingOut bleibt still in 2D)', (await s.sichern()) === false && s.versuche() === 1);
+  t('R3 Pflicht-Aufruf startet einen neuen Versuch und gelingt', (await s.sichern(true)) === true && s.versuche() === 2);
+  t('R4 nach dem Erfolg laedt niemand mehr', (await s.sichern(true)) === true && (await s.sichern()) === true && s.versuche() === 2);
+
+  s = neuSandkasten(['wirf', true]);
+  t('R5 auch ein geworfener Fehler zaehlt als Ausfall', (await s.sichern(true)) === false && (await s.sichern(true)) === true && s.versuche() === 2);
+
+  s = neuSandkasten(['offen']);
+  const [a, b] = await Promise.all([s.sichern(true), s.sichern(true)]);
+  t('R6 zwei Taps waehrend des Ladens teilen EINEN Versuch', a === true && b === true && s.versuche() === 1);
+
+  s = neuSandkasten([true]);
+  t('R7 Erfolg im ersten Versuch: ein Versuch, danach sofort bereit', (await s.sichern()) === true && (await s.sichern(true)) === true && s.versuche() === 1);
+
+  console.log(`\n${pass} passed, ${fail} failed`);
+  process.exit(fail ? 1 : 0);
+})();
