@@ -16493,39 +16493,73 @@ async function initR3D(){
     let envGen=0;            // Async-Race-Token: nur das jeweils neueste Ladeergebnis darf angewendet werden
     let envApplied=null;     // aktuell sichtbares Profil
     let envPending=null;     // waehrend eines Matches gewaehlt, aber noch nicht sicher angewendet
-    let envTexPath=null;     // Pfad der aktuell angewendeten HDR-Texture (fuer Reuse bei gleichem HDRI)
+    let envTexPath=null;     // Pfad des HDRI, aus dem Himmel und IBL aktuell gebaut sind (fuer Reuse bei gleichem HDRI)
+    let envRT=null,skyRT=null;   // IBL (PMREM) und Himmelswuerfel - beide aus dem HDRI gebaut
+    // Himmel und IBL werden hier EINMAL explizit gebaut, statt three.js das beim ersten Bild
+    // intern tun zu lassen. Gemessen (Shared Mobile Startup, Pass 01) belegte der interne Weg
+    // zusaetzlich zu den eigentlichen Ergebnissen: den PMREM-Zwischenpuffer (24 MiB, blieb
+    // dauerhaft im internen Generator), sechs Tiefenpuffer am Himmelswuerfel (24 MiB, fuer eine
+    // Box ohne Tiefentest nutzlos) und das HDRI selbst (16 MiB) - alles in demselben ersten Bild.
+    // Rechnung und Ergebnis sind identisch (derselbe Generator, dieselbe Wuerfelgroesse);
+    // das HDRI wird danach freigegeben. Ein Context-Restore baut ueber denselben Weg neu.
+    function r3dBuildEnv(tex){
+      tex.mapping=THREE.EquirectangularReflectionMapping;
+      const pm=new THREE.PMREMGenerator(renderer);
+      let env=null,sky=null;
+      try{
+        env=pm.fromEquirectangular(tex);
+        sky=new THREE.WebGLCubeRenderTarget(tex.image.height,{depthBuffer:false});
+        sky.fromEquirectangularTexture(renderer,tex);
+      }catch(e){ if(env)env.dispose(); if(sky)sky.dispose(); throw e; }
+      finally{ pm.dispose(); renderer.setRenderTarget(null); }   // Zwischenpuffer frei, Zeichenziel zurueck auf die Leinwand
+      return {env,sky};
+    }
     // Laedt + wendet ein Profil an. Alte Environment-Ressource wird ERST nach erfolgreichem Apply
     // entsorgt; ueberholte (veraltete) Ladeergebnisse werden verworfen und sauber disposed.
     async function applyEnvProfile(key,initial){
       const p=ENVIRONMENT_PROFILES[key]||ENVIRONMENT_PROFILES.dawn;
       const gen=++envGen,t0=performance.now();
-      let tex,texPath;
-      if(scene.environment&&envTexPath===p.hdri){    // gleiches HDRI wie aktuell geladen: Resource wiederverwenden, kein neuer Load
-        tex=scene.environment;texPath=envTexPath;
-      }else{
+      if(!(scene.environment&&envTexPath===p.hdri)){   // gleiches HDRI wie aktuell gebaut: Himmel und IBL wiederverwenden
         const chain=[p.hdri,...ENV_FALLBACKS].filter((v,i,a)=>a.indexOf(v)===i);
         let r;
         try{ r=await loadEnvHDR(chain); }
         catch(e){ if(initial)throw e; return false; } // live: bestehendes funktionierendes Environment sichtbar lassen
         if(gen!==envGen){ r.tex.dispose(); return false; } // schnelles Umschalten -> dieses Ergebnis ist veraltet
-        tex=r.tex;texPath=r.path;
-        tex.mapping=THREE.EquirectangularReflectionMapping;
+        let built;
+        try{ built=r3dBuildEnv(r.tex); }
+        catch(e){ if(initial)throw e; return false; }   // finally gibt die Quelle frei
+        finally{ r.tex.dispose(); }                    // HDRI-Quelle wird nicht mehr gelesen
+        const oldEnv=envRT,oldSky=skyRT;
+        envRT=built.env;skyRT=built.sky;
+        scene.environment=envRT.texture;scene.background=skyRT.texture;
+        if(oldEnv)oldEnv.dispose();                    // erst jetzt entsorgen (die eigenen, ersetzten Ziele)
+        if(oldSky)oldSky.dispose();
+        envTexPath=r.path;
+        if(initial){perfHdrMs=Math.round(performance.now()-t0);r3dDiag('hdr',{ms:perfHdrMs,path:r.path});}
       }
-      if(initial){perfHdrMs=Math.round(performance.now()-t0);r3dDiag('hdr',{ms:perfHdrMs,path:texPath});}
-      const old=scene.environment;                   // vor dem Ueberschreiben merken (background===environment)
       renderer.toneMappingExposure=p.exposure;
-      scene.environment=tex;scene.background=tex;scene.environmentIntensity=p.envIntensity;
+      scene.environmentIntensity=p.envIntensity;
       scene.environmentRotation=new THREE.Euler(0,p.rotationY,0);   // IBL + sichtbaren Himmel gemeinsam drehen
       scene.backgroundRotation=new THREE.Euler(0,p.rotationY,0);
       if(scene.fog)scene.fog.color.setHex(p.fogColor);
       sun.color.setHex(p.sunColor);sun.intensity=p.sunIntensity;
       {const az=p.sunAzimuth-p.rotationY,el=p.sunElevation,D=1800;   // Key-Light auf die sichtbare Sonne ausrichten
        sun.position.set(cx+Math.cos(el)*Math.cos(az)*D, Math.sin(el)*D, cy+Math.cos(el)*Math.sin(az)*D);}
-      if(old&&old!==tex)old.dispose();               // erst jetzt entsorgen (nur die eigene, ersetzte Texture)
-      envApplied=key;envTexPath=texPath;
+      envApplied=key;
       return true;   // eindeutiger Erfolg - der Context-Restore darf sich nicht auf eine alte Referenz verlassen
     }
     await applyEnvProfile(envProfile,true);          // initialer Load: Totalausfall -> outer catch -> 2D-Fallback
+    async function r3dVorladen(){
+      const pause=()=>new Promise(r=>setTimeout(r,0));
+      const texs=new Set();
+      scene.traverse(o=>{ for(const m of [].concat(o.material||[])){ if(!m)continue;
+        for(const k in m){ const v=m[k]; if(v&&v.isTexture&&!v.isRenderTargetTexture)texs.add(v); } } });
+      try{
+        for(const t of texs){ renderer.initTexture(t); await pause(); }
+        await renderer.compileAsync(scene,camera);
+      }catch(e){ console.warn('r3d: gestaffelter Erststart uebersprungen',e&&e.message||e); }
+      r3dDiag('vorgeladen',texs.size);
+    }
     // Wolkenmeer-Sprites unter der Arena (Prototyp-Baender, x57.7 skaliert)
     const puff=document.createElement('canvas');puff.width=puff.height=256;
     {const g=puff.getContext('2d');
@@ -16565,6 +16599,10 @@ async function initR3D(){
      island.position.set(cx+Math.cos(2.4)*6060,-404,cy+Math.sin(2.4)*6060);scene.add(island);
      for(let k=0;k<3;k++)addCloud([5800,6300],-560,-440,520,930,.3,.42);}
     // Akzeptiertes Arena-GLB (Pflicht im MVP; Fehler -> Fallback 2D)
+    // Die Marmor-Normal-Map des Arena-GLB ist FLACH (gemessen: Mittel 128/127/255, Streuung unter
+    // 0,4 Stufen - hoechstens ~0,3 Grad Neigung): optisch wirkungslos, kostet aber 21 MiB
+    // Grafikspeicher und eine Tangentenraum-Shadervariante. Sie wird darum nicht verwendet.
+    const R3D_FLAT_NORMAL_MAPS=new Set(['Marble012_2K-JPG_NormalGL']);
     const glbT0=performance.now();r3dDiag('glb-begin');
     const glb=await new Promise((res,rej)=>new GLTFLoader().load(assetUrl('assets/arena_platform_stage2.glb'),res,undefined,rej));
     perfGlbMs=Math.round(performance.now()-glbT0);r3dDiag('glb',perfGlbMs);
@@ -16572,7 +16610,9 @@ async function initR3D(){
     // Hindernisse/Fangpunkte). Nur hier im Spiel-Renderer — Asset & prototype3d bleiben unberuehrt.
     const kill=[];
     glb.scene.traverse(o=>{if(o.isMesh){o.castShadow=o.receiveShadow=true;
-      if(/^(Ped|Crystal)/.test(o.name))kill.push(o);}});
+      if(/^(Ped|Crystal)/.test(o.name))kill.push(o);
+      for(const m of [].concat(o.material)){
+        if(m&&m.normalMap&&R3D_FLAT_NORMAL_MAPS.has(m.normalMap.name)){m.normalMap=null;m.needsUpdate=true;}}}});
     for(const o of kill)o.parent.remove(o);
     const platform=new THREE.Group();platform.add(glb.scene);
     platform.position.set(cx,0,cy);scene.add(platform);
@@ -18515,6 +18555,13 @@ async function initR3D(){
         if(menuVisible){envPending=null;applyEnvProfile(k,false);}else{envPending=k;}},
       flushEnvProfile(){if(envPending){const k=envPending;envPending=null;applyEnvProfile(k,false);}}
     };
+    // Gestaffelter Erststart: frueher lud das ERSTE Bild alle Arena-Texturen hoch, erzeugte deren
+    // Mip-Ketten und uebersetzte alle Shader - ein einziger Block auf dem Hauptthread (gemessen in
+    // der Mobil-Emulation bis ~39 s, auf echten Geraeten der Moment mit der hoechsten Last). Jetzt
+    // geht jede Textur in einem eigenen Arbeitsschritt auf die GPU, die Shader werden danach -
+    // wo der Browser es kann - parallel uebersetzt. Das Bild ist dasselbe; nur die Last verteilt
+    // sich. Ein Fehler hier ist nie fatal: dann erledigt das erste Bild den Rest wie bisher.
+    await r3dVorladen();
     frame();
     // Optionaler Orbit-Testmodus (?r3d=1&orbit=1): NUR Ansicht, Zielen komplett deaktiviert
     if(R3D_ORBIT){
