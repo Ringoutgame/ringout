@@ -57,7 +57,10 @@ abschnitt('Der ausgelieferte Client kann beide Familien');
   t('und v9', M.fbRaumFassungOk(9) === true);
   t('und v10', M.fbRaumFassungOk(10) === true);
   t('und v11', M.fbRaumFassungOk(11) === true);
-  for (const v of [4, 5, 6, 7, 12, 0, -1, null, undefined, '9', '10', '11', 9.5])
+  // Package B: die RingOut-FFA-Fassung. Welche Raumart sie tragen darf, pruefen die drei
+  // Raumpruefungen (Beitritt, Wiedereintritt, oeffentliche Liste) selbst.
+  t('und v12 (RingOut FFA-Familie)', M.fbRaumFassungOk(12) === true);
+  for (const v of [4, 5, 6, 7, 13, 0, -1, null, undefined, '9', '10', '11', '12', 9.5])
     t('aber nicht die Fassung ' + JSON.stringify(v), M.fbRaumFassungOk(v) === false);
 }
 
@@ -75,7 +78,10 @@ abschnitt('Ein NEUER Raum bekommt seine Fassung aus seiner Konfiguration');
   // Die uebrigen Onlinemodi haben kein v9-Produkt hinter sich - sie bleiben v8.
   for (const m of ['classic', 'speed', 'team2v2', 'timedffa'])
     t('Football ' + m + ' bleibt v8', M.fbRaumFassung(cfgFootball(m, 3)) === 8);
-  for (const f of ['ffa', 'triple_ffa', 'team_duel', 'single', 'double'])
+  // Package B: die FFA-Familie bekommt die eigene Fassung 12; Versus bleibt v8.
+  for (const f of ['ffa', 'triple_ffa', 'team_duel'])
+    t('RingOut ' + f + ' wird v12', M.fbRaumFassung(cfgRingOut(f)) === 12);
+  for (const f of ['single', 'double'])
     t('RingOut ' + f + ' bleibt v8', M.fbRaumFassung(cfgRingOut(f)) === 8);
   // Der Waehler weitet die v9-Flaeche auch an den Raendern nicht.
   for (const cap of [2, 6, 0, -1, 3.5, '4', null, undefined])
@@ -133,8 +139,9 @@ abschnitt('Rueckkehr - die Fassung des Raums entscheidet den Weg');
   // validateRejoinRoom ist seiteneffektfrei und im Node-Test ausfuehrbar.
   const vrr = new Function(
     'fbRaumFassungOk', 'validGamePair', 'validModeCap', 'modeReachable', 'roomSeatCap', 'GEN_MAX', 'FFA_MAX_SEATS', 'ROOM_GAME_FOOTBALL', 'FB_ONLINE_SEATS',
+    'ROOM_GAME_RINGOUT', 'RINGOUT_SKIP_FASSUNG',
     grab(/function validateRejoinRoom\(d\)\{[\s\S]*?\n\}/, 'validateRejoinRoom') + '\nreturn validateRejoinRoom;')(
-    (v) => v === 8 || v === 9, () => true, () => true, () => true, () => 5, 1000, 5, 'football', 5);
+    (v) => v === 8 || v === 9, () => true, () => true, () => true, () => 5, 1000, 5, 'football', 5, 'ringout', 12);
   const raum = (v, state) => ({ v, hostUid: 'H', gen: 0, state, seats: 5,
     config: { game: 'football', fmt: 'elimination', mode: 'lives', cap: 5, winTarget: 3, visibility: 'private' } });
   t('das geprueft Ergebnis traegt die Fassung des Raums (v9)', vrr(raum(9, 'playing')).v === 9);

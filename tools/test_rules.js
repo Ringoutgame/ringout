@@ -165,9 +165,9 @@ const mkRoom = (fmt, over = {}) => {
   const r = Object.assign(
     { v: V, config: { game: 'ringout', winTarget: 3, fmt, visibility: 'private' }, gen: 0, state: 'lobby', p: { 0: P(H_TAB, false) }, players: { 0: HOST }, created: NOW },
     over);
-  if (r.v === 8 && r.hostUid === undefined)
+  if ((r.v === 8 || r.v === 12) && r.hostUid === undefined)
     r.hostUid = (r.players && r.players[0] && r.players[0].uid) || UID_GUEST;
-  if (r.v !== 8) delete r.hostUid;
+  if (r.v !== 8 && r.v !== 12) delete r.hostUid;
   return r;
 };
 const db1 = (roomOver = {}, fmt = 'single') => ({ rooms: { KX7P: mkRoom(fmt, Object.assign({ created: NOW - 5000 }, roomOver)) } });
@@ -1699,6 +1699,75 @@ deny('team move pl 4 (seat gate, presence pre-seeded)', playing({ p: { 0: P(H_TA
           pubRoom(ver), 'publicRooms/KX7P', LISTING, UID_HOST);
   deny('v3: kein Eintrag in der oeffentlichen Raumliste',
        pubRoom(3), 'publicRooms/KX7P', LISTING, UID_HOST);
+}
+
+// ── (17) PACKAGE B · RingOut v12: TYPISIERTER SKIP FUER ABWESENDE SITZE ─────────────
+// Ein Mitspieler darf in den Slot eines ANDEREN Sitzes ausschliesslich einen Skip schreiben
+// ({k:'skip', idx, dx:0, dy:0, sp:0}) - und nur, wenn dessen Abwesenheit vom Eigentuemer
+// selbst belegt ist: p/<sitz> fehlt (bewusst verlassen) oder on:false seit >= GRACE. Ein
+// Skip traegt keinen Zug. Der untypisierte Null-Sentinel und jeder fremde Zug bleiben
+// verboten (Fund 2), e bleibt fuer RingOut gesperrt, v8-Raeume sind unveraendert.
+{
+  const UIDS = ['UID_PB_0_AAAAAAAAAAAAAAAAAA', 'UID_PB_1_BBBBBBBBBBBBBBBBBB', 'UID_PB_2_CCCCCCCCCCCCCCCCCC',
+                'UID_PB_3_DDDDDDDDDDDDDDDDDD', 'UID_PB_4_EEEEEEEEEEEEEEEEEE'];
+  const FREMD = 'UID_PB_X_XXXXXXXXXXXXXXXXXX';
+  const SKIP = { k: 'skip', idx: 0, dx: 0, dy: 0, sp: 0 };
+  const T = 'rooms/KX7P/g/0/t/0/';
+  // Laufendes Match: n Sitze, alle anwesend; pOver setzt einzelne Praesenzen (null = fehlt).
+  const pb = (fmt, n, pOver, extra) => {
+    const players = {}, p = {};
+    for (let i = 0; i < n; i++) { players[i] = { id: 'PBPID00' + i, name: 'P' + i, tab: 'PBTAB00' + i, uid: UIDS[i] }; p[i] = P('PBTAB00' + i, true); }
+    for (const k of Object.keys(pOver || {})) { if (pOver[k] === null) delete p[k]; else p[k] = pOver[k]; }
+    return db1(Object.assign({ v: 12, state: 'playing', seats: n, p, players, hostUid: UIDS[0] }, extra || {}), fmt);
+  };
+  const aus = (i, alt) => P('PBTAB00' + i, false, NOW - (alt === undefined ? GRACE : alt));
+
+  // erlaubt: genau der kanonische Weg
+  allow('PB skip: bewusst verlassener Sitz (p fehlt)', pb('ffa', 3, { 2: null }), T + '2', SKIP, UIDS[0]);
+  allow('PB skip: getrennter Sitz genau an der Frist', pb('ffa', 3, { 2: aus(2) }), T + '2', SKIP, UIDS[1]);
+  allow('PB skip: FFA 2', pb('ffa', 2, { 1: null }), T + '1', SKIP, UIDS[0]);
+  allow('PB skip: FFA 5, zweiter Abwesender', pb('ffa', 5, { 3: null, 4: aus(4) }), T + '4', SKIP, UIDS[0]);
+  allow('PB skip: Triple', pb('triple_ffa', 3, { 1: null }), T + '1', SKIP, UIDS[2]);
+  allow('PB skip: Team Duel', pb('team_duel', 4, { 3: null }), T + '3', SKIP, UIDS[1]);
+  allow('PB normaler Zug des Eigentuemers bleibt moeglich', pb('ffa', 3), T + '1', MOVE, UIDS[1]);
+  allow('PB Rueckkehr: ACTIVATE des Eigentuemers waehrend des Matches',
+    pb('ffa', 3, { 2: aus(2) }), 'rooms/KX7P/p/2', P('PBTAB002', true), UIDS[2]);
+
+  // verboten: Anwesenheit / Frist
+  deny('PB skip: Ziel ist anwesend', pb('ffa', 3), T + '2', SKIP, UIDS[0]);
+  deny('PB skip: Ziel getrennt, aber noch in der Frist', pb('ffa', 3, { 2: aus(2, GRACE - 1) }), T + '2', SKIP, UIDS[0]);
+  deny('PB skip: Ziel kehrt im selben Schreibvorgang zurueck', pb('ffa', 3, { 2: aus(2) }), T + '2', SKIP, UIDS[0],
+    { 'rooms/KX7P/p/2': P('PBTAB002', true) });
+  // verboten: wer schreibt
+  deny('PB skip: Fremder ohne Sitz', pb('ffa', 3, { 2: null }), T + '2', SKIP, FREMD);
+  deny('PB skip: Schreiber selbst getrennt', pb('ffa', 3, { 0: aus(0), 2: null }), T + '2', SKIP, UIDS[0]);
+  deny('PB skip: Eigentuemer fuer den eigenen Sitz (ein Zug ist ein Zug)', pb('ffa', 3), T + '1', SKIP, UIDS[1]);
+  deny('PB Eigentuemer: Zug mit k', pb('ffa', 3), T + '1', Object.assign({ k: 'skip' }, MOVE), UIDS[1]);
+  // verboten: Inhalt - ein Skip traegt keinen Zug, ein Zug ist nie fremd
+  deny('PB skip mit Zugdaten (dx != 0)', pb('ffa', 3, { 2: null }), T + '2', { k: 'skip', idx: 0, dx: 50, dy: 0, sp: 0 }, UIDS[0]);
+  deny('PB skip mit Drall (sp != 0)', pb('ffa', 3, { 2: null }), T + '2', { k: 'skip', idx: 0, dx: 0, dy: 0, sp: 1 }, UIDS[0]);
+  deny('PB skip mit Zusatzfeld', pb('ffa', 3, { 2: null }), T + '2', Object.assign({ hack: 1 }, SKIP), UIDS[0]);
+  deny('PB k:remove in RingOut', pb('ffa', 3, { 2: null }), T + '2', { k: 'remove', idx: 0, dx: 0, dy: 0, sp: 0 }, UIDS[0]);
+  deny('PB k:move in RingOut', pb('ffa', 3, { 2: null }), T + '2', Object.assign({ k: 'move' }, MOVE), UIDS[0]);
+  deny('PB Fund 2 bleibt zu: untypisierter Null-Sentinel', pb('ffa', 3, { 2: null }), T + '2', { idx: 2, dx: 0, dy: 0, sp: 0 }, UIDS[0]);
+  deny('PB Fund 2 bleibt zu: fremder echter Zug', pb('ffa', 3, { 2: null }), T + '2', MOVE, UIDS[0]);
+  deny('PB Fund 2 bleibt zu: fremder Zug fuer getrennten Sitz', pb('ffa', 3, { 2: aus(2) }), T + '2', MOVE, UIDS[0]);
+  deny('PB e bleibt fuer RingOut gesperrt (v12)', pb('ffa', 3, { 2: aus(2) }), 'rooms/KX7P/g/0/e/2', true, UIDS[0]);
+  // verboten: Ort und Zeit
+  deny('PB skip: Slot schon belegt (write-once)', pb('ffa', 3, { 2: null }, { g: { 0: { t: { 0: { 2: MOVE } } } } }), T + '2', SKIP, UIDS[0]);
+  deny('PB skip: kein Teilnehmer (sitz >= seats)', pb('ffa', 3), T + '3', SKIP, UIDS[0]);
+  deny('PB skip: falsche Generation', pb('ffa', 3, { 2: null }), 'rooms/KX7P/g/5/t/0/2', SKIP, UIDS[0]);
+  deny('PB skip: nicht im laufenden Match', pb('ffa', 3, { 2: null }, { state: 'lobby' }), T + '2', SKIP, UIDS[0]);
+  // verboten: Raumart - der Skip existiert nur in v12-RingOut-FFA-Familie
+  deny('PB skip im v8-Raum (Bestand unveraendert)', pb('ffa', 3, { 2: null }, { v: 8 }), T + '2', SKIP, UIDS[0]);
+  deny('PB v12-Raum fuer Versus (single) wird nicht angelegt', { rooms: {} }, 'rooms/KX7P', mkRoom('single', { v: 12 }));
+  deny('PB v12-Raum fuer Versus (double) wird nicht angelegt', { rooms: {} }, 'rooms/KX7P', mkRoom('double', { v: 12 }));
+  deny('PB v12-Raum fuer Football wird nicht angelegt', { rooms: {} }, 'rooms/KX7P',
+    mkRoom('elimination', { v: 12, config: { game: 'football', winTarget: 3, fmt: 'elimination', visibility: 'private', mode: 'lives', cap: 5 } }));
+  allow('PB v12-Raum FFA wird angelegt', { rooms: {} }, 'rooms/KX7P', mkRoom('ffa', { v: 12 }));
+  allow('PB v12-Raum Triple wird angelegt', { rooms: {} }, 'rooms/KX7P', mkRoom('triple_ffa', { v: 12 }));
+  allow('PB v12-Raum Team Duel wird angelegt', { rooms: {} }, 'rooms/KX7P', mkRoom('team_duel', { v: 12 }));
+  deny('PB v12-Raum ohne hostUid-Bindung', { rooms: {} }, 'rooms/KX7P', mkRoom('ffa', { v: 12, hostUid: UID_ATTACK }));
 }
 
 // Der Auswerter ist ab hier auch von aussen benutzbar. Die v9-Suite prueft DIESELBE

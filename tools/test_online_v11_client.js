@@ -74,7 +74,7 @@ const QUELLE = [
   grabFunction(HTML, 'fbV11Aus'),
   grabFunction(HTML, 'fbV11An'),
   // ── der kanonische Austritt ──
-  grab(HTML, /const ROOM_GAME_RINGOUT='ringout', ROOM_GAME_FOOTBALL='football';/, 'ROOM_GAME'),
+  grab(HTML, /const ROOM_GAME_RINGOUT='ringout', ROOM_GAME_FOOTBALL='football'[^;\n]*;/, 'ROOM_GAME'),
   grabFunction(HTML, 'roomGame'),
   grab(HTML, /const LEAVE_TRIES=3;[\s\S]*?\nfunction fbLeaveGiveUp\(ctx,err\)\{[\s\S]*?\n\}/, 'kanonischer Austritt'),
   // ── die Teilnehmerliste im Spiel ──
@@ -1140,7 +1140,7 @@ abschnitt('Die Fassung 11 ist erreichbar - und nur ueber die benannten Wege');
   t('ein neuer Fuenf-Sitz-Lives-Raum wird v11',
     /if\(cap===5&&ONLINE_PROTOCOL_VERSION>=11\)return 11;/.test(HTML));
   t('und v10 bleibt als Bestandsvertrag lesbar',
-    /function fbRaumFassungOk\(v\)\{ return v===8\|\|\(ONLINE_PROTOCOL_VERSION>=9&&v===9\)\|\|\(ONLINE_PROTOCOL_VERSION>=10&&v===10\)\|\|\(ONLINE_PROTOCOL_VERSION>=11&&v===11\); \}/.test(HTML));
+    /function fbRaumFassungOk\(v\)\{ return v===8\|\|\(ONLINE_PROTOCOL_VERSION>=9&&v===9\)\|\|\(ONLINE_PROTOCOL_VERSION>=10&&v===10\)\|\|\(ONLINE_PROTOCOL_VERSION>=11&&v===11\)\|\|v===RINGOUT_SKIP_FASSUNG; \}/.test(HTML));
   t('die dynamische Besetzung gilt in v10 UND v11',
     /function fbRaumDynamisch\(\)\{return !!online&&\(roomProto===10\|\|roomProto===11\);\}/.test(HTML));
   t('das Startsignal seats wird in v11 gar nicht mehr beobachtet',

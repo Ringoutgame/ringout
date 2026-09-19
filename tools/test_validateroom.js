@@ -36,7 +36,11 @@ t('v 10 (dynamische Arena-Besetzung) -> ok', validateRoom(room({ v: 10 })).ok ==
 // v11: der Raum, der sein Match ueberlebt. Derselbe Beitritt wie v10 - nur dass er
 // auch nach einem Match wieder in seiner Lobby steht.
 t('v 11 (Raum ueberlebt das Match) -> ok', validateRoom(room({ v: 11 })).ok === true);
-t('v 12 (unbekannt) -> reject', validateRoom(room({ v: 12 })).reason === VMSG);
+// Package B: v12 ist eine bekannte Fassung - aber AUSSCHLIESSLICH fuer RingOut FFA, Triple
+// und Team Duel. Ein v12-Raum anderer Art ist ungueltig; eine wirklich unbekannte Fassung
+// bleibt mit derselben Meldung abgewiesen wie bisher.
+t('v 12 fuer einen Versus-Raum -> reject', validateRoom(room({ v: 12 })).ok === false);
+t('v 13 (unbekannt) -> reject', validateRoom(room({ v: 13 })).reason === VMSG);
 t('v string -> reject (strict)', validateRoom(room({ v: String(VER) })).reason === VMSG);
 t('v null -> reject', validateRoom(room({ v: null })).reason === VMSG);
 

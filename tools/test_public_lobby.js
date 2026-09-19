@@ -105,7 +105,10 @@ t('remove: created NaN', view({ created: NaN }).remove === true);
   const fbM = (v, cfgOver, over) => publicListingView(listRoom(Object.assign({ v, config: fbCfg(cfgOver) }, over || {})), NOW);
   // Welche Fassungen der Index fuehren darf - dieselbe Menge wie in den Rules.
   for (const v of [4, 5, 6, 7, 8, 10, 11]) t('listbar: Fassung ' + v, roomListable(v) === true);
-  for (const v of [0, 3, 9, 12, null, undefined, '10']) t('nicht listbar: Fassung ' + JSON.stringify(v), roomListable(v) === false);
+  // Package B: v12 (RingOut FFA-Familie) ist listbar; publicListingView raeumt einen v12-Raum
+  // anderer Art trotzdem ab - dieselbe Paarung wie beim Beitritt.
+  t('listbar: Fassung 12 (RingOut FFA-Familie)', roomListable(12) === true);
+  for (const v of [0, 3, 9, 13, null, undefined, '10', '12']) t('nicht listbar: Fassung ' + JSON.stringify(v), roomListable(v) === false);
   const v10 = fb(10);
   t('show: v10 arena lives lobby is listed', v10.show === true && v10.remove === false);
   const v11 = fb(11);

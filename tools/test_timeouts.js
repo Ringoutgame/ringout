@@ -107,6 +107,7 @@ const ERWARTET = [
   { bedeutung: 'Rueckkehrfrist eines Sitzes (Praesenz)',        pfad: '/rooms/$code/p/$i',                      feld: '.write', wert: K.SEAT_STALE_MS,           mal: 1, quelle: 'SEAT_STALE_MS' },
   { bedeutung: 'Rueckkehrfrist eines Sitzes (Roster)',          pfad: '/rooms/$code/players/$i',                feld: '.write', wert: K.SEAT_STALE_MS,           mal: 4, quelle: 'SEAT_STALE_MS' },
   { bedeutung: 'Rueckkehrfrist vor der Austragung',             pfad: '/rooms/$code/g/$gen/e/$seat',            feld: '.write', wert: K.SEAT_STALE_MS,           mal: 1, quelle: 'SEAT_STALE_MS' },
+  { bedeutung: 'Rueckkehrfrist vor dem RingOut-Skip (Package B)', pfad: '/rooms/$code/g/$gen/t/$turn/$pl',     feld: '.write', wert: K.SEAT_STALE_MS,           mal: 1, quelle: 'SEAT_STALE_MS' },
   { bedeutung: 'Bereitschaftsfrist einer Runde',                pfad: '/rooms/$code/g/$gen/q/$turn/$seat',      feld: '.write', wert: K.FB_V9_READY_DEADLINE_MS, mal: 2, quelle: 'FB_V9_READY_DEADLINE_MS' },
   { bedeutung: 'Entscheidungsfenster v10/v11',                  pfad: '/rooms/$code/g/$gen/c/$turn/$seat',      feld: '.write', wert: K.FB_V10_DEADLINE_MS,      mal: 3, quelle: 'FB_V10_DEADLINE_MS' },
   { bedeutung: 'Entscheidungsfenster v9',                       pfad: '/rooms/$code/g/$gen/c/$turn/$seat',      feld: '.write', wert: K.FB_V9_DEADLINE_MS,       mal: 3, quelle: 'FB_V9_DEADLINE_MS' },

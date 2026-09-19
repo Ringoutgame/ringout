@@ -1732,6 +1732,11 @@ let seatGone=[];    // FFA: Verlassen-Status aus den Move-Daten — deterministi
 // alten Raum darf den aktuellen Zustand nie mehr veraendern, selbst wenn Seat,
 // Generation und Turnnummer zufaellig uebereinstimmen (s. isCurrentCtx).
 let pendingSlot={}, onlineSessionId=0;
+// Package B: Wiederholungen des Skip je (Zug, Sitz) - hoechstens RINGOUT_SKIP_VERSUCHE.
+let skipVersuche={};
+// Abstand 1 s, 2 s: faengt einen kleinen Fehler der geschaetzten Serverzeit an der
+// 30-s-Frist auf, ohne das Zeitlimit der Rules zu umgehen.
+const RINGOUT_SKIP_VERSUCHE=3, RINGOUT_SKIP_ABSTAND_MS=1000, RINGOUT_SKIP={k:'skip',idx:0,dx:0,dy:0,sp:0};
 // P0-Nachbesserung (2026-07-11): capped-Backoff-Retry fuer den SYSTEMGENERIERTEN
 // Leave-Sentinel (nicht fuer eigene Spieler-Moves — die muessen nicht automatisch
 // wiederholt werden). sentinelRetryTimer haelt pro Seat hoechstens EINEN
@@ -10659,7 +10664,7 @@ const FFA_MAX_SEATS=5;   // Online-FFA: Seats 0-4 (Host=0), Farben aus PCOLS
 // Ein dritter Sinn haette die Begriffe endgueltig vermischt.
 //   'ringout'  alle bestehenden Formate, unveraendert
 //   'football' Arena Football; config.fmt traegt die Football-Variante
-const ROOM_GAME_RINGOUT='ringout', ROOM_GAME_FOOTBALL='football';
+const ROOM_GAME_RINGOUT='ringout', ROOM_GAME_FOOTBALL='football', RINGOUT_SKIP_FASSUNG=12;
 const RINGOUT_FMTS=['single','double','ffa','triple_ffa','team_duel'];
 const FOOTBALL_FMTS=['elimination'];
 // Fuenf Football-Teilnehmer (Sitze 0-4). Der neutrale Ball ist KEIN Teilnehmer: er hat
@@ -13287,6 +13292,10 @@ const GEN_MAX=10000;   // gen grows +1 per rematch; anything above is manipulati
 // eine Beschriftung - und die Grenzen sind dieselben, die die Rules ziehen.
 function fbRaumFassung(cfg){
   if(!cfg||typeof cfg!=='object')return 8;
+  // Package B: RingOut FFA, Triple und Team Duel kennen den typisierten Skip fuer abwesende
+  // Sitze. Das ist eine neue Zugsemantik und damit eine eigene Fassung - ein aelterer Client
+  // lehnt sie beim Beitritt ab, alte und neue Semantik teilen sich nie einen Raum.
+  if(cfg.game===ROOM_GAME_RINGOUT&&(cfg.fmt==='ffa'||cfg.fmt==='triple_ffa'||cfg.fmt==='team_duel'))return RINGOUT_SKIP_FASSUNG;
   if(cfg.game!==ROOM_GAME_FOOTBALL)return 8;
   if(cfg.mode!==FB_ONLINE_MODE_LIVES)return 8;
   const cap=cfg.cap;
@@ -13303,7 +13312,12 @@ function fbRaumFassung(cfg){
 // Welche Raumfassungen kann dieser Client bedienen? Beide Wege sind vollstaendig im
 // Produkt: v8 ueber den Zugslot, v9 ueber Commit und Enthuellung. Eine aeltere Fassung
 // bleibt abgewiesen - dort rechnet die Simulation anders.
-function fbRaumFassungOk(v){ return v===8||(ONLINE_PROTOCOL_VERSION>=9&&v===9)||(ONLINE_PROTOCOL_VERSION>=10&&v===10)||(ONLINE_PROTOCOL_VERSION>=11&&v===11); }
+// v12 (Package B) gibt es nur fuer RingOut FFA, Triple und Team Duel - die drei Pruefstellen
+// darunter (Beitritt, Wiedereintritt, oeffentliche Liste) verlangen genau diese Paarung.
+function fbRaumFassungOk(v){ return v===8||(ONLINE_PROTOCOL_VERSION>=9&&v===9)||(ONLINE_PROTOCOL_VERSION>=10&&v===10)||(ONLINE_PROTOCOL_VERSION>=11&&v===11)||v===RINGOUT_SKIP_FASSUNG; }
+// Laeuft dieses Match mit dem typisierten Skip? typeof-geschuetzt aufgerufen: Offline-
+// Pruefstaende uebernehmen die Zugfunktionen ohne Raumzustand und bleiben beim Bestand.
+function ringoutSkipRaum(){ return !!online&&roomProto===RINGOUT_SKIP_FASSUNG; }
 function validateRoom(d,jetzt){
   if(!d||typeof d!=='object')return{ok:false,reason:'Raumdaten ungültig.'};
   if(!fbRaumFassungOk(d.v))return{ok:false,reason:'Versionen stimmen nicht überein — bitte beide Seite neu laden.'};
@@ -13312,6 +13326,7 @@ function validateRoom(d,jetzt){
     return{ok:false,reason:'Raum-Konfiguration ungültig.'};
   // v4: Raumtyp ist Pflicht und muss zum Format passen. Kein stiller Default.
   if(!validGamePair(cfg.game,cfg.fmt))return{ok:false,reason:'Raum-Konfiguration ungültig.'};
+  if(d.v===RINGOUT_SKIP_FASSUNG&&!(cfg.game===ROOM_GAME_RINGOUT&&(cfg.fmt==='ffa'||cfg.fmt==='triple_ffa'||cfg.fmt==='team_duel')))return{ok:false,reason:'Raum-Konfiguration ungültig.'};
   // v8: ein Football-Raum traegt Modus UND Sollbesetzung. Fehlt eines oder passen sie
   // nicht zusammen, ist der Raum ungueltig - er faellt ausdruecklich NICHT auf die alte
   // Herleitung zurueck. Ein stiller Rueckfall waere genau die Verwechslung, die die
@@ -13396,6 +13411,7 @@ function validateRejoinRoom(d){
   const cfg=d.config;
   if(!cfg||typeof cfg!=='object'||(cfg.winTarget!==3&&cfg.winTarget!==5))return{ok:false,reason:'noRoom'};
   if(!validGamePair(cfg.game,cfg.fmt))return{ok:false,reason:'noRoom'};
+  if(d.v===RINGOUT_SKIP_FASSUNG&&!(cfg.game===ROOM_GAME_RINGOUT&&(cfg.fmt==='ffa'||cfg.fmt==='triple_ffa'||cfg.fmt==='team_duel')))return{ok:false,reason:'noRoom'};
   if(!validModeCap(cfg))return{ok:false,reason:'noRoom'};   // v8: Modus/Sollbesetzung Pflicht
   if(!modeReachable(cfg))return{ok:false,reason:'noRoom'};   // Freigabetor gilt auch hier
   if(typeof d.hostUid!=='string'||!d.hostUid)return{ok:false,reason:'noRoom'};   // v8: Hostkennung ist Pflicht
@@ -13441,7 +13457,7 @@ const ROOM_MAX_AGE_MS=7200000;   // 2h — older public rooms are never shown or
 // auch die Rules fuer publicRooms/<code> zulassen. v9 fehlt darin mit Absicht: fuer
 // diese Fassung gab es nie einen Produktweg, der einen oeffentlichen Raum anlegt.
 // Steht hier je eine neue Fassung an, gehoeren beide Stellen zusammen geaendert.
-function roomListable(v){ return v===4||v===5||v===6||v===7||v===8||v===10||v===11; }
+function roomListable(v){ return v===4||v===5||v===6||v===7||v===8||v===10||v===11||v===RINGOUT_SKIP_FASSUNG; }
 function publicListingView(d,now){
   // Room gone or structurally broken -> never show; listing is stale (safe to remove).
   if(!d||typeof d!=='object')return{show:false,remove:true};
@@ -13453,6 +13469,7 @@ function publicListingView(d,now){
   const cfg=d.config;
   if(!cfg||typeof cfg!=='object'||cfg.visibility!=='public')return{show:false,remove:true};
   if(!validGamePair(cfg.game,cfg.fmt))return{show:false,remove:true};
+  if(d.v===RINGOUT_SKIP_FASSUNG&&!(cfg.game===ROOM_GAME_RINGOUT&&(cfg.fmt==='ffa'||cfg.fmt==='triple_ffa'||cfg.fmt==='team_duel')))return{show:false,remove:true};
   const fbo=roomIsFootball(cfg);
   // Ein Raum erscheint nur, wenn sein MODUS wirklich spielbar ist. Ein gesperrter Modus
   // bleibt unsichtbar, egal welche Fassung sein Raum traegt - und ein kuenftiger, dann
@@ -14594,6 +14611,9 @@ function seatFinallyGone(s){
   if(mode==='ffa'){
     if(seatLeft[s])return;
     seatLeft[s]=true;
+    // Package B (v12): der Sitz scheidet NICHT aus. Er wird uebersprungen, solange er fehlt;
+    // seine Kugel bleibt im Spiel. Kehrt er zurueck, spielt er ab dem naechsten Zug weiter.
+    if(typeof ringoutSkipRaum==='function'&&ringoutSkipRaum()){ toast(nameForSeat(s)+' fehlt und wird uebersprungen.'); writeRingoutSkip(s); return; }
     toast('Spieler '+(s+1)+' hat das Match verlassen.');
     writeLeaveSentinel(s);
   }
@@ -14677,7 +14697,7 @@ function attachRoomListeners(){
           // die Merkung gegenstandslos - sonst bekaeme eine ZWEITE Trennung nie wieder
           // einen Weckruf. Fuer FFA bleibt seatLeft unangetastet: dort bedeutet es
           // "hat das Match verlassen" und steuert die Sentinel-Nachfuellung.
-          if(fbOnlineRoom()&&seatLeft[s]){
+          if((fbOnlineRoom()||(typeof ringoutSkipRaum==='function'&&ringoutSkipRaum()))&&seatLeft[s]){
             seatLeft[s]=false;
             // Ebenso beilaeufig wie der Abgang: wer zurueckkommt, wird genannt, nicht
             // gefeiert. Nur im laufenden Match - in der Lobby sagt das die Liste selbst.
@@ -14858,7 +14878,9 @@ function onlineArmTurn(){
   // weiterbewegt haben (turnUnsub() garantiert das nicht zwingend synchron gegen
   // bereits zugestellte Firebase-Events), darf den jetzigen Zustand nie beruehren.
   turnUnsub=window.FB.onValue(ref, snap=>{ if(isCurrentCtx(ctx)&&!isOnlineTerminated()) onlineTurnValue(snap.val()); });
-  if(mode==='ffa')for(let s=0;s<np();s++)if(seatLeft[s])writeLeaveSentinel(s);   // offene Slots Verlassener fuellen
+  if(mode==='ffa')for(let s=0;s<np();s++)if(seatLeft[s]){   // offene Slots Verlassener fuellen
+    if(typeof ringoutSkipRaum==='function'&&ringoutSkipRaum())writeRingoutSkip(s); else writeLeaveSentinel(s);
+  }
   fbMaybeSkipOffline();   // C2: Football - offene Slots bereits getrennter Sitze schliessen
   fbMaybeEvictExpired();  // C4B: abgelaufene Sitze dauerhaft austragen
   fbMaybeWriteRemoves();  // C4B: fuer bereits Ausgetragene den REMOVE schreiben
@@ -14891,7 +14913,7 @@ function writeTurnSlot(s,payload,opts){
   if(isOnlineTerminated())return;   // Match terminal abgebrochen -> kein eigener Move/Sentinel mehr senden
   if(pendingSlot[s])return;   // eigener Write fuer diesen Slot bereits unterwegs -> kein doppeltes Senden
   opts=opts||{};
-  const ctx={sid:onlineSessionId,room:roomCode,gen:gen,turnNo:turnNo,sentinel:!!opts.sentinel,attempt:opts.attempt||0};
+  const ctx={sid:onlineSessionId,room:roomCode,gen:gen,turnNo:turnNo,sentinel:!!opts.sentinel,skip:!!opts.skip,attempt:opts.attempt||0};
   pendingSlot[s]=ctx;
   const slotRef=window.FB.ref(window.FB.db,'rooms/'+ctx.room+'/g/'+ctx.gen+'/t/'+ctx.turnNo+'/'+s);
   try{
@@ -15181,6 +15203,29 @@ function fbMaybeSkipOffline(){
 // verliert der Sentinel. So spielen alle Clients mit exakt denselben Moves aus der
 // DB — deterministisch, kein Deadlock, keine Rules-Aenderung. attempt zaehlt
 // automatische Retries nach einem echten Transaction-Fehler (s. scheduleSentinelRetry).
+// Package B: der kanonische Weg fuer einen abwesenden Sitz in v12. Geschrieben wird nur,
+// was die Rules auch zulassen: ein Skip ohne Zugdaten, write-once, fuer einen Sitz, dessen
+// Abwesenheit sein Eigentuemer selbst belegt hat. Schliesst ihn ein anderer schneller, gilt
+// dessen Datensatz - jeder Client liest denselben.
+function writeRingoutSkip(s,attempt){
+  if(!ringoutSkipRaum()||!gameStarted||phase!=='aim'||aimSet[s]||pendingSlot[s]||!aliveCount(s))return;
+  if(s===myPlayer||!seatLeft[s])return;
+  writeTurnSlot(s,RINGOUT_SKIP,{skip:true,attempt:attempt||0});
+}
+// Hoechstens RINGOUT_SKIP_VERSUCHE je (Zug, Sitz). Ende bei Erfolg, belegtem Slot, Rueckkehr
+// des Sitzes, Zug-/Generations-/Sitzungswechsel. Anders als beim alten Sentinel beendet ein
+// ausgeschoepftes Limit NICHT das Match: der naechste Zug und jede Praesenzaenderung setzen
+// neu an, und jeder andere anwesende Client schreibt ebenfalls.
+function scheduleRingoutSkip(s,ctx){
+  if(isOnlineTerminated())return;
+  const k=ctx.gen+'/'+ctx.turnNo+'/'+s, n=(skipVersuche[k]||0)+1;
+  skipVersuche[k]=n;
+  if(n>=RINGOUT_SKIP_VERSUCHE)return;
+  setTimeout(()=>{
+    if(!isCurrentCtx(ctx)||aimSet[s]||!seatLeft[s])return;
+    writeRingoutSkip(s,n);
+  },RINGOUT_SKIP_ABSTAND_MS*n);
+}
 function writeLeaveSentinel(s,attempt){
   if(!online||mode!=='ffa'||!gameStarted||phase!=='aim'||aimSet[s]||pendingSlot[s]||!aliveCount(s))return;
   // Sentinel-idx = garantiert KEINE eigene Kugel des Seats: ffa -> fremder Seat-Index,
@@ -15262,6 +15307,12 @@ function processSlot(s,c){
   // Leave-Sentinel erkannt (auch fuer den eigenen Seat) -> Ejection bei beginReveal.
   // Echte Commits tragen im ffa idx===seat, im triple_ffa eine EIGENE Kugel (owner
   // idx%3===seat); jeder andere idx ist per Konvention der Stand-still-Sentinel.
+  // Package B: ein typisierter Skip heisst 'dieser Sitz bewegt sich in diesem Zug nicht'. Die
+  // Kugel bleibt liegen und kann regulaer hinausgestossen werden - sie wird NICHT entfernt.
+  if(c.k==='skip'&&mode!=='football'){
+    commitIdx[s]=-1; commitAim[s]={dx:0,dy:0}; commitSpin[s]=0; aimSet[s]=true; updateHud(); setPhaseText();
+    return;
+  }
   if(mode==='ffa'&&(fmt==='triple_ffa'?!(Number.isInteger(c.idx)&&c.idx%3===s):c.idx!==s))seatGone[s]=true;
   // C4B: ein typisierter REMOVE ist der dauerhafte Austritt dieses Sitzes. Er wird hier
   // nur VORGEMERKT - angewandt wird er deterministisch an der naechsten Eingabegrenze
@@ -15295,6 +15346,7 @@ function settleSlot(s,ctx,result,err){
     // kann jederzeit erneut committen.
     console.error('[online] Turn-Slot-Transaction fehlgeschlagen (Seat '+s+'):',err);
     if(ctx.sentinel&&!aimSet[s]) scheduleSentinelRetry(s,ctx);   // Slot evtl. inzwischen anderweitig autoritativ befuellt -> dann kein Retry noetig
+    if(ctx.skip&&!aimSet[s]) scheduleRingoutSkip(s,ctx);         // Package B: begrenzt, ohne Sitzungsabbruch
     maybeReveal();
     return;
   }

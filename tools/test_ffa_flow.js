@@ -557,7 +557,10 @@ function makeClient(db, code, forcePid) {
       async releaseClaim(c,s){return await releaseReservation(c,s,null);},
       // Direct atomic-claim driver for the parallel-race / onDisconnect-lifecycle
       // tests: fresh op each call, real claimSeatSlot (p+players[+state] in one write).
-      async claimSlot(c,s,extra){return await claimSeatSlot(c,s,newJoinOp(),extra);},
+      // Wie joinRoom im Produkt: erst die Fassung DES RAUMS uebernehmen, dann claimen. Ohne
+      // das traegt der Claim die Sandbox-Vorgabe und der Versionsvergleich weist ihn ab.
+      async claimSlot(c,s,extra){const d=(await window.FB.get(window.FB.ref(window.FB.db,'rooms/'+c))).val();
+        if(d&&typeof d.v==='number')roomProto=d.v; return await claimSeatSlot(c,s,newJoinOp(),extra);},
       onDrops(){return ui.onDrop.map(d=>d.ref.join('/'));},
       status(){return $('onStatus').textContent;},
       hasGrace(){return !!lobbyHostGraceTimer;},
@@ -598,7 +601,8 @@ async function dropSeat(db, code, seat) {
     const db = makeDB();
     const [h, g1, g2] = [makeClient(db, 'FFA3'), makeClient(db, 'X'), makeClient(db, 'X')];
     h.setMenu('ffa', 3); h.create(); await tick();
-    t('S1 room created ffa lobby v' + VER + ' (ringout)', db.data.rooms.FFA3.state === 'lobby' && db.data.rooms.FFA3.config.fmt === 'ffa' && db.data.rooms.FFA3.config.game === 'ringout' && db.data.rooms.FFA3.v === VER);
+    // Package B: ein neuer RingOut-FFA-Raum traegt die Fassung 12 (typisierter Skip).
+    t('S1 room created ffa lobby v12 (ringout, Package B)', db.data.rooms.FFA3.state === 'lobby' && db.data.rooms.FFA3.config.fmt === 'ffa' && db.data.rooms.FFA3.config.game === 'ringout' && db.data.rooms.FFA3.v === 12);
     t('S1 host roster record written', !!db.data.rooms.FFA3.players && db.data.rooms.FFA3.players[0] && db.data.rooms.FFA3.players[0].id === h.pid());
     g1.setMenu('online'); g1.join('FFA3'); await tick();
     g2.setMenu('online'); g2.join('FFA3'); await tick();
@@ -695,7 +699,7 @@ async function dropSeat(db, code, seat) {
     t('S5b guest stays in the RingOut FFA context', g.st().mode === 'ffa', g.st());
     g.create(); await tick();
     const r = db.data.rooms[g.st().roomCode];
-    t('S5b the guest creates a RingOut FFA room afterwards, public', !!r && r.config.game === 'ringout' && r.config.fmt === 'ffa' && r.v === 8 && r.config.visibility === 'public');
+    t('S5b the guest creates a RingOut FFA room afterwards, public', !!r && r.config.game === 'ringout' && r.config.fmt === 'ffa' && r.v === 12 && r.config.visibility === 'public');
   }
 
   // ── S5: host leaves lobby -> guests aborted; leave restores menu state ──

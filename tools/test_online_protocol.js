@@ -104,14 +104,14 @@ const RULES = require('fs').readFileSync(
 // keinen v9-Raum an - die Aufnahme ist reine Serverseite.
 // Seit PLAYER LOOP 01A kommt die 11 dazu: der bleibende Raum. v4 bis v10 bleiben
 // woertlich bedienbar - ein alter Raum stirbt nicht daran, dass es eine neue Fassung gibt.
-t('die Rules lassen waehrend der Umstellung v4 bis v11 zu',
-  /\(newData\.val\(\) === 4 \|\| newData\.val\(\) === 5 \|\| newData\.val\(\) === 6 \|\| newData\.val\(\) === 7 \|\| newData\.val\(\) === 8 \|\| newData\.val\(\) === 9 \|\| newData\.val\(\) === 10 \|\| newData\.val\(\) === 11\)/.test(RULES));
+t('die Rules lassen waehrend der Umstellung v4 bis v11 und die RingOut-FFA-Fassung v12 zu',
+  /\(newData\.val\(\) === 4 \|\| newData\.val\(\) === 5 \|\| newData\.val\(\) === 6 \|\| newData\.val\(\) === 7 \|\| newData\.val\(\) === 8 \|\| newData\.val\(\) === 12 \|\| newData\.val\(\) === 9 \|\| newData\.val\(\) === 10 \|\| newData\.val\(\) === 11\)/.test(RULES));
 const V_REGEL = (RULES.match(/"v": \{[^}]*\}/) || [''])[0];
 t('und keine andere Protokollversion — geprueft am v-Validator selbst',
   /=== 4/.test(V_REGEL) && /=== 5/.test(V_REGEL) && /=== 6/.test(V_REGEL) &&
   /=== 7/.test(V_REGEL) && /=== 8/.test(V_REGEL) && /=== 9/.test(V_REGEL) && /=== 10/.test(V_REGEL) &&
-  /=== 11/.test(V_REGEL) &&
-  !/=== 3|=== 2|=== 12|=== 1[^012]/.test(V_REGEL), V_REGEL);
+  /=== 11/.test(V_REGEL) && /=== 12/.test(V_REGEL) &&
+  !/=== 3|=== 2|=== 1[^012]/.test(V_REGEL), V_REGEL);
 // Die Protokollnummer eines bestehenden Raums ist unveraenderlich — ein v4-Raum kann
 // nicht zu einem v5-Raum umgeschrieben werden und umgekehrt.
 // Der Zugslot ist die Schreibstelle, die den Lockstep-Strom traegt. Er war bisher als
@@ -119,7 +119,7 @@ t('und keine andere Protokollversion — geprueft am v-Validator selbst',
 // auch er den Riegel: ein Bug im Client kann damit keinen fremdversionigen Raum mehr
 // mit Zuegen beschreiben.
 t('auch der Zugslot ist versionsgebunden',
-  /\.child\('v'\)\.val\(\) === 4 \|\| root\.child\('rooms'\)\.child\(\$code\)\.child\('v'\)\.val\(\) === 5 \|\| root\.child\('rooms'\)\.child\(\$code\)\.child\('v'\)\.val\(\) === 6 \|\| root\.child\('rooms'\)\.child\(\$code\)\.child\('v'\)\.val\(\) === 7 \|\| root\.child\('rooms'\)\.child\(\$code\)\.child\('v'\)\.val\(\) === 8\) && \(\(!root/.test(RULES));
+  /\.child\('v'\)\.val\(\) === 4 \|\| root\.child\('rooms'\)\.child\(\$code\)\.child\('v'\)\.val\(\) === 5 \|\| root\.child\('rooms'\)\.child\(\$code\)\.child\('v'\)\.val\(\) === 6 \|\| root\.child\('rooms'\)\.child\(\$code\)\.child\('v'\)\.val\(\) === 7 \|\| \(root\.child\('rooms'\)\.child\(\$code\)\.child\('v'\)\.val\(\) === 8 \|\| root\.child\('rooms'\)\.child\(\$code\)\.child\('v'\)\.val\(\) === 12\)\) && \(\(!root/.test(RULES));
 t('die Rules machen die Raumversion unveraenderlich',
   /\(!data\.exists\(\) \|\| newData\.val\(\) === data\.val\(\)\)/.test(RULES));
 // Stufe 2A: die Raumpruefungen vergleichen nicht mehr auf die eigene Ausbaustufe,
