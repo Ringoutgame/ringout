@@ -2440,6 +2440,7 @@ en:{tagline:'PULL BACK · RELEASE · KNOCK THEM OUT',chip:'FEATURED',
   szeneLaedt:'Loading the arena …',
   r3dRecovering:'Restoring graphics …',
   r3dRecoveryFailed:'Graphics could not be restored.\nPlease reload the page.',
+  r3dReload:'Reload',
   onSubFb:'Elimination · 2 to 5 players · two lives each',
   secPlay:'PLAY',secRooms:'ONLINE ROOMS',secHow:'HOW TO PLAY',viewAll:'VIEW ALL',
   joinCodeBtn:'JOIN CODE',howLead:'Learn the rules and master the ring.',
@@ -2537,6 +2538,7 @@ de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'FEATURED',
   szeneLaedt:'Arena wird geladen …',
   r3dRecovering:'Grafik wird wiederhergestellt …',
   r3dRecoveryFailed:'Grafik konnte nicht wiederhergestellt werden.\nBitte die Seite neu laden.',
+  r3dReload:'Neu laden',
   onSubFb:'Elimination · 2 bis 5 Spieler · je 2 Leben',
   secPlay:'SPIELEN',secRooms:'ONLINE-RÄUME',secHow:'SO WIRD GESPIELT',viewAll:'ALLE ANZEIGEN',
   scrollHint:'SCROLLEN FÜR MEHR',soonT:'BALD MEHR',soonS:'Neue Modi und Features sind in Arbeit.',
@@ -2630,6 +2632,7 @@ tr:{tagline:'GERİ ÇEK · BIRAK · DIŞARI İT',chip:'FEATURED',
   szeneLaedt:'Arena yükleniyor …',
   r3dRecovering:'Grafikler geri yükleniyor …',
   r3dRecoveryFailed:'Grafikler geri yüklenemedi.\nLütfen sayfayı yenileyin.',
+  r3dReload:'Yeniden yükle',
   onSubFb:'Eliminasyon · 2-5 oyuncu · her birine 2 can',
   secPlay:'OYNA',secRooms:'ONLINE ODALAR',secHow:'NASIL OYNANIR',viewAll:'TÜMÜNÜ GÖR',
   scrollHint:'KAYDIR VE KEŞFET',soonT:'ÇOK YAKINDA DAHA FAZLASI',soonS:'Yeni modlar ve özellikler yolda.',
@@ -4553,6 +4556,10 @@ function r3dInputBlocked(){return r3dContextLost;}
 // denselben Weg wie beim Kontextverlust; danach ein kontrollierter Endzustand statt eines
 // endlosen Neuversuchs. Gemeldet wird je Klasse einmal, nicht in jedem Bild.
 const R3D_RENDER_RECOVERIES_MAX=3;
+// Der Browser MUSS einen verlorenen Kontext nicht zurueckgeben (Mobilgeraet unter Speicherdruck,
+// blockierte GPU). Ohne Frist stand dann endlos 'Grafik wird wiederhergestellt …' ueber einer
+// dunklen Flaeche. Nach dieser Frist ohne Rueckgabe folgt der kontrollierte Endzustand.
+const R3D_RESTORE_WAIT_MS=10000;
 let r3dRenderFails={};
 // Beim Verlust werden ALLE laufenden lokalen Gesten commit-frei verworfen: kein Zug, kein
 // Kamera-Reset. Die naechste Geste nach dem Restore beginnt garantiert bei Null.
@@ -4563,7 +4570,48 @@ function r3dCancelLocalGestures(){
   camPid=-1;cam2Pid=-1;
   camTapT=0;   // kein Doppeltipp-Fenster ueber den Verlust hinweg -> kein cam.reset()
 }
-function r3dRecoveryHint(show,msg){
+// ── Start-/Grafik-Diagnose (Shared Mobile Match-Start) ─────────────────────────
+// Ein weisser oder schwarzer Bildschirm auf einem fremden Handy war bisher nicht zuzuordnen.
+// Dieser kleine Ringpuffer haelt die letzten Meilensteine von Szenenaufbau, Renderer,
+// Kontextverlust, Wiederherstellung und Matchstart fest - nur lokal (localStorage), nie
+// gesendet. Er ueberlebt ein Neuladen oder einen Absturz der Seite: ?diag=1 zeigt die
+// vorige und die laufende Sitzung als Text zum Abfotografieren, ?dev=1 liefert window.__r3dDiag().
+// Geschrieben wird nur bei Meilensteinen, nie pro Bild.
+const R3D_DIAG_KEY='ringout_diag',R3D_DIAG_MAX=40,R3D_DIAG_T0=Date.now();
+const R3D_DIAG_VIEW=new URLSearchParams(location.search).get('diag')==='1';
+let r3dDiagLog=[],r3dDiagPrev=null,r3dFrameMark=false;
+try{r3dDiagPrev=JSON.parse(localStorage.getItem(R3D_DIAG_KEY)||'null');}catch(_){}
+function r3dDiag(ev,info){
+  r3dDiagLog.push([Date.now()-R3D_DIAG_T0,ev,info===undefined?null:info]);
+  if(r3dDiagLog.length>R3D_DIAG_MAX)r3dDiagLog.shift();
+  try{localStorage.setItem(R3D_DIAG_KEY,JSON.stringify({at:R3D_DIAG_T0,log:r3dDiagLog}));}catch(_){}
+}
+// Erstes Bild nach Szenenaufbau bzw. Matchstart: landete es wirklich auf einer gueltigen Flaeche?
+function r3dDiagFrame(gl,c){
+  r3dFrameMark=false;
+  r3dDiag('frame',{lost:gl.isContextLost(),buf:gl.drawingBufferWidth+'x'+gl.drawingBufferHeight,
+    css:c.clientWidth+'x'+c.clientHeight,phase:phase,vis:document.visibilityState});
+}
+r3dDiag('boot',{ua:navigator.userAgent.slice(0,140),dpr:window.devicePixelRatio,vp:innerWidth+'x'+innerHeight,
+  mem:navigator.deviceMemory||null});
+document.addEventListener('visibilitychange',()=>r3dDiag('vis',document.visibilityState));
+if(DEV_MENU||R3D_DIAG_VIEW)window.__r3dDiag=()=>({prev:r3dDiagPrev,now:r3dDiagLog});
+function r3dDiagPanel(){
+  const el=document.createElement('pre');
+  el.id='r3dDiagPanel';
+  el.style.cssText='position:fixed;left:8px;right:8px;bottom:8px;max-height:45vh;overflow:auto;z-index:400;'+
+    'margin:0;padding:10px;background:rgba(4,7,12,.94);color:#cfe0f5;border:1px solid rgba(150,170,210,.3);'+
+    'border-radius:10px;font:11px/1.35 ui-monospace,monospace;white-space:pre-wrap;user-select:text;-webkit-user-select:text';
+  const zeilen=l=>(l||[]).map(e=>(e[0]/1000).toFixed(1)+'s '+e[1]+(e[2]===null?'':' '+JSON.stringify(e[2]))).join('\n');
+  const zeige=()=>{el.textContent='VORIGE SITZUNG'+(r3dDiagPrev?' ('+new Date(r3dDiagPrev.at).toISOString()+')':'')+'\n'+
+    zeilen(r3dDiagPrev&&r3dDiagPrev.log)+'\n\nDIESE SITZUNG (Tippen = aktualisieren)\n'+zeilen(r3dDiagLog);};
+  el.onclick=zeige;zeige();document.body.appendChild(el);
+}
+if(R3D_DIAG_VIEW)r3dDiagPanel();
+// Mit code: kontrollierter Endzustand statt stiller Flaeche - Meldung, Neu-laden-Knopf und ein
+// kurzer Ursachen-Code fuer ein Foto. Ein Neuladen fuehrt ueber das gemerkte Zimmer (rememberRoom)
+// zurueck auf den eigenen Sitz. Kein automatisches Neuladen: keine Schleife.
+function r3dRecoveryHint(show,msg,code){
   if(!show){if(r3dHintEl){r3dHintEl.remove();r3dHintEl=null;}return;}
   if(!r3dHintEl){
     r3dHintEl=document.createElement('div');
@@ -4571,10 +4619,21 @@ function r3dRecoveryHint(show,msg){
     r3dHintEl.style.cssText='position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);'+
       'background:rgba(8,14,22,.92);color:#dfe7f3;font:700 14px/1.5 system-ui,sans-serif;'+
       'border:1px solid rgba(150,170,210,.28);border-radius:12px;padding:14px 20px;'+
-      'text-align:center;white-space:pre-line;pointer-events:none;z-index:350;max-width:80vw';
+      'text-align:center;white-space:pre-line;z-index:350;max-width:80vw';
     document.body.appendChild(r3dHintEl);
   }
+  r3dHintEl.style.pointerEvents=code?'auto':'none';
   r3dHintEl.textContent=msg||T('r3dRecovering');
+  if(code){
+    const b=document.createElement('button');
+    b.className='btn';b.textContent=T('r3dReload');
+    b.style.cssText='display:block;margin:12px auto 0;padding:11px 22px';
+    b.onclick=()=>{r3dDiag('reload',code);location.reload();};
+    const c=document.createElement('div');
+    c.textContent='Code: '+code;
+    c.style.cssText='margin-top:8px;font:600 11px/1.3 ui-monospace,monospace;opacity:.6';
+    r3dHintEl.append(b,c);
+  }
 }
 
 // ── Kanonische Spielflaeche (RingOut-Delta B1, Quelle 6439629 + 2c2a6af) ─────────
@@ -14787,7 +14846,7 @@ function attachRoomListeners(){
   });
 }
 function maybeStart(){ if(gameStarted)return; gameStarted=true; if(roomPublic&&isHost()){removePublicListing(roomCode);roomPublic=false;} $('online').classList.remove('show'); showGame(); if(typeof fbV9RaumStart!=='function'||!fbV9RaumStart())startOnlineGame(); toast(T('youAre')+' '+(fmt==='team_duel'?T(teamOf(myPlayer)===0?'teamBlue':'teamRed'):T('col'+colSlot4Name(myPlayer)))); }
-function startOnlineGame(){ if(typeof clearGameOverOverlayTimer==='function')clearGameOverOverlayTimer(); replaying=false;repPlaying=false;$('replay').classList.remove('show'); if(typeof fbV9LebenStop==='function')fbV9LebenStop(); runningGen=gen; turnNo=-1; if(turnUnsub){turnUnsub();turnUnsub=null;} $('ov').classList.remove('show'); newGame(); }
+function startOnlineGame(){ if(typeof r3dDiag==='function'){ r3dDiag('match-start',{game:mode,room:roomCode,gen:gen,seat:myPlayer,scene:r3dActive}); r3dFrameMark=true; } if(typeof clearGameOverOverlayTimer==='function')clearGameOverOverlayTimer(); replaying=false;repPlaying=false;$('replay').classList.remove('show'); if(typeof fbV9LebenStop==='function')fbV9LebenStop(); runningGen=gen; turnNo=-1; if(turnUnsub){turnUnsub();turnUnsub=null;} $('ov').classList.remove('show'); newGame(); }
 // ════ B2 canonical match rehydration ════
 // Rebuilds a RUNNING match purely from the turn history under
 // rooms/<code>/g/<gen>/t. The lockstep sim is deterministic, so replaying every
@@ -16397,6 +16456,16 @@ async function initR3D(){
     c3=document.createElement('canvas');c3.id='cv3d';document.body.appendChild(c3);
     vig=document.createElement('div');vig.id='vig3d';document.body.appendChild(vig);
     const renderer=new THREE.WebGLRenderer({canvas:c3,antialias:true});
+    // Kontextverlust WAEHREND des Aufbaus (Arena-GLB und HDR laden noch - auf Mobilgeraeten unter
+    // Speicherdruck genau der kritische Moment beim START): die regulaeren Listener unten haengen
+    // erst nach dem Laden. Ohne preventDefault gibt der Browser den Kontext nie zurueck, und die
+    // Szene lief auf einer WEISSEN Flaeche weiter - ohne Hinweis und mit freier Eingabe.
+    let bootLost=false;
+    const onBootLost=(e)=>{e.preventDefault();bootLost=true;r3dDiag('ctx-lost','boot');};
+    c3.addEventListener('webglcontextlost',onBootLost);
+    {const gl=renderer.getContext();let gpu='';
+     try{const x=gl.getExtension('WEBGL_debug_renderer_info');if(x)gpu=String(gl.getParameter(x.UNMASKED_RENDERER_WEBGL)).slice(0,80);}catch(_){}
+     r3dDiag('renderer',{gl2:renderer.capabilities.isWebGL2,gpu:gpu,maxTex:renderer.capabilities.maxTextureSize});}
     renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,2));
     renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;
     renderer.toneMapping=THREE.ACESFilmicToneMapping;   // Exposure kommt aus dem aktiven Environment-Profil
@@ -16442,7 +16511,7 @@ async function initR3D(){
         tex=r.tex;texPath=r.path;
         tex.mapping=THREE.EquirectangularReflectionMapping;
       }
-      if(initial)perfHdrMs=Math.round(performance.now()-t0);
+      if(initial){perfHdrMs=Math.round(performance.now()-t0);r3dDiag('hdr',{ms:perfHdrMs,path:texPath});}
       const old=scene.environment;                   // vor dem Ueberschreiben merken (background===environment)
       renderer.toneMappingExposure=p.exposure;
       scene.environment=tex;scene.background=tex;scene.environmentIntensity=p.envIntensity;
@@ -16496,9 +16565,9 @@ async function initR3D(){
      island.position.set(cx+Math.cos(2.4)*6060,-404,cy+Math.sin(2.4)*6060);scene.add(island);
      for(let k=0;k<3;k++)addCloud([5800,6300],-560,-440,520,930,.3,.42);}
     // Akzeptiertes Arena-GLB (Pflicht im MVP; Fehler -> Fallback 2D)
-    const glbT0=performance.now();
+    const glbT0=performance.now();r3dDiag('glb-begin');
     const glb=await new Promise((res,rej)=>new GLTFLoader().load(assetUrl('assets/arena_platform_stage2.glb'),res,undefined,rej));
-    perfGlbMs=Math.round(performance.now()-glbT0);
+    perfGlbMs=Math.round(performance.now()-glbT0);r3dDiag('glb',perfGlbMs);
     // Gameplay-Lesbarkeit: Kristalle + obere Sockel von der Randebene ENTFERNEN (wirken wie
     // Hindernisse/Fangpunkte). Nur hier im Spiel-Renderer — Asset & prototype3d bleiben unberuehrt.
     const kill=[];
@@ -18439,7 +18508,7 @@ async function initR3D(){
         zoom(f){if(r3dInputBlocked())return;camDistFT=Math.min(1.5,Math.max(geo.zoomMin||.75,camDistFT*f));},
         reset(){camYawT=0;camPolarT=POLAR0;camDistFT=1;}
       },
-      render(){sync();renderer.render(scene,camera);},
+      render(){sync();renderer.render(scene,camera);if(r3dFrameMark)r3dDiagFrame(renderer.getContext(),c3);},
       // Profilwechsel aus den Settings: im sicheren Idle (Menue) live anwenden, waehrend eines
       // Matches nur vormerken (kein HDRI-Swap in aktiver Simulation) -> flushEnvProfile beim Menue.
       setEnvProfile(key){const k=ENVIRONMENT_PROFILES[key]?key:'dawn';
@@ -18475,9 +18544,29 @@ async function initR3D(){
       r3dRecoveryGen++;                    // neuer Zyklus: alle aelteren Restores sind ab jetzt veraltet
       r3dContextLost=true;r3dRecoveryFailed=false;
       r3dCancelLocalGestures();            // Aim, Drall und Kamerazeiger commit-frei verwerfen
+      // Die 3D-Flaeche waehrend des Zyklus verbergen: ein verlorener Kontext, der noch nie ein
+      // Bild hatte, erscheint in Chromium WEISS. Darunter liegt der dunkle Seitengrund.
+      c3.style.visibility='hidden';
       r3dRecoveryHint(true);
+      r3dDiag('recover-begin',r3dRecoveryGen);
     }
+    // Frist fuer die Rueckgabe des Kontexts (R3D_RESTORE_WAIT_MS). Nur der aktuelle Zyklus zaehlt;
+    // ist der Kontext schon zurueck, laeuft der Wiederaufbau und die Frist schweigt. Ein spaeteres
+    // webglcontextrestored darf auch nach dem Endzustand noch wiederherstellen.
+    function r3dArmRestoreDeadline(){
+      const g=r3dRecoveryGen;
+      setTimeout(()=>{
+        if(g!==r3dRecoveryGen||!r3dContextLost||r3dRecoveryFailed)return;
+        if(!renderer.getContext().isContextLost())return;
+        r3dRecoveryFailed=true;
+        r3dDiag('ctx-timeout');
+        r3dRecoveryHint(true,T('r3dRecoveryFailed'),'R3D-CTX-LOST');
+      },R3D_RESTORE_WAIT_MS);
+    }
+    c3.removeEventListener('webglcontextlost',onBootLost);
     c3.addEventListener('webglcontextlost',(e)=>{e.preventDefault();r3dBeginRecovery();});
+    c3.addEventListener('webglcontextlost',()=>{r3dDiag('ctx-lost');r3dArmRestoreDeadline();});
+    c3.addEventListener('webglcontextrestored',()=>{r3dDiag('ctx-restored');});
     c3.addEventListener('webglcontextrestored',()=>{r3dRestore();});
     // Kontrollierter Wiederaufbau: Renderer-Konfiguration (identisch zur Initialisierung),
     // Geometrie, Environment, Schatten - danach ein bestaetigter Frame, erst dann Eingabe frei.
@@ -18511,12 +18600,15 @@ async function initR3D(){
         if(!scene.environment)throw new Error('Environment nicht wiederhergestellt');
         if(!current())return;                     // letzte Pruefung vor dem Entsperren
         r3dContextLost=false;r3dRecoveryFailed=false;r3dRecoveryHint(false);
+        c3.style.visibility='';                   // erst das bestaetigte Bild macht die Flaeche wieder sichtbar
+        r3dDiag('recover-ok');
       }catch(err){
         // Fehlgeschlagene Wiederherstellung: Eingabe bleibt gesperrt, klarer Zustand, kein
         // stilles Weiterspielen, kein automatischer Reload, kein Match-Reset.
         if(!current())return;                     // ein ueberholter Zyklus meldet keinen Fehler
         r3dRecoveryFailed=true;
-        r3dRecoveryHint(true,T('r3dRecoveryFailed'));
+        r3dRecoveryHint(true,T('r3dRecoveryFailed'),'R3D-RESTORE');
+        r3dDiag('recover-fail',String(err&&err.message||err).slice(0,100));
         console.error('r3d: Context-Restore fehlgeschlagen',err&&err.message||err);
       }
     }
@@ -18533,8 +18625,17 @@ async function initR3D(){
     r3d.giveUp=()=>{
       r3dBeginRecovery();
       r3dRecoveryFailed=true;
-      r3dRecoveryHint(true,T('r3dRecoveryFailed'));
+      r3dRecoveryHint(true,T('r3dRecoveryFailed'),'R3D-RENDER');
+      r3dDiag('giveup');
     };
+    // Verlust schon waehrend des Aufbaus: derselbe Zyklus wie nach dem Aufbau. Ist der Kontext
+    // inzwischen zurueck, sofort wiederaufbauen; sonst uebernehmen Ereignispaar und Frist.
+    if(bootLost||renderer.getContext().isContextLost()){
+      r3dBeginRecovery();
+      if(renderer.getContext().isContextLost())r3dArmRestoreDeadline(); else r3dRestore();
+    }
+    r3dDiag('scene-ready',{buf:c3.width+'x'+c3.height,lost:renderer.getContext().isContextLost()});
+    r3dFrameMark=true;
     // Einmaliger Paritaets-Selbstcheck: eigene Projektion vs. three.js (nur Warnung, kein Eingriff)
     {const v=new THREE.Vector3(cx+200,0,cy-150).project(camera);
      const sx=(v.x+1)/2*camP.vw,sy=(1-v.y)/2*camP.vh;
@@ -18543,6 +18644,7 @@ async function initR3D(){
      if(Math.hypot(sx-px,sy-py)>1)console.warn('r3d: Projektions-Paritaet abweichend',Math.hypot(sx-px,sy-py));}
   }catch(e){
     console.error('INITR3D_FAIL',(e&&e.stack)||e);
+    r3dDiag('init-fail',String(e&&e.message||e).slice(0,120));
     r3dActive=false;r3d=null;
     try{if(c3)c3.remove();}catch(_){}
     try{if(vig)vig.remove();}catch(_){}
@@ -18567,6 +18669,7 @@ function r3dSichern(pflicht){
   if(!r3dLaden){
     r3dLadenFehl=false;
     toast(T('szeneLaedt'));
+    if(typeof r3dDiag==='function')r3dDiag('scene-load',pflicht?'pflicht':'optional');
     r3dLaden=Promise.resolve(initR3D()).then(()=>r3dActive).catch(()=>false)
       .then(ok=>{ if(!ok)r3dLadenFehl=true; return ok; });
   }
@@ -18706,7 +18809,7 @@ function presentFailed(err){
   const k=String(err&&err.message||err).slice(0,160);
   const f=r3dRenderFails[k]||(r3dRenderFails[k]={seen:0,recoveries:0});
   f.seen++;
-  if(f.seen===1)console.error('[render] Bild fehlgeschlagen:',err);   // einmal je Klasse, mit Stapel
+  if(f.seen===1){console.error('[render] Bild fehlgeschlagen:',err);if(typeof r3dDiag==='function')r3dDiag('render-fail',k.slice(0,100));}   // einmal je Klasse, mit Stapel
   // Ohne 3D-Szene gibt es nichts wiederherzustellen; die Schleife laeuft trotzdem weiter.
   if(!r3dActive||!r3d||typeof r3d.recover!=='function')return;
   if(r3dContextLost)return;   // ein Wiederaufbau laeuft bereits oder der Endzustand steht

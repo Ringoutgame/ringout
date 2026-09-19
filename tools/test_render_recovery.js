@@ -13,6 +13,7 @@
 //   E  ohne 3D-Szene (2D) laeuft die Schleife trotz Fehler weiter, gemeldet wird einmal
 //   F  ein echter Kontextverlust bleibt beim bestehenden Ereignispaar
 //   G  Quelltextvertrag: kein zweites Wiederherstellungssystem, Wiedergabe-Pfad geschuetzt
+//   H  Matchstart: Kontextverlust im Szenenaufbau, Rueckgabe-Frist, Endzustand mit Knopf, Puffer
 //
 //   node tools/test_render_recovery.js
 //   RENDER_TEST_HTML=<andere index.html> node tools/test_render_recovery.js   (Gegenprobe)
@@ -202,6 +203,103 @@ function fahre(w, bilder) {
   ok(/presentFrame\(false\);[^\n]*\n\s*requestAnimationFrame\(loop\);\s*\}$/.test(loopSrc), 'G4 das Folgebild wird nach der Grenze angemeldet');
   ok(!!maxM && +maxM[1] === 3, 'G5 Obergrenze der Wiederherstellungen ist 3', maxM && maxM[1]);
   ok((html.match(/requestAnimationFrame\(loop\)/g) || []).length === 3, 'G6 im ganzen Produkt genau drei Anmeldungen der Schleife (2 in loop + Start)');
+}
+
+// ── H: Kontextverlust beim Matchstart (Shared Mobile Match-Start) ───────────────
+// Real reproduziert am emulierten Handy-Gast: verliert der Browser den WebGL-Kontext, WAEHREND
+// die Szene beim START laedt, blieb die Flaeche WEISS (kein preventDefault -> nie zurueckgegeben,
+// kein Hinweis, Eingabe frei). Nach dem Aufbau und ohne Rueckgabe stand endlos 'Grafik wird
+// wiederhergestellt …' auf Schwarz. Geprueft: frueher Listener, Uebernahme in den Zyklus,
+// Frist mit Endzustand, Endzustand mit Neu-laden-Knopf und Ursachen-Code, lokaler Puffer.
+function verschachtelt(src, kopf) {   // Funktionsrumpf per Klammerzaehlung (auch in initR3D)
+  const a = src.indexOf(kopf); if (a < 0) return '';
+  let i = src.indexOf('{', a), t = 0;
+  for (; i < src.length; i++) { if (src[i] === '{') t++; else if (src[i] === '}' && --t === 0) break; }
+  return src.slice(a, i + 1);
+}
+{
+  const init = verschachtelt(html, 'async function initR3D(');
+  const frueh = init.indexOf("c3.addEventListener('webglcontextlost',onBootLost)");
+  ok(frueh > 0 && frueh < init.indexOf('await applyEnvProfile(envProfile,true)') && frueh < init.indexOf("new GLTFLoader().load(assetUrl('assets/arena_platform"),
+    'H1 der Verlust im Aufbau wird abgefangen, BEVOR HDR und Arena-GLB laden');
+  ok(/const onBootLost=\(e\)=>\{e\.preventDefault\(\);bootLost=true;/.test(init), 'H2 der fruehe Listener erlaubt dem Browser die Rueckgabe (preventDefault)');
+  const ab = init.indexOf("c3.removeEventListener('webglcontextlost',onBootLost)");
+  ok(ab > 0 && ab < init.indexOf("c3.addEventListener('webglcontextlost',(e)=>{e.preventDefault();r3dBeginRecovery();})"),
+    'H3 der fruehe Listener geht, bevor die regulaeren haengen - kein doppelter Zyklus');
+  ok(/if\(bootLost\|\|renderer\.getContext\(\)\.isContextLost\(\)\)\{\s*r3dBeginRecovery\(\);\s*if\(renderer\.getContext\(\)\.isContextLost\(\)\)r3dArmRestoreDeadline\(\); else r3dRestore\(\);/.test(init),
+    'H4 ein Verlust aus dem Aufbau landet im bestehenden Zyklus (Frist oder sofortiger Wiederaufbau)');
+  ok(/addEventListener\('webglcontextlost',\(\)=>\{r3dDiag\('ctx-lost'\);r3dArmRestoreDeadline\(\);\}\)/.test(init), 'H5 jeder spaetere Verlust bekommt die Frist');
+  const zyk = verschachtelt(init, 'function r3dBeginRecovery(');
+  const rst = verschachtelt(init, 'async function r3dRestore(');
+  ok(/c3\.style\.visibility='hidden'/.test(zyk) && rst.indexOf("c3.style.visibility=''") > rst.indexOf('r3d.render();'),
+    'H5b die verlorene Flaeche ist waehrend des Zyklus verborgen (kein Weiss) und erst nach dem bestaetigten Bild wieder sichtbar');
+  const w = html.match(/const R3D_RESTORE_WAIT_MS=(\d+);/);
+  ok(!!w && +w[1] >= 3000 && +w[1] <= 30000, 'H6 Frist fuer die Rueckgabe ist begrenzt (3-30 s)', w && w[1]);
+  ok(/r3dRecoveryHint\(true,T\('r3dRecoveryFailed'\),'R3D-RESTORE'\)/.test(init) && /r3dRecoveryHint\(true,T\('r3dRecoveryFailed'\),'R3D-RENDER'\)/.test(init),
+    'H7 jeder Endzustand traegt einen Ursachen-Code (Wiederaufbau, Renderfehler)');
+
+  // Verhalten der Frist: echte Funktion, nachgebaute Umgebung.
+  const frist = verschachtelt(init, 'function r3dArmRestoreDeadline(');
+  const fristWelt = (verlorenBleibt, neuerZyklus) => {
+    const W = { timer: [], hint: null, diag: [] };
+    try {
+      new Function('W', `
+        let r3dRecoveryGen=1, r3dContextLost=true, r3dRecoveryFailed=false; const R3D_RESTORE_WAIT_MS=${w ? w[1] : 10000};
+        const renderer={getContext:()=>({isContextLost:()=>W.lost})};
+        function setTimeout(f,ms){W.timer.push({f,ms});}
+        function T(k){return k;} function r3dDiag(e){W.diag.push(e);}
+        function r3dRecoveryHint(s,m,c){W.hint={s,m,c};}
+        ${frist}
+        W.lost=true; r3dArmRestoreDeadline();
+        W.lost=${verlorenBleibt}; if(${neuerZyklus})r3dRecoveryGen++;
+        W.timer.forEach(t=>t.f()); W.failed=r3dRecoveryFailed;`)(W);
+    } catch (e) { W.fehler = e.message; }
+    return W;
+  };
+  const a = fristWelt(true, false);
+  ok(a.failed && a.hint && a.hint.c === 'R3D-CTX-LOST' && a.hint.m === 'r3dRecoveryFailed', 'H8 kein Kontext nach der Frist -> kontrollierter Endzustand statt endlosem Hinweis', a.hint || a.fehler);
+  ok(a.timer.length === 1 && a.timer[0].ms === +(w ? w[1] : 0), 'H9 genau eine Frist je Verlust');
+  const b = fristWelt(false, false);
+  ok(!b.fehler && !b.failed && b.hint === null, 'H10 Kontext rechtzeitig zurueck -> die Frist schweigt, der Wiederaufbau laeuft');
+  const c = fristWelt(true, true);
+  ok(!c.fehler && !c.failed && c.hint === null, 'H11 eine ueberholte Frist meldet keinen Endzustand');
+
+  // Endzustand: Knopf zum Neuladen, bedienbar; der Zwischenhinweis bleibt nicht klickbar.
+  const hintSrc = grabFunction(html, 'r3dRecoveryHint');
+  const mk = tag => ({ tag, style: {}, kids: [], _t: '', append(...k) { this.kids.push(...k); }, remove() { this.weg = true; },
+    set textContent(v) { this._t = v; this.kids = []; }, get textContent() { return this._t; } });
+  const hintWelt = (code) => {
+    const W = { reload: 0 };
+    W.doc = { createElement: mk, body: { appendChild: e => { W.el = e; } } };
+    try {
+      new Function('W', `const document=W.doc, location={reload(){W.reload++;}}; let r3dHintEl=null;
+        function T(k){return k;} function r3dDiag(){}
+        ${hintSrc}
+        r3dRecoveryHint(true,'m',${code ? "'" + code + "'" : 'undefined'});`)(W);
+    } catch (e) { W.fehler = e.message; }
+    return W;
+  };
+  const t = hintWelt('R3D-CTX-LOST'), knopf = t.el && t.el.kids.find(k => k.tag === 'button');
+  ok(!!knopf && knopf.textContent === 'r3dReload' && t.el.style.pointerEvents === 'auto', 'H12 Endzustand zeigt einen bedienbaren Neu-laden-Knopf', t.fehler);
+  if (knopf && knopf.onclick) knopf.onclick();
+  ok(t.reload === 1, 'H13 der Knopf laedt genau einmal neu - kein automatisches Neuladen');
+  ok(!!t.el && t.el.kids.some(k => k.tag === 'div' && /R3D-CTX-LOST/.test(k.textContent)), 'H14 der Ursachen-Code steht sichtbar im Endzustand');
+  const z = hintWelt(null);
+  ok(!!z.el && z.el.kids.length === 0 && z.el.style.pointerEvents === 'none', 'H15 der Zwischenhinweis bleibt ohne Knopf und blockiert keine Eingabe', z.fehler);
+
+  // Diagnosepuffer: begrenzt, nur lokal.
+  const diagSrc = /(^|\n)function\s+r3dDiag\s*\(/.test(html) ? grabFunction(html, 'r3dDiag') : '';
+  const m = html.match(/R3D_DIAG_MAX=(\d+)/);
+  const D = { store: {} };
+  try {
+    new Function('D', `const R3D_DIAG_KEY='k',R3D_DIAG_MAX=${m ? m[1] : 40},R3D_DIAG_T0=0; let r3dDiagLog=[];
+      const localStorage={setItem(k,v){D.store[k]=v;}}; const Date={now:()=>5};
+      ${diagSrc}
+      for(let i=0;i<500;i++)r3dDiag('e'+i,i); D.log=r3dDiagLog;`)(D);
+  } catch (e) { D.fehler = e.message; }
+  ok(!!D.log && !!m && D.log.length === +m[1] && D.log[D.log.length - 1][1] === 'e499', 'H16 Diagnosepuffer ist begrenzt und haelt die neuesten Eintraege', D.fehler || (D.log && D.log.length));
+  ok(!!D.store.k && JSON.parse(D.store.k).log.length === D.log.length, 'H17 der Puffer ueberlebt ein Neuladen (localStorage)');
+  ok(!!diagSrc && !/fetch\(|sendBeacon|XMLHttpRequest|window\.FB/.test(diagSrc), 'H18 der Puffer sendet nichts');
 }
 
 console.log('Render-Recovery: ' + passed + ' passed, ' + failed + ' failed');
