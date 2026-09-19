@@ -4525,6 +4525,12 @@ let r3dRecoveryGen=0;
 // EIN Gate fuer den Recovery-Zustand, ausgewertet an den bestehenden Freigaben
 // (canCommitInput, whoCanAim, Kamerageste) - keine verstreuten Sonderbedingungen.
 function r3dInputBlocked(){return r3dContextLost;}
+// Render-Fehler an der Praesentationsgrenze (presentFrame in loop). Je Fehlerklasse - der
+// Fehlertext - hoechstens R3D_RENDER_RECOVERIES_MAX vollstaendige Wiederherstellungen ueber
+// denselben Weg wie beim Kontextverlust; danach ein kontrollierter Endzustand statt eines
+// endlosen Neuversuchs. Gemeldet wird je Klasse einmal, nicht in jedem Bild.
+const R3D_RENDER_RECOVERIES_MAX=3;
+let r3dRenderFails={};
 // Beim Verlust werden ALLE laufenden lokalen Gesten commit-frei verworfen: kein Zug, kein
 // Kamera-Reset. Die naechste Geste nach dem Restore beginnt garantiert bei Null.
 function r3dCancelLocalGestures(){
@@ -18393,13 +18399,15 @@ async function initR3D(){
     // wiederherstellen darf. Match, Score, Simulation und Netzwerk werden NICHT angefasst -
     // nur lokale Eingabe und Rendering pausieren. Die Listener haengen genau einmal an der
     // einen Szene (initR3D laeuft pro Sitzung einmal).
-    c3.addEventListener('webglcontextlost',(e)=>{
-      e.preventDefault();
+    // Beginn eines Wiederherstellungszyklus - gemeinsam fuer den Kontextverlust und fuer
+    // einen Render-Fehler bei intaktem Kontext (r3d.recover).
+    function r3dBeginRecovery(){
       r3dRecoveryGen++;                    // neuer Zyklus: alle aelteren Restores sind ab jetzt veraltet
       r3dContextLost=true;r3dRecoveryFailed=false;
       r3dCancelLocalGestures();            // Aim, Drall und Kamerazeiger commit-frei verwerfen
       r3dRecoveryHint(true);
-    });
+    }
+    c3.addEventListener('webglcontextlost',(e)=>{e.preventDefault();r3dBeginRecovery();});
     c3.addEventListener('webglcontextrestored',()=>{r3dRestore();});
     // Kontrollierter Wiederaufbau: Renderer-Konfiguration (identisch zur Initialisierung),
     // Geometrie, Environment, Schatten - danach ein bestaetigter Frame, erst dann Eingabe frei.
@@ -18407,6 +18415,12 @@ async function initR3D(){
       // Nur der aktuelle Zyklus darf bestaetigen, entsperren oder einen Fehlerzustand melden.
       const myGen=r3dRecoveryGen, current=()=>myGen===r3dRecoveryGen;
       try{
+        // Zeichenziel zurueck auf die Leinwand. three.js schaltet fuer die Umrechnung des
+        // Himmels (CubeCamera, PMREM) auf ein Offscreen-Ziel und stellt es erst am Ende zurueck,
+        // ohne finally. Wirft dort ein Zeichenaufruf, bleibt das Offscreen-Ziel aktiv - und der
+        // naechste Versuch merkt es sich sogar als 'das aktuelle'. Jedes weitere Bild, auch das
+        // Bestaetigungsbild unten, landete sonst unsichtbar im Offscreen-Ziel.
+        renderer.setRenderTarget(null);
         renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,2));
         renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;
         renderer.toneMapping=THREE.ACESFilmicToneMapping;
@@ -18423,6 +18437,7 @@ async function initR3D(){
         r3d.render();                             // ein bestaetigter Frame aus dem AKTUELLEN Spielzustand
         const gl=renderer.getContext();
         if(gl.isContextLost()||gl.drawingBufferWidth<=0)throw new Error('Kontext weiterhin ungueltig');
+        if(renderer.getRenderTarget()!==null)throw new Error('Bestaetigungsbild nicht auf der Leinwand');
         if(!scene.environment)throw new Error('Environment nicht wiederhergestellt');
         if(!current())return;                     // letzte Pruefung vor dem Entsperren
         r3dContextLost=false;r3dRecoveryFailed=false;r3dRecoveryHint(false);
@@ -18435,6 +18450,21 @@ async function initR3D(){
         console.error('r3d: Context-Restore fehlgeschlagen',err&&err.message||err);
       }
     }
+    // Ein Render-Fehler ohne Kontextverlust bekommt DENSELBEN Zyklus: Rendering und Eingabe
+    // pausieren, dann der kontrollierte Wiederaufbau mit bestaetigtem Bild. Ist der Kontext
+    // tatsaechlich verloren, fuehrt das Ereignispaar oben - hier geschieht dann nichts.
+    r3d.recover=()=>{
+      if(renderer.getContext().isContextLost())return;
+      r3dBeginRecovery();
+      r3dRestore();
+    };
+    // Aufgegeben: Rendering bleibt angehalten, der Hinweis sagt es. Ein spaeteres
+    // webglcontextrestored darf trotzdem noch wiederherstellen.
+    r3d.giveUp=()=>{
+      r3dBeginRecovery();
+      r3dRecoveryFailed=true;
+      r3dRecoveryHint(true,T('r3dRecoveryFailed'));
+    };
     // Einmaliger Paritaets-Selbstcheck: eigene Projektion vs. three.js (nur Warnung, kein Eingriff)
     {const v=new THREE.Vector3(cx+200,0,cy-150).project(camera);
      const sx=(v.x+1)/2*camP.vw,sy=(1-v.y)/2*camP.vh;
@@ -18588,11 +18618,42 @@ function simAdvance(now){
 }
 
 // ════ MAIN LOOP ════
+// DIE PRAESENTATIONSGRENZE. Frueher stand das naechste requestAnimationFrame am Ende von loop
+// hinter Zeichnen und Rendern: EIN Wurf dort - ein Treiberfehler im ersten Bild, eine Figur
+// ohne Farbe - verliess die Schleife, bevor sie sich neu anmeldete. Es gab danach kein
+// einziges Bild mehr und auch keine Simulation, denn beide haengen an derselben Schleife.
+// Jetzt endet ein fehlgeschlagenes Bild hier. Die Simulation bleibt davon unberuehrt.
+function presentFrame(nurSzene){
+  try{
+    if(!nurSzene)draw();
+    if(r3dActive&&!r3dContextLost)r3d.render();   // verlorener Kontext: kein WebGL-Aufruf
+    if(nurSzene)return;
+    if(r3dActive&&!bootDone)finishBoot();   // erster gerenderter 3D-Frame -> Menue einblenden
+    if(r3dActive)gameSurfaceSync();   // gemeldete Flaechenaenderung genau einmal pro Frame nachziehen (B1)
+  }catch(err){ presentFailed(err); }
+}
+function presentFailed(err){
+  const k=String(err&&err.message||err).slice(0,160);
+  const f=r3dRenderFails[k]||(r3dRenderFails[k]={seen:0,recoveries:0});
+  f.seen++;
+  if(f.seen===1)console.error('[render] Bild fehlgeschlagen:',err);   // einmal je Klasse, mit Stapel
+  // Ohne 3D-Szene gibt es nichts wiederherzustellen; die Schleife laeuft trotzdem weiter.
+  if(!r3dActive||!r3d||typeof r3d.recover!=='function')return;
+  if(r3dContextLost)return;   // ein Wiederaufbau laeuft bereits oder der Endzustand steht
+  if(f.recoveries>=R3D_RENDER_RECOVERIES_MAX){
+    console.error('[render] nach '+f.recoveries+' Wiederherstellungen aufgegeben ('+f.seen+' Fehlbilder):',k);
+    r3d.giveUp();
+    return;
+  }
+  f.recoveries++;
+  console.warn('[render] Wiederherstellung '+f.recoveries+'/'+R3D_RENDER_RECOVERIES_MAX+':',k);
+  r3d.recover();
+}
 function loop(now){
   if(PERF)perfTick(now);
   simAdvance(now);
   fbMusicSync();   // reaktive Musik: reine Ausgabe. Steht VOR der Wiedergabe-Abkuerzung, damit sie waehrend eines Replays verstummt statt weiterzulaufen.
-  if(replaying){ SFX.rollUpdate(null,false); if(r3dActive&&!r3dContextLost)r3d.render(); requestAnimationFrame(loop); return; }
+  if(replaying){ SFX.rollUpdate(null,false); presentFrame(true); requestAnimationFrame(loop); return; }
   tickCollapse(now);   // Ring-Collapse-Timer (nur Bot Training): zaehlt nur in der Planungsphase, loest den Collapse sofort aus
   // RINGOUT-Feedback + Dev-Sync-Log: reiner Phasen-Watcher (stepSim/Physik unangetastet)
   if(phase!==prevPhaseFx){if(phase==='result')showRingout();devSync('phase->'+phase);prevPhaseFx=phase;}
@@ -18602,10 +18663,7 @@ function loop(now){
   // waehrend der Tap laengst abgewiesen wird.
   if(phase==='sim'&&typeof barrierRescueMode==='function'&&barrierRescueMode()&&typeof barrierUi==='function')barrierUi();
   fbClockPaint();   // Restzeit im HUD nachziehen: reine Ausgabe, die Uhr laeuft in simStep
-  draw();
-  if(r3dActive&&!r3dContextLost)r3d.render();   // verlorener Kontext: kein WebGL-Aufruf
-  if(r3dActive&&!bootDone)finishBoot();   // erster gerenderter 3D-Frame -> Menue einblenden
-  if(r3dActive)gameSurfaceSync();   // gemeldete Flaechenaenderung genau einmal pro Frame nachziehen (B1)
+  presentFrame(false);   // wirft nie: ein fehlgeschlagenes Bild endet an der Grenze
   requestAnimationFrame(loop);
 }
 
