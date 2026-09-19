@@ -77,6 +77,7 @@ const SUITES = [
   { name: 'Rules',            file: 'test_rules.js',          expectPassed: 592 },   // v4: Seat-Ownership, Football-Raumtyp, typisierte Zuege (move/skip/remove) und die Eviction
   { name: 'Fristen', file: 'test_timeouts.js', expectPassed: 31 },   // FRISTEN-INVENTAR: jede Zahl der Rules mit Pfad und Bedeutung, verglichen mit der Konstante des Clients, die dasselbe meint. Faellt aus, sobald Client und Server auseinanderlaufen - oder eine neue, hier nicht benannte Frist entsteht.
   { name: 'Public-Lobby',     file: 'test_public_lobby.js',   expectPassed: 109 },
+  { name: 'Anmeldung-spaet',  file: 'test_auth_late.js',      expectPassed: 14 },   // RC-Gate 01: eine Anmeldung, die auf langsamem Netz erst NACH der 10-s-Grenze gelingt, wird uebernommen (kein Neuladen, kein Wiederholungslauf); echte Fehler bleiben stehen
   { name: 'Team-Duel',        file: 'test_team_duel.js',      expectPassed: 36 },
 ];
 

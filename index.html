@@ -1495,6 +1495,20 @@ body.fbctx .proom .pr-game{color:#cfe0ef}
     window.dispatchEvent(new Event("fb-ready"));
   };
   setTimeout(function(){ window.__fbFinish("firebase boot timeout"); }, window.FB_BOOT_TIMEOUT_MS);
+  // Eine Anmeldung, die erst NACH dem Watchdog oder der Anmelde-Zeitgrenze gelingt, war
+  // "zu spaet", nicht "gescheitert". Auf einem langsamen Mobilnetz ist das der Regelfall -
+  // und ein Neuladen liefe dort in dieselbe Grenze. Uebernommen wird das Ergebnis DESSELBEN
+  // einen Versuchs; es gibt keinen neuen. Echte Anmeldefehler bleiben stehen.
+  window.__fbAnmeldungDa = function(uid){
+    if(!uid) return false;
+    window.__FB_UID = uid;
+    var e = window.__FB_AUTH_ERR;
+    if(e === "firebase boot timeout" || e === "auth timeout"){
+      window.__FB_AUTH_ERR = null;
+      window.dispatchEvent(new Event("fb-auth-late"));
+    }
+    return true;
+  };
 </script>
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js";
@@ -1524,7 +1538,11 @@ body.fbctx .proom .pr-game{color:#cfe0ef}
     window.FB = { db, auth, ref, set, get, update, remove, onValue, onDisconnect, serverTimestamp, runTransaction, query, orderByChild, limitToLast };
     const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error('auth timeout')), AUTH_TIMEOUT_MS));
     // Standard-Persistenz (IndexedDB): dieselbe uid ueberlebt Reload und neuen Tab.
-    Promise.race([signInAnonymously(auth), timeout])
+    const anmeldung = signInAnonymously(auth);
+    // Das Ergebnis dieses EINEN Versuchs zaehlt auch dann, wenn die Zeitgrenze schon
+    // entschieden hat (s. __fbAnmeldungDa). Kein Wiederholungslauf.
+    anmeldung.then(cred => window.__fbAnmeldungDa(cred && cred.user && cred.user.uid), () => {});
+    Promise.race([anmeldung, timeout])
       .then(cred => {
         const uid = cred && cred.user && cred.user.uid;
         if(uid) window.__FB_UID = uid;
@@ -18671,6 +18689,9 @@ resize();initArenaGeo();newGame();applyLang();   // applyLang (inkl. selectMenuM
 updScrollHint();                                            // Scroll-Cue initial bewerten (Menue ist der Startscreen)
 setTimeout(()=>{scrollHintDone=true;updScrollHint();},8000);   // Onboarding-Cue ist transient (Timer ab Script-Start, Boot ~2s) — nie dauerhaft ueber Inhalten
 whenFB(()=>{ if(fbReady()&&menuVisible)startPublicListing(); });   // Home-Rooms-Vorschau ab Boot (best-effort, ohne FB stiller Leerzustand)
+// Spaete Anmeldung (langsames Netz, s. __fbAnmeldungDa): die Vorschau oben lief ins Leere -
+// jetzt nachholen, damit OPEN ROOMS ohne Neuladen erscheint.
+window.addEventListener('fb-auth-late',()=>{ if(fbReady()&&menuVisible)startPublicListing(); });
 finishBoot();                                    // die Startseite wartet auf nichts mehr - die Szene kommt auf Abruf
 setTimeout(finishBoot,10000);                    // Sicherheitsnetz: nie im Loader haengen bleiben
 requestAnimationFrame(loop);
