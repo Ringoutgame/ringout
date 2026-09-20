@@ -81,6 +81,7 @@ const SUITES = [
   { name: 'Fristen', file: 'test_timeouts.js', expectPassed: 32 },   // FRISTEN-INVENTAR: jede Zahl der Rules mit Pfad und Bedeutung, verglichen mit der Konstante des Clients, die dasselbe meint. Faellt aus, sobald Client und Server auseinanderlaufen - oder eine neue, hier nicht benannte Frist entsteht.
   { name: 'Public-Lobby',     file: 'test_public_lobby.js',   expectPassed: 111 },
   { name: 'Anmeldung-spaet',  file: 'test_auth_late.js',      expectPassed: 14 },   // RC-Gate 01: eine Anmeldung, die auf langsamem Netz erst NACH der 10-s-Grenze gelingt, wird uebernommen (kein Neuladen, kein Wiederholungslauf); echte Fehler bleiben stehen
+  { name: 'Football-Frist-v11', file: 'test_football_deadline_v11.js', expectPassed: 16 },   // SHOT RELIABILITY P1: das Entscheidungsfenster des Clients (fbV9FristMs) entspricht dem der Rules je Fassung (v9 6 s, v10/v11 8 s); der Fristwecker gegen einen Rules-treuen Server mit Uhrversatz - kein zu fruehes, erschoepftes Budget mehr
   { name: 'Team-Duel',        file: 'test_team_duel.js',      expectPassed: 36 },
 ];
 

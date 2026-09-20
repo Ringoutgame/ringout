@@ -11783,7 +11783,14 @@ const FB_V10_DEADLINE_MS=8000;
 // Welche Frist gilt in DIESEM Raum? Die Fassung steht im Kontext; fehlt sie, gilt der
 // historische Wert. So kann ein Kontext ohne Fassung nie versehentlich acht Sekunden
 // erben - die Erweiterung ist ausdruecklich nur fuer v10 wahr.
-function fbV9FristMs(ctx){ return (ctx&&ctx.proto===10)?FB_V10_DEADLINE_MS:FB_V9_DEADLINE_MS; }
+// v10 UND v11 spielen mit dem Acht-Sekunden-Fenster - dieselbe Zahl, die die Rules fuer
+// beide Fassungen erzwingen. Der Client darf hier nicht kuerzer rechnen als der Server:
+// mit sechs Sekunden feuerte der Fristwecker in v11-Raeumen zwei Sekunden zu frueh, seine
+// drei Versuche (6,25 / 6,75 / 8,25 s) wurden bis zur echten Frist abgewiesen, und lief
+// die Client-Uhr nur eine Viertelsekunde vor, waren alle drei zu frueh - danach schloss
+// niemand mehr den offenen Slot, die Runde stand. Das HUD zeigte dazu "Zeit abgelaufen"
+// bei sechs Sekunden, waehrend der Server noch zwei Sekunden lang annahm.
+function fbV9FristMs(ctx){ return (ctx&&(ctx.proto===10||ctx.proto===11))?FB_V10_DEADLINE_MS:FB_V9_DEADLINE_MS; }
 const FB_V9_WAKE_MARGIN_MS=250;    // lieber knapp zu spaet als staendig zu frueh
 // Nach einer Abweisung hoechstens ZWEI Wiederholungen - insgesamt also drei Versuche
 // je Fristdurchgang. Danach ist Schluss, bis ein NEUER autoritativer Schnappschuss
