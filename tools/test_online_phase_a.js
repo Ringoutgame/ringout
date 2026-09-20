@@ -393,7 +393,7 @@ const R = new Function(`
      'ein ungueltiger Code kommt nie bis zur Teamwahl');
   ok(/if\(joinFb&&v\.mode===FB_ONLINE_MODE_TEAM2\)\{/.test(jr),
      'und nur ein echter Team-2v2-Raum zeigt sie ueberhaupt');
-  ok(/const frisch=await window\.FB\.get\(window\.FB\.ref\(window\.FB\.db,'rooms\/'\+code\)\);/.test(jr)
+  ok(/const frisch=await joinFrist\(window\.FB\.get\(window\.FB\.ref\(window\.FB\.db,'rooms\/'\+code\)\),JOIN_LESEN_MS,'lesen'\);/.test(jr)
      && jr.indexOf('const frisch=') < jr.indexOf('const wahl=await new Promise'),
      'die Belegung wird FRISCH gelesen, bevor gefragt wird');
   // (J)+(K) Volle Seiten.

@@ -1906,6 +1906,42 @@ function savedRoom(){
 let joinOpSeq=0;
 function newJoinOp(){ return ++joinOpSeq; }
 function joinOpCurrent(op){ return op===joinOpSeq; }
+// ── BEITRITT MIT FRISTEN ────────────────────────────────────────────────────
+// Kein Fernschritt des Beitritts hatte bisher eine Frist. Haengt die Verbindung - auf dem
+// Handy der Regelfall bei Netzwechsel, Funkloch oder eingeschlafener Verbindung -, wartet
+// get()/update()/onDisconnect() beliebig lange: reproduziert blieb 'Joining …' ueber 45 s
+// stehen (offener get auf rooms/<code>), und jeder weitere Tap lief in dieselbe Wand.
+// Jetzt endet jeder Schritt spaetestens nach seiner Frist, danach entscheidet der
+// autoritative Raum (joinNachFrist): eigener Sitz -> uebernehmen, sonst sichtbar enden.
+const JOIN_LESEN_MS=8000;      // einen Raum lesen
+const JOIN_CLAIM_MS=8000;      // ein Schreibschritt des Sitzanspruchs
+const JOIN_ABGLEICH_MS=6000;   // Abgleich mit dem Raum nach einer abgelaufenen Frist
+const JOIN_ROLLBACK_MS=4000;   // Ruecknahme einer Reservierung (best effort)
+function joinFrist(p,ms,stufe){
+  let tid=null;
+  const lauf=Promise.resolve(p).then(v=>{clearTimeout(tid);return v;},e=>{clearTimeout(tid);throw e;});
+  return Promise.race([lauf,new Promise((_,rej)=>{tid=setTimeout(()=>{
+    const e=new Error('join-frist:'+stufe);e.joinStufe=stufe;rej(e);},ms);})]);
+}
+function istJoinFrist(e){ return !!(e&&e.joinStufe); }
+let joinAutoLauf=false;   // gesetzt von joinNachFrist, verbraucht von joinRoom
+// Zaehlt nur ECHTE Beitrittsversuche - nicht die Entwertungen, die leaveOnline ueber
+// joinOpSeq++ vornimmt. Damit laesst sich unterscheiden, WER einen Auftrag entwertet hat.
+let joinStarts=0;
+// Ein Beitritt endet auch dann, wenn sein Auftrag entwertet wurde. Kam die Entwertung von
+// einem NEUEREN Beitritt, gehoert die Anzeige diesem - dieser hier schweigt. Kam sie von einem
+// VERLASSEN (leaveOnline entwertet jeden offenen Auftrag, auch das verspaetete Ende eines
+// kanonischen Austritts), gehoert die Anzeige niemandem: dann stand der Mensch bisher vor
+// einem leeren Bildschirm, ohne Hinweis und ohne Aufforderung. Gemessen in den Zyklusproben.
+function joinStorno(op,startNr){
+  if(joinOpCurrent(op))return;
+  if(joinStarts!==startNr)return;   // ein neuerer Beitritt hat die Anzeige uebernommen
+  joinDiag(op,'storno',online?'online':'leer');
+  if(!online)setStatus(T('joinStuck'));
+}
+// Bounded, rein lokal: die letzten Beitrittsschritte liegen im vorhandenen Diagnosepuffer
+// (?diag=1). Ein Foto davon sagt, an welcher Stufe ein Beitritt stehen blieb.
+function joinDiag(op,stufe,info){ if(typeof r3dDiag==='function')r3dDiag('join',{op:op,st:stufe,i:info===undefined?null:info}); }
 // ════ v3 tokenized presence: p/<seat> = {s,on,t} (B1 client cutover) ════
 // A seat only counts as occupied/connected when on===true. RESERVE writes s+t
 // with on:false; ACTIVATE flips on:false->true on the SAME s; onDisconnect (ARM)
@@ -1997,17 +2033,21 @@ async function claimSeatSlot(code,seat,op,extra,team2,uebernahme){
   // Beide schreiben p und players in EINEM atomaren Update; welche Form zulaessig ist,
   // entscheiden allein die Rules (die Uebernahme verlangt dort einen anderen Token, die
   // Lobby und die volle Frist). Der Client schlaegt vor, der Server entscheidet.
-  const r=uebernahme?await reclaimSeat(code,seat,uebernahme.name||'',false,team2)
-                    :await reserveSeat(code,seat,team2);
+  // Jeder der drei Schritte hat eine Frist; auch die Ruecknahme wartet nicht ewig auf eine
+  // haengende Verbindung. Eine abgelaufene Frist wirft - der Beitritt gleicht danach mit
+  // dem Raum ab, statt weiter zu warten.
+  const zurueck=(dc)=>joinFrist(releaseReservation(code,seat,dc,tok),JOIN_ROLLBACK_MS,'rollback').catch(()=>{});
+  const r=uebernahme?await joinFrist(reclaimSeat(code,seat,uebernahme.name||'',false,team2),JOIN_CLAIM_MS,'reclaim')
+                    :await joinFrist(reserveSeat(code,seat,team2),JOIN_CLAIM_MS,'reserve');
   if(!r.ok)return {ok:false,lost:true,dc:null};
-  if(op!=null&&!joinOpCurrent(op)){ await releaseReservation(code,seat,null,tok); return {ok:false,stale:true,dc:null}; }
+  if(op!=null&&!joinOpCurrent(op)){ await zurueck(null); return {ok:false,stale:true,dc:null}; }
   let dc=null;
-  try{ dc=await armPresence(code,seat); }
-  catch(e){ await releaseReservation(code,seat,null,tok); throw e; }
-  if(op!=null&&!joinOpCurrent(op)){ await releaseReservation(code,seat,dc,tok); return {ok:false,stale:true,dc:null}; }
-  try{ await activateSeat(code,seat,extra); }
-  catch(e){ await releaseReservation(code,seat,dc,tok); throw e; }
-  if(op!=null&&!joinOpCurrent(op)){ await releaseReservation(code,seat,dc,tok); return {ok:false,stale:true,dc:null}; }
+  try{ dc=await joinFrist(armPresence(code,seat),JOIN_CLAIM_MS,'presence'); }
+  catch(e){ await zurueck(null); throw e; }
+  if(op!=null&&!joinOpCurrent(op)){ await zurueck(dc); return {ok:false,stale:true,dc:null}; }
+  try{ await joinFrist(activateSeat(code,seat,extra),JOIN_CLAIM_MS,'activate'); }
+  catch(e){ await zurueck(dc); throw e; }
+  if(op!=null&&!joinOpCurrent(op)){ await zurueck(dc); return {ok:false,stale:true,dc:null}; }
   return {ok:true,dc:dc};
 }
 // ════ B2 same-seat reclaim: RECLAIM -> ARM -> ACTIVATE ════
@@ -2491,6 +2531,7 @@ en:{tagline:'PULL BACK · RELEASE · KNOCK THEM OUT',chip:'FEATURED',
   creating:'Creating room…',ffaShare:'FFA · Share the code with 1–4 friends.',shareCode:'Share the code with your friend.',
   code4:'Please enter the 4-letter code.',joining:'Joining…',noRoom:'Room not found.',roomFull:'Room is already full.',
   joinBusy:'Seats are being taken right now — please try again.',
+  joinStuck:'Connection is not responding. Tap JOIN again.',
   connWait:'Connected! Waiting for the host…',connStart:'Connected! Game starting…',
   noFb:'⚠ No connection to Firebase. Check internet & config.',noAuth:'⚠ Sign-in failed. Please reload the page.',err:'Error: ',errRules:'The server rules are older than this client — please deploy the database rules.',noOnlineReset:'Not available in online mode.',loading:'Loading arena...',
   victory:'VICTORY',defeat:'DEFEAT',wins:'WINS',finalScore:'FINAL SCORE',elimDone:'ELIMINATION COMPLETE',ringout:'RINGOUT',round:'ROUND',
@@ -2585,6 +2626,7 @@ de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'FEATURED',
   creating:'Erstelle Raum…',ffaShare:'FFA · Schick den Code an 1–4 Freunde.',shareCode:'Schick den Code an deinen Kumpel.',
   code4:'Bitte 4-stelligen Code eingeben.',joining:'Trete bei…',noRoom:'Raum nicht gefunden.',roomFull:'Raum ist schon voll.',
   joinBusy:'Gerade wird um die Plätze gerungen — bitte nochmal versuchen.',
+  joinStuck:'Verbindung antwortet nicht. Bitte nochmal auf BEITRETEN tippen.',
   connWait:'Verbunden! Warte auf den Host…',connStart:'Verbunden! Spiel startet…',
   noFb:'⚠ Keine Verbindung zu Firebase. Internet & Config prüfen.',noAuth:'⚠ Anmeldung fehlgeschlagen. Bitte Seite neu laden.',err:'Fehler: ',errRules:'Die Regeln am Server sind älter als dieser Client — bitte die Datenbankregeln veröffentlichen.',noOnlineReset:'Im Online-Modus nicht verfügbar.',loading:'Arena wird geladen...',
   victory:'SIEG',defeat:'NIEDERLAGE',wins:'GEWINNT',finalScore:'ENDSTAND',elimDone:'ELIMINATION BEENDET',ringout:'RINGOUT',round:'RUNDE',
@@ -2679,6 +2721,7 @@ tr:{tagline:'GERİ ÇEK · BIRAK · DIŞARI İT',chip:'FEATURED',
   creating:'Oda kuruluyor…',ffaShare:'FFA · Kodu 1–4 arkadaşına gönder.',shareCode:'Kodu arkadaşına gönder.',
   code4:'Lütfen 4 haneli kodu gir.',joining:'Katılınıyor…',noRoom:'Oda bulunamadı.',roomFull:'Oda zaten dolu.',
   joinBusy:'Şu anda yerler kapılıyor — lütfen tekrar dene.',
+  joinStuck:'Bağlantı yanıt vermiyor. Tekrar KATIL\'a dokun.',
   connWait:'Bağlandı! Host bekleniyor…',connStart:'Bağlandı! Oyun başlıyor…',
   noFb:'⚠ Firebase bağlantısı yok. İnterneti ve yapılandırmayı kontrol et.',noAuth:'⚠ Giriş başarısız. Lütfen sayfayı yeniden yükle.',err:'Hata: ',errRules:'Sunucu kuralları bu istemciden eski — lütfen veritabanı kurallarını yayınlayın.',noOnlineReset:'Online modda kullanılamaz.',loading:'Arena yükleniyor...',
   victory:'ZAFER',defeat:'MAĞLUBİYET',wins:'KAZANDI',finalScore:'SON SKOR',elimDone:'ELEME TAMAMLANDI',ringout:'RINGOUT',round:'RAUNT',
@@ -13593,7 +13636,7 @@ async function claimSeat(code,op,maxSeats,kandidaten,team2){
   const runden=kandidaten?kandidaten.length:maxSeats;
   for(let t=0;t<runden;t++){
     if(!joinOpCurrent(op))return {seat:-1,dc:null,stale:true};
-    const s=await window.FB.get(window.FB.ref(window.FB.db,'rooms/'+code));
+    const s=await joinFrist(window.FB.get(window.FB.ref(window.FB.db,'rooms/'+code)),JOIN_LESEN_MS,'lesen');
     if(!joinOpCurrent(op))return {seat:-1,dc:null,stale:true};
     if(!s.exists())return {seat:-1,dc:null};
     const d=s.val()||{};
@@ -13620,7 +13663,7 @@ async function claimSeat(code,op,maxSeats,kandidaten,team2){
 const FB_V11_BEITRITT_ANLAEUFE=3;
 async function fbV11Beitritt(code,op,cap){
   const lesen=async()=>{
-    const snap=await window.FB.get(window.FB.ref(window.FB.db,'rooms/'+code));
+    const snap=await joinFrist(window.FB.get(window.FB.ref(window.FB.db,'rooms/'+code)),JOIN_LESEN_MS,'lesen');
     return snap.exists()?(snap.val()||{}):null;
   };
   for(let anlauf=0;anlauf<FB_V11_BEITRITT_ANLAEUFE;anlauf++){
@@ -13649,7 +13692,90 @@ async function fbV11Beitritt(code,op,cap){
   const v=validateRoom(d,jetztServer());
   return {seat:-1,grund:v.ok?T('joinBusy'):v.reason};
 }
+// Der Abschluss eines mehrsitzigen Beitritts: globale Zustaende, Lobby-Ansicht, Listener.
+// EINE Stelle fuer beide Wege - den gewoehnlichen Anspruch und die Uebernahme des eigenen
+// Sitzes nach einer abgelaufenen Frist. Vorher stand dieser Block nur in joinRoom; der
+// Abgleich haette ihn sonst kopieren muessen.
+function joinFertig(code,seat,d,v,op){
+  const joinFb=v.game===ROOM_GAME_FOOTBALL;
+  const isPublic=!!(d.config&&d.config.visibility==='public');
+  roomCode=code; myPlayer=seat; online=true; runningGen=-1; gameStarted=false; seatLeft=[]; seatGone=[]; playersRoster=d.players||{};
+  fbRoomMode=v.mode||''; fbRoomCap=Number.isInteger(v.cap)?v.cap:0; roomHostUid=v.hostUid||'';
+  // v8: Modus, Sollbesetzung UND Hostkennung kommen aus dem RAUM.
+  // Football: Modus UND Variante setzen, bevor irgendetwas np()/fbElim4() fragt.
+  if(joinFb){ mode='football'; fbVariant=FOOTBALL_VARIANT_ELIM; } else mode='ffa';
+  winTarget=v.winTarget; fmt=v.fmt; gen=v.gen; roomPublic=isPublic; roomOeffentlich=isPublic;
+  setzeVorspiel(mode,fmt);   // Kulisse der Lobby: die Koerper des Spiels, dem man beitritt
+  rememberRoom(code,seat);
+  hidePublicUI();   // entered a room -> stop the listener, hide the public UI
+  setOnTitle(true);
+  $('onCode').textContent=roomCode;   // derselbe Code, den auch der Wirt sieht
+  $('onActions').style.display='none';$('onLobby').style.display='';
+  setStatus(T('connWait'));
+  joinDiag(op,'lobby',seat);
+  attachRoomListeners();
+}
+// Nach einer abgelaufenen Frist ist ungewiss, ob der Anspruch doch noch ankam. Entschieden
+// wird das ausschliesslich am autoritativen Raum, nie am lokalen Verlauf:
+//   eigener Sitz vorhanden -> uebernehmen (bestehender Rueckkehrpfad, kein zweiter Weg)
+//   sonst                  -> sichtbar und wiederholbar enden
+// 'Joining …' bleibt in keinem Fall stehen, und es entsteht kein zweiter Sitz.
+async function joinNachFrist(code,op,stufe,schonWiederholt){
+  joinDiag(op,'frist',stufe);
+  setStatus(T('joinStuck'));        // sofort raus aus 'Joining …' - der Abgleich laeuft dahinter
+  try{
+    const s=await joinFrist(window.FB.get(window.FB.ref(window.FB.db,'rooms/'+code)),JOIN_ABGLEICH_MS,'abgleich');
+    if(!joinOpCurrent(op))return;
+    if(!s.exists()){ setStatus(T('noRoom')); joinDiag(op,'frist-kein-raum'); return; }
+    const d=s.val()||{};
+    const seat=findOwnSeat(d.players,onlinePid,fbUid());
+    if(seat>=0){
+      const pr=d.p&&d.p[seat];
+      // Der eigene Anspruch ist doch noch angekommen, nur die Praesenz fehlt (gleicher Token,
+      // on!==true). Das ist KEINE Uebernahme - die verlangen die Rules mit einem ANDEREN Token
+      // und nach Frist; sie wuerde hier abgelehnt. Es fehlt genau der letzte Schritt: aktivieren.
+      if(pr&&pr.s===onlineTab&&pr.on!==true){
+        const vv=validateRoom(d);
+        if(vv.ok){
+          try{
+            await joinFrist(armPresence(code,seat),JOIN_CLAIM_MS,'presence');
+            if(!joinOpCurrent(op))return;
+            await joinFrist(activateSeat(code,seat),JOIN_CLAIM_MS,'activate');
+            if(!joinOpCurrent(op))return;
+            roomProto=d.v;
+            joinDiag(op,'frist-aktiviert',seat);
+            joinFertig(code,seat,d,vv,op);
+            return;
+          }catch(e){ joinDiag(op,'frist-aktivieren',String(e&&(e.joinStufe||e.code||e.message)||e).slice(0,40)); }
+        }
+      }
+      joinDiag(op,'frist-uebernahme',seat);
+      rememberRoom(code,seat);
+      await attemptRejoin(code);
+      return;
+    }
+    // Der Raum antwortet wieder, und dieser Client hat dort NICHTS beansprucht: die Stoerung
+    // war ein kurzer Aussetzer. Dann gibt es GENAU EINEN automatischen zweiten Versuch -
+    // ungefaehrlich, weil nichts zurueckzunehmen ist, und begrenzt, weil der zweite Versuch
+    // keinen dritten startet. Danach entscheidet wieder der Mensch.
+    if(!schonWiederholt&&d.state==='lobby'){
+      // Der zweite Anlauf laeuft im Hintergrund - die Anzeige bleibt bei der ehrlichen,
+      // wiederholbaren Meldung. Sonst stuende wieder 'Joining …' da, obwohl die Verbindung
+      // gerade erst versagt hat; gelingt der Anlauf, erscheint ohnehin die Lobby.
+      joinDiag(op,'frist-neuversuch');
+      joinAutoLauf=true;
+      joinRoom();
+      return;
+    }
+    joinDiag(op,'frist-ohne-sitz');
+  }catch(e){ joinDiag(op,'frist-abgleich',String(e&&(e.joinStufe||e.code||e.message)||e).slice(0,40)); }
+  if(joinOpCurrent(op))setStatus(T('joinStuck'));
+}
+// joinAutoLauf traegt den EINEN automatischen zweiten Anlauf aus joinNachFrist herein; er wird
+// beim Eintritt sofort verbraucht, damit der zweite Anlauf keinen dritten starten kann.
 function joinRoom(){
+  const autoVersuch=joinAutoLauf; joinAutoLauf=false;
+  const startNr=++joinStarts;
   if(TUNE){toast('Tuning aktiv — Online deaktiviert');return;}
   const code=($('onInput').value||'').toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,4);
   if(code.length<4){ setStatus(T('code4')); return; }
@@ -13661,10 +13787,12 @@ function joinRoom(){
     (async()=>{
     try{
       setStatus(T('joining'));
-      const s=await window.FB.get(window.FB.ref(window.FB.db,'rooms/'+code));
+      joinDiag(op,'start',code);
+      const s=await joinFrist(window.FB.get(window.FB.ref(window.FB.db,'rooms/'+code)),JOIN_LESEN_MS,'lesen');
       if(!joinOpCurrent(op))return;
-      if(!s.exists()){ setStatus(T('noRoom')); return; }
+      if(!s.exists()){ setStatus(T('noRoom')); joinDiag(op,'kein-raum'); return; }
       const d=s.val();
+      joinDiag(op,'gelesen');
       // Rejoin laeuft ausschliesslich ueber die sichtbare Rejoin-Bar (attemptRejoin,
       // B2) — ein manueller Join durchlaeuft hier bewusst den normalen Claim-Flow
       // wie jeder andere Beitritt (kein stiller Seat-Reclaim auf diesem Pfad).
@@ -13681,6 +13809,20 @@ function joinRoom(){
       // Mehrsitzige Raeume - FFA-Familie UND Arena Football. Beide laufen ueber denselben
       // atomaren write-once-Sitzclaim; nur Sitzzahl, Modus und Variante unterscheiden sich.
       const joinFb=v.game===ROOM_GAME_FOOTBALL;
+      // IDEMPOTENZ: gehoert dieser Identitaet in DIESEM Raum schon ein Sitz - etwa aus einem
+      // Versuch, dessen Frist ablief, waehrend der Anspruch doch ankam -, dann wird er
+      // UEBERNOMMEN. Ein zweiter Anspruch wuerde sonst einen zweiten Sitz derselben Person
+      // belegen. Ein Sitz, der GERADE aktiv ist, gehoert einem anderen lebenden Tab: der
+      // bleibt unberuehrt, dieser Beitritt nimmt wie bisher einen freien Sitz.
+      {
+        const eigener=findOwnSeat(d.players,onlinePid,fbUid());
+        if(eigener>=0&&!(d.p&&seatActive(d.p,eigener))){
+          joinDiag(op,'uebernahme',eigener);
+          rememberRoom(code,eigener);
+          await attemptRejoin(code);
+          return;
+        }
+      }
       // Arena Football braucht die echte 3D-Szene: ohne sie sagt schon die Statuszeile,
       // dass der Modus nicht spielbar ist, und der Einstieg lehnt ausdruecklich ab. Der
       // Weg ueber einen Raumcode muss dieselbe Bedingung erfuellen - sonst besetzt ein
@@ -13715,7 +13857,7 @@ function joinRoom(){
           // innerhalb DERSELBEN Seite. Niemand wird stillschweigend ins andere Team
           // geschoben. Die Schleife ist begrenzt: mehr als vier Sitze gibt es nicht.
           for(let versuch=0;versuch<4;versuch++){
-            const frisch=await window.FB.get(window.FB.ref(window.FB.db,'rooms/'+code));
+            const frisch=await joinFrist(window.FB.get(window.FB.ref(window.FB.db,'rooms/'+code)),JOIN_LESEN_MS,'lesen');
             if(!joinOpCurrent(op))return;
             if(!frisch.exists()){ setStatus(T('noRoom')); return; }
             const pJetzt=(frisch.val()||{}).p||{};
@@ -13743,20 +13885,7 @@ function joinRoom(){
         if(c.stale)return;                  // op superseded -> globals stay untouched (offline)
         if(c.seat<0){ setStatus(c.grund||T('roomFull')); return; }
         // remote claim complete -> NOW commit the globals + UI + listeners
-        roomCode=code; myPlayer=c.seat; online=true; runningGen=-1; gameStarted=false; seatLeft=[]; seatGone=[]; playersRoster=d.players||{};
-        fbRoomMode=v.mode||''; fbRoomCap=Number.isInteger(v.cap)?v.cap:0; roomHostUid=v.hostUid||'';
-        // v8: Modus, Sollbesetzung UND Hostkennung kommen aus dem RAUM.
-        // Football: Modus UND Variante setzen, bevor irgendetwas np()/fbElim4() fragt.
-        if(joinFb){ mode='football'; fbVariant=FOOTBALL_VARIANT_ELIM; } else mode='ffa';
-        winTarget=v.winTarget; fmt=v.fmt; gen=v.gen; roomPublic=isPublic; roomOeffentlich=isPublic;
-        setzeVorspiel(mode,fmt);   // Kulisse der Lobby: die Koerper des Spiels, dem man beitritt
-        rememberRoom(code,c.seat);
-        hidePublicUI();   // entered a room -> stop the listener, hide the public UI
-        setOnTitle(true);
-        $('onCode').textContent=roomCode;   // derselbe Code, den auch der Wirt sieht
-        $('onActions').style.display='none';$('onLobby').style.display='';
-        setStatus(T('connWait'));
-        attachRoomListeners();
+        joinFertig(code,c.seat,d,v,op);
         return;
       }
       // 1v1/2v2 guest seat 1 — atomic claim writes p/1 + players/1 AND flips
@@ -13773,8 +13902,15 @@ function joinRoom(){
       hidePublicUI();   // entered a room -> stop the listener, hide the public UI
       $('onCode').textContent=roomCode;   // auch im Zweierraum sieht der Gast den Code
       setStatus(T('connStart'));
+      joinDiag(op,'lobby',1);
       attachRoomListeners();
-    }catch(e){ if(joinOpCurrent(op))setStatus(T('err')+(e.message||e)); } })();
+    }catch(e){
+      if(!joinOpCurrent(op))return;
+      // Abgelaufene Frist: NICHT raten, sondern den Raum fragen (joinNachFrist).
+      if(istJoinFrist(e)){ await joinNachFrist(code,op,e.joinStufe,!!autoVersuch); return; }
+      joinDiag(op,'fehler',String(e&&(e.code||e.message)||e).slice(0,60));
+      setStatus(T('err')+(e.message||e));
+    }finally{ joinStorno(op,startNr); } })();
   });
 }
 
@@ -14341,10 +14477,11 @@ function roomRejoinableState(d,seat){
 async function attemptRejoin(code){
   if(TUNE){toast('Tuning aktiv — Online deaktiviert');return false;}
   if(!fbReady()){ setStatus(T(fbFailKey())); return false; }
-  const op=newJoinOp();
+  const op=newJoinOp(); const startNr=++joinStarts;
   try{
     setStatus(T('joining'));
-    const snap=await window.FB.get(window.FB.ref(window.FB.db,'rooms/'+code));
+    joinDiag(op,'rejoin',code);
+    const snap=await joinFrist(window.FB.get(window.FB.ref(window.FB.db,'rooms/'+code)),JOIN_LESEN_MS,'lesen');
     if(!joinOpCurrent(op))return false;
     if(!snap.exists()){ forgetRoom(); setStatus(T('noRoom')); return false; }
     const d=snap.val();
@@ -14462,9 +14599,13 @@ async function attemptRejoin(code){
     return true;
   }catch(e){
     // reclaimSeatSlot already rolled its own partial writes back on a failure
-    if(joinOpCurrent(op))setStatus(T('err')+(e.message||e));
+    if(!joinOpCurrent(op))return false;
+    // Die Rueckkehr ist zugleich der Uebernahmeweg nach einer abgelaufenen Frist: auch sie
+    // endet nie im Warten, sondern in einem sichtbaren, wiederholbaren Zustand.
+    if(istJoinFrist(e)){ joinDiag(op,'rejoin-frist',e.joinStufe); setStatus(T('joinStuck')); return false; }
+    setStatus(T('err')+(e.message||e));
     return false;
-  }
+  }finally{ joinStorno(op,startNr); }
 }
 // ════ B2 in-match disconnect grace ════
 // A seat whose p/<seat> node is GONE has deliberately left (leaveOnline deletes

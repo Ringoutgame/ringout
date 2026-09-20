@@ -768,7 +768,7 @@ t('Beitritt: die Ablehnung nennt die Versionsunvertraeglichkeit',
     t('J der Beitritt fragt die Raumpruefung nach Kandidaten',
       /const kand=v\.kandidaten&&v\.kandidaten\.length\?v\.kandidaten:\[v\.freeSeat\];/.test(html));
     t('J ein abgelaufener Sitz wird UEBERNOMMEN, kein leerer wird geloescht',
-      /const r=uebernahme\?await reclaimSeat\(code,seat,uebernahme\.name\|\|'',false,team2\)/.test(html));
+      /const r=uebernahme\?await joinFrist\(reclaimSeat\(code,seat,uebernahme\.name\|\|'',false,team2\),JOIN_CLAIM_MS,'reclaim'\)/.test(html));
     t('J die Zahl der Anlaeufe ist fest und klein',
       /const FB_V11_BEITRITT_ANLAEUFE=3;/.test(html)
       && /for\(let anlauf=0;anlauf<FB_V11_BEITRITT_ANLAEUFE;anlauf\+\+\)\{/.test(html));
