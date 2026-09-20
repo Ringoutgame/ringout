@@ -16299,6 +16299,29 @@ function draw(){
   for(const b of balls)if(b.alive)drawBall(b);
   ctx.restore();
 }
+// Traegt DIESE Kugel ein Namenslabel? Eine Frage, eine Antwortstelle. Gezeichnet wird in
+// beiden Spielen mit DEMSELBEN Code (drawBall, Abschnitt 6) - nur die Sichtbarkeitsregel
+// unterscheidet sich, weil die beiden Spiele Verschiedenes sichtbar halten muessen.
+//
+// RING OUT (unveraendert): nur im Stillstand/Aiming. Waehrend der Simulation traegt die
+// Kugelfarbe die Zuordnung allein; ein mitfliegender Name waere dort nur Unruhe.
+//
+// ARENA FOOTBALL: durchgehend, auch waehrend der Physik. Hier schiessen alle Sitze
+// gleichzeitig, und erst der Name sagt waehrend des Zuges, wessen Figur gerade wohin
+// laeuft - genau deshalb steht das Label hier auch in der Simulation. Drei Faelle bleiben
+// ohne Label:
+//   - der neutrale Ball: er gehoert KEINEM Sitz. pName() wuerde ihm trotzdem eine
+//     Beschriftung geben (FOOTBALL_NEUTRAL_OWNER === 5: online der Farbname des sechsten
+//     Slots, lokal "Spieler 6") - ein Name auf dem Ball waere schlicht falsch.
+//   - das Menue-Vorspiel: dort laeuft kein Match, und die Lobby nennt die Namen bereits.
+//   - Tactical: dort fuehrt EINE Identitaet ZWEI Figuren - derselbe Name stuende doppelt
+//     im Feld und wuerde die Figuren gerade nicht unterscheiden.
+function nameLabelOn(b){
+  if(mode!=='football')return phase!=='sim';
+  if(menuVisible)return false;
+  if(b.owner===FOOTBALL_NEUTRAL_OWNER)return false;
+  return !fbTactical();
+}
 function drawBall(b){
   const pc=pcol(colorSlot(b.owner));   // TEAM DUEL: beide Teamkugeln in Teamfarbe
   const col=pc.c, colLt=pc.lt, colDk=pc.dk, glowRGB=pc.gl;
@@ -16383,12 +16406,24 @@ function drawBall(b){
     ctx.shadowBlur=0;
   }
 
-  // ── 6. Spielername ueber der Kugel — 2D+3D via OP(), nur im Stillstand/Aiming ──
-  // Premium-Stil: kraeftige Edelstein-Farbe (NAME_COL) + dunkle Kontur fuer Lesbarkeit auf Dawn/Day.
-  // Nicht im Football-Modus: der neutrale Ball (owner 4) hat keinen Spieler und wuerde von
-  // pName() als "Spieler 5" beschriftet, und ueber Blau/Rot verdeckt der Name nur das Feld.
-  // Mode-scoped — alle anderen Modi behalten ihre Namenslabels unveraendert.
-  if(phase!=='sim'&&mode!=='football'){
+  // ── 6. Spielername ueber der Kugel — 2D+3D via OP() ──
+  // Premium-Stil: kraeftige Edelstein-Farbe (NAME_COL bzw. FB_NAME_COL) + dunkle Kontur
+  // fuer Lesbarkeit auf Dawn/Day. WANN ein Label erscheint, beantwortet nameLabelOn().
+  //
+  // Der Name kommt aus pName() -> nameForSeat() -> players/<seat>/name, der einzigen
+  // dauerhaften Namensquelle des Produkts; b.owner IST der Sitz. Es gibt keine zweite
+  // Zuordnung, die veralten koennte - Sitzwechsel, Rejoin und ein neuer Raum tauschen
+  // playersRoster aus, und das naechste Bild liest bereits den neuen Namen.
+  //
+  // Bewusst Canvas-Text auf dem vorhandenen Overlay und KEIN DOM-Knoten: gemalte Pixel
+  // koennen keinen Zeiger abfangen (Zielen bleibt auf dem Handy unberuehrt), es entsteht
+  // kein Element je Teilnehmer, nichts muss aufgeraeumt werden, und es gibt nichts, was
+  // ueber den Rand der Flaeche hinausragen koennte. Das Label lebt exakt so lange wie die
+  // Kugel, die es traegt. Je Bild fallen nur die Textmasse an - keine Knoten, keine Textur.
+  //
+  // Zu lange Namen werden AUSSCHLIESSLICH fuer die Anzeige gekuerzt (…), der gespeicherte
+  // Name bleibt unangetastet; die Laengengrenze selbst setzt weiterhin sanitizeName().
+  if(nameLabelOn(b)){
     const q=OP(b.x,b.y,0),name=pName(b.owner);
     ctx.save();
     const fs=Math.max(12,BR*.66*q.s);
