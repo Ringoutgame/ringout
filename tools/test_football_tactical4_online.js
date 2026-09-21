@@ -130,6 +130,7 @@ abschnitt('4. Aufstellung: neun Koerper, spiegelsymmetrisch, ohne Ueberlappung, 
     'function fbArena(){ return { spawn: 7.65 }; }',
     g(/const FOOTBALL_NEUTRAL_OWNER=\d+;/, 'FOOTBALL_NEUTRAL_OWNER'),
     g(/const FOOTBALL_TACTICAL_SPAWN=\{[^\n]*\};/, 'FOOTBALL_TACTICAL_SPAWN'),
+    g(/const FOOTBALL_TACTICAL_1V1_SPAWN=\{[^\n]*\};/, 'FOOTBALL_TACTICAL_1V1_SPAWN'),
     fn('mkBall'),
     g(/function placeBalls\(\)\{[\s\S]*?\n\}/, 'placeBalls'),
     'return { stell: (v)=>{ fbVariant=v; placeBalls(); return balls.map(b=>({o:b.owner,x:b.x,y:b.y})); }, S: FOOTBALL_TACTICAL_SPAWN, N: FOOTBALL_NEUTRAL_OWNER };'
@@ -150,7 +151,10 @@ abschnitt('4. Aufstellung: neun Koerper, spiegelsymmetrisch, ohne Ueberlappung, 
   t('keine tiefe Figur steht in der lichten Torbreite (|y| > 3.56)', K.filter(k => Math.abs(k.x) === M.S.backX).every(k => Math.abs(k.y) > 3.56));
   t('niemand steht in der Bande (|x| < 17)', K.every(k => Math.abs(k.x) < 17));
   const T2 = M.stell('tactical');
-  t('die ersten beiden Figuren je Seite sind Zeichen fuer Zeichen die Tactical-Figuren', T2.length === 5 && JSON.stringify([K[0], K[1]]) === JSON.stringify([T2[0], T2[1]]) && JSON.stringify([K[4], K[5]].map(k => [k.x, k.y])) === JSON.stringify([T2[2], T2[3]].map(k => [k.x, k.y])));
+  // Die ersten beiden je Seite sind die Vier-Koerper-Konstante (front/back); Tactical 1v1 hat seit
+  // dem Ausgleich der Eroeffnung (2026-09-21) eine eigene Aufstellung und ist hier kein Massstab mehr.
+  t('die ersten beiden Figuren je Seite sind Zeichen fuer Zeichen die Vier-Koerper-Konstante (front, back)', JSON.stringify([K[0], K[1]].map(k => [k.x, k.y])) === JSON.stringify([[-M.S.frontX, -M.S.frontY], [-M.S.backX, M.S.backY]]) && JSON.stringify([K[4], K[5]].map(k => [k.x, k.y])) === JSON.stringify([[M.S.frontX, -M.S.frontY], [M.S.backX, M.S.backY]]));
+  t('Tactical 1v1 stellt weiterhin fuenf Koerper - aus seiner eigenen Aufstellung', T2.length === 5 && T2.map(k => k.o).join(',') === '0,0,1,1,' + M.N && T2[1].y === 0 && T2[1].x === -9.8);
   t('Tactical stellt weiterhin fuenf Koerper (0,0,1,1,Ball)', T2.map(k => k.o).join(',') === '0,0,1,1,' + M.N);
   t('placeBalls ist deterministisch', JSON.stringify(M.stell('tactical4')) === JSON.stringify(K));
 }

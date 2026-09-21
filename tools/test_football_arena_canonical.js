@@ -231,7 +231,9 @@ const gleich = (arr) => arr.every(k => Math.abs(k.L - arr[0].L) < 1e-9);
     ok(a.spawn < a.halfLen - a.corner, name + ': der Spawn liegt innerhalb der Kernebene');
   }
   ok(/const FOOTBALL_TACTICAL_SPAWN=\{frontX:6\.40,frontY:2\.80,backX:12\.20,backY:4\.60\};/.test(HTML),
-     'die Vier-Figuren-Aufstellung (Tactical und Team 2v2) ist unveraendert');
+     'die Vier-Koerper-Aufstellung (Team 2v2, Tactical 4-Ball) ist unveraendert');
+  ok(/const FOOTBALL_TACTICAL_1V1_SPAWN=\{frontX:7\.50,frontY:4\.60,backX:9\.80,backY:0\.00\};/.test(HTML),
+     'Tactical 1v1 hat seine eigene, ausgeglichene Eroeffnungsaufstellung (7.50/4.60, 9.80/0.00)');
 }
 
 // ══ O. SICHTBARES UND KOLLISION AUS DERSELBEN QUELLE ═════════════════════════

@@ -607,9 +607,16 @@ Zwischenbildschirm und ohne zweite Bestaetigung. Dev-Direktlinks `?dev=1&fb=clas
 ueberspringen das Modal; ein ungueltiger Wert (z. B. `fb=tactical-dual`) zeigt die Auswahl und
 startet Classic.
 
-**Tactical-Aufstellung** (`FOOTBALL_TACTICAL_SPAWN`, Einheiten in BR): offensive Figur
-(±6.40, −2.80), tiefe Figur (±12.20, +4.60), Rot an der Mittelachse gespiegelt, Ball exakt im
-Mittelpunkt. Die tiefe Figur steht ausserhalb der lichten Torbreite (`postInner` 3.560) — keine
+**Tactical-Aufstellung** (seit 2026-09-21 die eigene Konstante `FOOTBALL_TACTICAL_1V1_SPAWN`,
+Einheiten in BR): offensive Figur (±7.50, −4.60), tiefe Figur (±9.80, 0.00) zentral auf der
+Torachse und 8.2 BR vor der Torlinie, Rot an der Mittelachse gespiegelt, Ball exakt im
+Mittelpunkt. Grund: aus der alten Aufstellung (±6.40/−2.80, ±12.20/+4.60 — heute die
+Vier-Koerper-Konstante `FOOTBALL_TACTICAL_SPAWN` von Team 2v2 und Tactical 4-Ball) hatte die
+vordere Figur einen leichten direkten Eroeffnungstreffer: auf der echten Physik ein
+5-Grad-Fenster bei 100 % Kraft, das bei 85/70/55 % blieb. Neu bleibt bei 100 % ein einziger
+1-Grad-Winkel je Figur, bei jeder geringeren Kraft keiner; Blau und Rot messen gleich
+(`artifacts/tactical-spawn-01/eroeffnung.js`, Suite `tools/test_football_tactical_spawn.js`).
+Die tiefe Figur steht mit |x| < halfLen − 8 BR ausserhalb des Torkorridor-Vertrags — keine
 Figur startet im Tor. Rollen entstehen ausschliesslich aus der Position, es gibt keine
 Figurenklassen. **Auswahl-UX:** dezenter Bodenring in Teamfarbe (`FB_RING_SELECTABLE` 0.34 /
 `FB_RING_SELECTED` 0.95, gewaehlte Figur zusaetzlich 1.10× groesser), keine dauerhaften Labels.

@@ -31,6 +31,7 @@ const SRC = [
   grab(/const FOOTBALL_WIN_SCORE=3;/, 'FOOTBALL_WIN_SCORE'),
   grab(/const FOOTBALL_NEUTRAL_OWNER=[^\n]*/, 'FOOTBALL_NEUTRAL_OWNER'),
   grab(/const FOOTBALL_TACTICAL_SPAWN=[^\n]*/, 'FOOTBALL_TACTICAL_SPAWN'),
+  grab(/const FOOTBALL_TACTICAL_1V1_SPAWN=[^\n]*/, 'FOOTBALL_TACTICAL_1V1_SPAWN'),
   grab(/const FOOTBALL_VARIANT_TACTICAL='tactical';/, 'FOOTBALL_VARIANT_TACTICAL'),
   grab(/function fbTactical\(\)\{[^\n]*/, 'fbTactical'),
   // Der neue Modus als Ganzes.
@@ -417,15 +418,17 @@ const SHOT = 6 * 60;
   ok(r1.x === -b1.x && r1.y === b1.y, 'R1 ist die exakte Spiegelung von B1');
   ok(r2.x === -b2.x && r2.y === b2.y, 'R2 die exakte Spiegelung von B2');
   ok(ball.x === 0 && ball.y === 0, 'der neutrale Ball startet zentral');
-  // Und es sind DIESELBEN Koordinaten wie in Tactical - dieselbe Konstante, kein zweiter Satz.
-  const T = build('tactical');
-  const tp = T.pos();
-  ok(JSON.stringify(p.map(x => [x.x, x.y])) === JSON.stringify(tp.map(x => [x.x, x.y])),
-     'die Aufstellung ist Koordinate fuer Koordinate die von Tactical');
+  // Und es sind Koordinate fuer Koordinate die der Vier-Koerper-Konstante FOOTBALL_TACTICAL_SPAWN
+  // (seit 2026-09-21 hat Tactical 1v1 eine eigene Aufstellung, Team 2v2 bleibt unveraendert).
+  const SP = (HTML.match(/const FOOTBALL_TACTICAL_SPAWN=\{frontX:([\d.]+),frontY:([\d.]+),backX:([\d.]+),backY:([\d.]+)\};/) || []).slice(1).map(Number);
+  const soll = [[-SP[0], -SP[1]], [-SP[2], SP[3]], [SP[0], -SP[1]], [SP[2], SP[3]], [0, 0]].map(([x, y]) => [x * 14, y * 14]);
+  ok(p.length === soll.length && p.every((x, i) => Math.abs(x.x - soll[i][0]) < 1e-6 && Math.abs(x.y - soll[i][1]) < 1e-6),
+     'die Aufstellung ist Koordinate fuer Koordinate die Vier-Koerper-Konstante (6.40/2.80, 12.20/4.60)');
   ok(!/FOOTBALL_TEAM2V2_SPAWN/.test(HTML), 'es gibt keinen zweiten Spawn-Satz');
-  // Seit Tactical 4-Ball (2026-09-21) liest auch die Vier-je-Seite-Aufstellung dieselbe Konstante.
-  ok((HTML.match(/const S=FOOTBALL_TACTICAL_SPAWN;/g) || []).length === 3,
-     'alle drei Tactical-Aufstellungen (Tactical, Team 2v2, Tactical 4-Ball) lesen dieselbe Spawn-Konstante');
+  // Seit Tactical 4-Ball (2026-09-21) liest auch die Vier-je-Seite-Aufstellung dieselbe Konstante;
+  // Tactical 1v1 liest seit dem Ausgleich der Eroeffnung (2026-09-21) seine eigene.
+  ok((HTML.match(/const S=FOOTBALL_TACTICAL_SPAWN;/g) || []).length === 2 && (HTML.match(/const S=FOOTBALL_TACTICAL_1V1_SPAWN;/g) || []).length === 1,
+     'Team 2v2 und Tactical 4-Ball lesen die Vier-Koerper-Konstante, Tactical 1v1 seine eigene');
 }
 
 // ══ R. MODUSWECHSEL LAESST NICHTS HINUEBERLAUFEN ═════════════════════════════

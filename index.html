@@ -5214,8 +5214,10 @@ function placeBalls(){
   }else if(mode==='football'&&typeof fbTactical==='function'&&fbTactical()){
     // TACTICAL: 2 Figuren je Team + neutraler Ball (FOOTBALL_NEUTRAL_OWNER). Blau bei -x, Rot exakt daran
     // gespiegelt bei +x. Reihenfolge B1,B2,R1,R2,Ball haelt die Ballindizes ueber alle
-    // Runden stabil — die Auswahl (fbSel) darf sich darauf verlassen.
-    const S=FOOTBALL_TACTICAL_SPAWN;
+    // Runden stabil — die Auswahl (fbSel) darf sich darauf verlassen. Seit 2026-09-21 die
+    // EIGENE Aufstellung von Tactical 1v1 (s. FOOTBALL_TACTICAL_1V1_SPAWN) - Team 2v2 und
+    // Tactical 4-Ball behalten die Vier-Koerper-Aufstellung.
+    const S=FOOTBALL_TACTICAL_1V1_SPAWN;
     balls.push(mkBall(cx-S.frontX*BR,cy-S.frontY*BR,0),mkBall(cx-S.backX*BR,cy+S.backY*BR,0),
                mkBall(cx+S.frontX*BR,cy-S.frontY*BR,1),mkBall(cx+S.backX*BR,cy+S.backY*BR,1),
                mkBall(cx,cy,FOOTBALL_NEUTRAL_OWNER));
@@ -8508,13 +8510,25 @@ function fbElimPlayers(){
   if(fbElimStartN>=2)return fbElimStartN;
   return fbVariant===FOOTBALL_VARIANT_ELIM4?FOOTBALL_ELIM4_PLAYERS:FOOTBALL_ELIM_START_PLAYERS;
 }
-// Startaufstellung in BR (gleiche Konvention wie FOOTBALL_ARENA). Blau steht bei -x, Rot
-// exakt an der Mittelachse gespiegelt bei +x -> identische Distanzverhaeltnisse zu Ball,
-// eigenem Tor und Gegnertor. 'front' ist die offensivere Figur nahe der Mittellinie, 'back'
-// die tiefere. Bewusst KEINE Rollen im Code: Torwart oder Stuermer entsteht allein aus der
-// Position. backY liegt ausserhalb der lichten Torbreite (postInner 3.560), damit keine
-// Figur bereits im Tor steht.
+// VIER-KOERPER-Startaufstellung in BR (gleiche Konvention wie FOOTBALL_ARENA) - die von
+// Team 2v2 und, gespiegelt, von Tactical 4-Ball. Blau steht bei -x, Rot exakt an der
+// Mittelachse gespiegelt bei +x -> identische Distanzverhaeltnisse zu Ball, eigenem Tor und
+// Gegnertor. 'front' ist die offensivere Figur nahe der Mittellinie, 'back' die tiefere.
+// Bewusst KEINE Rollen im Code: Torwart oder Stuermer entsteht allein aus der Position.
+// backY liegt ausserhalb der lichten Torbreite (postInner 3.560), damit keine Figur bereits
+// im Tor steht.
 const FOOTBALL_TACTICAL_SPAWN={frontX:6.40,frontY:2.80,backX:12.20,backY:4.60};
+// TACTICAL 1V1 hat seit 2026-09-21 eine EIGENE Aufstellung. Aus der alten (oben) hatte die
+// vordere Figur einen leichten direkten Eroeffnungstreffer: auf der echten Physik gemessen
+// (artifacts/tactical-spawn-01/eroeffnung.js) ein 5-Grad-Fenster bei 100 % Kraft, das bei
+// 85, 70 und 55 % erhalten blieb - Figur waehlen, auf den Ball ziehen, Tor. Neu steht die
+// vordere Figur weiter vom Ball und breiter (7.50/4.60 statt 6.40/2.80), die tiefe Figur
+// zentral auf der Torachse bei 9.80 - 8.2 BR VOR der Torlinie, also kein Torwart auf der
+// Linie, aber im Weg jedes geraden Zentrumsschusses aus der Eroeffnung. Gemessen: bei 100 %
+// bleibt genau EIN Grad direkter Treffer je Figur (statt 5 Grad), bei jeder geringeren Kraft
+// keiner; Eigentore null; Blau und Rot Zahl fuer Zahl gleich. Kleinster Koerperabstand
+// 5.14 BR, Bandenabstand 8.1 BR. Beide Figuren bleiben jeden Zug frei waehlbar.
+const FOOTBALL_TACTICAL_1V1_SPAWN={frontX:7.50,frontY:4.60,backX:9.80,backY:0.00};
 // Vorauswahl je Team (Ballindex, -1 = noch keine). Sie lebt NUR bis zum Commit: ab dann ist
 // commitIdx[who] die Wahrheit, genau wie in Classic. Zuruecksetzen passiert dort, wo auch
 // die Commits zurueckgesetzt werden (startRound und das Settlement in stepSim).
