@@ -711,7 +711,10 @@ liegen untracked unter `artifacts/football-tactical-dual-prototype/`.
   Geisterfigur, kein Teamtausch).
 - **Pruefstaende:** `tools/test_football_team2v2_online.js` (65), `tools/test_rules.js` Abschnitt 19
   (+34); Laufzeit `artifacts/team2v2_01/lauf.js` mit vier unabhaengigen Clients (`--emu=1` Emulator,
-  `--folgen=N` Zuverlaessigkeit, `--mobil=1` Telefon-Client; ohne `--emu` das echte Backend).
+  `--folgen=N` Zuverlaessigkeit, `--mobil=1` Telefon-Client; ohne `--emu` das echte Backend),
+  `artifacts/team2v2_01/live.js` ueber die echte Oberflaeche von `https://ringout.pages.dev`.
+- **Ausgeliefert (2026-09-21):** Rules live == HEAD, Pages `2c905465` (Commit `67267f1`),
+  Produktions-Rauchtest 84/0, Live-Seite 26/0 (s. CHANGELOG).
 
 ---
 
