@@ -131,9 +131,10 @@ abschnitt('4. Aufstellung: neun Koerper, spiegelsymmetrisch, ohne Ueberlappung, 
     g(/const FOOTBALL_NEUTRAL_OWNER=\d+;/, 'FOOTBALL_NEUTRAL_OWNER'),
     g(/const FOOTBALL_TACTICAL_SPAWN=\{[^\n]*\};/, 'FOOTBALL_TACTICAL_SPAWN'),
     g(/const FOOTBALL_TACTICAL_1V1_SPAWN=\{[^\n]*\};/, 'FOOTBALL_TACTICAL_1V1_SPAWN'),
+    g(/const FOOTBALL_TACTICAL4_SPAWN=\[[^\n]*\];/, 'FOOTBALL_TACTICAL4_SPAWN'),
     fn('mkBall'),
     g(/function placeBalls\(\)\{[\s\S]*?\n\}/, 'placeBalls'),
-    'return { stell: (v)=>{ fbVariant=v; placeBalls(); return balls.map(b=>({o:b.owner,x:b.x,y:b.y})); }, S: FOOTBALL_TACTICAL_SPAWN, N: FOOTBALL_NEUTRAL_OWNER };'
+    'return { stell: (v)=>{ fbVariant=v; placeBalls(); return balls.map(b=>({o:b.owner,x:b.x,y:b.y})); }, S4: FOOTBALL_TACTICAL4_SPAWN, S: FOOTBALL_TACTICAL_SPAWN, N: FOOTBALL_NEUTRAL_OWNER };'
   ].join('\n'))();
   const K = M.stell('tactical4');
   t('neun Koerper', K.length === 9, K.length);
@@ -142,18 +143,21 @@ abschnitt('4. Aufstellung: neun Koerper, spiegelsymmetrisch, ohne Ueberlappung, 
   t('der Ball liegt exakt in der Mitte', K[8].x === 0 && K[8].y === 0);
   t('alle Blauen bei -x, alle Roten bei +x', K.slice(0, 4).every(k => k.x < 0) && K.slice(4, 8).every(k => k.x > 0));
   t('Rot ist die exakte Spiegelung von Blau an der Mittelachse', [0, 1, 2, 3].every(i => K[i + 4].x === -K[i].x && K[i + 4].y === K[i].y));
-  t('jede Seite ist selbst symmetrisch zur Laengsachse (oben/unten)', [0, 1, 2, 3].every(i => K.slice(0, 4).some(k => k.x === K[i].x && k.y === -K[i].y)));
+  // Seit dem Ausgleich der Eroeffnung (2026-09-21) sind die Seiten nicht mehr oben/unten
+  // symmetrisch (Blocker auf der Achse, ein tiefer Aussenverteidiger); die Angreifer bilden ein Paar.
+  t('die beiden Angreifer bilden ein Paar (gleiches x, gespiegeltes y), der Blocker steht auf der Achse', K[0].x === K[1].x && K[0].y === -K[1].y && K[2].y === 0);
   let minD = 1e9;
   for (let i = 0; i < 9; i++) for (let j = i + 1; j < 9; j++) minD = Math.min(minD, Math.hypot(K[i].x - K[j].x, K[i].y - K[j].y));
   t('kein Koerper beruehrt einen anderen (kleinster Abstand >= 5 BR, Ballradius 1)', minD >= 5, minD);
   // postInner 3.560 (lichte Torbreite, s. Kommentar an FOOTBALL_TACTICAL_SPAWN): die tiefen
   // Figuren stehen ausserhalb des Tors; halfLen 18.00: niemand steht in der Bande.
-  t('keine tiefe Figur steht in der lichten Torbreite (|y| > 3.56)', K.filter(k => Math.abs(k.x) === M.S.backX).every(k => Math.abs(k.y) > 3.56));
+  t('keine Figur mit |x| > 10 BR steht in der lichten Torbreite (|y| > 3.56) - Torkorridor frei', K.slice(0, 8).every(k => Math.abs(k.x) <= 10 || Math.abs(k.y) > 3.56));
   t('niemand steht in der Bande (|x| < 17)', K.every(k => Math.abs(k.x) < 17));
   const T2 = M.stell('tactical');
-  // Die ersten beiden je Seite sind die Vier-Koerper-Konstante (front/back); Tactical 1v1 hat seit
-  // dem Ausgleich der Eroeffnung (2026-09-21) eine eigene Aufstellung und ist hier kein Massstab mehr.
-  t('die ersten beiden Figuren je Seite sind Zeichen fuer Zeichen die Vier-Koerper-Konstante (front, back)', JSON.stringify([K[0], K[1]].map(k => [k.x, k.y])) === JSON.stringify([[-M.S.frontX, -M.S.frontY], [-M.S.backX, M.S.backY]]) && JSON.stringify([K[4], K[5]].map(k => [k.x, k.y])) === JSON.stringify([[M.S.frontX, -M.S.frontY], [M.S.backX, M.S.backY]]));
+  // Die Aufstellung ist Zeichen fuer Zeichen die EIGENE Konstante FOOTBALL_TACTICAL4_SPAWN (Blau bei -x,
+  // Rot gespiegelt); Team 2v2 (FOOTBALL_TACTICAL_SPAWN) und Tactical 1v1 sind hier kein Massstab.
+  const nahe = (a, b) => Math.abs(a - b) < 1e-6;
+  t('die vier Figuren je Seite sind Zeichen fuer Zeichen die eigene Konstante FOOTBALL_TACTICAL4_SPAWN', M.S4.length === 4 && [0, 1, 2, 3].every(i => nahe(K[i].x, -M.S4[i][0]) && nahe(K[i].y, M.S4[i][1]) && nahe(K[i + 4].x, M.S4[i][0]) && nahe(K[i + 4].y, M.S4[i][1])));
   t('Tactical 1v1 stellt weiterhin fuenf Koerper - aus seiner eigenen Aufstellung', T2.length === 5 && T2.map(k => k.o).join(',') === '0,0,1,1,' + M.N && T2[1].y === 0 && T2[1].x === -9.8);
   t('Tactical stellt weiterhin fuenf Koerper (0,0,1,1,Ball)', T2.map(k => k.o).join(',') === '0,0,1,1,' + M.N);
   t('placeBalls ist deterministisch', JSON.stringify(M.stell('tactical4')) === JSON.stringify(K));

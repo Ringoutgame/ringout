@@ -34,6 +34,7 @@ const QUELLE = [
   grab(HTML, /const FOOTBALL_NEUTRAL_OWNER=[^\n]*/, 'FOOTBALL_NEUTRAL_OWNER'),
   grab(HTML, /const FOOTBALL_TACTICAL_SPAWN=\{[\s\S]*?\};/, 'FOOTBALL_TACTICAL_SPAWN'),
   grab(HTML, /const FOOTBALL_TACTICAL_1V1_SPAWN=\{[\s\S]*?\};/, 'FOOTBALL_TACTICAL_1V1_SPAWN'),
+  grab(HTML, /const FOOTBALL_TACTICAL4_SPAWN=\[[^\n]*\];/, 'FOOTBALL_TACTICAL4_SPAWN'),
   grab(HTML, /const FOOTBALL_TEAM2V2_PLAYERS=[^\n]*/, 'FOOTBALL_TEAM2V2_PLAYERS'),
   grabFunction(HTML, 'pcol'),
   grabFunction(HTML, 'colorSlot'),

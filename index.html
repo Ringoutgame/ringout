@@ -5199,17 +5199,13 @@ function placeBalls(){
                mkBall(cx+S.frontX*BR,cy-S.frontY*BR,2),mkBall(cx+S.backX*BR,cy+S.backY*BR,3),
                mkBall(cx,cy,FOOTBALL_NEUTRAL_OWNER));
   }else if(mode==='football'&&typeof fbTac4==='function'&&fbTac4()){
-    // TACTICAL 4-BALL: 4 Figuren je Spieler + neutraler Ball. Dieselbe Spawnbeschreibung wie
-    // Tactical (FOOTBALL_TACTICAL_SPAWN), an der Laengsachse gespiegelt: je Seite das vordere
-    // Paar (frontX, +-frontY) nahe der Mittellinie und das tiefe Paar (backX, +-backY) weit
-    // aussen - vier Figuren, die sich mit >= 5.6 BR Abstand nicht beruehren und keine im Tor
-    // (backY 4.60 > postInner 3.560). Blau bei -x, Rot exakt gespiegelt bei +x. Reihenfolge je
-    // Seite: front oben, back unten, front unten, back oben - Blau 0..3, Rot 4..7, Ball 8;
-    // die ersten beiden je Seite sind Zeichen fuer Zeichen die Tactical-Figuren.
-    const S=FOOTBALL_TACTICAL_SPAWN;
+    // TACTICAL 4-BALL: 4 Figuren je Spieler + neutraler Ball, aus der EIGENEN Aufstellung
+    // FOOTBALL_TACTICAL4_SPAWN (vier [x,y]-Paare in BR fuer Blau bei -x; Rot ist an der
+    // Mittelachse gespiegelt: gleiches y, x mit umgekehrtem Vorzeichen). Reihenfolge Blau
+    // A1..A4 = Koerper 0..3, Rot B1..B4 = 4..7, Ball 8 - die Indizes bleiben ueber alle Runden
+    // stabil (Auswahl, Enthuellung, Rules).
     for(let s=0;s<2;s++){const sx=s?1:-1;
-      balls.push(mkBall(cx+sx*S.frontX*BR,cy-S.frontY*BR,s),mkBall(cx+sx*S.backX*BR,cy+S.backY*BR,s),
-                 mkBall(cx+sx*S.frontX*BR,cy+S.frontY*BR,s),mkBall(cx+sx*S.backX*BR,cy-S.backY*BR,s));}
+      for(const p of FOOTBALL_TACTICAL4_SPAWN)balls.push(mkBall(cx+sx*p[0]*BR,cy+p[1]*BR,s));}
     balls.push(mkBall(cx,cy,FOOTBALL_NEUTRAL_OWNER));
   }else if(mode==='football'&&typeof fbTactical==='function'&&fbTactical()){
     // TACTICAL: 2 Figuren je Team + neutraler Ball (FOOTBALL_NEUTRAL_OWNER). Blau bei -x, Rot exakt daran
@@ -8529,6 +8525,21 @@ const FOOTBALL_TACTICAL_SPAWN={frontX:6.40,frontY:2.80,backX:12.20,backY:4.60};
 // keiner; Eigentore null; Blau und Rot Zahl fuer Zahl gleich. Kleinster Koerperabstand
 // 5.14 BR, Bandenabstand 8.1 BR. Beide Figuren bleiben jeden Zug frei waehlbar.
 const FOOTBALL_TACTICAL_1V1_SPAWN={frontX:7.50,frontY:4.60,backX:9.80,backY:0.00};
+// TACTICAL 4-BALL 1V1: vier [x,y]-Paare in BR fuer Blau (x wird bei -x gesetzt, Rot
+// gespiegelt) - eine EIGENE Konstante, Team 2v2 behaelt FOOTBALL_TACTICAL_SPAWN. Bis zum
+// 2026-09-21 stand hier die gespiegelte Vier-Koerper-Aufstellung (vorderes Paar 6.40/+-2.80,
+// tiefes Paar 12.20/+-4.60); aus ihr hatte das vordere Paar einen leichten direkten
+// Eroeffnungstreffer - auf der echten Physik (artifacts/tactical4-spawn-01/eroeffnung4.js)
+// je Figur ein 5-Grad-Fenster bei 100 % Kraft, 17 kraftrobuste Winkel (derselbe Winkel trifft
+// bei zwei Kraftstufen), 16 direkte Treffer aller vier bei 100 %, und die tiefen Figuren
+// standen hinter Mitspielern. Neu: A1/A2 breite Angreifer (7.50, +-5.00), A3 zentraler
+// Blocker auf der Torachse (9.40, 0 - 8.6 BR vor der Torlinie, kein Torwart), A4 tiefer
+// Aussenverteidiger (12.60, 4.00) ausserhalb der lichten Torbreite. Gemessen: breitestes
+// direktes Fenster 1 Grad, direkte Treffer aller vier je Kraft 2/1/0/0/0, kraftrobuste
+// Winkel 0, Eigentore 0, Blau und Rot Zahl fuer Zahl gleich; jede Figur hat eine freie
+// Bahn zum Ball, kleinster Abstand 5.12 BR, Bandenabstand 5.4 BR. Keine Rollen im Code:
+// alle vier bleiben jeden Zug frei waehlbar.
+const FOOTBALL_TACTICAL4_SPAWN=[[7.50,-5.00],[7.50,5.00],[9.40,0.00],[12.60,4.00]];
 // Vorauswahl je Team (Ballindex, -1 = noch keine). Sie lebt NUR bis zum Commit: ab dann ist
 // commitIdx[who] die Wahrheit, genau wie in Classic. Zuruecksetzen passiert dort, wo auch
 // die Commits zurueckgesetzt werden (startRound und das Settlement in stepSim).

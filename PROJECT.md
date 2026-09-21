@@ -699,10 +699,17 @@ liegen untracked unter `artifacts/football-tactical-dual-prototype/`.
   bis 3), Reset auf die Spawns, Rematch, Trennung, Rueckkehr: woertlich Tactical 1v1.
 - **Nach dem Tor:** dieselbe Paritaet wie Tactical - es zieht der Sitz, der NICHT geschossen hat;
   welche der vier Figuren getroffen hat, spielt keine Rolle.
-- **Aufstellung:** `FOOTBALL_TACTICAL_SPAWN` an der Laengsachse gespiegelt - je Seite vorderes Paar
-  (frontX 6.40, +-frontY 2.80) und tiefes Paar (backX 12.20, +-backY 4.60), Blau bei -x, Rot exakt
-  gespiegelt; Reihenfolge je Seite front oben, back unten, front unten, back oben; kleinster Abstand
-  5.6 BR, keine Figur im Tor (postInner 3.56), Arena und Kamerarahmung wie Tactical.
+- **Aufstellung (seit 2026-09-21 die eigene Konstante `FOOTBALL_TACTICAL4_SPAWN`):** vier
+  [x,y]-Paare in BR fuer Blau bei -x, Rot exakt gespiegelt - A1/A2 breite Angreifer (7.50, +-5.00),
+  A3 zentraler Blocker auf der Torachse (9.40, 0; 8.6 BR vor der Torlinie, kein Torwart), A4 tiefer
+  Aussenverteidiger (12.60, 4.00) ausserhalb der lichten Torbreite. Grund: die erste Aufstellung
+  (gespiegelte Vier-Koerper-Konstante 6.40/+-2.80, 12.20/+-4.60) gab dem vorderen Paar auf der
+  echten Physik ein 5-Grad-Fenster direkter Eroeffnungstreffer mit 17 kraftrobusten Winkeln;
+  neu bleibt ein 1-Grad-Fenster ohne kraftrobuste Winkel (direkte Treffer aller vier je Kraft
+  2/1/0/0/0), jede Figur mit freier Bahn zum Ball, kleinster Abstand 5.12 BR, Bandenabstand
+  5.4 BR, Torkorridor frei (`artifacts/tactical4-spawn-01/eroeffnung4.js`, Suite
+  `tools/test_football_tactical4_spawn.js`). Team 2v2 behaelt `FOOTBALL_TACTICAL_SPAWN`.
+  Arena und Kamerarahmung wie Tactical.
 - **Codec:** `fbV9IdxObergrenze()` - der Bytebereich des Feldes `idx` in der Vorlage ist fuer die
   Tactical-Familie 2*k (Tactical 4-Ball: 8), sonst unveraendert `FB_ONLINE_BALL_IDX` (5). Vorher
   war fuer die Koerper 6/7 kein Commit baubar. Eigentum prueft `fbV9IdxGehoert`, die Rules pruefen

@@ -149,8 +149,8 @@ abschnitt('3. Die neue Aufstellung: hoechstens ein 2-Grad-Fenster, keine kraftro
 // ══ 4. DIE VERTRAEGE IM QUELLTEXT ════════════════════════════════════════════════
 abschnitt('4. Vertraege im Quelltext');
 {
-  t('Tactical 1v1 liest seine eigene Konstante, Team 2v2 und Tactical 4-Ball die Vier-Koerper-Konstante',
-    (HTML.match(/const S=FOOTBALL_TACTICAL_1V1_SPAWN;/g) || []).length === 1 && (HTML.match(/const S=FOOTBALL_TACTICAL_SPAWN;/g) || []).length === 2);
+  t('Tactical 1v1 liest seine eigene Konstante; Team 2v2 die Vier-Koerper-Konstante; Tactical 4-Ball seine eigene',
+    (HTML.match(/const S=FOOTBALL_TACTICAL_1V1_SPAWN;/g) || []).length === 1 && (HTML.match(/const S=FOOTBALL_TACTICAL_SPAWN;/g) || []).length === 1 && (HTML.match(/for\(const p of FOOTBALL_TACTICAL4_SPAWN\)/g) || []).length === 1);
   t('die Vier-Koerper-Konstante ist unveraendert (Team 2v2 / Tactical 4-Ball nicht betroffen)', /const FOOTBALL_TACTICAL_SPAWN=\{frontX:6\.40,frontY:2\.80,backX:12\.20,backY:4\.60\};/.test(HTML));
   t('Arena, Tor und Abschusskurve sind nicht angefasst', /const FOOTBALL_ARENA=fbTwoGoalArena\(18\.00,12\.70,7\.65\);/.test(HTML) && /const FB_GOAL_ASSET_INNER=3\.560, FB_GOAL_ASSET_OUTER=5\.282;/.test(HTML) && /const FB_LAUNCH_SCALE=1\.26;/.test(HTML));
   t('die Zugformel und die Frist sind nicht angefasst', /function fbTacAktivSitz\(turn,g\)\{ return \(\(turn\|0\)\+\(g\|0\)\+1\)%2; \}/.test(HTML) && /const FB_V10_DEADLINE_MS=8000/.test(HTML));

@@ -427,8 +427,8 @@ const SHOT = 6 * 60;
   ok(!/FOOTBALL_TEAM2V2_SPAWN/.test(HTML), 'es gibt keinen zweiten Spawn-Satz');
   // Seit Tactical 4-Ball (2026-09-21) liest auch die Vier-je-Seite-Aufstellung dieselbe Konstante;
   // Tactical 1v1 liest seit dem Ausgleich der Eroeffnung (2026-09-21) seine eigene.
-  ok((HTML.match(/const S=FOOTBALL_TACTICAL_SPAWN;/g) || []).length === 2 && (HTML.match(/const S=FOOTBALL_TACTICAL_1V1_SPAWN;/g) || []).length === 1,
-     'Team 2v2 und Tactical 4-Ball lesen die Vier-Koerper-Konstante, Tactical 1v1 seine eigene');
+  ok((HTML.match(/const S=FOOTBALL_TACTICAL_SPAWN;/g) || []).length === 1 && (HTML.match(/const S=FOOTBALL_TACTICAL_1V1_SPAWN;/g) || []).length === 1 && (HTML.match(/for\(const p of FOOTBALL_TACTICAL4_SPAWN\)/g) || []).length === 1,
+     'Team 2v2 liest die Vier-Koerper-Konstante allein; Tactical 1v1 und Tactical 4-Ball haben je ihre eigene');
 }
 
 // ══ R. MODUSWECHSEL LAESST NICHTS HINUEBERLAUFEN ═════════════════════════════
