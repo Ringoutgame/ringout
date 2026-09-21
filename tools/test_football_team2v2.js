@@ -489,8 +489,10 @@ const SHOT = 6 * 60;
   // Riegellaenge mit, und keine liest die der anderen.
   ok(/FOOTBALL_TEAM2V2_SHOT_TICKS:\(\(typeof fbLives==='function'&&fbLives\(\)\)\?FOOTBALL_LIVES_SHOT_TICKS:FOOTBALL_FFA_SHOT_TICKS\);/.test(HTML),
      'jede der drei Regeln benutzt ihre eigene Riegelkonstante');
-  ok(/function fbShared\(\)\{return \(typeof fbTimed==='function'&&fbTimed\(\)\)\|\|\(typeof fbLives==='function'&&fbLives\(\)\)\|\|fbTeam2\(\);\}/.test(HTML),
-     'und das gemeinsame Fenster ist die Vereinigung der drei - nicht eine vierte Regel');
+  // Das gemeinsame Fenster ist ein HOTSEAT-Begriff: fbTimed und fbLives tragen !online seit
+  // jeher, fbTeam2 seit dem Onlinegang von Team 2v2 (online greift jeder nur seinen Sitz).
+  ok(/function fbShared\(\)\{return \(typeof fbTimed==='function'&&fbTimed\(\)\)\|\|\(typeof fbLives==='function'&&fbLives\(\)\)\|\|\(fbTeam2\(\)&&!online\);\}/.test(HTML),
+     'und das gemeinsame Fenster ist die Vereinigung der drei - nicht eine vierte Regel, und nur lokal');
   // fbOffen bedient beide aus DERSELBEN Funktion.
   ok((HTML.match(/function fbOffen\(\)/g) || []).length === 1,
      'es gibt genau eine Fassung der offenen Menge');
@@ -504,8 +506,8 @@ const SHOT = 6 * 60;
   const code = src.split('\n').filter(z => !/^\s*\/\//.test(z)).join('\n');
   ok(!/online|onlineSend|rRef|firebase|MOVE|roomCode/.test(code),
      'der Modusblock liest und schreibt nichts Netzwerkbezogenes');
-  // Online kann diesen Modus nicht erreichen: der Onlineeinstieg setzt die Variante auf
-  // Elimination, und fbTeam2 verlangt genau die Team-2v2-Variante.
+  // fbTeam2 verlangt genau die Team-2v2-Variante - lokal wie online (dort setzt sie der
+  // Onlineeinstieg aus dem Raummodus team2v2).
   ok(/function fbTeam2\(\)\{return mode==='football'&&fbVariant===FOOTBALL_VARIANT_TEAM2;\}/.test(HTML),
      'fbTeam2 verlangt ausdruecklich die Team-2v2-Variante');
   // Alle DREI Onlineeinstiege (fbOnlineEnter hinter der Moduswahl, Beitreten, Rejoin)
@@ -513,20 +515,19 @@ const SHOT = 6 * 60;
   // Team 2v2 landen, weder absichtlich noch als Rest aus einem vorigen lokalen Match.
   // Vorher waren es vier: Produkt- und Dev-Tuer trugen denselben Satz doppelt.
   // Seit Tactical 1v1 online (2026-09-21) leiten alle drei Einstiege die Variante aus dem
-  // Raummodus ab - ueber EINE Funktion, die fuer jeden Nicht-Tactical-Modus Elimination liefert.
+  // Raummodus ab - ueber EINE Funktion: Tactical, Team 2v2, sonst Elimination.
   ok((HTML.match(/fbVariant=fbVarianteFuerModus\(/g) || []).length === 3,
-     'die drei Onlineeinstiege leiten die Variante aus dem Raummodus ab (Tactical oder Elimination)');
-  ok(/function fbVarianteFuerModus\(m\)\{ return m===FB_ONLINE_MODE_TACTICAL\?FOOTBALL_VARIANT_TACTICAL:FOOTBALL_VARIANT_ELIM; \}/.test(HTML),
-     'und jeder Nicht-Tactical-Modus - auch Team 2v2 - bleibt Elimination');
-  // Der Onlinemodus team2v2 EXISTIERT im Register, ist aber nicht freigegeben: er hat
-  // Raum und Lobby, sein Onlinespiel kommt erst mit v9. Bis dahin ist er ausschliesslich
-  // ueber das Dev-Menue erreichbar.
-  ok(/team2v2: \{caps:\[4\],     released:false,/.test(HTML),
-     'der Onlinemodus team2v2 ist angelegt, aber ausdruecklich nicht freigegeben');
-  // Und die neue Variante taucht ausschliesslich lokal auf: Deklaration, Weiche,
-  // startFootball-Clamp, Menueknopf, Dev-Direktlink und die fbVariant-Vorbelegung.
-  ok((HTML.match(/FOOTBALL_VARIANT_TEAM2/g) || []).length === 6,
-     'die Variante wird an genau sechs Stellen genannt (erhalten: '
+     'die drei Onlineeinstiege leiten die Variante aus dem Raummodus ab (Tactical, Team 2v2 oder Elimination)');
+  ok(/function fbVarianteFuerModus\(m\)\{ return m===FB_ONLINE_MODE_TACTICAL\?FOOTBALL_VARIANT_TACTICAL:\(m===FB_ONLINE_MODE_TEAM2\?FOOTBALL_VARIANT_TEAM2:FOOTBALL_VARIANT_ELIM\); \}/.test(HTML),
+     'Team 2v2 liefert seine eigene Variante, jeder andere Nicht-Tactical-Modus Elimination');
+  // Seit 2026-09-21 ist Team 2v2 online freigegeben: ein v11-Raum mit genau vier Sitzen auf
+  // derselben Rundenmaschine wie die Lebensregel (s. test_football_team2v2_online.js).
+  ok(/team2v2: \{caps:\[4\],     released:true,/.test(HTML),
+     'der Onlinemodus team2v2 ist angelegt und freigegeben (v11, vier Sitze)');
+  // Und die Variante hat genau sieben Nennungen: Deklaration, Weiche, startFootball-Clamp,
+  // Menueknopf, Dev-Direktlink, fbVariant-Vorbelegung und die Onlineweiche fbVarianteFuerModus.
+  ok((HTML.match(/FOOTBALL_VARIANT_TEAM2/g) || []).length === 7,
+     'die Variante wird an genau sieben Stellen genannt (erhalten: '
      + (HTML.match(/FOOTBALL_VARIANT_TEAM2/g) || []).length + ')');
 }
 

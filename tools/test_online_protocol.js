@@ -276,14 +276,16 @@ for (const [mode, cap] of [['classic', 2], ['speed', 2], ['team2v2', 4],
                            ['timedffa', 3], ['timedffa', 4], ['timedffa', 5]])
   t('v8: ' + mode + ' mit ' + cap + ' Sitzen ist eine gueltige Paarung',
     P.validModeCap({ game: 'football', mode: mode, cap: cap }) === true);
-// Und der BEITRITT: die Lebensregel ist heute der einzige freigegebene Onlinemodus.
-// Ohne DEV_MENU - die Sandbox dieser Suite hat keines - ist alles andere gesperrt.
+// Und der BEITRITT: freigegeben sind die Lebensregel, Tactical 1v1 und - seit 2026-09-21 -
+// Team 2v2. Ohne DEV_MENU - die Sandbox dieser Suite hat keines - ist alles andere gesperrt.
 for (const cap of [3, 4, 5])
   t('v8: ein Lives-Raum mit ' + cap + ' Sitzen laesst sich betreten',
     P.validateRoom(fbCfg('lives', cap)).ok === true);
+t('v8: ein Team-2v2-Raum mit 4 Sitzen laesst sich betreten',
+  P.validateRoom(fbCfg('team2v2', 4)).ok === true, P.validateRoom(fbCfg('team2v2', 4)).reason);
 // Das FREIGABETOR gilt fuer jeden Weg in einen Raum, nicht nur fuer die Auswahl:
 // ein geteilter Raumcode waere sonst die Hintertuer in einen unfertigen Modus.
-for (const [mode, cap] of [['classic', 2], ['speed', 2], ['team2v2', 4], ['timedffa', 5]]) {
+for (const [mode, cap] of [['classic', 2], ['speed', 2], ['timedffa', 5]]) {
   const r = P.validateRoom(fbCfg(mode, cap));
   t('v8: ' + mode + ' ist per Raumcode nicht betretbar', r.ok === false);
   t('v8: und die Ablehnung nennt die fehlende Freigabe',

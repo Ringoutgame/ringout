@@ -121,7 +121,7 @@ t('remove: created NaN', view({ created: NaN }).remove === true);
   // Ein GESPERRTER Modus bleibt unsichtbar - in jeder Fassung.
   const gesperrt8 = fbM(8, { mode: 'classic', cap: 2 });
   t('hide (keep): ein gesperrter Modus bleibt unsichtbar (v8)', gesperrt8.show === false && gesperrt8.remove === false);
-  const gesperrt11 = fbM(11, { mode: 'team2v2', cap: 4 });
+  const gesperrt11 = fbM(11, { mode: 'timedffa', cap: 5 });
   t('hide (keep): ... und auch in v11', gesperrt11.show === false && gesperrt11.remove === false);
   const unbekannt = fbM(11, { mode: 'zirkus', cap: 5 });
   t('hide (keep): ein unbekannter Modus erst recht', unbekannt.show === false && unbekannt.remove === false);
@@ -178,11 +178,12 @@ t('remove: created NaN', view({ created: NaN }).remove === true);
   t('generisch: ein Team-Raum meldet 3/4', team.show === true && team.active === 3 && team.capacity === 4 && team.mode === 'team2v2');
   const teamVoll = fall('team2v2', 4, 4);
   t('generisch: ... und bei 4/4 nicht mehr', teamVoll.show === false && teamVoll.remove === false);
-  // Und die Gegenprobe: mit dem ECHTEN Register bleiben genau diese Raeume unsichtbar.
+  // Und die Gegenprobe mit dem ECHTEN Register: der gesperrte 1v1-Raum bleibt unsichtbar,
+  // der Team-Raum erscheint - Team 2v2 ist seit 2026-09-21 online freigegeben.
   t('gesperrt: derselbe 1v1-Raum erscheint im Produkt nicht',
     publicListingView(listRoom({ v: 11, config: cfgVon('classic', 2), p: sitze(1) }), NOW).show === false);
-  t('gesperrt: derselbe Team-Raum ebenso wenig',
-    publicListingView(listRoom({ v: 11, config: cfgVon('team2v2', 4), p: sitze(3) }), NOW).show === false);
+  t('freigegeben: derselbe Team-Raum erscheint im Produkt mit 3/4',
+    publicListingView(listRoom({ v: 11, config: cfgVon('team2v2', 4), p: sitze(3) }), NOW).show === true);
 }
 // ── PASS 02: eine gemeinsame oeffentliche Lobby fuer beide Spiele ──
 {
@@ -246,7 +247,7 @@ t('remove: created NaN', view({ created: NaN }).remove === true);
   t('the roster marks the host', /nameForSeat\(s\)\+\(s===hostSeat\(\)\?' · '\+T\('hostTag'\):''\)/.test(lob));
   // Since Tactical 1v1 online (2026-09-21) the same box carries either the simultaneous
   // hint (Lives) or the alternating-turns hint (Tactical) - and nothing for any other mode.
-  t('the Arena hint shows for Football Lives and Tactical only', /infoEl\.style\.display=\(lives\|\|tac\)\?'':'none';/.test(lob)
+  t('the Arena hint shows for Football Lives, Tactical and Team 2v2 only', /infoEl\.style\.display=\(lives\|\|tac\|\|t2\)\?'':'none';/.test(lob)
     && /const lives=fmt===FB_ONLINE_FMT&&fbLobbyMode\(\)===FB_ONLINE_MODE_LIVES;/.test(lob)
     && /const tac=fmt===FB_ONLINE_FMT&&fbLobbyMode\(\)===FB_ONLINE_MODE_TACTICAL;/.test(lob));
   t('the lobby names the 2-5 span only when the room is dynamic AND holds more than the minimum',

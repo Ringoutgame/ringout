@@ -1867,6 +1867,89 @@ deny('team move pl 4 (seat gate, presence pre-seeded)', playing({ p: { 0: P(H_TA
   allow('TAC Gegenprobe Lebensregel Reveal: Sitz 1 nennt Koerper 1', revL(), R(1, 0, 1), REV(1), U[1]);
 }
 
+// ── (19) TEAM 2V2 ONLINE (v11): VIER SITZE, ZWEI TEAMS, ALLE GLEICHZEITIG ──────────
+// Ein Team-2v2-Raum ist ein v11-Football-Raum mit Modus 'team2v2' und GENAU vier Sitzen:
+// Blau 0/1, Rot 2/3 (die Teams folgen aus dem Sitz, es gibt kein Teamfeld). Der Wirt darf
+// wie in v8 auf Sitz 0 (Blau) ODER Sitz 2 (Rot) sitzen. Ein Match beginnt nur mit allen
+// vier Sitzen in der Teilnehmerliste. Die Rundenmaschine ist die der Lebensregel: jeder Sitz
+// zieht in jeder Runde, der Koerperindex ist der Sitz - KEIN Zuggatter wie bei Tactical.
+{
+  const U = [0, 1, 2, 3].map(i => 'UID_T2_' + i + '_XXXXXXXXXXXXXXXXXXX');
+  const FREMD = 'UID_T2_X_XXXXXXXXXXXXXXXXXXX';
+  const TAB = [0, 1, 2, 3].map(i => 'T2TAB00' + i);
+  const REC = (i) => ({ id: 'T2PID00' + i, name: 'S' + i, tab: TAB[i], uid: U[i] });
+  const HEX64 = 'c'.repeat(64), HEX32 = 'd'.repeat(32);
+  const CFG = (mode, cap) => ({ game: 'football', winTarget: 3, fmt: 'elimination', visibility: 'private', mode, cap });
+  const neu = (v, mode, cap, sitz) => {
+    const r = { v, hostUid: U[sitz], config: CFG(mode, cap), gen: 0, state: 'lobby', p: {}, players: {}, created: NOW };
+    r.p[sitz] = P(TAB[sitz], false); r.players[sitz] = REC(sitz); return r;
+  };
+  // Laufender Team-2v2-Raum: vier Sitze, Generation 1 mit Teilnehmerliste.
+  const t2 = (opt) => {
+    opt = opt || {};
+    const p = {}, players = {};
+    for (let i = 0; i < 4; i++) { p[i] = P(TAB[i], !(opt.offline || []).includes(i), (opt.offline || []).includes(i) ? NOW - GRACE : NOW); players[i] = REC(i); }
+    const g = { 1: { pt: { 0: true, 1: true, 2: true, 3: true }, s: { ts: NOW - 60000 } } };
+    for (const k of ['d', 'c', 'ro']) if (opt[k]) g[1][k] = opt[k];
+    return { rooms: { KX7P: { v: 11, hostUid: U[opt.host || 0], config: CFG(opt.mode || 'team2v2', opt.cap || 4), gen: 1, state: 'playing', p, players, created: NOW - 5000, g } } };
+  };
+  const offen = () => ({ n: 0, o: NOW - 1000 });
+  const MOVEC = { k: 'move', h: HEX64, ts: NOW };
+  const C = (turn, seat) => 'rooms/KX7P/g/1/c/' + turn + '/' + seat;
+  const R = (turn, seat) => 'rooms/KX7P/g/1/r/' + turn + '/' + seat;
+  const REV = (idx) => ({ k: 'reveal', idx, dx: 40, dy: 5, sp: 0, n: HEX32, ts: NOW });
+
+  // (a) Anlage.
+  allow('T2 Anlage: v11 team2v2, vier Sitze, Wirt auf Sitz 0 (Blau)', { rooms: {} }, 'rooms/KX7P', neu(11, 'team2v2', 4, 0), U[0]);
+  allow('T2 Anlage: v11 team2v2, Wirt auf Sitz 2 (Rot)', { rooms: {} }, 'rooms/KX7P', neu(11, 'team2v2', 4, 2), U[2]);
+  deny('T2 Anlage: Wirt auf Sitz 2, aber hostUid ist nicht seine', { rooms: {} }, 'rooms/KX7P', Object.assign(neu(11, 'team2v2', 4, 2), { hostUid: U[0] }), U[2]);
+  deny('T2 Anlage: Wirt auf Sitz 1 (kein Teamanfang)', { rooms: {} }, 'rooms/KX7P', neu(11, 'team2v2', 4, 1), U[1]);
+  deny('T2 Anlage: team2v2 mit fuenf Sitzen', { rooms: {} }, 'rooms/KX7P', neu(11, 'team2v2', 5, 0), U[0]);
+  deny('T2 Anlage: team2v2 mit zwei Sitzen', { rooms: {} }, 'rooms/KX7P', neu(11, 'team2v2', 2, 0), U[0]);
+  deny('T2 Anlage: lives mit vier Sitzen (v11 kennt nur fuenf)', { rooms: {} }, 'rooms/KX7P', neu(11, 'lives', 4, 0), U[0]);
+  deny('T2 Anlage: Lives-Wirt auf Sitz 2 bleibt verboten', { rooms: {} }, 'rooms/KX7P', neu(11, 'lives', 5, 2), U[2]);
+  deny('T2 Anlage: team2v2 als v10', { rooms: {} }, 'rooms/KX7P', neu(10, 'team2v2', 4, 0), U[0]);
+  allow('T2 Gegenprobe: v8 team2v2 mit Wirt auf Sitz 2 (unveraendert)', { rooms: {} }, 'rooms/KX7P', neu(8, 'team2v2', 4, 2), U[2]);
+
+  // (b) Start: die Teilnehmerliste muss alle vier Sitze tragen.
+  const lobby4 = (fehlend) => {
+    const p = {}, players = {};
+    for (let i = 0; i < 4; i++) { if (i === fehlend) continue; p[i] = P(TAB[i], true); players[i] = REC(i); }
+    return { rooms: { KX7P: { v: 11, hostUid: U[0], config: CFG('team2v2', 4), gen: 0, state: 'lobby', p, players, created: NOW - 5000 } } };
+  };
+  const start = (db, pt, uid) => {
+    const auch = { 'rooms/KX7P/gen': 1, 'rooms/KX7P/state': 'playing', 'rooms/KX7P/g/1/pt': pt };
+    return Object.keys(auch).every(k => { const o = {}; for (const x of Object.keys(auch)) if (x !== k) o[x] = auch[x]; return tryWrite(db, k, auch[k], uid, o); });
+  };
+  t('[ALLOW] T2 Start: alle vier Sitze anwesend und in der Teilnehmerliste', start(lobby4(-1), { 0: true, 1: true, 2: true, 3: true }, U[0]) === true);
+  t('[DENY]  T2 Start: nur drei Sitze (Rot 2 fehlt)', start(lobby4(3), { 0: true, 1: true, 2: true }, U[0]) === false);
+  t('[DENY]  T2 Start: vier anwesend, aber die Liste laesst Sitz 1 weg', start(lobby4(-1), { 0: true, 2: true, 3: true }, U[0]) === false);
+  // Die Lebensregel bleibt ab zwei startbar.
+  const lobbyL = () => { const p = {}, players = {}; for (let i = 0; i < 2; i++) { p[i] = P(TAB[i], true); players[i] = REC(i); }
+    return { rooms: { KX7P: { v: 11, hostUid: U[0], config: CFG('lives', 5), gen: 0, state: 'lobby', p, players, created: NOW - 5000 } } }; };
+  t('[ALLOW] T2 Gegenprobe Lebensregel: Start zu zweit unveraendert', start(lobbyL(), { 0: true, 1: true }, U[0]) === true);
+
+  // (c) Zuege: JEDER Sitz zieht in derselben Runde - kein Zuggatter.
+  for (let s = 0; s < 4; s++)
+    allow('T2 r0: Sitz ' + s + ' schreibt seinen move', t2({ d: { 0: offen() } }), C(0, s), MOVEC, U[s]);
+  deny('T2 r0: Sitz 1 schreibt in den Slot seines Teamkollegen 0', t2({ d: { 0: offen() } }), C(0, 0), MOVEC, U[1]);
+  deny('T2 r0: Sitz 2 schreibt in den Slot des Gegners 0', t2({ d: { 0: offen() } }), C(0, 0), MOVEC, U[2]);
+  deny('T2 r0: Fremder ohne Sitz', t2({ d: { 0: offen() } }), C(0, 0), MOVEC, FREMD);
+  deny('T2 r0: zweiter move in den belegten eigenen Slot', t2({ d: { 0: offen() }, c: { 0: { 0: MOVEC } } }), C(0, 0), MOVEC, U[0]);
+  deny('T2 r0: move fuer Sitz 4 (gibt es nicht)', t2({ d: { 0: offen() } }), C(0, 4), MOVEC, U[0]);
+  allow('T2 r0: skip fuer den getrennten Teamkollegen', t2({ d: { 0: offen() }, offline: [1] }), C(0, 1), { k: 'skip', ts: NOW }, U[0]);
+  allow('T2 r0: skip fuer den getrennten Gegner', t2({ d: { 0: offen() }, offline: [3] }), C(0, 3), { k: 'skip', ts: NOW }, U[0]);
+  deny('T2 r0: skip fuer einen anwesenden Sitz', t2({ d: { 0: offen() } }), C(0, 3), { k: 'skip', ts: NOW }, U[0]);
+
+  // (d) Enthuellung: der Koerperindex ist der Sitz.
+  const rev = () => t2({ d: { 0: offen() }, c: { 0: { 0: MOVEC, 1: MOVEC, 2: MOVEC, 3: MOVEC } }, ro: { 0: NOW - 1000 } });
+  for (let s = 0; s < 4; s++) allow('T2 Reveal: Sitz ' + s + ' nennt Koerper ' + s, rev(), R(0, s), REV(s), U[s]);
+  deny('T2 Reveal: Sitz 0 nennt den Koerper des Teamkollegen (1)', rev(), R(0, 0), REV(1), U[0]);
+  deny('T2 Reveal: Sitz 2 nennt den Koerper des Gegners (0)', rev(), R(0, 2), REV(0), U[2]);
+  deny('T2 Reveal: Sitz 3 nennt den Ball (4)', rev(), R(0, 3), REV(4), U[3]);
+  deny('T2 Reveal: Sitz 1 enthuellt fuer Sitz 0', rev(), R(0, 0), REV(0), U[1]);
+}
+
 // Der Auswerter ist ab hier auch von aussen benutzbar. Die v9-Suite prueft DIESELBE
 // firebase.rules.json mit DERSELBEN Semantik - eine zweite Nachbildung daneben waere
 // die Sorte Doppelung, die frueher oder spaeter auseinanderlaeuft.

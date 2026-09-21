@@ -82,11 +82,14 @@ const R = new Function(`
 {
   ok(R.fbModeReleased('lives') === true,
      'die Lebensregel ist der heute freigegebene Onlinemodus');
-  for (const m of ['classic', 'speed', 'team2v2', 'timedffa'])
+  ok(R.fbModeReleased('team2v2') === true,
+     'Team 2v2 ist seit 2026-09-21 online freigegeben (v11, genau vier Sitze)');
+  for (const m of ['classic', 'speed', 'timedffa'])
     ok(R.fbModeReleased(m) === false, m + ' ist online noch NICHT freigegeben');
   // Ohne Dev-Menue ist ein nicht freigegebener Modus nicht waehlbar.
   ok(R.fbModeSelectable('lives') === true, 'freigegeben heisst waehlbar');
-  for (const m of ['classic', 'speed', 'team2v2', 'timedffa'])
+  ok(R.fbModeSelectable('team2v2') === true, '... Team 2v2 ebenso');
+  for (const m of ['classic', 'speed', 'timedffa'])
     ok(R.fbModeSelectable(m) === false, m + ' ist ohne ?dev=1 nicht waehlbar');
   // Mit Dev-Menue schon - der Mensch muss Phase A ausprobieren koennen.
   const D = new Function(`
@@ -96,7 +99,7 @@ const R = new Function(`
   `)();
   for (const m of R.FB_ONLINE_MODE_IDS)
     ok(D.sel(m) === true, 'mit ?dev=1 ist ' + m + ' erreichbar');
-  ok(D.rel('team2v2') === false,
+  ok(D.rel('classic') === false,
      'der Dev-Schalter macht einen Modus erreichbar, aber nicht freigegeben');
   // EIN Tor, kein verstreutes Geflecht aus Sonderfaellen.
   ok((HTML.match(/released:/g) || []).length === 6,
@@ -448,7 +451,7 @@ const R = new Function(`
   // (N) Die Lebensregel bleibt der einzige freigegebene Modus - unveraendert.
   ok(R.fbModeReleased('lives') === true && R.FB_ONLINE_MODES.lives.caps.join(',') === '3,4,5',
      'Lives online ist unveraendert freigegeben mit 3 bis 5 Sitzen');
-  ok(R.fbModeReleased('team2v2') === false, 'Team 2v2 bleibt unfreigegeben');
+  ok(R.fbModeReleased('team2v2') === true, 'Team 2v2 ist seit 2026-09-21 freigegeben (v11, vier Sitze)');
 
   // (O)+(P)+(Q) werden in Abschnitt G gepinnt.
 }
@@ -802,18 +805,17 @@ const R = new Function(`
   // ── Die Karten: EIN aktiver Modus, drei ehrlich gesperrte ──
   const reg = grab(/const FB_HUB_MODES=\[[\s\S]*?\];/, 'FB_HUB_MODES');
   ok((reg.match(/\{key:/g) || []).length === 4, 'der Hub zeigt vier Arena-Football-Karten');
-  ok((reg.match(/direkt:true/g) || []).length === 2 && /\{key:'ffa',\s+card:'cardFbFfa'[^}]*direkt:true\}/.test(reg)
-     && /\{key:'tactical',\s+card:'cardFb1v1'[^}]*direkt:true\}/.test(reg),
-     'genau ZWEI Karten fuehren direkt weiter - FFA und Tactical 1v1');
-  ok((reg.match(/soon:true/g) || []).length === 2
-     && /key:'team2v2'[^}]*soon:true/.test(reg) && /key:'training'[^}]*soon:true/.test(reg),
-     'Team 2v2 und Training sind sichtbar und gesperrt');
+  ok((reg.match(/direkt:true/g) || []).length === 3 && /\{key:'ffa',\s+card:'cardFbFfa'[^}]*direkt:true\}/.test(reg)
+     && /\{key:'tactical',\s+card:'cardFb1v1'[^}]*direkt:true\}/.test(reg) && /\{key:'team2v2',\s+card:'cardFb2v2'[^}]*direkt:true\}/.test(reg),
+     'genau DREI Karten fuehren direkt weiter - FFA, Tactical 1v1 und Team 2v2');
+  ok((reg.match(/soon:true/g) || []).length === 1 && /key:'training'[^}]*soon:true/.test(reg),
+     'Training ist sichtbar und gesperrt');
   ok(reg.indexOf('schritt:') < 0, 'keine Karte fuehrt mehr in einen Zwischenschirm');
   const karte = grab(/function fbHubKarte\(i\)\{[\s\S]*?\n\}/, 'fbHubKarte');
   ok(/if\(d&&d\.direkt\)\{ vibrateMs\(VIBE_CONFIRM_MS\); fbHubOeffnen\(d\.key\); \}/.test(karte),
      'der Klick auf eine aktive Karte oeffnet die Lobby - ein Klick, kein zweiter Knopf');
-  ok(/function fbHubOeffnen\(key\)\{\n  if\(key==='tactical'\)fbTacticalOnlineOeffnen\(\); else fbFfaOnlineOeffnen\(\);\n\}/.test(HTML),
-     'und der eine Onlineweg je Karte kennt genau zwei Ziele: Tactical und FFA');
+  ok(/function fbHubOeffnen\(key\)\{\n  if\(key==='tactical'\)fbTacticalOnlineOeffnen\(\);\n  else if\(key==='team2v2'\)fbTeam2OnlineOeffnen\(\);\n  else fbFfaOnlineOeffnen\(\);\n\}/.test(HTML),
+     'und der eine Onlineweg je Karte kennt genau drei Ziele: Tactical, Team 2v2 und FFA');
   ok(/FB_HUB_MODES\.forEach\(\(d,i\)=>\{const el=\$\(d\.card\);if\(el\)el\.onclick=\(\)=>fbHubKarte\(i\);\}\);/.test(HTML),
      'und jede Karte haengt an genau diesem einen Weg');
   const anwenden = grab(/function applyFbMode\(i\)\{[\s\S]*?\n\}/, 'applyFbMode');
@@ -845,7 +847,7 @@ const R = new Function(`
      'die Leiste zeigt genau vier Modi in dieser Reihenfolge (erhalten: ' + titel.join('|') + ')');
   ok(/id="cardFbFfa"[\s\S]{0,400}id="cardFb1v1"/.test(hub), 'FFA steht als aktiver Modus vorn');
   ok(/<button class="mcard on" id="cardFbFfa">/.test(hub), 'und ist die Voreinstellung');
-  ok((hub.match(/class="mcard msoon"/g) || []).length === 2, 'die zwei uebrigen Karten sind sichtbar gesperrt');
+  ok((hub.match(/class="mcard msoon"/g) || []).length === 1, 'die eine uebrige Karte (Training) ist sichtbar gesperrt');
   ok(/id="cardFb1v1T">TACTICAL 1V1</.test(hub) && /football_tactical\.webp/.test(hub),
      'die 1v1-Karte ist jetzt TACTICAL 1V1 - das eigene Zweifigurenspiel');
   ok(/id="cardFbBotT">TRAINING</.test(hub), 'und aus dem Bot-Platz wird TRAINING');

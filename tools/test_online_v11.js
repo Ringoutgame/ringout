@@ -93,8 +93,11 @@ abschnitt('Raumanlage  (v11 = Lives, Hoechstbesetzung 5, startet als Lobby)');
   allow('... auch oeffentlich', { rooms: {} }, 'rooms/VEFB', frisch({ config: CFG({ visibility: 'public' }) }), UID[0]);
   for (const cap of [2, 3, 4, 6])
     deny('ein v11-Raum mit Hoechstbesetzung ' + cap, { rooms: {} }, 'rooms/VEFB', frisch({ config: CFG({ cap }) }), UID[0]);
-  for (const mode of ['classic', 'speed', 'team2v2', 'timedffa'])
-    deny('ein v11-Raum im Modus ' + mode, { rooms: {} }, 'rooms/VEFB', frisch({ config: CFG({ mode, cap: mode === 'team2v2' ? 4 : mode === 'timedffa' ? 5 : 2 }) }), UID[0]);
+  for (const mode of ['classic', 'speed', 'timedffa'])
+    deny('ein v11-Raum im Modus ' + mode, { rooms: {} }, 'rooms/VEFB', frisch({ config: CFG({ mode, cap: mode === 'timedffa' ? 5 : 2 }) }), UID[0]);
+  // Seit 2026-09-21: Team 2v2 ist ein v11-Raum mit genau vier Sitzen (Wirt auf Sitz 0 oder 2).
+  allow('ein v11-Raum im Modus team2v2 mit vier Sitzen', { rooms: {} }, 'rooms/VEFB', frisch({ config: CFG({ mode: 'team2v2', cap: 4 }) }), UID[0]);
+  deny('ein v11-Raum im Modus team2v2 mit fuenf Sitzen', { rooms: {} }, 'rooms/VEFB', frisch({ config: CFG({ mode: 'team2v2', cap: 5 }) }), UID[0]);
   deny('ein v11-RingOut-Raum', { rooms: {} }, 'rooms/VEFB', frisch({ config: { game: 'ringout', winTarget: 3, fmt: 'ffa', visibility: 'private' } }), UID[0]);
   deny('v11 ohne Hostkennung', { rooms: {} }, 'rooms/VEFB', (() => { const r = frisch(); delete r.hostUid; return r; })(), UID[0]);
   deny('v11 mit fremder Hostkennung', { rooms: {} }, 'rooms/VEFB', frisch({ hostUid: UID[1] }), UID[0]);

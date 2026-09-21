@@ -44,25 +44,26 @@ abschnitt('1. Register, Raumfassung und Variante');
     'const ONLINE_PROTOCOL_VERSION=11; const DEV_MENU=false;',
     g(/const ROOM_GAME_RINGOUT=[^\n]*RINGOUT_SKIP_FASSUNG=\d+;/, 'ROOM_GAME + RINGOUT_SKIP_FASSUNG'),
     g(/const FOOTBALL_VARIANT_TACTICAL='[^']*';/, 'V_TACTICAL'),
+    g(/const FOOTBALL_VARIANT_TEAM2='[^']*';/, 'V_TEAM2'),
     g(/const FOOTBALL_VARIANT_ELIM='[^']*';/, 'V_ELIM'),
     g(/const FB_ONLINE_MODE_CLASSIC=[\s\S]*?\nlet fbOnlineTeam=[^\n]*/, 'Modusregister'),
     g(/function fbRaumFassung\(cfg\)\{[\s\S]*?\n\}/, 'fbRaumFassung'),
     fn('fbVarianteFuerModus'),
     'return { IDS: FB_ONLINE_MODE_IDS, def: fbModeDef, caps: fbModeCaps, rel: fbModeReleased, capOk: fbModeCapOk, defCap: fbModeDefaultCap,',
     '  fassung: fbRaumFassung, variante: fbVarianteFuerModus, TAC: FB_ONLINE_MODE_TACTICAL, SITZE: FB_TAC_SITZE,',
-    '  V_TAC: FOOTBALL_VARIANT_TACTICAL, V_ELIM: FOOTBALL_VARIANT_ELIM };'
+    '  V_TAC: FOOTBALL_VARIANT_TACTICAL, V_TEAM2: FOOTBALL_VARIANT_TEAM2, V_ELIM: FOOTBALL_VARIANT_ELIM };'
   ].join('\n'))();
   t('das Register kennt tactical', M.IDS.indexOf('tactical') >= 0 && !!M.def('tactical'));
   t('Tactical fasst genau zwei Sitze', M.caps('tactical').join(',') === '2' && M.capOk('tactical', 2) && !M.capOk('tactical', 3) && M.defCap('tactical') === 2);
   t('... und FB_TAC_SITZE sagt dasselbe', M.SITZE === 2);
   t('Tactical ist freigegeben', M.rel('tactical') === true);
-  t('die Lebensregel ist unveraendert freigegeben, Team 2v2 unveraendert gesperrt', M.rel('lives') === true && M.rel('team2v2') === false);
+  t('die Lebensregel ist unveraendert freigegeben, Classic/Speed/Timed FFA gesperrt', M.rel('lives') === true && !M.rel('classic') && !M.rel('speed') && !M.rel('timedffa'));
   const cfg = (mode, cap) => ({ game: 'football', winTarget: 3, fmt: 'elimination', visibility: 'private', mode, cap });
   t('ein Tactical-Raum mit zwei Sitzen ist ein v11-Raum', M.fassung(cfg('tactical', 2)) === 11);
   t('ein Tactical-Raum mit anderer Sitzzahl faellt auf v8 zurueck (die Rules kennen ihn nicht)', M.fassung(cfg('tactical', 5)) === 8 && M.fassung(cfg('tactical', 3)) === 8);
   t('ein Lives-Raum bleibt v11', M.fassung(cfg('lives', 5)) === 11);
   t('die Variante folgt dem Modus: tactical -> Tactical', M.variante('tactical') === M.V_TAC);
-  t('... jeder andere Modus -> Elimination', M.variante('lives') === M.V_ELIM && M.variante('team2v2') === M.V_ELIM && M.variante('') === M.V_ELIM);
+  t('... team2v2 -> Team 2v2, jeder andere Modus -> Elimination', M.variante('lives') === M.V_ELIM && M.variante('team2v2') === M.V_TEAM2 && M.variante('') === M.V_ELIM);
 }
 
 // ══ 2. WER IST AM ZUG - DIE FORMEL ═══════════════════════════════════════════════
@@ -252,7 +253,7 @@ abschnitt('8. Vertraege im Quelltext');
   t('nach einem Neuladen reicht der passive Sitz das pass nach, sobald sein Slot bekannt ist', /fbTacPassivRunde\(lauf\.ctx\)/.test(bekannt) && /fbV9Action\(lauf,\{pass:true\}\)/.test(bekannt));
   t('... und nur, wenn dort noch nichts steht', /if\(!lauf\|\|lauf\.terminal\|\|lauf\.commitFertig\)return;/.test(bekannt));
   t('die Rundenmaschine meldet den bekannten Slot genau einmal weiter', (HTML.match(/if\(typeof fbV9EigenBekannt==='function'\)fbV9EigenBekannt\(lauf\);/g) || []).length === 1);
-  t('die Spielanbindung laeuft fuer Tactical UND die Lebensregel', /\(\(typeof fbElim4==='function' && fbElim4\(\)\)\|\|\(typeof fbTactical==='function' && fbTactical\(\)\)\)/.test(fn('fbV9LebenAn')));
+  t('die Spielanbindung laeuft fuer Tactical, die Lebensregel UND Team 2v2', /\(\(typeof fbElim4==='function' && fbElim4\(\)\)\|\|\(typeof fbTactical==='function' && fbTactical\(\)\)\|\|\(typeof fbTeam2==='function' && fbTeam2\(\)\)\)/.test(fn('fbV9LebenAn')));
   const wirken = fn('fbV9Wirken');
   t('fbV9Wirken kennt den Sitz am Zug', /const tacAktiv=\(typeof fbTacOnline==='function'&&fbTacOnline\(\)\)\?fbTacAktivSitz\(turnNo,gen\):-1;/.test(wirken)
     && /if\(tacAktiv>=0&&e\.seat!==tacAktiv\)continue;/.test(wirken));
@@ -266,7 +267,7 @@ abschnitt('8. Vertraege im Quelltext');
   t('der Hub fuehrt die Tactical-Karte direkt in die Lobby', /\{key:'tactical',\s+card:'cardFb1v1'[^}]*direkt:true\}/.test(HTML) && /function fbTacticalOnlineOeffnen\(\)/.test(HTML));
   t('die Raumanlage nimmt die Sitzzahl aus dem Register', /fbOnlineMode===FB_ONLINE_MODE_TACTICAL\?fbModeDefaultCap\(FB_ONLINE_MODE_TACTICAL\):fbOnlineCap/.test(HTML));
   t('der Hoststart verlangt genau die Sitze 0 und 1', /fbTacRaum\(\)&&!\(da\.length===FB_TAC_SITZE&&da\[0\]===0&&da\[1\]===1\)\)return;/.test(fn('fbV11Starten')));
-  t('die Lobby startet Tactical nur zu zweit', /hoechst=tac\?FB_TAC_SITZE:FB_ONLINE_SEATS/.test(fn('fbV11Lobby')));
+  t('die Lobby startet Tactical nur zu zweit', /const genau=tac\?FB_TAC_SITZE:/.test(fn('fbV11Lobby')) && /hoechst=genau\|\|FB_ONLINE_SEATS;/.test(fn('fbV11Lobby')));
   t('alle drei Onlineeinstiege leiten die Variante aus dem Modus ab', (HTML.match(/fbVariant=fbVarianteFuerModus\(/g) || []).length === 3);
   const rules = require('fs').readFileSync(require('path').join(__dirname, '..', 'firebase.rules.json'), 'utf8');
   t('die Rules kennen den Tactical-Raum (v11, Modus, Sitzzahl 2)', /newData\.val\(\) === 'tactical'/.test(rules) && /newData\.val\(\) === 2 && newData\.parent\(\)\.child\('mode'\)\.val\(\) === 'tactical'/.test(rules));

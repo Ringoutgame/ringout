@@ -254,8 +254,8 @@ function leben(n) {
   }
   ok(/function fbLives\(\)\{return fbElim4\(\)&&!online&&fbElimRules===FOOTBALL_ELIM_RULES_LIVES;\}/.test(HTML),
      'die lokale Lebensregel ist ein eigener benannter Zustand');
-  ok(/function fbShared\(\)\{return \(typeof fbTimed==='function'&&fbTimed\(\)\)\|\|\(typeof fbLives==='function'&&fbLives\(\)\)\|\|fbTeam2\(\);\}/.test(HTML),
-     'und sie gehoert zum gemeinsamen Fenster - kein zweites daneben');
+  ok(/function fbShared\(\)\{return \(typeof fbTimed==='function'&&fbTimed\(\)\)\|\|\(typeof fbLives==='function'&&fbLives\(\)\)\|\|\(fbTeam2\(\)&&!online\);\}/.test(HTML),
+     'und sie gehoert zum gemeinsamen Fenster - kein zweites daneben, und nur lokal');
   ok((HTML.match(/function fbOffen\(\)/g) || []).length === 1,
      'es gibt genau eine Fassung der offenen Menge');
 }
