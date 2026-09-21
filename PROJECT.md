@@ -706,7 +706,8 @@ liegen untracked unter `artifacts/football-tactical-dual-prototype/`.
 - **Pruefstaende:** `tools/test_football_tactical4_online.js` (98); Laufzeit
   `artifacts/tactical4_01/lauf.js` (`--emu=1`, `--folgen=N`, `--mobil=1`, `--reload=1`; ohne `--emu`
   das echte Backend), `artifacts/tactical4_01/live.js` (echte Oberflaeche), `hub_bild.js` (Karte).
-- **Ausgeliefert (2026-09-21):** s. CHANGELOG.
+- **Ausgeliefert (2026-09-21):** Rules live == HEAD, Pages `b047edc7` (Commit `655d7aa`),
+  Produktions-Rauchtest 54/0, Live-Seite 14/0 (s. CHANGELOG).
 
 ---
 
