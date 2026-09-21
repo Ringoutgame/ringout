@@ -512,8 +512,12 @@ const SHOT = 6 * 60;
   // setzen die Variante ausdruecklich auf Elimination - keiner von ihnen kann in True
   // Team 2v2 landen, weder absichtlich noch als Rest aus einem vorigen lokalen Match.
   // Vorher waren es vier: Produkt- und Dev-Tuer trugen denselben Satz doppelt.
-  ok((HTML.match(/fbVariant=FOOTBALL_VARIANT_ELIM/g) || []).length === 3,
-     'die drei Onlineeinstiege setzen die Variante ausdruecklich auf Elimination');
+  // Seit Tactical 1v1 online (2026-09-21) leiten alle drei Einstiege die Variante aus dem
+  // Raummodus ab - ueber EINE Funktion, die fuer jeden Nicht-Tactical-Modus Elimination liefert.
+  ok((HTML.match(/fbVariant=fbVarianteFuerModus\(/g) || []).length === 3,
+     'die drei Onlineeinstiege leiten die Variante aus dem Raummodus ab (Tactical oder Elimination)');
+  ok(/function fbVarianteFuerModus\(m\)\{ return m===FB_ONLINE_MODE_TACTICAL\?FOOTBALL_VARIANT_TACTICAL:FOOTBALL_VARIANT_ELIM; \}/.test(HTML),
+     'und jeder Nicht-Tactical-Modus - auch Team 2v2 - bleibt Elimination');
   // Der Onlinemodus team2v2 EXISTIERT im Register, ist aber nicht freigegeben: er hat
   // Raum und Lobby, sein Onlinespiel kommt erst mit v9. Bis dahin ist er ausschliesslich
   // ueber das Dev-Menue erreichbar.

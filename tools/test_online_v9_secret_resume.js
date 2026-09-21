@@ -844,7 +844,11 @@ abschnitt('Der eigene Slot ist UNBEKANNT, nicht leer - bis der Raum ihn gemeldet
     HTML.indexOf('L.lauf=fbV9Start(ctx,null);') < 0);
   t('UNBEKANNT endet nur in Schritt (2a), nach dem gemeldeten c-Knoten',
     (HTML.match(/lauf\.eigenUnbekannt=false/g) || []).length === 1
-    && /if\(lauf\.eigenUnbekannt&&lauf\.commitsGemeldet\)lauf\.eigenUnbekannt=false;/.test(HTML));
+    && /if\(lauf\.eigenUnbekannt&&lauf\.commitsGemeldet\)\{\n\s*lauf\.eigenUnbekannt=false;/.test(HTML));
+  // Seit Tactical 1v1 online (2026-09-21) meldet dieselbe Stelle - und nur sie - den nun
+  // bekannten Slot an die Spielanbindung weiter (fbV9EigenBekannt, typeof-geschuetzt).
+  t('... und meldet den bekannten Slot genau dort weiter',
+    (HTML.match(/if\(typeof fbV9EigenBekannt==='function'\)fbV9EigenBekannt\(lauf\);/g) || []).length === 1);
   t('fbV9Action weist waehrend UNBEKANNT ab - vor jedem anderen Riegel',
     /function fbV9Action\(lauf,aktion\)\{\s*if\(!lauf\|\|fbV9Aus\(lauf\)\)return false;\s*(\/\/[^\n]*\n\s*)*if\(lauf\.eigenUnbekannt\)return false;/.test(HTML));
   t('und Schritt (2) baut waehrend UNBEKANNT nichts',

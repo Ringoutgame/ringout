@@ -244,8 +244,13 @@ t('remove: created NaN', view({ created: NaN }).remove === true);
   // Lobby: Hostkennzeichnung und Arena-Hinweis.
   const lob = (H.match(/function renderLobby\(p\)\{[\s\S]*?\n\}/) || [''])[0];
   t('the roster marks the host', /nameForSeat\(s\)\+\(s===hostSeat\(\)\?' · '\+T\('hostTag'\):''\)/.test(lob));
-  t('the Arena hint shows only for Football Lives', /infoEl\.style\.display=\(fmt===FB_ONLINE_FMT&&fbLobbyMode\(\)===FB_ONLINE_MODE_LIVES\)\?'':'none';/.test(lob));
-  t('the lobby names the 2-5 span for the dynamic room', /fbRaumDynamisch\(\)\?\(FB_DYN_MIN_START\+'–'\+cap\):cap/.test(lob));
+  // Since Tactical 1v1 online (2026-09-21) the same box carries either the simultaneous
+  // hint (Lives) or the alternating-turns hint (Tactical) - and nothing for any other mode.
+  t('the Arena hint shows for Football Lives and Tactical only', /infoEl\.style\.display=\(lives\|\|tac\)\?'':'none';/.test(lob)
+    && /const lives=fmt===FB_ONLINE_FMT&&fbLobbyMode\(\)===FB_ONLINE_MODE_LIVES;/.test(lob)
+    && /const tac=fmt===FB_ONLINE_FMT&&fbLobbyMode\(\)===FB_ONLINE_MODE_TACTICAL;/.test(lob));
+  t('the lobby names the 2-5 span only when the room is dynamic AND holds more than the minimum',
+    /const spanne=fbRaumDynamisch\(\)&&cap>FB_DYN_MIN_START;/.test(lob) && /spanne\?\(FB_DYN_MIN_START\+'–'\+cap\):cap/.test(lob));
 }
 // ── iPhone-Befund: ein einziger Ladeausfall sperrte jeden weiteren Football-Beitritt ──
 // Die ECHTE r3dSichern aus index.html; gesteuert wird nur initR3D (Erfolg/Ausfall). Ein

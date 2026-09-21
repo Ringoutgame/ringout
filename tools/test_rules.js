@@ -1770,6 +1770,103 @@ deny('team move pl 4 (seat gate, presence pre-seeded)', playing({ p: { 0: P(H_TA
   deny('PB v12-Raum ohne hostUid-Bindung', { rooms: {} }, 'rooms/KX7P', mkRoom('ffa', { v: 12, hostUid: UID_ATTACK }));
 }
 
+// ── (18) TACTICAL 1V1 ONLINE (v11): ABWECHSELNDE ZUEGE ────────────────────────────
+// Ein Tactical-Raum ist ein v11-Football-Raum mit Modus 'tactical' und GENAU zwei Sitzen.
+// Die Rundenmaschine (d, c, ro, r, z, q) ist die der Lebensregel. Die Rules fuegen ihr zwei
+// Regeln hinzu: ein `move` darf nur aus dem Slot des Sitzes kommen, der in dieser Runde am
+// Zug ist - ((Rundenparitaet) + gen + 1) % 2, dieselbe Formel wie fbTacAktivSitz -, und
+// eine Enthuellung darf nur einen Koerper des eigenen Sitzes nennen (Sitz 0: 0/1, Sitz 1:
+// 2/3). Alles andere - pass, skip, late, remove, Bereitschaft, Praesenz - bleibt unveraendert.
+{
+  const U = ['UID_TAC0_AAAAAAAAAAAAAAAAAA', 'UID_TAC1_BBBBBBBBBBBBBBBBBB', 'UID_TAC2_CCCCCCCCCCCCCCCCCC'];
+  const TAB = ['TACTAB00', 'TACTAB01', 'TACTAB02'];
+  const REC = (i) => ({ id: 'TACPID0' + i, name: 'T' + i, tab: TAB[i], uid: U[i] });
+  const HEX64 = 'a'.repeat(64), HEX32 = 'b'.repeat(32);
+  const CFG = (mode, cap) => ({ game: 'football', winTarget: 3, fmt: 'elimination', visibility: 'private', mode, cap });
+  // Laufender Tactical-Raum: zwei Sitze, beide anwesend, Generation gen mit Teilnehmerliste.
+  const tac = (opt) => {
+    opt = opt || {};
+    const gen = opt.gen === undefined ? 1 : opt.gen;
+    const p = {}, players = {};
+    for (let i = 0; i < 2; i++) { p[i] = P(TAB[i], !(opt.offline || []).includes(i), (opt.offline || []).includes(i) ? NOW - GRACE : NOW); players[i] = REC(i); }
+    const g = {}; g[gen] = { pt: { 0: true, 1: true }, s: { ts: NOW - 60000 } };
+    for (const k of ['d', 'c', 'ro', 'z']) if (opt[k]) g[gen][k] = opt[k];
+    if (opt.rr) g[gen].r = opt.rr;
+    return { rooms: { KX7P: { v: 11, hostUid: U[0], config: CFG(opt.mode || 'tactical', opt.cap || 2), gen, state: 'playing', p, players, created: NOW - 5000, g } } };
+  };
+  const offen = (o) => ({ n: 0, o: o === undefined ? NOW - 1000 : o });
+  const MOVEC = { k: 'move', h: HEX64, ts: NOW };
+  const PASSC = { k: 'pass', ts: NOW };
+  const C = (gen, turn, seat) => 'rooms/KX7P/g/' + gen + '/c/' + turn + '/' + seat;
+  const R = (gen, turn, seat) => 'rooms/KX7P/g/' + gen + '/r/' + turn + '/' + seat;
+  const REV = (idx) => ({ k: 'reveal', idx, dx: 50, dy: 0, sp: 0, n: HEX32, ts: NOW });
+
+  // (a) Anlage: nur v11, nur zwei Sitze.
+  const neu = (v, mode, cap) => ({ v, hostUid: U[0], config: CFG(mode, cap), gen: 0, state: 'lobby', p: { 0: P(TAB[0], false) }, players: { 0: REC(0) }, created: NOW });
+  allow('TAC Anlage: v11 tactical mit zwei Sitzen', { rooms: {} }, 'rooms/KX7P', neu(11, 'tactical', 2), U[0]);
+  allow('TAC Gegenprobe: v11 lives mit fuenf Sitzen (unveraendert)', { rooms: {} }, 'rooms/KX7P', neu(11, 'lives', 5), U[0]);
+  deny('TAC Anlage: tactical mit fuenf Sitzen', { rooms: {} }, 'rooms/KX7P', neu(11, 'tactical', 5), U[0]);
+  deny('TAC Anlage: tactical mit drei Sitzen', { rooms: {} }, 'rooms/KX7P', neu(11, 'tactical', 3), U[0]);
+  deny('TAC Anlage: lives mit zwei Sitzen', { rooms: {} }, 'rooms/KX7P', neu(11, 'lives', 2), U[0]);
+  deny('TAC Anlage: tactical als v10', { rooms: {} }, 'rooms/KX7P', neu(10, 'tactical', 2), U[0]);
+  deny('TAC Anlage: tactical als v9', { rooms: {} }, 'rooms/KX7P', neu(9, 'tactical', 2), U[0]);
+  deny('TAC Anlage: tactical als v8', { rooms: {} }, 'rooms/KX7P', neu(8, 'tactical', 2), U[0]);
+  deny('TAC Anlage: tactical als v12 (RingOut-Fassung)', { rooms: {} }, 'rooms/KX7P', neu(12, 'tactical', 2), U[0]);
+
+  // (b) Der Commit: nur der Sitz am Zug darf `move`. Generation 1, Runde 0 -> Sitz 0.
+  allow('TAC g1 r0: Sitz 0 (am Zug) schreibt move', tac({ d: { 0: offen() } }), C(1, 0, 0), MOVEC, U[0]);
+  deny('TAC g1 r0: Sitz 1 (nicht am Zug) schreibt move', tac({ d: { 0: offen() } }), C(1, 0, 1), MOVEC, U[1]);
+  allow('TAC g1 r0: Sitz 1 schreibt sein pass', tac({ d: { 0: offen() } }), C(1, 0, 1), PASSC, U[1]);
+  allow('TAC g1 r0: auch Sitz 0 darf passen (Nullzug)', tac({ d: { 0: offen() } }), C(1, 0, 0), PASSC, U[0]);
+  // Runde 1 -> Sitz 1.
+  allow('TAC g1 r1: Sitz 1 (am Zug) schreibt move', tac({ d: { 1: offen() } }), C(1, 1, 1), MOVEC, U[1]);
+  deny('TAC g1 r1: Sitz 0 (nicht am Zug) schreibt move', tac({ d: { 1: offen() } }), C(1, 1, 0), MOVEC, U[0]);
+  // Zweistellige Runden: die Paritaet liest die Endziffer. Runde 10 -> Sitz 0, Runde 11 -> Sitz 1.
+  allow('TAC g1 r10: Sitz 0 am Zug', tac({ d: { 10: offen() } }), C(1, 10, 0), MOVEC, U[0]);
+  deny('TAC g1 r10: Sitz 1 nicht am Zug', tac({ d: { 10: offen() } }), C(1, 10, 1), MOVEC, U[1]);
+  allow('TAC g1 r11: Sitz 1 am Zug', tac({ d: { 11: offen() } }), C(1, 11, 1), MOVEC, U[1]);
+  deny('TAC g1 r11: Sitz 0 nicht am Zug', tac({ d: { 11: offen() } }), C(1, 11, 0), MOVEC, U[0]);
+  // Rematch: Generation 2 eroeffnet Sitz 1.
+  allow('TAC g2 r0: Sitz 1 eroeffnet das Rematch', tac({ gen: 2, d: { 0: offen() } }), C(2, 0, 1), MOVEC, U[1]);
+  deny('TAC g2 r0: Sitz 0 nicht am Zug', tac({ gen: 2, d: { 0: offen() } }), C(2, 0, 0), MOVEC, U[0]);
+  allow('TAC g2 r1: Sitz 0 am Zug', tac({ gen: 2, d: { 1: offen() } }), C(2, 1, 0), MOVEC, U[0]);
+  // Wer schreibt, bleibt der Eigentuemer - ein Zug fuer den fremden Sitz gibt es nicht.
+  deny('TAC g1 r0: Sitz 1 schreibt move in den Slot von Sitz 0', tac({ d: { 0: offen() } }), C(1, 0, 0), MOVEC, U[1]);
+  deny('TAC g1 r0: Fremder ohne Sitz', tac({ d: { 0: offen() } }), C(1, 0, 0), MOVEC, U[2]);
+  // Ein zweiter Zug in derselben Runde: der Slot ist write-once.
+  deny('TAC g1 r0: zweiter move in den bereits belegten eigenen Slot', tac({ d: { 0: offen() }, c: { 0: { 0: MOVEC } } }), C(1, 0, 0), MOVEC, U[0]);
+  // Frist und Praesenz unveraendert: late nach acht Sekunden, skip fuer Getrennte.
+  allow('TAC g1 r0: nach der Frist schliesst Sitz 1 den offenen Slot von Sitz 0 mit late', tac({ d: { 0: offen(NOW - 8001) } }), C(1, 0, 0), { k: 'late', ts: NOW }, U[1]);
+  deny('TAC g1 r0: vor der Frist kein late', tac({ d: { 0: offen(NOW - 7000) } }), C(1, 0, 0), { k: 'late', ts: NOW }, U[1]);
+  allow('TAC g1 r0: skip fuer den getrennten Sitz 1', tac({ d: { 0: offen() }, offline: [1] }), C(1, 0, 1), { k: 'skip', ts: NOW }, U[0]);
+  deny('TAC g1 r0: nach der Frist kein move mehr - auch nicht vom Sitz am Zug', tac({ d: { 0: offen(NOW - 8001) } }), C(1, 0, 0), MOVEC, U[0]);
+  // Die Lebensregel bleibt, wie sie war: dort ziehen alle in jeder Runde.
+  const lives = () => { const r = tac({ mode: 'lives', cap: 5, d: { 0: offen() } }); return r; };
+  allow('TAC Gegenprobe Lebensregel: Sitz 1 zieht in Runde 0', lives(), C(1, 0, 1), MOVEC, U[1]);
+  allow('TAC Gegenprobe Lebensregel: Sitz 0 zieht in Runde 0', lives(), C(1, 0, 0), MOVEC, U[0]);
+
+  // (c) Die Enthuellung: nur ein eigener Koerper.
+  const rev0 = (idx) => tac({ d: { 0: offen() }, c: { 0: { 0: MOVEC, 1: PASSC } }, ro: { 0: NOW - 1000 } });
+  allow('TAC Reveal Sitz 0: Koerper 0 (B1)', rev0(), R(1, 0, 0), REV(0), U[0]);
+  allow('TAC Reveal Sitz 0: Koerper 1 (B2)', rev0(), R(1, 0, 0), REV(1), U[0]);
+  deny('TAC Reveal Sitz 0: Koerper 2 (R1) - fremd', rev0(), R(1, 0, 0), REV(2), U[0]);
+  deny('TAC Reveal Sitz 0: Koerper 3 (R2) - fremd', rev0(), R(1, 0, 0), REV(3), U[0]);
+  deny('TAC Reveal Sitz 0: Koerper 4 - der neutrale Ball', rev0(), R(1, 0, 0), REV(4), U[0]);
+  deny('TAC Reveal Sitz 0: Koerper 5 - ausserhalb', rev0(), R(1, 0, 0), REV(5), U[0]);
+  const rev1 = () => tac({ d: { 1: offen() }, c: { 1: { 0: PASSC, 1: MOVEC } }, ro: { 1: NOW - 1000 } });
+  allow('TAC Reveal Sitz 1: Koerper 2 (R1)', rev1(), R(1, 1, 1), REV(2), U[1]);
+  allow('TAC Reveal Sitz 1: Koerper 3 (R2)', rev1(), R(1, 1, 1), REV(3), U[1]);
+  deny('TAC Reveal Sitz 1: Koerper 0 (B1) - fremd', rev1(), R(1, 1, 1), REV(0), U[1]);
+  deny('TAC Reveal Sitz 1: Koerper 1 (B2) - fremd', rev1(), R(1, 1, 1), REV(1), U[1]);
+  deny('TAC Reveal Sitz 1: Koerper 4 - der neutrale Ball', rev1(), R(1, 1, 1), REV(4), U[1]);
+  deny('TAC Reveal: Sitz 0 enthuellt fuer Sitz 1', rev1(), R(1, 1, 1), REV(2), U[0]);
+  // Lebensregel unveraendert: der Koerperindex ist der Sitz.
+  const revL = () => tac({ mode: 'lives', cap: 5, d: { 0: offen() }, c: { 0: { 0: MOVEC, 1: MOVEC } }, ro: { 0: NOW - 1000 } });
+  allow('TAC Gegenprobe Lebensregel Reveal: Sitz 0 nennt Koerper 0', revL(), R(1, 0, 0), REV(0), U[0]);
+  deny('TAC Gegenprobe Lebensregel Reveal: Sitz 0 nennt Koerper 1', revL(), R(1, 0, 0), REV(1), U[0]);
+  allow('TAC Gegenprobe Lebensregel Reveal: Sitz 1 nennt Koerper 1', revL(), R(1, 0, 1), REV(1), U[1]);
+}
+
 // Der Auswerter ist ab hier auch von aussen benutzbar. Die v9-Suite prueft DIESELBE
 // firebase.rules.json mit DERSELBEN Semantik - eine zweite Nachbildung daneben waere
 // die Sorte Doppelung, die frueher oder spaeter auseinanderlaeuft.

@@ -238,7 +238,7 @@ abschnitt('5b. Jede Zuweisung an mode ist gezaehlt und begruendet');
     ["Bot 1v1 - danach newGame()", "$('bot1v1')"],
     ["Bot 2v2 - danach newGame()", "$('bot2v2')"],
     ["lokaler Football-Start - nach Arena Football, danach newGame()", "mode=menuMode='football';fmt='single';online=false;"],
-    ["der Arena-Onlineeinstieg - nach Arena Football", "mode='football'; fbVariant=FOOTBALL_VARIANT_ELIM; fmt=FB_ONLINE_FMT; fbElimStartN=0;"],
+    ["der Arena-Onlineeinstieg - nach Arena Football", "mode='football'; fbVariant=fbVarianteFuerModus(fbOnlineMode); fmt=FB_ONLINE_FMT; fbElimStartN=0;"],
     ["der eine Weg selbst", "mode=m;"],
     ["der Rueckweg aus dem Onlinebildschirm - danach updateMenuPreview()", "const onlineBack=()=>{leaveOnline();mode=menuMode;"],
     ["der Arena-Matchstart - nach Arena Football", "mode='football'; fmt=FB_ONLINE_FMT; online=true;"],

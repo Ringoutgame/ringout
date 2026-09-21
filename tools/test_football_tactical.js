@@ -364,8 +364,8 @@ console.log('ARENA FOOTBALL — Produktsuite: Classic 1v1 (Standard) + Tactical 
   ok(!/openOnline\(\);/.test(onlineHandler),
      'und uebergibt erst nach der Wahl - der Bildschirm selbst ist derselbe wie bisher');
   const enterSrc = grab(/function fbOnlineEnter\(\)\{[\s\S]*?\n\}/, 'fbOnlineEnter');
-  ok(/mode='football'; fbVariant=FOOTBALL_VARIANT_ELIM; fmt=FB_ONLINE_FMT; fbElimStartN=0;/.test(enterSrc),
-     'fbOnlineEnter setzt den Kontext - Raumtyp, Variante, freie Startbesetzung');
+  ok(/mode='football'; fbVariant=fbVarianteFuerModus\(fbOnlineMode\); fmt=FB_ONLINE_FMT; fbElimStartN=0;/.test(enterSrc),
+     'fbOnlineEnter setzt den Kontext - Raumtyp, Variante (aus dem Modus), freie Startbesetzung');
   ok(/openOnline\(\);/.test(enterSrc),
      'und uebergibt an den BESTEHENDEN Onlinebildschirm - kein zweiter Ablauf');
   ok(/\$\('fbModeOv'\)\.classList\.remove\('show'\);/.test(onlineHandler),
@@ -437,7 +437,7 @@ console.log('ARENA FOOTBALL — Produktsuite: Classic 1v1 (Standard) + Tactical 
      'und das Dev-Panel wird ohne ?dev=1 weiterhin nicht eingeblendet');
   // Und beide Einstiege setzen WOERTLICH denselben Kontext - es gibt keinen zweiten Weg.
   const devHandler = grab(/\$\('devFbOnlineBtn'\)\.onclick=\(\)=>\{[\s\S]*?\n\};/, 'devFbOnlineBtn-Handler');
-  const KONTEXT = "mode='football'; fbVariant=FOOTBALL_VARIANT_ELIM; fmt=FB_ONLINE_FMT; fbElimStartN=0;";
+  const KONTEXT = "mode='football'; fbVariant=fbVarianteFuerModus(fbOnlineMode); fmt=FB_ONLINE_FMT; fbElimStartN=0;";
   ok(devHandler.includes('fbOnModeShow();') && onlineHandler.includes('fbOnModeShow();'),
      'Produktweg und Dev-Einstieg fuehren in dieselbe Moduswahl');
   ok(!devHandler.includes(KONTEXT) && !onlineHandler.includes(KONTEXT),

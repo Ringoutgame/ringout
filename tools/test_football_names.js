@@ -186,9 +186,11 @@ abschnitt('1. nameLabelOn: wer traegt ein Schild?');
   t('Football: das Menue-Vorspiel bleibt ohne Schilder', M.nameLabelOn(kugel(0)) === false);
   M.setz({ menuVisible: false });
 
-  // Tactical: eine Identitaet, zwei Figuren - ein Name stuende doppelt.
+  // Tactical: eine Identitaet, zwei Figuren - und BEIDE tragen ihren Namen. Genau das ist
+  // dort die Auskunft, die zaehlt: welche zwei Koerper zu wem gehoeren (2026-09-21).
   M.setz({ fbVariant: M.V.tactical });
-  t('Football Tactical bleibt ohne Schilder (ein Name, zwei Figuren)', M.nameLabelOn(kugel(0)) === false);
+  t('Football Tactical beschriftet beide Figuren eines Spielers', M.nameLabelOn(kugel(0)) === true && M.nameLabelOn(kugel(1)) === true);
+  t('... und den neutralen Ball auch dort nicht', M.nameLabelOn(kugel(M.NEUTRAL)) === false);
   M.setz({ fbVariant: M.V.team2 });
   t('Football Team 2v2 beschriftet seine vier eigenstaendigen Figuren', M.nameLabelOn(kugel(2)) === true);
   M.setz({ fbVariant: M.V.elim4 });

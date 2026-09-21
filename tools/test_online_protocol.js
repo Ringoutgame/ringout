@@ -500,7 +500,7 @@ t('Beitritt: die Ablehnung nennt die Versionsunvertraeglichkeit',
   // Seit v8 fuehren BEIDE Einstiege in dieselbe Modusauswahl, und der Kontext wird an
   // GENAU EINER Stelle gesetzt (fbOnlineEnter). Das ist strenger als vorher: frueher
   // stand derselbe Satz zweimal im Quelltext und konnte auseinanderlaufen.
-  const KONTEXT = "mode='football'; fbVariant=FOOTBALL_VARIANT_ELIM; fmt=FB_ONLINE_FMT; fbElimStartN=0;";
+  const KONTEXT = "mode='football'; fbVariant=fbVarianteFuerModus(fbOnlineMode); fmt=FB_ONLINE_FMT; fbElimStartN=0;";
   t('der Onlinekontext wird an genau EINER Stelle gesetzt',
     (src.match(new RegExp(KONTEXT.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')) || []).length === 1);
   // Beide Einstiegs-Handler fuehren in die Modusauswahl. Geprueft wird JEDER Handler

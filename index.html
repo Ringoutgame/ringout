@@ -466,6 +466,8 @@ header{width:100%;max-width:460px;display:flex;align-items:center;justify-conten
    Satt genug, um auf dem hellen Himmel der Arena zu stehen: ein helles Mint verlor sich
    dort, und eine Bestaetigung, die man suchen muss, bestaetigt nichts. */
 #game.fb .fbstate.done{color:rgba(52,196,112,1)}
+/* TACTICAL: der Gegner ist am Zug - eine ruhige, gedaempfte Zeile ohne Dringlichkeit. */
+#game.fb .fbstate.wait{color:rgba(170,184,208,.82);letter-spacing:.12em}
 /* ZEIT ABGELAUFEN ist eine Auskunft, kein Fehler - es traegt schlicht die gedaempfte
    Grundfarbe der Zeile und braucht keine eigene Regel. */
 @media(max-width:430px){#game.fb .fbstate{font-size:14px;letter-spacing:.12em}
@@ -996,9 +998,9 @@ body.fbctx .proom .pr-game{color:#cfe0ef}
       <span class="mstage"><img class="mshot" src="assets/hub/modes/football_elimination.webp" alt="" width="700" height="438" decoding="async"></span>
       <span class="mcap"><span class="mt" id="cardFbFfaT">FFA</span><span class="msub" id="cardFbFfaS">2–5 PLAYERS</span></span>
     </button>
-    <button class="mcard msoon" id="cardFb1v1">
+    <button class="mcard" id="cardFb1v1">
       <span class="mstage"><img class="mshot" src="assets/hub/modes/football_tactical.webp" alt="" width="700" height="438" decoding="async"></span>
-      <span class="mcap"><span class="mt" id="cardFb1v1T">TACTICAL 1V1</span><span class="msub" id="cardFb1v1S">2 FIGURES EACH · SOON</span></span>
+      <span class="mcap"><span class="mt" id="cardFb1v1T">TACTICAL 1V1</span><span class="msub" id="cardFb1v1S">2 FIGURES EACH · ALTERNATING TURNS</span></span>
     </button>
     <button class="mcard msoon" id="cardFb2v2">
       <span class="mstage"><img class="mshot" src="assets/hub/modes/football_team2v2.webp" alt="" width="700" height="438" decoding="async"></span>
@@ -1298,6 +1300,10 @@ body.fbctx .proom .pr-game{color:#cfe0ef}
     <button class="vopt" id="fbOnTimedBtn">
       <span class="vopt-t" id="fbOnTimedT">TIMED FFA</span>
       <span class="vopt-s" id="fbOnTimedS">3–5 PLAYERS · 60 s PHASES</span>
+    </button>
+    <button class="vopt" id="fbOnTacticalBtn">
+      <span class="vopt-t" id="fbOnTacticalT">TACTICAL 1V1</span>
+      <span class="vopt-s" id="fbOnTacticalS">2 PLAYERS · 2 FIGURES EACH · ALTERNATING TURNS</span>
     </button>
     <button class="wbtn" id="fbOnModeBack">↩ Back</button>
   </div>
@@ -2341,15 +2347,16 @@ const MENU_SEL={
 // Arena Football hat vier KATEGORIEN. Der Spieler waehlt zuerst, WAS er spielt; die
 // Regel, die Spielerzahl und zuletzt die Spielumgebung (lokal oder online) folgen im
 // Navigationsschirm. ONLINE ist damit keine Kategorie mehr, sondern eine Lieferform.
-// PASS 03: EIN aktiver Modus, drei ehrlich gesperrte. `direkt` heisst: ein Klick auf
-// die Karte fuehrt sofort in die gemeinsame Onlinelobby - ohne Regel-, Spielerzahl-
-// oder Lokal/Online-Frage. `soon` heisst: sichtbar, aber online noch nicht vorhanden;
-// der CTA sagt das, und gestartet wird nichts. Die Modusfamilien selbst (Classic,
-// Timed FFA, lokales Tactical/Team 2v2) sind unveraendert vorhanden und mit ?dev=1
-// ueber die bestehende Modusauswahl erreichbar.
+// PASS 03: `direkt` heisst: ein Klick auf die Karte fuehrt sofort in die gemeinsame
+// Onlinelobby - ohne Regel-, Spielerzahl- oder Lokal/Online-Frage. `soon` heisst:
+// sichtbar, aber online noch nicht vorhanden; der CTA sagt das, und gestartet wird
+// nichts. ZWEI Modi fuehren direkt: FFA (die Lebensregel) und TACTICAL 1V1 (zwei
+// Figuren je Spieler, abwechselnde Zuege). Die uebrigen Modusfamilien (Classic,
+// Timed FFA, lokales Team 2v2) sind unveraendert vorhanden und mit ?dev=1 ueber die
+// bestehende Modusauswahl erreichbar.
 const FB_HUB_MODES=[
   {key:'ffa',      card:'cardFbFfa', titel:'catFbFfa', info:'mcFbFfa', cta:'ctaFbFfa', direkt:true},
-  {key:'tactical', card:'cardFb1v1', titel:'catFb1v1', info:'mcFb1v1', cta:'ctaFb1v1', soon:true},
+  {key:'tactical', card:'cardFb1v1', titel:'catFb1v1', info:'mcFb1v1', cta:'ctaFb1v1', direkt:true},
   {key:'team2v2',  card:'cardFb2v2', titel:'catFb2v2', info:'mcFb2v2', cta:'ctaFb2v2', soon:true},
   {key:'training', card:'cardFbBot', titel:'catFbBot', info:'mcFbBot', cta:'ctaFbBot', soon:true}
 ];
@@ -2384,7 +2391,12 @@ function applyFbMode(i){
 function fbHubKarte(i){
   selectFbMode(i);
   const d=FB_HUB_MODES[fbHubSel];
-  if(d&&d.direkt){ vibrateMs(VIBE_CONFIRM_MS); fbFfaOnlineOeffnen(); }
+  if(d&&d.direkt){ vibrateMs(VIBE_CONFIRM_MS); fbHubOeffnen(d.key); }
+}
+// Der eine Onlineweg je direkter Karte. Beide fuehren in DIESELBE Lobby - nur der
+// Modus des naechsten Raums ist ein anderer.
+function fbHubOeffnen(key){
+  if(key==='tactical')fbTacticalOnlineOeffnen(); else fbFfaOnlineOeffnen();
 }
 function selectFbMode(i){
   applyFbMode(i);
@@ -2460,6 +2472,7 @@ en:{tagline:'PULL BACK · RELEASE · KNOCK THEM OUT',chip:'FEATURED',
   onModeSpeed:'SPEED MATCH',onModeSpeedS:'2 PLAYERS · 45 s TIME BANKS',
   onModeTeam2:'TEAM 2V2',onModeTeam2S:'4 PLAYERS · TWO TEAMS · FIRST TO 3',
   onModeLives:'FFA',onModeLivesS:'2–5 PLAYERS',
+  onModeTactical:'TACTICAL 1V1',onModeTacticalS:'2 FIGURES EACH · ALTERNATING TURNS',
   onModeTimed:'TIMED FFA',onModeTimedS:'3–5 PLAYERS · 60 s PHASES',
   onModeDev:'NOT RELEASED ONLINE YET',onModeBad:'This mode does not allow that player count.',
   onModeLocked:'This online mode is not released yet.',
@@ -2515,6 +2528,8 @@ en:{tagline:'PULL BACK · RELEASE · KNOCK THEM OUT',chip:'FEATURED',
   joinTitle:'Join with a code',joinSub:'Got a 4-letter code from a friend? Enter it here.',orLbl:'OR',refresh:'REFRESH',
   hostTag:'HOST',fbLobbyHow1:'Pull your sphere → release → wait for the others.',fbLobbyHow2:'All players shoot at the same time.',
   fbReadyState:'READY',fbTimeUp:'TIME UP',
+  fbYourTurn:'YOUR TURN',fbOppTurn:"OPPONENT'S TURN",
+  fbLobbyTacHow1:'Each player leads two figures. Per turn, one player moves one of them.',fbLobbyTacHow2:'Turns alternate. Blue opens.',
   createRoom:'Create room',join:'Join',enterCode:'ENTER CODE',back:'↩ Back',yourCode:'YOUR CODE',waitMate:'Waiting for opponent…',lobby:'LOBBY',lobbyGo:'▶ Start',
   leaveT:'Leave online match?',leaveS:'Your opponent can’t continue without you.',leaveNo:'Cancel',leaveYes:'Leave match',
   rematch:'🔄 Rematch',replayB:'🎬 Watch replay',menuB:'↩ Menu',fbNewMatch:'🔄 New match',
@@ -2559,6 +2574,7 @@ de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'FEATURED',
   onModeSpeed:'SPEED MATCH',onModeSpeedS:'2 SPIELER · 45 s ZEITKONTEN',
   onModeTeam2:'TEAM 2V2',onModeTeam2S:'4 SPIELER · ZWEI TEAMS · ERSTER MIT 3',
   onModeLives:'FFA',onModeLivesS:'2–5 SPIELER',
+  onModeTactical:'TACTICAL 1V1',onModeTacticalS:'2 FIGUREN JE SPIELER · ABWECHSELNDE ZÜGE',
   onModeTimed:'TIMED FFA',onModeTimedS:'3–5 SPIELER · 60-s-PHASEN',
   onModeDev:'ONLINE NOCH NICHT FREIGEGEBEN',onModeBad:'Dieser Modus erlaubt diese Spielerzahl nicht.',
   onModeLocked:'Dieser Onlinemodus ist noch nicht freigegeben.',
@@ -2610,6 +2626,8 @@ de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'FEATURED',
   joinTitle:'Mit Code beitreten',joinSub:'Hast du einen 4-stelligen Code von einem Freund? Hier eingeben.',orLbl:'ODER',refresh:'AKTUALISIEREN',
   hostTag:'HOST',fbLobbyHow1:'Zieh deine Kugel → loslassen → auf die anderen warten.',fbLobbyHow2:'Alle Spieler schießen gleichzeitig.',
   fbReadyState:'BEREIT',fbTimeUp:'ZEIT ABGELAUFEN',
+  fbYourTurn:'DEIN ZUG',fbOppTurn:'GEGNER AM ZUG',
+  fbLobbyTacHow1:'Jeder Spieler führt zwei Figuren. Pro Zug bewegt ein Spieler eine davon.',fbLobbyTacHow2:'Die Züge wechseln sich ab. Blau beginnt.',
   createRoom:'Raum erstellen',join:'Beitreten',enterCode:'CODE EINGEBEN',back:'↩ Zurück',yourCode:'DEIN CODE',waitMate:'Warte auf Gegner…',lobby:'LOBBY',lobbyGo:'▶ Start',
   leaveT:'Online-Match verlassen?',leaveS:'Dein Gegner kann dann nicht weiterspielen.',leaveNo:'Abbrechen',leaveYes:'Match verlassen',
   rematch:'🔄 Rematch',replayB:'🎬 Replay ansehen',menuB:'↩ Menü',fbNewMatch:'🔄 Neues Match',
@@ -2654,6 +2672,7 @@ tr:{tagline:'GERİ ÇEK · BIRAK · DIŞARI İT',chip:'FEATURED',
   onModeSpeed:'SPEED MATCH',onModeSpeedS:'2 OYUNCU · 45 s SÜRE BANKASI',
   onModeTeam2:'TEAM 2V2',onModeTeam2S:'4 OYUNCU · İKİ TAKIM · İLK 3',
   onModeLives:'FFA',onModeLivesS:'2–5 OYUNCU',
+  onModeTactical:'TACTICAL 1V1',onModeTacticalS:'OYUNCU BAŞINA 2 FİGÜR · SIRAYLA HAMLE',
   onModeTimed:'TIMED FFA',onModeTimedS:'3–5 OYUNCU · 60 s EVRE',
   onModeDev:'ÇEVRİMİÇİ HENÜZ YAYINDA DEĞİL',onModeBad:'Bu mod bu oyuncu sayısına izin vermiyor.',
   onModeLocked:'Bu çevrimiçi mod henüz yayında değil.',
@@ -2705,6 +2724,8 @@ tr:{tagline:'GERİ ÇEK · BIRAK · DIŞARI İT',chip:'FEATURED',
   joinTitle:'Kodla katıl',joinSub:'Arkadaşından 4 haneli kod aldın mı? Buraya gir.',
   hostTag:'HOST',fbLobbyHow1:'Topunu çek → bırak → diğerlerini bekle.',fbLobbyHow2:'Tüm oyuncular aynı anda vurur.',orLbl:'VEYA',refresh:'YENİLE',
   fbReadyState:'HAZIR',fbTimeUp:'SÜRE DOLDU',
+  fbYourTurn:'SIRA SENDE',fbOppTurn:'SIRA RAKİPTE',
+  fbLobbyTacHow1:'Her oyuncu iki figür yönetir. Her turda bir oyuncu birini oynatır.',fbLobbyTacHow2:'Sıra dönüşümlü. Mavi başlar.',
   createRoom:'Oda kur',join:'Katıl',enterCode:'KOD GİR',back:'↩ Geri',yourCode:'KODUN',waitMate:'Rakip bekleniyor…',lobby:'LOBİ',lobbyGo:'▶ Başlat',
   leaveT:'Online maçtan çıkılsın mı?',leaveS:'Rakibin sensiz devam edemez.',leaveNo:'İptal',leaveYes:'Maçtan çık',
   rematch:'🔄 Rövanş',replayB:'🎬 Tekrarı izle',menuB:'↩ Menü',fbNewMatch:'🔄 Yeni maç',
@@ -2884,7 +2905,7 @@ $('ctaBtn').onclick=async()=>{
     // HUB: die Kategorie steht bereits auf der Startseite. Der CTA tut genau das, was
     // die gewaehlte Karte anbietet - mehr Zwischenschritte gibt es nicht.
     const fbW=FB_HUB_MODES[fbHubSel];
-    if(fbW&&fbW.direkt){fbFfaOnlineOeffnen();return;}
+    if(fbW&&fbW.direkt){fbHubOeffnen(fbW.key);return;}
     // Ein gesperrter Modus sagt es ehrlich. Mit ?dev=1 oeffnet derselbe Knopf stattdessen
     // die bestehende Modusauswahl - der Weg zu Classic, Timed FFA und den lokalen Modi.
     if(typeof DEV_MENU!=='undefined'&&DEV_MENU){$('fbModeOv').classList.add('show');return;}
@@ -2987,7 +3008,7 @@ function fbOnModeShow(){
   }
   $('fbOnModeOv').classList.add('show');
 }
-function fbOnModeBtnId(m){return {classic:'fbOnClassic',speed:'fbOnSpeed',team2v2:'fbOnTeam2',lives:'fbOnLives',timedffa:'fbOnTimed'}[m]||'';}
+function fbOnModeBtnId(m){return {classic:'fbOnClassic',speed:'fbOnSpeed',team2v2:'fbOnTeam2',lives:'fbOnLives',timedffa:'fbOnTimed',tactical:'fbOnTactical'}[m]||'';}
 // Modus gewaehlt: hat er genau eine zulaessige Spielerzahl, geht es direkt weiter;
 // sonst folgt die Wahl der Sollbesetzung.
 function fbOnModePick(m){
@@ -3044,7 +3065,7 @@ $('fbOnTeamBack').onclick=()=>{ $('fbOnTeamOv').classList.remove('show');
 // Host-Start, Reconnect und der kanonische Austritt sind unveraendert dieselben; neu
 // ist ausschliesslich, dass Modus und Sollbesetzung feststehen.
 function fbOnlineEnter(){
-  mode='football'; fbVariant=FOOTBALL_VARIANT_ELIM; fmt=FB_ONLINE_FMT; fbElimStartN=0;
+  mode='football'; fbVariant=fbVarianteFuerModus(fbOnlineMode); fmt=FB_ONLINE_FMT; fbElimStartN=0;   // Variante folgt dem Modus (Tactical oder Elimination)
   fbElimRules=(fbOnlineMode===FB_ONLINE_MODE_TIMED)?FOOTBALL_ELIM_RULES_TIMED:FOOTBALL_ELIM_RULES_LIVES;
   openOnline();
 }
@@ -3058,6 +3079,7 @@ $('fbOnSpeedBtn').onclick=()=>fbOnModePick(FB_ONLINE_MODE_SPEED);
 $('fbOnTeam2Btn').onclick=()=>fbOnModePick(FB_ONLINE_MODE_TEAM2);
 $('fbOnLivesBtn').onclick=()=>fbOnModePick(FB_ONLINE_MODE_LIVES);
 $('fbOnTimedBtn').onclick=()=>fbOnModePick(FB_ONLINE_MODE_TIMED);
+$('fbOnTacticalBtn').onclick=()=>fbOnModePick(FB_ONLINE_MODE_TACTICAL);
 for(const c of [3,4,5]){
   const b=$('fbOnCap'+c); if(b)b.onclick=()=>{fbOnlineCap=c;setOn('fbOnCapGrp','fbOnCap'+c);};
 }
@@ -3078,6 +3100,16 @@ async function fbFfaOnlineOeffnen(){
   if(!(await r3dSichern(true))){toast(T('fbNo3d'));return;}
   if(!fbOnlineFrei(FB_ONLINE_MODE_LIVES)){toast(T('onModeLocked'));return;}
   fbOnlineMode=FB_ONLINE_MODE_LIVES; fbOnlineCap=FB_ONLINE_SEATS;
+  fbOnlineEnter();
+}
+// TACTICAL 1V1 -> dieselbe Onlinelobby. Der Raum fasst genau zwei; die Lobby startet,
+// sobald beide da sind. Alles andere - Raumanlage, Raumliste, Beitritt, Rueckkehr - ist
+// die gemeinsame Shell.
+async function fbTacticalOnlineOeffnen(){
+  if(TUNE){toast('Tuning aktiv — Online deaktiviert');return;}
+  if(!(await r3dSichern(true))){toast(T('fbNo3d'));return;}
+  if(!fbOnlineFrei(FB_ONLINE_MODE_TACTICAL)){toast(T('onModeLocked'));return;}
+  fbOnlineMode=FB_ONLINE_MODE_TACTICAL; fbOnlineCap=fbModeDefaultCap(FB_ONLINE_MODE_TACTICAL);
   fbOnlineEnter();
 }
 $('fbModeBack').onclick=()=>$('fbModeOv').classList.remove('show');
@@ -4837,6 +4869,9 @@ function inputLocked(){return (collapseActive()&&collapseState==='expired')||(ty
 // Online bleibt unberuehrt — dort ist die DB der Write-once-Arbiter (s. commit()).
 function canCommitInput(who){
   if(typeof r3dInputBlocked==='function'&&r3dInputBlocked())return false;   // Context-Recovery: kein lokaler Commit, auch online nicht
+  // TACTICAL ONLINE: nur der Sitz am Zug bringt einen Zug hervor. Zweiter Riegel neben
+  // whoCanAim - die Stand-Taste und jeder andere Weg hierher laufen auch durch ihn.
+  if(online&&typeof fbTacOnline==='function'&&fbTacOnline()&&!fbTacAmZug(who))return false;
   if(online)return true;
   if(phase!=='aim')return false;
   if(inputLocked())return false;
@@ -5727,6 +5762,8 @@ function devAimBlock(){
 }
 function whoCanAim(){if(r3dOrbit||(typeof r3dInputBlocked==='function'&&r3dInputBlocked()))return -1;if(phase!=='aim')return -1;
   if(inputLocked())return -1;   // Timer abgelaufen: kein neuer Zug, bis der Collapse ausgewertet ist
+  // TACTICAL ONLINE: abwechselnde Zuege - der Gegner sieht die Arena, greift aber nichts.
+  if(online&&typeof fbTacOnline==='function'&&fbTacOnline()&&!fbTacAmZug(myPlayer))return -1;
   if(online)return (aimSet[myPlayer]||!aliveCount(myPlayer)||(typeof fbV9EingabeOffen==='function'&&!fbV9EingabeOffen()))?-1:myPlayer;if(mode==='bot')return aimSet[0]?-1:0;
   // Gemeinsames Fenster: gezielt werden darf, solange irgendein aktiver Spieler offen
   // ist; bevorzugt bleibt der, den das HUD gerade fuehrt.
@@ -8435,9 +8472,41 @@ function fbTacticalRingLevel(i){
   if(phase==='reveal')return (commitIdx[0]===i||commitIdx[1]===i)?FB_RING_SELECTED:0;
   if(phase!=='aim')return 0;
   if(typeof inputLocked==='function'&&inputLocked())return 0;
+  // Online: der Gegner am Zug bekommt keinen Ring - er kann nichts waehlen.
+  if(online&&typeof fbTacOnline==='function'&&fbTacOnline()&&!fbTacAmZug(curAimer))return 0;
   if(aimSet[curAimer]||b.owner!==curAimer)return 0;
   return fbSel[curAimer]===i?FB_RING_SELECTED:FB_RING_SELECTABLE;
 }
+// ══ TACTICAL 1V1 ONLINE — ABWECHSELNDE ZUEGE ═══════════════════════════════════════
+// Online ist Tactical ein v11-Raum mit GENAU zwei Sitzen. Sitz 0 fuehrt B1/B2 (Koerper 0
+// und 1), Sitz 1 fuehrt R1/R2 (Koerper 2 und 3), Koerper 4 ist der neutrale Ball - dieselbe
+// Aufstellung, die placeBalls fuer das lokale Tactical stellt. `owner` IST der Sitz.
+//
+// Die Rundenmaschine ist woertlich die der Lebensregel: Rundenbeginn d, Terminal je Sitz in
+// c, Enthuellung r, Abschluss z, Bereitschaft q, Achtsekundenfrist, Praesenz und Rueckkehr.
+// Tactical fuegt ihr genau EINE Regel hinzu: je Runde zieht EIN Sitz. Der andere traegt
+// als Terminal ein `pass` - automatisch, nicht als Handlung eines Menschen -, damit die
+// Runde ohne zweiten Spielerzug schliesst. Die Rules erzwingen dieselbe Regel: ein `move`
+// aus dem Slot des Sitzes, der NICHT am Zug ist, wird abgewiesen, und eine Enthuellung darf
+// nur einen Koerper des eigenen Sitzes nennen.
+//
+// WER AM ZUG IST, steht in keinem Feld: es folgt aus Rundennummer und Generation. Sitz 0
+// eroeffnet das erste Match (Generation 1); jede Runde wechselt die Seite, und jedes
+// Rematch (naechste Generation) wechselt, wer eroeffnet. Nach einem Tor gilt dieselbe
+// Regel - es zieht, wer NICHT geschossen hat, also im Regelfall die Seite, die das Tor
+// hinnehmen musste. Beide Clients und die Rules rechnen dieselbe Formel.
+function fbTacAktivSitz(turn,g){ return ((turn|0)+(g|0)+1)%2; }
+// Raumfrage (Lobby, Anlage, Beitritt): ist DIESER Onlineraum ein Tactical-Raum?
+function fbTacRaum(){ return fbOnlineRoom()&&fbLobbyMode()===FB_ONLINE_MODE_TACTICAL; }
+// Spielfrage (Match): laeuft hier gerade Tactical online?
+function fbTacOnline(){ return !!online&&fbTactical(); }
+function fbTacAmZug(seat){ return fbTacAktivSitz(turnNo,gen)===seat; }
+// Ist dieser Sitz in der Runde des Zusammenhangs der PASSIVE (nicht am Zug)?
+function fbTacPassivRunde(ctx){ return fbTacOnline()&&!!ctx&&fbTacAktivSitz(ctx.turn,ctx.gen)!==ctx.seat; }
+// Welche Football-Variante gehoert zu einem Onlinemodus? Genau zwei Antworten: Tactical
+// fuer den Tactical-Raum, sonst die Elimination (Lebensregel). Drei Einstiege fragen hier -
+// Anlage/Einstieg, Beitritt, Rueckkehr - und keiner setzt die Variante mehr selbst.
+function fbVarianteFuerModus(m){ return m===FB_ONLINE_MODE_TACTICAL?FOOTBALL_VARIANT_TACTICAL:FOOTBALL_VARIANT_ELIM; }
 // ══ ARENA FOOTBALL ELIMINATION — 5 Spieler · 5 Tore · 1 neutraler Ball ══════════════
 // Fuenf Menschen an einem Geraet. Jeder besitzt genau EINE Figur und genau EIN Tor. Alle
 // planen verdeckt, alle starten gleichzeitig.
@@ -10248,12 +10317,21 @@ function renderLobby(p){
   if(modeEl){
     const mo=(fmt===FB_ONLINE_FMT)?fbLobbyMode():'';
     // v10: der Raum fasst cap, gestartet wird ab FB_DYN_MIN_START - die Lobby sagt beides.
-    modeEl.textContent=mo?(T(fbModeDef(mo)?fbModeDef(mo).key:'')+' · '+(fbRaumDynamisch()?(FB_DYN_MIN_START+'–'+cap):cap)+' '+T('playersWord')):'';
+    // Tactical fasst genau zwei: dort gibt es keine Spanne zu nennen.
+    const spanne=fbRaumDynamisch()&&cap>FB_DYN_MIN_START;
+    modeEl.textContent=mo?(T(fbModeDef(mo)?fbModeDef(mo).key:'')+' · '+(spanne?(FB_DYN_MIN_START+'–'+cap):cap)+' '+T('playersWord')):'';
     modeEl.style.display=mo?'':'none';
   }
-  // Arena Football: der kurze Hinweis auf das gleichzeitige Ziehen - nur dort.
+  // Arena Football: der kurze Hinweis auf den Zugmodus - gleichzeitig (Lebensregel) oder
+  // abwechselnd (Tactical). Dieselbe Box, nur ein anderer Text.
   const infoEl=$('lobbyInfo');
-  if(infoEl)infoEl.style.display=(fmt===FB_ONLINE_FMT&&fbLobbyMode()===FB_ONLINE_MODE_LIVES)?'':'none';
+  if(infoEl){
+    const lives=fmt===FB_ONLINE_FMT&&fbLobbyMode()===FB_ONLINE_MODE_LIVES;
+    const tac=fmt===FB_ONLINE_FMT&&fbLobbyMode()===FB_ONLINE_MODE_TACTICAL;
+    infoEl.style.display=(lives||tac)?'':'none';
+    $('lobbyInfo1').textContent=T(tac?'fbLobbyTacHow1':'fbLobbyHow1');
+    $('lobbyInfo2').textContent=T(tac?'fbLobbyTacHow2':'fbLobbyHow2');
+  }
   // TEAM DUEL: Team-Header einblenden und Namenszeilen per CSS order gruppieren —
   // Blau (Seats 0,2) unter den Blau-Header (order 0), Rot (1,3) unter Rot (order 3).
   $('lobbyTeamBlue').style.display=(team||team2)?'':'none';
@@ -10341,19 +10419,22 @@ function fbV11Lobby(p,n){
     return;
   }
   const wirtSitz=fbV11HostSitz(p);
+  // Tactical: genau zwei. Die Lebensregel: ab zwei, hoechstens die Raumgroesse.
+  const tac=(typeof fbTacRaum==='function')&&fbTacRaum();
+  const mindest=FB_DYN_MIN_START, hoechst=tac?FB_TAC_SITZE:FB_ONLINE_SEATS;
   if(wirtSitz!==myPlayer){
     btn.style.display='none';
-    hint.textContent = n<FB_DYN_MIN_START ? fbWaitText(n,FB_DYN_MIN_START)
-                     : wirtSitz<0          ? 'Warte auf einen neuen Host…'
-                                           : 'Warte auf den Host…';
+    hint.textContent = n<mindest ? fbWaitText(n,mindest)
+                     : wirtSitz<0 ? 'Warte auf einen neuen Host…'
+                                  : 'Warte auf den Host…';
     return;
   }
   // Der Wirt. Er darf ab zwei starten und muss nicht warten, bis der Raum voll ist.
   btn.style.display='';
-  btn.disabled=!(n>=FB_DYN_MIN_START&&n<=FB_ONLINE_SEATS);
+  btn.disabled=!(n>=mindest&&n<=hoechst);
   btn.textContent='▶ START';
-  hint.textContent = n<FB_DYN_MIN_START ? fbWaitText(n,FB_DYN_MIN_START)
-                                        : 'Bereit — du startest das Match.';
+  hint.textContent = n<mindest ? fbWaitText(n,mindest)
+                               : 'Bereit — du startest das Match.';
 }
 // Kopfbereich der Online-Seite: zweifarbiger Titel (ONLINE · FFA/1v1/2v2), Untertitel,
 // Spielerzahl-Badge — eine Stelle fuer openOnline UND attemptRejoin.
@@ -10459,7 +10540,10 @@ function createRoom(){
       // v10: die Lebensregel ist der dynamische FFA-Raum - er fasst immer FB_ONLINE_SEATS,
       // unabhaengig davon, welche Spielerzahl zuletzt irgendwo gewaehlt wurde. Genau diese
       // Altlast (fbOnlineCap lebt seitenweit) hatte einen Fuenferraum als Dreierraum angelegt.
-      if(fbo){ cfg.mode=fbOnlineMode; cfg.cap=(fbOnlineMode===FB_ONLINE_MODE_LIVES&&ONLINE_PROTOCOL_VERSION>=10)?FB_ONLINE_SEATS:fbOnlineCap; }
+      // Tactical fasst GENAU zwei - die Zahl kommt aus dem Register, nicht aus der
+      // seitenweiten Auswahl (dieselbe Altlast, nur mit anderem Vorzeichen).
+      if(fbo){ cfg.mode=fbOnlineMode; cfg.cap=(fbOnlineMode===FB_ONLINE_MODE_LIVES&&ONLINE_PROTOCOL_VERSION>=10)?FB_ONLINE_SEATS
+                                            :(fbOnlineMode===FB_ONLINE_MODE_TACTICAL?fbModeDefaultCap(FB_ONLINE_MODE_TACTICAL):fbOnlineCap); }
       // TEAM 2V2: der Ersteller sitzt auf dem ERSTEN SITZ SEINER GEWAEHLTEN SEITE - Blau
       // auf 0 (B1), Rot auf 2 (R1). In einem frischen Raum ist dieser Sitz immer frei.
       // Sonst bleibt es beim Sitz 0.
@@ -10970,11 +11054,13 @@ function fbV9SecretSync(room,gen){
 // spaeter die Schreibschicht.
 async function fbV9MakeCommit(ctx,zug){
   if(!fbV9CryptoReady())throw new Error('v9: Web Crypto nicht verfuegbar');
-  // Ein Abschuss gehoert IMMER der eigenen Figur - dieselbe Zuordnung, die schon
-  // validateTurnRecord() im v8-Zugslot verlangt und die die v9-Rules am Sitz
-  // festmachen (idx + '' === $seat). Sie wird hier NICHT neu erfunden, sondern
-  // gespiegelt: ein Commit auf eine fremde Figur waere ohnehin unschreibbar.
-  if(zug.idx!==ctx.seat)throw new Error('v9: der Abschuss gehoert nicht diesem Sitz');
+  // Ein Abschuss gehoert IMMER einer eigenen Figur - dieselbe Zuordnung, die die Rules an
+  // der Enthuellung festmachen: Lebensregel idx === Sitz, Tactical Sitz s -> Koerper 2s und
+  // 2s+1. Sie wird hier NICHT neu erfunden, sondern ueber fbV9IdxGehoert gespiegelt (typeof:
+  // die Codec-Pruefstaende schneiden diese Funktion allein heraus und rechnen dort weiter
+  // mit der Lebensregel). Ein Commit auf eine fremde Figur waere ohnehin unenthuellbar.
+  const eigen=(typeof fbV9IdxGehoert==='function')?fbV9IdxGehoert(ctx.seat,zug.idx):(zug.idx===ctx.seat);
+  if(!eigen)throw new Error('v9: der Abschuss gehoert nicht diesem Sitz');
   const felder={room:ctx.room,gen:ctx.gen,turn:ctx.turn,seat:ctx.seat,kind:FB_V9_KIND_MOVE,
                 idx:zug.idx,dx:zug.dx,dy:zug.dy,sp:zug.sp};
   const salt=fbV9NewSalt();
@@ -11064,8 +11150,10 @@ async function fbV9VerifyPair(ctx,seat,commit,reveal){
     // annehmen - aber ein Hash, der zu einem selbst gebauten Commit auf eine FREMDE
     // Figur passt, waere in sich stimmig. Er darf trotzdem nie als gueltiger Zug
     // gelten: der Deuter verlaesst sich nicht darauf, dass vor ihm schon jemand
-    // geprueft hat.
-    if(reveal.idx!==seat)return {status:FB_V9_MALFORMED,move:null};
+    // geprueft hat. Dieselbe Besitzfrage wie beim Commit (Lebensregel idx === Sitz,
+    // Tactical Sitz s -> 2s/2s+1); typeof fuer die Codec-Pruefstaende.
+    const eigen=(typeof fbV9IdxGehoert==='function')?fbV9IdxGehoert(seat,reveal.idx):(reveal.idx===seat);
+    if(!eigen)return {status:FB_V9_MALFORMED,move:null};
     const felder={room:ctx.room,gen:ctx.gen,turn:ctx.turn,seat:seat,kind:FB_V9_KIND_MOVE,
                   idx:reveal.idx,dx:reveal.dx,dy:reveal.dy,sp:reveal.sp};
     let h;
@@ -11236,7 +11324,9 @@ async function fbV9NetWriteReveal(ctx,reveal){
   if(!fbV9CtxOk(ctx))return {status:FB_V9_INVALID,wert:null};
   if(!reveal||reveal.k!=='reveal'||!fbV9ResultOk(reveal))
     return {status:FB_V9_INVALID,wert:null};
-  if(reveal.idx!==ctx.seat)return {status:FB_V9_INVALID,wert:null};   // Eigentum, wie ueberall
+  // Eigentum, wie ueberall: Lebensregel idx === Sitz, Tactical Sitz s -> 2s/2s+1 (typeof:
+  // die Netz-Pruefstaende schneiden diese Funktion allein heraus).
+  if(!((typeof fbV9IdxGehoert==='function')?fbV9IdxGehoert(ctx.seat,reveal.idx):(reveal.idx===ctx.seat)))return {status:FB_V9_INVALID,wert:null};
   const nutz={k:'reveal',idx:reveal.idx,dx:reveal.dx,dy:reveal.dy,sp:reveal.sp,
               n:reveal.n,ts:window.FB.serverTimestamp()};
   return await fbV9WriteOnce(fbV9Ref(ctx,'r/'+ctx.turn+'/'+ctx.seat),nutz);
@@ -11565,7 +11655,8 @@ function fbV9SecretShapeOk(ctx,uid,rec){
   if(typeof rec.salt!=='string'||!FB_V9_HEX_SALT_RE.test(rec.salt))return false;
   if(typeof rec.h!=='string'||!FB_V9_HEX_HASH_RE.test(rec.h))return false;
   // Ein Abschuss gehoert der eigenen Figur - dieselbe Zuordnung wie ueberall sonst.
-  if(!Number.isInteger(rec.idx)||rec.idx!==ctx.seat)return false;
+  // Eigentum wie beim Commit: Lebensregel idx === Sitz, Tactical Sitz s -> 2s/2s+1.
+  if(!Number.isInteger(rec.idx)||!((typeof fbV9IdxGehoert==='function')?fbV9IdxGehoert(ctx.seat,rec.idx):(rec.idx===ctx.seat)))return false;
   if(!Number.isFinite(rec.dx)||!Number.isFinite(rec.dy)||!Number.isFinite(rec.sp))return false;
   const k=Object.keys(rec);
   if(k.length!==FB_V9_SECRET_FIELDS.length)return false;
@@ -11955,7 +12046,14 @@ async function fbV9Schritt(lauf){
       // das eigene Terminal jetzt fest (oben uebernommen), oder der Slot ist nachweislich
       // leer. Erst ab hier ist der eigene Slot BEKANNT; erst ab hier darf dieser Sitz
       // (bei leerem Slot) handeln. Ohne gemeldeten Knoten bleibt es bei UNBEKANNT.
-      if(lauf.eigenUnbekannt&&lauf.commitsGemeldet)lauf.eigenUnbekannt=false;
+      if(lauf.eigenUnbekannt&&lauf.commitsGemeldet){
+        lauf.eigenUnbekannt=false;
+        // Der eigene Slot ist ab jetzt BEKANNT. Wer darauf gewartet hat, eine vertraglich
+        // feststehende Handlung nachzureichen (Tactical: das pass des Sitzes, der nicht am
+        // Zug ist), erfaehrt es hier - einmal, mit einem nachweislich leeren oder besetzten
+        // Slot in der Hand. Optional: die Pruefstaende der Protokollschicht kennen ihn nicht.
+        if(typeof fbV9EigenBekannt==='function')fbV9EigenBekannt(lauf);
+      }
       // KEIN eigenes Terminal zu sehen: hier wird NICHT angehalten. Frueher stand an
       // dieser Stelle ein `return` in COMMITTING - und COMMITTING stellt keinen Wecker.
       // Ein Client, dessen Commit vor dem Neuladen vielleicht angekommen ist und
@@ -12559,8 +12657,10 @@ let fbV9Leben=null;
 // Nachspiel stellt einen ZUSTAND wieder her, es wiederholt kein Erlebnis.
 let fbV9Nachspielen=false;
 function fbV9LebenAn(){
+  // Zwei Regeln laufen ueber diese Anbindung: die Lebensregel (Elimination) und
+  // Tactical 1v1 (abwechselnde Zuege). Beide sind v11-Raeume derselben Rundenmaschine.
   return !fbV9Nachspielen && !!online && (roomProto===9||roomProto===10||roomProto===11) && mode==='football'
-      && typeof fbElim4==='function' && fbElim4()
+      && ((typeof fbElim4==='function' && fbElim4())||(typeof fbTactical==='function' && fbTactical()))
       && typeof roomCode==='string' && !!roomCode && myPlayer>=0;
 }
 // Die Sollbesetzung kommt aus der UNVERAENDERLICHEN Startbesetzung des Matches, nicht
@@ -12609,8 +12709,12 @@ function fbV9LebenBereit(turn){
   fbV9LebenStop();
   const ctx=fbV9LebenCtx(turn);
   if(!fbV9CtxOk(ctx))return null;
+  // TACTICAL: der Sitz, der in dieser Runde NICHT am Zug ist, traegt sein `pass` von
+  // Anfang an - es ist keine Handlung eines Menschen, sondern der Vertrag der Runde.
+  // Die Rundenmaschine baut daraus dasselbe Terminal wie bei jedem anderen pass.
+  const passiv=(typeof fbTacPassivRunde==='function')&&fbTacPassivRunde(ctx);
   const L={sid:onlineSessionId,room:roomCode,gen:gen,turn:turn,seat:myPlayer,
-           ctx:ctx,stufe:'BEREIT',bereit:null,lauf:null,aktion:null,
+           ctx:ctx,stufe:'BEREIT',bereit:null,lauf:null,aktion:passiv?{pass:true}:null,
            uebergeben:false,bereitFertig:false,rausAb:null,rausStand:null,
            rausLaeuft:false,wecker:{},angewandt:false};
   fbV9Leben=L;
@@ -12722,7 +12826,14 @@ function fbV9HudPaint(){
   // Entscheidung - und deshalb auch nichts anzusagen.
   const sichtbar=!!h&&phase==='aim'&&footballWinner===null&&!menuVisible
                  &&!(typeof inputLocked==='function'&&inputLocked());
-  if(sichtbar){
+  // TACTICAL: abwechselnde Zuege. Die Zeile sagt, WER dran ist - fuer den Gegner ist das
+  // die ganze Auskunft (er hat nichts zu entscheiden), fuer den Sitz am Zug steht sie vor
+  // der Restzeit. Derselbe eine Zweig, dieselbe Zeile, kein zweites Element.
+  const tac=(typeof fbTacOnline==='function')&&fbTacOnline();
+  let vorsatz='';
+  if(sichtbar&&tac&&!fbTacAmZug(myPlayer)){ txt=T('fbOppTurn'); klasse='wait'; }
+  else if(sichtbar){
+    if(tac)vorsatz=T('fbYourTurn');
     const rest=fbV9HudRest(h);
     const dringlich=rest>=0&&rest<=FOOTBALL_SHOT_URGENT_TICKS/FOOTBALL_SIM_HZ*1000;
     // Wer ausgeschieden ist, hat keine Entscheidung mehr - und bekommt deshalb auch
@@ -12741,7 +12852,7 @@ function fbV9HudPaint(){
     else if(rest>=0){ txt=(rest/1000).toFixed(1); klasse=dringlich?'uhr urgent':'uhr'; }
   }
   // Nur schreiben, wenn sich wirklich etwas geaendert hat - sonst ginge jedes Bild ins DOM.
-  const key=txt+'|'+klasse;
+  const key=vorsatz+'|'+txt+'|'+klasse;
   if(key===fbStateShown)return;
   fbStateShown=key;
   const uhr=klasse.indexOf('uhr')>=0;
@@ -12750,6 +12861,7 @@ function fbV9HudPaint(){
   el.classList.toggle('urgent',klasse.indexOf('urgent')>=0);
   el.classList.toggle('done',klasse==='done');
   el.classList.toggle('late',klasse==='late');
+  el.classList.toggle('wait',klasse==='wait');
   // VORLESEN: eine laufende Zahl ist fuer eine Sprachausgabe Laerm, kein Inhalt. Sie
   // wird deshalb verschwiegen - aber NICHT, indem die Live-Region selbst versteckt und
   // spaeter wieder gezeigt wuerde: eine Region, die kommt und geht, sagt je nach
@@ -12759,7 +12871,9 @@ function fbV9HudPaint(){
   // Countdowns schlicht leer und wechselt nur bei BEREIT und ZEIT ABGELAUFEN.
   el.textContent='';
   if(!txt)return;
-  if(!uhr){ el.textContent=txt; return; }
+  if(!uhr){ el.textContent=vorsatz?(vorsatz+' · '+txt):txt; return; }
+  // Der Vorsatz (DEIN ZUG) wird angesagt, die laufende Zahl nicht.
+  if(vorsatz)el.appendChild(document.createTextNode(vorsatz+' · '));
   const ziffern=document.createElement('span');
   ziffern.setAttribute('aria-hidden','true');
   ziffern.textContent=txt;
@@ -12768,6 +12882,15 @@ function fbV9HudPaint(){
 // Die Handlung dieser Runde. Sie kommt NICHT von hier: was dieser Sitz zieht,
 // entscheidet die Spieleingabe, und die Bruecke dorthin ist V9.4D. Bis dahin bleibt
 // dies der einzige Weg, eine Handlung zu setzen - der Pruefstand benutzt ihn.
+// Nach einem Neuladen in eine OFFENE Runde: der eigene Slot ist gerade bekannt geworden.
+// Ist er leer und gehoert diese Runde in Tactical dem Gegner, geht das vertragliche `pass`
+// jetzt hinaus - genau einmal, ueber denselben Riegel wie jede andere Handlung. Steht dort
+// schon ein Terminal, hat Schritt (2a) es uebernommen, und hier passiert nichts.
+function fbV9EigenBekannt(lauf){
+  if(!lauf||lauf.terminal||lauf.commitFertig)return;
+  if(typeof fbTacPassivRunde!=='function'||!fbTacPassivRunde(lauf.ctx))return;
+  fbV9Action(lauf,{pass:true});
+}
 function fbV9LebenHandeln(aktion){
   const L=fbV9Leben;
   if(!fbV9LebenAktuell(L))return false;
@@ -12920,6 +13043,14 @@ const FB_V9_NULLZUG=['pass','skip','remove','late'];
 // Die Form der Zugmenge wird geprueft, BEVOR irgendetwas angewandt wird - und im
 // Zweifel wird nichts angewandt. Ein Eintrag ausserhalb dieses Vertrags ist kein
 // Anlass zu raten.
+// Wem gehoert Koerperindex idx? Lebensregel: die eine Figur eines Sitzes traegt seinen
+// Index. Tactical: Sitz s fuehrt die Koerper 2s und 2s+1 (B1/B2, R1/R2). Dieselbe
+// Zuordnung, die die Rules an der Enthuellung erzwingen - hier noch einmal, weil ein
+// Client nie darauf vertraut, dass vor ihm schon jemand geprueft hat.
+function fbV9IdxGehoert(seat,idx){
+  if(typeof fbTactical==='function'&&fbTactical())return idx===2*seat||idx===2*seat+1;
+  return idx===seat;
+}
 function fbV9AcceptedOk(menge,cap){
   const sitze=fbV9Sitze(cap);
   if(!sitze||!Array.isArray(menge)||menge.length!==sitze.length)return false;
@@ -12934,7 +13065,9 @@ function fbV9AcceptedOk(menge,cap){
         // Ein Abschuss gehoert der EIGENEN Figur. Die Protokollschicht prueft das
         // bereits; hier wird nicht darauf vertraut, dass vor uns schon jemand geprueft
         // hat - ein fremder Index wuerde eine fremde Kugel starten.
-        if(m.idx!==i)return false;
+        // typeof-Guard: die Protokoll-Pruefstaende schneiden diese Funktion allein heraus
+        // und rechnen dort weiter mit der Lebensregel (Koerperindex == Sitz).
+        if(!((typeof fbV9IdxGehoert==='function')?fbV9IdxGehoert(i,m.idx):(m.idx===i)))return false;
         if(!Number.isFinite(m.dx)||!Number.isFinite(m.dy)||!Number.isFinite(m.sp))return false;
       }else if(FB_V9_RAUS.indexOf(e.status)<0)return false;
     }else if(FB_V9_NULLZUG.indexOf(e.kind)<0)return false;
@@ -12991,9 +13124,15 @@ function fbV9Wirken(menge,cap){
   // (3) Nur gueltige Zuege, und zwar EXAKT die verifizierten Werte: keine erneute
   //     Begrenzung, keine Zufallskomponente, keine Zielhilfe.
   resetCommits();
+  // TACTICAL: in dieser Runde zieht genau EIN Sitz. Ein formal gueltiger Abschuss aus dem
+  // anderen Slot ist kein Zug - die Rules weisen ihn ab, und hier wird er ein zweites Mal
+  // nicht gestartet, damit beide Clients auch dann dasselbe rechnen, wenn ein Server
+  // einmal anders entschiede als erwartet.
+  const tacAktiv=(typeof fbTacOnline==='function'&&fbTacOnline())?fbTacAktivSitz(turnNo,gen):-1;
   for(let k=0;k<kap;k++){
     const e=menge[k];
     if(e.kind!=='move'||e.status!==FB_V9_VALID)continue;
+    if(tacAktiv>=0&&e.seat!==tacAktiv)continue;
     // Ein passiver Sitz schiesst nicht mehr - auch dann nicht, wenn von dort noch ein
     // formal gueltiger Zug kaeme. Sonst waere das Zurueckhalten der Enthuellung ein
     // Zug ohne Folgen: einmal aussetzen, naechste Runde weiterspielen.
@@ -13170,6 +13309,15 @@ function fbV9RaumStart(){
 // Eliminationsfolge angewandt und ein faelliger Austritt uebernommen.
 function fbV9LebenNeueRunde(){
   if(!fbV9LebenAn())return null;
+  // KEIN Match, KEINE Runde. Nach dem letzten Tor setzt der Raum-Listener die Lobby zurueck
+  // (gameStarted faellt, Teilnehmerliste und Startbesetzung werden geleert), waehrend die
+  // Physik der Schlussrunde lokal noch auslaeuft. Ihr Settlement kam frueher bis hierher
+  // und setzte in der Lobby eine Bereitschaftsrunde mit der VOLLEN Sitzzahl auf - deren
+  // Fristschluesse fuer nie besetzte Sitze wiesen die Rules ab (permission_denied im
+  // Zweierraum sofort, im Fuenferraum nach der Bereitschaftsfrist). Sichtbar geworden mit
+  // Tactical 1v1 (2026-09-21); dieselbe Schleife gilt fuer jeden v11-Raum. typeof-Guard wie
+  // an den uebrigen Modulgrenzen: die Protokoll-Pruefstaende kennen den Spielstart nicht.
+  if(typeof gameStarted!=='undefined'&&!gameStarted)return null;
   if(phase==='over')return null;
   // Ein entschiedenes Match bekommt keine naechste Runde - und damit auch kein q.
   if(typeof footballWinner!=='undefined'&&footballWinner!==null)return null;
@@ -13194,15 +13342,20 @@ function fbV9LebenNeueRunde(){
 // freigegebene Modi sind ausschliesslich im Dev-Menue sichtbar.
 const FB_ONLINE_MODE_CLASSIC='classic', FB_ONLINE_MODE_SPEED='speed',
       FB_ONLINE_MODE_TEAM2='team2v2', FB_ONLINE_MODE_LIVES='lives',
-      FB_ONLINE_MODE_TIMED='timedffa';
+      FB_ONLINE_MODE_TIMED='timedffa', FB_ONLINE_MODE_TACTICAL='tactical';
+// Tactical online: genau zwei Sitze. Die Zahl steht hier UND im Register - das Register
+// ist die Quelle fuer Raum und Lobby, die Konstante fuer die Spielregel (Sitz 0 und 1).
+const FB_TAC_SITZE=2;
 const FB_ONLINE_MODES={
   classic: {caps:[2],     released:false, key:'onModeClassic'},
   speed:   {caps:[2],     released:false, key:'onModeSpeed'},
   team2v2: {caps:[4],     released:false, key:'onModeTeam2'},
   lives:   {caps:[3,4,5], released:true,  key:'onModeLives'},
-  timedffa:{caps:[3,4,5], released:false, key:'onModeTimed'}
+  timedffa:{caps:[3,4,5], released:false, key:'onModeTimed'},
+  // Tactical 1v1: v11-Raum mit abwechselnden Zuegen (s. TACTICAL 1V1 ONLINE).
+  tactical:{caps:[2],     released:true,  key:'onModeTactical'}
 };
-const FB_ONLINE_MODE_IDS=['classic','speed','team2v2','lives','timedffa'];
+const FB_ONLINE_MODE_IDS=['classic','speed','team2v2','lives','timedffa','tactical'];
 // Rein lesende Abfragen auf das Register. Eigene Funktionen statt verstreuter
 // Objektzugriffe, damit die Suiten EINE Stelle pruefen koennen.
 function fbModeDef(m){return Object.prototype.hasOwnProperty.call(FB_ONLINE_MODES,m)?FB_ONLINE_MODES[m]:null;}
@@ -13406,6 +13559,9 @@ function fbRaumFassung(cfg){
   // lehnt sie beim Beitritt ab, alte und neue Semantik teilen sich nie einen Raum.
   if(cfg.game===ROOM_GAME_RINGOUT&&(cfg.fmt==='ffa'||cfg.fmt==='triple_ffa'||cfg.fmt==='team_duel'))return RINGOUT_SKIP_FASSUNG;
   if(cfg.game!==ROOM_GAME_FOOTBALL)return 8;
+  // Tactical 1v1: ein v11-Raum mit genau zwei Sitzen - dieselbe Rundenmaschine wie die
+  // Lebensregel, ein anderer Zugvertrag. Die Rules kennen ihn nur in dieser Fassung.
+  if(cfg.mode===FB_ONLINE_MODE_TACTICAL)return (cfg.cap===FB_TAC_SITZE&&ONLINE_PROTOCOL_VERSION>=11)?11:8;
   if(cfg.mode!==FB_ONLINE_MODE_LIVES)return 8;
   const cap=cfg.cap;
   if(!(Number.isInteger(cap)&&cap>=3&&cap<=5))return 8;
@@ -13710,7 +13866,7 @@ function joinFertig(code,seat,d,v,op){
   fbRoomMode=v.mode||''; fbRoomCap=Number.isInteger(v.cap)?v.cap:0; roomHostUid=v.hostUid||'';
   // v8: Modus, Sollbesetzung UND Hostkennung kommen aus dem RAUM.
   // Football: Modus UND Variante setzen, bevor irgendetwas np()/fbElim4() fragt.
-  if(joinFb){ mode='football'; fbVariant=FOOTBALL_VARIANT_ELIM; } else mode='ffa';
+  if(joinFb){ mode='football'; fbVariant=fbVarianteFuerModus(v.mode); } else mode='ffa';
   winTarget=v.winTarget; fmt=v.fmt; gen=v.gen; roomPublic=isPublic; roomOeffentlich=isPublic;
   setzeVorspiel(mode,fmt);   // Kulisse der Lobby: die Koerper des Spiels, dem man beitritt
   rememberRoom(code,seat);
@@ -14199,6 +14355,10 @@ async function fbV11Starten(){
   if(!fbV11BinHost())return;
   const da=fbV11Anwesend();
   if(da.length<FB_DYN_MIN_START||da.length>FB_ONLINE_SEATS)return;
+  // Tactical: genau zwei, und zwar die Sitze 0 und 1 - sie SIND Blau und Rot.
+  // typeof-Guard wie an den uebrigen Modulgrenzen: die Pruefstaende der Lobby kennen den
+  // Tactical-Block nicht und fahren weiter die Lebensregel.
+  if(typeof fbTacRaum==='function'&&fbTacRaum()&&!(da.length===FB_TAC_SITZE&&da[0]===0&&da[1]===1))return;
   fbV11StartBusy=true;
   const ng=gen+1, upd={}, pt={};
   for(const s of da)pt[s]=true;
@@ -14543,7 +14703,7 @@ async function attemptRejoin(code){
     seatLeft=[]; seatGone=[]; playersRoster=d.players||{};
     // Football: Modus UND Variante stehen, BEVOR irgendetwas np()/fbElim4() fragt.
     winTarget=v.winTarget; fmt=v.fmt; mode=rjFb?'football':ffa?'ffa':'online';
-    if(rjFb)fbVariant=FOOTBALL_VARIANT_ELIM;
+    if(rjFb)fbVariant=fbVarianteFuerModus(v.mode);
     // Der Wiedereintritt kann das SPIEL wechseln. Die Rehydrierung stellt die Koerper
     // spaeter ohnehin neu - bis dahin liegen aber Bilder, und in keinem davon darf eine
     // Figur aus dem vorigen Spiel stehen.
@@ -16314,13 +16474,12 @@ function draw(){
 //     Beschriftung geben (FOOTBALL_NEUTRAL_OWNER === 5: online der Farbname des sechsten
 //     Slots, lokal "Spieler 6") - ein Name auf dem Ball waere schlicht falsch.
 //   - das Menue-Vorspiel: dort laeuft kein Match, und die Lobby nennt die Namen bereits.
-//   - Tactical: dort fuehrt EINE Identitaet ZWEI Figuren - derselbe Name stuende doppelt
-//     im Feld und wuerde die Figuren gerade nicht unterscheiden.
+// Tactical traegt den Namen auf BEIDEN Figuren eines Spielers: dort ist genau das die
+// Auskunft, die zaehlt - welche zwei Koerper zu wem gehoeren.
 function nameLabelOn(b){
   if(mode!=='football')return phase!=='sim';
   if(menuVisible)return false;
-  if(b.owner===FOOTBALL_NEUTRAL_OWNER)return false;
-  return !fbTactical();
+  return b.owner!==FOOTBALL_NEUTRAL_OWNER;
 }
 function drawBall(b){
   const pc=pcol(colorSlot(b.owner));   // TEAM DUEL: beide Teamkugeln in Teamfarbe

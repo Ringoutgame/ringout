@@ -118,6 +118,10 @@ const ERWARTET = [
   { bedeutung: 'Hoechste Rundennummer (q)',                     pfad: '/rooms/$code/g/$gen/q/$turn/$seat/n',    feld: '.validate', wert: 9999,                   mal: 1, quelle: 'Rundenschranke' },
   { bedeutung: 'Hoechste Rundennummer (x)',                     pfad: '/rooms/$code/g/$gen/x/$seat/n',          feld: '.validate', wert: 9999,                   mal: 1, quelle: 'Rundenschranke' },
   { bedeutung: 'Hoechste Rundennummer (d)',                     pfad: '/rooms/$code/g/$gen/d/$turn/n',          feld: '.validate', wert: 9999,                   mal: 1, quelle: 'Rundenschranke' },
+  // Keine Frist, sondern eine Zeichenklasse: die geraden Endziffern der Rundennummer, mit
+  // denen die Rules die Rundenparitaet fuer Tactical 1v1 lesen ($turn.matches(/[02468]$/)) -
+  // dieselbe Formel wie fbTacAktivSitz. Sie steht hier, damit sie nicht als fremde Zahl gilt.
+  { bedeutung: 'Rundenparitaet Tactical (gerade Endziffern)',   pfad: '/rooms/$code/g/$gen/c/$turn/$seat',      feld: '.write', wert: 2468,                   mal: 1, quelle: 'fbTacAktivSitz' },
 ];
 
 abschnitt('Die Rules - jede Zahl an ihrem Platz');

@@ -34,7 +34,9 @@ function grab(re, was) {
 const QUELLEN = [
   grab(/const ONLINE_PROTOCOL_VERSION=[^\n]*/, 'ONLINE_PROTOCOL_VERSION'),
   grab(/const ROOM_GAME_RINGOUT=[^\n]*/, 'ROOM_GAME_RINGOUT'),
-  grab(/const FB_ONLINE_MODE_CLASSIC='classic'[\s\S]*?FB_ONLINE_MODE_TIMED='timedffa';/, 'Modusnamen'),
+  // Seit Tactical 1v1 online (2026-09-21) gehoert die Sitzzahl FB_TAC_SITZE zu den Modusnamen:
+  // fbRaumFassung liest sie fuer den Tactical-Raum.
+  grab(/const FB_ONLINE_MODE_CLASSIC='classic'[\s\S]*?const FB_TAC_SITZE=2;/, 'Modusnamen'),
   grab(/function fbRaumFassung\(cfg\)\{[\s\S]*?\n\}/, 'fbRaumFassung'),
   grab(/function fbRaumFassungOk\(v\)\{[^\n]*\}/, 'fbRaumFassungOk'),
 ].join('\n');
