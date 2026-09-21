@@ -247,9 +247,10 @@ t('remove: created NaN', view({ created: NaN }).remove === true);
   t('the roster marks the host', /nameForSeat\(s\)\+\(s===hostSeat\(\)\?' · '\+T\('hostTag'\):''\)/.test(lob));
   // Since Tactical 1v1 online (2026-09-21) the same box carries either the simultaneous
   // hint (Lives) or the alternating-turns hint (Tactical) - and nothing for any other mode.
-  t('the Arena hint shows for Football Lives, Tactical and Team 2v2 only', /infoEl\.style\.display=\(lives\|\|tac\|\|t2\)\?'':'none';/.test(lob)
+  t('the Arena hint shows for Football Lives, Tactical (2 and 4 figures) and Team 2v2 only', /infoEl\.style\.display=\(lives\|\|tac\|\|t2\)\?'':'none';/.test(lob)
     && /const lives=fmt===FB_ONLINE_FMT&&fbLobbyMode\(\)===FB_ONLINE_MODE_LIVES;/.test(lob)
-    && /const tac=fmt===FB_ONLINE_FMT&&fbLobbyMode\(\)===FB_ONLINE_MODE_TACTICAL;/.test(lob));
+    && /const tac4=fmt===FB_ONLINE_FMT&&fbLobbyMode\(\)===FB_ONLINE_MODE_TACTICAL4;/.test(lob)
+    && /const tac=\(fmt===FB_ONLINE_FMT&&fbLobbyMode\(\)===FB_ONLINE_MODE_TACTICAL\)\|\|tac4;/.test(lob));
   t('the lobby names the 2-5 span only when the room is dynamic AND holds more than the minimum',
     /const spanne=fbRaumDynamisch\(\)&&cap>FB_DYN_MIN_START;/.test(lob) && /spanne\?\(FB_DYN_MIN_START\+'–'\+cap\):cap/.test(lob));
 }

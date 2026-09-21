@@ -504,8 +504,8 @@ for (const start of [5, 4, 3]) {
   for (const c of [/const FOOTBALL_WIN_SCORE=3;/, /const FOOTBALL_BANK_SECONDS=45;/,
                    /const FOOTBALL_SHOT_SECONDS=6;/, /const FOOTBALL_TROUBLE_SECONDS=2;/])
     ok(c.test(HTML), 'Classic-Konstante unveraendert: ' + c.source);
-  ok(/function fbTactical\(\)\{return mode==='football'&&fbVariant===FOOTBALL_VARIANT_TACTICAL;\}/.test(HTML),
-     'die Tactical-Weiche ist unveraendert');
+  ok(/function fbTactical\(\)\{return mode==='football'&&\(fbVariant===FOOTBALL_VARIANT_TACTICAL\|\|fbVariant===FOOTBALL_VARIANT_TACTICAL4\);\}/.test(HTML),
+     'die Tactical-Weiche gilt fuer beide Tactical-Varianten (2 und 4 Figuren) und sonst nichts');
   ok(/const fbSel=\[-1,-1\];/.test(HTML), 'und seine Figurenwahl ebenso');
   // Speed Match laeuft im selben Sandkasten weiter.
   const S = build(5);

@@ -1002,6 +1002,10 @@ body.fbctx .proom .pr-game{color:#cfe0ef}
       <span class="mstage"><img class="mshot" src="assets/hub/modes/football_tactical.webp" alt="" width="700" height="438" decoding="async"></span>
       <span class="mcap"><span class="mt" id="cardFb1v1T">TACTICAL 1V1</span><span class="msub" id="cardFb1v1S">2 FIGURES EACH · ALTERNATING TURNS</span></span>
     </button>
+    <button class="mcard" id="cardFb4b">
+      <span class="mstage"><img class="mshot" src="assets/hub/modes/football_tactical.webp" alt="" width="700" height="438" decoding="async"></span>
+      <span class="mcap"><span class="mt" id="cardFb4bT">TACTICAL 4-BALL 1V1</span><span class="msub" id="cardFb4bS">4 FIGURES EACH · ALTERNATING TURNS</span></span>
+    </button>
     <button class="mcard" id="cardFb2v2">
       <span class="mstage"><img class="mshot" src="assets/hub/modes/football_team2v2.webp" alt="" width="700" height="438" decoding="async"></span>
       <span class="mcap"><span class="mt" id="cardFb2v2T">TEAM 2V2</span><span class="msub" id="cardFb2v2S">4 PLAYERS · 2 TEAMS · SIMULTANEOUS</span></span>
@@ -1304,6 +1308,10 @@ body.fbctx .proom .pr-game{color:#cfe0ef}
     <button class="vopt" id="fbOnTacticalBtn">
       <span class="vopt-t" id="fbOnTacticalT">TACTICAL 1V1</span>
       <span class="vopt-s" id="fbOnTacticalS">2 PLAYERS · 2 FIGURES EACH · ALTERNATING TURNS</span>
+    </button>
+    <button class="vopt" id="fbOnTactical4Btn">
+      <span class="vopt-t" id="fbOnTactical4T">TACTICAL 4-BALL 1V1</span>
+      <span class="vopt-s" id="fbOnTactical4S">2 PLAYERS · 4 FIGURES EACH · ALTERNATING TURNS</span>
     </button>
     <button class="wbtn" id="fbOnModeBack">↩ Back</button>
   </div>
@@ -2357,6 +2365,7 @@ const MENU_SEL={
 const FB_HUB_MODES=[
   {key:'ffa',      card:'cardFbFfa', titel:'catFbFfa', info:'mcFbFfa', cta:'ctaFbFfa', direkt:true},
   {key:'tactical', card:'cardFb1v1', titel:'catFb1v1', info:'mcFb1v1', cta:'ctaFb1v1', direkt:true},
+  {key:'tactical4', card:'cardFb4b', titel:'catFb4b', info:'mcFb4b', cta:'ctaFb4b', direkt:true},
   {key:'team2v2',  card:'cardFb2v2', titel:'catFb2v2', info:'mcFb2v2', cta:'ctaFb2v2', direkt:true},
   {key:'training', card:'cardFbBot', titel:'catFbBot', info:'mcFbBot', cta:'ctaFbBot', soon:true}
 ];
@@ -2397,6 +2406,7 @@ function fbHubKarte(i){
 // Modus des naechsten Raums ist ein anderer.
 function fbHubOeffnen(key){
   if(key==='tactical')fbTacticalOnlineOeffnen();
+  else if(key==='tactical4')fbTactical4OnlineOeffnen();
   else if(key==='team2v2')fbTeam2OnlineOeffnen();
   else fbFfaOnlineOeffnen();
 }
@@ -2475,6 +2485,7 @@ en:{tagline:'PULL BACK · RELEASE · KNOCK THEM OUT',chip:'FEATURED',
   onModeTeam2:'TEAM 2V2',onModeTeam2S:'4 PLAYERS · TWO TEAMS · FIRST TO 3',
   onModeLives:'FFA',onModeLivesS:'2–5 PLAYERS',
   onModeTactical:'TACTICAL 1V1',onModeTacticalS:'2 FIGURES EACH · ALTERNATING TURNS',
+  onModeTactical4:'TACTICAL 4-BALL 1V1',onModeTactical4S:'4 FIGURES EACH · ALTERNATING TURNS',
   onModeTimed:'TIMED FFA',onModeTimedS:'3–5 PLAYERS · 60 s PHASES',
   onModeDev:'NOT RELEASED ONLINE YET',onModeBad:'This mode does not allow that player count.',
   onModeLocked:'This online mode is not released yet.',
@@ -2508,9 +2519,9 @@ en:{tagline:'PULL BACK · RELEASE · KNOCK THEM OUT',chip:'FEATURED',
   // Kurze Unterzeilen der Hub-Karten: eine Zeile, kein Regeltext.
   mcTriple:'3 PLAYERS · 2 BALLS',mcVs:'2 PLAYERS · 2 BALLS',
   // ARENA FOOTBALL: vier Kategorien plus die Unterschritte des Navigationsschirms.
-  catFb1v1:'TACTICAL 1V1',catFb2v2:'TEAM 2V2',catFbFfa:'FFA',catFbBot:'TRAINING',
-  mcFb1v1:'2 FIGURES EACH',mcFb2v2:'4 PLAYERS · 2 TEAMS',mcFbFfa:'2–5 PLAYERS',mcFbBot:'LEARN & PRACTICE',
-  ctaFb1v1:'TACTICAL 1V1',ctaFb2v2:'TEAM 2V2',ctaFbFfa:'PLAY FFA',ctaFbBot:'TRAINING',
+  catFb1v1:'TACTICAL 1V1',catFb4b:'TACTICAL 4-BALL 1V1',catFb2v2:'TEAM 2V2',catFbFfa:'FFA',catFbBot:'TRAINING',
+  mcFb1v1:'2 FIGURES EACH',mcFb4b:'4 FIGURES EACH',mcFb2v2:'4 PLAYERS · 2 TEAMS',mcFbFfa:'2–5 PLAYERS',mcFbBot:'LEARN & PRACTICE',
+  ctaFb1v1:'TACTICAL 1V1',ctaFb4b:'TACTICAL 4-BALL 1V1',ctaFb2v2:'TEAM 2V2',ctaFbFfa:'PLAY FFA',ctaFbBot:'TRAINING',
   soonChip:'SOON',soonCta:'COMING SOON',
   mcFbTeam2:'4 PLAYERS · 2 TEAMS',mcFbElim:'SURVIVE THE ARENA',
   gRoS:'PULL BACK · RELEASE',gFbT:'Arena <em>Football</em>',gFbS:'GOALS · SKILLS · SPEED',gFbBadge:'NEW',
@@ -2531,7 +2542,8 @@ en:{tagline:'PULL BACK · RELEASE · KNOCK THEM OUT',chip:'FEATURED',
   hostTag:'HOST',fbLobbyHow1:'Pull your sphere → release → wait for the others.',fbLobbyHow2:'All players shoot at the same time.',
   fbReadyState:'READY',fbTimeUp:'TIME UP',
   fbYourTurn:'YOUR TURN',fbOppTurn:"OPPONENT'S TURN",
-  fbLobbyTacHow1:'Each player leads two figures. Per turn, one player moves one of them.',fbLobbyTacHow2:'Turns alternate. Blue opens.',
+  fbLobbyTacHow1:'Each player leads two figures. Per turn, one player moves one of them.',
+  fbLobbyTac4How1:'Each player leads four figures. Per turn, one player moves any one of them.',fbLobbyTacHow2:'Turns alternate. Blue opens.',
   createRoom:'Create room',join:'Join',enterCode:'ENTER CODE',back:'↩ Back',yourCode:'YOUR CODE',waitMate:'Waiting for opponent…',lobby:'LOBBY',lobbyGo:'▶ Start',
   leaveT:'Leave online match?',leaveS:'Your opponent can’t continue without you.',leaveNo:'Cancel',leaveYes:'Leave match',
   rematch:'🔄 Rematch',replayB:'🎬 Watch replay',menuB:'↩ Menu',fbNewMatch:'🔄 New match',
@@ -2577,6 +2589,7 @@ de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'FEATURED',
   onModeTeam2:'TEAM 2V2',onModeTeam2S:'4 SPIELER · ZWEI TEAMS · ERSTER MIT 3',
   onModeLives:'FFA',onModeLivesS:'2–5 SPIELER',
   onModeTactical:'TACTICAL 1V1',onModeTacticalS:'2 FIGUREN JE SPIELER · ABWECHSELNDE ZÜGE',
+  onModeTactical4:'TACTICAL 4-BALL 1V1',onModeTactical4S:'4 FIGUREN JE SPIELER · ABWECHSELNDE ZÜGE',
   onModeTimed:'TIMED FFA',onModeTimedS:'3–5 SPIELER · 60-s-PHASEN',
   onModeDev:'ONLINE NOCH NICHT FREIGEGEBEN',onModeBad:'Dieser Modus erlaubt diese Spielerzahl nicht.',
   onModeLocked:'Dieser Onlinemodus ist noch nicht freigegeben.',
@@ -2604,9 +2617,9 @@ de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'FEATURED',
   secHub:'GAME HUB',secRoModes:'RING OUT MODI',secFbModes:'ARENA FOOTBALL MODI',
   secMulti:'MEHRSPIELER',rejoinHome:'ZURÜCK INS MATCH',rejoinRoom:'Raum {code} steht noch offen',
   mcTriple:'3 SPIELER · 2 KUGELN',mcVs:'2 SPIELER · 2 KUGELN',
-  catFb1v1:'TACTICAL 1V1',catFb2v2:'TEAM 2V2',catFbFfa:'FFA',catFbBot:'TRAINING',
-  mcFb1v1:'2 FIGUREN JE SPIELER',mcFb2v2:'4 SPIELER · 2 TEAMS',mcFbFfa:'2–5 SPIELER',mcFbBot:'LERNEN & ÜBEN',
-  ctaFb1v1:'TACTICAL 1V1',ctaFb2v2:'TEAM 2V2',ctaFbFfa:'FFA SPIELEN',ctaFbBot:'TRAINING',
+  catFb1v1:'TACTICAL 1V1',catFb4b:'TACTICAL 4-BALL 1V1',catFb2v2:'TEAM 2V2',catFbFfa:'FFA',catFbBot:'TRAINING',
+  mcFb1v1:'2 FIGUREN JE SPIELER',mcFb4b:'4 FIGUREN JE SPIELER',mcFb2v2:'4 SPIELER · 2 TEAMS',mcFbFfa:'2–5 SPIELER',mcFbBot:'LERNEN & ÜBEN',
+  ctaFb1v1:'TACTICAL 1V1',ctaFb4b:'TACTICAL 4-BALL 1V1',ctaFb2v2:'TEAM 2V2',ctaFbFfa:'FFA SPIELEN',ctaFbBot:'TRAINING',
   soonChip:'BALD',soonCta:'BALD VERFÜGBAR',
   mcFbTeam2:'4 SPIELER · 2 TEAMS',mcFbElim:'ÜBERLEBE DIE ARENA',
   gRoS:'ZIEH ZURÜCK · LASS LOS',gFbT:'Arena <em>Football</em>',gFbS:'TORE · TECHNIK · TEMPO',gFbBadge:'NEU',
@@ -2629,7 +2642,8 @@ de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'FEATURED',
   hostTag:'HOST',fbLobbyHow1:'Zieh deine Kugel → loslassen → auf die anderen warten.',fbLobbyHow2:'Alle Spieler schießen gleichzeitig.',
   fbReadyState:'BEREIT',fbTimeUp:'ZEIT ABGELAUFEN',
   fbYourTurn:'DEIN ZUG',fbOppTurn:'GEGNER AM ZUG',
-  fbLobbyTacHow1:'Jeder Spieler führt zwei Figuren. Pro Zug bewegt ein Spieler eine davon.',fbLobbyTacHow2:'Die Züge wechseln sich ab. Blau beginnt.',
+  fbLobbyTacHow1:'Jeder Spieler führt zwei Figuren. Pro Zug bewegt ein Spieler eine davon.',
+  fbLobbyTac4How1:'Jeder Spieler führt vier Figuren. Pro Zug bewegt ein Spieler eine beliebige davon.',fbLobbyTacHow2:'Die Züge wechseln sich ab. Blau beginnt.',
   createRoom:'Raum erstellen',join:'Beitreten',enterCode:'CODE EINGEBEN',back:'↩ Zurück',yourCode:'DEIN CODE',waitMate:'Warte auf Gegner…',lobby:'LOBBY',lobbyGo:'▶ Start',
   leaveT:'Online-Match verlassen?',leaveS:'Dein Gegner kann dann nicht weiterspielen.',leaveNo:'Abbrechen',leaveYes:'Match verlassen',
   rematch:'🔄 Rematch',replayB:'🎬 Replay ansehen',menuB:'↩ Menü',fbNewMatch:'🔄 Neues Match',
@@ -2675,6 +2689,7 @@ tr:{tagline:'GERİ ÇEK · BIRAK · DIŞARI İT',chip:'FEATURED',
   onModeTeam2:'TEAM 2V2',onModeTeam2S:'4 OYUNCU · İKİ TAKIM · İLK 3',
   onModeLives:'FFA',onModeLivesS:'2–5 OYUNCU',
   onModeTactical:'TACTICAL 1V1',onModeTacticalS:'OYUNCU BAŞINA 2 FİGÜR · SIRAYLA HAMLE',
+  onModeTactical4:'TACTICAL 4-BALL 1V1',onModeTactical4S:'OYUNCU BAŞINA 4 FİGÜR · SIRAYLA HAMLE',
   onModeTimed:'TIMED FFA',onModeTimedS:'3–5 OYUNCU · 60 s EVRE',
   onModeDev:'ÇEVRİMİÇİ HENÜZ YAYINDA DEĞİL',onModeBad:'Bu mod bu oyuncu sayısına izin vermiyor.',
   onModeLocked:'Bu çevrimiçi mod henüz yayında değil.',
@@ -2702,9 +2717,9 @@ tr:{tagline:'GERİ ÇEK · BIRAK · DIŞARI İT',chip:'FEATURED',
   secHub:'OYUN MERKEZİ',secRoModes:'RING OUT MODLARI',secFbModes:'ARENA FOOTBALL MODLARI',
   secMulti:'ÇOK OYUNCULU',rejoinHome:'MAÇA GERİ DÖN',rejoinRoom:'{code} odası hâlâ açık',
   mcTriple:'3 OYUNCU · 2 TOP',mcVs:'2 OYUNCU · 2 TOP',
-  catFb1v1:'TACTICAL 1V1',catFb2v2:'TEAM 2V2',catFbFfa:'FFA',catFbBot:'ANTRENMAN',
-  mcFb1v1:'OYUNCU BAŞINA 2 FİGÜR',mcFb2v2:'4 OYUNCU · 2 TAKIM',mcFbFfa:'2–5 OYUNCU',mcFbBot:'ÖĞREN & ÇALIŞ',
-  ctaFb1v1:'TACTICAL 1V1',ctaFb2v2:'TEAM 2V2',ctaFbFfa:'FFA OYNA',ctaFbBot:'ANTRENMAN',
+  catFb1v1:'TACTICAL 1V1',catFb4b:'TACTICAL 4-BALL 1V1',catFb2v2:'TEAM 2V2',catFbFfa:'FFA',catFbBot:'ANTRENMAN',
+  mcFb1v1:'OYUNCU BAŞINA 2 FİGÜR',mcFb4b:'OYUNCU BAŞINA 4 FİGÜR',mcFb2v2:'4 OYUNCU · 2 TAKIM',mcFbFfa:'2–5 OYUNCU',mcFbBot:'ÖĞREN & ÇALIŞ',
+  ctaFb1v1:'TACTICAL 1V1',ctaFb4b:'TACTICAL 4-BALL 1V1',ctaFb2v2:'TEAM 2V2',ctaFbFfa:'FFA OYNA',ctaFbBot:'ANTRENMAN',
   soonChip:'YAKINDA',soonCta:'ÇOK YAKINDA',
   mcFbTeam2:'4 OYUNCU · 2 TAKIM',mcFbElim:'ARENADA HAYATTA KAL',
   gRoS:'GERİ ÇEK · BIRAK',gFbT:'Arena <em>Football</em>',gFbS:'GOL · BECERİ · HIZ',gFbBadge:'YENİ',
@@ -2727,7 +2742,8 @@ tr:{tagline:'GERİ ÇEK · BIRAK · DIŞARI İT',chip:'FEATURED',
   hostTag:'HOST',fbLobbyHow1:'Topunu çek → bırak → diğerlerini bekle.',fbLobbyHow2:'Tüm oyuncular aynı anda vurur.',orLbl:'VEYA',refresh:'YENİLE',
   fbReadyState:'HAZIR',fbTimeUp:'SÜRE DOLDU',
   fbYourTurn:'SIRA SENDE',fbOppTurn:'SIRA RAKİPTE',
-  fbLobbyTacHow1:'Her oyuncu iki figür yönetir. Her turda bir oyuncu birini oynatır.',fbLobbyTacHow2:'Sıra dönüşümlü. Mavi başlar.',
+  fbLobbyTacHow1:'Her oyuncu iki figür yönetir. Her turda bir oyuncu birini oynatır.',
+  fbLobbyTac4How1:'Her oyuncu dört figür yönetir. Her turda bir oyuncu istediği birini oynatır.',fbLobbyTacHow2:'Sıra dönüşümlü. Mavi başlar.',
   createRoom:'Oda kur',join:'Katıl',enterCode:'KOD GİR',back:'↩ Geri',yourCode:'KODUN',waitMate:'Rakip bekleniyor…',lobby:'LOBİ',lobbyGo:'▶ Başlat',
   leaveT:'Online maçtan çıkılsın mı?',leaveS:'Rakibin sensiz devam edemez.',leaveNo:'İptal',leaveYes:'Maçtan çık',
   rematch:'🔄 Rövanş',replayB:'🎬 Tekrarı izle',menuB:'↩ Menü',fbNewMatch:'🔄 Yeni maç',
@@ -2902,7 +2918,7 @@ $('ctaBtn').onclick=async()=>{
   // (?dev=1&fb=classic|tactical|elimination|elimination4) ueberspringt die Auswahl bewusst.
   if(menuSel==='football'){if(SFX.click())vibrateMs(VIBE_CLICK_MS);   // oeffnet nur die Auswahl — wie beim Bot-Dialog
     if(!r3dActive){toast(T('fbNo3d'));return;}   // die Szene wurde oben angefordert; steht sie nicht, ist Arena Football nicht spielbar
-    if(DEV_FB_VARIANT==='classic'||DEV_FB_VARIANT===FOOTBALL_VARIANT_TACTICAL||DEV_FB_VARIANT===FOOTBALL_VARIANT_ELIM
+    if(DEV_FB_VARIANT==='classic'||DEV_FB_VARIANT===FOOTBALL_VARIANT_TACTICAL||DEV_FB_VARIANT===FOOTBALL_VARIANT_TACTICAL4||DEV_FB_VARIANT===FOOTBALL_VARIANT_ELIM
      ||DEV_FB_VARIANT===FOOTBALL_VARIANT_TEAM2||DEV_FB_VARIANT===FOOTBALL_VARIANT_ELIM4){startFootball(DEV_FB_VARIANT);return;}
     // HUB: die Kategorie steht bereits auf der Startseite. Der CTA tut genau das, was
     // die gewaehlte Karte anbietet - mehr Zwischenschritte gibt es nicht.
@@ -2938,7 +2954,7 @@ function startFootball(variant,rules){
   // ausschliesslich ueber ?dev=1&fb=elimination4.
   fbElimStartN=0;   // lokale Partie: die Variante bestimmt die Teilnehmerzahl
   const dev4=variant===FOOTBALL_VARIANT_ELIM4&&typeof DEV_MENU!=='undefined'&&DEV_MENU;
-  fbVariant=(variant===FOOTBALL_VARIANT_TACTICAL||variant===FOOTBALL_VARIANT_ELIM
+  fbVariant=(variant===FOOTBALL_VARIANT_TACTICAL||variant===FOOTBALL_VARIANT_TACTICAL4||variant===FOOTBALL_VARIANT_ELIM
            ||variant===FOOTBALL_VARIANT_TEAM2||dev4)?variant:'classic';
   // Die Classic-Regel wird HIER festgelegt und nirgends sonst. Ein unbekannter oder
   // fehlender Wert faellt auf die Bestandsregel zurueck; Tactical und Elimination
@@ -3010,7 +3026,7 @@ function fbOnModeShow(){
   }
   $('fbOnModeOv').classList.add('show');
 }
-function fbOnModeBtnId(m){return {classic:'fbOnClassic',speed:'fbOnSpeed',team2v2:'fbOnTeam2',lives:'fbOnLives',timedffa:'fbOnTimed',tactical:'fbOnTactical'}[m]||'';}
+function fbOnModeBtnId(m){return {classic:'fbOnClassic',speed:'fbOnSpeed',team2v2:'fbOnTeam2',lives:'fbOnLives',timedffa:'fbOnTimed',tactical:'fbOnTactical',tactical4:'fbOnTactical4'}[m]||'';}
 // Modus gewaehlt: hat er genau eine zulaessige Spielerzahl, geht es direkt weiter;
 // sonst folgt die Wahl der Sollbesetzung.
 function fbOnModePick(m){
@@ -3082,6 +3098,7 @@ $('fbOnTeam2Btn').onclick=()=>fbOnModePick(FB_ONLINE_MODE_TEAM2);
 $('fbOnLivesBtn').onclick=()=>fbOnModePick(FB_ONLINE_MODE_LIVES);
 $('fbOnTimedBtn').onclick=()=>fbOnModePick(FB_ONLINE_MODE_TIMED);
 $('fbOnTacticalBtn').onclick=()=>fbOnModePick(FB_ONLINE_MODE_TACTICAL);
+$('fbOnTactical4Btn').onclick=()=>fbOnModePick(FB_ONLINE_MODE_TACTICAL4);
 for(const c of [3,4,5]){
   const b=$('fbOnCap'+c); if(b)b.onclick=()=>{fbOnlineCap=c;setOn('fbOnCapGrp','fbOnCap'+c);};
 }
@@ -3112,6 +3129,15 @@ async function fbTacticalOnlineOeffnen(){
   if(!(await r3dSichern(true))){toast(T('fbNo3d'));return;}
   if(!fbOnlineFrei(FB_ONLINE_MODE_TACTICAL)){toast(T('onModeLocked'));return;}
   fbOnlineMode=FB_ONLINE_MODE_TACTICAL; fbOnlineCap=fbModeDefaultCap(FB_ONLINE_MODE_TACTICAL);
+  fbOnlineEnter();
+}
+// TACTICAL 4-BALL 1V1 -> dieselbe Onlinelobby, derselbe Raum mit zwei Sitzen; nur der
+// Modus des naechsten Raums ist ein anderer (vier Figuren je Sitz).
+async function fbTactical4OnlineOeffnen(){
+  if(TUNE){toast('Tuning aktiv — Online deaktiviert');return;}
+  if(!(await r3dSichern(true))){toast(T('fbNo3d'));return;}
+  if(!fbOnlineFrei(FB_ONLINE_MODE_TACTICAL4)){toast(T('onModeLocked'));return;}
+  fbOnlineMode=FB_ONLINE_MODE_TACTICAL4; fbOnlineCap=fbModeDefaultCap(FB_ONLINE_MODE_TACTICAL4);
   fbOnlineEnter();
 }
 // TEAM 2V2 -> dieselbe Onlinelobby. Der Raum fasst genau vier (Blau 0/1, Rot 2/3); die
@@ -5084,7 +5110,7 @@ function aliveCount(owner){let n=0;for(const b of balls)if(b.alive&&b.owner===ow
 function np(){return mode==='ffa'?ffaN:(typeof fbElim4==='function'&&fbElim4()?fbElimPlayers():((typeof fbTeam2==='function'&&fbTeam2())?FOOTBALL_TEAM2V2_PLAYERS:2));}
 // Kugeln pro Spieler: 2 im 2v2-Doppel UND im TRIPLE FFA (fmt 'triple_ffa' —
 // FFA-Variante mit exakt 3 Spielern, laeuft komplett ueber die FFA-Systeme).
-function teamCap(){if(typeof fbTactical==='function'&&fbTactical())return 2;return (mode!=='ffa'&&fmt==='double')||fmt==='triple_ffa'?2:1;}
+function teamCap(){if(typeof fbTactical==='function'&&fbTactical())return (typeof fbTacFiguren==='function')?fbTacFiguren():2;return (mode!=='ffa'&&fmt==='double')||fmt==='triple_ffa'?2:1;}
 // FFA-Raeume: 'ffa', 'triple_ffa' und 'team_duel' teilen Lobby/Seats/Sentinel-Pfad …
 function ffaRoom(){return fmt==='ffa'||fmt==='triple_ffa'||fmt==='team_duel'||fmt===FB_ONLINE_FMT;}
 // Genau der Online-Football-Raum (Elimination, fuenf Sitze). ffaRoom() meint die ganze
@@ -5172,6 +5198,19 @@ function placeBalls(){
     balls.push(mkBall(cx-S.frontX*BR,cy-S.frontY*BR,0),mkBall(cx-S.backX*BR,cy+S.backY*BR,1),
                mkBall(cx+S.frontX*BR,cy-S.frontY*BR,2),mkBall(cx+S.backX*BR,cy+S.backY*BR,3),
                mkBall(cx,cy,FOOTBALL_NEUTRAL_OWNER));
+  }else if(mode==='football'&&typeof fbTac4==='function'&&fbTac4()){
+    // TACTICAL 4-BALL: 4 Figuren je Spieler + neutraler Ball. Dieselbe Spawnbeschreibung wie
+    // Tactical (FOOTBALL_TACTICAL_SPAWN), an der Laengsachse gespiegelt: je Seite das vordere
+    // Paar (frontX, +-frontY) nahe der Mittellinie und das tiefe Paar (backX, +-backY) weit
+    // aussen - vier Figuren, die sich mit >= 5.6 BR Abstand nicht beruehren und keine im Tor
+    // (backY 4.60 > postInner 3.560). Blau bei -x, Rot exakt gespiegelt bei +x. Reihenfolge je
+    // Seite: front oben, back unten, front unten, back oben - Blau 0..3, Rot 4..7, Ball 8;
+    // die ersten beiden je Seite sind Zeichen fuer Zeichen die Tactical-Figuren.
+    const S=FOOTBALL_TACTICAL_SPAWN;
+    for(let s=0;s<2;s++){const sx=s?1:-1;
+      balls.push(mkBall(cx+sx*S.frontX*BR,cy-S.frontY*BR,s),mkBall(cx+sx*S.backX*BR,cy+S.backY*BR,s),
+                 mkBall(cx+sx*S.frontX*BR,cy+S.frontY*BR,s),mkBall(cx+sx*S.backX*BR,cy-S.backY*BR,s));}
+    balls.push(mkBall(cx,cy,FOOTBALL_NEUTRAL_OWNER));
   }else if(mode==='football'&&typeof fbTactical==='function'&&fbTactical()){
     // TACTICAL: 2 Figuren je Team + neutraler Ball (FOOTBALL_NEUTRAL_OWNER). Blau bei -x, Rot exakt daran
     // gespiegelt bei +x. Reihenfolge B1,B2,R1,R2,Ball haelt die Ballindizes ueber alle
@@ -5430,6 +5469,9 @@ function fbModeText(){
   // True Team 2v2 spielt First to 3 wie Classic - der Untertitel nennt zusaetzlich die
   // Teamform, damit niemand die vier Chips fuer vier Einzelspieler haelt.
   if(typeof fbTeam2==='function'&&fbTeam2())return 'TEAM 2V2 · '+fbFirstToText();
+  // Tactical 4-Ball nennt sich im Untertitel - vier Figuren je Spieler sollen niemand an
+  // ein Vierer-Team denken lassen. Tactical 1v1 bleibt wie bisher bei der Regel allein.
+  if(typeof fbTac4==='function'&&fbTac4())return 'TACTICAL 4-BALL · '+fbFirstToText();
   if(!fbSpeed())return fbFirstToText();
   if(fbGolden)return I18N.de.fbGolden;
   // Kein Rundenzaehler mehr — es gibt keine feste Rundenzahl. Der Untertitel nennt
@@ -5801,7 +5843,7 @@ function whoCanAim(){if(r3dOrbit||(typeof r3dInputBlocked==='function'&&r3dInput
 // `who` ist entweder EIN Spieler oder - im gemeinsamen Fenster der Zeitregel - eine
 // Liste offener Spieler. Trefferzone und die Regel "die naechste Kugel gewinnt"
 // bleiben identisch, es waechst nur die Menge der greifbaren Figuren.
-function pickOwnBall(who,p){const viele=Array.isArray(who);let best=-1,bd=1e9;balls.forEach((b,i)=>{if(b.alive&&(viele?who.indexOf(b.owner)>=0:b.owner===who)){const d=Math.hypot(p.x-b.x,p.y-b.y);if(d<bd){bd=d;best=i;}}});const reach=teamCap()===2?BR*2.8:BR*5;return bd<=reach?best:-1;}
+function pickOwnBall(who,p){const viele=Array.isArray(who);let best=-1,bd=1e9;balls.forEach((b,i)=>{if(b.alive&&(viele?who.indexOf(b.owner)>=0:b.owner===who)){const d=Math.hypot(p.x-b.x,p.y-b.y);if(d<bd){bd=d;best=i;}}});const reach=teamCap()>=2?BR*2.8:BR*5;return bd<=reach?best:-1;}   // Mehrfigurenregeln (Tactical 2, Tactical 4-Ball 4): enge Griffweite, sonst griffe ein Tipp neben einer fremden Figur die naechste eigene
 // 3D: Screen-space-Trefferzone — projizierter Kugelmittelpunkt + grosszuegiger Touch-Radius
 // (mind. 52 CSS-px). Die Welt-Pruefung am Ray-Bodenpunkt verfehlt die sichtbare Kugel bei
 // flacher Kamera/Zoom, weil die Silhouette ueber ihrem Bodenpunkt liegt. Naechste Kugel gewinnt.
@@ -8377,6 +8419,11 @@ function footballMatchEnd(){
 // Football-Block bleibt frei von Umgebungszugriffen). In den Test-Harnessen existiert die
 // Konstante nicht; der typeof-Guard laesst die Variante dann auf 'classic'.
 const FOOTBALL_VARIANT_TACTICAL='tactical';
+// TACTICAL 4-BALL 1V1: dieselbe Regel wie Tactical (abwechselnde Zuege, eine Figur je Zug),
+// nur fuehrt jeder Spieler VIER Figuren statt zwei. Alles Tactical-Spezifische fragt
+// fbTactical() und gilt fuer beide; nur die Figurenzahl (fbTacFiguren), die Aufstellung,
+// der Raummodus und die Rules-Klauseln unterscheiden die beiden Varianten.
+const FOOTBALL_VARIANT_TACTICAL4='tactical4';
 // ══ ARENA FOOTBALL: TRUE TEAM 2V2 ═══════════════════════════════════════════════
 // VIER Menschen an einem Geraet, zwei Teams, ein neutraler Ball. Das ist NICHT Tactical:
 // dort steuert EIN Mensch beide Figuren seines Teams und waehlt je Runde eine davon.
@@ -8419,8 +8466,13 @@ const FOOTBALL_VARIANT_ELIM='elimination';
 // Dev-Direktlink (?dev=1&fb=elimination4); die Modusauswahl im Spiel kennt ihn nicht.
 const FOOTBALL_VARIANT_ELIM4='elimination4';
 // Jeder andere Wert (auch ein manipulierter URL-Parameter) faellt auf 'classic' zurueck.
-let fbVariant=(typeof DEV_FB_VARIANT!=='undefined'&&(DEV_FB_VARIANT===FOOTBALL_VARIANT_TACTICAL||DEV_FB_VARIANT===FOOTBALL_VARIANT_ELIM||DEV_FB_VARIANT===FOOTBALL_VARIANT_ELIM4||DEV_FB_VARIANT===FOOTBALL_VARIANT_TEAM2))?DEV_FB_VARIANT:'classic';
-function fbTactical(){return mode==='football'&&fbVariant===FOOTBALL_VARIANT_TACTICAL;}
+let fbVariant=(typeof DEV_FB_VARIANT!=='undefined'&&(DEV_FB_VARIANT===FOOTBALL_VARIANT_TACTICAL||DEV_FB_VARIANT===FOOTBALL_VARIANT_TACTICAL4||DEV_FB_VARIANT===FOOTBALL_VARIANT_ELIM||DEV_FB_VARIANT===FOOTBALL_VARIANT_ELIM4||DEV_FB_VARIANT===FOOTBALL_VARIANT_TEAM2))?DEV_FB_VARIANT:'classic';
+function fbTactical(){return mode==='football'&&(fbVariant===FOOTBALL_VARIANT_TACTICAL||fbVariant===FOOTBALL_VARIANT_TACTICAL4);}
+function fbTac4(){return mode==='football'&&fbVariant===FOOTBALL_VARIANT_TACTICAL4;}
+// Figuren je Sitz: Tactical 2, Tactical 4-Ball 4. EINE Quelle fuer Griffweite (teamCap),
+// Koerperbesitz an der Enthuellung, Aufstellung und Pruefstaende.
+const FB_TAC_FIGUREN=2, FB_TAC4_FIGUREN=4;
+function fbTacFiguren(){return fbTac4()?FB_TAC4_FIGUREN:FB_TAC_FIGUREN;}
 function fbTeam2(){return mode==='football'&&fbVariant===FOOTBALL_VARIANT_TEAM2;}
 // Team einer Spieleridentitaet: 0 = Blau (B1,B2), 1 = Rot (R1,R2). Fuer alles andere -
 // insbesondere den neutralen Ball - ist die Frage nicht gestellt und die Antwort -1.
@@ -8528,7 +8580,7 @@ function fbTacticalRingLevel(i){
 // hinnehmen musste. Beide Clients und die Rules rechnen dieselbe Formel.
 function fbTacAktivSitz(turn,g){ return ((turn|0)+(g|0)+1)%2; }
 // Raumfrage (Lobby, Anlage, Beitritt): ist DIESER Onlineraum ein Tactical-Raum?
-function fbTacRaum(){ return fbOnlineRoom()&&fbLobbyMode()===FB_ONLINE_MODE_TACTICAL; }
+function fbTacRaum(){ return fbOnlineRoom()&&(fbLobbyMode()===FB_ONLINE_MODE_TACTICAL||fbLobbyMode()===FB_ONLINE_MODE_TACTICAL4); }
 // Spielfrage (Match): laeuft hier gerade Tactical online?
 function fbTacOnline(){ return !!online&&fbTactical(); }
 function fbTacAmZug(seat){ return fbTacAktivSitz(turnNo,gen)===seat; }
@@ -8537,7 +8589,7 @@ function fbTacPassivRunde(ctx){ return fbTacOnline()&&!!ctx&&fbTacAktivSitz(ctx.
 // Welche Football-Variante gehoert zu einem Onlinemodus? Genau zwei Antworten: Tactical
 // fuer den Tactical-Raum, sonst die Elimination (Lebensregel). Drei Einstiege fragen hier -
 // Anlage/Einstieg, Beitritt, Rueckkehr - und keiner setzt die Variante mehr selbst.
-function fbVarianteFuerModus(m){ return m===FB_ONLINE_MODE_TACTICAL?FOOTBALL_VARIANT_TACTICAL:(m===FB_ONLINE_MODE_TEAM2?FOOTBALL_VARIANT_TEAM2:FOOTBALL_VARIANT_ELIM); }
+function fbVarianteFuerModus(m){ return m===FB_ONLINE_MODE_TACTICAL?FOOTBALL_VARIANT_TACTICAL:(m===FB_ONLINE_MODE_TACTICAL4?FOOTBALL_VARIANT_TACTICAL4:(m===FB_ONLINE_MODE_TEAM2?FOOTBALL_VARIANT_TEAM2:FOOTBALL_VARIANT_ELIM)); }
 // ══ ARENA FOOTBALL ELIMINATION — 5 Spieler · 5 Tore · 1 neutraler Ball ══════════════
 // Fuenf Menschen an einem Geraet. Jeder besitzt genau EINE Figur und genau EIN Tor. Alle
 // planen verdeckt, alle starten gleichzeitig.
@@ -10358,10 +10410,11 @@ function renderLobby(p){
   const infoEl=$('lobbyInfo');
   if(infoEl){
     const lives=fmt===FB_ONLINE_FMT&&fbLobbyMode()===FB_ONLINE_MODE_LIVES;
-    const tac=fmt===FB_ONLINE_FMT&&fbLobbyMode()===FB_ONLINE_MODE_TACTICAL;
+    const tac4=fmt===FB_ONLINE_FMT&&fbLobbyMode()===FB_ONLINE_MODE_TACTICAL4;   // vier Figuren, abwechselnd
+    const tac=(fmt===FB_ONLINE_FMT&&fbLobbyMode()===FB_ONLINE_MODE_TACTICAL)||tac4;
     const t2=fmt===FB_ONLINE_FMT&&fbLobbyMode()===FB_ONLINE_MODE_TEAM2;   // gleichzeitig wie die Lebensregel
     infoEl.style.display=(lives||tac||t2)?'':'none';
-    $('lobbyInfo1').textContent=T(tac?'fbLobbyTacHow1':'fbLobbyHow1');
+    $('lobbyInfo1').textContent=T(tac4?'fbLobbyTac4How1':(tac?'fbLobbyTacHow1':'fbLobbyHow1'));
     $('lobbyInfo2').textContent=T(tac?'fbLobbyTacHow2':'fbLobbyHow2');
   }
   // TEAM DUEL: Team-Header einblenden und Namenszeilen per CSS order gruppieren —
@@ -10578,7 +10631,7 @@ function createRoom(){
       // Tactical fasst GENAU zwei - die Zahl kommt aus dem Register, nicht aus der
       // seitenweiten Auswahl (dieselbe Altlast, nur mit anderem Vorzeichen).
       if(fbo){ cfg.mode=fbOnlineMode; cfg.cap=(fbOnlineMode===FB_ONLINE_MODE_LIVES&&ONLINE_PROTOCOL_VERSION>=10)?FB_ONLINE_SEATS
-                                            :(fbOnlineMode===FB_ONLINE_MODE_TACTICAL?fbModeDefaultCap(FB_ONLINE_MODE_TACTICAL):fbOnlineCap); }
+                                            :((fbOnlineMode===FB_ONLINE_MODE_TACTICAL||fbOnlineMode===FB_ONLINE_MODE_TACTICAL4)?fbModeDefaultCap(fbOnlineMode):fbOnlineCap); }
       // TEAM 2V2: der Ersteller sitzt auf dem ERSTEN SITZ SEINER GEWAEHLTEN SEITE - Blau
       // auf 0 (B1), Rot auf 2 (R1). In einem frischen Raum ist dieser Sitz immer frei.
       // Sonst bleibt es beim Sitz 0.
@@ -10966,6 +11019,18 @@ function fbV9Num(v,grenze){
   return v===0?0:v;
 }
 
+// Groesster Koerperindex, den eine Vorlage tragen darf - der Bytebereich des Feldes idx.
+// Lebensregel und Team 2v2: bis zum Ball (FB_ONLINE_BALL_IDX = 5). Tactical: zwei Sitze mit je
+// k Figuren, der Ball traegt Index 2k - bei Tactical 4-Ball also 8; mit der alten Grenze 5
+// war dort kein Commit fuer die Koerper 6 und 7 baubar. WEM ein Index gehoert, prueft
+// weiterhin fbV9IdxGehoert je Sitz, und die Rules pruefen es serverseitig; hier steht nur,
+// welche Zahlen ueberhaupt in das eine Byte der Vorlage passen. typeof: die Codec-
+// Pruefstaende schneiden den Codec allein heraus und rechnen dort mit der Lebensregel.
+function fbV9IdxObergrenze(){
+  const tac=(typeof fbTactical==='function')&&fbTactical();
+  const k=(tac&&typeof fbTacFiguren==='function')?fbTacFiguren():0;
+  return Math.max(FB_ONLINE_BALL_IDX,2*k);
+}
 // Die Vorlage. Wirft bei jedem unzulaessigen Feld; sie liefert nie eine halbe Vorlage.
 function fbV9Preimage(f,salt){
   if(!f||typeof f!=='object')throw new Error('v9: keine Zugfelder');
@@ -10987,7 +11052,7 @@ function fbV9Preimage(f,salt){
   // nicht eine stillschweigend schon offene Luecke.
   if(f.kind!==FB_V9_KIND_MOVE)throw new Error('v9: Zugart nicht zugewiesen: '+f.kind);
   b[18]=FB_V9_KIND_MOVE;
-  b[19]=fbV9Int(f.idx,0,FB_ONLINE_BALL_IDX);
+  b[19]=fbV9Int(f.idx,0,(typeof fbV9IdxObergrenze==='function')?fbV9IdxObergrenze():FB_ONLINE_BALL_IDX);
   dv.setFloat64(20,fbV9Num(f.dx,FB_V9_VEC_MAX),false);   // false = Gross-Endian
   dv.setFloat64(28,fbV9Num(f.dy,FB_V9_VEC_MAX),false);
   dv.setFloat64(36,fbV9Num(f.sp,1),false);
@@ -13102,11 +13167,15 @@ const FB_V9_NULLZUG=['pass','skip','remove','late'];
 // Zweifel wird nichts angewandt. Ein Eintrag ausserhalb dieses Vertrags ist kein
 // Anlass zu raten.
 // Wem gehoert Koerperindex idx? Lebensregel: die eine Figur eines Sitzes traegt seinen
-// Index. Tactical: Sitz s fuehrt die Koerper 2s und 2s+1 (B1/B2, R1/R2). Dieselbe
-// Zuordnung, die die Rules an der Enthuellung erzwingen - hier noch einmal, weil ein
-// Client nie darauf vertraut, dass vor ihm schon jemand geprueft hat.
+// Index. Tactical: Sitz s fuehrt k Koerper am Stueck, k*s .. k*s+k-1 - k = 2 (B1/B2, R1/R2)
+// oder k = 4 (Tactical 4-Ball: Blau 0..3, Rot 4..7). Dieselbe Zuordnung, die die Rules an
+// der Enthuellung erzwingen - hier noch einmal, weil ein Client nie darauf vertraut, dass
+// vor ihm schon jemand geprueft hat.
 function fbV9IdxGehoert(seat,idx){
-  if(typeof fbTactical==='function'&&fbTactical())return idx===2*seat||idx===2*seat+1;
+  if(typeof fbTactical==='function'&&fbTactical()){
+    const k=(typeof fbTacFiguren==='function')?fbTacFiguren():2;
+    return Number.isInteger(idx)&&idx>=k*seat&&idx<k*(seat+1);
+  }
   return idx===seat;
 }
 function fbV9AcceptedOk(menge,cap){
@@ -13400,7 +13469,8 @@ function fbV9LebenNeueRunde(){
 // freigegebene Modi sind ausschliesslich im Dev-Menue sichtbar.
 const FB_ONLINE_MODE_CLASSIC='classic', FB_ONLINE_MODE_SPEED='speed',
       FB_ONLINE_MODE_TEAM2='team2v2', FB_ONLINE_MODE_LIVES='lives',
-      FB_ONLINE_MODE_TIMED='timedffa', FB_ONLINE_MODE_TACTICAL='tactical';
+      FB_ONLINE_MODE_TIMED='timedffa', FB_ONLINE_MODE_TACTICAL='tactical',
+      FB_ONLINE_MODE_TACTICAL4='tactical4';
 // Tactical online: genau zwei Sitze. Team 2v2 online: genau vier (Blau 0/1, Rot 2/3). Die
 // Zahlen stehen hier UND im Register - das Register ist die Quelle fuer Raum und Lobby, die
 // Konstante fuer die Spielregel (Raumfassung, Hoststart, Lobbygatter).
@@ -13414,9 +13484,11 @@ const FB_ONLINE_MODES={
   lives:   {caps:[3,4,5], released:true,  key:'onModeLives'},
   timedffa:{caps:[3,4,5], released:false, key:'onModeTimed'},
   // Tactical 1v1: v11-Raum mit abwechselnden Zuegen (s. TACTICAL 1V1 ONLINE).
-  tactical:{caps:[2],     released:true,  key:'onModeTactical'}
+  tactical:{caps:[2],     released:true,  key:'onModeTactical'},
+  // Tactical 4-Ball 1v1: v11-Raum, zwei Sitze, vier Figuren je Sitz, abwechselnde Zuege.
+  tactical4:{caps:[2],    released:true,  key:'onModeTactical4'}
 };
-const FB_ONLINE_MODE_IDS=['classic','speed','team2v2','lives','timedffa','tactical'];
+const FB_ONLINE_MODE_IDS=['classic','speed','team2v2','lives','timedffa','tactical','tactical4'];
 // Rein lesende Abfragen auf das Register. Eigene Funktionen statt verstreuter
 // Objektzugriffe, damit die Suiten EINE Stelle pruefen koennen.
 function fbModeDef(m){return Object.prototype.hasOwnProperty.call(FB_ONLINE_MODES,m)?FB_ONLINE_MODES[m]:null;}
@@ -13623,6 +13695,8 @@ function fbRaumFassung(cfg){
   // Tactical 1v1: ein v11-Raum mit genau zwei Sitzen - dieselbe Rundenmaschine wie die
   // Lebensregel, ein anderer Zugvertrag. Die Rules kennen ihn nur in dieser Fassung.
   if(cfg.mode===FB_ONLINE_MODE_TACTICAL)return (cfg.cap===FB_TAC_SITZE&&ONLINE_PROTOCOL_VERSION>=11)?11:8;
+  // Tactical 4-Ball: dieselbe Fassung, dieselben zwei Sitze - nur vier Figuren je Sitz.
+  if(cfg.mode===FB_ONLINE_MODE_TACTICAL4)return (cfg.cap===FB_TAC_SITZE&&ONLINE_PROTOCOL_VERSION>=11)?11:8;
   // Team 2v2: ein v11-Raum mit genau vier Sitzen - dieselbe Rundenmaschine wie die
   // Lebensregel (alle gleichzeitig), zwei Teams aus dem Sitz (0/1 Blau, 2/3 Rot).
   if(cfg.mode===FB_ONLINE_MODE_TEAM2)return (cfg.cap===FB_TEAM2_SITZE&&ONLINE_PROTOCOL_VERSION>=11)?11:8;

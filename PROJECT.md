@@ -51,6 +51,7 @@ Stand: Arena-Finalisierung (2026-08-08), frisch gemessen mit
 | Football-Team2v2 | `test_football_team2v2.js` | 126/0 | grün |
 | Football-Tactical-Online | `test_football_tactical_online.js` | 72/0 | grün |
 | Football-Team2v2-Online | `test_football_team2v2_online.js` | 65/0 | grün |
+| Football-Tactical4-Online | `test_football_tactical4_online.js` | 98/0 | grün |
 | r3d-Mapping | `test_r3d_mapping.js` | 52/0 | grün |
 | Rescue-Wall | `test_rescue_wall.js` | 130/0 | grün |
 | Sanitize | `test_sanitize.js` | 24/0 | grün |
@@ -667,6 +668,45 @@ bei der Rueckkehr. Online-Raeume tragen kein `mode`-Feld — der Raumtyp steht i
 wurde prototypisch gebaut und im Spieltest verworfen — unuebersichtlicher, deutlich defensiver,
 weniger Tore. Sie ist vollstaendig aus dem Produktivcode entfernt; lokale Prototyp-Artefakte
 liegen untracked unter `artifacts/football-tactical-dual-prototype/`.
+
+---
+
+### Tactical 4-Ball 1v1 — vier Figuren je Spieler, abwechselnde Zuege (2026-09-21)
+
+- **Vertrag:** genau zwei Menschen. Sitz 0 (Blau) fuehrt die Koerper 0..3 (A1..A4), Sitz 1 (Rot)
+  die Koerper 4..7 (B1..B4), Koerper 8 ist der neutrale Ball - neun Koerper. Je Runde zieht EIN
+  Sitz mit EINER beliebigen seiner vier Figuren; der andere traegt sein automatisches `pass`.
+  Keine Rotation, keine Sperre: dieselbe Figur darf im naechsten eigenen Zug wieder.
+- **Modus:** Raum `config.mode='tactical4'`, `config.cap=2`, v11 (Register `FB_ONLINE_MODES.tactical4`,
+  `FB_ONLINE_MODE_TACTICAL4`); Variante `FOOTBALL_VARIANT_TACTICAL4='tactical4'`. Hub-Karte
+  TACTICAL 4-BALL 1V1 (`cardFb4b`) fuehrt wie Tactical direkt in die Lobby
+  (`fbTactical4OnlineOeffnen`); Dev-Direktlink `?dev=1&fb=tactical4`. Die bestehenden
+  `tactical`-Raeume bleiben die Zwei-Figuren-Regel - alte Clients deuten nichts um.
+- **Eine Familie, kein zweites Werk:** `fbTactical()` gilt fuer beide Varianten, `fbTac4()` nur fuer
+  diese, `fbTacFiguren()` liefert 2 oder 4 (`FB_TAC_FIGUREN`, `FB_TAC4_FIGUREN`). Daran haengen
+  `teamCap` (Griffweite, Punkte), `fbV9IdxGehoert` (Sitz s fuehrt k*s .. k*s+k-1) und die
+  Aufstellung. Zugformel `fbTacAktivSitz(turn,gen)=(turn+gen+1)%2` (Sitz 0 eroeffnet Generation 1,
+  jede Runde und jedes Rematch wechselt), passiver Sitz, Eingabegatter (`whoCanAim`,
+  `canCommitInput`, Ringe nur am Sitz am Zug), `fbV9Wirken` (nur der Koerper des aktiven Sitzes
+  startet), HUD (`DEIN ZUG` / `GEGNER AM ZUG`), Frist (`late`/`skip`), Wertung (Torseite, Erster
+  bis 3), Reset auf die Spawns, Rematch, Trennung, Rueckkehr: woertlich Tactical 1v1.
+- **Nach dem Tor:** dieselbe Paritaet wie Tactical - es zieht der Sitz, der NICHT geschossen hat;
+  welche der vier Figuren getroffen hat, spielt keine Rolle.
+- **Aufstellung:** `FOOTBALL_TACTICAL_SPAWN` an der Laengsachse gespiegelt - je Seite vorderes Paar
+  (frontX 6.40, +-frontY 2.80) und tiefes Paar (backX 12.20, +-backY 4.60), Blau bei -x, Rot exakt
+  gespiegelt; Reihenfolge je Seite front oben, back unten, front unten, back oben; kleinster Abstand
+  5.6 BR, keine Figur im Tor (postInner 3.56), Arena und Kamerarahmung wie Tactical.
+- **Codec:** `fbV9IdxObergrenze()` - der Bytebereich des Feldes `idx` in der Vorlage ist fuer die
+  Tactical-Familie 2*k (Tactical 4-Ball: 8), sonst unveraendert `FB_ONLINE_BALL_IDX` (5). Vorher
+  war fuer die Koerper 6/7 kein Commit baubar. Eigentum prueft `fbV9IdxGehoert`, die Rules pruefen
+  serverseitig.
+- **Rules:** v11 Modus `tactical4` mit Sitzzahl 2; Zugformel am Commit fuer `tactical` und
+  `tactical4`; Enthuellung in `tactical4`: Sitz 0 nur 0..3, Sitz 1 nur 4..7, Ball (8) und darueber
+  abgewiesen; die Obergrenze 5 der uebrigen Modi bleibt. Abschnitt 20 in `tools/test_rules.js`.
+- **Pruefstaende:** `tools/test_football_tactical4_online.js` (98); Laufzeit
+  `artifacts/tactical4_01/lauf.js` (`--emu=1`, `--folgen=N`, `--mobil=1`, `--reload=1`; ohne `--emu`
+  das echte Backend), `artifacts/tactical4_01/live.js` (echte Oberflaeche), `hub_bild.js` (Karte).
+- **Ausgeliefert (2026-09-21):** s. CHANGELOG.
 
 ---
 
@@ -1505,6 +1545,7 @@ Start. Zusätzlich prüft der Onlineweg vor dem Einstieg `TUNE` und `r3dActive`.
 | FFA → Lives → 3/4/5 | **verfügbar** |
 | 1V1 → Classic | gesperrt |
 | 1V1 → Tactical | **verfügbar** (seit 2026-09-21) |
+| 1V1 → Tactical 4-Ball | **verfügbar** (seit 2026-09-21) |
 | 2V2 → Team 2v2 | **verfügbar** (seit 2026-09-21) |
 | FFA → Timed FFA | gesperrt |
 

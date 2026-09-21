@@ -274,7 +274,7 @@ console.log('ARENA FOOTBALL — Produktsuite: Classic 1v1 (Standard) + Tactical 
   // Elimination) plus der Dev-Einstieg auf die Vier-Spieler-Elimination; jeder andere
   // Wert faellt auf den Standardmodus zurueck. Der Dev-Einstieg haengt zusaetzlich an
   // ?dev=1 und ist ueber die Modusauswahl nicht erreichbar.
-  ok(/fbVariant=\(variant===FOOTBALL_VARIANT_TACTICAL\|\|variant===FOOTBALL_VARIANT_ELIM/.test(startFootballSrc)
+  ok(/fbVariant=\(variant===FOOTBALL_VARIANT_TACTICAL\|\|variant===FOOTBALL_VARIANT_TACTICAL4\|\|variant===FOOTBALL_VARIANT_ELIM/.test(startFootballSrc)
      && /\|\|variant===FOOTBALL_VARIANT_TEAM2\|\|dev4\)\?variant:'classic'/.test(startFootballSrc),
      'startFootball() clamped jede unbekannte Variante auf Classic');
   ok(/const dev4=variant===FOOTBALL_VARIANT_ELIM4&&typeof DEV_MENU!=='undefined'&&DEV_MENU;/.test(startFootballSrc),

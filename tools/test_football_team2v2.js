@@ -72,6 +72,7 @@ function build(variante) {
     let phase='aim', menuVisible=false, fbGoalState='play', footballWinner=null, fbGoalTick=0;
     let balls=[], score=[0,0,0,0], roundNo=1, roundWinner=-1, outBall=-1, ffaN=0;
     let fbVariant='${variante}';
+    const FOOTBALL_VARIANT_TACTICAL4='tactical4';
     const cx=0, cy=0, BR=14, R=520;
     let r3dOrbit=false;
     const document={hidden:false};
@@ -422,16 +423,17 @@ const SHOT = 6 * 60;
   ok(JSON.stringify(p.map(x => [x.x, x.y])) === JSON.stringify(tp.map(x => [x.x, x.y])),
      'die Aufstellung ist Koordinate fuer Koordinate die von Tactical');
   ok(!/FOOTBALL_TEAM2V2_SPAWN/.test(HTML), 'es gibt keinen zweiten Spawn-Satz');
-  ok((HTML.match(/const S=FOOTBALL_TACTICAL_SPAWN;/g) || []).length === 2,
-     'beide Modi lesen dieselbe Spawn-Konstante');
+  // Seit Tactical 4-Ball (2026-09-21) liest auch die Vier-je-Seite-Aufstellung dieselbe Konstante.
+  ok((HTML.match(/const S=FOOTBALL_TACTICAL_SPAWN;/g) || []).length === 3,
+     'alle drei Tactical-Aufstellungen (Tactical, Team 2v2, Tactical 4-Ball) lesen dieselbe Spawn-Konstante');
 }
 
 // ══ R. MODUSWECHSEL LAESST NICHTS HINUEBERLAUFEN ═════════════════════════════
 {
   const startSrc = grab(/function startFootball\(variant,rules\)\{[\s\S]*?\n\}/, 'startFootball');
-  ok(/fbVariant=\(variant===FOOTBALL_VARIANT_TACTICAL\|\|variant===FOOTBALL_VARIANT_ELIM/.test(startSrc)
+  ok(/fbVariant=\(variant===FOOTBALL_VARIANT_TACTICAL\|\|variant===FOOTBALL_VARIANT_TACTICAL4\|\|variant===FOOTBALL_VARIANT_ELIM/.test(startSrc)
      && /\|\|variant===FOOTBALL_VARIANT_TEAM2\|\|dev4\)\?variant:'classic';/.test(startSrc),
-     'startFootball kennt vier Varianten und clamped alles andere auf Classic');
+     'startFootball kennt fuenf Varianten (inkl. Tactical 4-Ball) und clamped alles andere auf Classic');
   ok(/\}else fbElimRules=FOOTBALL_ELIM_RULES_LIVES;/.test(startSrc),
      'jeder Start ausserhalb der Elimination setzt die Eliminationsregel zurueck');
   ok(/fbRules=\(rules===FOOTBALL_RULES_SPEED\)\?FOOTBALL_RULES_SPEED:FOOTBALL_RULES_FIRST3;/.test(startSrc),
@@ -450,8 +452,8 @@ const SHOT = 6 * 60;
   ok(T.st().np === 2, 'zwei Spielerplaetze');
   ok(T.st().wer === -1, 'und KEIN Bedenkzeitfenster - Tactical kennt keine Zeit');
   ok(T.greifbar().length === 0, 'auch kein gemeinsames Fenster');
-  ok(/function fbTactical\(\)\{return mode==='football'&&fbVariant===FOOTBALL_VARIANT_TACTICAL;\}/.test(HTML),
-     'die Tactical-Weiche ist unveraendert');
+  ok(/function fbTactical\(\)\{return mode==='football'&&\(fbVariant===FOOTBALL_VARIANT_TACTICAL\|\|fbVariant===FOOTBALL_VARIANT_TACTICAL4\);\}/.test(HTML),
+     'die Tactical-Weiche gilt fuer beide Tactical-Varianten - Team 2v2 gehoert nicht dazu');
   ok(/function fbSelectFigure\(who,idx\)\{/.test(HTML), 'die Figurenwahl existiert unveraendert');
   ok(/if\(!fbTactical\(\)\|\|who<0\|\|who>1\)return false;/.test(HTML),
      'und bleibt auf Tactical und zwei Spieler begrenzt');
@@ -518,8 +520,8 @@ const SHOT = 6 * 60;
   // Raummodus ab - ueber EINE Funktion: Tactical, Team 2v2, sonst Elimination.
   ok((HTML.match(/fbVariant=fbVarianteFuerModus\(/g) || []).length === 3,
      'die drei Onlineeinstiege leiten die Variante aus dem Raummodus ab (Tactical, Team 2v2 oder Elimination)');
-  ok(/function fbVarianteFuerModus\(m\)\{ return m===FB_ONLINE_MODE_TACTICAL\?FOOTBALL_VARIANT_TACTICAL:\(m===FB_ONLINE_MODE_TEAM2\?FOOTBALL_VARIANT_TEAM2:FOOTBALL_VARIANT_ELIM\); \}/.test(HTML),
-     'Team 2v2 liefert seine eigene Variante, jeder andere Nicht-Tactical-Modus Elimination');
+  ok(/function fbVarianteFuerModus\(m\)\{ return m===FB_ONLINE_MODE_TACTICAL\?FOOTBALL_VARIANT_TACTICAL:\(m===FB_ONLINE_MODE_TACTICAL4\?FOOTBALL_VARIANT_TACTICAL4:\(m===FB_ONLINE_MODE_TEAM2\?FOOTBALL_VARIANT_TEAM2:FOOTBALL_VARIANT_ELIM\)\); \}/.test(HTML),
+     'Team 2v2 liefert seine eigene Variante, die beiden Tactical-Modi ihre, jeder andere Modus Elimination');
   // Seit 2026-09-21 ist Team 2v2 online freigegeben: ein v11-Raum mit genau vier Sitzen auf
   // derselben Rundenmaschine wie die Lebensregel (s. test_football_team2v2_online.js).
   ok(/team2v2: \{caps:\[4\],     released:true,/.test(HTML),

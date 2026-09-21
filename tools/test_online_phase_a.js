@@ -40,9 +40,9 @@ const R = new Function(`
 
 // ══ A. EIN REGISTER, SECHS MODI ═════════════════════════════════════════════
 {
-  ok(R.FB_ONLINE_MODE_IDS.join(',') === 'classic,speed,team2v2,lives,timedffa,tactical',
-     'das Register kennt genau die sechs vereinbarten Modi (Tactical 1v1 seit 2026-09-21)');
-  ok(Object.keys(R.FB_ONLINE_MODES).sort().join(',') === 'classic,lives,speed,tactical,team2v2,timedffa',
+  ok(R.FB_ONLINE_MODE_IDS.join(',') === 'classic,speed,team2v2,lives,timedffa,tactical,tactical4',
+     'das Register kennt genau die sieben vereinbarten Modi (Tactical 4-Ball 1v1 seit 2026-09-21)');
+  ok(Object.keys(R.FB_ONLINE_MODES).sort().join(',') === 'classic,lives,speed,tactical,tactical4,team2v2,timedffa',
      'und keine weiteren');
   for (const m of R.FB_ONLINE_MODE_IDS)
     ok(R.fbModeValid(m) === true, 'der Modus ' + m + ' ist gueltig');
@@ -55,7 +55,7 @@ const R = new Function(`
 
 // ══ B. SOLLBESETZUNG: GENAU DIE VEREINBARTEN PAARUNGEN ═══════════════════════
 {
-  const SOLL = { classic: [2], speed: [2], team2v2: [4], lives: [3, 4, 5], timedffa: [3, 4, 5], tactical: [2] };
+  const SOLL = { classic: [2], speed: [2], team2v2: [4], lives: [3, 4, 5], timedffa: [3, 4, 5], tactical: [2], tactical4: [2] };
   for (const m of Object.keys(SOLL)) {
     ok(R.fbModeCaps(m).join(',') === SOLL[m].join(','),
        m + ' erlaubt genau ' + SOLL[m].join('/') + ' Spieler');
@@ -102,8 +102,8 @@ const R = new Function(`
   ok(D.rel('classic') === false,
      'der Dev-Schalter macht einen Modus erreichbar, aber nicht freigegeben');
   // EIN Tor, kein verstreutes Geflecht aus Sonderfaellen.
-  ok((HTML.match(/released:/g) || []).length === 6,
-     'der Freigabestand steht an genau sechs Stellen - einer je Modus');
+  ok((HTML.match(/released:/g) || []).length === 7,
+     'der Freigabestand steht an genau sieben Stellen - einer je Modus');
   ok((HTML.match(/fbModeSelectable\(/g) || []).length === 4,
      'und wird ueber genau eine Abfrage gelesen (Definition, Anzeige, Auswahl, Beitritt)');
   // DAS TOR GILT FUER JEDEN WEG IN EINEN RAUM. Eine Auswahl auszublenden genuegt nicht:
@@ -804,18 +804,19 @@ const R = new Function(`
 
   // ── Die Karten: EIN aktiver Modus, drei ehrlich gesperrte ──
   const reg = grab(/const FB_HUB_MODES=\[[\s\S]*?\];/, 'FB_HUB_MODES');
-  ok((reg.match(/\{key:/g) || []).length === 4, 'der Hub zeigt vier Arena-Football-Karten');
-  ok((reg.match(/direkt:true/g) || []).length === 3 && /\{key:'ffa',\s+card:'cardFbFfa'[^}]*direkt:true\}/.test(reg)
-     && /\{key:'tactical',\s+card:'cardFb1v1'[^}]*direkt:true\}/.test(reg) && /\{key:'team2v2',\s+card:'cardFb2v2'[^}]*direkt:true\}/.test(reg),
-     'genau DREI Karten fuehren direkt weiter - FFA, Tactical 1v1 und Team 2v2');
+  ok((reg.match(/\{key:/g) || []).length === 5, 'der Hub zeigt fuenf Arena-Football-Karten');
+  ok((reg.match(/direkt:true/g) || []).length === 4 && /\{key:'ffa',\s+card:'cardFbFfa'[^}]*direkt:true\}/.test(reg)
+     && /\{key:'tactical',\s+card:'cardFb1v1'[^}]*direkt:true\}/.test(reg) && /\{key:'tactical4',\s+card:'cardFb4b'[^}]*direkt:true\}/.test(reg)
+     && /\{key:'team2v2',\s+card:'cardFb2v2'[^}]*direkt:true\}/.test(reg),
+     'genau VIER Karten fuehren direkt weiter - FFA, Tactical 1v1, Tactical 4-Ball 1v1 und Team 2v2');
   ok((reg.match(/soon:true/g) || []).length === 1 && /key:'training'[^}]*soon:true/.test(reg),
      'Training ist sichtbar und gesperrt');
   ok(reg.indexOf('schritt:') < 0, 'keine Karte fuehrt mehr in einen Zwischenschirm');
   const karte = grab(/function fbHubKarte\(i\)\{[\s\S]*?\n\}/, 'fbHubKarte');
   ok(/if\(d&&d\.direkt\)\{ vibrateMs\(VIBE_CONFIRM_MS\); fbHubOeffnen\(d\.key\); \}/.test(karte),
      'der Klick auf eine aktive Karte oeffnet die Lobby - ein Klick, kein zweiter Knopf');
-  ok(/function fbHubOeffnen\(key\)\{\n  if\(key==='tactical'\)fbTacticalOnlineOeffnen\(\);\n  else if\(key==='team2v2'\)fbTeam2OnlineOeffnen\(\);\n  else fbFfaOnlineOeffnen\(\);\n\}/.test(HTML),
-     'und der eine Onlineweg je Karte kennt genau drei Ziele: Tactical, Team 2v2 und FFA');
+  ok(/function fbHubOeffnen\(key\)\{\n  if\(key==='tactical'\)fbTacticalOnlineOeffnen\(\);\n  else if\(key==='tactical4'\)fbTactical4OnlineOeffnen\(\);\n  else if\(key==='team2v2'\)fbTeam2OnlineOeffnen\(\);\n  else fbFfaOnlineOeffnen\(\);\n\}/.test(HTML),
+     'und der eine Onlineweg je Karte kennt genau vier Ziele: Tactical, Tactical 4-Ball, Team 2v2 und FFA');
   ok(/FB_HUB_MODES\.forEach\(\(d,i\)=>\{const el=\$\(d\.card\);if\(el\)el\.onclick=\(\)=>fbHubKarte\(i\);\}\);/.test(HTML),
      'und jede Karte haengt an genau diesem einen Weg');
   const anwenden = grab(/function applyFbMode\(i\)\{[\s\S]*?\n\}/, 'applyFbMode');
@@ -843,8 +844,8 @@ const R = new Function(`
   for (const weg of ['CLASSIC', 'TIMED', 'LIVES', 'LOCAL', 'ONLINE'])
     ok(kartenText.indexOf(weg) < 0, 'die Kartenleiste bietet keine ' + weg + '-Wahl mehr');
   const titel = (hub.match(/class="mt" id="\w+">([^<]*)</g) || []).map(x => x.replace(/.*>/, '').replace(/<$/, ''));
-  ok(titel.join('|') === 'FFA|TACTICAL 1V1|TEAM 2V2|TRAINING',
-     'die Leiste zeigt genau vier Modi in dieser Reihenfolge (erhalten: ' + titel.join('|') + ')');
+  ok(titel.join('|') === 'FFA|TACTICAL 1V1|TACTICAL 4-BALL 1V1|TEAM 2V2|TRAINING',
+     'die Leiste zeigt genau fuenf Modi in dieser Reihenfolge (erhalten: ' + titel.join('|') + ')');
   ok(/id="cardFbFfa"[\s\S]{0,400}id="cardFb1v1"/.test(hub), 'FFA steht als aktiver Modus vorn');
   ok(/<button class="mcard on" id="cardFbFfa">/.test(hub), 'und ist die Voreinstellung');
   ok((hub.match(/class="mcard msoon"/g) || []).length === 1, 'die eine uebrige Karte (Training) ist sichtbar gesperrt');

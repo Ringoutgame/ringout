@@ -1950,6 +1950,90 @@ deny('team move pl 4 (seat gate, presence pre-seeded)', playing({ p: { 0: P(H_TA
   deny('T2 Reveal: Sitz 1 enthuellt fuer Sitz 0', rev(), R(0, 0), REV(0), U[1]);
 }
 
+// ── (20) TACTICAL 4-BALL 1V1 ONLINE (v11): VIER FIGUREN JE SITZ, ABWECHSELND ──────
+// Ein Tactical-4-Ball-Raum ist ein v11-Football-Raum mit Modus 'tactical4' und GENAU zwei
+// Sitzen - dieselbe Rundenmaschine und dieselbe Zugformel wie Tactical (Abschnitt 18). Der
+// einzige Unterschied in den Rules: der Koerperbesitz an der Enthuellung. Sitz 0 fuehrt die
+// Koerper 0..3, Sitz 1 die Koerper 4..7, Koerper 8 ist der neutrale Ball und gehoert niemandem.
+{
+  const U = ['UID_T4_0_AAAAAAAAAAAAAAAAAAAA', 'UID_T4_1_BBBBBBBBBBBBBBBBBBBB', 'UID_T4_2_CCCCCCCCCCCCCCCCCCCC'];
+  const TAB = ['T4TAB000', 'T4TAB001', 'T4TAB002'];
+  const REC = (i) => ({ id: 'T4PID00' + i, name: 'V' + i, tab: TAB[i], uid: U[i] });
+  const HEX64 = 'e'.repeat(64), HEX32 = 'f'.repeat(32);
+  const CFG = (mode, cap) => ({ game: 'football', winTarget: 3, fmt: 'elimination', visibility: 'private', mode, cap });
+  const t4 = (opt) => {
+    opt = opt || {};
+    const gen = opt.gen === undefined ? 1 : opt.gen;
+    const p = {}, players = {};
+    for (let i = 0; i < 2; i++) { p[i] = P(TAB[i], !(opt.offline || []).includes(i), (opt.offline || []).includes(i) ? NOW - GRACE : NOW); players[i] = REC(i); }
+    const g = {}; g[gen] = { pt: { 0: true, 1: true }, s: { ts: NOW - 60000 } };
+    for (const k of ['d', 'c', 'ro', 'z']) if (opt[k]) g[gen][k] = opt[k];
+    return { rooms: { KX7P: { v: 11, hostUid: U[0], config: CFG(opt.mode || 'tactical4', opt.cap || 2), gen, state: 'playing', p, players, created: NOW - 5000, g } } };
+  };
+  const offen = (o) => ({ n: 0, o: o === undefined ? NOW - 1000 : o });
+  const MOVEC = { k: 'move', h: HEX64, ts: NOW };
+  const PASSC = { k: 'pass', ts: NOW };
+  const C = (gen, turn, seat) => 'rooms/KX7P/g/' + gen + '/c/' + turn + '/' + seat;
+  const R = (gen, turn, seat) => 'rooms/KX7P/g/' + gen + '/r/' + turn + '/' + seat;
+  const REV = (idx) => ({ k: 'reveal', idx, dx: 50, dy: 0, sp: 0, n: HEX32, ts: NOW });
+
+  // (a) Anlage: nur v11, nur zwei Sitze.
+  const neu = (v, mode, cap) => ({ v, hostUid: U[0], config: CFG(mode, cap), gen: 0, state: 'lobby', p: { 0: P(TAB[0], false) }, players: { 0: REC(0) }, created: NOW });
+  allow('T4 Anlage: v11 tactical4 mit zwei Sitzen', { rooms: {} }, 'rooms/KX7P', neu(11, 'tactical4', 2), U[0]);
+  allow('T4 Gegenprobe: v11 tactical mit zwei Sitzen (unveraendert)', { rooms: {} }, 'rooms/KX7P', neu(11, 'tactical', 2), U[0]);
+  allow('T4 Gegenprobe: v11 lives mit fuenf Sitzen (unveraendert)', { rooms: {} }, 'rooms/KX7P', neu(11, 'lives', 5), U[0]);
+  deny('T4 Anlage: tactical4 mit vier Sitzen (die vier Figuren sind keine vier Menschen)', { rooms: {} }, 'rooms/KX7P', neu(11, 'tactical4', 4), U[0]);
+  deny('T4 Anlage: tactical4 mit fuenf Sitzen', { rooms: {} }, 'rooms/KX7P', neu(11, 'tactical4', 5), U[0]);
+  deny('T4 Anlage: tactical4 mit drei Sitzen', { rooms: {} }, 'rooms/KX7P', neu(11, 'tactical4', 3), U[0]);
+  deny('T4 Anlage: tactical4 als v10', { rooms: {} }, 'rooms/KX7P', neu(10, 'tactical4', 2), U[0]);
+  deny('T4 Anlage: tactical4 als v8', { rooms: {} }, 'rooms/KX7P', neu(8, 'tactical4', 2), U[0]);
+  deny('T4 Anlage: tactical4 als v12 (RingOut-Fassung)', { rooms: {} }, 'rooms/KX7P', neu(12, 'tactical4', 2), U[0]);
+
+  // (b) Der Commit: dieselbe Zugformel wie Tactical.
+  allow('T4 g1 r0: Sitz 0 (am Zug) schreibt move', t4({ d: { 0: offen() } }), C(1, 0, 0), MOVEC, U[0]);
+  deny('T4 g1 r0: Sitz 1 (nicht am Zug) schreibt move', t4({ d: { 0: offen() } }), C(1, 0, 1), MOVEC, U[1]);
+  allow('T4 g1 r0: Sitz 1 schreibt sein pass', t4({ d: { 0: offen() } }), C(1, 0, 1), PASSC, U[1]);
+  allow('T4 g1 r1: Sitz 1 (am Zug) schreibt move', t4({ d: { 1: offen() } }), C(1, 1, 1), MOVEC, U[1]);
+  deny('T4 g1 r1: Sitz 0 (nicht am Zug) schreibt move', t4({ d: { 1: offen() } }), C(1, 1, 0), MOVEC, U[0]);
+  allow('T4 g1 r10: Sitz 0 am Zug (Endziffer)', t4({ d: { 10: offen() } }), C(1, 10, 0), MOVEC, U[0]);
+  deny('T4 g1 r10: Sitz 1 nicht am Zug', t4({ d: { 10: offen() } }), C(1, 10, 1), MOVEC, U[1]);
+  allow('T4 g2 r0: Sitz 1 eroeffnet das Rematch', t4({ gen: 2, d: { 0: offen() } }), C(2, 0, 1), MOVEC, U[1]);
+  deny('T4 g2 r0: Sitz 0 nicht am Zug', t4({ gen: 2, d: { 0: offen() } }), C(2, 0, 0), MOVEC, U[0]);
+  deny('T4 g1 r0: Sitz 1 schreibt move in den Slot von Sitz 0', t4({ d: { 0: offen() } }), C(1, 0, 0), MOVEC, U[1]);
+  deny('T4 g1 r0: Fremder ohne Sitz', t4({ d: { 0: offen() } }), C(1, 0, 0), MOVEC, U[2]);
+  deny('T4 g1 r0: zweiter move in den bereits belegten eigenen Slot', t4({ d: { 0: offen() }, c: { 0: { 0: MOVEC } } }), C(1, 0, 0), MOVEC, U[0]);
+  deny('T4 g1 r0: move in eine Runde, die nicht eroeffnet ist (veraltete Runde)', t4({ d: { 1: offen() } }), C(1, 0, 0), MOVEC, U[0]);
+  deny('T4 g1 r0: move in eine fremde Generation', t4({ d: { 0: offen() } }), C(0, 0, 0), MOVEC, U[0]);
+  allow('T4 g1 r0: nach der Frist schliesst Sitz 1 den offenen Slot von Sitz 0 mit late', t4({ d: { 0: offen(NOW - 8001) } }), C(1, 0, 0), { k: 'late', ts: NOW }, U[1]);
+  deny('T4 g1 r0: vor der Frist kein late', t4({ d: { 0: offen(NOW - 7000) } }), C(1, 0, 0), { k: 'late', ts: NOW }, U[1]);
+  allow('T4 g1 r0: skip fuer den getrennten Sitz 1', t4({ d: { 0: offen() }, offline: [1] }), C(1, 0, 1), { k: 'skip', ts: NOW }, U[0]);
+  deny('T4 g1 r0: nach der Frist kein move mehr - auch nicht vom Sitz am Zug', t4({ d: { 0: offen(NOW - 8001) } }), C(1, 0, 0), MOVEC, U[0]);
+
+  // (c) Die Enthuellung: genau ein eigener Koerper aus vier.
+  const rev0 = () => t4({ d: { 0: offen() }, c: { 0: { 0: MOVEC, 1: PASSC } }, ro: { 0: NOW - 1000 } });
+  for (const i of [0, 1, 2, 3]) allow('T4 Reveal Sitz 0: Koerper ' + i + ' (A' + (i + 1) + ')', rev0(), R(1, 0, 0), REV(i), U[0]);
+  for (const i of [4, 5, 6, 7]) deny('T4 Reveal Sitz 0: Koerper ' + i + ' (B' + (i - 3) + ') - fremd', rev0(), R(1, 0, 0), REV(i), U[0]);
+  deny('T4 Reveal Sitz 0: Koerper 8 - der neutrale Ball', rev0(), R(1, 0, 0), REV(8), U[0]);
+  deny('T4 Reveal Sitz 0: Koerper 9 - ausserhalb', rev0(), R(1, 0, 0), REV(9), U[0]);
+  deny('T4 Reveal Sitz 0: Koerper -1 - ausserhalb', rev0(), R(1, 0, 0), REV(-1), U[0]);
+  deny('T4 Reveal Sitz 0: Koerper 1.5 - keine ganze Zahl', rev0(), R(1, 0, 0), REV(1.5), U[0]);
+  const rev1 = () => t4({ d: { 1: offen() }, c: { 1: { 0: PASSC, 1: MOVEC } }, ro: { 1: NOW - 1000 } });
+  for (const i of [4, 5, 6, 7]) allow('T4 Reveal Sitz 1: Koerper ' + i + ' (B' + (i - 3) + ')', rev1(), R(1, 1, 1), REV(i), U[1]);
+  for (const i of [0, 1, 2, 3]) deny('T4 Reveal Sitz 1: Koerper ' + i + ' (A' + (i + 1) + ') - fremd', rev1(), R(1, 1, 1), REV(i), U[1]);
+  deny('T4 Reveal Sitz 1: Koerper 8 - der neutrale Ball', rev1(), R(1, 1, 1), REV(8), U[1]);
+  deny('T4 Reveal: Sitz 0 enthuellt fuer Sitz 1', rev1(), R(1, 1, 1), REV(4), U[0]);
+  deny('T4 Reveal: Fremder ohne Sitz', rev1(), R(1, 1, 1), REV(4), U[2]);
+  // Tactical (zwei Figuren) und Lebensregel bleiben, wie sie waren.
+  const revT = () => t4({ mode: 'tactical', cap: 2, d: { 0: offen() }, c: { 0: { 0: MOVEC, 1: PASSC } }, ro: { 0: NOW - 1000 } });
+  allow('T4 Gegenprobe Tactical: Sitz 0 nennt Koerper 1', revT(), R(1, 0, 0), REV(1), U[0]);
+  deny('T4 Gegenprobe Tactical: Sitz 0 nennt Koerper 2 (dort bereits Rot)', revT(), R(1, 0, 0), REV(2), U[0]);
+  deny('T4 Gegenprobe Tactical: Sitz 0 nennt Koerper 3', revT(), R(1, 0, 0), REV(3), U[0]);
+  const revL = () => t4({ mode: 'lives', cap: 5, d: { 0: offen() }, c: { 0: { 0: MOVEC, 1: MOVEC } }, ro: { 0: NOW - 1000 } });
+  allow('T4 Gegenprobe Lebensregel: Sitz 1 nennt Koerper 1', revL(), R(1, 0, 1), REV(1), U[1]);
+  deny('T4 Gegenprobe Lebensregel: Sitz 1 nennt Koerper 6 (die neue Obergrenze gilt dort nicht)', revL(), R(1, 0, 1), REV(6), U[1]);
+  deny('T4 Gegenprobe Lebensregel: Sitz 0 nennt Koerper 3', revL(), R(1, 0, 0), REV(3), U[0]);
+}
+
 // Der Auswerter ist ab hier auch von aussen benutzbar. Die v9-Suite prueft DIESELBE
 // firebase.rules.json mit DERSELBEN Semantik - eine zweite Nachbildung daneben waere
 // die Sorte Doppelung, die frueher oder spaeter auseinanderlaeuft.
