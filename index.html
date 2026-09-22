@@ -78,11 +78,11 @@ body.fbctx .mcards{grid-template-columns:repeat(2,1fr)}
    irgendjemand den Titel liest - dieselbe bildgefuehrte Bauweise wie die Spielkarten. */
 .mstage{position:relative;display:block;width:100%;aspect-ratio:16/10;overflow:hidden;
   background:linear-gradient(180deg,#111c30 0%,#0b1322 62%,#070c16 100%)}
-/* Das Kartenbild von Ring Out ist eine ECHTE Aufnahme der Spielwelt aus dem 3D-Renderer
-   des Produkts. Die Arena-Football-Karten tragen stattdessen ein deterministisches SVG,
-   das zur Laufzeit aus den Spielkonstanten entsteht (fbModusBild): dieselbe Arenaform,
-   dieselben Tore, dieselbe Startaufstellung wie im Match - kein Rasterbild, keine
-   zweite Koerperzahl. Beide fuellen die Buehne ueber dieselbe Klasse. */
+/* Das Kartenbild ist eine ECHTE Aufnahme der Spielwelt aus dem 3D-Renderer des Produkts -
+   dieselbe Arena, dieselbe Beleuchtung, dieselben Figuren, die der Spieler nach dem
+   Start sieht. Kein Diagramm, keine Illustration. Die Arena-Football-Aufnahmen entstehen
+   aus einer wirklich gestarteten Partie des jeweiligen Modus (artifacts/hub-d1v2/
+   kartenbilder.js bzw. artifacts/fb-menu-preview-01/kartenbilder_tactical.js). */
 .mshot{position:absolute;inset:0;display:block;width:100%;height:100%;object-fit:cover;
   object-position:50% 46%;transition:filter .2s,opacity .2s}
 .mstage::after{content:"";position:absolute;inset:0;pointer-events:none;z-index:2;
@@ -317,11 +317,10 @@ body.fbctx .mcta{color:#152534;text-shadow:0 1px 0 rgba(236,246,255,.55);
 .vopt:active{transform:scale(.97)}
 .vopt-t{font-size:15px;font-weight:900;letter-spacing:.12em;color:#ffd97a}
 .vopt-s{font-size:8.5px;font-weight:800;letter-spacing:.2em;color:#8b99b4}
-/* 1-gegen-1-Auswahl (Arena Football): jede Option traegt ihr Modusbild - dieselbe
-   Grafik wie die Karte, aus denselben Konstanten. */
+/* 1-gegen-1-Auswahl (Arena Football): jede Option traegt ihre Aufnahme - dieselbe
+   Bildfamilie und dieselbe Buehnenklasse (.mshot) wie die Moduskarten. */
 .vopt-art{position:relative;display:block;width:100%;aspect-ratio:16/7;margin:-6px 0 2px;border-radius:11px;overflow:hidden;
   background:radial-gradient(ellipse 76% 96% at 50% 116%,rgba(185,207,228,.22),transparent 64%),linear-gradient(180deg,#0f1c2c 0%,#091220 62%,#060b14 100%)}
-.vopt-art svg{display:block;width:100%;height:100%}
 /* Dev-/Test-Panel (?dev=1): Legacy-Menue (Hotseat, FFA lokal, Bot-Stufen, Format, Runden) */
 #devPanel{width:100%;max-width:400px;margin-top:22px;padding:14px;border-radius:14px;background:rgba(8,13,22,.6);border:1px dashed rgba(150,170,210,.3)}
 .sect{width:100%;max-width:320px;margin-bottom:12px}
@@ -1000,23 +999,21 @@ body.fbctx .proom .pr-game{color:#cfe0ef}
          Die drei uebrigen Karten bleiben sichtbar, sind aber ehrlich gesperrt - es gibt
          sie online noch nicht, und ein lokaler Notweg waere kein Produktversprechen. -->
     <div class="mcards" id="fbCards" style="display:none">
-    <!-- Die Buehne jeder Arena-Karte bleibt im Markup leer: fbKartenBilderSetzen() setzt beim
-         Laden das SVG des Modus aus den Spielkonstanten ein (fbModusBild). -->
     <button class="mcard on" id="cardFbFfa">
       <span class="chip">ACTIVE</span>
-      <span class="mstage"></span>
+      <span class="mstage"><img class="mshot" src="assets/hub/modes/football_elimination.webp" alt="" width="700" height="438" decoding="async"></span>
       <span class="mcap"><span class="mt" id="cardFbFfaT">FFA</span><span class="msub" id="cardFbFfaS">2–5 PLAYERS</span></span>
     </button>
     <button class="mcard" id="cardFb1v1">
-      <span class="mstage"></span>
+      <span class="mstage"><img class="mshot" src="assets/hub/modes/football_tactical.webp" alt="" width="700" height="438" decoding="async"></span>
       <span class="mcap"><span class="mt" id="cardFb1v1T">1 VS 1</span><span class="msub" id="cardFb1v1S">TACTICAL · 2 OR 4 FIGURES</span></span>
     </button>
     <button class="mcard" id="cardFb2v2">
-      <span class="mstage"></span>
+      <span class="mstage"><img class="mshot" src="assets/hub/modes/football_team2v2.webp" alt="" width="700" height="438" decoding="async"></span>
       <span class="mcap"><span class="mt" id="cardFb2v2T">TEAM 2V2</span><span class="msub" id="cardFb2v2S">4 PLAYERS · 2 TEAMS · SIMULTANEOUS</span></span>
     </button>
     <button class="mcard msoon" id="cardFbBot">
-      <span class="mstage"></span>
+      <span class="mstage"><img class="mshot" src="assets/hub/modes/football_classic.webp" alt="" width="700" height="438" decoding="async"></span>
       <span class="mcap"><span class="mt" id="cardFbBotT">TRAINING</span><span class="msub" id="cardFbBotS">LEARN & PRACTICE · SOON</span></span>
     </button>
     </div>
@@ -1215,12 +1212,12 @@ body.fbctx .proom .pr-game{color:#cfe0ef}
   <div class="wb vswb">
     <div class="wt" id="fbDuelTitle">1 VS 1 · CHOOSE YOUR GAME</div>
     <button class="vopt" id="fbDuelTacBtn">
-      <span class="vopt-art"></span>
+      <span class="vopt-art"><img class="mshot" src="assets/hub/modes/football_tactical.webp" alt="" width="700" height="438" decoding="async"></span>
       <span class="vopt-t" id="fbDuelTacT">TACTICAL 1V1</span>
       <span class="vopt-s" id="fbDuelTacS">2 FIGURES EACH · ALTERNATING TURNS</span>
     </button>
     <button class="vopt" id="fbDuelTac4Btn">
-      <span class="vopt-art"></span>
+      <span class="vopt-art"><img class="mshot" src="assets/hub/modes/football_tactical4.webp" alt="" width="700" height="438" decoding="async"></span>
       <span class="vopt-t" id="fbDuelTac4T">TACTICAL 4-BALL 1V1</span>
       <span class="vopt-s" id="fbDuelTac4S">4 FIGURES EACH · ALTERNATING TURNS</span>
     </button>
@@ -2388,20 +2385,18 @@ const MENU_SEL={
 // beiden Tactical-Spielarten (FB_HUB_DUEL) - erst deren Wahl fuehrt in die Lobby. Die
 // uebrigen Modusfamilien (Classic, Timed FFA) sind unveraendert vorhanden und mit
 // ?dev=1 ueber die bestehende Modusauswahl erreichbar.
-// `bild` nennt das Modusbild der Karte (fbModusBild): die Grafik entsteht aus den
-// Spielkonstanten des genannten Modus, nicht aus einer Bilddatei.
 const FB_HUB_MODES=[
-  {key:'ffa',      card:'cardFbFfa', titel:'catFbFfa', info:'mcFbFfa', cta:'ctaFbFfa', bild:'ffa',      direkt:true},
-  {key:'duel',     card:'cardFb1v1', titel:'catFb1v1', info:'mcFb1v1', cta:'ctaFb1v1', bild:'tactical', direkt:true},
-  {key:'team2v2',  card:'cardFb2v2', titel:'catFb2v2', info:'mcFb2v2', cta:'ctaFb2v2', bild:'team2v2',  direkt:true},
-  {key:'training', card:'cardFbBot', titel:'catFbBot', info:'mcFbBot', cta:'ctaFbBot', bild:'classic',  soon:true}
+  {key:'ffa',      card:'cardFbFfa', titel:'catFbFfa', info:'mcFbFfa', cta:'ctaFbFfa', direkt:true},
+  {key:'duel',     card:'cardFb1v1', titel:'catFb1v1', info:'mcFb1v1', cta:'ctaFb1v1', direkt:true},
+  {key:'team2v2',  card:'cardFb2v2', titel:'catFb2v2', info:'mcFb2v2', cta:'ctaFb2v2', direkt:true},
+  {key:'training', card:'cardFbBot', titel:'catFbBot', info:'mcFbBot', cta:'ctaFbBot', soon:true}
 ];
 // 1 VS 1 - die zweite Auswahlebene. Genau die beiden Tactical-Spielarten, jede ein eigener
 // Onlinemodus des Registers FB_ONLINE_MODES; Titel und Unterzeile sind dessen Schluessel
 // (onModeTactical / onModeTactical4), also dieselben Texte wie im Lobbykopf.
 const FB_HUB_DUEL=[
-  {key:'tactical',  btn:'fbDuelTacBtn',  titel:'onModeTactical',  info:'onModeTacticalS',  bild:'tactical'},
-  {key:'tactical4', btn:'fbDuelTac4Btn', titel:'onModeTactical4', info:'onModeTactical4S', bild:'tactical4'}
+  {key:'tactical',  btn:'fbDuelTacBtn',  titel:'onModeTactical',  info:'onModeTacticalS'},
+  {key:'tactical4', btn:'fbDuelTac4Btn', titel:'onModeTactical4', info:'onModeTactical4S'}
 ];
 const HUB_RO_ORDER=['ffa','triple','team','vs','bot'];
 let hubGame='ro', fbHubSel=0, roSel='ffa';
@@ -8606,113 +8601,6 @@ const FOOTBALL_TACTICAL_1V1_SPAWN={frontX:7.50,frontY:4.60,backX:9.80,backY:0.00
 // Bahn zum Ball, kleinster Abstand 5.12 BR, Bandenabstand 5.4 BR. Keine Rollen im Code:
 // alle vier bleiben jeden Zug frei waehlbar.
 const FOOTBALL_TACTICAL4_SPAWN=[[7.50,-5.00],[7.50,5.00],[9.40,0.00],[12.60,4.00]];
-// ══ MODUSBILDER DES HUBS: deterministische Grafik aus den Spielkonstanten ═══════════════
-// Die Arena-Football-Karten und die Optionen der 1-gegen-1-Auswahl zeigen kein Rasterbild,
-// sondern ein SVG aus denselben Quellen wie das Spiel: Arenaform (poly + Eckradius),
-// Toroeffnungen (postInner/postBack) und Torfarben wie im Renderer, Startaufstellung aus
-// denselben Spawn-Konstanten wie placeBalls, Farben aus FB_PCOLS. Eine zweite Koerperzahl
-// gibt es damit nicht - aendert sich eine Aufstellung, aendert sich das Bild mit. Laeuft
-// genau einmal beim Laden (fbKartenBilderSetzen), kein Renderer, keine Physik.
-const FB_BILD_W=160, FB_BILD_H=100;   // 16:10 wie die Kartenbuehne (.mstage)
-const FB_BILD_NEIGUNG=0.62;           // Tiefe des Blicks: die Flaeche liegt, die Kugeln bleiben rund
-// Bildbeschreibung je Modus: Arena wie fbArena() fuer diese Variante, Zugmodell fuer den
-// Zielhinweis ('wechsel' = eine Figur zieht, 'alle' = alle ziehen zugleich).
-const FB_BILDER={
-  tactical: {arena:FOOTBALL_ARENA,         zuege:'wechsel'},
-  tactical4:{arena:FOOTBALL_ARENA,         zuege:'wechsel'},
-  team2v2:  {arena:FOOTBALL_ARENA,         zuege:'alle'},
-  ffa:      {arena:FOOTBALL_ARENA_ELIM5,   zuege:''},        // Startform jedes FFA-Matches: fuenf Tore
-  classic:  {arena:FOOTBALL_ARENA_CLASSIC, zuege:''}
-};
-// Startaufstellung eines Modus als [x,y,slot] in BR um den Mittelpunkt (Blau bei -x), aus
-// denselben Konstanten und in derselben Reihenfolge wie placeBalls. slot ist der Farbslot
-// (colorSlot-Konvention), FOOTBALL_NEUTRAL_OWNER der Ball.
-function fbBildAufstellung(bild){
-  const K=[];
-  if(bild==='tactical'){
-    const Q=FOOTBALL_TACTICAL_1V1_SPAWN;
-    K.push([-Q.frontX,-Q.frontY,0],[-Q.backX,Q.backY,0],[Q.frontX,-Q.frontY,1],[Q.backX,Q.backY,1]);
-  }else if(bild==='team2v2'){
-    const Q=FOOTBALL_TACTICAL_SPAWN;   // vier Besitzer 0..3 - der Farbslot ist die Seite
-    K.push([-Q.frontX,-Q.frontY,fbTeam2Side(0)],[-Q.backX,Q.backY,fbTeam2Side(1)],
-           [Q.frontX,-Q.frontY,fbTeam2Side(2)],[Q.backX,Q.backY,fbTeam2Side(3)]);
-  }else if(bild==='tactical4'){
-    for(let s=0;s<2;s++){const sx=s?1:-1;
-      FOOTBALL_TACTICAL4_SPAWN.forEach(p=>K.push([sx*p[0],p[1],s]));}
-  }else if(bild==='ffa'){
-    const A=FOOTBALL_ARENA_ELIM5;   // eine Figur je Startspieler vor dem eigenen Tor
-    A.dirs.forEach((d,s)=>K.push([d[0]*A.spawn,d[1]*A.spawn,s]));
-  }else{
-    const off=FOOTBALL_ARENA_CLASSIC.spawn;
-    K.push([-off,0,0],[off,0,1]);
-  }
-  K.push([0,0,FOOTBALL_NEUTRAL_OWNER]);
-  return K;
-}
-function fbModusBild(bild){
-  const B=FB_BILDER[bild]||FB_BILDER.classic, A=B.arena, K=fbBildAufstellung(bild), rc=A.corner;
-  // Ausdehnung in BR: Wandaussenkante (Kern + Eckradius) und Torsockel (postBack).
-  let ex=0,ey=0;
-  for(const p of A.poly){ex=Math.max(ex,Math.abs(p[0])+rc);ey=Math.max(ey,Math.abs(p[1])+rc);}
-  for(const d of A.dirs){ex=Math.max(ex,Math.abs(d[0])*A.postBack+Math.abs(d[1])*A.postInner);
-                         ey=Math.max(ey,Math.abs(d[1])*A.postBack+Math.abs(d[0])*A.postInner);}
-  const k=Math.min((FB_BILD_W-14)/(2*ex),(FB_BILD_H*0.64)/(2*ey*FB_BILD_NEIGUNG));
-  const ox=FB_BILD_W/2, oy=FB_BILD_H*0.44;
-  const f=(v)=>(Math.round(v*100)/100).toString();
-  const X=(x)=>f(ox+x*k), Y=(y)=>f(oy+y*k*FB_BILD_NEIGUNG);
-  const col=(s)=>FB_PCOLS[s]||FB_PCOLS[0];
-  const gid=(s)=>'fbg-'+bild+'-'+s;
-  const slots=[...new Set(K.map(b=>b[2]))];
-  let defs='';
-  for(const s of slots){const c=col(s);
-    defs+='<radialGradient id="'+gid(s)+'" cx="36%" cy="30%" r="72%"><stop offset="0" stop-color="'+c.lt+'"/><stop offset=".5" stop-color="'+c.c+'"/><stop offset="1" stop-color="'+c.dk+'"/></radialGradient>';}
-  // Flaeche und Bande im liegenden System (x, y*Neigung): der Kern mit rundem Strich der
-  // Breite 2*rc ist exakt die abgerundete Arena (Minkowski-Summe mit dem Eckradius).
-  const pts=A.poly.map(p=>f(p[0])+','+f(p[1])).join(' ');
-  let g='<g transform="translate('+f(ox)+' '+f(oy)+') scale('+f(k)+' '+f(k*FB_BILD_NEIGUNG)+')">';
-  g+='<polygon points="'+pts+'" fill="#9fb4d0" stroke="#9fb4d0" stroke-width="'+f(2*(rc+0.55))+'" stroke-linejoin="round" opacity=".55"/>';
-  g+='<polygon points="'+pts+'" fill="#2c3a55" stroke="#2c3a55" stroke-width="'+f(2*rc)+'" stroke-linejoin="round"/>';
-  g+='<polygon points="'+pts+'" fill="none" stroke="#3a4b6b" stroke-width="'+f(2*rc-1.2)+'" stroke-linejoin="round" opacity=".6"/>';
-  // Tore: an jeder Torrichtung eine Oeffnung in der Bande, dahinter der Sockel in der Farbe
-  // der verteidigenden Seite (Zwei-Tore-Arena: -X Blau, +X Rot; radial: Slot der Richtung).
-  const zweiTore=A.dirs.length===2;
-  A.dirs.forEach((d,s)=>{const c=col(zweiTore?(d[0]>0?1:0):s);
-    const deg=f(Math.atan2(d[1],d[0])*180/Math.PI), pi=A.postInner, x0=A.postFront, x1=A.postBack;
-    g+='<g class="fbtor" transform="rotate('+deg+')">';
-    g+='<rect x="'+f(x0-0.9)+'" y="'+f(-pi)+'" width="'+f(x1-x0+0.9)+'" height="'+f(2*pi)+'" fill="#2c3a55"/>';
-    g+='<rect x="'+f(x0)+'" y="'+f(-pi)+'" width="'+f(x1-x0)+'" height="'+f(2*pi)+'" fill="rgba('+c.rgb+',.34)" stroke="'+c.c+'" stroke-width=".35"/>';
-    g+='<line x1="'+f(x0)+'" y1="'+f(-pi)+'" x2="'+f(x0)+'" y2="'+f(pi)+'" stroke="'+c.lt+'" stroke-width=".7"/>';
-    g+='</g>';});
-  // Zielhinweis: gestrichelte Bahn zum Ball - eine Figur (abwechselnde Zuege) oder alle.
-  if(B.zuege){
-    const ziel=K[K.length-1];
-    const von=B.zuege==='alle'?K.slice(0,-1):[K[0]];
-    for(const b of von){const c=col(b[2]);
-      g+='<line x1="'+f(b[0])+'" y1="'+f(b[1])+'" x2="'+f(ziel[0])+'" y2="'+f(ziel[1])+'" stroke="'+c.lt+'" stroke-width=".45" stroke-dasharray="1.1 .9" opacity=".8"/>';}
-  }
-  g+='</g>';
-  // Koerper im Bildsystem: Schatten liegend, Kugel rund. Der Ball ist kleiner (25 statt 32)
-  // und traegt den neutralen Slot - sichtbar ein anderer Koerper.
-  let kugeln='';
-  for(const b of K){const ball=b[2]===FOOTBALL_NEUTRAL_OWNER, r=k*(ball?FOOTBALL_BALL_RADIUS/BR:1)*0.98;
-    const cx0=ox+b[0]*k, cy0=oy+b[1]*k*FB_BILD_NEIGUNG;
-    kugeln+='<ellipse cx="'+f(cx0)+'" cy="'+f(cy0+r*0.55)+'" rx="'+f(r*1.05)+'" ry="'+f(r*0.38)+'" fill="rgba(3,6,12,.55)"/>';
-    kugeln+='<circle class="fbk '+(ball?'fbk-ball':'fbk-s'+b[2])+'" cx="'+f(cx0)+'" cy="'+f(cy0)+'" r="'+f(r)+'" fill="url(#'+gid(b[2])+')"/>';
-    kugeln+='<circle cx="'+f(cx0-r*0.32)+'" cy="'+f(cy0-r*0.36)+'" r="'+f(r*0.26)+'" fill="rgba(255,255,255,'+(ball?'.28':'.42')+')"/>';}
-  return '<svg class="mshot" viewBox="0 0 '+FB_BILD_W+' '+FB_BILD_H+'" preserveAspectRatio="xMidYMid slice" aria-hidden="true" focusable="false"><defs>'+defs+'</defs>'+g+kugeln+'</svg>';
-}
-// Setzt jedes Modusbild an seinen Platz: die Buehne der Karte bzw. die Bildflaeche der
-// Option. Der Inhalt entsteht vollstaendig aus Konstanten - kein fremder Text.
-function fbBildEinsetzen(el,bild){
-  const st=el&&el.querySelector('.mstage,.vopt-art');
-  if(st)st.innerHTML=fbModusBild(bild);
-}
-function fbKartenBilderSetzen(){
-  for(const d of FB_HUB_MODES)fbBildEinsetzen($(d.card),d.bild);
-  for(const d of FB_HUB_DUEL)fbBildEinsetzen($(d.btn),d.bild);
-}
-// Aufgerufen am Ende des Skripts (Boot), nicht hier: die Pruefstaende schneiden diesen
-// Block ohne DOM heraus.
 // Vorauswahl je Team (Ballindex, -1 = noch keine). Sie lebt NUR bis zum Commit: ab dann ist
 // commitIdx[who] die Wahrheit, genau wie in Classic. Zuruecksetzen passiert dort, wo auch
 // die Commits zurueckgesetzt werden (startRound und das Settlement in stepSim).
@@ -19584,7 +19472,6 @@ function loop(now){
 }
 
 resize();initArenaGeo();newGame();applyLang();   // applyLang (inkl. selectMenuMode) erst hier: PCOLS (const) muss initialisiert sein
-fbKartenBilderSetzen();   // Modusbilder der Arena-Karten und der 1-gegen-1-Auswahl: aus den Spielkonstanten, erst hier (alle Quellen stehen)
 updScrollHint();                                            // Scroll-Cue initial bewerten (Menue ist der Startscreen)
 setTimeout(()=>{scrollHintDone=true;updScrollHint();},8000);   // Onboarding-Cue ist transient (Timer ab Script-Start, Boot ~2s) — nie dauerhaft ueber Inhalten
 whenFB(()=>{ if(fbReady()&&menuVisible)startPublicListing(); });   // Home-Rooms-Vorschau ab Boot (best-effort, ohne FB stiller Leerzustand)

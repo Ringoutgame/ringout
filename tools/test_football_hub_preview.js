@@ -5,9 +5,9 @@
 //      oeffnet eine kleine Unterauswahl mit genau TACTICAL 1V1 und TACTICAL 4-BALL 1V1. Die
 //      internen Schluessel (tactical / tactical4) bleiben getrennt, jede Wahl nimmt denselben
 //      Onlineweg wie eine Karte (fbHubOeffnen). Zurueck setzt nichts und laesst nichts stehen.
-//   2. Die Kartenbilder sind deterministische SVGs aus den Spielkonstanten (fbModusBild):
-//      Arenaform, Toroeffnungen und Startaufstellung aus denselben Quellen wie placeBalls -
-//      keine Bilddatei, keine zweite Koerperzahl. Ring Out behaelt seine Bildkarten.
+//   2. Die Kartenbilder sind Aufnahmen des echten 3D-Renderers (assets/hub/modes/*.webp,
+//      700x438): 1 VS 1 und die Option TACTICAL 1V1 tragen football_tactical, die Option
+//      TACTICAL 4-BALL 1V1 football_tactical4 (4 Blau + 4 Rot + Ball). Ring Out unveraendert.
 //   3. Die Vorschau des Onlinebildschirms (Erstellen/Beitreten/Lobby) zeigt fuer einen
 //      Football-Raum die Football-Arena mit beiden Toren und den Koerpern des gewaehlten
 //      Modus (fbBuehne / fbOnlineVorschau; fbOnlineEnter stellt die Koerper), Ring Out
@@ -49,14 +49,12 @@ abschnitt('1. Vier Karten, 1 VS 1 mit Unterauswahl');
   t('vier Karten in dieser Reihenfolge: ffa, duel, team2v2, training', keys.join(',') === 'ffa,duel,team2v2,training', keys);
   t('1 VS 1 ist die Karte cardFb1v1 und fuehrt direkt weiter - in die Unterauswahl', /\{key:'duel',\s+card:'cardFb1v1'[^}]*direkt:true\}/.test(reg));
   t('keine Karte traegt einen Tactical-Schluessel mehr', !/key:'tactical/.test(reg));
-  t('jede Karte nennt ihr Modusbild', /bild:'ffa'/.test(reg) && /key:'duel'[^}]*bild:'tactical'/.test(reg) && /key:'team2v2'[^}]*bild:'team2v2'/.test(reg) && /key:'training'[^}]*bild:'classic'/.test(reg));
   const duel = g(/const FB_HUB_DUEL=\[[\s\S]*?\];/, 'FB_HUB_DUEL');
-  const dk = [...duel.matchAll(/\{key:'(\w+)',\s+btn:'(\w+)',\s+titel:'(\w+)',\s+info:'(\w+)',\s+bild:'(\w+)'\}/g)].map(m => ({ key: m[1], btn: m[2], titel: m[3], info: m[4], bild: m[5] }));
+  const dk = [...duel.matchAll(/\{key:'(\w+)',\s+btn:'(\w+)',\s+titel:'(\w+)',\s+info:'(\w+)'\}/g)].map(m => ({ key: m[1], btn: m[2], titel: m[3], info: m[4] }));
   t('die Unterauswahl kennt genau tactical und tactical4 - getrennte interne Schluessel', dk.map(d => d.key).join(',') === 'tactical,tactical4', dk);
   const registerKey = (k) => (HTML.match(new RegExp(k + ":\\{caps:\\[2\\],\\s+released:true,\\s+key:'(\\w+)'\\}")) || [])[1];
   t('Titel und Unterzeile der Optionen sind die Registerschluessel des Onlinemodus (wie der Lobbykopf)',
     dk.length === 2 && dk.every(d => d.titel === registerKey(d.key) && d.info === registerKey(d.key) + 'S'), dk.map(d => [d.titel, registerKey(d.key)]));
-  t('jede Option zeigt das Bild ihres eigenen Modus', dk.every(d => d.bild === d.key));
   t('jede Option hat Knopf, Titel- und Unterzeilen-Id im Markup', dk.every(d => new RegExp('id="' + d.btn + '"').test(HTML)
     && new RegExp('id="' + d.btn.replace(/Btn$/, 'T') + '"').test(HTML) && new RegExp('id="' + d.btn.replace(/Btn$/, 'S') + '"').test(HTML)));
   const ov = g(/<div class="ov" id="fbDuelOv">[\s\S]*?\n<\/div>\n/, 'fbDuelOv');
@@ -65,16 +63,19 @@ abschnitt('1. Vier Karten, 1 VS 1 mit Unterauswahl');
     /id="fbDuelTacT">TACTICAL 1V1</.test(ov) && /id="fbDuelTacS">2 FIGURES EACH · ALTERNATING TURNS</.test(ov)
     && /id="fbDuelTac4T">TACTICAL 4-BALL 1V1</.test(ov) && /id="fbDuelTac4S">4 FIGURES EACH · ALTERNATING TURNS</.test(ov));
   t('das Overlay ist dieselbe Bauweise wie der Bot-Dialog (ov / wb vswb / vopt / wbtn) - keine eigene Seite', /<div class="wb vswb">/.test(ov) && /class="wbtn" id="fbDuelBack"/.test(ov));
-  t('jede Option traegt eine Bildflaeche (vopt-art)', (ov.match(/class="vopt-art"/g) || []).length === 2 && /\.vopt-art\{/.test(HTML));
+  t('jede Option traegt ihre Aufnahme in der Bildflaeche (vopt-art, Buehnenklasse mshot)', (ov.match(/class="vopt-art"/g) || []).length === 2 && /\.vopt-art\{position:relative/.test(HTML)
+    && /id="fbDuelTacBtn">\s*<span class="vopt-art"><img class="mshot" src="assets\/hub\/modes\/football_tactical\.webp"/.test(ov)
+    && /id="fbDuelTac4Btn">\s*<span class="vopt-art"><img class="mshot" src="assets\/hub\/modes\/football_tactical4\.webp"/.test(ov));
   const hub = g(/<div class="mcards" id="fbCards"[\s\S]*?\n    <\/div>/, 'Kartenleiste');
   const titel = (hub.match(/class="mt" id="\w+">([^<]*)</g) || []).map(x => x.replace(/.*>/, '').replace(/<$/, ''));
   t('die Leiste zeigt FFA | 1 VS 1 | TEAM 2V2 | TRAINING', titel.join('|') === 'FFA|1 VS 1|TEAM 2V2|TRAINING', titel);
   t('die Karte cardFb4b gibt es nicht mehr', HTML.indexOf('cardFb4b') < 0);
-  t('die Arena-Karten tragen kein Rasterbild (kein <img>, keine webp, keine football_*.webp-Referenz)', !/<img/.test(hub) && !/\.webp/.test(hub) && HTML.indexOf('assets/hub/modes/football_') < 0);
-  t('die Buehnen sind im Markup leer - das Bild setzt fbKartenBilderSetzen', (hub.match(/<span class="mstage"><\/span>/g) || []).length === 4);
+  const bildVon = (id) => ((hub.match(new RegExp('id="' + id + '">\\s*(?:<span class="chip">ACTIVE</span>\\s*)?<span class="mstage"><img class="mshot" src="assets/hub/modes/(\\w+)\\.webp" alt="" width="700" height="438" decoding="async"></span>')) || [])[1]);
+  t('jede Arena-Karte traegt eine Renderer-Aufnahme: FFA elimination, 1 VS 1 tactical, TEAM 2V2 team2v2, TRAINING classic',
+    bildVon('cardFbFfa') === 'football_elimination' && bildVon('cardFb1v1') === 'football_tactical' && bildVon('cardFb2v2') === 'football_team2v2' && bildVon('cardFbBot') === 'football_classic',
+    ['cardFbFfa', 'cardFb1v1', 'cardFb2v2', 'cardFbBot'].map(bildVon));
   t('Ring Out behaelt seine fuenf Bildkarten', (HTML.match(/assets\/hub\/modes\/ringout_\w+\.webp/g) || []).length === 5);
-  t('der Boot setzt die Bilder nach applyLang, ausserhalb des Football-Blocks', /applyLang\(\);[^\n]*\nfbKartenBilderSetzen\(\);/.test(HTML)
-    && (HTML.match(/\nfbKartenBilderSetzen\(\);/g) || []).length === 1);
+  t('kein SVG-Generator mehr im Produkt', ['fbModusBild', 'fbKartenBilderSetzen', 'fbBildAufstellung', 'FB_BILDER', 'fbBildEinsetzen'].every(k => HTML.indexOf(k) < 0));
   for (const l of ['en', 'de', 'tr'])
     t(l + ': catFb1v1 / mcFb1v1 / ctaFb1v1 / fbDuelT sind uebersetzt, catFb4b/mcFb4b/ctaFb4b sind fort',
       ['catFb1v1', 'mcFb1v1', 'ctaFb1v1', 'fbDuelT'].every(k => typeof I18N[l][k] === 'string' && I18N[l][k].length > 0)
@@ -146,8 +147,6 @@ function bauen() {
     "let fbOnlineMode='lives', fbOnlineCap=5, fbElimRules='lives';",
     fn('fbVarianteFuerModus'), "function openOnline(){spur.push('open');}", fn('fbOnlineEnter'),
     fn('fbOnlineVorschau'), fn('fbBuehne'), fn('fbFrameKey'),
-    // Kartenbilder: der ganze Generatorblock bis vor die Einsetzfunktion
-    g(/const FB_BILD_W=[\s\S]*?\n\}\nfunction fbModusBild\(bild\)\{[\s\S]*?\n\}\n/, 'Generator'),
     'return {',
     '  enter:(m)=>{fbOnlineMode=m;fbOnlineEnter();},',
     '  koerper:()=>balls.map(b=>({o:b.owner,slot:colorSlot(b.owner),x:(b.x-cx)/BR,y:(b.y-cy)/BR})),',
@@ -155,7 +154,7 @@ function bauen() {
     '  stand:()=>({mode,fmt,fbVariant,fbOnlineMode,koerper:balls.length,buehne:fbBuehne(),key:fbFrameKey(),vorschau:fbOnlineVorschau()}),',
     '  zurueck:()=>{updateMenuPreview();}, spur, mapping:(m)=>fbVarianteFuerModus(m),',
     '  stell:(v)=>{mode="football";fbVariant=v;placeBalls();return balls.map(b=>({o:b.owner,slot:colorSlot(b.owner),x:(b.x-cx)/BR,y:(b.y-cy)/BR}));},',
-    '  bild:(b)=>fbModusBild(b), aufstellung:(b)=>fbBildAufstellung(b), BILDER:FB_BILDER, BR, BALL:FOOTBALL_BALL_RADIUS, NEUTRAL:FOOTBALL_NEUTRAL_OWNER',
+    '  BR, BALL:FOOTBALL_BALL_RADIUS, NEUTRAL:FOOTBALL_NEUTRAL_OWNER',
     '};'
   ].join('\n');
   return new Function(src)();
@@ -222,39 +221,26 @@ abschnitt('4. Der Renderer haengt Arena, Tore und Rahmung an die Buehne');
 }
 
 // ══ 5. KARTENBILDER ═══════════════════════════════════════════════════════════════════
-abschnitt('5. Modusbilder aus den Spielkonstanten - dieselben Koerper wie placeBalls');
+abschnitt('5. Kartenbilder: Renderer-Aufnahmen in einer Bildfamilie (700x438 WebP)');
 {
-  const S = bauen();
-  const zaehle = (svg, cls) => (svg.match(new RegExp('class="fbk ' + cls + '"', 'g')) || []).length;
-  const tore = (svg) => (svg.match(/class="fbtor"/g) || []).length;
-  const faelle = [['tactical', 'tactical', 2, 2, 2], ['tactical4', 'tactical4', 4, 4, 2], ['team2v2', 'team2v2', 2, 2, 2], ['classic', 'classic', 1, 1, 2]];
-  for (const [bild, variante, blau, rot, nTore] of faelle) {
-    const svg = S.bild(bild);
-    t(bild + ': ' + blau + ' Blau + ' + rot + ' Rot + 1 Football, ' + nTore + ' Tore', zaehle(svg, 'fbk-s0') === blau && zaehle(svg, 'fbk-s1') === rot && zaehle(svg, 'fbk-ball') === 1 && tore(svg) === nTore,
-      { s0: zaehle(svg, 'fbk-s0'), s1: zaehle(svg, 'fbk-s1'), ball: zaehle(svg, 'fbk-ball'), tore: tore(svg) });
-    // Zeichen fuer Zeichen die Koerper des Spawners: Reihenfolge, Position, Farbslot.
-    const K = S.stell(variante), A = S.aufstellung(bild);
-    t(bild + ': Aufstellung des Bildes == placeBalls (Reihenfolge, Position, Farbslot)', K.length === A.length && K.every((b, i) => nahe(b.x, A[i][0]) && nahe(b.y, A[i][1]) && b.slot === A[i][2]),
-      { K: K.map(b => [b.x, b.y, b.slot]), A });
+  const fsx = require('fs'), pathx = require('path');
+  const masse = (f) => {
+    const b = fsx.readFileSync(pathx.join(__dirname, '..', 'assets', 'hub', 'modes', f + '.webp'));
+    const tag = b.toString('latin1', 12, 16); let w = 0, h = 0;
+    if (tag === 'VP8X') { w = 1 + (b[24] | b[25] << 8 | b[26] << 16); h = 1 + (b[27] | b[28] << 8 | b[29] << 16); }
+    else if (tag === 'VP8 ') { w = b.readUInt16LE(26) & 0x3fff; h = b.readUInt16LE(28) & 0x3fff; }
+    else if (tag === 'VP8L') { const x = b.readUInt32LE(21); w = (x & 0x3fff) + 1; h = ((x >> 14) & 0x3fff) + 1; }
+    return { riff: b.toString('latin1', 0, 4) === 'RIFF' && b.toString('latin1', 8, 12) === 'WEBP', w, h, kb: Math.round(b.length / 1024) };
+  };
+  for (const f of ['football_elimination', 'football_tactical', 'football_tactical4', 'football_team2v2', 'football_classic']) {
+    const m = masse(f);
+    t(f + '.webp ist eine WebP-Aufnahme im Kartenmass 700x438 (' + m.kb + ' KB)', m.riff && m.w === 700 && m.h === 438 && m.kb >= 12 && m.kb <= 400, m);
   }
-  const ffa = S.bild('ffa');
-  t('ffa: fuenf Figuren in fuenf Farben, ein Football, fuenf Tore', [0, 1, 2, 3, 4].every(s => zaehle(ffa, 'fbk-s' + s) === 1) && zaehle(ffa, 'fbk-ball') === 1 && tore(ffa) === 5);
-  const Kf = S.stell('elimination'), Af = S.aufstellung('ffa');
-  t('ffa: Aufstellung des Bildes == placeBalls der Fuenf-Spieler-Startform', Kf.length === Af.length && Kf.every((b, i) => nahe(b.x, Af[i][0]) && nahe(b.y, Af[i][1]) && b.slot === Af[i][2]));
-  const svg = S.bild('tactical');
-  const r = (cls) => Number((svg.match(new RegExp('class="fbk ' + cls + '"[^>]*r="([\\d.]+)"')) || [])[1]);
-  t('der Football ist sichtbar ein anderer Koerper: kleiner (25/32) und im neutralen Slot', r('fbk-ball') > 0 && r('fbk-s0') > 0 && Math.abs(r('fbk-ball') / r('fbk-s0') - S.BALL / S.BR) < 0.01
-    && /fill="url\(#fbg-tactical-5\)"/.test(svg), { ball: r('fbk-ball'), figur: r('fbk-s0') });
-  t('das Bild ist ein SVG in Kartenmass 16:10, das die Buehne fuellt', /^<svg class="mshot" viewBox="0 0 160 100" preserveAspectRatio="xMidYMid slice"/.test(svg));
-  t('die Grafik ist deterministisch (zweimal dasselbe Zeichen fuer Zeichen)', S.bild('tactical4') === S.bild('tactical4') && S.bild('ffa') === S.bild('ffa'));
-  t('kein Bild enthaelt fremden Text', ['tactical', 'tactical4', 'team2v2', 'ffa', 'classic'].every(b => !/<text|<script|<foreignObject|<image/.test(S.bild(b))));
-  t('Tactical-Familie: eine Figur zieht (ein Zielhinweis); Team 2v2: alle vier', (S.bild('tactical').match(/stroke-dasharray/g) || []).length === 1 && (S.bild('tactical4').match(/stroke-dasharray/g) || []).length === 1
-    && (S.bild('team2v2').match(/stroke-dasharray/g) || []).length === 4 && !/stroke-dasharray/.test(S.bild('ffa')));
-  t('die Bildbeschreibung nennt je Modus dieselbe Arena wie fbArena()', S.BILDER.tactical.arena === S.BILDER.team2v2.arena && S.BILDER.tactical4.arena === S.BILDER.tactical.arena && S.BILDER.ffa.arena !== S.BILDER.tactical.arena && S.BILDER.classic.arena !== S.BILDER.tactical.arena);
+  t('die Hosting-Asset-Liste kennt das Tactical-4-Ball-Bild', /'assets\/hub\/modes\/football_tactical4\.webp'/.test(fsx.readFileSync(pathx.join(__dirname, 'build_hosting.js'), 'utf8')));
+  t('die Aufnahmestrecke der Tactical-Karten liegt bei den QA-Werkzeugen (nicht im Produkt)', fsx.existsSync(pathx.join(__dirname, '..', 'artifacts', 'fb-menu-preview-01', 'kartenbilder_tactical.js')) && HTML.indexOf('kartenbilder_tactical') > 0);
   // Der Spawner bleibt die einzige Aufstellung des Spiels: seine Konstantenzeilen stehen genau einmal.
   t('placeBalls liest die Aufstellungen unveraendert (je genau einmal)', (HTML.match(/const S=FOOTBALL_TACTICAL_1V1_SPAWN;/g) || []).length === 1
     && (HTML.match(/const S=FOOTBALL_TACTICAL_SPAWN;/g) || []).length === 1 && (HTML.match(/for\(const p of FOOTBALL_TACTICAL4_SPAWN\)/g) || []).length === 1);
-  t('die Einsetzfunktion bedient Karten und Optionen aus den Metadaten', /function fbKartenBilderSetzen\(\)\{\n  for\(const d of FB_HUB_MODES\)fbBildEinsetzen\(\$\(d\.card\),d\.bild\);\n  for\(const d of FB_HUB_DUEL\)fbBildEinsetzen\(\$\(d\.btn\),d\.bild\);\n\}/.test(HTML));
 }
 
 console.log(`\nFootball-Hub-Vorschau: ${pass} passed, ${fail} failed`);

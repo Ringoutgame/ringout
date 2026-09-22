@@ -32,6 +32,7 @@ const DATEIEN = [
   // Moduskarten: echte Aufnahmen der Spielwelt (artifacts/hub-d1v2/kartenbilder.js)
   'assets/hub/modes/football_classic.webp',
   'assets/hub/modes/football_tactical.webp',
+  'assets/hub/modes/football_tactical4.webp',
   'assets/hub/modes/football_team2v2.webp',
   'assets/hub/modes/football_elimination.webp',
   'assets/hub/modes/football_online.webp',

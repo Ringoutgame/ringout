@@ -849,8 +849,8 @@ const R = new Function(`
   ok(/id="cardFbFfa"[\s\S]{0,400}id="cardFb1v1"/.test(hub), 'FFA steht als aktiver Modus vorn');
   ok(/<button class="mcard on" id="cardFbFfa">/.test(hub), 'und ist die Voreinstellung');
   ok((hub.match(/class="mcard msoon"/g) || []).length === 1, 'die eine uebrige Karte (Training) ist sichtbar gesperrt');
-  ok(/id="cardFb1v1T">1 VS 1</.test(hub) && !/<img/.test(hub) && !/\.webp/.test(hub),
-     'die 1v1-Karte heisst 1 VS 1 und traegt wie alle Arena-Karten kein Rasterbild (SVG aus den Spielkonstanten)');
+  ok(/id="cardFb1v1T">1 VS 1</.test(hub) && /football_tactical\.webp/.test(hub),
+     'die 1v1-Karte heisst 1 VS 1 und traegt die Tactical-Aufnahme aus dem Renderer');
   ok(/id="cardFbBotT">TRAINING</.test(hub), 'und aus dem Bot-Platz wird TRAINING');
   // Die Modi selbst leben unveraendert weiter - Start, Regeln und Dev-Zugang.
   ok(/\$\('fbClassicBtn'\)\.onclick=/.test(HTML) && /startFootball\('classic',FOOTBALL_RULES_FIRST3\)/.test(HTML),
