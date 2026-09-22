@@ -145,12 +145,21 @@ abschnitt('4. Aufstellung: neun Koerper, spiegelsymmetrisch, ohne Ueberlappung, 
   t('der Ball liegt exakt in der Mitte', K[8].x === 0 && K[8].y === 0);
   t('alle Blauen bei -x, alle Roten bei +x', K.slice(0, 4).every(k => k.x < 0) && K.slice(4, 8).every(k => k.x > 0));
   t('Rot ist die exakte Spiegelung von Blau an der Mittelachse', [0, 1, 2, 3].every(i => K[i + 4].x === -K[i].x && K[i + 4].y === K[i].y));
-  // Seit dem Ausgleich der Eroeffnung (2026-09-21) sind die Seiten nicht mehr oben/unten
-  // symmetrisch (Blocker auf der Achse, ein tiefer Aussenverteidiger); die Angreifer bilden ein Paar.
-  t('die beiden Angreifer bilden ein Paar (gleiches x, gespiegeltes y), der Blocker steht auf der Achse', K[0].x === K[1].x && K[0].y === -K[1].y && K[2].y === 0);
-  let minD = 1e9;
-  for (let i = 0; i < 9; i++) for (let j = i + 1; j < 9; j++) minD = Math.min(minD, Math.hypot(K[i].x - K[j].x, K[i].y - K[j].y));
-  t('kein Koerper beruehrt einen anderen (kleinster Abstand >= 5 BR, Ballradius 1)', minD >= 5, minD);
+  // Seit 2026-09-22 ist die Aufstellung eine RAUTE: Spitze vorn und Hinterfigur hinten stehen
+  // auf der Torachse, die beiden Seiten spiegelgleich darueber und darunter auf halber Tiefe.
+  t('Raute: Spitze (0) und Hinterfigur (3) stehen auf der Torachse, die Seiten (1,2) spiegelgleich auf gleicher Tiefe',
+    K[0].y === 0 && K[3].y === 0 && K[1].x === K[2].x && K[1].y === -K[2].y && K[1].y !== 0, [K[0], K[1], K[2], K[3]]);
+  t('Raute: die Spitze steht am naechsten am Ball, die Hinterfigur am weitesten - dazwischen die Seiten',
+    Math.abs(K[0].x) < Math.abs(K[1].x) && Math.abs(K[1].x) < Math.abs(K[3].x));
+  t('Raute: gleiche Schenkel - die Seiten liegen auf halber Tiefe zwischen Spitze und Hinterfigur',
+    Math.abs(Math.abs(K[1].x) - (Math.abs(K[0].x) + Math.abs(K[3].x)) / 2) < 1e-9);
+  let minD = 1e9, minEigen = 1e9;
+  for (let i = 0; i < 9; i++) for (let j = i + 1; j < 9; j++) { const d = Math.hypot(K[i].x - K[j].x, K[i].y - K[j].y);
+    minD = Math.min(minD, d); if (i < 4 && j < 4) minEigen = Math.min(minEigen, d); }
+  // Kein Koerper beruehrt einen anderen: Spielerradius 1, Ball 25/32 BR. Der kleinste Abstand
+  // ueberhaupt ist Spitze -> Ball; eigene Figuren bleiben >= 5 BR auseinander (Griffweite 2.8 BR).
+  t('kein Koerper beruehrt einen anderen (kleinster Spalt > 2 BR)', minD - 1 - 25 / 32 > 2, minD);
+  t('eigene Figuren stehen >= 5 BR auseinander - jede bleibt auf dem Telefon eindeutig greifbar', minEigen >= 5, minEigen);
   // postInner 3.560 (lichte Torbreite, s. Kommentar an FOOTBALL_TACTICAL_SPAWN): die tiefen
   // Figuren stehen ausserhalb des Tors; halfLen 18.00: niemand steht in der Bande.
   t('keine Figur mit |x| > 10 BR steht in der lichten Torbreite (|y| > 3.56) - Torkorridor frei', K.slice(0, 8).every(k => Math.abs(k.x) <= 10 || Math.abs(k.y) > 3.56));

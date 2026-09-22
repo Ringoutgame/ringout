@@ -5280,7 +5280,8 @@ function placeBalls(){
   }else if(mode==='football'&&typeof fbTac4==='function'&&fbTac4()){
     // TACTICAL 4-BALL: 4 Figuren je Spieler + neutraler Ball, aus der EIGENEN Aufstellung
     // FOOTBALL_TACTICAL4_SPAWN (vier [x,y]-Paare in BR fuer Blau bei -x; Rot ist an der
-    // Mittelachse gespiegelt: gleiches y, x mit umgekehrtem Vorzeichen). Reihenfolge Blau
+    // Mittelachse gespiegelt: gleiches y, x mit umgekehrtem Vorzeichen). Die vier Paare stehen
+    // in der Reihenfolge der RAUTE: Spitze vorn, die beiden Seiten, hinten zentral. Blau
     // A1..A4 = Koerper 0..3, Rot B1..B4 = 4..7, Ball 8 - die Indizes bleiben ueber alle Runden
     // stabil (Auswahl, Enthuellung, Rules).
     for(let s=0;s<2;s++){const sx=s?1:-1;
@@ -8628,14 +8629,34 @@ const FOOTBALL_TACTICAL_1V1_SPAWN={frontX:7.50,frontY:4.60,backX:9.80,backY:0.00
 // Eroeffnungstreffer - auf der echten Physik (artifacts/tactical4-spawn-01/eroeffnung4.js)
 // je Figur ein 5-Grad-Fenster bei 100 % Kraft, 17 kraftrobuste Winkel (derselbe Winkel trifft
 // bei zwei Kraftstufen), 16 direkte Treffer aller vier bei 100 %, und die tiefen Figuren
-// standen hinter Mitspielern. Neu: A1/A2 breite Angreifer (7.50, +-5.00), A3 zentraler
-// Blocker auf der Torachse (9.40, 0 - 8.6 BR vor der Torlinie, kein Torwart), A4 tiefer
-// Aussenverteidiger (12.60, 4.00) ausserhalb der lichten Torbreite. Gemessen: breitestes
-// direktes Fenster 1 Grad, direkte Treffer aller vier je Kraft 2/1/0/0/0, kraftrobuste
-// Winkel 0, Eigentore 0, Blau und Rot Zahl fuer Zahl gleich; jede Figur hat eine freie
-// Bahn zum Ball, kleinster Abstand 5.12 BR, Bandenabstand 5.4 BR. Keine Rollen im Code:
-// alle vier bleiben jeden Zug frei waehlbar.
-const FOOTBALL_TACTICAL4_SPAWN=[[7.50,-5.00],[7.50,5.00],[9.40,0.00],[12.60,4.00]];
+// standen hinter Mitspielern. Danach (21.09.) eine gestaffelte Aufstellung: breites Paar
+// (7.50, +-5.00), zentraler Blocker (9.40, 0), tiefer Aussenverteidiger (12.60, 4.00) -
+// direkte Treffer je Kraft 2/1/0/0/0, kraftrobuste Winkel 0.
+//
+// SEIT 2026-09-22 DIE RAUTE. Die vier Paare stehen in dieser Reihenfolge:
+//     A1 Spitze vorn (4.25, 0)      zentral, naechste Figur am Ball - Druck und Anspiel
+//     A2 Seite (7.00, -8.00)        Breite, Winkel, Abpraller
+//     A3 Seite (7.00, +8.00)        dasselbe gespiegelt
+//     A4 hinten (9.75, 0)           zentral, 8.25 BR vor der Torlinie - Deckung und Aufbau
+// Rot steht exakt gespiegelt bei +x. Die Seiten liegen auf halber Tiefe ((4.25+9.75)/2 = 7.00):
+// eine echte Raute mit den Diagonalen 5.50 BR (tief) und 16.00 BR (breit).
+//
+// WARUM SO BREIT: eine schmale Raute verschenkt den ersten Zug. Die Front, der Ball und die
+// gegnerische Front liegen auf einer Geraden, ebenso jede Seitenfigur, der Ball und die
+// GEGENUEBERLIEGENDE Seitenfigur des Gegners. Ein leicht verzogener Schuss auf den Ball
+// prallt dort ab - und bei schmaler Raute zeigt dieser Abpraller ins Tor (gemessen: 2-Grad-
+// Fenster, kraftrobust bei 100 % und 85 %). Erst bei 8.00 BR Breite laeuft der Abpraller am
+// Tor vorbei. Gemessen auf der echten Physik (1-Grad-Raster, 100/85/70/55/40 % Kraft, alle
+// acht Figuren): direkte Eroeffnungstreffer 0/0/0/0/0, breitestes Fenster 0 Grad, kraftrobuste
+// Winkel 0, Eigentore 0, Blau und Rot Zahl fuer Zahl gleich. Jede Figur erreicht den Ball im
+// ersten Zug (Ballkontakt 14/11/11/7 % der Winkel bei 100 %). Kleinster Abstand eigener
+// Figuren 5.50 BR, Ballspalt 2.47 BR, Bandenabstand 4.70 BR, Torkorridor frei.
+//
+// EINE ABSICHT DER RAUTE: A4 steht hinter A1 auf derselben Achse und hat deshalb keine freie
+// gerade Bahn zum Ball - es ist die Aufbaufigur, die ueber die eigene Spitze spielt. Das ist
+// die Form, nicht ein Fehler; A4 bewegt den Ball trotzdem in 7 % der Winkel (ueber A1).
+// Keine Rollen im Code: alle vier bleiben jeden Zug frei waehlbar.
+const FOOTBALL_TACTICAL4_SPAWN=[[4.25,0.00],[7.00,-8.00],[7.00,8.00],[9.75,0.00]];
 // Vorauswahl je Team (Ballindex, -1 = noch keine). Sie lebt NUR bis zum Commit: ab dann ist
 // commitIdx[who] die Wahrheit, genau wie in Classic. Zuruecksetzen passiert dort, wo auch
 // die Commits zurueckgesetzt werden (startRound und das Settlement in stepSim).

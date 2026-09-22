@@ -1,15 +1,17 @@
-// ARENA FOOTBALL - TACTICAL 4-BALL 1V1: DIE EROEFFNUNGSAUFSTELLUNG IST AUSGEGLICHEN.
+// ARENA FOOTBALL - TACTICAL 4-BALL 1V1: DIE EROEFFNUNGSAUFSTELLUNG IST EINE AUSGEGLICHENE RAUTE.
 //
-// Die erste Aufstellung von Tactical 4-Ball war die gespiegelte Vier-Koerper-Aufstellung von
-// Team 2v2; aus ihr hatte das vordere Paar einen leichten direkten Eroeffnungstreffer. Diese
-// Suite haelt fest: die eigene Konstante FOOTBALL_TACTICAL4_SPAWN, ihre Geometrie (neun
-// Koerper, exakte Spiegelung Blau/Rot, Abstaende, Bandenfreiheit, Torkorridor frei, freie Bahn
-// jeder Figur zum Ball), dass die ALTE Aufstellung den leichten Treffer reproduziert und die
-// NEUE nicht - gefahren auf der ECHTEN Physik aus index.html - und dass Team 2v2 und
-// Tactical 1v1 ihre Aufstellungen behalten.
+// Seit 2026-09-22 stehen die vier Figuren je Spieler als RAUTE: Spitze vorn (zentral, am Ball),
+// zwei Seiten auf halber Tiefe, hinten zentral vor dem eigenen Tor; Rot exakt gespiegelt.
+// Diese Suite haelt fest: die eigene Konstante FOOTBALL_TACTICAL4_SPAWN, die RAUTENFORM selbst
+// (Spitze und Hinterfigur auf der Torachse, Seiten spiegelgleich, gleiche Schenkel), die
+// Geometrie (neun Koerper, exakte Spiegelung Blau/Rot, Abstaende, Bandenfreiheit, Torkorridor
+// frei), dass die ALTE Aufstellung den leichten Eroeffnungstreffer reproduziert und die NEUE
+// gar keinen mehr zulaesst - gefahren auf der ECHTEN Physik aus index.html - und dass
+// Team 2v2 und Tactical 1v1 ihre Aufstellungen behalten.
 //
 // Die Schusssuche ist bewusst begrenzt (Winkelschritt 2 Grad, zwei Kraftstufen): sie findet
-// Geometrie-Geschenke, sie beweist keine Unmoeglichkeit. Ein Praezisionsschuss darf bleiben.
+// Geometrie-Geschenke, sie beweist keine Unmoeglichkeit. Die vollstaendige Messung (1 Grad,
+// fuenf Kraftstufen, alle acht Figuren) steht in artifacts/tactical4-spawn-01/eroeffnung4.js.
 //
 //   node tools/test_football_tactical4_spawn.js
 const { loadIndexHtml, grab } = require('./extract');
@@ -96,11 +98,20 @@ function direkte(F, idx, tt, schritt) {
 const robust = (a, b, schritt) => { const s = new Set(b.winkel); return a.winkel.filter(g => s.has(g) || s.has((g + schritt) % 360) || s.has((g - schritt + 360) % 360)).length; };
 
 // ══ 1. GEOMETRIE ═════════════════════════════════════════════════════════════════
-abschnitt('1. Geometrie: neun Koerper, gespiegelt, frei, jede Figur mit freier Bahn zum Ball');
+abschnitt('1. Die Raute: Form, Geometrie, Spiegelung, Freiraum');
 const F = sandkasten();
 const S4 = F.spawn4();
 {
-  t('die Konstante traegt die gemessenen Werte: (7.50,-5.00) (7.50,5.00) (9.40,0.00) (12.60,4.00)', JSON.stringify(S4) === JSON.stringify([[7.5, -5], [7.5, 5], [9.4, 0], [12.6, 4]]));
+  t('die Konstante traegt die gemessenen Werte: (4.25,0.00) (7.00,-8.00) (7.00,8.00) (9.75,0.00)', JSON.stringify(S4) === JSON.stringify([[4.25, 0], [7, -8], [7, 8], [9.75, 0]]));
+  // ── DIE RAUTE als Form, nicht als Zahlenreihe: eine Spitze vorn, zwei spiegelgleiche
+  //    Seiten, eine Figur hinten - Spitze und Hinterfigur auf der Torachse.
+  const [vorn, links, rechts, hinten] = S4;
+  t('Raute: die Spitze steht vorn auf der Torachse (y = 0), am naechsten am Ball', vorn[1] === 0 && vorn[0] < links[0] && vorn[0] < hinten[0], vorn);
+  t('Raute: die Hinterfigur steht hinten auf der Torachse (y = 0), am weitesten vom Ball', hinten[1] === 0 && hinten[0] > links[0] && hinten[0] > vorn[0], hinten);
+  t('Raute: die beiden Seiten stehen auf derselben Tiefe und exakt spiegelgleich zur Torachse', links[0] === rechts[0] && links[1] === -rechts[1] && links[1] < 0 && rechts[1] > 0, [links, rechts]);
+  t('Raute: die Seiten liegen auf halber Tiefe zwischen Spitze und Hinterfigur - gleiche Schenkel', Math.abs(links[0] - (vorn[0] + hinten[0]) / 2) < 1e-9
+    && Math.abs(Math.hypot(links[0] - vorn[0], links[1]) - Math.hypot(hinten[0] - links[0], links[1])) < 1e-9, { s: links[0], mitte: (vorn[0] + hinten[0]) / 2 });
+  t('Raute: die Diagonalen sind 5.50 BR (tief) und 16.00 BR (breit)', Math.abs((hinten[0] - vorn[0]) - 5.5) < 1e-9 && Math.abs(2 * rechts[1] - 16) < 1e-9);
   const K = F.stell();
   t('neun Koerper: A1..A4, B1..B4, Ball', K.map(k => k.owner).join(',') === '0,0,0,0,1,1,1,1,' + F.NEU);
   const nahe = (a, b) => Math.abs(a - b) < 1e-6;
@@ -116,12 +127,18 @@ const S4 = F.spawn4();
   t('keine Figur an der Bande: Oberflaeche > 3 BR von jeder Grenze', [0, 1, 2, 3, 4, 5, 6, 7].every(i => -F.boundSD(i) > 3 * F.BR));
   t('keine Figur direkt an der Torlinie (halfLen - |x| > 4 BR)', [0, 1, 2, 3, 4, 5, 6, 7].every(i => A.halfLen * F.BR - Math.abs(K[i].x) > 4 * F.BR));
   t('der Torkorridor bleibt frei: |x| > halfLen - 8 BR nur ausserhalb der lichten Torbreite', [0, 1, 2, 3, 4, 5, 6, 7].every(i => Math.abs(K[i].x) <= (A.halfLen - 8) * F.BR || Math.abs(K[i].y) > A.postInner * F.BR));
-  t('der Blocker steht 8.6 BR vor der Torlinie - kein Torwart auf der Linie', A.halfLen - S4[2][0] > 8);
+  t('die Hinterfigur steht 8.25 BR vor der Torlinie - kein Torwart auf der Linie', A.halfLen - S4[3][0] > 8, A.halfLen - S4[3][0]);
+  t('die Spitze haelt 2.47 BR Spalt zum Ball - kein Startkontakt, aber sofortiger Druck', S4[0][0] - 1 - 25 / 32 > 2 && S4[0][0] < 5, S4[0][0]);
   // Freie Bahn: kein Mitspieler naeher als 1.9 BR an der geraden Strecke Figur -> Ball.
-  const bahnFrei = (i) => { const a = K[i], b = K[8]; const L = Math.hypot(b.x - a.x, b.y - a.y);
-    return [0, 1, 2, 3].filter(j => j !== i).every(j => { const c = K[j]; const tt = Math.max(0, Math.min(1, ((c.x - a.x) * (b.x - a.x) + (c.y - a.y) * (b.y - a.y)) / (L * L)));
-      return Math.hypot(c.x - (a.x + tt * (b.x - a.x)), c.y - (a.y + tt * (b.y - a.y))) >= 1.9 * F.BR; }); };
-  t('jede der vier Figuren hat eine freie gerade Bahn zum Ball (keine steht hinter Mitspielern)', [0, 1, 2, 3].every(bahnFrei));
+  const bahn = (i, ziel) => { const a = K[i], b = K[ziel]; const L = Math.hypot(b.x - a.x, b.y - a.y);
+    return Math.min(...[0, 1, 2, 3].filter(j => j !== i && j !== ziel).map(j => { const c = K[j]; const tt = Math.max(0, Math.min(1, ((c.x - a.x) * (b.x - a.x) + (c.y - a.y) * (b.y - a.y)) / (L * L)));
+      return Math.hypot(c.x - (a.x + tt * (b.x - a.x)), c.y - (a.y + tt * (b.y - a.y))) / F.BR; })); };
+  t('Spitze und beide Seiten haben eine freie gerade Bahn zum Ball', [0, 1, 2].every(i => bahn(i, 8) >= 1.9), [0, 1, 2].map(i => bahn(i, 8)));
+  // Die Hinterfigur steht auf der Torachse HINTER der Spitze - das ist die Raute, kein Fehler:
+  // sie ist die Aufbaufigur und spielt ueber die eigene Spitze. Genau das wird hier festgehalten,
+  // damit es niemand spaeter fuer einen Fehler haelt und die Form aufbricht.
+  t('die Hinterfigur spielt ueber die eigene Spitze: deren Mitte liegt auf ihrer Bahn zum Ball', bahn(3, 8) < 0.1, bahn(3, 8));
+  t('... und ihre Bahn zur eigenen Spitze ist frei (Aufbau in einem Zug)', bahn(3, 0) >= 1.9, bahn(3, 0));
   t('placeBalls ist deterministisch', JSON.stringify(F.stell()) === JSON.stringify(K));
 }
 
@@ -138,19 +155,25 @@ abschnitt('2. Die alte (gespiegelte Vier-Koerper-)Aufstellung liefert dem vorder
 }
 
 // ══ 3. DIE NEUE AUFSTELLUNG ══════════════════════════════════════════════════════
-abschnitt('3. Die neue Aufstellung: hoechstens ein 2-Grad-Fenster, nicht kraftrobust, Blau == Rot');
+abschnitt('3. Die Raute: KEIN direkter Eroeffnungstreffer, auf keiner Kraftstufe, Blau == Rot');
 {
   const E = {}; const namen = ['A1', 'A2', 'A3', 'A4', 'B1', 'B2', 'B3', 'B4'];
-  for (let i = 0; i < 8; i++) E[i] = { 100: direkte(F, i, 1.00, 2), 70: direkte(F, i, 0.70, 2) };
+  // Vier Kraftstufen statt zwei: die Raute soll den ersten Zug auf KEINER Stufe verschenken.
+  const STUFEN = [1.00, 0.85, 0.70, 0.55];
+  for (let i = 0; i < 8; i++) { E[i] = {}; for (const tt of STUFEN) E[i][tt] = direkte(F, i, tt, 2); }
   for (let i = 0; i < 8; i++) {
-    t(namen[i] + ' bei 100 %: hoechstens ein direkter Treffer, Fenster <= 2 Grad', E[i][100].n <= 1 && E[i][100].fenster <= 2, { n: E[i][100].n, fenster: E[i][100].fenster });
-    t(namen[i] + ' bei 70 %: kein direkter Treffer', E[i][70].n === 0, E[i][70].n);
-    t(namen[i] + ': kein kraftrobuster Winkel, kein Eigentor', robust(E[i][100], E[i][70], 2) === 0 && E[i][100].eigentor === 0 && E[i][70].eigentor === 0);
-    t(namen[i] + ': die Figur erreicht den Ball im ersten Zug (Kontakt in mindestens 3 % der Winkel)', E[i][100].kontakt * 2 >= 0.03 * 360, E[i][100].kontakt);
+    t(namen[i] + ': kein direkter Eroeffnungstreffer auf irgendeiner Kraftstufe (100/85/70/55 %)', STUFEN.every(tt => E[i][tt].n === 0), STUFEN.map(tt => E[i][tt].n));
+    t(namen[i] + ': kein kraftrobuster Winkel, kein Eigentor', robust(E[i][1.00], E[i][0.70], 2) === 0 && STUFEN.every(tt => E[i][tt].eigentor === 0));
+    t(namen[i] + ': die Figur erreicht den Ball im ersten Zug (Kontakt in mindestens 5 % der Winkel)', E[i][1.00].kontakt * 2 >= 0.05 * 360, E[i][1.00].kontakt);
   }
-  t('Blau und Rot liefern Zahl fuer Zahl dieselbe Messung', [0, 1, 2, 3].every(i => JSON.stringify([E[i][100].n, E[i][100].fenster, E[i][100].kontakt, E[i][70].n]) === JSON.stringify([E[i + 4][100].n, E[i + 4][100].fenster, E[i + 4][100].kontakt, E[i + 4][70].n])));
-  const summe = [0, 1, 2, 3].reduce((s, i) => s + E[i][100].n, 0);
-  t('alle vier zusammen: hoechstens zwei direkte Treffer bei 100 % (vorher 16)', summe <= 2, summe);
+  t('Blau und Rot liefern Zahl fuer Zahl dieselbe Messung', [0, 1, 2, 3].every(i => STUFEN.every(tt => JSON.stringify([E[i][tt].n, E[i][tt].fenster, E[i][tt].kontakt, E[i][tt].eigentor]) === JSON.stringify([E[i + 4][tt].n, E[i + 4][tt].fenster, E[i + 4][tt].kontakt, E[i + 4][tt].eigentor]))));
+  const summe = STUFEN.reduce((s, tt) => s + [0, 1, 2, 3].reduce((q, i) => q + E[i][tt].n, 0), 0);
+  t('alle vier zusammen ueber alle vier Kraftstufen: null direkte Treffer (vorher 16 allein bei 100 %)', summe === 0, summe);
+  // Und die SCHMALE Raute zeigt, warum die Breite noetig ist: dort prallt der Ball an der
+  // gegenueberliegenden Seitenfigur des Gegners ab und laeuft ins Tor - kraftrobust.
+  const schmal = sandkasten('const FOOTBALL_TACTICAL4_SPAWN=[[5.00,0.00],[7.50,-4.50],[7.50,4.50],[10.00,0.00]];');
+  const s100 = direkte(schmal, 1, 1.00, 2), s85 = direkte(schmal, 1, 0.85, 2);
+  t('Gegenprobe: eine SCHMALE Raute (Seiten bei +-4.50) gibt der Seitenfigur einen kraftrobusten Treffer (100 % und 85 % auf demselben Winkel)', s100.n >= 1 && robust(s100, s85, 2) >= 1, { n100: s100.n, n85: s85.n, robust: robust(s100, s85, 2) });
 }
 
 // ══ 4. DIE ANDEREN MODI SIND UNBERUEHRT ══════════════════════════════════════════
@@ -159,6 +182,7 @@ abschnitt('4. Team 2v2 und Tactical 1v1 behalten ihre Aufstellungen; Vertraege i
   t('Team 2v2: FOOTBALL_TACTICAL_SPAWN unveraendert (6.40/2.80, 12.20/4.60)', /const FOOTBALL_TACTICAL_SPAWN=\{frontX:6\.40,frontY:2\.80,backX:12\.20,backY:4\.60\};/.test(HTML) && JSON.stringify(F.spawnTeam()) === JSON.stringify({ frontX: 6.4, frontY: 2.8, backX: 12.2, backY: 4.6 }));
   t('Tactical 1v1: FOOTBALL_TACTICAL_1V1_SPAWN unveraendert (7.50/4.60, 9.80/0.00)', /const FOOTBALL_TACTICAL_1V1_SPAWN=\{frontX:7\.50,frontY:4\.60,backX:9\.80,backY:0\.00\};/.test(HTML) && JSON.stringify(F.spawn1v1()) === JSON.stringify({ frontX: 7.5, frontY: 4.6, backX: 9.8, backY: 0 }));
   t('nur die Tactical-4-Ball-Aufstellung liest FOOTBALL_TACTICAL4_SPAWN; Team 2v2 liest die Vier-Koerper-Konstante allein', (HTML.match(/for\(const p of FOOTBALL_TACTICAL4_SPAWN\)/g) || []).length === 1 && (HTML.match(/const S=FOOTBALL_TACTICAL_SPAWN;/g) || []).length === 1);
+  t('die Reihenfolge der vier Paare ist die der Raute (Spitze, Seite, Seite, hinten) und placeBalls liest sie unveraendert', /for\(const p of FOOTBALL_TACTICAL4_SPAWN\)balls\.push\(mkBall\(cx\+sx\*p\[0\]\*BR,cy\+p\[1\]\*BR,s\)\);/.test(HTML));
   t('Arena, Tor, Abschusskurve, Zugformel und Frist sind nicht angefasst', /const FOOTBALL_ARENA=fbTwoGoalArena\(18\.00,12\.70,7\.65\);/.test(HTML) && /const FB_GOAL_ASSET_INNER=3\.560, FB_GOAL_ASSET_OUTER=5\.282;/.test(HTML) && /const FB_LAUNCH_SCALE=1\.26;/.test(HTML) && /function fbTacAktivSitz\(turn,g\)\{ return \(\(turn\|0\)\+\(g\|0\)\+1\)%2; \}/.test(HTML) && /const FB_V10_DEADLINE_MS=8000/.test(HTML));
 }
 
