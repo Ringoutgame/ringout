@@ -823,7 +823,7 @@ liegen untracked unter `artifacts/football-tactical-dual-prototype/`.
   `fbOnlineVorschau()`. Ring Out (`mode` ffa/online/bot): Ringplattform, Nebelband und Framing
   Zeichen fuer Zeichen unveraendert. Bis dahin zeigte der Hub bei Arena Football die Ringplattform mit
   drei Koerpern („Football-Shell-Preview").
-- **Ausgeliefert (2026-09-22):** Startseiten-Hero Pages `bffcb7c8` (Commit `a269cf9`), Live-Smoke 18/0, Emulator-Rejoin 19/0; davor Optik-Fix (Vorschau ohne Nebel, Tactical-Karten in der Familie) Pages `28b38a73` (Commit `62b3d8c`), Live-Smoke 17/0; davor Nachbesserung Bildkarten Pages `b1a5f906` (Commit `dcfae62`), Live-Smoke 17/0; zuvor Pages `cb634e99` (Commit `be90493`), Live-Smoke 18/0,
+- **Ausgeliefert (2026-09-22):** Arena Football als Hauptspiel Pages `8a361a51` (Commit `5c4eaae`), Live-Smoke 19/0, Emulator-Rejoin 26/0 (inkl. Ring-Out-Wiedereintritt); davor Startseiten-Hero Pages `bffcb7c8` (Commit `a269cf9`), Live-Smoke 18/0, Emulator-Rejoin 19/0; davor Optik-Fix (Vorschau ohne Nebel, Tactical-Karten in der Familie) Pages `28b38a73` (Commit `62b3d8c`), Live-Smoke 17/0; davor Nachbesserung Bildkarten Pages `b1a5f906` (Commit `dcfae62`), Live-Smoke 17/0; zuvor Pages `cb634e99` (Commit `be90493`), Live-Smoke 18/0,
   funktionale Live-Smokes ueber den neuen Weg Tactical 4-Ball 14/0 / Tactical 1v1 14/0; Rules unveraendert.
 - **Pruefstaende:** `tools/test_football_hub_preview.js` (98); Headless-Oberflaeche
   `artifacts/fb-menu-preview-01/bilder.js` (Desktop/Telefon, Bilder nur QA), Emulator-Raumfluss und
