@@ -843,6 +843,9 @@ body.r3d:has(#online.show) #menuInner{visibility:hidden}
 .obadge span{font-size:10px;font-weight:900;letter-spacing:.06em}
 /* Arena-Fenster der Online-Seite (nur 3D; 2D: schmaler Abstand) */
 .ohero{height:clamp(210px,37vh,340px);flex:0 0 auto}
+/* Arena Football: das Fenster ist hoeher, damit auch die grosse Fuenf-Tore-Arena der FFA nah
+   und vollstaendig im Bild steht (die Rahmung folgt der Fensterhoehe, s. fbHeroRect). */
+body.fbctx .ohero{height:clamp(250px,46vh,420px)}
 body:not(.r3d) .ohero{height:12px}
 .opanel{flex:1;display:flex;flex-direction:column;align-items:stretch;border-radius:26px 26px 0 0;border:1px solid rgba(122,142,180,.26);border-bottom:0;
   background:linear-gradient(180deg,rgba(16,24,41,.9),rgba(8,13,23,.975) 22%);backdrop-filter:blur(10px);
@@ -17039,7 +17042,16 @@ async function initR3D(){
     renderer.toneMapping=THREE.ACESFilmicToneMapping;   // Exposure kommt aus dem aktiven Environment-Profil
     renderer.outputColorSpace=THREE.SRGBColorSpace;
     const scene=new THREE.Scene();
-    scene.fog=new THREE.Fog(0x000000,2600,8000);            // Farbe setzt applyEnvProfile; Reichweite profilunabhaengig
+    const FOG_NEAR=2600,FOG_FAR=8000;                       // Nebelband der Szene (Match und Startseite)
+    scene.fog=new THREE.Fog(0x000000,FOG_NEAR,FOG_FAR);     // Farbe setzt applyEnvProfile; Reichweite profilunabhaengig
+    // VORSCHAU-NEBEL: im Arena-Fenster des Football-Onlinebildschirms steht die Kamera weiter
+    // weg als im Match (die Fensterhoehe rahmt), bei der Fuenf-Tore-Arena weit im Nebelband -
+    // die Arena wurde milchig und blass. Das Band beginnt dort erst hinter der Arena; die
+    // Breite des Bandes (Horizontdunst, Wolkenmeer) bleibt. Match und Startseite: unveraendert.
+    function fbVorschauNebel(an,dist){
+      const nah=an?Math.max(FOG_NEAR,dist*1.35):FOG_NEAR;
+      if(scene.fog.near!==nah){scene.fog.near=nah;scene.fog.far=nah+(FOG_FAR-FOG_NEAR);}
+    }
     const camera=new THREE.PerspectiveCamera(45,1,10,20000);
     // Licht: tiefe warme Sonne + kuehles Gegenlicht (Prototyp-Setup, LOGICAL-Skala).
     // Sonnenfarbe/-intensitaet/-richtung und Environment-Rotation liefert das aktive Profil.
@@ -18722,7 +18734,7 @@ async function initR3D(){
     let curFBK='';   // zuletzt gerahmte Football-Arenaform (s. fbFrameKey)
     // Das Arena-Fenster der Online-Seite (.ohero) in Viewport-Koordinaten: Hoehe und Mitte.
     // Ohne messbares Fenster (2D-Modus, Test) gilt das Menue-Mass (37 % der Bildhoehe).
-    const FB_VORSCHAU_ZOOM=0.92;   // Feinmass der Vorschau: knapp unter der Fensterhoehe, Tore frei
+    const FB_VORSCHAU_ZOOM=0.90;   // Feinmass der Vorschau: die Arena fuellt das Fenster, die Tore und die nahe Kante bleiben frei
     function fbHeroRect(vh){
       const el=document.querySelector('#online .ohero');
       const r=el?el.getBoundingClientRect():null;
@@ -18814,12 +18826,15 @@ async function initR3D(){
         // Parameter-Zweig wie das Menue-Framing darunter.
         const h=fbHeroRect(vh);
         geo={vw,vh,baseDist:Math.max(needX/(tanV*aspect),needZ*(vh/h.h)/tanV)*1.10*FB_VORSCHAU_ZOOM,ox:0,oy:0,os:vw,shx:0,shy:h.cy-vh/2};
+        fbVorschauNebel(true,geo.baseDist);
       }else if(menuVisible){
+        fbVorschauNebel(false);
         // Menue-Framing: Plattform gross und zentriert, Zentrum bei ~37% Bildhoehe
         // (Titel darueber, Karten/CTA darunter). Reiner Parameter-Zweig — das
         // Gameplay-Framing (else) und r3dCamMath bleiben unveraendert.
         geo={vw,vh,baseDist:baseDist*0.87,ox:0,oy:0,os:vw,shx:0,shy:-vh*0.13};
       }else{
+      fbVorschauNebel(false);
       const wr=cv.parentElement.getBoundingClientRect();
       // ox/oy/os stammen aus DERSELBEN Messung wie vw/vh - kein zweites Rect mehr. Der
       // Projektionsrahmen ist flaechenrelativ (Ursprung 0/0); den Versatz der Flaeche auf dem
