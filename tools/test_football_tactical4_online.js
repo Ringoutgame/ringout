@@ -1,8 +1,10 @@
 // ARENA FOOTBALL - TACTICAL 4-BALL 1V1 ONLINE: vier Figuren je Spieler, abwechselnde Zuege.
 //
-// Dieselbe Regel wie Tactical 1v1 - je Runde zieht EIN Sitz mit EINER eigenen Figur, der
-// andere traegt ein automatisches pass, wer am Zug ist folgt aus Runde und Generation -,
-// nur fuehrt jeder Spieler VIER Figuren. Neun Koerper: Sitz 0 fuehrt 0..3 (A1..A4), Sitz 1
+// Je Runde zieht EIN Sitz mit EINER eigenen Figur, der andere traegt ein automatisches pass,
+// wer am Zug ist folgt aus Runde und Generation (fbTacAktivSitz) - und jeder Spieler fuehrt
+// VIER Figuren. Seit 2026-09-22 ist das das Zugmodell NUR dieser Variante: Tactical 1v1 zieht
+// gleichzeitig (fbTacGleichzeitig), 4-Ball abwechselnd (fbTacAbwechselnd); die Gatter fragen
+// den Helfer, nie die Familienfrage fbTactical(). Neun Koerper: Sitz 0 fuehrt 0..3 (A1..A4), Sitz 1
 // fuehrt 4..7 (B1..B4), Koerper 8 ist der neutrale Ball. Jede der vier eigenen Figuren ist in
 // jedem eigenen Zug waehlbar, auch dieselbe wie im Zug davor; es gibt keine Rotation.
 //
@@ -173,7 +175,7 @@ abschnitt('5. Eingabegatter: nur der Sitz am Zug, nur eine eigene Figur, kein zw
     'function inputLocked(){ return false; } function r3dInputBlocked(){ return false; }',
     'function aliveCount(o){ return 4; } function fbV9EingabeOffen(){ return true; }',
     'function fbShared(){ return false; } function fbOffen(){ return []; } function fbElim4(){ return false; }',
-    fn('fbTacAktivSitz'), fn('fbTacOnline'), fn('fbTacAmZug'),
+    fn('fbTacAktivSitz'), fn('fbTacOnline'), fn('fbTacAbwechselnd'), fn('fbTacAmZug'),   // das Zugmodell: abwechselnd nur hier
     fn('whoCanAim'), fn('canCommitInput'),
     'const BR=16; let fmt="single";',
     g(/function teamCap\(\)\{[^\n]*/, 'teamCap'),
@@ -216,7 +218,7 @@ function sandkasten() {
     g(/const FB_V9_RAUS=[^\n]*/, 'FB_V9_RAUS'),
     g(/const FB_V9_NULLZUG=[^\n]*/, 'FB_V9_NULLZUG'),
     fn('fbV9Sitze'), fn('fbV9IdxGehoert'), fn('fbV9AcceptedOk'), fn('fbV9Wirken'),
-    fn('fbTacAktivSitz'), fn('fbTacOnline'),
+    fn('fbTacAktivSitz'), fn('fbTacOnline'), fn('fbTacAbwechselnd'),
     'let online=true, turnNo=0, gen=1, phase="aim", footballWinner=null;',
     'function fbV11Raum(){ return true; } let fbV11Passiv=[]; let fbElimActive=[true,true];',
     'function footballElimEliminate(){ throw new Error("Elimination im Tactical"); }',
@@ -326,7 +328,10 @@ abschnitt('9. Vertraege im Quelltext, Hub, Lobby, Rules');
   }
   const rules = require('fs').readFileSync(require('path').join(__dirname, '..', 'firebase.rules.json'), 'utf8');
   t('die Rules kennen den Tactical-4-Ball-Raum (v11, Modus, Sitzzahl 2)', /newData\.val\(\) === 'tactical4'/.test(rules) && /newData\.val\(\) === 2 && newData\.parent\(\)\.child\('mode'\)\.val\(\) === 'tactical4'/.test(rules));
-  t('die Rules erzwingen die Zugformel am Commit auch fuer tactical4', /\(root\.child\('rooms'\)\.child\(\$code\)\.child\('config\/mode'\)\.val\(\) !== 'tactical' && root\.child\('rooms'\)\.child\(\$code\)\.child\('config\/mode'\)\.val\(\) !== 'tactical4'\) \|\| newData\.child\('k'\)\.val\(\) !== 'move' \|\|/.test(rules));
+  // Seit 2026-09-22 ist tactical4 der EINZIGE Modus mit Zuggatter am Commit: Tactical 1v1
+  // schiesst gleichzeitig, und die Rules nennen das Gatter deshalb nur noch fuer tactical4.
+  t('die Rules erzwingen die Zugformel am Commit fuer tactical4 - und nur dort', /\(root\.child\('rooms'\)\.child\(\$code\)\.child\('config\/mode'\)\.val\(\) !== 'tactical4' \|\| newData\.child\('k'\)\.val\(\) !== 'move' \|\|/.test(rules)
+    && !/!== 'tactical' && root\.child\('rooms'\)\.child\(\$code\)\.child\('config\/mode'\)\.val\(\) !== 'tactical4'\) \|\| newData\.child\('k'\)/.test(rules));   // das alte Doppelgatter (tactical UND tactical4) ist fort
   t('die Rules erzwingen den Koerperbesitz an der Enthuellung: Sitz 0 <= 3, Sitz 1 4..7', /\(\$seat === '0' && newData\.val\(\) <= 3\) \|\| \(\$seat === '1' && newData\.val\(\) >= 4 && newData\.val\(\) <= 7\)/.test(rules));
   t('... und die Obergrenze 5 der uebrigen Modi bleibt', /!== 'tactical4' && newData\.val\(\) <= 5 && newData\.val\(\) \+ '' === \$seat/.test(rules));
 }

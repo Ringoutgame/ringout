@@ -2603,7 +2603,7 @@ en:{tagline:'PULL BACK · RELEASE · KNOCK THEM OUT',chip:'FEATURED',
   hostTag:'HOST',fbLobbyHow1:'Pull your sphere → release → wait for the others.',fbLobbyHow2:'All players shoot at the same time.',
   fbReadyState:'READY',fbTimeUp:'TIME UP',
   fbYourTurn:'YOUR TURN',fbOppTurn:"OPPONENT'S TURN",
-  fbLobbyTacHow1:'Each player leads two figures. Per turn, one player moves one of them.',
+  fbLobbyTacHow1:'Each player leads two figures. Every round, both players move one of them at the same time.',
   fbLobbyTac4How1:'Each player leads four figures. Per turn, one player moves any one of them.',fbLobbyTacHow2:'Turns alternate. Blue opens.',
   createRoom:'Create room',join:'Join',enterCode:'ENTER CODE',back:'↩ Back',yourCode:'YOUR CODE',waitMate:'Waiting for opponent…',lobby:'LOBBY',lobbyGo:'▶ Start',
   leaveT:'Leave online match?',leaveS:'Your opponent can’t continue without you.',leaveNo:'Cancel',leaveYes:'Leave match',
@@ -2703,7 +2703,7 @@ de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'FEATURED',
   hostTag:'HOST',fbLobbyHow1:'Zieh deine Kugel → loslassen → auf die anderen warten.',fbLobbyHow2:'Alle Spieler schießen gleichzeitig.',
   fbReadyState:'BEREIT',fbTimeUp:'ZEIT ABGELAUFEN',
   fbYourTurn:'DEIN ZUG',fbOppTurn:'GEGNER AM ZUG',
-  fbLobbyTacHow1:'Jeder Spieler führt zwei Figuren. Pro Zug bewegt ein Spieler eine davon.',
+  fbLobbyTacHow1:'Jeder Spieler führt zwei Figuren. In jeder Runde bewegen beide gleichzeitig eine davon.',
   fbLobbyTac4How1:'Jeder Spieler führt vier Figuren. Pro Zug bewegt ein Spieler eine beliebige davon.',fbLobbyTacHow2:'Die Züge wechseln sich ab. Blau beginnt.',
   createRoom:'Raum erstellen',join:'Beitreten',enterCode:'CODE EINGEBEN',back:'↩ Zurück',yourCode:'DEIN CODE',waitMate:'Warte auf Gegner…',lobby:'LOBBY',lobbyGo:'▶ Start',
   leaveT:'Online-Match verlassen?',leaveS:'Dein Gegner kann dann nicht weiterspielen.',leaveNo:'Abbrechen',leaveYes:'Match verlassen',
@@ -2803,7 +2803,7 @@ tr:{tagline:'GERİ ÇEK · BIRAK · DIŞARI İT',chip:'FEATURED',
   hostTag:'HOST',fbLobbyHow1:'Topunu çek → bırak → diğerlerini bekle.',fbLobbyHow2:'Tüm oyuncular aynı anda vurur.',orLbl:'VEYA',refresh:'YENİLE',
   fbReadyState:'HAZIR',fbTimeUp:'SÜRE DOLDU',
   fbYourTurn:'SIRA SENDE',fbOppTurn:'SIRA RAKİPTE',
-  fbLobbyTacHow1:'Her oyuncu iki figür yönetir. Her turda bir oyuncu birini oynatır.',
+  fbLobbyTacHow1:'Her oyuncu iki figür yönetir. Her turda iki oyuncu da aynı anda birini oynatır.',
   fbLobbyTac4How1:'Her oyuncu dört figür yönetir. Her turda bir oyuncu istediği birini oynatır.',fbLobbyTacHow2:'Sıra dönüşümlü. Mavi başlar.',
   createRoom:'Oda kur',join:'Katıl',enterCode:'KOD GİR',back:'↩ Geri',yourCode:'KODUN',waitMate:'Rakip bekleniyor…',lobby:'LOBİ',lobbyGo:'▶ Başlat',
   leaveT:'Online maçtan çıkılsın mı?',leaveS:'Rakibin sensiz devam edemez.',leaveNo:'İptal',leaveYes:'Maçtan çık',
@@ -4985,9 +4985,10 @@ function inputLocked(){return (collapseActive()&&collapseState==='expired')||(ty
 // Online bleibt unberuehrt — dort ist die DB der Write-once-Arbiter (s. commit()).
 function canCommitInput(who){
   if(typeof r3dInputBlocked==='function'&&r3dInputBlocked())return false;   // Context-Recovery: kein lokaler Commit, auch online nicht
-  // TACTICAL ONLINE: nur der Sitz am Zug bringt einen Zug hervor. Zweiter Riegel neben
-  // whoCanAim - die Stand-Taste und jeder andere Weg hierher laufen auch durch ihn.
-  if(online&&typeof fbTacOnline==='function'&&fbTacOnline()&&!fbTacAmZug(who))return false;
+  // TACTICAL 4-BALL ONLINE (abwechselnd): nur der Sitz am Zug bringt einen Zug hervor.
+  // Zweiter Riegel neben whoCanAim - die Stand-Taste und jeder andere Weg hierher laufen
+  // auch durch ihn. Tactical 1v1 ist gleichzeitig und laeuft hier wie die Lebensregel.
+  if(online&&typeof fbTacAbwechselnd==='function'&&fbTacAbwechselnd()&&!fbTacAmZug(who))return false;
   if(online)return true;
   if(phase!=='aim')return false;
   if(inputLocked())return false;
@@ -5905,9 +5906,10 @@ function devAimBlock(){
 }
 function whoCanAim(){if(r3dOrbit||(typeof r3dInputBlocked==='function'&&r3dInputBlocked()))return -1;if(phase!=='aim')return -1;
   if(inputLocked())return -1;   // Timer abgelaufen: kein neuer Zug, bis der Collapse ausgewertet ist
-  // TACTICAL ONLINE: abwechselnde Zuege - der Gegner sieht die Arena, greift aber nichts.
-  if(online&&typeof fbTacOnline==='function'&&fbTacOnline()&&!fbTacAmZug(myPlayer))return -1;
-  if(online)return (aimSet[myPlayer]||!aliveCount(myPlayer)||(typeof fbV9EingabeOffen==='function'&&!fbV9EingabeOffen()))?-1:myPlayer;if(mode==='bot')return aimSet[0]?-1:0;
+  // TACTICAL 4-BALL ONLINE: abwechselnde Zuege - der Gegner sieht die Arena, greift aber nichts.
+  // (Tactical 1v1 ist gleichzeitig: dort gilt allein aimSet, wie in der Lebensregel.)
+  if(online&&typeof fbTacAbwechselnd==='function'&&fbTacAbwechselnd()&&!fbTacAmZug(myPlayer))return -1;
+  if(online)return (aimSet[myPlayer]||!aliveCount(myPlayer)||(typeof fbV9EingabeOffen==='function'&&!fbV9EingabeOffen())||(typeof fbV9EigenAbgegeben==='function'&&fbV9EigenAbgegeben()))?-1:myPlayer;if(mode==='bot')return aimSet[0]?-1:0;
   // Gemeinsames Fenster: gezielt werden darf, solange irgendein aktiver Spieler offen
   // ist; bevorzugt bleibt der, den das HUD gerade fuehrt.
   if(typeof fbShared==='function'&&fbShared()){
@@ -8674,37 +8676,53 @@ function fbTacticalRingLevel(i){
   if(phase==='reveal')return (commitIdx[0]===i||commitIdx[1]===i)?FB_RING_SELECTED:0;
   if(phase!=='aim')return 0;
   if(typeof inputLocked==='function'&&inputLocked())return 0;
-  // Online: der Gegner am Zug bekommt keinen Ring - er kann nichts waehlen.
-  if(online&&typeof fbTacOnline==='function'&&fbTacOnline()&&!fbTacAmZug(curAimer))return 0;
+  // Online, abwechselnd (4-Ball): der Sitz, der nicht am Zug ist, bekommt keinen Ring - er
+  // kann nichts waehlen. Gleichzeitig (1v1) traegt jeder Client seine eigenen Figuren.
+  if(online&&typeof fbTacAbwechselnd==='function'&&fbTacAbwechselnd()&&!fbTacAmZug(curAimer))return 0;
+  // Online: nach der eigenen Abgabe gibt es nichts mehr zu waehlen - kein Ring.
+  if(online&&typeof fbV9EigenAbgegeben==='function'&&fbV9EigenAbgegeben())return 0;
   if(aimSet[curAimer]||b.owner!==curAimer)return 0;
   return fbSel[curAimer]===i?FB_RING_SELECTED:FB_RING_SELECTABLE;
 }
-// ══ TACTICAL 1V1 ONLINE — ABWECHSELNDE ZUEGE ═══════════════════════════════════════
-// Online ist Tactical ein v11-Raum mit GENAU zwei Sitzen. Sitz 0 fuehrt B1/B2 (Koerper 0
-// und 1), Sitz 1 fuehrt R1/R2 (Koerper 2 und 3), Koerper 4 ist der neutrale Ball - dieselbe
-// Aufstellung, die placeBalls fuer das lokale Tactical stellt. `owner` IST der Sitz.
+// ══ TACTICAL ONLINE — ZWEI VARIANTEN, ZWEI ZUGMODELLE ═════════════════════════════════
+// Online ist Tactical ein v11-Raum mit GENAU zwei Sitzen. Sitz 0 fuehrt Blau, Sitz 1 Rot
+// (Tactical 1v1: Koerper 0/1 und 2/3, Ball 4; Tactical 4-Ball: 0..3 und 4..7, Ball 8) -
+// dieselbe Aufstellung, die placeBalls fuer das lokale Spiel stellt. `owner` IST der Sitz.
 //
 // Die Rundenmaschine ist woertlich die der Lebensregel: Rundenbeginn d, Terminal je Sitz in
 // c, Enthuellung r, Abschluss z, Bereitschaft q, Achtsekundenfrist, Praesenz und Rueckkehr.
-// Tactical fuegt ihr genau EINE Regel hinzu: je Runde zieht EIN Sitz. Der andere traegt
-// als Terminal ein `pass` - automatisch, nicht als Handlung eines Menschen -, damit die
-// Runde ohne zweiten Spielerzug schliesst. Die Rules erzwingen dieselbe Regel: ein `move`
-// aus dem Slot des Sitzes, der NICHT am Zug ist, wird abgewiesen, und eine Enthuellung darf
-// nur einen Koerper des eigenen Sitzes nennen.
+// Die beiden Varianten unterscheiden sich seit 2026-09-22 im ZUGMODELL - und nur dort:
 //
-// WER AM ZUG IST, steht in keinem Feld: es folgt aus Rundennummer und Generation. Sitz 0
-// eroeffnet das erste Match (Generation 1); jede Runde wechselt die Seite, und jedes
-// Rematch (naechste Generation) wechselt, wer eroeffnet. Nach einem Tor gilt dieselbe
-// Regel - es zieht, wer NICHT geschossen hat, also im Regelfall die Seite, die das Tor
-// hinnehmen musste. Beide Clients und die Rules rechnen dieselbe Formel.
+//   TACTICAL 1V1 (fbTacGleichzeitig):  GLEICHZEITIG. Beide Sitze entscheiden in jeder Runde
+//     zur selben Zeit; jeder waehlt genau EINE seiner zwei Figuren (fbSel) und gibt genau
+//     EINEN Zug ab. Stehen beide Terminals, loest die Runde sofort auf; fehlt eines, schliesst
+//     die Achtsekundenfrist es kanonisch (late/skip), wie in der Lebensregel und in Team 2v2.
+//     Es gibt KEINEN aktiven Sitz, keinen Eroeffner, keinen Wechsel nach einem Tor oder
+//     Rematch. Beide Zuege starten in DERSELBEN Simulation; alle fuenf Koerper kollidieren.
+//   TACTICAL 4-BALL 1V1 (fbTacAbwechselnd):  ABWECHSELND. Je Runde zieht EIN Sitz; der
+//     andere traegt als Terminal ein `pass` - automatisch, nicht als Handlung eines Menschen.
+//     Die Rules erzwingen dieselbe Regel: ein `move` aus dem Slot des Sitzes, der NICHT am
+//     Zug ist, wird abgewiesen. WER AM ZUG IST, steht in keinem Feld: es folgt aus Runden-
+//     nummer und Generation (fbTacAktivSitz). Sitz 0 eroeffnet das erste Match (Generation
+//     1); jede Runde wechselt die Seite, jedes Rematch wechselt, wer eroeffnet.
+//
+// Gemeinsam bleibt der BESITZ (Besitzhelfer der Rundenmaschine, Rules an der Enthuellung): jeder Sitz nennt
+// nur einen eigenen Koerper, nie den Ball. fbTactical() bleibt die Familienfrage (Besitz,
+// Auswahl, Griffweite, Schilder); das ZUGMODELL fragt ausschliesslich fbTacAbwechselnd() bzw.
+// fbTacGleichzeitig(). Wer es mit fbTactical() beantwortet, koppelt die Varianten wieder.
 function fbTacAktivSitz(turn,g){ return ((turn|0)+(g|0)+1)%2; }
 // Raumfrage (Lobby, Anlage, Beitritt): ist DIESER Onlineraum ein Tactical-Raum?
 function fbTacRaum(){ return fbOnlineRoom()&&(fbLobbyMode()===FB_ONLINE_MODE_TACTICAL||fbLobbyMode()===FB_ONLINE_MODE_TACTICAL4); }
-// Spielfrage (Match): laeuft hier gerade Tactical online?
+// Spielfrage (Match): laeuft hier gerade Tactical online (eine der beiden Varianten)?
 function fbTacOnline(){ return !!online&&fbTactical(); }
+// Das Zugmodell: abwechselnd nur in Tactical 4-Ball, gleichzeitig in Tactical 1v1.
+function fbTacAbwechselnd(){ return fbTacOnline()&&fbTac4(); }
+function fbTacGleichzeitig(){ return fbTacOnline()&&!fbTac4(); }
+// Nur im abwechselnden Modell gibt es einen Sitz am Zug - und einen passiven Sitz.
 function fbTacAmZug(seat){ return fbTacAktivSitz(turnNo,gen)===seat; }
-// Ist dieser Sitz in der Runde des Zusammenhangs der PASSIVE (nicht am Zug)?
-function fbTacPassivRunde(ctx){ return fbTacOnline()&&!!ctx&&fbTacAktivSitz(ctx.turn,ctx.gen)!==ctx.seat; }
+// Ist dieser Sitz in der Runde des Zusammenhangs der PASSIVE (nicht am Zug)? Im
+// gleichzeitigen Modell ist niemand passiv: beide handeln, oder die Frist schliesst.
+function fbTacPassivRunde(ctx){ return fbTacAbwechselnd()&&!!ctx&&fbTacAktivSitz(ctx.turn,ctx.gen)!==ctx.seat; }
 // Welche Football-Variante gehoert zu einem Onlinemodus? Genau zwei Antworten: Tactical
 // fuer den Tactical-Raum, sonst die Elimination (Lebensregel). Drei Einstiege fragen hier -
 // Anlage/Einstieg, Beitritt, Rueckkehr - und keiner setzt die Variante mehr selbst.
@@ -10534,7 +10552,7 @@ function renderLobby(p){
     const t2=fmt===FB_ONLINE_FMT&&fbLobbyMode()===FB_ONLINE_MODE_TEAM2;   // gleichzeitig wie die Lebensregel
     infoEl.style.display=(lives||tac||t2)?'':'none';
     $('lobbyInfo1').textContent=T(tac4?'fbLobbyTac4How1':(tac?'fbLobbyTacHow1':'fbLobbyHow1'));
-    $('lobbyInfo2').textContent=T(tac?'fbLobbyTacHow2':'fbLobbyHow2');
+    $('lobbyInfo2').textContent=T(tac4?'fbLobbyTacHow2':'fbLobbyHow2');   // abwechselnd erklaert nur 4-Ball; 1v1 schiesst gleichzeitig
   }
   // TEAM DUEL: Team-Header einblenden und Namenszeilen per CSS order gruppieren —
   // Blau (Seats 0,2) unter den Blau-Header (order 0), Rot (1,3) unter Rot (order 3).
@@ -12929,9 +12947,10 @@ function fbV9LebenBereit(turn){
   fbV9LebenStop();
   const ctx=fbV9LebenCtx(turn);
   if(!fbV9CtxOk(ctx))return null;
-  // TACTICAL: der Sitz, der in dieser Runde NICHT am Zug ist, traegt sein `pass` von
-  // Anfang an - es ist keine Handlung eines Menschen, sondern der Vertrag der Runde.
-  // Die Rundenmaschine baut daraus dasselbe Terminal wie bei jedem anderen pass.
+  // TACTICAL 4-BALL (abwechselnd): der Sitz, der in dieser Runde NICHT am Zug ist, traegt
+  // sein `pass` von Anfang an - es ist keine Handlung eines Menschen, sondern der Vertrag
+  // der Runde. Die Rundenmaschine baut daraus dasselbe Terminal wie bei jedem anderen pass.
+  // In Tactical 1v1 (gleichzeitig) ist niemand passiv: fbTacPassivRunde ist dort false.
   const passiv=(typeof fbTacPassivRunde==='function')&&fbTacPassivRunde(ctx);
   const L={sid:onlineSessionId,room:roomCode,gen:gen,turn:turn,seat:myPlayer,
            ctx:ctx,stufe:'BEREIT',bereit:null,lauf:null,aktion:passiv?{pass:true}:null,
@@ -12978,6 +12997,21 @@ function fbV9LebenFortsetzen(turn){
 function fbV9EingabeOffen(){
   const L=fbV9Leben;
   return !(fbV9LebenAktuell(L)&&L.lauf&&L.lauf.eigenUnbekannt);
+}
+// Hat DIESER Sitz seine Handlung fuer die laufende Runde schon abgegeben? Dann ist die Eingabe
+// zu - auch bevor der Raum den Zug zurueckspiegelt (online kippt aimSet erst mit der
+// angewandten Zugmenge). Bis 2026-09-22 fiel das nur in den gleichzeitigen Modi auf: nach
+// BEREIT liess sich die eigene Figur noch einmal ziehen, die Geste lief ins Leere (die
+// Rundenmaschine nimmt je Runde genau eine Handlung, der Slot im Raum ist write-once). Seit
+// Tactical 1v1 gleichzeitig zieht, mit zwei waehlbaren Figuren, ist das ein sichtbares
+// Versprechen - deshalb schliesst die Eingabe mit der Abgabe. Zweiter Riegel bleiben
+// Rundenmaschine und Rules; hier wird nur die Geste zurueckgehalten.
+function fbV9EigenAbgegeben(){
+  const L=fbV9Leben;
+  if(!fbV9LebenAktuell(L))return false;
+  if(L.aktion)return true;                       // gemerkt, wird bei der Uebergabe mitgegeben
+  const lauf=L.lauf;
+  return !!(lauf&&(lauf.terminal||lauf.commitFertig));   // an die Ablaufsteuerung uebergeben
 }
 // ── PASS 04: WAS DAS HUD UEBER DIESE RUNDE WEISS ────────────────────────────
 // Eine einzige Auskunft, gebildet aus GENAU DEN KNOTEN, aus denen auch die
@@ -13052,10 +13086,11 @@ function fbV9HudPaint(){
   // Entscheidung - und deshalb auch nichts anzusagen.
   const sichtbar=!!h&&phase==='aim'&&footballWinner===null&&!menuVisible
                  &&!(typeof inputLocked==='function'&&inputLocked());
-  // TACTICAL: abwechselnde Zuege. Die Zeile sagt, WER dran ist - fuer den Gegner ist das
-  // die ganze Auskunft (er hat nichts zu entscheiden), fuer den Sitz am Zug steht sie vor
-  // der Restzeit. Derselbe eine Zweig, dieselbe Zeile, kein zweites Element.
-  const tac=(typeof fbTacOnline==='function')&&fbTacOnline();
+  // TACTICAL 4-BALL: abwechselnde Zuege. Die Zeile sagt, WER dran ist - fuer den Gegner ist
+  // das die ganze Auskunft (er hat nichts zu entscheiden), fuer den Sitz am Zug steht sie vor
+  // der Restzeit. Derselbe eine Zweig, dieselbe Zeile, kein zweites Element. Tactical 1v1 ist
+  // gleichzeitig und bekommt dieselbe Zeile wie die Lebensregel (Restzeit, BEREIT, ZEIT UM).
+  const tac=(typeof fbTacAbwechselnd==='function')&&fbTacAbwechselnd();
   let vorsatz='';
   if(sichtbar&&tac&&!fbTacAmZug(myPlayer)){ txt=T('fbOppTurn'); klasse='wait'; }
   else if(sichtbar){
@@ -13081,12 +13116,16 @@ function fbV9HudPaint(){
   // Sitze ihr Terminal schon abgegeben haben - "2/4". Die Zahl steht in der Chipleiste
   // (je Chip READY, aus dem Raum) UND als Zaehler hinter dem Zustand; die Chipleiste wird
   // nur neu gezeichnet, wenn sich die Bereitschaft wirklich aendert.
+  // TACTICAL 1V1 (gleichzeitig, zwei Sitze) bekommt denselben Zaehler - "1/2" sagt, ob der
+  // Gegner schon festgelegt hat, ohne Richtung oder Kraft zu verraten (die stehen erst mit
+  // der Enthuellung im Raum). Nur Team 2v2 hat daneben die Chipleiste.
   let zaehler='';
-  if(typeof fbTeam2==='function'&&fbTeam2()){
+  const team2=(typeof fbTeam2==='function')&&fbTeam2();
+  if(team2||((typeof fbTacGleichzeitig==='function')&&fbTacGleichzeitig())){
     const offen=sichtbar&&h&&h.gesamt>0;
-    const sig=offen?h.sitzBereit.join(''):'';
+    const sig=(team2&&offen)?h.sitzBereit.join(''):'';
     if(offen)zaehler=h.bereit+'/'+h.gesamt;
-    if(sig!==fbTeam2BereitSig){
+    if(team2&&sig!==fbTeam2BereitSig){
       fbTeam2BereitSig=sig;
       if(typeof fbTeam2BereitOnline!=='undefined')fbTeam2BereitOnline=offen?h.sitzBereit:null;
       if(typeof renderTeam2Bar==='function')renderTeam2Bar();
@@ -13125,7 +13164,7 @@ function fbV9HudPaint(){
 // entscheidet die Spieleingabe, und die Bruecke dorthin ist V9.4D. Bis dahin bleibt
 // dies der einzige Weg, eine Handlung zu setzen - der Pruefstand benutzt ihn.
 // Nach einem Neuladen in eine OFFENE Runde: der eigene Slot ist gerade bekannt geworden.
-// Ist er leer und gehoert diese Runde in Tactical dem Gegner, geht das vertragliche `pass`
+// Ist er leer und gehoert diese Runde in Tactical 4-Ball dem Gegner, geht das vertragliche `pass`
 // jetzt hinaus - genau einmal, ueber denselben Riegel wie jede andere Handlung. Steht dort
 // schon ein Terminal, hat Schritt (2a) es uebernommen, und hier passiert nichts.
 function fbV9EigenBekannt(lauf){
@@ -13370,11 +13409,12 @@ function fbV9Wirken(menge,cap){
   // (3) Nur gueltige Zuege, und zwar EXAKT die verifizierten Werte: keine erneute
   //     Begrenzung, keine Zufallskomponente, keine Zielhilfe.
   resetCommits();
-  // TACTICAL: in dieser Runde zieht genau EIN Sitz. Ein formal gueltiger Abschuss aus dem
-  // anderen Slot ist kein Zug - die Rules weisen ihn ab, und hier wird er ein zweites Mal
-  // nicht gestartet, damit beide Clients auch dann dasselbe rechnen, wenn ein Server
-  // einmal anders entschiede als erwartet.
-  const tacAktiv=(typeof fbTacOnline==='function'&&fbTacOnline())?fbTacAktivSitz(turnNo,gen):-1;
+  // TACTICAL 4-BALL (abwechselnd): in dieser Runde zieht genau EIN Sitz. Ein formal gueltiger
+  // Abschuss aus dem anderen Slot ist kein Zug - die Rules weisen ihn ab, und hier wird er
+  // ein zweites Mal nicht gestartet, damit beide Clients auch dann dasselbe rechnen, wenn
+  // ein Server einmal anders entschiede als erwartet. Tactical 1v1 ist gleichzeitig: dort
+  // starten beide gueltigen Zuege in derselben Simulation (tacAktiv bleibt -1).
+  const tacAktiv=(typeof fbTacAbwechselnd==='function'&&fbTacAbwechselnd())?fbTacAktivSitz(turnNo,gen):-1;
   for(let k=0;k<kap;k++){
     const e=menge[k];
     if(e.kind!=='move'||e.status!==FB_V9_VALID)continue;

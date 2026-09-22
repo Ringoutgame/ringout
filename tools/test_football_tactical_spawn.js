@@ -75,6 +75,24 @@ function sandkasten(spawnZeile) {
           if(balls.every(x=>Math.hypot(x.vx,x.vy)<=curST()))break;
         }
         return {tor,seite,kontakte};
+      },
+      // ZWEI Abschuesse in DERSELBEN Simulation (das Zugmodell von Tactical 1v1 seit 2026-09-22):
+      // Figur ia (Blau) und ib (Rot) starten zugleich; gemessen wird, ob und fuer wen ein Tor
+      // faellt, und ob die beiden NICHT gewaehlten Figuren dabei bewegt wurden (sie bleiben
+      // physisch - nichts ist eingefroren).
+      lauf2(ia,ga,ta,ib,gb,tb,n){
+        placeBalls(); phase='sim'; fbGoalState='play'; fbGoalTick=0; footballWinner=null; score=[0,0];
+        const setz=(idx,grad,tt)=>{ const b=balls[idx]; const pull=tt*maxPull(); const mul=fbLaunchMul(pull); const r=grad*Math.PI/180; b.vx=Math.cos(r)*pull*mul; b.vy=Math.sin(r)*pull*mul; };
+        setz(ia,ga,ta); setz(ib,gb,tb);
+        const ruhig=[0,1,2,3].filter(i=>i!==ia&&i!==ib).map(i=>({i,x:balls[i].x,y:balls[i].y}));
+        let tor=false, seite=-1;
+        for(let k=0;k<n;k++){
+          stepSim();
+          if(fbGoalState!=='play'){ tor=true; seite=score[0]>0?0:(score[1]>0?1:-1); break; }
+          if(balls.every(x=>Math.hypot(x.vx,x.vy)<=curST()))break;
+        }
+        const bewegt=ruhig.filter(r=>Math.hypot(balls[r.i].x-r.x,balls[r.i].y-r.y)>0.5).length;
+        return {tor,seite,bewegt};
       }
     };`
   ].join('\n'))();
@@ -154,6 +172,64 @@ abschnitt('4. Vertraege im Quelltext');
   t('die Vier-Koerper-Konstante ist unveraendert (Team 2v2 / Tactical 4-Ball nicht betroffen)', /const FOOTBALL_TACTICAL_SPAWN=\{frontX:6\.40,frontY:2\.80,backX:12\.20,backY:4\.60\};/.test(HTML));
   t('Arena, Tor und Abschusskurve sind nicht angefasst', /const FOOTBALL_ARENA=fbTwoGoalArena\(18\.00,12\.70,7\.65\);/.test(HTML) && /const FB_GOAL_ASSET_INNER=3\.560, FB_GOAL_ASSET_OUTER=5\.282;/.test(HTML) && /const FB_LAUNCH_SCALE=1\.26;/.test(HTML));
   t('die Zugformel und die Frist sind nicht angefasst', /function fbTacAktivSitz\(turn,g\)\{ return \(\(turn\|0\)\+\(g\|0\)\+1\)%2; \}/.test(HTML) && /const FB_V10_DEADLINE_MS=8000/.test(HTML));
+}
+
+// ══ 5. GLEICHZEITIGE EROEFFNUNG ══════════════════════════════════════════════════
+// Seit 2026-09-22 schiessen in Tactical 1v1 BEIDE in derselben Runde - auch in der ersten.
+// Die Analyse in Abschnitt 3 galt dem alleinigen Eroeffnungsschuss (der Gegner steht still).
+// Hier wird begrenzt gesucht, ob das ZUSAMMENSPIEL zweier Startvektoren ein neues Geschenk
+// erzeugt. Raster je Seite: beide Figuren, 10-Grad-Schritt, 100 % und 70 % Kraft (144 Schuesse
+// je Seite, 20 736 Paare auf der echten Physik; das Raster ist spiegelsymmetrisch). Gemessen wird je Schuss der Anteil der
+// gegnerischen Antworten, gegen die er trifft - getrennt danach, WELCHE Figur der Gegner
+// bewegt. Denn das ist der strukturelle Befund dieser Aufstellung: die hintere Figur (B2/R2)
+// steht in der Schusslinie der gegnerischen hinteren Figur. Bleibt sie stehen, ist die Linie
+// zu; wird sie bewegt, ist sie offen. Das ist kein Freitor, sondern die Entscheidung "wer
+// seine hintere Figur bewegt, oeffnet dem Gegner die Mitte" - fuer beide Seiten gleich.
+// Bewiesen wird: kein garantiertes Tor; kein Tor gegen einen Gegner, der seine hintere Figur
+// stehen laesst; Blau und Rot Zahl fuer Zahl gleich; beide gerade hintere Schuesse zugleich
+// ergeben kein Tor; die nicht gewaehlten Figuren bleiben physisch.
+abschnitt('5. Gleichzeitige Eroeffnung: kein Freitor - nur wer die hintere Figur bewegt, oeffnet die Mitte');
+{
+  // Das Raster ist spiegelsymmetrisch (180 - k*10 liegt wieder auf dem Raster): nur so ist der
+  // Vergleich Blau/Rot Zahl fuer Zahl moeglich - bei 8 Grad laege Rots gerader Schuss (180) daneben.
+  const SCHRITT = 10, N = 1200;
+  const blau = [], rot = [];
+  for (const idx of [0, 1]) for (let gr = 0; gr < 360; gr += SCHRITT) for (const tt of [1.00, 0.70]) blau.push({ idx, gr, tt });
+  for (const idx of [2, 3]) for (let gr = 0; gr < 360; gr += SCHRITT) for (const tt of [1.00, 0.70]) rot.push({ idx, gr, tt });
+  // treff[Seite][Schuss][GegnerFigur] = Zahl der Treffer gegen Antworten mit dieser Figur.
+  const zB = blau.map(() => ({ 2: 0, 3: 0, eigen: 0 })), zR = rot.map(() => ({ 0: 0, 1: 0, eigen: 0 }));
+  const je = { 2: rot.filter(r => r.idx === 2).length, 3: rot.filter(r => r.idx === 3).length, 0: blau.filter(b => b.idx === 0).length, 1: blau.filter(b => b.idx === 1).length };
+  let paare = 0, tore = 0, bewegtPaare = 0;
+  const t0 = Date.now();
+  for (let a = 0; a < blau.length; a++) for (let b = 0; b < rot.length; b++) {
+    const r = F.lauf2(blau[a].idx, blau[a].gr, blau[a].tt, rot[b].idx, rot[b].gr, rot[b].tt, N);
+    paare++;
+    if (r.bewegt > 0) bewegtPaare++;
+    if (!r.tor) continue;
+    tore++;
+    if (r.seite === 0) { zB[a][rot[b].idx]++; zR[b].eigen++; } else if (r.seite === 1) { zR[b][blau[a].idx]++; zB[a].eigen++; }
+  }
+  const dauer = Date.now() - t0;
+  // Anteile: gesamt, gegen "Gegner bewegt die vordere Figur", gegen "Gegner bewegt die hintere".
+  const antB = blau.map((_, a) => ({ ges: (zB[a][2] + zB[a][3]) / rot.length, vorn: zB[a][2] / je[2], hinten: zB[a][3] / je[3], eigen: zB[a].eigen / rot.length }));
+  const antR = rot.map((_, b) => ({ ges: (zR[b][0] + zR[b][1]) / blau.length, vorn: zR[b][0] / je[0], hinten: zR[b][1] / je[1], eigen: zR[b].eigen / blau.length }));
+  const maxVon = (arr, k) => arr.reduce((m, x) => Math.max(m, x[k]), 0);
+  const bestB = blau[antB.map(x => x.ges).indexOf(maxVon(antB, 'ges'))], bestR = rot[antR.map(x => x.ges).indexOf(maxVon(antR, 'ges'))];
+  console.log('  Paare ' + paare + ', Tore ' + tore + ' (' + (100 * tore / paare).toFixed(2) + ' %), ' + dauer + ' ms');
+  console.log('  bester Blau-Schuss ' + JSON.stringify(bestB) + ': trifft in ' + (100 * maxVon(antB, 'ges')).toFixed(1) + ' % aller Rot-Antworten - gegen "Rot bewegt R1 (vorn)" ' + (100 * antB[blau.indexOf(bestB)].vorn).toFixed(1) + ' %, gegen "Rot bewegt R2 (hinten)" ' + (100 * antB[blau.indexOf(bestB)].hinten).toFixed(1) + ' %');
+  console.log('  bester Rot-Schuss  ' + JSON.stringify(bestR) + ': trifft in ' + (100 * maxVon(antR, 'ges')).toFixed(1) + ' % aller Blau-Schuesse - gegen "Blau bewegt B1 (vorn)" ' + (100 * antR[rot.indexOf(bestR)].vorn).toFixed(1) + ' %, gegen "Blau bewegt B2 (hinten)" ' + (100 * antR[rot.indexOf(bestR)].hinten).toFixed(1) + ' %');
+  console.log('  hoechster Anteil gegen einen Gegner, der die hintere Figur stehen laesst: Blau ' + (100 * maxVon(antB, 'vorn')).toFixed(1) + ' %, Rot ' + (100 * maxVon(antR, 'vorn')).toFixed(1) + ' %');
+  t('kein Schuss trifft GARANTIERT (gegen jede Antwort)', maxVon(antB, 'ges') < 1 && maxVon(antR, 'ges') < 1, { maxB: maxVon(antB, 'ges'), maxR: maxVon(antR, 'ges') });
+  t('gegen einen Gegner, der seine hintere Figur stehen laesst, trifft kein Schuss in mehr als 15 % der Antworten - die Mitte ist zu', maxVon(antB, 'vorn') <= 0.15 && maxVon(antR, 'vorn') <= 0.15, { blau: maxVon(antB, 'vorn'), rot: maxVon(antR, 'vorn') });
+  t('kein Schuss trifft gegen die Mehrheit aller Antworten, wenn man beide Gegnerfiguren zusammennimmt (kein dominantes Freitor)', maxVon(antB, 'ges') <= 0.5 && maxVon(antR, 'ges') <= 0.5, { maxB: maxVon(antB, 'ges'), maxR: maxVon(antR, 'ges') });
+  t('Blau und Rot liefern denselben besten Anteil (Fairness: kein Seitenvorteil aus dem Zusammenspiel)', Math.abs(maxVon(antB, 'ges') - maxVon(antR, 'ges')) <= 2 / rot.length + 1e-9 && Math.abs(maxVon(antB, 'hinten') - maxVon(antR, 'hinten')) <= 2 / je[3] + 1e-9, { b: maxVon(antB, 'ges'), r: maxVon(antR, 'ges') });
+  t('Tore aus zwei gleichzeitigen Eroeffnungsschuessen sind selten (< 5 % aller Paare)', tore / paare < 0.05, tore / paare);
+  t('Eigentore bleiben die Ausnahme: kein Schuss faengt sich in mehr als 10 % der Antworten ein Eigentor', maxVon(antB, 'eigen') <= 0.10 && maxVon(antR, 'eigen') <= 0.10, { b: maxVon(antB, 'eigen'), r: maxVon(antR, 'eigen') });
+  // Beide hintere Figuren gerade aufeinander zu - die natuerlichste beidseitige Eroeffnung.
+  const gerade = [1.00, 0.70].map(tt => [1.00, 0.70].map(tt2 => F.lauf2(1, 0, tt, 3, 180, tt2, N)));
+  t('beide hintere Figuren gerade zugleich (alle vier Kraftpaare): kein Tor fuer irgendeine Seite - der Wirt hat keinen Vorteil aus der Rechenreihenfolge', gerade.every(z => z.every(r => r.tor === false)), gerade.map(z => z.map(r => r.seite)));
+  t('die zwei nicht gewaehlten Figuren bleiben physisch: in vielen Paaren werden sie durch Kollisionen bewegt', bewegtPaare > paare * 0.05, bewegtPaare / paare);
+  t('die Messung bleibt begrenzt (unter 90 s)', dauer < 90000, dauer);
 }
 
 console.log(`\nFootball-Tactical-Spawn: ${pass} passed, ${fail} failed`);

@@ -1772,11 +1772,13 @@ deny('team move pl 4 (seat gate, presence pre-seeded)', playing({ p: { 0: P(H_TA
 
 // ── (18) TACTICAL 1V1 ONLINE (v11): ABWECHSELNDE ZUEGE ────────────────────────────
 // Ein Tactical-Raum ist ein v11-Football-Raum mit Modus 'tactical' und GENAU zwei Sitzen.
-// Die Rundenmaschine (d, c, ro, r, z, q) ist die der Lebensregel. Die Rules fuegen ihr zwei
-// Regeln hinzu: ein `move` darf nur aus dem Slot des Sitzes kommen, der in dieser Runde am
-// Zug ist - ((Rundenparitaet) + gen + 1) % 2, dieselbe Formel wie fbTacAktivSitz -, und
-// eine Enthuellung darf nur einen Koerper des eigenen Sitzes nennen (Sitz 0: 0/1, Sitz 1:
-// 2/3). Alles andere - pass, skip, late, remove, Bereitschaft, Praesenz - bleibt unveraendert.
+// Die Rundenmaschine (d, c, ro, r, z, q) ist die der Lebensregel - und seit 2026-09-22 auch
+// ihr Zugmodell: BEIDE Sitze ziehen in JEDER Runde (gleichzeitig), jeder genau einmal (der
+// Slot ist write-once), nur in der eroeffneten Runde der aktuellen Generation, nur in den
+// eigenen Slot. Das Zuggatter der Zugformel ((Rundenparitaet) + gen + 1) % 2 gilt nur noch
+// fuer tactical4 (Abschnitt 20). Die Rules fuegen Tactical eine Regel hinzu: eine Enthuellung
+// darf nur einen Koerper des eigenen Sitzes nennen (Sitz 0: 0/1, Sitz 1: 2/3), nie den Ball
+// (4). Alles andere - pass, skip, late, remove, Bereitschaft, Praesenz - bleibt unveraendert.
 {
   const U = ['UID_TAC0_AAAAAAAAAAAAAAAAAA', 'UID_TAC1_BBBBBBBBBBBBBBBBBB', 'UID_TAC2_CCCCCCCCCCCCCCCCCC'];
   const TAB = ['TACTAB00', 'TACTAB01', 'TACTAB02'];
@@ -1813,23 +1815,28 @@ deny('team move pl 4 (seat gate, presence pre-seeded)', playing({ p: { 0: P(H_TA
   deny('TAC Anlage: tactical als v8', { rooms: {} }, 'rooms/KX7P', neu(8, 'tactical', 2), U[0]);
   deny('TAC Anlage: tactical als v12 (RingOut-Fassung)', { rooms: {} }, 'rooms/KX7P', neu(12, 'tactical', 2), U[0]);
 
-  // (b) Der Commit: nur der Sitz am Zug darf `move`. Generation 1, Runde 0 -> Sitz 0.
-  allow('TAC g1 r0: Sitz 0 (am Zug) schreibt move', tac({ d: { 0: offen() } }), C(1, 0, 0), MOVEC, U[0]);
-  deny('TAC g1 r0: Sitz 1 (nicht am Zug) schreibt move', tac({ d: { 0: offen() } }), C(1, 0, 1), MOVEC, U[1]);
-  allow('TAC g1 r0: Sitz 1 schreibt sein pass', tac({ d: { 0: offen() } }), C(1, 0, 1), PASSC, U[1]);
+  // (b) Der Commit: BEIDE Sitze duerfen in JEDER Runde `move` - gleichzeitig, kein Zuggatter.
+  allow('TAC g1 r0: Sitz 0 schreibt move', tac({ d: { 0: offen() } }), C(1, 0, 0), MOVEC, U[0]);
+  allow('TAC g1 r0: Sitz 1 schreibt move - in DERSELBEN Runde (gleichzeitig)', tac({ d: { 0: offen() } }), C(1, 0, 1), MOVEC, U[1]);
+  allow('TAC g1 r0: Sitz 1 schreibt move, obwohl Sitz 0 schon einen move traegt', tac({ d: { 0: offen() }, c: { 0: { 0: MOVEC } } }), C(1, 0, 1), MOVEC, U[1]);
+  allow('TAC g1 r0: Sitz 1 darf auch passen (Nullzug)', tac({ d: { 0: offen() } }), C(1, 0, 1), PASSC, U[1]);
   allow('TAC g1 r0: auch Sitz 0 darf passen (Nullzug)', tac({ d: { 0: offen() } }), C(1, 0, 0), PASSC, U[0]);
-  // Runde 1 -> Sitz 1.
-  allow('TAC g1 r1: Sitz 1 (am Zug) schreibt move', tac({ d: { 1: offen() } }), C(1, 1, 1), MOVEC, U[1]);
-  deny('TAC g1 r1: Sitz 0 (nicht am Zug) schreibt move', tac({ d: { 1: offen() } }), C(1, 1, 0), MOVEC, U[0]);
-  // Zweistellige Runden: die Paritaet liest die Endziffer. Runde 10 -> Sitz 0, Runde 11 -> Sitz 1.
-  allow('TAC g1 r10: Sitz 0 am Zug', tac({ d: { 10: offen() } }), C(1, 10, 0), MOVEC, U[0]);
-  deny('TAC g1 r10: Sitz 1 nicht am Zug', tac({ d: { 10: offen() } }), C(1, 10, 1), MOVEC, U[1]);
-  allow('TAC g1 r11: Sitz 1 am Zug', tac({ d: { 11: offen() } }), C(1, 11, 1), MOVEC, U[1]);
-  deny('TAC g1 r11: Sitz 0 nicht am Zug', tac({ d: { 11: offen() } }), C(1, 11, 0), MOVEC, U[0]);
-  // Rematch: Generation 2 eroeffnet Sitz 1.
-  allow('TAC g2 r0: Sitz 1 eroeffnet das Rematch', tac({ gen: 2, d: { 0: offen() } }), C(2, 0, 1), MOVEC, U[1]);
-  deny('TAC g2 r0: Sitz 0 nicht am Zug', tac({ gen: 2, d: { 0: offen() } }), C(2, 0, 0), MOVEC, U[0]);
-  allow('TAC g2 r1: Sitz 0 am Zug', tac({ gen: 2, d: { 1: offen() } }), C(2, 1, 0), MOVEC, U[0]);
+  // Runde 1, zweistellige Runden, Rematch: die Paritaet spielt keine Rolle mehr.
+  allow('TAC g1 r1: Sitz 0 schreibt move', tac({ d: { 1: offen() } }), C(1, 1, 0), MOVEC, U[0]);
+  allow('TAC g1 r1: Sitz 1 schreibt move', tac({ d: { 1: offen() } }), C(1, 1, 1), MOVEC, U[1]);
+  allow('TAC g1 r10: Sitz 1 schreibt move', tac({ d: { 10: offen() } }), C(1, 10, 1), MOVEC, U[1]);
+  allow('TAC g1 r11: Sitz 0 schreibt move', tac({ d: { 11: offen() } }), C(1, 11, 0), MOVEC, U[0]);
+  allow('TAC g2 r0: Sitz 0 zieht im Rematch sofort (kein Eroeffner)', tac({ gen: 2, d: { 0: offen() } }), C(2, 0, 0), MOVEC, U[0]);
+  allow('TAC g2 r0: Sitz 1 zieht im Rematch sofort', tac({ gen: 2, d: { 0: offen() } }), C(2, 0, 1), MOVEC, U[1]);
+  // Veraltete Runde, fremde Generation: abgewiesen.
+  deny('TAC g1 r0: move in eine Runde, die nicht eroeffnet ist (veraltete Runde)', tac({ d: { 1: offen() } }), C(1, 0, 0), MOVEC, U[0]);
+  deny('TAC g1 r0: move in eine fremde Generation', tac({ d: { 0: offen() } }), C(0, 0, 0), MOVEC, U[0]);
+  deny('TAC g1 r0: move in eine Generation, die es noch nicht gibt', tac({ d: { 0: offen() } }), C(2, 0, 0), MOVEC, U[0]);
+  // Der Ball und fremde Koerper: der Commit traegt nur den Hash, der Koerper steht in der
+  // Enthuellung - dort weisen die Rules ihn ab (c). Gegenprobe Tactical 4-Ball: dort bleibt das
+  // Zuggatter (Abschnitt 20).
+  deny('TAC Gegenprobe tactical4 g1 r0: Sitz 1 (nicht am Zug) schreibt move - weiterhin abgewiesen', tac({ mode: 'tactical4', d: { 0: offen() } }), C(1, 0, 1), MOVEC, U[1]);
+  allow('TAC Gegenprobe tactical4 g1 r0: Sitz 0 (am Zug) schreibt move', tac({ mode: 'tactical4', d: { 0: offen() } }), C(1, 0, 0), MOVEC, U[0]);
   // Wer schreibt, bleibt der Eigentuemer - ein Zug fuer den fremden Sitz gibt es nicht.
   deny('TAC g1 r0: Sitz 1 schreibt move in den Slot von Sitz 0', tac({ d: { 0: offen() } }), C(1, 0, 0), MOVEC, U[1]);
   deny('TAC g1 r0: Fremder ohne Sitz', tac({ d: { 0: offen() } }), C(1, 0, 0), MOVEC, U[2]);

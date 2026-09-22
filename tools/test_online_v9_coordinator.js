@@ -933,6 +933,9 @@ abschnitt('Waechter: die Steuerung ruht');
                  // Hydrations-Barriere: das Eingabetor - whoCanAim und die Stand-Taste fragen,
                  // ob der eigene Slot der laufenden Runde schon bekannt ist. Unten gezaehlt.
                  'fbV9EingabeOffen',
+                 // 2026-09-22: die Eingabe schliesst mit der eigenen Abgabe (whoCanAim, Auswahlring) -
+                 // bevor der Raum den Zug spiegelt. Gezaehlt in test_online_v9_coordinator.js.
+                 'fbV9EigenAbgegeben',
                  // PASS 04: der Entscheidungszustand im HUD. Er wird GEZEICHNET, nicht
                  // entschieden - der Zustand selbst kommt aus dem autoritativen
                  // Schnappschuss und bleibt im ruhenden Bereich. Unten einzeln gezaehlt.
@@ -966,7 +969,12 @@ abschnitt('Waechter: die Steuerung ruht');
     && (AUSSEN.match(/fbV9EingabeOffen/g) || []).length === 4,
     (AUSSEN.match(/fbV9EingabeOffen/g) || []).length);
   t('... in whoCanAim nur fuer online, vor der Freigabe des eigenen Sitzes',
-    /if\(online\)return \(aimSet\[myPlayer\]\|\|!aliveCount\(myPlayer\)\|\|\(typeof fbV9EingabeOffen==='function'&&!fbV9EingabeOffen\(\)\)\)\?-1:myPlayer;/.test(AUSSEN));
+    /if\(online\)return \(aimSet\[myPlayer\]\|\|!aliveCount\(myPlayer\)\|\|\(typeof fbV9EingabeOffen==='function'&&!fbV9EingabeOffen\(\)\)\|\|\(typeof fbV9EigenAbgegeben==='function'&&fbV9EigenAbgegeben\(\)\)\)\?-1:myPlayer;/.test(AUSSEN));
+  // 2026-09-22: die eigene Abgabe schliesst die Eingabe - zwei Leser ausserhalb (whoCanAim, Auswahlring), typeof-geschuetzt.
+  t('fbV9EigenAbgegeben wird aussen genau zweimal gelesen (whoCanAim, fbTacticalRingLevel), beide typeof-geschuetzt',
+    (AUSSEN.match(/typeof fbV9EigenAbgegeben==='function'&&fbV9EigenAbgegeben\(\)/g) || []).length === 2
+    && (AUSSEN.match(/fbV9EigenAbgegeben/g) || []).length === 4,
+    (AUSSEN.match(/fbV9EigenAbgegeben/g) || []).length);
   t('... und in der Stand-Taste nur fuer online, vor dem Nullzug',
     /if\(online&&typeof fbV9EingabeOffen==='function'&&!fbV9EingabeOffen\(\)\)return;/.test(AUSSEN));
   // PASS 04: der HUD-Haken steht GENAU EINMAL ausserhalb, typeof-gesichert wie jeder

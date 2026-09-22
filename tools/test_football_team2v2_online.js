@@ -230,7 +230,7 @@ abschnitt('7. Vertraege im Quelltext');
   const hud = fn('fbV9HudPaint');
   t('das HUD zeigt Team 2v2 den Zaehler bereit/gesamt und hinterlegt die Sitzbereitschaft fuer die Leiste',
     /zaehler=h\.bereit\+'\/'\+h\.gesamt;/.test(hud) && /fbTeam2BereitOnline=offen\?h\.sitzBereit:null;/.test(hud)
-    && /if\(sig!==fbTeam2BereitSig\)\{/.test(hud));
+    && /if\(team2&&sig!==fbTeam2BereitSig\)\{/.test(hud) && /if\(team2\|\|\(\(typeof fbTacGleichzeitig==='function'\)&&fbTacGleichzeitig\(\)\)\)\{/.test(hud));
   t('die Wertung bleibt die Teamwertung nach Torseite, Erster bis 3', /if\(typeof fbTeam2==='function'&&fbTeam2\(\)\)return 'TEAM 2V2 · '\+fbFirstToText\(\);/.test(HTML));
   t('der Wirt eines Team-2v2-Raums sitzt auf dem ersten Sitz seiner Seite', /wirtSitz=fbTeam2SeatsOf\(fbOnlineTeam\)\[0\];/.test(HTML));
   const rules = require('fs').readFileSync(require('path').join(__dirname, '..', 'firebase.rules.json'), 'utf8');

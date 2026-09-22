@@ -379,6 +379,9 @@ abschnitt('Waechter');
                  // Hydrations-Barriere: das Eingabetor (whoCanAim, Stand-Taste). Gezaehlt in
                  // test_online_v9_coordinator.js.
                  'fbV9EingabeOffen',
+                 // 2026-09-22: die Eingabe schliesst mit der eigenen Abgabe (whoCanAim, Auswahlring) -
+                 // bevor der Raum den Zug spiegelt. Gezaehlt in test_online_v9_coordinator.js.
+                 'fbV9EigenAbgegeben',
                  // PASS 04: der Entscheidungszustand im HUD. Gezaehlt wird er in
                  // test_online_v9_coordinator.js, nicht hier.
                  'fbV9HudPaint',
