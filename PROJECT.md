@@ -805,7 +805,7 @@ liegen untracked unter `artifacts/football-tactical-dual-prototype/`.
   Zeichen. `fbOnlineEnter` stellt die Koerper (`setzeVorspiel(mode,fmt)`); Beitritt und
   Wiedereintritt taten das bereits. `updateMenuPreview` setzt die Football-Vorschau der Startseite
   immer auf classic (3 Koerper). Ring Out: `fbBuehne()` false, Ringplattform wie bisher.
-- **Ausgeliefert (2026-09-22):** Pages `cb634e99` (Commit `be90493`), Live-Smoke 18/0,
+- **Ausgeliefert (2026-09-22):** Nachbesserung Bildkarten Pages `b1a5f906` (Commit `dcfae62`), Live-Smoke 17/0; zuvor Pages `cb634e99` (Commit `be90493`), Live-Smoke 18/0,
   funktionale Live-Smokes ueber den neuen Weg Tactical 4-Ball 14/0 / Tactical 1v1 14/0; Rules unveraendert.
 - **Pruefstaende:** `tools/test_football_hub_preview.js` (85); Headless-Oberflaeche
   `artifacts/fb-menu-preview-01/bilder.js` (Desktop/Telefon, Bilder nur QA), Emulator-Raumfluss und
