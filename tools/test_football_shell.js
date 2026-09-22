@@ -1304,7 +1304,7 @@ ok(/const goalScale=\(2\*BR\)\*GLB_R\/R0/.test(HTML), 'Tor-Skalierung aus 2*BR*G
 ok(/const rectLineHalf=AV\.postInner\*BR\*FB_U;/.test(HTML), 'Torlinien-Halbbreite = FOOTBALL_ARENA.postInner (lichte Oeffnung, keine zweite Breite)');
 ok(/new THREE\.PlaneGeometry\(GOAL_LINE_W,rectLineHalf\*2\)/.test(HTML), 'Torlinie ist ein GERADES Band (rectLineGeo/PlaneGeometry, kein Kreisbogen)');
 // Sichtbarkeit NUR bei mode==='football' (und nicht im Menue-Preview) — gemeinsames footballView-Gate.
-ok(/const footballView=fbBuehne\(\);/.test(HTML) && /function fbBuehne\(\)\{ return mode==='football'&&\(!menuVisible\|\|fbOnlineVorschau\(\)\); \}/.test(HTML), "Tore nur auf der Football-Buehne sichtbar: mode==='football' im Match oder im Arena-Fenster des Football-Onlinebildschirms (nie Startseite/normale Modi)");
+ok(/const footballView=fbBuehne\(\);/.test(HTML) && /function fbBuehne\(\)\{ return mode==='football'; \}/.test(HTML), "Tore nur auf der Football-Buehne sichtbar: mode==='football' (Match, Arena-Fenster, Startseite mit Arena-Football-Karte; nie in normalen Modi)");
 ok(/goalGroup\.visible=footballView/.test(HTML), 'Tor-Sichtbarkeit haengt am football-scoped footballView-Gate');
 // Skaliert + schwebt mit der Plattform (gleiches sc/bob wie bGroup) — gleiches lokales System.
 ok(/goalGroup\.scale\.setScalar\(sc\)/.test(HTML) && /goalGroup=new THREE\.Group\(\);goalGroup\.position\.set\(cx,0,cy\)/.test(HTML),

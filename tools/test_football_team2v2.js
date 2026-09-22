@@ -529,10 +529,11 @@ const SHOT = 6 * 60;
   // derselben Rundenmaschine wie die Lebensregel (s. test_football_team2v2_online.js).
   ok(/team2v2: \{caps:\[4\],     released:true,/.test(HTML),
      'der Onlinemodus team2v2 ist angelegt und freigegeben (v11, vier Sitze)');
-  // Und die Variante hat genau sieben Nennungen: Deklaration, Weiche, startFootball-Clamp,
-  // Menueknopf, Dev-Direktlink, fbVariant-Vorbelegung und die Onlineweiche fbVarianteFuerModus.
-  ok((HTML.match(/FOOTBALL_VARIANT_TEAM2/g) || []).length === 7,
-     'die Variante wird an genau sieben Stellen genannt (erhalten: '
+  // Und die Variante hat genau acht Nennungen: Deklaration, Weiche, startFootball-Clamp,
+  // Menueknopf, Dev-Direktlink, fbVariant-Vorbelegung, die Onlineweiche fbVarianteFuerModus
+  // und (seit 2026-09-22) der Startseiten-Hero fbHubVariante (Karte TEAM 2V2 -> Team-2v2-Arena).
+  ok((HTML.match(/FOOTBALL_VARIANT_TEAM2/g) || []).length === 8,
+     'die Variante wird an genau acht Stellen genannt (erhalten: '
      + (HTML.match(/FOOTBALL_VARIANT_TEAM2/g) || []).length + ')');
 }
 

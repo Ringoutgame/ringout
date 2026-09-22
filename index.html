@@ -2436,6 +2436,18 @@ function fbHubKarte(i){
 }
 // Der eine Onlineweg je direkter Karte. Beide fuehren in DIESELBE Lobby - nur der
 // Modus des naechsten Raums ist ein anderer.
+// Die Football-Variante, die der Startseiten-Hero fuer die gewaehlte Karte zeigt: FFA die
+// Fuenf-Tore-Startarena der Elimination, 1 VS 1 die Tactical-Aufstellung, TEAM 2V2 die
+// Vier-Sitze-Aufstellung, TRAINING Classic. Die Variantenkonstanten stehen weiter unten -
+// gelesen wird erst beim Aufruf, nie beim Laden.
+function fbHubVariante(){
+  const d=FB_HUB_MODES[fbHubSel];
+  const key=d?d.key:'ffa';
+  if(key==='ffa')return FOOTBALL_VARIANT_ELIM;
+  if(key==='duel')return FOOTBALL_VARIANT_TACTICAL;
+  if(key==='team2v2')return FOOTBALL_VARIANT_TEAM2;
+  return 'classic';
+}
 function fbHubOeffnen(key){
   if(key==='duel')fbDuelOeffnen();
   else if(key==='tactical')fbTacticalOnlineOeffnen();
@@ -2451,6 +2463,7 @@ function fbDuelSchliessen(){ $('fbDuelOv').classList.remove('show'); }
 function selectFbMode(i){
   applyFbMode(i);
   updateModeDots('football');
+  updateMenuPreview();   // der Hero zeigt die Arena und die Koerper der gewaehlten Karte
   const card=$(FB_HUB_MODES[fbHubSel].card),row=card&&card.parentElement;
   if(row&&row.scrollWidth>row.clientWidth+4){
     const cr=card.getBoundingClientRect(),rr=row.getBoundingClientRect();
@@ -3251,7 +3264,7 @@ function updateMenuPreview(){
   else if(menuSel==='triple'){menuMode='ffa';fmtMenu='triple_ffa';setzeVorspiel('ffa','triple_ffa',3);}   // TRIPLE-Preview: 6 Kugeln Blau/Rot/Gruen alternierend
   else if(menuSel==='team'){menuMode='ffa';fmtMenu='team_duel';setzeVorspiel('ffa','team_duel',4);}      // TEAM-DUEL-Preview: 4 Kugeln Blau/Rot/Blau/Rot
   else if(menuSel==='vs'){menuMode='online';fmtMenu='double';setzeVorspiel('online','double');}       // Versus-Preview: 2v2-Duo-Layout (2 blaue vs 2 rote)
-  else if(menuSel==='football'){fbVariant='classic';menuMode='football';fmtMenu='single';setzeVorspiel('football','single');}   // Football-Shell-Preview: immer die Standardvariante, 3 Kugeln (Blau/Rot/neutral) - kein Rest eines Onlinemodus nach Zurueck aus der Lobby
+  else if(menuSel==='football'){fbVariant=fbHubVariante();menuMode='football';fmtMenu='single';setzeVorspiel('football','single');}   // Football-Hero: die echte Arena mit den Koerpern der gewaehlten Karte (FFA fuenf Tore, 1 VS 1 / Team 2v2 zwei Tore, Training classic) - kein Rest eines Onlinemodus nach Zurueck aus der Lobby
   else{menuMode='bot';fmtMenu='single';setzeVorspiel('bot','single');}                             // 1v1: Spieler vs Bot
 }
 // v11: derselbe Knopf, derselbe Sinn wie eh und je - der Wirt startet das Match. Neu
@@ -6897,21 +6910,22 @@ function fbArena(){
 // Kennung der aktuell zu rahmenden Arenaform. Sie aendert sich mit der Football-Variante
 // (Classic und Tactical stehen auf verschiedenen Formen) und in Elimination mit der Phase.
 // Der 3D-Adapter rahmt die Kamera neu, sobald sich diese Kennung aendert.
-// VORSCHAU IM ARENA-FENSTER. Der Onlinebildschirm (Erstellen, Beitreten, Lobby) ist ein
-// Fenster auf die echte 3D-Szene. Bis hierher zeigte der Renderer dort IMMER die
-// Ringplattform von Ring Out, weil er die Football-Arena allein an !menuVisible band -
-// auch fuer einen Football-Raum, mit den Koerpern der Startseite. Jetzt steht die
-// Football-Arena im Bild, sobald der Onlinebildschirm eines Football-Raums offen ist:
-// dieselbe Arena, dieselben Tore, die Koerper des gewaehlten Modus (fbOnlineEnter,
-// Beitritt, Wiedereintritt stellen sie ueber setzeVorspiel). Die Startseite selbst
-// (Spielwahl, Karten) zeigt weiter die Ringplattform; Ring Out ist unberuehrt.
+// DIE FOOTBALL-BUEHNE. Die Startseite und der Onlinebildschirm sind Fenster auf die echte
+// 3D-Szene. Bis zum 22.9. band der Renderer die Football-Arena allein an !menuVisible: im
+// Menue stand IMMER die Ringplattform von Ring Out - auch im Arena-Football-Hub (mit drei
+// Koerpern) und im Onlinebildschirm eines Football-Raums. Jetzt steht die Football-Arena im
+// Bild, sobald Arena Football der aktive Kontext ist (mode==='football'): im Match, im
+// Arena-Fenster des Onlinebildschirms (Koerper des Raummodus, s. fbOnlineEnter) und auf der
+// Startseite mit gewaehlter Arena-Football-Karte (Koerper der Karte, s. fbHubVariante /
+// updateMenuPreview). Ring Out (mode 'ffa' / 'online' / 'bot') behaelt seine Ringplattform.
+// fbOnlineVorschau unterscheidet weiter das Arena-Fenster (eigene Rahmung) von der Startseite.
 function fbOnlineVorschau(){
   if(!menuVisible||mode!=='football'||fmt!==FB_ONLINE_FMT)return false;
   if(typeof document==='undefined')return false;
   const el=document.getElementById('online');
   return !!el&&el.classList.contains('show');
 }
-function fbBuehne(){ return mode==='football'&&(!menuVisible||fbOnlineVorschau()); }
+function fbBuehne(){ return mode==='football'; }
 function fbFrameKey(){
   if(!fbBuehne())return '';
   return fbElim4()?'e'+fbElimPhaseN:((fbTactical()||fbTeam2())?'t':'c');
@@ -18735,6 +18749,7 @@ async function initR3D(){
     // Das Arena-Fenster der Online-Seite (.ohero) in Viewport-Koordinaten: Hoehe und Mitte.
     // Ohne messbares Fenster (2D-Modus, Test) gilt das Menue-Mass (37 % der Bildhoehe).
     const FB_VORSCHAU_ZOOM=0.90;   // Feinmass der Vorschau: die Arena fuellt das Fenster, die Tore und die nahe Kante bleiben frei
+    const FB_HERO_BAND=1.3;        // Startseiten-Hero: die Arena darf das Band zwischen Titel und Tafel um ein Drittel ueberragen
     function fbHeroRect(vh){
       const el=document.querySelector('#online .ohero');
       const r=el?el.getBoundingClientRect():null;
@@ -18819,7 +18834,7 @@ async function initR3D(){
       const needZ=fbFrame?(elimView||fbHalfWid())+(need-R0):need;
       const baseDist=Math.max(needX/(tanV*aspect),needZ/tanV)*1.10;
       curVA=viewAngle();curFBK=fbFrameKey();
-      if(menuVisible&&fbFrame){
+      if(menuVisible&&fbOnlineVorschau()){
         // Arena-Fenster des Football-Onlinebildschirms (fbOnlineVorschau): Hauptpunkt in
         // die Fenstermitte, Abstand so, dass die ganze Arena mit beiden Toren im Fenster
         // steht - die Hoehe des Fensters ersetzt dabei die Hoehe des Viewports. Reiner
@@ -18827,12 +18842,22 @@ async function initR3D(){
         const h=fbHeroRect(vh);
         geo={vw,vh,baseDist:Math.max(needX/(tanV*aspect),needZ*(vh/h.h)/tanV)*1.10*FB_VORSCHAU_ZOOM,ox:0,oy:0,os:vw,shx:0,shy:h.cy-vh/2};
         fbVorschauNebel(true,geo.baseDist);
+      }else if(menuVisible&&fbFrame){
+        // Startseiten-Hero mit gewaehlter Arena-Football-Karte: die Football-Arena sitzt im
+        // Band zwischen Titel und Hub-Tafel (Mitte bei ~37 % Bildhoehe wie die Ringplattform)
+        // und darf es nach unten um FB_HERO_BAND ueberragen - die nahe Bande liegt dann wie
+        // der Rand der Ringplattform unter der Tafel, Tore und Mitte bleiben frei. Auf dem
+        // Telefon bindet die Breite (Tore an den Raendern), auf dem Desktop die Bandhoehe.
+        // Der Nebel beginnt hinter der Arena. Reiner Parameter-Zweig.
+        const band={h:vh*0.37,cy:vh*0.37};
+        geo={vw,vh,baseDist:Math.max(needX/(tanV*aspect),needZ*(vh/(band.h*FB_HERO_BAND))/tanV)*1.10*FB_VORSCHAU_ZOOM,ox:0,oy:0,os:vw,shx:0,shy:band.cy-vh/2};
+        fbVorschauNebel(true,geo.baseDist);
       }else if(menuVisible){
-        fbVorschauNebel(false);
         // Menue-Framing: Plattform gross und zentriert, Zentrum bei ~37% Bildhoehe
         // (Titel darueber, Karten/CTA darunter). Reiner Parameter-Zweig — das
-        // Gameplay-Framing (else) und r3dCamMath bleiben unveraendert.
+        // Gameplay-Framing (else) und r3dCamMath bleiben unveraendert. Ring Out.
         geo={vw,vh,baseDist:baseDist*0.87,ox:0,oy:0,os:vw,shx:0,shy:-vh*0.13};
+        fbVorschauNebel(false);
       }else{
       fbVorschauNebel(false);
       const wr=cv.parentElement.getBoundingClientRect();

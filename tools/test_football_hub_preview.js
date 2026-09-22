@@ -8,11 +8,11 @@
 //   2. Die Kartenbilder sind Aufnahmen des echten 3D-Renderers (assets/hub/modes/*.webp,
 //      700x438): 1 VS 1 und die Option TACTICAL 1V1 tragen football_tactical, die Option
 //      TACTICAL 4-BALL 1V1 football_tactical4 (4 Blau + 4 Rot + Ball). Ring Out unveraendert.
-//   3. Die Vorschau des Onlinebildschirms (Erstellen/Beitreten/Lobby) zeigt fuer einen
-//      Football-Raum die Football-Arena mit beiden Toren und den Koerpern des gewaehlten
-//      Modus (fbBuehne / fbOnlineVorschau; fbOnlineEnter stellt die Koerper), Ring Out
-//      weiter seine Ringplattform; Zurueck stellt die Standardvorschau der Startseite her;
-//      der Wiedereintritt baut Variante und Koerper aus dem Raum.
+//   3. Die Football-Buehne (fbBuehne: mode==='football') steht im Match, im Arena-Fenster des
+//      Onlinebildschirms (Koerper des Raummodus, fbOnlineEnter) und auf der Startseite mit
+//      gewaehlter Arena-Football-Karte (Koerper der Karte: fbHubVariante / updateMenuPreview);
+//      Ring Out behaelt seine Ringplattform; der Wiedereintritt baut Variante und Koerper aus
+//      dem Raum.
 //
 // Geprueft werden ECHTE Funktionen aus index.html in Sandkaesten plus Vertraege im Quelltext.
 //
@@ -120,6 +120,7 @@ function bauen() {
   const src = [
     'let mode="bot", fmt="single", ffaN=3, gameStarted=false, balls=[], R=1000, outBall=-1, menuVisible=true, online=false;',
     'let menuSel="football", menuMode="bot", fmtMenu="single"; let coverShown=false; const spur=[];',
+    g(/const FB_HUB_MODES=\[[\s\S]*?\];/, 'FB_HUB_MODES'), 'let fbHubSel=0;', fn('fbHubVariante'),
     'const R0=1000, cx=0, cy=0, BR=32;',
     "const document={getElementById:(id)=>id==='online'?{classList:{contains:(c)=>c==='show'&&coverShown}}:null};",
     fn('mkBall'),
@@ -152,7 +153,7 @@ function bauen() {
     '  koerper:()=>balls.map(b=>({o:b.owner,slot:colorSlot(b.owner),x:(b.x-cx)/BR,y:(b.y-cy)/BR})),',
     '  cover:(v)=>{coverShown=v;}, menu:(v)=>{menuVisible=v;}, setMode:(m)=>{mode=m;}, setFmt:(f)=>{fmt=f;}, variante:(v)=>{if(v!==undefined)fbVariant=v;return fbVariant;},',
     '  stand:()=>({mode,fmt,fbVariant,fbOnlineMode,koerper:balls.length,buehne:fbBuehne(),key:fbFrameKey(),vorschau:fbOnlineVorschau()}),',
-    '  zurueck:()=>{updateMenuPreview();}, spur, mapping:(m)=>fbVarianteFuerModus(m),',
+    '  zurueck:()=>{updateMenuPreview();}, karte:(i)=>{fbHubSel=i;}, spur, mapping:(m)=>fbVarianteFuerModus(m),',
     '  stell:(v)=>{mode="football";fbVariant=v;placeBalls();return balls.map(b=>({o:b.owner,slot:colorSlot(b.owner),x:(b.x-cx)/BR,y:(b.y-cy)/BR}));},',
     '  BR, BALL:FOOTBALL_BALL_RADIUS, NEUTRAL:FOOTBALL_NEUTRAL_OWNER',
     '};'
@@ -182,11 +183,19 @@ abschnitt('3. Onlinebildschirm: Football-Arena im Bild, Koerper des Modus, Ring 
   S.setMode('online'); S.setFmt('double');
   t('Ring Out (Versus 2v2) ebenso', S.stand().buehne === false && S.stand().key === '');
   // Startseite (Menue, Football-Karte gewaehlt): Ringplattform mit der Standardvorschau.
-  S.cover(false); S.enter('tactical4'); S.zurueck();
+  // Startseite (Menue, Arena-Football-Karte gewaehlt): der Hero zeigt die Football-Arena der Karte.
+  S.cover(false); S.enter('tactical4'); S.karte(0); S.zurueck();
   const zs = S.stand();
-  t('Zurueck (updateMenuPreview): Variante classic, Format single, 3 Koerper, Buehne aus', zs.fbVariant === 'classic' && zs.fmt === 'single' && zs.koerper === 3 && zs.buehne === false && zs.key === '', zs);
+  t('Zurueck (updateMenuPreview) mit Karte FFA: Variante elimination, Format single, 6 Koerper, Buehne an, Rahmung e5 (Fuenf-Tore-Arena)', zs.fbVariant === 'elimination' && zs.fmt === 'single' && zs.koerper === 6 && zs.buehne === true && zs.key === 'e5' && zs.vorschau === false, zs);
+  S.karte(1); S.zurueck();
+  t('Karte 1 VS 1: Variante tactical, 5 Koerper (2+2+Ball), Rahmung t', S.stand().fbVariant === 'tactical' && S.stand().koerper === 5 && S.stand().key === 't' && S.koerper().map(b => b.slot).sort().join(',') === '0,0,1,1,5', S.stand());
+  S.karte(2); S.zurueck();
+  t('Karte TEAM 2V2: Variante team2v2, 5 Koerper (Blau/Blau/Rot/Rot/Ball), Rahmung t', S.stand().fbVariant === 'team2v2' && S.stand().koerper === 5 && S.stand().key === 't' && S.koerper().map(b => b.slot).sort().join(',') === '0,0,1,1,5', S.stand());
+  S.karte(3); S.zurueck();
+  t('Karte TRAINING: Variante classic, 3 Koerper, Rahmung c', S.stand().fbVariant === 'classic' && S.stand().koerper === 3 && S.stand().key === 'c', S.stand());
+  S.karte(0); S.zurueck();
   S.cover(true);
-  t('auch bei noch offenem Cover bleibt die Startseiten-Vorschau ohne Football-Buehne (Format entscheidet)', S.stand().buehne === false && S.stand().key === '');
+  t('mit offenem Cover im Startseitenformat bleibt es die Startseiten-Buehne, nicht das Arena-Fenster (Format entscheidet)', S.stand().buehne === true && S.stand().vorschau === false);
   S.cover(false);
   // Im Match: wie bisher.
   S.enter('tactical'); S.menu(false);
@@ -195,7 +204,8 @@ abschnitt('3. Onlinebildschirm: Football-Arena im Bild, Koerper des Modus, Ring 
   // Zurueck-Weg im Quelltext.
   const back = g(/const onlineBack=\(\)=>\{[\s\S]*?updScrollHint\(\);\};/, 'onlineBack');
   t('onlineBack: verlassen, Menuemodus, dann updateMenuPreview (setzt Variante, Format, Koerper gemeinsam)', /leaveOnline\(\);mode=menuMode;/.test(back) && /updateMenuPreview\(\);/.test(back));
-  t('updateMenuPreview: die Football-Vorschau der Startseite ist immer die Standardvariante', /fbVariant='classic';menuMode='football';fmtMenu='single';setzeVorspiel\('football','single'\);/.test(HTML));
+  t('updateMenuPreview: der Startseiten-Hero zeigt die Variante der gewaehlten Karte, der Kartenwechsel stellt ihn neu', /fbVariant=fbHubVariante\(\);menuMode='football';fmtMenu='single';setzeVorspiel\('football','single'\);/.test(HTML)
+    && /function fbHubVariante\(\)\{/.test(HTML) && /updateModeDots\('football'\);\n  updateMenuPreview\(\);/.test(HTML));
   // Wiedereintritt: Variante und Koerper aus dem Raum.
   const rejoin = g(/async function attemptRejoin\(code\)\{[\s\S]*?\n\}/, 'attemptRejoin');
   t('attemptRejoin baut die Variante aus dem Raummodus und stellt die Koerper', /if\(rjFb\)fbVariant=fbVarianteFuerModus\(v\.mode\);/.test(rejoin) && /setzeVorspiel\(mode,fmt\);/.test(rejoin));
@@ -207,16 +217,19 @@ abschnitt('3. Onlinebildschirm: Football-Arena im Bild, Koerper des Modus, Ring 
 // ══ 4. RENDERER-TORE ══════════════════════════════════════════════════════════════════
 abschnitt('4. Der Renderer haengt Arena, Tore und Rahmung an die Buehne');
 {
-  t('fbBuehne: im Match oder in der Onlinevorschau', /function fbBuehne\(\)\{ return mode==='football'&&\(!menuVisible\|\|fbOnlineVorschau\(\)\); \}/.test(HTML));
+  t('fbBuehne: Arena Football ist der aktive Kontext - Match, Arena-Fenster und Startseite', /function fbBuehne\(\)\{ return mode==='football'; \}/.test(HTML));
+  t('das Arena-Fenster rahmt nur bei offenem Football-Onlinebildschirm (fbOnlineVorschau), nicht auf der Startseite', /if\(menuVisible&&fbOnlineVorschau\(\)\)\{[\s\S]{0,700}?const h=fbHeroRect\(vh\);/.test(HTML));
   t('fbOnlineVorschau: Menue offen, Football, Raumformat, Onlinebildschirm sichtbar', /function fbOnlineVorschau\(\)\{\n  if\(!menuVisible\|\|mode!=='football'\|\|fmt!==FB_ONLINE_FMT\)return false;/.test(HTML)
     && /return !!el&&el\.classList\.contains\('show'\);\n\}/.test(HTML));
   t('fbFrameKey rahmt nach der Buehne', /function fbFrameKey\(\)\{\n  if\(!fbBuehne\(\)\)return '';/.test(HTML));
   t('Arena-Aufbau, Tore und Plattformwechsel haengen an footballView=fbBuehne()', /const footballView=fbBuehne\(\);/.test(HTML)
     && /if\(fbShapeGroup\)fbShapeGroup\.visible=footballView/.test(HTML) && /goalGroup\.visible=footballView/.test(HTML) && /const rectReady=footballView&&!!fbShapeGroup;/.test(HTML));
   t('die Rahmung nimmt die Football-Masse ueber fbFrame=fbBuehne()', /const fbFrame=fbBuehne\(\);/.test(HTML));
-  t('im Arena-Fenster rahmt der Renderer auf das Fenster (Hoehe und Mitte der .ohero)', /if\(menuVisible&&fbFrame\)\{[\s\S]{0,700}?const h=fbHeroRect\(vh\);[\s\S]{0,300}?shy:h\.cy-vh\/2\}/.test(HTML)
+  t('im Arena-Fenster rahmt der Renderer auf das Fenster (Hoehe und Mitte der .ohero)', /if\(menuVisible&&fbOnlineVorschau\(\)\)\{[\s\S]{0,700}?const h=fbHeroRect\(vh\);[\s\S]{0,300}?shy:h\.cy-vh\/2\}/.test(HTML)
     && /function fbHeroRect\(vh\)\{[\s\S]*?document\.querySelector\('#online \.ohero'\)/.test(HTML));
-  t('das Menue-Framing von Ring Out bleibt Zeichen fuer Zeichen', /\}else if\(menuVisible\)\{[\s\S]{0,400}?geo=\{vw,vh,baseDist:baseDist\*0\.87,ox:0,oy:0,os:vw,shx:0,shy:-vh\*0\.13\};/.test(HTML));
+  t('das Menue-Framing von Ring Out bleibt Zeichen fuer Zeichen', /\}else if\(menuVisible\)\{[\s\S]{0,400}?geo=\{vw,vh,baseDist:baseDist\*0\.87,ox:0,oy:0,os:vw,shx:0,shy:-vh\*0\.13\};\n        fbVorschauNebel\(false\);/.test(HTML));
+  t('der Startseiten-Hero hat einen eigenen Zweig: Band bei 37 % mit FB_HERO_BAND Ueberhang, Zoom der Vorschau, Nebel hinter der Arena', /\}else if\(menuVisible&&fbFrame\)\{[\s\S]{0,900}?const band=\{h:vh\*0\.37,cy:vh\*0\.37\};\n        geo=\{vw,vh,baseDist:Math\.max\(needX\/\(tanV\*aspect\),needZ\*\(vh\/\(band\.h\*FB_HERO_BAND\)\)\/tanV\)\*1\.10\*FB_VORSCHAU_ZOOM,ox:0,oy:0,os:vw,shx:0,shy:band\.cy-vh\/2\};\n        fbVorschauNebel\(true,geo\.baseDist\);/.test(HTML)
+    && /const FB_HERO_BAND=1\.3;/.test(HTML));
   t('das HUD bleibt dem Match vorbehalten', /function fbHudOn\(\)\{return mode==='football'&&!menuVisible;\}/.test(HTML));
 }
 
