@@ -1137,7 +1137,13 @@ body.fbctx .proom .pr-game{color:#cfe0ef}
          immer nur eine Sache: der Countdown, solange entschieden werden kann; danach
          BEREIT; nach der Frist ZEIT ABGELAUFEN. Rein erklaerend, pointer-events:none,
          damit unter ihr weiter gezielt werden kann. -->
-    <div class="fbstate" id="fbState" aria-live="polite"></div>
+    <!-- Die Zustandszeile traegt ZWEI feste Kinder: die Beschriftung (wird vorgelesen) und
+         die laufende Zahl (aria-hidden, wird verschwiegen). Sie werden beschrieben, nie neu
+         erzeugt - siehe den Anstrich der Zeile. translate="no": der Inhalt ist Produktsprache aus der
+         eigenen Sprachtabelle (Einstellungen: English/Deutsch/Türkçe), keine Prosa, die eine
+         Seitenuebersetzung des Browsers noch einmal uebersetzen soll. Genau diese Zeile, nicht
+         die Seite - alles andere bleibt uebersetzbar. -->
+    <div class="fbstate" id="fbState" aria-live="polite" translate="no"><span id="fbStateLbl"></span><span id="fbStateNum" aria-hidden="true"></span></div>
   </div>
   <div class="arena-wrap"><canvas id="cv"></canvas></div>
   <!-- Ring-Collapse-Timer (nur lokales Bot Training): kleine Matchzeit + grosser 5..1-Countdown -->
@@ -13171,15 +13177,22 @@ function fbV9HudPaint(){
   // etwas bedeuten. Die Region bleibt durchgehend im Baum; die Ziffern stehen in einem
   // eigenen, fuer die Ansage unsichtbaren Kind. Ihr angesagter Text ist waehrend des
   // Countdowns schlicht leer und wechselt nur bei BEREIT und ZEIT ABGELAUFEN.
-  el.textContent='';
-  if(!txt)return;
-  if(!uhr){ el.textContent=vorsatz?(vorsatz+' · '+txt):txt; return; }
-  // Der Vorsatz (DEIN ZUG) wird angesagt, die laufende Zahl nicht.
-  if(vorsatz)el.appendChild(document.createTextNode(vorsatz+' · '));
-  const ziffern=document.createElement('span');
-  ziffern.setAttribute('aria-hidden','true');
-  ziffern.textContent=txt;
-  el.appendChild(ziffern);
+  // ZWEI FESTE KINDER statt Neuaufbau je Bild. Waehrend eines Countdowns aendert sich nur die
+  // ZAHL; die Beschriftung (DEIN ZUG · ) bleibt derselbe Textknoten. Das spart nicht nur
+  // DOM-Arbeit: eine Seitenuebersetzung des Browsers uebersetzt jeden NEU entstandenen
+  // Textknoten erneut und asynchron. Bei zehn Neuaufbauten je Sekunde sprang die Zeile
+  // deshalb zwischen Produktsprache und Uebersetzung hin und her - gemeldet am 2026-09-22 als
+  // "YOUR TURN · 7.6" / "IHRE REIHE · 7,5" (beides steht so in keiner Sprachtabelle, und ein
+  // Komma als Dezimaltrenner schreibt das Produkt nirgends). Wird nichts neu erzeugt, gibt es
+  // auch nichts neu zu uebersetzen; translate="no" am Element schliesst den Rest aus.
+  const lbl=document.getElementById('fbStateLbl'), zif=document.getElementById('fbStateNum');
+  // Fallback fuer Umgebungen ohne die beiden Kinder (Offline-Harnesse): wie bisher.
+  if(!lbl||!zif){ el.textContent=txt?(vorsatz?(vorsatz+' · '+txt):txt):''; return; }
+  // Der Vorsatz (DEIN ZUG) wird angesagt, die laufende Zahl nicht (aria-hidden im Markup).
+  const lblTxt=!txt?'':(uhr?(vorsatz?vorsatz+' · ':''):(vorsatz?vorsatz+' · '+txt:txt));
+  const zifTxt=(!txt||!uhr)?'':txt;
+  if(lbl.textContent!==lblTxt)lbl.textContent=lblTxt;
+  if(zif.textContent!==zifTxt)zif.textContent=zifTxt;
 }
 // Die Handlung dieser Runde. Sie kommt NICHT von hier: was dieser Sitz zieht,
 // entscheidet die Spieleingabe, und die Bruecke dorthin ist V9.4D. Bis dahin bleibt

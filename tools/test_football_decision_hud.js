@@ -70,7 +70,13 @@ const I18N = { en: sprache('en'), de: sprache('de'), tr: sprache('tr') };
 // Eine Anzeigeflaeche, die genau das kann, was der Anstrich benutzt.
 // Ein Kindknoten, wie der Anstrich ihn fuer die Ziffern erzeugt.
 function knoten() {
-  return { textContent: '', attribute: {}, setAttribute(n, v){ this.attribute[n] = v; } };
+  let t = '';
+  return {
+    // schreibt: wie oft dieser Knoten ueberhaupt beschrieben wurde. Genau daran haengt der
+    // Nachweis, dass ein laufender Countdown die BESCHRIFTUNG nicht mehr anfasst.
+    schreibt: 0, attribute: {}, setAttribute(n, v){ this.attribute[n] = v; },
+    set textContent(v){ this.schreibt++; t = v; }, get textContent(){ return t; }
+  };
 }
 // Die Anzeigeflaeche. Sie kann genau das, was der Anstrich benutzt - und beantwortet
 // zwei verschiedene Fragen: was man SIEHT, und was eine Vorlesehilfe HOERT. Ein Kind
@@ -106,19 +112,34 @@ function bauen() {
     'function T(k){return (I18N[LANG]&&I18N[LANG][k])||I18N.en[k]||k;}',
     'let fbV9Leben=null, phase="aim", footballWinner=null, menuVisible=false;',
     'let sperre=false, uhrBereit=true, jetzt=0;',
+    'let tacAb=false, amZug=true, myPlayer=0;',
+    'function fbTacAbwechselnd(){return tacAb;}',
+    'function fbTacAmZug(s){return amZug;}',
     'function inputLocked(){return sperre;}',
     'function serverNow(){return jetzt;}',
     'let serverClockReady=true;',
     'let lebenAn=true;',
     'function fbV9LebenAn(){return lebenAn;}',
     'function fbV9LebenAktuell(L){return !!L&&L===fbV9Leben;}',
+    // Die Zeile hat ZWEI feste Kinder (wie im Markup): die Beschriftung, die vorgelesen wird,
+    // und die Ziffern, die aria-hidden verschwiegen werden. Der Anstrich beschreibt sie; er
+    // erzeugt sie nicht mehr je Bild.
     'const __felder={fbState:__feld()};',
-    'const document={getElementById:(id)=>__felder[id]||null,createElement:()=>__knoten()};'
+    '__felder.fbStateLbl=__knoten();',
+    '__felder.fbStateNum=__knoten(); __felder.fbStateNum.setAttribute("aria-hidden","true");',
+    '__felder.fbState.appendChild(__felder.fbStateLbl);',
+    '__felder.fbState.appendChild(__felder.fbStateNum);',
+    // createTextNode gehoert dazu, damit auch ein Anstrich MESSBAR ist, der Knoten neu
+    // erzeugt statt die festen zu beschreiben - genau das war der Fehler vom 2026-09-22.
+    // __neu zaehlt JEDEN Knoten, den der Anstrich erzeugt. Ein Anstrich, der die zwei festen
+    // Kinder beschreibt, erzeugt keinen einzigen - und genau daran haengt der Nachweis.
+    'let __neu=0;',
+    'const document={getElementById:(id)=>__felder[id]||null,createElement:()=>{__neu++;return __knoten();},createTextNode:(t)=>{__neu++;const k=__knoten();k.textContent=t;return k;}};'
   ].join('\n');
   const fuss = [
     'return {',
     '  stand:()=>fbV9HudStand(), rest:(h)=>fbV9HudRest(h), malen:()=>fbV9HudPaint(),',
-    '  frist:(ctx)=>fbV9FristMs(ctx), felder:()=>__felder,',
+    '  frist:(ctx)=>fbV9FristMs(ctx), felder:()=>__felder, neueKnoten:()=>__neu,',
     '  setzen:(o)=>{',
     '    if(o.leben!==undefined)fbV9Leben=o.leben;',
     '    if(o.phase!==undefined)phase=o.phase;',
@@ -128,6 +149,8 @@ function bauen() {
     '    if(o.jetzt!==undefined)jetzt=o.jetzt;',
     '    if(o.uhr!==undefined)serverClockReady=o.uhr;',
     '    if(o.lebenAn!==undefined)lebenAn=o.lebenAn;',
+    '    if(o.tacAb!==undefined)tacAb=o.tacAb;',
+    '    if(o.amZug!==undefined)amZug=o.amZug;',
     '    if(o.sprache!==undefined)LANG=o.sprache;',
     '  },',
     '  KONST:{v9:FB_V9_DEADLINE_MS,v10:FB_V10_DEADLINE_MS}',
@@ -390,6 +413,42 @@ abschnitt('6. Die Anzeige zeigt immer genau eine Sache');
   S.setzen({ phase: 'aim' });
 }
 
+// ══ 6B. UEBER DIE ZEIT: DER COUNTDOWN FASST DIE BESCHRIFTUNG NICHT AN ═══════
+// Ein einzelnes Bild beweist nichts - das Flackern entstand ueber die Zeit. Hier laeuft der
+// Countdown ueber viele Zehntelsekunden, und gezaehlt wird, WIE OFT jeder der beiden Knoten
+// beschrieben wurde. Vor dem 2026-09-22 raeumte der Anstrich die Zeile je Bild leer und baute
+// Beschriftung und Ziffern neu auf; jeder neue Textknoten wurde von einer Seitenuebersetzung
+// erneut und asynchron uebersetzt - die Zeile sprang zwischen Produktsprache und Uebersetzung.
+abschnitt('6B. Ueber die Zeit: nur die Zahl wird geschrieben, die Beschriftung bleibt stehen');
+{
+  const S = bauen();
+  const F = S.felder();
+  // Tactical 4-Ball: die Zeile traegt Beschriftung UND Zahl - der Fall aus der Meldung.
+  S.setzen({ leben: leben({ cap: 5, seat: 0 }), jetzt: T0 + 600, phase: 'aim', tacAb: true, amZug: true });
+  const texte = [];
+  for (let i = 0; i < 40; i++) { S.setzen({ jetzt: T0 + 600 + i * 100 }); S.malen(); texte.push(F.fbState.textContent); }
+  const verschieden = [...new Set(texte)].length;
+  t('der Countdown laeuft wirklich (viele verschiedene Staende in 40 Bildern)', verschieden >= 10, verschieden + ' verschiedene Staende');
+  t('die ZIFFERN wurden bei jeder Aenderung geschrieben', F.fbStateNum.schreibt >= verschieden - 1, F.fbStateNum.schreibt + ' Schreibzugriffe');
+  // DAS ist der Nachweis: die Beschriftung wird hoechstens EINMAL gesetzt (beim Erscheinen)
+  // und danach nie wieder - egal wie lange der Countdown laeuft.
+  t('die BESCHRIFTUNG wurde hoechstens einmal geschrieben - kein Neuaufbau je Bild', F.fbStateLbl.schreibt <= 1, F.fbStateLbl.schreibt + ' Schreibzugriffe');
+  // Die schaerfste Zahl: ueber 40 Bilder darf KEIN einziger Knoten entstehen. Der alte
+  // Anstrich erzeugte je geaenderter Zehntelsekunde zwei (Textknoten + Ziffern-Span) - und
+  // jeder neue Textknoten ist fuer eine Seitenuebersetzung ein neuer Uebersetzungsauftrag.
+  t('der Anstrich erzeugt ueber 40 Bilder KEINEN neuen Knoten', S.neueKnoten() === 0, S.neueKnoten() + ' erzeugte Knoten');
+  t('... und die Zeile bleibt dabei durchgehend EINE Sprache (kein Wechsel im Text)',
+    texte.every(x => x.indexOf('DEIN ZUG') === 0) && texte.every(x => x.indexOf(',') < 0), texte.slice(0, 3));
+  // Zustandswechsel schreibt die Beschriftung sehr wohl - sonst waere die Anzeige tot.
+  const vorher = F.fbStateLbl.schreibt;
+  S.setzen({ leben: leben({ cap: 5, seat: 0, c: { 0: MOVE } }), jetzt: T0 + 600 });
+  S.malen();
+  // Im abwechselnden Modell steht die Beschriftung auch vor BEREIT - die Zeile lautet dann
+  // "DEIN ZUG · BEREIT". Geprueft wird, dass die Beschriftung dafuer EINMAL neu gesetzt wird.
+  t('bei einem echten Zustandswechsel (BEREIT) wird die Beschriftung sehr wohl neu gesetzt', F.fbStateLbl.schreibt === vorher + 1 && F.fbState.textContent === 'DEIN ZUG · ' + I18N.de.fbReadyState, F.fbState.textContent);
+  t('... und die Ziffern werden dabei geleert', F.fbStateNum.textContent === '');
+}
+
 // ══ 7. DREI SPRACHEN, KEINE ROHEN SCHLUESSEL ════════════════════════════════
 abschnitt('7. Drei Sprachen, keine rohen Schluessel');
 {
@@ -434,9 +493,28 @@ abschnitt('8. Das HUD erklaert - es fangt nichts ab');
   t('... und der Countdown bekommt dort seine eigene, kleinere Groesse',
     /#game\.fb \.fbstate\.uhr\{font-size:21px\}/.test(HTML));
   // Es gibt genau EIN Element - die zweite Zeile ist fort.
-  t('genau ein Element steht im Markup',
-    HTML.indexOf('<div class="fbstate" id="fbState" aria-live="polite">') > 0
+  t('genau ein Element steht im Markup - mit seinen zwei festen Kindern',
+    HTML.indexOf('<div class="fbstate" id="fbState" aria-live="polite" translate="no"><span id="fbStateLbl"></span><span id="fbStateNum" aria-hidden="true"></span></div>') > 0
     && HTML.indexOf('fbSub') < 0 && HTML.indexOf('fbsub') < 0);
+  // SPRACHFLACKERN (2026-09-22): die Zeile ist Produktsprache aus der eigenen Sprachtabelle.
+  // Eine Seitenuebersetzung des Browsers soll sie nicht ein zweites Mal uebersetzen - sonst
+  // sprang sie zwischen "YOUR TURN · 7.6" und einer Uebersetzung ("IHRE REIHE · 7,5"; beides
+  // steht in keiner Sprachtabelle, und ein Dezimalkomma schreibt das Produkt nirgends).
+  t('die Zustandszeile ist von der Browseruebersetzung ausgenommen (translate="no")',
+    /<div class="fbstate" id="fbState"[^>]*\stranslate="no"/.test(HTML));
+  // Gezaehlt werden ELEMENTE, nicht Erwaehnungen: der Kommentar ueber der Zeile nennt das
+  // Attribut ebenfalls. Genau ein Element traegt es, und die Seite selbst traegt es nicht.
+  t('... und zwar NUR sie - die Seite bleibt sonst uebersetzbar (keine globale Abschaltung)',
+    (HTML.match(/<[a-z]+[^>]*\stranslate="no"/g) || []).length === 1
+    && !/<html[^>]*translate=/.test(HTML) && !/<body[^>]*translate=/.test(HTML)
+    && HTML.indexOf('class="notranslate"') < 0);
+  const anstrich = grabFunction(HTML, 'fbV9HudPaint');
+  t('der Anstrich erzeugt keine Knoten mehr, er beschreibt die zwei festen',
+    anstrich.indexOf('createElement') < 0 && anstrich.indexOf('appendChild') < 0
+    && /const lbl=document\.getElementById\('fbStateLbl'\), zif=document\.getElementById\('fbStateNum'\);/.test(anstrich));
+  t('... und schreibt jeden der beiden nur bei echter Aenderung',
+    /if\(lbl\.textContent!==lblTxt\)lbl\.textContent=lblTxt;/.test(anstrich)
+    && /if\(zif\.textContent!==zifTxt\)zif\.textContent=zifTxt;/.test(anstrich));
   t('ausserhalb von Arena Football gibt es die Zeile gar nicht',
     HTML.indexOf('.fbstate{display:none}') > 0 && HTML.indexOf('#game.fb .fbstate{display:block}') > 0);
   t('es entsteht KEIN Overlay ueber der Arena',
