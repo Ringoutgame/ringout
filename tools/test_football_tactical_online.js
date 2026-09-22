@@ -264,7 +264,7 @@ abschnitt('8. Vertraege im Quelltext');
       ['fbYourTurn', 'fbOppTurn', 'onModeTactical', 'onModeTacticalS', 'fbLobbyTacHow1', 'fbLobbyTacHow2'].every(k => typeof I18N[l][k] === 'string' && I18N[l][k].length > 0));
   }
   t('der Ring am eigenen Figurenpaar erscheint online nur beim Sitz am Zug', /if\(online&&typeof fbTacOnline==='function'&&fbTacOnline\(\)&&!fbTacAmZug\(curAimer\)\)return 0;/.test(fn('fbTacticalRingLevel')));
-  t('der Hub fuehrt die Tactical-Karte direkt in die Lobby', /\{key:'tactical',\s+card:'cardFb1v1'[^}]*direkt:true\}/.test(HTML) && /function fbTacticalOnlineOeffnen\(\)/.test(HTML));
+  t('die 1-gegen-1-Auswahl fuehrt TACTICAL 1V1 in die Lobby', /\{key:'tactical',\s+btn:'fbDuelTacBtn'[^}]*\}/.test(HTML) && /if\(key==='tactical'\)fbTacticalOnlineOeffnen\(\);/.test(HTML) && /function fbTacticalOnlineOeffnen\(\)/.test(HTML));
   t('die Raumanlage nimmt die Sitzzahl aus dem Register (fuer beide Tactical-Modi)', /\(fbOnlineMode===FB_ONLINE_MODE_TACTICAL\|\|fbOnlineMode===FB_ONLINE_MODE_TACTICAL4\)\?fbModeDefaultCap\(fbOnlineMode\):fbOnlineCap/.test(HTML));
   t('der Hoststart verlangt genau die Sitze 0 und 1', /fbTacRaum\(\)&&!\(da\.length===FB_TAC_SITZE&&da\[0\]===0&&da\[1\]===1\)\)return;/.test(fn('fbV11Starten')));
   t('die Lobby startet Tactical nur zu zweit', /const genau=tac\?FB_TAC_SITZE:/.test(fn('fbV11Lobby')) && /hoechst=genau\|\|FB_ONLINE_SEATS;/.test(fn('fbV11Lobby')));

@@ -804,19 +804,19 @@ const R = new Function(`
 
   // ── Die Karten: EIN aktiver Modus, drei ehrlich gesperrte ──
   const reg = grab(/const FB_HUB_MODES=\[[\s\S]*?\];/, 'FB_HUB_MODES');
-  ok((reg.match(/\{key:/g) || []).length === 5, 'der Hub zeigt fuenf Arena-Football-Karten');
-  ok((reg.match(/direkt:true/g) || []).length === 4 && /\{key:'ffa',\s+card:'cardFbFfa'[^}]*direkt:true\}/.test(reg)
-     && /\{key:'tactical',\s+card:'cardFb1v1'[^}]*direkt:true\}/.test(reg) && /\{key:'tactical4',\s+card:'cardFb4b'[^}]*direkt:true\}/.test(reg)
+  ok((reg.match(/\{key:/g) || []).length === 4, 'der Hub zeigt vier Arena-Football-Karten - FFA, 1 VS 1, TEAM 2V2, TRAINING');
+  ok((reg.match(/direkt:true/g) || []).length === 3 && /\{key:'ffa',\s+card:'cardFbFfa'[^}]*direkt:true\}/.test(reg)
+     && /\{key:'duel',\s+card:'cardFb1v1'[^}]*direkt:true\}/.test(reg) && !/key:'tactical/.test(reg)
      && /\{key:'team2v2',\s+card:'cardFb2v2'[^}]*direkt:true\}/.test(reg),
-     'genau VIER Karten fuehren direkt weiter - FFA, Tactical 1v1, Tactical 4-Ball 1v1 und Team 2v2');
+     'genau DREI Karten fuehren direkt weiter - FFA, 1 VS 1 (in die Unterauswahl der beiden Tactical-Spielarten) und Team 2v2');
   ok((reg.match(/soon:true/g) || []).length === 1 && /key:'training'[^}]*soon:true/.test(reg),
      'Training ist sichtbar und gesperrt');
   ok(reg.indexOf('schritt:') < 0, 'keine Karte fuehrt mehr in einen Zwischenschirm');
   const karte = grab(/function fbHubKarte\(i\)\{[\s\S]*?\n\}/, 'fbHubKarte');
   ok(/if\(d&&d\.direkt\)\{ vibrateMs\(VIBE_CONFIRM_MS\); fbHubOeffnen\(d\.key\); \}/.test(karte),
      'der Klick auf eine aktive Karte oeffnet die Lobby - ein Klick, kein zweiter Knopf');
-  ok(/function fbHubOeffnen\(key\)\{\n  if\(key==='tactical'\)fbTacticalOnlineOeffnen\(\);\n  else if\(key==='tactical4'\)fbTactical4OnlineOeffnen\(\);\n  else if\(key==='team2v2'\)fbTeam2OnlineOeffnen\(\);\n  else fbFfaOnlineOeffnen\(\);\n\}/.test(HTML),
-     'und der eine Onlineweg je Karte kennt genau vier Ziele: Tactical, Tactical 4-Ball, Team 2v2 und FFA');
+  ok(/function fbHubOeffnen\(key\)\{\n  if\(key==='duel'\)fbDuelOeffnen\(\);\n  else if\(key==='tactical'\)fbTacticalOnlineOeffnen\(\);\n  else if\(key==='tactical4'\)fbTactical4OnlineOeffnen\(\);\n  else if\(key==='team2v2'\)fbTeam2OnlineOeffnen\(\);\n  else fbFfaOnlineOeffnen\(\);\n\}/.test(HTML),
+     'und der eine Onlineweg je Karte kennt genau fuenf Ziele: 1 VS 1 (Unterauswahl), Tactical, Tactical 4-Ball, Team 2v2 und FFA');
   ok(/FB_HUB_MODES\.forEach\(\(d,i\)=>\{const el=\$\(d\.card\);if\(el\)el\.onclick=\(\)=>fbHubKarte\(i\);\}\);/.test(HTML),
      'und jede Karte haengt an genau diesem einen Weg');
   const anwenden = grab(/function applyFbMode\(i\)\{[\s\S]*?\n\}/, 'applyFbMode');
@@ -844,13 +844,13 @@ const R = new Function(`
   for (const weg of ['CLASSIC', 'TIMED', 'LIVES', 'LOCAL', 'ONLINE'])
     ok(kartenText.indexOf(weg) < 0, 'die Kartenleiste bietet keine ' + weg + '-Wahl mehr');
   const titel = (hub.match(/class="mt" id="\w+">([^<]*)</g) || []).map(x => x.replace(/.*>/, '').replace(/<$/, ''));
-  ok(titel.join('|') === 'FFA|TACTICAL 1V1|TACTICAL 4-BALL 1V1|TEAM 2V2|TRAINING',
-     'die Leiste zeigt genau fuenf Modi in dieser Reihenfolge (erhalten: ' + titel.join('|') + ')');
+  ok(titel.join('|') === 'FFA|1 VS 1|TEAM 2V2|TRAINING',
+     'die Leiste zeigt genau vier Karten in dieser Reihenfolge (erhalten: ' + titel.join('|') + ')');
   ok(/id="cardFbFfa"[\s\S]{0,400}id="cardFb1v1"/.test(hub), 'FFA steht als aktiver Modus vorn');
   ok(/<button class="mcard on" id="cardFbFfa">/.test(hub), 'und ist die Voreinstellung');
   ok((hub.match(/class="mcard msoon"/g) || []).length === 1, 'die eine uebrige Karte (Training) ist sichtbar gesperrt');
-  ok(/id="cardFb1v1T">TACTICAL 1V1</.test(hub) && /football_tactical\.webp/.test(hub),
-     'die 1v1-Karte ist jetzt TACTICAL 1V1 - das eigene Zweifigurenspiel');
+  ok(/id="cardFb1v1T">1 VS 1</.test(hub) && !/<img/.test(hub) && !/\.webp/.test(hub),
+     'die 1v1-Karte heisst 1 VS 1 und traegt wie alle Arena-Karten kein Rasterbild (SVG aus den Spielkonstanten)');
   ok(/id="cardFbBotT">TRAINING</.test(hub), 'und aus dem Bot-Platz wird TRAINING');
   // Die Modi selbst leben unveraendert weiter - Start, Regeln und Dev-Zugang.
   ok(/\$\('fbClassicBtn'\)\.onclick=/.test(HTML) && /startFootball\('classic',FOOTBALL_RULES_FIRST3\)/.test(HTML),

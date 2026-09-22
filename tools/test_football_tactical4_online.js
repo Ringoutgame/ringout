@@ -305,9 +305,9 @@ abschnitt('9. Vertraege im Quelltext, Hub, Lobby, Rules');
   t('fbTactical gilt fuer beide Varianten - Tactical-Regeln muessen nicht doppelt geschrieben werden', /function fbTactical\(\)\{return mode==='football'&&\(fbVariant===FOOTBALL_VARIANT_TACTICAL\|\|fbVariant===FOOTBALL_VARIANT_TACTICAL4\);\}/.test(HTML));
   t('fbTeam2 ist unveraendert', /function fbTeam2\(\)\{return mode==='football'&&fbVariant===FOOTBALL_VARIANT_TEAM2;\}/.test(HTML));
   t('teamCap nimmt die Figurenzahl aus fbTacFiguren', /function teamCap\(\)\{if\(typeof fbTactical==='function'&&fbTactical\(\)\)return \(typeof fbTacFiguren==='function'\)\?fbTacFiguren\(\):2;/.test(HTML));
-  t('der Hub fuehrt die Tactical-4-Ball-Karte direkt in die Lobby', /\{key:'tactical4',\s+card:'cardFb4b'[^}]*direkt:true\}/.test(HTML) && /function fbTactical4OnlineOeffnen\(\)/.test(HTML) && /if\(key==='tactical4'\)fbTactical4OnlineOeffnen\(\);/.test(HTML));
-  t('die Karte nennt den Modus und die vier Figuren', /id="cardFb4bT">TACTICAL 4-BALL 1V1</.test(HTML) && /id="cardFb4bS">4 FIGURES EACH · ALTERNATING TURNS</.test(HTML));
-  t('die Tactical-Karte bleibt unveraendert (2 Figuren)', /id="cardFb1v1S">2 FIGURES EACH · ALTERNATING TURNS</.test(HTML) && /\{key:'tactical',\s+card:'cardFb1v1'[^}]*direkt:true\}/.test(HTML));
+  t('die 1-gegen-1-Auswahl fuehrt TACTICAL 4-BALL 1V1 in die Lobby', /\{key:'tactical4',\s+btn:'fbDuelTac4Btn'[^}]*\}/.test(HTML) && /function fbTactical4OnlineOeffnen\(\)/.test(HTML) && /if\(key==='tactical4'\)fbTactical4OnlineOeffnen\(\);/.test(HTML));
+  t('die Option nennt den Modus und die vier Figuren', /id="fbDuelTac4T">TACTICAL 4-BALL 1V1</.test(HTML) && /id="fbDuelTac4S">4 FIGURES EACH · ALTERNATING TURNS</.test(HTML));
+  t('die Tactical-Option bleibt unveraendert (2 Figuren)', /id="fbDuelTacS">2 FIGURES EACH · ALTERNATING TURNS</.test(HTML) && /\{key:'tactical',\s+btn:'fbDuelTacBtn'[^}]*\}/.test(HTML));
   t('der Onlineeinstieg prueft Tuning, 3D-Szene und Freigabe wie Tactical', /async function fbTactical4OnlineOeffnen\(\)\{\n  if\(TUNE\)[^\n]*\n  if\(!\(await r3dSichern\(true\)\)\)[^\n]*\n  if\(!fbOnlineFrei\(FB_ONLINE_MODE_TACTICAL4\)\)[^\n]*\n  fbOnlineMode=FB_ONLINE_MODE_TACTICAL4; fbOnlineCap=fbModeDefaultCap\(FB_ONLINE_MODE_TACTICAL4\);\n  fbOnlineEnter\(\);\n\}/.test(HTML));
   t('der Tactical-Raum-Begriff (Hoststart zu zweit, Lobbygatter) gilt fuer beide Modi', /function fbTacRaum\(\)\{ return fbOnlineRoom\(\)&&\(fbLobbyMode\(\)===FB_ONLINE_MODE_TACTICAL\|\|fbLobbyMode\(\)===FB_ONLINE_MODE_TACTICAL4\); \}/.test(HTML));
   t('die Raumanlage nimmt die Sitzzahl beider Tactical-Modi aus dem Register', /\(fbOnlineMode===FB_ONLINE_MODE_TACTICAL\|\|fbOnlineMode===FB_ONLINE_MODE_TACTICAL4\)\?fbModeDefaultCap\(fbOnlineMode\):fbOnlineCap/.test(HTML));
@@ -319,9 +319,9 @@ abschnitt('9. Vertraege im Quelltext, Hub, Lobby, Rules');
   t('fbV9Wirken startet nur den Koerper des Sitzes am Zug (unveraendert)', /if\(tacAktiv>=0&&e\.seat!==tacAktiv\)continue;/.test(fn('fbV9Wirken')));
   t('der passive Sitz traegt sein pass wie bei Tactical (fbTacPassivRunde ueber fbTacOnline)', /function fbTacOnline\(\)\{ return !!online&&fbTactical\(\); \}/.test(HTML));
   for (const l of ['en', 'de', 'tr']) {
-    t(l + ': onModeTactical4 / onModeTactical4S / catFb4b / mcFb4b / ctaFb4b / fbLobbyTac4How1 sind uebersetzt',
-      ['onModeTactical4', 'onModeTactical4S', 'catFb4b', 'mcFb4b', 'ctaFb4b', 'fbLobbyTac4How1'].every(k => typeof I18N[l][k] === 'string' && I18N[l][k].length > 0)
-      && /4/.test(I18N[l].onModeTactical4S) && /4/.test(I18N[l].mcFb4b));
+    t(l + ': onModeTactical4 / onModeTactical4S / fbLobbyTac4How1 sind uebersetzt (die 1-gegen-1-Option liest diese Registerschluessel)',
+      ['onModeTactical4', 'onModeTactical4S', 'fbLobbyTac4How1'].every(k => typeof I18N[l][k] === 'string' && I18N[l][k].length > 0)
+      && /4/.test(I18N[l].onModeTactical4S));
   }
   const rules = require('fs').readFileSync(require('path').join(__dirname, '..', 'firebase.rules.json'), 'utf8');
   t('die Rules kennen den Tactical-4-Ball-Raum (v11, Modus, Sitzzahl 2)', /newData\.val\(\) === 'tactical4'/.test(rules) && /newData\.val\(\) === 2 && newData\.parent\(\)\.child\('mode'\)\.val\(\) === 'tactical4'/.test(rules));
