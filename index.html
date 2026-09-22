@@ -950,17 +950,21 @@ body.fbctx .proom .pr-game{color:#cfe0ef}
    <!-- GAME HUB: RINGOUT bleibt die Dachmarke; darunter stehen zwei erstklassige Spiele.
         Die Karte waehlt das Spiel, die Modusleiste darunter zeigt dessen echte Modi. -->
    <div class="msec"><span id="secHubT">GAME HUB</span><i class="hr"></i></div>
+   <!-- Reihenfolge = Produktprioritaet: ARENA FOOTBALL ist das Hauptspiel und steht links
+        bzw. zuerst, RING OUT bleibt gleichwertig erreichbar als zweites. Die Auswahlmarkierung
+        (`on`) traegt beim Laden die Football-Karte - dieselbe Klasse, dieselbe Gestaltung,
+        nur die Reihenfolge und die Voreinstellung sind neu (s. `let menuSel`). -->
    <div class="mhub">
-    <button class="gcard on" id="cardRingout" type="button">
-      <img src="assets/hub/hero_ringout.webp" alt="" width="680" height="425" loading="lazy" decoding="async">
-      <span class="gveil"></span>
-      <span class="gcap"><span class="gn">Ring<em>Out</em></span><span class="gs" id="gRoS">PULL BACK · RELEASE</span><span class="gteam" aria-hidden="true"><i class="kg"></i></span></span>
-    </button>
-    <button class="gcard gfb" id="cardFootball" type="button">
+    <button class="gcard gfb on" id="cardFootball" type="button">
       <span class="gbadge" id="gFbBadge">NEU</span>
       <img src="assets/hub/hero_football.webp" alt="" width="900" height="563" loading="lazy" decoding="async">
       <span class="gveil"></span>
       <span class="gcap"><span class="gn" id="gFbT">Arena <em>Football</em></span><span class="gs" id="gFbS">GOALS · SKILLS · SPEED</span><span class="gteam" aria-hidden="true"><i class="kb"></i><i class="kr"></i></span></span>
+    </button>
+    <button class="gcard" id="cardRingout" type="button">
+      <img src="assets/hub/hero_ringout.webp" alt="" width="680" height="425" loading="lazy" decoding="async">
+      <span class="gveil"></span>
+      <span class="gcap"><span class="gn">Ring<em>Out</em></span><span class="gs" id="gRoS">PULL BACK · RELEASE</span><span class="gteam" aria-hidden="true"><i class="kg"></i></span></span>
     </button>
    </div>
    <div class="msec"><span id="secPlayT">PLAY</span><i class="hr"></i></div>
@@ -2362,7 +2366,13 @@ $('ffaOnline').onclick=()=>{SFX.unlock();fmt='ffa';openOnline();};
 // Karten setzen NUR die Menue-Auswahl; mode/fmt werden erst beim CTA-Tap gesetzt.
 // FFA setzt menuMode bewusst NICHT — onBack stellt mode=menuMode wieder her
 // (leaveOnline early-returnt, wenn nie ein Raum betreten wurde, daher dort explizit).
-let menuSel='ffa';
+// ARENA FOOTBALL ist das Hauptspiel: ein frischer Start landet im Arena-Football-Hub
+// (applyLang -> selectMenuMode(menuSel) beim Boot). `hubGame` bleibt hier 'ro', weil vor
+// dem Boot noch kein Kontext angewendet ist - genau dadurch laeuft der Boot durch den
+// normalen "Arena-Kontext betreten"-Zweig von selectMenuMode und stellt die Modusleiste
+// auf die erste direkte Karte (FFA). Ring Out bleibt vollstaendig erreichbar; ein
+// Wiedereintritt in einen Ring-Out-Raum bringt seinen Spielzustand ohnehin selbst mit.
+let menuSel='football';
 const MENU_SEL={
   ffa:{card:'cardFfa',cta:'ctaFfa',info:'infoFfa'},
   triple:{card:'cardTriple',cta:'ctaTriple',info:'infoTriple'},   // TRIPLE FFA: 3 Spieler, 2 Kugeln pro Spieler (fmt 'triple_ffa')
@@ -3347,10 +3357,16 @@ $('rejoinBtn').onclick=()=>{ const sr=savedRoom(); if(!sr)return; $('onRejoin').
 function showMenu(){menuVisible=true;
   if(typeof clearGameOverOverlayTimer==='function')clearGameOverOverlayTimer();   // Rueckweg ins Menue: kein nachlaufendes Ergebnisfenster (B1)
   if(typeof SFX.collapseStop==='function')SFX.collapseStop();   // laufende Bruch-/Truemmersequenz sofort beenden (B2)
-  $('menu').style.display='flex';$('game').style.display='none';updateMenuPreview();resize();
+  $('menu').style.display='flex';$('game').style.display='none';
   applyFootballHud();          // Football-HUD-Klasse, Anstosshinweis und Score-Animation restlos abraeumen
   footballResetMatchState();   // zurueck im Menue: kein Football-Latch, keine Eingabesperre und kein Gewinner bleiben stehen (in anderen Modi wirkungslos)
-  fbVariant='classic';         // Menue zeigt immer den Standardmodus — startFootball() setzt die Variante beim Start ohnehin neu
+  fbVariant='classic';         // die Matchvariante ist erledigt — die Menuevorschau setzt gleich die der gewaehlten Karte
+  // ERST aufraeumen, DANN die Vorschau: updateMenuPreview stellt die Koerper des Hero-Modus,
+  // und fbElimReset (in footballResetMatchState) gibt der Elimination ihre volle Startbesetzung
+  // zurueck. In der umgekehrten Reihenfolge stellte die Vorschau ihre Koerper noch in die Phase
+  // des beendeten Matches, und fbVariant='classic' ueberschrieb danach die Arenaform - der Hero
+  // zeigte eine Classic-Arena mit fremden Koerpern.
+  updateMenuPreview();resize();
   SFX.footballGoalStop();      // ein noch laufender Torsound blendet weich aus, statt ins Menue hineinzuklingen
   SFX.fbTransitionStop();      // dasselbe fuer einen laufenden Transitionsklang
   if(r3dActive&&r3d&&r3d.flushEnvProfile)r3d.flushEnvProfile();   // waehrend des Matches aufgeschobenen Env-Wechsel jetzt (sicherer Idle) anwenden

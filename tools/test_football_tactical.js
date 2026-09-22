@@ -349,10 +349,11 @@ console.log('ARENA FOOTBALL — Produktsuite: Classic 1v1 (Standard) + Tactical 
        id + ' startet Classic mit ' + rules);
   }
   // Eine Definition, SECHS Menue-Aufrufer (Classic-Regelwahl zwei, Elimination-
-  // Einrichtung zwei, Tactical einer, Team 2v2 einer), der Dev-Direktlink — und eine
-  // Kommentarerwaehnung. ONLINE ist bewusst NICHT darunter: es startet kein lokales
-  // Match, sondern uebergibt an den bestehenden Onlinebildschirm.
-  ok((HTML.match(/startFootball\(/g) || []).length === 9,
+  // Einrichtung zwei, Tactical einer, Team 2v2 einer) und der Dev-Direktlink. ONLINE ist
+  // bewusst NICHT darunter: es startet kein lokales Match, sondern uebergibt an den
+  // bestehenden Onlinebildschirm. Die frueher mitgezaehlte Kommentarerwaehnung in showMenu
+  // ist seit 2026-09-22 fort - dort erklaert der Kommentar jetzt die Hero-Vorschau.
+  ok((HTML.match(/startFootball\(/g) || []).length === 8,
      'kein zweiter Startpfad neben startFootball() (erhalten: ' + (HTML.match(/startFootball\(/g) || []).length + ')');
   const onlineHandler = grab(/\$\('fbOnlineBtn'\)\.onclick=async\(\)=>\{[\s\S]*?\n\};/, 'fbOnlineBtn-Handler');
   ok(!/startFootball/.test(onlineHandler), 'ONLINE startet kein lokales Match');

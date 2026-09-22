@@ -8,6 +8,10 @@
 //   2. Die Kartenbilder sind Aufnahmen des echten 3D-Renderers (assets/hub/modes/*.webp,
 //      700x438): 1 VS 1 und die Option TACTICAL 1V1 tragen football_tactical, die Option
 //      TACTICAL 4-BALL 1V1 football_tactical4 (4 Blau + 4 Rot + Ball). Ring Out unveraendert.
+//   4. ARENA FOOTBALL ist das Hauptspiel: im Spielumschalter steht es zuerst/links, Ring Out
+//      zweiter/rechts, und ein frischer Start waehlt Arena Football (menuSel). Ring Out bleibt
+//      vollstaendig erreichbar; der Wechsel in beide Richtungen raeumt Kontext, Markierung,
+//      Modusleiste und Hero sauber um. Ein Wiedereintritt bringt seinen Spielzustand selbst mit.
 //   3. Die Football-Buehne (fbBuehne: mode==='football') steht im Match, im Arena-Fenster des
 //      Onlinebildschirms (Koerper des Raummodus, fbOnlineEnter) und auf der Startseite mit
 //      gewaehlter Arena-Football-Karte (Koerper der Karte: fbHubVariante / updateMenuPreview);
@@ -122,7 +126,21 @@ function bauen() {
     'let menuSel="football", menuMode="bot", fmtMenu="single"; let coverShown=false; const spur=[];',
     g(/const FB_HUB_MODES=\[[\s\S]*?\];/, 'FB_HUB_MODES'), 'let fbHubSel=0;', fn('fbHubVariante'),
     'const R0=1000, cx=0, cy=0, BR=32;',
-    "const document={getElementById:(id)=>id==='online'?{classList:{contains:(c)=>c==='show'&&coverShown}}:null};",
+    // Gestellte Oberflaeche: nur so viel DOM, wie die echten Funktionen anfassen.
+    "const __el=(id)=>({id:id,_t:'',dataset:{},style:{},children:[],type:'',className:'',onclick:null," +
+    "get textContent(){return this._t;}, set textContent(v){this._t=v; if(v==='')this.children.length=0;}," +
+    "classList:{_s:new Set(),add(c){this._s.add(c);},remove(c){this._s.delete(c);}," +
+    "toggle(c,v){if(v===undefined)v=!this._s.has(c);if(v)this._s.add(c);else this._s.delete(c);}," +
+    "contains(c){return this._s.has(c);}}," +
+    "appendChild(e){this.children.push(e);},setAttribute(){},getBoundingClientRect(){return {left:0,top:0,width:10,height:10};}});",
+    "const __reg={}; const __holen=(id)=>__reg[id]||(__reg[id]=__el(id));",
+    "const __online={classList:{contains:(c)=>c==='show'&&coverShown}};",
+    "function $(id){ return id==='online'?__online:__holen(id); }",
+    "const document={getElementById:(id)=>id==='online'?__online:__holen(id), createElement:()=>__el('neu'), body:{classList:{_s:new Set(),toggle(c,v){if(v)this._s.add(c);else this._s.delete(c);},contains(c){return this._s.has(c);}}}};",
+    "function T(k){return k;} function vibrateMs(){} const VIBE_CONFIRM_MS=25;",
+    "let hubGame='ro', roSel='ffa', ffaNMenu=3;",
+    g(/const MENU_SEL=\{[\s\S]*?\n\};/, 'MENU_SEL'), g(/const HUB_RO_ORDER=\[[^\n]*\];/, 'HUB_RO_ORDER'),
+    fn('applyHubContext'), fn('applyFbMode'), fn('updateModeDots'), fn('selectMenuMode'),
     fn('mkBall'),
     g(/const PCOLS=\[[^\n]*\];/, 'PCOLS'), g(/const FB_COL_P5=[^\n]*;/, 'FB_COL_P5'), g(/const FB_PCOLS=[^\n]*;/, 'FB_PCOLS'),
     fn('pcol'), fn('teamOf'), fn('colorSlot'),
@@ -154,6 +172,9 @@ function bauen() {
     '  cover:(v)=>{coverShown=v;}, menu:(v)=>{menuVisible=v;}, setMode:(m)=>{mode=m;}, setFmt:(f)=>{fmt=f;}, variante:(v)=>{if(v!==undefined)fbVariant=v;return fbVariant;},',
     '  stand:()=>({mode,fmt,fbVariant,fbOnlineMode,koerper:balls.length,buehne:fbBuehne(),key:fbFrameKey(),vorschau:fbOnlineVorschau()}),',
     '  zurueck:()=>{updateMenuPreview();}, karte:(i)=>{fbHubSel=i;}, spur, mapping:(m)=>fbVarianteFuerModus(m),',
+    '  waehle:(m)=>selectMenuMode(m), menuSel:()=>menuSel, roSel:()=>roSel, hubGame:()=>hubGame, hubSel:()=>fbHubSel,',
+    '  an:(id)=>$(id).classList.contains("on"), fbctx:()=>document.body.classList.contains("fbctx"),',
+    '  leiste:()=>({ro:$("roCards").style.display,fb:$("fbCards").style.display,punkte:$("modeDots").children.length,cta:$("ctaBtnT").textContent}),',
     '  stell:(v)=>{mode="football";fbVariant=v;placeBalls();return balls.map(b=>({o:b.owner,slot:colorSlot(b.owner),x:(b.x-cx)/BR,y:(b.y-cy)/BR}));},',
     '  BR, BALL:FOOTBALL_BALL_RADIUS, NEUTRAL:FOOTBALL_NEUTRAL_OWNER',
     '};'
@@ -254,6 +275,56 @@ abschnitt('5. Kartenbilder: Renderer-Aufnahmen in einer Bildfamilie (700x438 Web
   // Der Spawner bleibt die einzige Aufstellung des Spiels: seine Konstantenzeilen stehen genau einmal.
   t('placeBalls liest die Aufstellungen unveraendert (je genau einmal)', (HTML.match(/const S=FOOTBALL_TACTICAL_1V1_SPAWN;/g) || []).length === 1
     && (HTML.match(/const S=FOOTBALL_TACTICAL_SPAWN;/g) || []).length === 1 && (HTML.match(/for\(const p of FOOTBALL_TACTICAL4_SPAWN\)/g) || []).length === 1);
+}
+
+// ══ 6. ARENA FOOTBALL IST DAS HAUPTSPIEL ══════════════════════════════════════════════
+abschnitt('6. Spielumschalter: Arena Football zuerst und voreingestellt, Ring Out vollstaendig');
+{
+  const hub = g(/   <div class="mhub">[\s\S]*?\n   <\/div>/, 'Spielumschalter');
+  t('im Umschalter steht Arena Football VOR Ring Out', hub.indexOf('id="cardFootball"') >= 0 && hub.indexOf('id="cardRingout"') >= 0
+    && hub.indexOf('id="cardFootball"') < hub.indexOf('id="cardRingout"'));
+  t('die Football-Karte traegt die Auswahlmarkierung, die Ring-Out-Karte nicht', /<button class="gcard gfb on" id="cardFootball" type="button">/.test(hub)
+    && /<button class="gcard" id="cardRingout" type="button">/.test(hub));
+  t('beide Karten behalten Bauweise und Bild (gcard, eigener Hero, gveil, gcap)', (hub.match(/class="gcard/g) || []).length === 2
+    && /assets\/hub\/hero_football\.webp/.test(hub) && /assets\/hub\/hero_ringout\.webp/.test(hub)
+    && (hub.match(/class="gveil"/g) || []).length === 2 && (hub.match(/class="gcap"/g) || []).length === 2);
+  t('das Raster des Umschalters ist unveraendert (zwei gleiche Spalten)', /\.mhub\{display:grid;grid-template-columns:1fr 1fr;/.test(HTML));
+  t('ein frischer Start waehlt Arena Football', /\nlet menuSel='football';/.test(HTML) && !/let menuSel='ffa';/.test(HTML));
+  t('der Boot wendet genau diese Auswahl an (applyLang -> selectMenuMode(menuSel))', /\n  selectMenuMode\(menuSel\);/.test(HTML));
+  t('Ring Out bleibt ein Klick entfernt und behaelt seinen zuletzt gewaehlten Modus', /\$\('cardRingout'\)\.onclick=\(\)=>selectMenuMode\(roSel\);/.test(HTML)
+    && /let hubGame='ro', fbHubSel=0, roSel='ffa';/.test(HTML));
+  t('die Ring-Out-Modusleiste ist unveraendert', /const HUB_RO_ORDER=\['ffa','triple','team','vs','bot'\];/.test(HTML));
+  t('showMenu raeumt VOR der Hero-Vorschau auf (Variante und Elimination-Phase erst zurueck, dann stellen)', (() => {
+    const sm = g(/function showMenu\(\)\{[\s\S]*?updScrollHint\(\);\}/, 'showMenu');
+    return sm.indexOf("fbVariant='classic';") < sm.indexOf('updateMenuPreview();')
+      && sm.indexOf('footballResetMatchState();') < sm.indexOf('updateMenuPreview();');
+  })());
+  // Der echte Wechsel, mit den echten Funktionen.
+  const S = bauen();
+  S.waehle(S.menuSel());   // Boot
+  const boot = S.stand();
+  t('Boot: Arena-Football-Kontext, Football-Karte markiert, Ring-Out-Karte nicht', S.hubGame() === 'fb' && S.fbctx() === true && S.an('cardFootball') === true && S.an('cardRingout') === false);
+  t('Boot: die Arena-Modusleiste ist sichtbar, die Ring-Out-Leiste nicht', S.leiste().fb === '' && S.leiste().ro === 'none' && S.leiste().punkte === 4);
+  t('Boot: der Hero zeigt die Football-Arena der ersten Karte (FFA: elimination, 6 Koerper, e5)', boot.mode === 'football' && boot.fbVariant === 'elimination' && boot.koerper === 6 && boot.buehne === true && boot.key === 'e5', boot);
+  t('Boot: die Modusleiste steht auf der ersten direkten Karte - kein Modus wird automatisch betreten', S.hubSel() === 0 && S.spur.length === 0 && boot.fmt === 'single');
+  // Karte wechseln, dann zu Ring Out und zurueck.
+  S.waehle('football'); S.karte(1); S.zurueck();
+  t('innerhalb von Arena Football folgt der Hero der Karte (1 VS 1: tactical, 5 Koerper, t)', S.stand().fbVariant === 'tactical' && S.stand().koerper === 5 && S.stand().key === 't');
+  S.waehle(S.roSel());
+  const ro = S.stand();
+  t('Wechsel zu Ring Out: Kontext, Markierung und Leisten kippen um', S.hubGame() === 'ro' && S.fbctx() === false && S.an('cardRingout') === true && S.an('cardFootball') === false
+    && S.leiste().ro === '' && S.leiste().fb === 'none' && S.leiste().punkte === 5);
+  t('Wechsel zu Ring Out: die Ringplattform steht im Hero (keine Football-Buehne, kein Football-Modus)', ro.mode === 'ffa' && ro.buehne === false && ro.key === '' && ro.koerper === 5, ro);
+  S.waehle('football');
+  const zurueck = S.stand();
+  t('Wechsel zurueck: Arena Football mit der ersten direkten Karte, kein Rest der Ring-Out-Auswahl', S.hubGame() === 'fb' && S.hubSel() === 0 && S.an('cardFootball') === true && S.an('cardRingout') === false);
+  t('Wechsel zurueck: der Football-Hero steht wieder (elimination, 6 Koerper, e5)', zurueck.mode === 'football' && zurueck.fbVariant === 'elimination' && zurueck.koerper === 6 && zurueck.buehne === true && zurueck.key === 'e5', zurueck);
+  t('kein Onlineweg ist dabei ausgeloest worden', S.spur.length === 0, S.spur);
+  // Der Wiedereintritt bleibt die Autoritaet - er fragt weder die Spielwahl noch den Hub.
+  const rejoin = g(/async function attemptRejoin\(code\)\{[\s\S]*?\n\}/, 'attemptRejoin');
+  t('der Wiedereintritt baut den Modus aus dem Raum, nicht aus der Spielwahl', /mode=rjFb\?'football':ffa\?'ffa':'online';/.test(rejoin)
+    && rejoin.indexOf('menuSel') < 0 && rejoin.indexOf('hubGame') < 0 && rejoin.indexOf('fbHubVariante') < 0);
+  t('auch der Beitritt entscheidet aus der Raumkonfiguration', /if\(joinFb\)\{ mode='football'; fbVariant=fbVarianteFuerModus\(v\.mode\); \} else mode='ffa';/.test(HTML));
 }
 
 console.log(`\nFootball-Hub-Vorschau: ${pass} passed, ${fail} failed`);
