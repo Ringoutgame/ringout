@@ -16725,20 +16725,28 @@ function draw(){
 // RING OUT (unveraendert): nur im Stillstand/Aiming. Waehrend der Simulation traegt die
 // Kugelfarbe die Zuordnung allein; ein mitfliegender Name waere dort nur Unruhe.
 //
-// ARENA FOOTBALL: durchgehend, auch waehrend der Physik. Hier schiessen alle Sitze
-// gleichzeitig, und erst der Name sagt waehrend des Zuges, wessen Figur gerade wohin
-// laeuft - genau deshalb steht das Label hier auch in der Simulation. Drei Faelle bleiben
-// ohne Label:
+// ARENA FOOTBALL: durchgehend, auch waehrend der Physik - aber nur dort, wo das Schild
+// wirklich etwas beantwortet. Die Frage lautet immer: WEM gehoert diese Figur? Wo mehrere
+// Menschen gleichzeitig eigene Figuren fuehren (FFA/Elimination, Team 2v2), ist der Name
+// die einzige Auskunft darueber, und er steht deshalb auch waehrend der Simulation.
+// Ohne Label bleiben:
 //   - der neutrale Ball: er gehoert KEINEM Sitz. pName() wuerde ihm trotzdem eine
 //     Beschriftung geben (FOOTBALL_NEUTRAL_OWNER === 5: online der Farbname des sechsten
 //     Slots, lokal "Spieler 6") - ein Name auf dem Ball waere schlicht falsch.
 //   - das Menue-Vorspiel: dort laeuft kein Match, und die Lobby nennt die Namen bereits.
-// Tactical traegt den Namen auf BEIDEN Figuren eines Spielers: dort ist genau das die
-// Auskunft, die zaehlt - welche zwei Koerper zu wem gehoeren.
+//   - TACTICAL 1V1 und TACTICAL 4-BALL 1V1 (fbTactical(), beide Varianten): dort stehen
+//     genau ZWEI Menschen gegeneinander, und die Farbe sagt bereits vollstaendig, wem eine
+//     Figur gehoert - Blau die eine Seite, Rot die andere. Der Name daneben wiederholt das
+//     nur, zwei- bzw. vierfach je Spieler, und verdeckt die Spielflaeche. Wer wer ist,
+//     steht unveraendert oben im Spielstand (updateHud -> #n0/#n1 aus pName()).
+// Die Antwort faellt an genau dieser Stelle; drawBall zeichnet in beiden Spielen mit
+// demselben Code und fragt nur hier nach.
 function nameLabelOn(b){
   if(mode!=='football')return phase!=='sim';
   if(menuVisible)return false;
-  return b.owner!==FOOTBALL_NEUTRAL_OWNER;
+  if(b.owner===FOOTBALL_NEUTRAL_OWNER)return false;
+  if(typeof fbTactical==='function'&&fbTactical())return false;   // Tactical 1v1 / 4-Ball: zwei Menschen, die Farbe genuegt
+  return true;
 }
 function drawBall(b){
   const pc=pcol(colorSlot(b.owner));   // TEAM DUEL: beide Teamkugeln in Teamfarbe

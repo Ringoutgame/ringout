@@ -68,6 +68,7 @@ const QUELLE = [
   grab(HTML, /const NAME_MAX_UNITS=\d+;[^\n]*/, 'NAME_MAX_UNITS'),
   grab(HTML, /const FOOTBALL_NEUTRAL_OWNER=\d+;[^\n]*/, 'FOOTBALL_NEUTRAL_OWNER'),
   grab(HTML, /const FOOTBALL_VARIANT_TACTICAL='[^']*';/, 'FOOTBALL_VARIANT_TACTICAL'),
+  grab(HTML, /const FOOTBALL_VARIANT_TACTICAL4='[^']*';/, 'FOOTBALL_VARIANT_TACTICAL4'),
   grab(HTML, /const FOOTBALL_VARIANT_TEAM2='[^']*';/, 'FOOTBALL_VARIANT_TEAM2'),
   grab(HTML, /const FOOTBALL_VARIANT_ELIM4='[^']*';/, 'FOOTBALL_VARIANT_ELIM4'),
   grabFunction(HTML, 'capGraphemes'),
@@ -104,7 +105,7 @@ const FUSS = `
 return {
   drawBall, nameLabelOn, pName, nameForSeat, sanitizeName, mkBall, ncol,
   NEUTRAL: FOOTBALL_NEUTRAL_OWNER, NAME_MAX, FB_NAME_COL,
-  V: { tactical: FOOTBALL_VARIANT_TACTICAL, team2: FOOTBALL_VARIANT_TEAM2, elim4: FOOTBALL_VARIANT_ELIM4 },
+  V: { tactical: FOOTBALL_VARIANT_TACTICAL, tactical4: FOOTBALL_VARIANT_TACTICAL4, team2: FOOTBALL_VARIANT_TEAM2, elim4: FOOTBALL_VARIANT_ELIM4 },
   setz(o){
     if('mode' in o) mode=o.mode;
     if('phase' in o) phase=o.phase;
@@ -186,14 +187,30 @@ abschnitt('1. nameLabelOn: wer traegt ein Schild?');
   t('Football: das Menue-Vorspiel bleibt ohne Schilder', M.nameLabelOn(kugel(0)) === false);
   M.setz({ menuVisible: false });
 
-  // Tactical: eine Identitaet, zwei Figuren - und BEIDE tragen ihren Namen. Genau das ist
-  // dort die Auskunft, die zaehlt: welche zwei Koerper zu wem gehoeren (2026-09-21).
-  M.setz({ fbVariant: M.V.tactical });
-  t('Football Tactical beschriftet beide Figuren eines Spielers', M.nameLabelOn(kugel(0)) === true && M.nameLabelOn(kugel(1)) === true);
-  t('... und den neutralen Ball auch dort nicht', M.nameLabelOn(kugel(M.NEUTRAL)) === false);
+  // TACTICAL 1V1 und TACTICAL 4-BALL (2026-09-22): dort stehen genau ZWEI Menschen
+  // gegeneinander, und die Farbe sagt bereits vollstaendig, wem eine Figur gehoert - Blau
+  // die eine Seite, Rot die andere. Der Name daneben wiederholt das nur (zwei- bzw.
+  // vierfach je Spieler) und verdeckt die Spielflaeche. Wer wer ist, steht oben im
+  // Spielstand. Keine Figur traegt hier ein Schild - in keiner Phase.
+  for (const [v, wie] of [[M.V.tactical, 'Tactical 1v1'], [M.V.tactical4, 'Tactical 4-Ball']]) {
+    let je = false;
+    for (const ph of ['aim', 'reveal', 'sim', 'result', 'over']) {
+      M.setz({ fbVariant: v, phase: ph });
+      for (const o of [0, 1]) if (M.nameLabelOn(kugel(o))) je = true;
+    }
+    t('Football ' + wie + ': keine Figur traegt ein Schild - in keiner Phase', je === false);
+    t('Football ' + wie + ': der neutrale Ball erst recht nicht', M.nameLabelOn(kugel(M.NEUTRAL)) === false);
+  }
+  M.setz({ phase: 'aim' });
+  // TEAM 2V2 und FFA behalten ihre Schilder: dort fuehren VIER bzw. FUENF Menschen eigene
+  // Figuren, und erst der Name sagt, welche davon wem gehoert.
   M.setz({ fbVariant: M.V.team2 });
-  t('Football Team 2v2 beschriftet seine vier eigenstaendigen Figuren', M.nameLabelOn(kugel(2)) === true);
+  t('Football Team 2v2 beschriftet seine vier eigenstaendigen Figuren', [0, 1, 2, 3].every(o => M.nameLabelOn(kugel(o)) === true));
   M.setz({ fbVariant: M.V.elim4 });
+  t('Football FFA/Elimination behaelt die Schilder aller Spielerfiguren', [0, 1, 2, 3, 4].every(o => M.nameLabelOn(kugel(o)) === true));
+  // Die Namen der beiden 1v1-Varianten stehen oben im Spielstand - unveraendert aus pName().
+  t('der Spielstand oben nennt weiterhin beide Namen (updateHud -> #n0/#n1)',
+    /if\(online\)\{ \$\('n0'\)\.textContent=pName\(0\); \$\('n1'\)\.textContent=pName\(1\); \}/.test(HTML));
 }
 
 // ══ 2. SITZ -> NAME: EINE EINZIGE QUELLE ════════════════════════════════════════

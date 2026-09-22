@@ -286,16 +286,17 @@ abschnitt('7. Zwei getrennte Clients rechnen 24 Runden ueber alle acht Figuren i
 }
 
 // ══ 8. NAMENSSCHILDER ════════════════════════════════════════════════════════════
-abschnitt('8. Namen: auf allen vier Figuren eines Spielers, nie auf dem Ball');
+abschnitt('8. Namen: keine Schilder ueber den Figuren, der Name steht oben im Spielstand');
 {
   const M = new Function([
     g(/const FOOTBALL_NEUTRAL_OWNER=\d+;[^\n]*/, 'FOOTBALL_NEUTRAL_OWNER'),
     'let mode="football", phase="aim", menuVisible=false;',
+    'function fbTactical(){ return true; }',   // Tactical 4-Ball gehoert zur Tactical-Familie
     fn('nameLabelOn'),
     'return { on: nameLabelOn, N: FOOTBALL_NEUTRAL_OWNER };'
   ].join('\n'))();
   const k = (o) => ({ owner: o, alive: true });
-  t('acht Figuren, acht Schilder, ein Ball ohne', [0, 0, 0, 0, 1, 1, 1, 1, M.N].map(o => M.on(k(o))).join(',') === 'true,true,true,true,true,true,true,true,false');
+  t('acht Figuren, null Schilder, ein Ball ohne', [0, 0, 0, 0, 1, 1, 1, 1, M.N].map(o => M.on(k(o))).every(v => v === false));
   t('auch waehrend der Physik bleiben die Schilder', (() => { const N = new Function('let mode="football", phase="sim", menuVisible=false; const FOOTBALL_NEUTRAL_OWNER=5;' + fn('nameLabelOn') + ';return nameLabelOn;')(); return N(k(0)) && N(k(1)) && !N(k(5)); })());
 }
 

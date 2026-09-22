@@ -227,7 +227,7 @@ abschnitt('6. Zwei getrennte Clients rechnen dieselbe Zugfolge identisch');
 }
 
 // ══ 7. NAMENSSCHILDER ════════════════════════════════════════════════════════════
-abschnitt('7. Namen: auf beiden Figuren eines Spielers, nie auf dem Ball');
+abschnitt('7. Namen: keine Schilder ueber den Figuren, der Name steht oben im Spielstand');
 {
   const M = new Function([
     g(/const FOOTBALL_NEUTRAL_OWNER=\d+;[^\n]*/, 'FOOTBALL_NEUTRAL_OWNER'),
@@ -237,10 +237,10 @@ abschnitt('7. Namen: auf beiden Figuren eines Spielers, nie auf dem Ball');
     'return { on: nameLabelOn, N: FOOTBALL_NEUTRAL_OWNER };'
   ].join('\n'))();
   const k = (o) => ({ owner: o, alive: true });
-  t('B1 und B2 tragen ein Schild', M.on(k(0)) && M.on(k(0)));
-  t('R1 und R2 tragen ein Schild', M.on(k(1)) && M.on(k(1)));
+  t('B1 und B2 tragen KEIN Schild - zwei Menschen, die Farbe genuegt', M.on(k(0)) === false);
+  t('R1 und R2 ebenso wenig', M.on(k(1)) === false);
   t('der neutrale Ball traegt keines', M.on(k(M.N)) === false);
-  t('vier Figuren, vier Schilder, ein Ball ohne', [0, 0, 1, 1, M.N].map(o => M.on(k(o))).join(',') === 'true,true,true,true,false');
+  t('vier Figuren, null Schilder, ein Ball ohne', [0, 0, 1, 1, M.N].map(o => M.on(k(o))).join(',') === 'false,false,false,false,false');
 }
 
 // ══ 8. DIE VERTRAEGE IM QUELLTEXT ════════════════════════════════════════════════
