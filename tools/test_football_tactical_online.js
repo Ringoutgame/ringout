@@ -87,7 +87,8 @@ abschnitt('2. Zugmodell: Tactical 1v1 gleichzeitig, Tactical 4-Ball abwechselnd 
   const M = new Function([
     PRAEDIKATE,
     'let online=true, turnNo=0, gen=1;',
-    fn('fbTacAktivSitz'), fn('fbTacOnline'), fn('fbTacAbwechselnd'), fn('fbTacGleichzeitig'), fn('fbTacAmZug'), fn('fbTacPassivRunde'),
+    'function fbBotSpielt(){return false;}',
+    fn('fbTacAktivSitz'), fn('fbTacOnline'), fn('fbTacDuell'), fn('fbTacAbwechselnd'), fn('fbTacGleichzeitig'), fn('fbTacAmZug'), fn('fbTacPassivRunde'),
     'return { ab: fbTacAbwechselnd, gl: fbTacGleichzeitig, passiv: fbTacPassivRunde, aktiv: fbTacAktivSitz,',
     '  setz: (o)=>{ if("online" in o)online=o.online; if("fbVariant" in o)fbVariant=o.fbVariant; if("mode" in o)mode=o.mode; if("turnNo" in o)turnNo=o.turnNo; if("gen" in o)gen=o.gen; } };'
   ].join('\n'))();
@@ -140,7 +141,8 @@ abschnitt('4. Eingabegatter: beide Sitze greifen, zielen und bestaetigen in ders
     // Das echte Praedikat an einem gestellten Lebenslauf: aktuell, mit oder ohne Handlung.
     'let fbV9Leben=null, onlineSessionId=1, roomCode="KX7P";',
     fn('fbV9LebenAktuell'), fn('fbV9EigenAbgegeben'),
-    fn('fbTacAktivSitz'), fn('fbTacOnline'), fn('fbTacAbwechselnd'), fn('fbTacAmZug'),
+    'function fbBotSpielt(){return false;}',
+    fn('fbTacAktivSitz'), fn('fbTacOnline'), fn('fbTacDuell'), fn('fbTacAbwechselnd'), fn('fbTacAmZug'),
     fn('whoCanAim'), fn('canCommitInput'),
     'const BR=16; let fmt="single";',
     g(/function teamCap\(\)\{[^\n]*/, 'teamCap'),
@@ -213,7 +215,8 @@ function sandkasten() {
     g(/const FB_V9_RAUS=[^\n]*/, 'FB_V9_RAUS'),
     g(/const FB_V9_NULLZUG=[^\n]*/, 'FB_V9_NULLZUG'),
     fn('fbV9Sitze'), fn('fbV9IdxGehoert'), fn('fbV9AcceptedOk'), fn('fbV9Wirken'),
-    fn('fbTacAktivSitz'), fn('fbTacOnline'), fn('fbTacAbwechselnd'),
+    'function fbBotSpielt(){return false;}',
+    fn('fbTacAktivSitz'), fn('fbTacOnline'), fn('fbTacDuell'), fn('fbTacAbwechselnd'),
     'let online=true, turnNo=0, gen=1, phase="aim", footballWinner=null;',
     'function fbV11Raum(){ return true; } let fbV11Passiv=[]; let fbElimActive=[true,true];',
     'function footballElimEliminate(){ throw new Error("Elimination im Tactical"); }',
@@ -315,8 +318,13 @@ abschnitt('7. Namen: keine Schilder ueber den Figuren, der Name steht oben im Sp
 abschnitt('8. Vertraege im Quelltext, im HUD, in der Lobby und in den Rules');
 {
   // Das Zugmodell haengt an EINEM Helfer - nirgends mehr an der Familienfrage fbTactical/fbTacOnline.
-  t('fbTacAbwechselnd = online && Tactical 4-Ball; fbTacGleichzeitig = online && Tactical 1v1',
-    /function fbTacAbwechselnd\(\)\{ return fbTacOnline\(\)&&fbTac4\(\); \}/.test(HTML) && /function fbTacGleichzeitig\(\)\{ return fbTacOnline\(\)&&!fbTac4\(\); \}/.test(HTML));
+  // Seit den Bot-Fassungen ist ein Tactical-DUELL entweder ein Onlineraum ODER ein lokales
+  // Match gegen die Bots. Beide tragen DASSELBE Zugmodell - sonst waere die Bot-Fassung
+  // nicht der Modus, den der Spieler online kennt.
+  t('fbTacDuell = Onlineraum ODER lokales Bot-Match, beides Tactical',
+    /function fbTacDuell\(\)\{ return fbTacOnline\(\)\|\|\(\(typeof fbBotSpielt==='function'\)&&fbBotSpielt\(\)&&fbTactical\(\)\); \}/.test(HTML));
+  t('fbTacAbwechselnd = Duell && Tactical 4-Ball; fbTacGleichzeitig = Duell && Tactical 1v1',
+    /function fbTacAbwechselnd\(\)\{ return fbTacDuell\(\)&&fbTac4\(\); \}/.test(HTML) && /function fbTacGleichzeitig\(\)\{ return fbTacDuell\(\)&&!fbTac4\(\); \}/.test(HTML));
   t('der passive Sitz existiert nur im abwechselnden Modell', /function fbTacPassivRunde\(ctx\)\{ return fbTacAbwechselnd\(\)&&!!ctx&&fbTacAktivSitz\(ctx\.turn,ctx\.gen\)!==ctx\.seat; \}/.test(HTML));
   t('kein Zuggatter fragt mehr fbTacOnline()&&!fbTacAmZug (die Familienfrage koppelte beide Varianten)', (HTML.match(/fbTacOnline\(\)&&!fbTacAmZug/g) || []).length === 0);
   t('canCommitInput, whoCanAim und der Auswahlring gattern nur noch abwechselnd (dreimal fbTacAbwechselnd()&&!fbTacAmZug)', (HTML.match(/fbTacAbwechselnd\(\)&&!fbTacAmZug\(/g) || []).length === 3);

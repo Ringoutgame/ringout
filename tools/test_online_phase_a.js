@@ -822,9 +822,16 @@ const R = new Function(`
      'der Klick auf eine aktive Karte oeffnet die Lobby - ein Klick, kein zweiter Knopf');
   ok(/function fbHubOeffnen\(key\)\{\n  if\(key==='duel'\)fbDuelOeffnen\(\);\n  else if\(key==='training'\)fbTrainOeffnen\(\);\n  else if\(key==='tactical'\)fbTacticalOnlineOeffnen\(\);\n  else if\(key==='tactical4'\)fbTactical4OnlineOeffnen\(\);\n  else if\(key==='team2v2'\)fbTeam2OnlineOeffnen\(\);\n  else fbFfaOnlineOeffnen\(\);\n\}/.test(HTML),
      'der eine Weg je Karte kennt genau sechs Ziele: 1 VS 1 (Unterauswahl), TRAINING (lokale Unterauswahl), Tactical, Tactical 4-Ball, Team 2v2 und FFA');
-  // TRAINING ist der einzige Weg, der NICHT in einen Onlineraum fuehrt.
-  ok(/startFootball\('classic',FOOTBALL_RULES_FIRST3,true\);/.test(HTML) && /fbTrainBotBtn'\)\.onclick/.test(HTML),
-     'und TRAINING startet ein lokales Match gegen den Elite Bot statt einer Lobby');
+  // VS BOTS ist der einzige Weg, der NICHT in einen Onlineraum fuehrt. Jeder Eintrag startet
+  // SEINEN Modus lokal gegen die Bots - ueber denselben startFootball wie jeder andere
+  // Einstieg, nur mit dem dritten Argument.
+  // Die Variante kommt aus fbBotVariante(d.key) - bewusst als FUNKTION: die
+  // Variantenkonstanten stehen weit unter dem Register; ein Wert dort waere vor seiner
+  // Initialisierung gelesen worden und die Seite haette nicht mehr gestartet.
+  ok(/startFootball\(fbBotVariante\(d\.key\),FOOTBALL_RULES_FIRST3,true\);/.test(HTML)
+     && /for\(const d of FB_HUB_TRAINING\)\{/.test(HTML)
+     && /function fbBotVariante\(key\)\{/.test(HTML),
+     'und VS BOTS startet lokale Matches gegen die Bots statt einer Lobby');
   ok(/FB_HUB_MODES\.forEach\(\(d,i\)=>\{const el=\$\(d\.card\);if\(el\)el\.onclick=\(\)=>fbHubKarte\(i\);\}\);/.test(HTML),
      'und jede Karte haengt an genau diesem einen Weg');
   const anwenden = grab(/function applyFbMode\(i\)\{[\s\S]*?\n\}/, 'applyFbMode');

@@ -184,7 +184,8 @@ abschnitt('5. Eingabegatter: nur der Sitz am Zug, nur eine eigene Figur, kein zw
     'function inputLocked(){ return false; } function r3dInputBlocked(){ return false; }',
     'function aliveCount(o){ return 4; } function fbV9EingabeOffen(){ return true; }',
     'function fbShared(){ return false; } function fbOffen(){ return []; } function fbElim4(){ return false; }',
-    fn('fbTacAktivSitz'), fn('fbTacOnline'), fn('fbTacAbwechselnd'), fn('fbTacAmZug'),   // das Zugmodell: abwechselnd nur hier
+    'function fbBotSpielt(){return false;}',
+    fn('fbTacAktivSitz'), fn('fbTacOnline'), fn('fbTacDuell'), fn('fbTacAbwechselnd'), fn('fbTacAmZug'),   // das Zugmodell: abwechselnd nur hier
     fn('whoCanAim'), fn('canCommitInput'),
     'const BR=16; let fmt="single";',
     g(/function teamCap\(\)\{[^\n]*/, 'teamCap'),
@@ -227,7 +228,8 @@ function sandkasten() {
     g(/const FB_V9_RAUS=[^\n]*/, 'FB_V9_RAUS'),
     g(/const FB_V9_NULLZUG=[^\n]*/, 'FB_V9_NULLZUG'),
     fn('fbV9Sitze'), fn('fbV9IdxGehoert'), fn('fbV9AcceptedOk'), fn('fbV9Wirken'),
-    fn('fbTacAktivSitz'), fn('fbTacOnline'), fn('fbTacAbwechselnd'),
+    'function fbBotSpielt(){return false;}',
+    fn('fbTacAktivSitz'), fn('fbTacOnline'), fn('fbTacDuell'), fn('fbTacAbwechselnd'),
     'let online=true, turnNo=0, gen=1, phase="aim", footballWinner=null;',
     'function fbV11Raum(){ return true; } let fbV11Passiv=[]; let fbElimActive=[true,true];',
     'function footballElimEliminate(){ throw new Error("Elimination im Tactical"); }',

@@ -6,6 +6,35 @@ Alle abgeschlossenen Änderungen am Projekt, neueste zuerst.
 
 ## [Unreleased]
 
+### Arena Football — VS BOTS: die freigegebenen Onlinemodi jetzt auch gegen Bots
+- feat(football): **Arena Football → VS BOTS → Modusauswahl** (2026-09-23). Aus der einen Trainingsoption wird eine Auswahl der Bot-Fassungen **freigegebener** Onlinemodi. Jede Karte nennt den Modusnamen, die Zahl der Kugeln, das Zugmodell und wen der Mensch steuert:
+
+  | Karte | Variante | Sitze | Kugeln je Sitz | **Aktionen je Sitz/Zug** | Zugmodell |
+  |---|---|---|---|---|---|
+  | 1 VS 1 | `classic` | 2 | 1 | 1 | gleichzeitig |
+  | TACTICAL 1 VS 1 | `tactical` | 2 | 2 | **1** (Figurenwahl) | gleichzeitig |
+  | TACTICAL 4-BALL | `tactical4` | 2 | 4 | **1** (Figurenwahl) | **abwechselnd** |
+  | TEAM 2 VS 2 | `team2v2` | 4 | 1 | 1 | gleichzeitig |
+
+  **Nicht angeboten:** Classic online, Speed und Timed FFA sind nicht freigegeben. **FFA / Lebensregel** bekommt bewusst keine Karte: dort nimmt ein Tor ein LEBEN und entschieden wird durch Ausscheiden — der Planer bewertet zwei Tore und einen Punktestand. Eine Karte dafür wäre eine kaputte Karte.
+- **Aktionszahl nicht aus der Kugelzahl abgeleitet.** `aimSet[sitz]` und `commitIdx[sitz]` sind in jedem Modus Skalare: es gibt **genau eine** Aktion je Sitz und Zug. Tactical 1v1 und 4-Ball **wählen eine Figur aus**, sie feuern nicht mehrere. Der Planer erzeugt deshalb Kandidaten über **alle** eigenen Figuren und entscheidet Figur, Richtung und Kraft gemeinsam.
+- **Ein Bot je Sitz, ein geteiltes Bildbudget.** `fbBotPlan` trägt jetzt einen Auftrag **je Sitz**; `fbBotScheibe()` arbeitet der Reihe nach am ersten unfertigen Auftrag, bis `FB_BOT.scheibeMs` aufgebraucht ist. Drei Bots bekommen **nicht** drei Budgets — sonst summierten sie sich zu sichtbaren Rucklern.
+- **Tactical 4-Ball ist auch lokal abwechselnd.** `fbTacDuell()` = Onlineraum **oder** lokales Bot-Match; `fbTacAbwechselnd`/`fbTacGleichzeitig` hängen daran. Die Zugfolge kommt aus derselben Formel wie online (`fbTacAktivSitz(turnNo,gen)`); lokal treibt `fbBotRundeNeu()` den Zugzähler. Ist ein Bot am Zug, handelt er allein (`fbBotAmZugHandeln`), und der Mensch ist über `whoCanAim`/`canCommitInput` abgeriegelt.
+- fix(football): **Der Settle in `stepSim` kannte Team 2v2 nicht.** Er baut die Commit-Felder inline neu und zählte `:2` statt vier Sitze — lokal fielen die Sitze 2 und 3 jede Runde heraus, ein späterer Commit riss ein Loch ins Feld und `applyLaunch` las `undefined`. **Bestandsfehler**, nicht neu.
+- fix(football): **Eine Vorausberechnung löschte den Eingabezustand.** Erreichte eine Planungssimulation die Ruhe, lief derselbe Settle auf dem **laufenden** Match und räumte `aimSet`/`commitIdx`/`commitAim`/`commitSpin` — der bereits abgegebene Zug des Menschen war weg. `fbBotSim` sichert ihn jetzt wie jeden anderen berührten Zustand und stellt ihn im `finally` zurück. Betraf auch das akzeptierte 1 VS 1, wenn ein Plan erst nach dem Loslassen fertig wurde.
+- fix(football): **Das Bot-Register las Variantenkonstanten vor ihrer Initialisierung.** `FB_HUB_TRAINING` steht rund 6 000 Zeilen über `FOOTBALL_VARIANT_TACTICAL` — ein Wert im Eintrag traf die temporale Totzone und **die Seite startete nicht mehr**. Der Eintrag trägt jetzt nur seinen Schlüssel, `fbBotVariante(key)` löst erst beim Klick auf. Gefunden hat das erst der Browsernachweis: die Node-Suiten schneiden Funktionen einzeln aus und booten nie das ganze Dokument.
+- **Planungslast je Entscheidungsphase** (Node v24.18.0, 12 Phasen je Modus, Summe über ALLE Bots):
+
+  | Modus | Bots | Summe p50 | max | Simulationen/Phase | größte Scheibe |
+  |---|---|---|---|---|---|
+  | 1 VS 1 | 1 | 81,8 ms | 102,3 ms | 81 | 7,9 ms |
+  | Tactical 1v1 | 1 | 149,0 ms | 171,1 ms | 77 | 10,9 ms |
+  | Tactical 4-Ball | 1 | 218,2 ms | 279,8 ms | 74 | 13,5 ms |
+  | Team 2v2 | 3 | 426,0 ms | 462,5 ms | 243 | 9,7 ms |
+
+- test: `tools/test_football_elitebot.js` auf **123/0** — neuer Abschnitt 10 prüft für jede angebotene Fassung über den ECHTEN Ausführungspfad: Körperzahl, Sitzzahl, Figuren je Sitz, Zugmodell, eine eigene Planmarke je Runde, Plan-gegen-Ausführung-Delta 0, genau ein Zug je handelndem Sitz, Figurenwahl in mehrfigurigen Modi und die Zugfolge im abwechselnden Modell.
+
+
 ### Arena Football — ELITE BOT: der Bot wiederholte rundenlang denselben Zug (Spieltest-Fehler)
 - fix(football): **Der Bot plant wieder in jeder Runde** (2026-09-23). Der Besitzer meldete einen Gegner, der den Ball oft verfehlt und unkontrolliert wirkt. **Ursache:** `roundNo` wird im Produkt nur an den beiden RingOut-Rundenenden hochgezählt — eine Football-Runde endet im Settle von `stepSim` und zählt nicht. Die Planmarke war `roundNo|Stand|Saat` und damit zwischen zwei **torlosen** Runden identisch; `fbBotPlanen()` gab deshalb den Plan der **ersten** Runde zurück. Der Bot feuerte denselben Schuss aus einer längst anderen Position.
 - **Beleg (sechs torlose Runden, echte Physik, echter Ausführungspfad):** Marke sechsmal `1|0:0|4711`, Zug sechsmal `-194/0`, während Figur und Ball von `10.15,0` / `0,0` nach `-11.44,0` / `-13.65,0` wanderten. **Plan-gegen-Ausführung-Delta: 0** — Vorzeichen, Spiegelung, Grad/Radiant, Zugrichtung, Kraftskalierung und Körperauswahl waren korrekt. Es war kein Ausführungsfehler.

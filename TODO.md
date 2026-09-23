@@ -1,6 +1,17 @@
 # TODO.md — RingOut
 
-**Zuletzt aktualisiert:** 2026-09-23 (**ELITE-BOT-SPIELTESTFEHLER BEHOBEN**: der Bot wiederholte in
+**Zuletzt aktualisiert:** 2026-09-23 (**VS BOTS**: Arena Football -> VS BOTS bietet die
+Bot-Fassungen der freigegebenen Onlinemodi an - 1 VS 1 (1 Kugel, gleichzeitig), Tactical 1v1
+(2 Kugeln, gleichzeitig), Tactical 4-Ball (4 Kugeln, ABWECHSELND) und Team 2v2 (4 Sitze, Mensch
++ 1 Bot gegen 2 Bots). Genau EINE Aktion je Sitz und Zug in jedem Modus; mehrfigurige Modi
+waehlen eine Figur. Ein Auftrag je Sitz, EIN geteiltes Bildbudget. FFA/Lebensregel bekommt
+bewusst keine Karte (Tore nehmen dort Leben, Entscheidung durch Ausscheiden - anderes
+Bewertungsmodell). Drei Fehler dabei behoben: der Settle kannte Team 2v2 nicht (:2 statt 4
+Sitze, Bestand), der Settle loeschte waehrend einer Vorausberechnung den Zug des Menschen
+(Bestand seit dem Bot), und das Bot-Register las Variantenkonstanten vor ihrer Initialisierung
+(Seite startete nicht - nur im Browser sichtbar). Planungslast je Phase: 1v1 82 ms, Tactical
+149 ms, 4-Ball 218 ms, Team 2v2 426 ms bei drei Bots; groesste Scheibe 7,9-13,5 ms. Suite
+EliteBot 123/0, Runner 72/72. Zuvor: **ELITE-BOT-SPIELTESTFEHLER BEHOBEN**: der Bot wiederholte in
 torlosen Runden denselben Zug. Ursache: Football zaehlt roundNo nicht hoch (roundNo waechst nur an den
 RingOut-Rundenenden), die Planmarke war damit zwischen torlosen Runden identisch und der Plan der ersten
 Runde galt weiter. Belegt ueber sechs Runden: Marke und Zug unveraendert, waehrend Figur und Ball

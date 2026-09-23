@@ -1800,6 +1800,37 @@ sondern den Software-Renderer - jedes einzelne Bild kostet dort ein Vielfaches d
 Eine Aussage ueber Bildblockade durch den Bot ist daraus NICHT ableitbar; dafuer taugt allein die
 Scheibenmessung.
 
+**VS BOTS - Bot-Fassungen der freigegebenen Onlinemodi (2026-09-23).** Arena Football -> VS BOTS
+fuehrt in eine Auswahl; jeder Eintrag startet lokal denselben `startFootball` wie jeder andere
+Einstieg, nur mit dem dritten Argument. Angeboten werden NUR freigegebene Onlinemodi:
+
+| Karte | Variante | Sitze | Kugeln je Sitz | Aktionen je Sitz/Zug | Zugmodell |
+|---|---|---|---|---|---|
+| 1 VS 1 | `classic` | 2 | 1 | 1 | gleichzeitig |
+| TACTICAL 1 VS 1 | `tactical` | 2 | 2 | 1 (Figurenwahl) | gleichzeitig |
+| TACTICAL 4-BALL | `tactical4` | 2 | 4 | 1 (Figurenwahl) | abwechselnd |
+| TEAM 2 VS 2 | `team2v2` | 4 | 1 | 1 | gleichzeitig |
+
+Classic online, Speed und Timed FFA sind nicht freigegeben und stehen deshalb nicht dort.
+FFA / Lebensregel bekommt bewusst KEINE Karte: ein Tor nimmt dort ein LEBEN, entschieden wird
+durch Ausscheiden - der Planer bewertet zwei Tore und einen Punktestand.
+
+EIN Bot je Nicht-Menschen-Sitz (`FB_BOT_MENSCH=0`, `fbBotSitze()`), ein Auftrag JE SITZ in
+`fbBotPlan.je` und EIN geteiltes Bildbudget: `fbBotScheibe()` arbeitet der Reihe nach am ersten
+unfertigen Auftrag, bis `FB_BOT.scheibeMs` aufgebraucht ist. Drei Bots bekommen nicht drei
+Budgets. Die Aktionszahl ist NICHT aus der Kugelzahl abgeleitet: `aimSet[sitz]`/`commitIdx[sitz]`
+sind Skalare, es gibt genau EINE Aktion je Sitz und Zug - mehrfigurige Modi waehlen eine Figur.
+
+Tactical 4-Ball ist auch LOKAL abwechselnd: `fbTacDuell()` ist Onlineraum ODER lokales
+Bot-Match, und die Zugfolge kommt aus derselben Formel wie online (`fbTacAktivSitz(turnNo,gen)`);
+lokal treibt `fbBotRundeNeu()` den Zugzaehler. Ist ein Bot am Zug, handelt er allein
+(`fbBotAmZugHandeln`), und `whoCanAim`/`canCommitInput` riegeln den Menschen ab.
+
+ZWEI Bestandsfehler kamen dabei heraus und sind behoben: der Settle in `stepSim` baute die
+Commit-Felder inline mit `:2` Sitzen neu (Team 2v2 verlor die Sitze 2 und 3), und derselbe
+Settle lief auch WAEHREND einer Vorausberechnung und loeschte den bereits abgegebenen Zug des
+Menschen - `fbBotSim` sichert den Eingabezustand jetzt wie jeden anderen beruehrten Zustand.
+
 **Rundenidentitaet (Fehler aus dem ersten Spieltest, 2026-09-23).** `roundNo` waechst im Produkt NUR an
 den beiden RingOut-Rundenenden; eine Football-Runde endet im Settle von `stepSim` und zaehlt nicht hoch.
 Eine Planmarke aus `roundNo|Stand|Saat` war deshalb zwischen zwei TORLOSEN Runden identisch, und der Plan

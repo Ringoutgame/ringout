@@ -534,8 +534,9 @@ const SHOT = 6 * 60;
   // Und die Variante hat genau acht Nennungen: Deklaration, Weiche, startFootball-Clamp,
   // Menueknopf, Dev-Direktlink, fbVariant-Vorbelegung, die Onlineweiche fbVarianteFuerModus
   // und (seit 2026-09-22) der Startseiten-Hero fbHubVariante (Karte TEAM 2V2 -> Team-2v2-Arena).
-  ok((HTML.match(/FOOTBALL_VARIANT_TEAM2/g) || []).length === 8,
-     'die Variante wird an genau acht Stellen genannt (erhalten: '
+  // Seit 2026-09-23 kommt die neunte hinzu: der Eintrag der Bot-Fassung in FB_HUB_TRAINING.
+  ok((HTML.match(/FOOTBALL_VARIANT_TEAM2/g) || []).length === 9,
+     'die Variante wird an genau neun Stellen genannt (erhalten: '
      + (HTML.match(/FOOTBALL_VARIANT_TEAM2/g) || []).length + ')');
 }
 
