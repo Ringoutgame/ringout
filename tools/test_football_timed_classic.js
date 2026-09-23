@@ -63,7 +63,7 @@ const teamCapSrc = grab(/function teamCap\([^\n]*/, 'teamCap');
 const pickOwnBallSrc = grab(/function pickOwnBall\([^\n]*/, 'pickOwnBall');
 const ballsOutsideSrc = grab(/function ballsOutside\(\)\{[\s\S]*?\n\}/, 'ballsOutside');
 const resolveRingOutsSrc = grab(/function resolveRingOuts\(crossed\)\{[\s\S]*?\n\}/, 'resolveRingOuts');
-const stepSimSrc = grab(/function stepSim\(\)\{[\s\S]*?\n\}/, 'stepSim');
+const stepSimSrc = grab(/let fbVorausTiefe=0;[\s\S]*?\nfunction stepSim\(\)\{[\s\S]*?\n\}/, 'stepSim (inkl. Planungsschalter)');
 // ── Football-Kernblock (Arena-Finalisierung) ──
 // Der GESAMTE produktive Football-Code liegt zusammenhaengend zwischen
 // FOOTBALL_NEUTRAL_OWNER und stepSim: Rounded-Rectangle-Arena (FOOTBALL_ARENA,
@@ -72,7 +72,7 @@ const stepSimSrc = grab(/function stepSim\(\)\{[\s\S]*?\n\}/, 'stepSim');
 // Goal-FX und Matchende. Er wird als EIN Quellblock uebernommen — dieselbe kanonische
 // Extraktionsarchitektur wie in den Prototyp-Harnesses
 // (artifacts/football-*-prototype/measure.js), statt zwei Dutzend Einzel-Grabs.
-const footballBlock = grab(/const FOOTBALL_NEUTRAL_OWNER=[\s\S]*?(?=\nfunction stepSim\(\)\{)/, 'Football-Block');
+const footballBlock = grab(/const FOOTBALL_NEUTRAL_OWNER=[\s\S]*?(?=\nlet fbVorausTiefe=0;)/, 'Football-Block');
 // curFR/curFE/curST stehen oberhalb des Football-Blocks (sie gelten fuer alle Modi).
 const curFRSrc = grab(/function curFR\(\)[^\n]*/, 'curFR');
 const curFESrc = grab(/function curFE\(\)[^\n]*/, 'curFE');
@@ -427,7 +427,7 @@ function torFertig(M) {
   // Gestartet wird ueber DENSELBEN einen Startpfad, nur mit der Regel als Argument.
   ok(HTML.includes("startFootball('classic',FOOTBALL_RULES_FIRST3);"), 'First to 3 startet Classic');
   ok(HTML.includes("startFootball('classic',FOOTBALL_RULES_SPEED);"), 'Speed Match startet Classic');
-  ok(/function startFootball\(variant,rules\)\{/.test(HTML),
+  ok(/function startFootball\(variant,rules,gegenBot\)\{/.test(HTML),
      'die Regel kommt als Argument in den einen Startpfad');
   ok(/fbRules=\(rules===FOOTBALL_RULES_SPEED\)\?FOOTBALL_RULES_SPEED:FOOTBALL_RULES_FIRST3;/.test(HTML),
      'ein unbekannter oder fehlender Wert faellt auf die Bestandsregel zurueck');

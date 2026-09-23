@@ -63,7 +63,7 @@ const teamCapSrc = grab(/function teamCap\([^\n]*/, 'teamCap');
 const pickOwnBallSrc = grab(/function pickOwnBall\([^\n]*/, 'pickOwnBall');
 const ballsOutsideSrc = grab(/function ballsOutside\(\)\{[\s\S]*?\n\}/, 'ballsOutside');
 const resolveRingOutsSrc = grab(/function resolveRingOuts\(crossed\)\{[\s\S]*?\n\}/, 'resolveRingOuts');
-const stepSimSrc = grab(/function stepSim\(\)\{[\s\S]*?\n\}/, 'stepSim');
+const stepSimSrc = grab(/let fbVorausTiefe=0;[\s\S]*?\nfunction stepSim\(\)\{[\s\S]*?\n\}/, 'stepSim (inkl. Planungsschalter)');
 // ── Football-Kernblock (Arena-Finalisierung) ──
 // Der GESAMTE produktive Football-Code liegt zusammenhaengend zwischen
 // FOOTBALL_NEUTRAL_OWNER und stepSim: Rounded-Rectangle-Arena (FOOTBALL_ARENA,
@@ -72,7 +72,7 @@ const stepSimSrc = grab(/function stepSim\(\)\{[\s\S]*?\n\}/, 'stepSim');
 // Goal-FX und Matchende. Er wird als EIN Quellblock uebernommen — dieselbe kanonische
 // Extraktionsarchitektur wie in den Prototyp-Harnesses
 // (artifacts/football-*-prototype/measure.js), statt zwei Dutzend Einzel-Grabs.
-const footballBlock = grab(/const FOOTBALL_NEUTRAL_OWNER=[\s\S]*?(?=\nfunction stepSim\(\)\{)/, 'Football-Block');
+const footballBlock = grab(/const FOOTBALL_NEUTRAL_OWNER=[\s\S]*?(?=\nlet fbVorausTiefe=0;)/, 'Football-Block');
 // curFR/curFE/curST stehen oberhalb des Football-Blocks (sie gelten fuer alle Modi).
 const curFRSrc = grab(/function curFR\(\)[^\n]*/, 'curFR');
 const curFESrc = grab(/function curFE\(\)[^\n]*/, 'curFE');
@@ -2689,7 +2689,7 @@ const fbCssSrc = grab(/#game\.fb \.status\{[\s\S]*?\n\.arena-wrap\{/, 'Football-
   const endSrc   = grab(/function footballMatchEnd\(\)\{[\s\S]*?\n\}/, 'footballMatchEnd');
   ok(!/SFX\.footballGoal\(/.test(resetSrc + tickSrc + endSrc),
      'kein Trigger in Rundenreset, Celebration-Tick, Spawn oder Matchende');
-  ok(!/footballGoal\(|footballGoalStop\(/.test(strip(grab(/function stepSim\(\)\{[\s\S]*?\n\}/, 'stepSim'))),
+  ok(!/footballGoal\(|footballGoalStop\(/.test(strip(grab(/let fbVorausTiefe=0;[\s\S]*?\nfunction stepSim\(\)\{[\s\S]*?\n\}/, 'stepSim (inkl. Planungsschalter)'))),
      'die Physikschleife kennt das Tor-Audio nicht');
   ok(!/return[^;]/.test(strip(goalSrc)),
      'footballGoal liefert keinen Wert zurueck — reine Ausgabe, keine Entscheidungsquelle');

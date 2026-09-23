@@ -123,7 +123,7 @@ const SRC = [
   // ── DER VOLLSTAENDIGE ARENA-FOOTBALL-BLOCK ──
   // Arena, Torgeometrie, Physik-Accessoren, Torablauf, Elimination, Morph.
   // Genau die Spanne, gegen die auch die lokalen Football-Suiten pruefen.
-  grab(/const FOOTBALL_NEUTRAL_OWNER=[\s\S]*?(?=\nfunction stepSim\(\)\{)/, 'Football-Block'),
+  grab(/const FOOTBALL_NEUTRAL_OWNER=[\s\S]*?(?=\nlet fbVorausTiefe=0;)/, 'Football-Block'),
   // ── Rundenablauf und Physik ──
   // Basis-Accessoren der Physik. Innerhalb von Football liefern sie ueber footballPhys()
   // die BALANCED-Werte, ausserhalb die globalen Konstanten.
@@ -144,6 +144,7 @@ const SRC = [
   grab(/function ejectGoneSeats\(\)\{[\s\S]*?\n\}/, 'ejectGoneSeats'),
   grab(/function simHash\(\)\{[\s\S]*?\n\}/, 'simHash'),
   grab(/function applyLaunch\(\)\{[\s\S]*?\n\}/, 'applyLaunch'),
+  grab(/let fbVorausTiefe=0;[\s\S]*?function fbVorausAn\(\)\{return fbVorausTiefe>0;\}/, 'Planungsschalter'),
   grab(/function stepSim\(\)\{[\s\S]*?\n\}/, 'stepSim'),
   grab(/function afterResult\(\)\{[\s\S]*?\n\}/, 'afterResult'),
   grab(/function resultDrift\(\)\{[^\n]*/, 'resultDrift'),

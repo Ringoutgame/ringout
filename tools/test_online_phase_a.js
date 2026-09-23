@@ -808,18 +808,23 @@ const R = new Function(`
   // ── Die Karten: EIN aktiver Modus, drei ehrlich gesperrte ──
   const reg = grab(/const FB_HUB_MODES=\[[\s\S]*?\];/, 'FB_HUB_MODES');
   ok((reg.match(/\{key:/g) || []).length === 4, 'der Hub zeigt vier Arena-Football-Karten - FFA, 1 VS 1, TEAM 2V2, TRAINING');
-  ok((reg.match(/direkt:true/g) || []).length === 3 && /\{key:'ffa',\s+card:'cardFbFfa'[^}]*direkt:true\}/.test(reg)
+  // Seit dem Elite Bot fuehren ALLE VIER Karten weiter. Training ist dabei der einzige
+  // LOKALE Weg - es fuehrt in seine eigene Auswahl und nie in einen Onlineraum.
+  ok((reg.match(/direkt:true/g) || []).length === 4 && /\{key:'ffa',\s+card:'cardFbFfa'[^}]*direkt:true\}/.test(reg)
      && /\{key:'duel',\s+card:'cardFb1v1'[^}]*direkt:true\}/.test(reg) && !/key:'tactical/.test(reg)
-     && /\{key:'team2v2',\s+card:'cardFb2v2'[^}]*direkt:true\}/.test(reg),
-     'genau DREI Karten fuehren direkt weiter - FFA, 1 VS 1 (in die Unterauswahl der beiden Tactical-Spielarten) und Team 2v2');
-  ok((reg.match(/soon:true/g) || []).length === 1 && /key:'training'[^}]*soon:true/.test(reg),
-     'Training ist sichtbar und gesperrt');
+     && /\{key:'team2v2',\s+card:'cardFb2v2'[^}]*direkt:true\}/.test(reg)
+     && /\{key:'training',\s+card:'cardFbBot'[^}]*direkt:true\}/.test(reg),
+     'alle VIER Karten fuehren direkt weiter - FFA, 1 VS 1 und Team 2v2 online, Training lokal');
+  ok((reg.match(/soon:true/g) || []).length === 0, 'keine Karte ist mehr gesperrt');
   ok(reg.indexOf('schritt:') < 0, 'keine Karte fuehrt mehr in einen Zwischenschirm');
   const karte = grab(/function fbHubKarte\(i\)\{[\s\S]*?\n\}/, 'fbHubKarte');
   ok(/if\(d&&d\.direkt\)\{ vibrateMs\(VIBE_CONFIRM_MS\); fbHubOeffnen\(d\.key\); \}/.test(karte),
      'der Klick auf eine aktive Karte oeffnet die Lobby - ein Klick, kein zweiter Knopf');
-  ok(/function fbHubOeffnen\(key\)\{\n  if\(key==='duel'\)fbDuelOeffnen\(\);\n  else if\(key==='tactical'\)fbTacticalOnlineOeffnen\(\);\n  else if\(key==='tactical4'\)fbTactical4OnlineOeffnen\(\);\n  else if\(key==='team2v2'\)fbTeam2OnlineOeffnen\(\);\n  else fbFfaOnlineOeffnen\(\);\n\}/.test(HTML),
-     'und der eine Onlineweg je Karte kennt genau fuenf Ziele: 1 VS 1 (Unterauswahl), Tactical, Tactical 4-Ball, Team 2v2 und FFA');
+  ok(/function fbHubOeffnen\(key\)\{\n  if\(key==='duel'\)fbDuelOeffnen\(\);\n  else if\(key==='training'\)fbTrainOeffnen\(\);\n  else if\(key==='tactical'\)fbTacticalOnlineOeffnen\(\);\n  else if\(key==='tactical4'\)fbTactical4OnlineOeffnen\(\);\n  else if\(key==='team2v2'\)fbTeam2OnlineOeffnen\(\);\n  else fbFfaOnlineOeffnen\(\);\n\}/.test(HTML),
+     'der eine Weg je Karte kennt genau sechs Ziele: 1 VS 1 (Unterauswahl), TRAINING (lokale Unterauswahl), Tactical, Tactical 4-Ball, Team 2v2 und FFA');
+  // TRAINING ist der einzige Weg, der NICHT in einen Onlineraum fuehrt.
+  ok(/startFootball\('classic',FOOTBALL_RULES_FIRST3,true\);/.test(HTML) && /fbTrainBotBtn'\)\.onclick/.test(HTML),
+     'und TRAINING startet ein lokales Match gegen den Elite Bot statt einer Lobby');
   ok(/FB_HUB_MODES\.forEach\(\(d,i\)=>\{const el=\$\(d\.card\);if\(el\)el\.onclick=\(\)=>fbHubKarte\(i\);\}\);/.test(HTML),
      'und jede Karte haengt an genau diesem einen Weg');
   const anwenden = grab(/function applyFbMode\(i\)\{[\s\S]*?\n\}/, 'applyFbMode');
@@ -851,7 +856,7 @@ const R = new Function(`
      'die Leiste zeigt genau vier Karten in dieser Reihenfolge (erhalten: ' + titel.join('|') + ')');
   ok(/id="cardFbFfa"[\s\S]{0,400}id="cardFb1v1"/.test(hub), 'FFA steht als aktiver Modus vorn');
   ok(/<button class="mcard on" id="cardFbFfa">/.test(hub), 'und ist die Voreinstellung');
-  ok((hub.match(/class="mcard msoon"/g) || []).length === 1, 'die eine uebrige Karte (Training) ist sichtbar gesperrt');
+  ok((hub.match(/class="mcard msoon"/g) || []).length === 0, 'keine Karte ist mehr sichtbar gesperrt');
   ok(/id="cardFb1v1T">1 VS 1</.test(hub) && /football_tactical\.webp/.test(hub),
      'die 1v1-Karte heisst 1 VS 1 und traegt die Tactical-Aufnahme aus dem Renderer');
   ok(/id="cardFbBotT">TRAINING</.test(hub), 'und aus dem Bot-Platz wird TRAINING');

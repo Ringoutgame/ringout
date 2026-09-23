@@ -33,8 +33,8 @@ function grab(re, name) {
 let pass = 0, fail = 0;
 const ok = (c, msg) => { if (c) pass++; else { fail++; console.error('FAIL: ' + msg); } };
 
-const footballBlock = grab(/const FOOTBALL_NEUTRAL_OWNER=[\s\S]*?(?=\nfunction stepSim\(\)\{)/, 'Football-Block');
-const stepSimSrc = grab(/function stepSim\(\)\{[\s\S]*?\n\}/, 'stepSim');
+const footballBlock = grab(/const FOOTBALL_NEUTRAL_OWNER=[\s\S]*?(?=\nlet fbVorausTiefe=0;)/, 'Football-Block');
+const stepSimSrc = grab(/let fbVorausTiefe=0;[\s\S]*?\nfunction stepSim\(\)\{[\s\S]*?\n\}/, 'stepSim (inkl. Planungsschalter)');
 const consts = grab(/const MAXPULL_FRAC=[^\n]*/, 'Physikkonstanten');
 const spin = grab(/const SPIN_K=[^\n]*/, 'Spin');
 const pcols = grab(/const PCOLS=[^\n]*/, 'PCOLS');
@@ -501,7 +501,7 @@ function stoss(vK, grad) {
     ok(lauf() === lauf(), n + ': derselbe Eingang liefert bitgleich denselben Ausgang');
   }
   // Der Stossimpuls selbst darf weder Zufall noch Uhrzeit kennen.
-  const sim = SRC.match(/function stepSim\(\)\{[\s\S]*?\n\}/)[0];
+  const sim = SRC.match(/let fbVorausTiefe=0;[\s\S]*?\nfunction stepSim\(\)\{[\s\S]*?\n\}/)[0];
   ok(!/Math\.random|Date\.now|performance\./.test(sim),
      'stepSim ist frei von Zufall und Zeit');
   ok(/const ma=ballMass\(a\),mb=ballMass\(b\),isum=1\/ma\+1\/mb;/.test(SRC),

@@ -11,7 +11,7 @@ const grab = (re, name) => { const m = HTML.match(re); if (!m) { console.error('
 const coreM = HTML.match(/==COLLAPSE-CORE-START==([\s\S]*?)==COLLAPSE-CORE-END==/);
 if (!coreM) { console.error('FAIL: Collapse-Core-Block nicht gefunden'); process.exit(2); }
 const core = coreM[1];
-const stepSimSrc = grab(/function stepSim\(\)\{[\s\S]*?\n\}/, 'stepSim');
+const stepSimSrc = grab(/let fbVorausTiefe=0;[\s\S]*?\nfunction stepSim\(\)\{[\s\S]*?\n\}/, 'stepSim (inkl. Planungsschalter)');
 // Phase 1.6: stepSim und die Collapse-Auswertung teilen sich diese beiden Helfer.
 const ballsOutsideSrc = grab(/function ballsOutside\(\)\{[\s\S]*?\n\}/, 'ballsOutside');
 const resolveRingOutsSrc = grab(/function resolveRingOuts\(crossed\)\{[\s\S]*?\n\}/, 'resolveRingOuts');

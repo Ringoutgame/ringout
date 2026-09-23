@@ -349,7 +349,7 @@ function leben(n) {
                                                  HTML.indexOf('function pickOwnBall'))),
      'und whoCanAim ebenso');
   // Der Uebergabeschirm bleibt ausschliesslich ausserhalb des gemeinsamen Fensters.
-  ok((HTML.match(/if\(!\(typeof fbShared==='function'&&fbShared\(\)\)\)openCover\(curAimer\);/g) || []).length === 2,
+  ok((HTML.match(/if\(!\(typeof fbOhneUebergabe==='function'&&fbOhneUebergabe\(\)\)\)openCover\(curAimer\);/g) || []).length === 2,
      'beide Rundenstarts oeffnen ihn nur ausserhalb eines gemeinsamen Fensters');
   ok(/if\(nx>=0\)\{curAimer=nx;if\(!gemeinsam\)openCover\(nx\);/.test(HTML),
      'und applyCommit ebenso');

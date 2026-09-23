@@ -1019,9 +1019,9 @@ body.fbctx .proom .pr-game{color:#cfe0ef}
       <span class="mstage"><img class="mshot" src="assets/hub/modes/football_team2v2.webp" alt="" width="700" height="438" decoding="async"></span>
       <span class="mcap"><span class="mt" id="cardFb2v2T">TEAM 2V2</span><span class="msub" id="cardFb2v2S">4 PLAYERS · 2 TEAMS · SIMULTANEOUS</span></span>
     </button>
-    <button class="mcard msoon" id="cardFbBot">
+    <button class="mcard" id="cardFbBot">
       <span class="mstage"><img class="mshot" src="assets/hub/modes/football_classic.webp" alt="" width="700" height="438" decoding="async"></span>
-      <span class="mcap"><span class="mt" id="cardFbBotT">TRAINING</span><span class="msub" id="cardFbBotS">LEARN & PRACTICE · SOON</span></span>
+      <span class="mcap"><span class="mt" id="cardFbBotT">TRAINING</span><span class="msub" id="cardFbBotS">LEARN & PRACTICE</span></span>
     </button>
     </div>
     <button class="marrow marrow-r" id="modeNext" type="button" aria-label="Next mode" tabindex="-1">›</button>
@@ -1235,6 +1235,19 @@ body.fbctx .proom .pr-game{color:#cfe0ef}
       <span class="vopt-s" id="fbDuelTac4S">4 FIGURES EACH · ALTERNATING TURNS</span>
     </button>
     <button class="wbtn" id="fbDuelBack">↩ Back</button>
+  </div>
+</div>
+<!-- TRAINING - die zweite Auswahlebene, Zeichen fuer Zeichen wie die von 1 VS 1 gebaut.
+     Heute steht dort ein Eintrag: das lokale Match gegen den Elite Bot. -->
+<div class="ov" id="fbTrainOv">
+  <div class="wb vswb">
+    <div class="wt" id="fbTrainTitle">TRAINING · CHOOSE YOUR SESSION</div>
+    <button class="vopt" id="fbTrainBotBtn">
+      <span class="vopt-art"><img class="mshot" src="assets/hub/modes/football_classic.webp" alt="" width="700" height="438" decoding="async"></span>
+      <span class="vopt-t" id="fbTrainBotT">VS ELITE BOT</span>
+      <span class="vopt-s" id="fbTrainBotS">1 VS 1 · SIMULTANEOUS · FIRST TO 3</span>
+    </button>
+    <button class="wbtn" id="fbTrainBack">↩ Back</button>
   </div>
 </div>
 
@@ -2408,7 +2421,13 @@ const FB_HUB_MODES=[
   {key:'ffa',      card:'cardFbFfa', titel:'catFbFfa', info:'mcFbFfa', cta:'ctaFbFfa', direkt:true},
   {key:'duel',     card:'cardFb1v1', titel:'catFb1v1', info:'mcFb1v1', cta:'ctaFb1v1', direkt:true},
   {key:'team2v2',  card:'cardFb2v2', titel:'catFb2v2', info:'mcFb2v2', cta:'ctaFb2v2', direkt:true},
-  {key:'training', card:'cardFbBot', titel:'catFbBot', info:'mcFbBot', cta:'ctaFbBot', soon:true}
+  {key:'training', card:'cardFbBot', titel:'catFbBot', info:'mcFbBot', cta:'ctaFbBot', direkt:true}
+];
+// TRAINING - die zweite Auswahlebene. Heute genau ein Eintrag: das lokale Match gegen den
+// Elite Bot. Der Aufbau ist der von FB_HUB_DUEL, damit ein zweiter Eintrag spaeter nur eine
+// Zeile ist und keine neue Bauweise.
+const FB_HUB_TRAINING=[
+  {key:'elitebot', btn:'fbTrainBotBtn', titel:'fbBotOptT', info:'fbBotOptS'}
 ];
 // 1 VS 1 - die zweite Auswahlebene. Genau die beiden Tactical-Spielarten, jede ein eigener
 // Onlinemodus des Registers FB_ONLINE_MODES; Titel und Unterzeile sind dessen Schluessel
@@ -2466,6 +2485,7 @@ function fbHubVariante(){
 }
 function fbHubOeffnen(key){
   if(key==='duel')fbDuelOeffnen();
+  else if(key==='training')fbTrainOeffnen();
   else if(key==='tactical')fbTacticalOnlineOeffnen();
   else if(key==='tactical4')fbTactical4OnlineOeffnen();
   else if(key==='team2v2')fbTeam2OnlineOeffnen();
@@ -2476,6 +2496,9 @@ function fbHubOeffnen(key){
 // (fbHubOeffnen) wie eine Karte. Zurueck schliesst nur die Ebene.
 function fbDuelOeffnen(){ $('fbDuelOv').classList.add('show'); }
 function fbDuelSchliessen(){ $('fbDuelOv').classList.remove('show'); }
+// TRAINING: dieselbe Bauweise. Die Ebene setzt nichts - erst der gewaehlte Eintrag startet.
+function fbTrainOeffnen(){ $('fbTrainOv').classList.add('show'); }
+function fbTrainSchliessen(){ $('fbTrainOv').classList.remove('show'); }
 function selectFbMode(i){
   applyFbMode(i);
   updateModeDots('football');
@@ -2587,6 +2610,7 @@ en:{tagline:'PULL BACK · RELEASE · KNOCK THEM OUT',chip:'FEATURED',
   mcTriple:'3 PLAYERS · 2 BALLS',mcVs:'2 PLAYERS · 2 BALLS',
   // ARENA FOOTBALL: vier Kategorien plus die Unterschritte des Navigationsschirms.
   catFb1v1:'1 VS 1',catFb2v2:'TEAM 2V2',catFbFfa:'FFA',catFbBot:'TRAINING',fbDuelT:'1 VS 1 · CHOOSE YOUR GAME',
+  fbTrainT:'TRAINING · CHOOSE YOUR SESSION',fbBotOptT:'VS ELITE BOT',fbBotOptS:'1 VS 1 · SIMULTANEOUS · FIRST TO 3',fbBotName:'ELITE BOT',
   mcFb1v1:'TACTICAL · 2 OR 4 FIGURES',mcFb2v2:'4 PLAYERS · 2 TEAMS',mcFbFfa:'2–5 PLAYERS',mcFbBot:'LEARN & PRACTICE',
   ctaFb1v1:'PLAY 1 VS 1',ctaFb2v2:'TEAM 2V2',ctaFbFfa:'PLAY FFA',ctaFbBot:'TRAINING',
   soonChip:'SOON',soonCta:'COMING SOON',
@@ -2685,6 +2709,7 @@ de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'FEATURED',
   secMulti:'MEHRSPIELER',rejoinHome:'ZURÜCK INS MATCH',rejoinRoom:'Raum {code} steht noch offen',
   mcTriple:'3 SPIELER · 2 KUGELN',mcVs:'2 SPIELER · 2 KUGELN',
   catFb1v1:'1 GEGEN 1',catFb2v2:'TEAM 2V2',catFbFfa:'FFA',catFbBot:'TRAINING',fbDuelT:'1 GEGEN 1 · SPIELART WÄHLEN',
+  fbTrainT:'TRAINING · ÜBUNG WÄHLEN',fbBotOptT:'GEGEN ELITE BOT',fbBotOptS:'1 GEGEN 1 · GLEICHZEITIG · ERSTER BIS 3',fbBotName:'ELITE BOT',
   mcFb1v1:'TACTICAL · 2 ODER 4 FIGUREN',mcFb2v2:'4 SPIELER · 2 TEAMS',mcFbFfa:'2–5 SPIELER',mcFbBot:'LERNEN & ÜBEN',
   ctaFb1v1:'1 GEGEN 1 SPIELEN',ctaFb2v2:'TEAM 2V2',ctaFbFfa:'FFA SPIELEN',ctaFbBot:'TRAINING',
   soonChip:'BALD',soonCta:'BALD VERFÜGBAR',
@@ -2785,6 +2810,7 @@ tr:{tagline:'GERİ ÇEK · BIRAK · DIŞARI İT',chip:'FEATURED',
   secMulti:'ÇOK OYUNCULU',rejoinHome:'MAÇA GERİ DÖN',rejoinRoom:'{code} odası hâlâ açık',
   mcTriple:'3 OYUNCU · 2 TOP',mcVs:'2 OYUNCU · 2 TOP',
   catFb1v1:'BİRE BİR',catFb2v2:'TEAM 2V2',catFbFfa:'FFA',catFbBot:'ANTRENMAN',fbDuelT:'BİRE BİR · OYUN TÜRÜNÜ SEÇ',
+  fbTrainT:'ANTRENMAN · SEÇİM YAP',fbBotOptT:'ELITE BOT’A KARŞI',fbBotOptS:'BİRE BİR · AYNI ANDA · İLK 3',fbBotName:'ELITE BOT',
   mcFb1v1:'TACTICAL · 2 VEYA 4 FİGÜR',mcFb2v2:'4 OYUNCU · 2 TAKIM',mcFbFfa:'2–5 OYUNCU',mcFbBot:'ÖĞREN & ÇALIŞ',
   ctaFb1v1:'BİRE BİR OYNA',ctaFb2v2:'TEAM 2V2',ctaFbFfa:'FFA OYNA',ctaFbBot:'ANTRENMAN',
   soonChip:'YAKINDA',soonCta:'ÇOK YAKINDA',
@@ -2887,6 +2913,12 @@ function applyLang(){
   }
   // 1-gegen-1-Auswahl: dieselben Registerschluessel wie der Lobbykopf.
   $('fbDuelTitle').textContent=T('fbDuelT');$('fbDuelBack').textContent=T('back');
+  $('fbTrainTitle').textContent=T('fbTrainT');$('fbTrainBack').textContent=T('back');
+  for(const d of FB_HUB_TRAINING){
+    const bt=$(d.btn); if(!bt)continue;
+    const t=bt.querySelector('.vopt-t'), s=bt.querySelector('.vopt-s');
+    if(t)t.textContent=T(d.titel); if(s)s.textContent=T(d.info);
+  }
   for(const d of FB_HUB_DUEL){
     const t=$(d.btn.replace(/Btn$/,'T')), u=$(d.btn.replace(/Btn$/,'S'));
     if(t)t.textContent=T(d.titel);
@@ -2984,6 +3016,11 @@ FB_HUB_MODES.forEach((d,i)=>{const el=$(d.card);if(el)el.onclick=()=>fbHubKarte(
 // Die beiden Spielarten der 1-gegen-1-Auswahl: Ebene schliessen, dann derselbe Onlineweg.
 FB_HUB_DUEL.forEach((d)=>{const el=$(d.btn);if(el)el.onclick=()=>{fbDuelSchliessen();vibrateMs(VIBE_CONFIRM_MS);fbHubOeffnen(d.key);};});
 $('fbDuelBack').onclick=fbDuelSchliessen;
+// TRAINING -> VS ELITE BOT: ein lokales Classic-Match gegen den Planer. Die 3D-Szene ist
+// an dieser Stelle bereits gesichert (der CTA fordert sie an, bevor er die Ebene oeffnet).
+$('fbTrainBotBtn').onclick=()=>{fbTrainSchliessen();if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);
+  startFootball('classic',FOOTBALL_RULES_FIRST3,true);};
+$('fbTrainBack').onclick=fbTrainSchliessen;
 $('modePrev').onclick=()=>stepMenuMode(-1);
 $('modeNext').onclick=()=>stepMenuMode(1);
 $('ctaBtn').onclick=async()=>{
@@ -3024,7 +3061,14 @@ $('botBack').onclick=()=>$('botOv').classList.remove('show');
 // Arena Football: EINZIGER Startpfad aller drei Produktmodi. Er setzt die Variante und laeuft
 // danach durch exakt denselben Bestandsablauf wie zuvor (lokales Match, nie online).
 // Torsound wird aus dieser Nutzergeste vorgeladen.
-function startFootball(variant,rules){
+function startFootball(variant,rules,gegenBot){
+  // ELITE BOT: ein lokales Classic-Match gegen den Planer. Der Schalter steht HIER und
+  // nirgends sonst - jeder andere Einstieg (Hub-Karten, Dev-Link, Online) ruft ohne das
+  // dritte Argument auf und loescht ihn damit automatisch. Die Saat wird je Match neu
+  // gezogen: sie steuert nur die Auswahl unter annaehernd gleich starken Zuegen.
+  fbBotModus=!!gegenBot;
+  fbBotVergessen();
+  fbBotNeueSaat();
   // Drei Produktmodi (Classic, Tactical, Elimination) plus der Dev-Einstieg auf die
   // Vier-Spieler-Elimination; jeder andere Wert faellt auf den Standardmodus zurueck.
   // Die drei Produktmodi sind ueber die sichtbare Modusauswahl erreichbar, der Dev-Einstieg
@@ -3366,6 +3410,8 @@ function showMenu(){menuVisible=true;
   $('menu').style.display='flex';$('game').style.display='none';
   applyFootballHud();          // Football-HUD-Klasse, Anstosshinweis und Score-Animation restlos abraeumen
   footballResetMatchState();   // zurueck im Menue: kein Football-Latch, keine Eingabesperre und kein Gewinner bleiben stehen (in anderen Modi wirkungslos)
+  fbBotModus=false;            // ELITE BOT: das Match ist vorbei - kein Plan, kein Modus
+  if(typeof fbBotVergessen==='function')fbBotVergessen();
   fbVariant='classic';         // die Matchvariante ist erledigt — die Menuevorschau setzt gleich die der gewaehlten Karte
   // ERST aufraeumen, DANN die Vorschau: updateMenuPreview stellt die Koerper des Hero-Modus,
   // und fbElimReset (in footballResetMatchState) gibt der Elimination ihre volle Startbesetzung
@@ -5314,6 +5360,10 @@ function newGame(){resize();
   R=R0;score=[];for(let p=0;p<np();p++)score.push(0);roundNo=1;particles=[];fx3=[];recFrames=[];
   resetCollapseTimer();                              // Rematch/neues Match: Zyklus 0:30, Collapse-Stufe + Radius zuruecksetzen
   footballResetMatchState();                         // neues/verlassenes Football-Match: Torablauf + Gewinner sauber initialisiert (Score startet 0:0)
+  // ELITE BOT: ein Rematch laeuft hier durch, nicht ueber den Matchstart. Die erste
+  // Runde traegt danach wieder Marke "Runde 1, Stand 0:0" - ohne dieses Vergessen wuerde der
+  // Plan des VORIGEN Matches wiederverwendet. Die neue Saat haelt das Rematch abwechslungsreich.
+  if(typeof fbBotVergessen==='function'){fbBotVergessen();fbBotNeueSaat();}
   SFX.footballGoalStop();                            // Rematch: Torsound des letzten Matches klingt nicht in die erste Runde hinein
   const ffa=mode==='ffa';                            // FFA: kompakte Chip-Leiste statt der 2 Spielerkarten
   // Elimination4 nutzt DIESELBE Chip-Leiste (vier Spieler passen nicht in die zwei
@@ -5331,7 +5381,9 @@ function newGame(){resize();
     $('n1').textContent = (myPlayer===1)?'DU':'GEGNER';
   } else if(!chips){
     $('card0').querySelector('.pn').textContent=mode==='football'?'BLAU':'SPIELER 1';
-    $('n1').textContent=mode==='football'?'ROT':(mode==='bot'?'BOT':'SPIELER 2');
+    // Gegen den Elite Bot traegt die Gegnerkarte SEINEN Namen statt der Farbe - sonst waere
+    // am HUD nicht zu erkennen, dass gegen einen Planer gespielt wird. Sonst bleibt alles wie bisher.
+    $('n1').textContent=mode==='football'?((typeof fbBotSpielt==='function'&&fbBotSpielt())?T('fbBotName'):'ROT'):(mode==='bot'?'BOT':'SPIELER 2');
   }
   // Football-HUD: Klasse setzen und den Anzeigestand gleichziehen, damit der Startstand
   // 0:0 nicht als Torereignis pulst.
@@ -5353,7 +5405,10 @@ function startRound(){placeBalls();resetCommits();roundWinner=-1;
   // werden uebersprungen). typeof-Guard wie bei fbClearSelection — ohne Football-Block 0.
   // Zeitregel: kein Uebergabeschirm - alle entscheiden im selben Fenster (s. fbOffen).
   else if(mode==='pvp'||mode==='ffa'||mode==='football'){curAimer=(typeof fbElimFirstAimer==='function')?fbElimFirstAimer():0;
-    if(!(typeof fbShared==='function'&&fbShared()))openCover(curAimer);}else curAimer=0;
+    if(!(typeof fbOhneUebergabe==='function'&&fbOhneUebergabe()))openCover(curAimer);}else curAimer=0;
+  // ELITE BOT: der Zug dieser Runde wird JETZT festgeschrieben - aus dem oeffentlichen
+  // Zustand und der Saat, waehrend der Mensch noch zielt. Beim Commit wird er nur abgerufen.
+  if(typeof fbBotPlanen==='function')fbBotPlanen();
   if(typeof barrierRoundReset==='function')barrierRoundReset();   // neue Runde: Vorwahl und Zugbindung fallen, der Bestand bleibt
   setPhaseText();}
 
@@ -6136,6 +6191,15 @@ function applyCommit(who,shooterIdx,fx,fy,spin){
     return;}
   commitIdx[who]=m.idx;commitAim[who]={dx:m.dx,dy:m.dy};commitSpin[who]=m.sp;aimSet[who]=true;updateHud();
   if(mode==='bot'){const bm=botMove();commitIdx[1]=bm.idx;commitAim[1]={dx:bm.dx,dy:bm.dy};commitSpin[1]=0;aimSet[1]=true;beginReveal();}
+  // ELITE BOT (Arena Football, lokal): derselbe Weg wie beim RingOut-Bot - der Gegenzug
+  // wird danebengelegt und BEIDE starten in derselben Simulation. Der Zug ist zu diesem
+  // Zeitpunkt laengst gefallen (Rundenbeginn); hier wird nichts mehr gerechnet, was die
+  // Eingabe des Menschen sehen koennte.
+  else if(typeof fbBotSpielt==='function'&&fbBotSpielt()&&who===0){
+    const bz=fbBotZug();
+    if(bz&&bz.idx>=0){commitIdx[1]=bz.idx;commitAim[1]={dx:bz.dx,dy:bz.dy};commitSpin[1]=bz.sp||0;aimSet[1]=true;}
+    beginReveal();
+  }
   else{ // pvp/ffa/football: naechster lebender Spieler ohne Commit zielt verdeckt, sonst Reveal
     // GEMEINSAMES FENSTER: kein Weiterreichen des Geraets. Alle entscheiden im SELBEN
     // Fenster, die Suche laeuft deshalb ueber ALLE noch offenen Spieler (auch die vor
@@ -6150,6 +6214,292 @@ function applyCommit(who,shooterIdx,fx,fy,spin){
     if(nx>=0){curAimer=nx;if(!gemeinsam)openCover(nx);setPhaseText();updateHud();}
     else beginReveal();
   }
+}
+
+// ══ ARENA FOOTBALL — ELITE BOT (lokal, 1 gegen 1, gleichzeitig) ═══════════════════
+// Ein Gegner, der wirklich rechnet - und der fair ist, weil er nichts sieht, was ein
+// Mensch nicht auch saehe.
+//
+// DERSELBE MOTOR. Der Planer kopiert die Koerper und laesst stepSim darauf laufen
+// (fbBotSim). Es gibt keine zweite Physik, keine Trajektorienhilfe, keine Sonderwerte:
+// dieselbe Abschusskurve (fbLaunchMul), dieselbe Hoechstkraft (maxPull), dieselben
+// Kollisionen, dieselbe Torerkennung. Waehrend der Planung ist jede Rueckmeldung stumm
+// und ein Tor wird nur gemeldet, nie gewertet (fbVorausAn).
+//
+// FAIR DURCH BAUWEISE. fbBotSicht() reicht dem Planer AUSSCHLIESSLICH oeffentlichen
+// Zustand: die Koerper (Lage, Besitzer, Radius), den Stand und die Runde. Der Zugvektor
+// des Menschen, sein Ziehen, sein Loslassen und sein noch nicht enthuellter Zug kommen
+// dort nicht vor - sie sind zum Planungszeitpunkt auch gar nicht gefallen: geplant wird
+// beim RUNDENBEGINN (fbBotPlanen), die Wahl wird festgeschrieben und spaeter nur noch
+// abgerufen. Gleicher oeffentlicher Zustand plus gleiche Saat ergeben denselben Zug,
+// egal was der Mensch danach tut (Pruefstand: tools/test_football_elitebot.js).
+//
+// GLEICHZEITIG. Beide Zuege starten in derselben Simulation. Weil der Bot den Zug des
+// Menschen nicht kennt, bewertet er seine besten Kandidaten gegen eine begrenzte Menge
+// PLAUSIBLER Menschenzuege aus demselben oeffentlichen Startzustand und mischt das
+// schlechteste Ergebnis mit dem Mittel - er rechnet also mit Gegenwehr, statt
+// anzunehmen, der Mensch stehe still.
+//
+// SCHRANKEN. Grob-zu-fein mit fester Obergrenze (FB_BOT): erst alle Kandidaten gegen
+// einen ruhenden Gegner mit kurzer Sicht, dann die besten gegen die Gegnermenge mit
+// voller Sicht. Keine unbegrenzte Suche, keine Rekursion.
+const FB_BOT={
+  // ── Suchraum (Kandidaten des Bots) ──
+  winkel:11,            // Richtungen, gleichmaessig um die Linie zum Ball
+  spanne:0.62,          // halbe Oeffnung dieses Faechers (rad)
+  kraft:[1.00,0.80,0.60,0.42],
+  bank:6,               // weite Winkel: der Ball kommt ueber die Bande
+  weich:0.14,           // Anteil der Hoechstkraft fuer den weichen Aufbauzug
+  // ── Gegnermodell (plausible Menschenzuege aus DEMSELBEN Startzustand) ──
+  gegner:5, gegnerSpanne:0.34, gegnerKraft:[1.00,0.66],
+  // ── Simulationsschranken ──
+  grobSchritte:420, schritte:760, feinN:6,
+  // ── Bewertung ──
+  wTor:1000, wGegentor:1300, wBallTor:3.0, wBallEigen:3.4, wNaehe:0.45, wFrei:0.30, wDeckung:2.0,
+  // ── Auswahl ──
+  mischWorst:0.62,      // Gewicht des schlechtesten Ausgangs gegenueber dem Mittel
+  toleranz:0.04,        // Breite des Feldes "annaehernd gleich gut" fuer die Varianz
+  risiko:0.30,          // wie stark der Spielstand die Risikobereitschaft verschiebt
+  scheibeMs:6           // Rechenzeit je Bild. Die Suche kostet rund 80 ms am Stueck; in
+                        // Scheiben von 6 ms bleibt das Zielen fluessig, auch auf dem Handy.
+};
+let fbBotModus=false;      // laeuft gerade eine Partie gegen den Elite Bot?
+let fbBotPlan=null;        // {marke, aktion, auftrag} - je Runde genau einmal gerechnet
+let fbBotSaat=1;           // Saat der Auswahl; je Match neu gesetzt
+let fbBotMess=[];          // Planungsdauern (ms) dieser Sitzung - nur Messung
+// Spielt hier gerade der Elite Bot? Lokal, Arena Football, Classic - sonst nie.
+function fbBotSpielt(){return !!fbBotModus&&mode==='football'&&!online&&fbVariant==='classic';}
+// Gesaeter Zufall: gleiche Saat -> gleiche Folge. Kein Math.random im Entscheidungsweg.
+function fbBotZufall(s){let x=(s>>>0)||1;return function(){x^=x<<13;x>>>=0;x^=x>>>17;x^=x<<5;x>>>=0;return x/4294967296;};}
+// DER OEFFENTLICHE ZUSTAND - mehr bekommt der Planer nicht. Die Koerper werden kopiert
+// (nicht verlinkt), damit keine Simulation je den laufenden Stand beruehrt.
+function fbBotSicht(wer){
+  const ich=(wer===0)?0:1, mensch=1-ich;
+  return {koerper:balls.map(b=>Object.assign({},b)),
+          stand:[score[0]|0,score[1]|0], runde:roundNo|0, ich:ich, mensch:mensch};
+}
+// EINE Vorausberechnung auf einer Kopie. Tauscht balls aus, laeuft den ECHTEN stepSim und
+// stellt jeden beruehrten Zustand zurueck - auch wenn unterwegs etwas wirft.
+function fbBotSim(kopie,schritte){
+  const eBalls=balls,eGoal=fbGoalState,eTick=fbGoalTick,eWin=footballWinner,ePhase=phase,eOut=outBall;
+  const eS0=score[0],eS1=score[1];
+  balls=kopie; fbGoalState='play'; fbGoalTick=0; footballWinner=null; phase='sim'; outBall=-1;
+  fbVorausTor=-1; fbVorausTiefe++;
+  let k=0;
+  try{
+    for(;k<schritte;k++){
+      stepSim();
+      if(fbVorausTor>=0)break;
+      let bewegt=false;
+      for(const b of kopie){if(b.alive&&Math.hypot(b.vx,b.vy)>curST()){bewegt=true;break;}}
+      if(!bewegt)break;
+    }
+  }finally{
+    fbVorausTiefe--; balls=eBalls; fbGoalState=eGoal; fbGoalTick=eTick; footballWinner=eWin;
+    phase=ePhase; outBall=eOut; score[0]=eS0; score[1]=eS1;
+  }
+  return {tor:fbVorausTor,schritte:k};
+}
+// Einen Zug auf eine Kopie legen - GENAU wie applyLaunch es im Spiel tut.
+function fbBotAnwenden(k,z){
+  const b=k[z.i]; if(!b||!b.alive)return;
+  const mul=(typeof fbLaunchMul==='function')?fbLaunchMul(z.p):LAUNCH;
+  b.vx=Math.cos(z.w)*z.p*mul; b.vy=Math.sin(z.w)*z.p*mul; b.spin=0;
+}
+// Die Kandidaten einer Seite: Faecher zum Ball ueber mehrere Kraftstufen, dazu weite
+// Bankwinkel und ein weicher Aufbauzug. Alles im legalen Rahmen (hoechstens maxPull).
+function fbBotKandidaten(k,idx,ballIdx){
+  const me=k[idx],ball=k[ballIdx]; if(!me||!ball)return [];
+  const basis=Math.atan2(ball.y-me.y,ball.x-me.x), mp=maxPull(), liste=[];
+  for(let i=0;i<FB_BOT.winkel;i++){
+    const t=FB_BOT.winkel===1?0:(i/(FB_BOT.winkel-1))*2-1;
+    for(const kr of FB_BOT.kraft)liste.push({i:idx,w:basis+t*FB_BOT.spanne,p:mp*kr});
+  }
+  const h=Math.max(1,Math.floor(FB_BOT.bank/2));
+  for(let i=0;i<FB_BOT.bank;i++){
+    const seite=i<h?1:-1, stufe=i%h;
+    liste.push({i:idx,w:basis+seite*(0.95+stufe*0.38),p:mp});
+  }
+  liste.push({i:idx,w:basis,p:mp*FB_BOT.weich});
+  return liste;
+}
+// Plausible Zuege des Menschen aus DEMSELBEN oeffentlichen Startzustand. Das ist ein
+// Modell, keine Kenntnis: der wirkliche Zug ist zu diesem Zeitpunkt nicht gefallen.
+function fbBotGegnerzuege(k,ballIdx,wer){
+  const idx=k.findIndex(b=>b.alive&&b.owner===wer); if(idx<0)return [null];
+  const me=k[idx],ball=k[ballIdx];
+  const basis=Math.atan2(ball.y-me.y,ball.x-me.x), mp=maxPull(), liste=[];
+  const nw=Math.max(1,Math.floor(FB_BOT.gegner/FB_BOT.gegnerKraft.length));
+  for(let i=0;i<nw;i++){
+    const t=nw===1?0:(i/(nw-1))*2-1;
+    for(const kr of FB_BOT.gegnerKraft)liste.push({i:idx,w:basis+t*FB_BOT.gegnerSpanne,p:mp*kr});
+  }
+  liste.push(null);   // der Mensch bleibt stehen - auch das ist ein moeglicher Zug
+  return liste;
+}
+// Die Bewertung eines Ausgangs. Positiv ist gut fuer den Bot.
+function fbBotBewerten(k,erg,sicht){
+  const ich=sicht.ich,geg=sicht.mensch;
+  let s=0;
+  if(erg.tor===ich)s+=FB_BOT.wTor;
+  else if(erg.tor===geg)s-=FB_BOT.wGegentor;
+  const ball=k.find(b=>b.owner===FOOTBALL_NEUTRAL_OWNER);
+  if(ball&&ball.alive){
+    // Die beiden Torraeume als Punkte: das angegriffene und das eigene. Gemessen wird der
+    // ABSTAND des Balls zu beiden - das ist naeher am Spiel als die blosse x-Lage, weil ein
+    // Ball weit aussen an der Bande kein Angriff ist, auch wenn sein x gut aussieht.
+    const A=fbArena(), halb=A.halfLen;
+    const zielX=(ich===1?-halb:halb)*BR, eigenX=(ich===1?halb:-halb)*BR;
+    const dZiel=Math.hypot(ball.x-(cx+zielX),ball.y-cy)/BR;
+    const dEigen=Math.hypot(ball.x-(cx+eigenX),ball.y-cy)/BR;
+    s+=FB_BOT.wBallTor*(2*halb-dZiel);      // je naeher am Gegnertor, desto besser
+    s-=FB_BOT.wBallEigen*(2*halb-dEigen);   // je naeher am eigenen Tor, desto schlechter
+    const mich=k.find(b=>b.alive&&b.owner===ich);
+    const err=k.find(b=>b.alive&&b.owner===geg);
+    // Wer am Ball steht, hat die naechste Runde; wer zwischen Ball und eigenem Tor steht, deckt.
+    if(mich){
+      s-=FB_BOT.wNaehe*(Math.hypot(mich.x-ball.x,mich.y-ball.y)/BR);
+      const zuEigen=Math.hypot(ball.x-(cx+eigenX),ball.y-cy);
+      const michAufLinie=(zuEigen>1e-6)?Math.abs((ball.y-cy)*(mich.x-(cx+eigenX))-(ball.x-(cx+eigenX))*(mich.y-cy))/zuEigen/BR:99;
+      const dahinter=(ich===1?(mich.x>ball.x):(mich.x<ball.x));
+      if(dahinter&&michAufLinie<4)s+=FB_BOT.wDeckung*(4-michAufLinie);
+    }
+    if(err)s+=FB_BOT.wFrei*(Math.hypot(err.x-ball.x,err.y-ball.y)/BR);
+  }
+  // Spielstand verschiebt die Risikobereitschaft massvoll: in Fuehrung etwas vorsichtiger,
+  // im Rueckstand etwas mutiger. Kein Skript, kein Aufholbonus - nur eine Gewichtung.
+  const diff=(sicht.stand[ich]|0)-(sicht.stand[geg]|0);
+  if(diff!==0&&erg.tor<0){
+    const ball2=k.find(b=>b.owner===FOOTBALL_NEUTRAL_OWNER);
+    if(ball2&&ball2.alive){
+      const bx=(ball2.x-cx)/BR, richtung=(ich===1?-1:1);
+      s+=FB_BOT.risiko*(-diff)*(bx*richtung)*0.1;
+    }
+  }
+  return s;
+}
+// DIE SUCHE. Grob-zu-fein, feste Schranken, gesaete Auswahl unter gleich starken Zuegen.
+// wer: der Sitz, fuer den geplant wird (im Spiel immer 1). Der Parameter macht den Planer
+// seitenunabhaengig - nur so laesst sich im Pruefstand mit ausgeglichenen Seiten messen.
+// Ein Suchauftrag. Die Arbeit ist eine Kette gleich grosser Stuecke (je eine Simulation),
+// deshalb laesst sie sich anhalten und spaeter fortsetzen. Reihenfolge und Zufallsziehung
+// sind dieselben wie bei einem Durchlauf am Stueck - das Ergebnis ist bitgleich, egal wie
+// fein die Arbeit geschnitten wurde. Genau das prueft tools/test_football_elitebot.js.
+function fbBotAuftrag(wer){
+  const sicht=fbBotSicht(wer);
+  const basis=sicht.koerper;
+  const ichIdx=basis.findIndex(b=>b.alive&&b.owner===sicht.ich);
+  const ballIdx=basis.findIndex(b=>b.owner===FOOTBALL_NEUTRAL_OWNER);
+  if(ichIdx<0||ballIdx<0)return null;
+  const kand=fbBotKandidaten(basis,ichIdx,ballIdx);
+  if(!kand.length)return null;
+  const auf={sicht:sicht,basis:basis,ballIdx:ballIdx,
+    zuf:fbBotZufall(fbBotSaat+sicht.runde*7919+sicht.stand[0]*131+sicht.stand[1]*17+sicht.ich*104729),
+    kand:kand,phase:'grob',i:0,g:0,grob:[],fein:null,eng:null,gegner:null,
+    sims:0,rechenzeit:0,fertig:false,ergebnis:null};
+  auf.lauf=(botZug,menschZug,schritte)=>{
+    const k=basis.map(b=>Object.assign({},b));
+    fbBotAnwenden(k,botZug); if(menschZug)fbBotAnwenden(k,menschZug);
+    const erg=fbBotSim(k,schritte); auf.sims++;
+    return fbBotBewerten(k,erg,sicht);
+  };
+  return auf;
+}
+// Arbeitet hoechstens budget Millisekunden und meldet, ob der Auftrag fertig ist.
+// budget=Infinity rechnet am Stueck durch.
+function fbBotArbeiten(auf,budget){
+  if(!auf||auf.fertig)return true;
+  const jetzt=()=>(typeof performance!=='undefined'&&performance.now)?performance.now():Date.now();
+  const t0=jetzt();
+  while(!auf.fertig){
+    if(auf.phase==='grob'){
+      if(auf.i<auf.kand.length){
+        const z=auf.kand[auf.i++];
+        auf.grob.push({z:z,v:auf.lauf(z,null,FB_BOT.grobSchritte)});
+      }else{
+        auf.grob.sort((a,b)=>b.v-a.v);
+        auf.eng=auf.grob.slice(0,FB_BOT.feinN).map(x=>x.z);
+        auf.gegner=fbBotGegnerzuege(auf.basis,auf.ballIdx,auf.sicht.mensch);
+        auf.fein=auf.eng.map(z=>({z:z,schlecht:1e9,summe:0,v:0}));
+        auf.phase='fein';auf.i=0;auf.g=0;
+      }
+    }else if(auf.phase==='fein'){
+      if(auf.i<auf.fein.length){
+        const e=auf.fein[auf.i];
+        const v=auf.lauf(e.z,auf.gegner[auf.g],FB_BOT.schritte);
+        if(v<e.schlecht)e.schlecht=v; e.summe+=v;
+        if(++auf.g>=auf.gegner.length){
+          e.v=FB_BOT.mischWorst*e.schlecht+(1-FB_BOT.mischWorst)*(e.summe/auf.gegner.length);
+          auf.g=0;auf.i++;
+        }
+      }else auf.phase='wahl';
+    }else{
+      auf.fein.sort((a,b)=>b.v-a.v);
+      const spanne=Math.abs(auf.fein[0].v)*FB_BOT.toleranz+0.5;
+      const nah=auf.fein.filter(x=>x.v>=auf.fein[0].v-spanne);
+      const wahl=nah[Math.floor(auf.zuf()*nah.length)].z;
+      auf.ergebnis={idx:wahl.i,dx:Math.cos(wahl.w)*wahl.p,dy:Math.sin(wahl.w)*wahl.p,sp:0,sims:auf.sims,wert:auf.fein[0].v};
+      auf.fertig=true;
+    }
+    if(jetzt()-t0>=budget)break;
+  }
+  auf.rechenzeit+=jetzt()-t0;
+  if(auf.fertig&&auf.ergebnis&&auf.ergebnis.ms===undefined){
+    auf.ergebnis.ms=auf.rechenzeit;
+    fbBotMess.push(auf.rechenzeit); if(fbBotMess.length>200)fbBotMess.shift();
+  }
+  return auf.fertig;
+}
+// Die Suche am Stueck - der Weg fuer Tests und Messstand.
+function fbBotSuche(wer){
+  const auf=fbBotAuftrag(wer);
+  if(!auf)return null;
+  fbBotArbeiten(auf,Infinity);
+  return auf.ergebnis;
+}
+// LEBENSLAUF. Die Marke bindet die Planung an Runde und Stand: nach Tor, Reset, Rematch
+// oder Modusende passt sie nicht mehr, und ein alter Plan wird nie angewandt.
+function fbBotMarke(){return (roundNo|0)+'|'+(score[0]|0)+':'+(score[1]|0)+'|'+(fbBotSaat|0);}
+function fbBotVergessen(){fbBotPlan=null;}
+// Eine frische Saat je Match. Sie steuert NUR die Auswahl unter annaehernd gleich starken
+// Zuegen - Staerke und Legalitaet haengen nicht an ihr.
+function fbBotNeueSaat(){fbBotSaat=((Date.now()^Math.floor(Math.random()*0x7fffffff))>>>0)||1;}
+// Rundenbeginn: den Auftrag anlegen. Hier wird NICHT gerechnet - das Bild bleibt frei.
+function fbBotPlanen(){
+  if(!fbBotSpielt())return null;
+  const m=fbBotMarke();
+  if(fbBotPlan&&fbBotPlan.marke===m)return fbBotPlan.aktion;
+  fbBotPlan={marke:m,aktion:null,auftrag:fbBotAuftrag(1)};
+  return null;
+}
+// Eine Scheibe je Bild, waehrend der Mensch zielt. Nach rund einem Dutzend Bildern steht
+// der Zug - lange bevor losgelassen wird.
+function fbBotScheibe(){
+  if(!fbBotModus||!fbBotPlan||fbBotPlan.aktion||!fbBotPlan.auftrag)return;
+  if(fbBotArbeiten(fbBotPlan.auftrag,FB_BOT.scheibeMs)){
+    fbBotPlan.aktion=fbBotPlan.auftrag.ergebnis;fbBotPlan.auftrag=null;
+  }
+}
+// Der fertige Zug. Wurde zu frueh losgelassen, wird der Rest hier zu Ende gerechnet.
+function fbBotFertig(){
+  fbBotPlanen();
+  if(fbBotPlan&&!fbBotPlan.aktion&&fbBotPlan.auftrag){
+    fbBotArbeiten(fbBotPlan.auftrag,Infinity);
+    fbBotPlan.aktion=fbBotPlan.auftrag.ergebnis;fbBotPlan.auftrag=null;
+  }
+  return fbBotPlan?fbBotPlan.aktion:null;
+}
+// Der Zug dieser Runde - festgeschrieben beim Rundenbeginn, hier nur noch abgerufen.
+function fbBotZug(){
+  const a=fbBotFertig();
+  if(a)return a;
+  // Rueckfall: ein legaler, weicher Zug aus oeffentlichem Zustand. Nie ein Sonderweg.
+  const i=balls.findIndex(b=>b&&b.alive&&b.owner===1);
+  const ball=balls.find(b=>b&&b.owner===FOOTBALL_NEUTRAL_OWNER);
+  if(i<0||!ball)return null;
+  const w=Math.atan2(ball.y-balls[i].y,ball.x-balls[i].x),p=maxPull()*0.5;
+  const mul=(typeof fbLaunchMul==='function')?fbLaunchMul(p):LAUNCH;
+  return {idx:i,dx:Math.cos(w)*p,dy:Math.sin(w)*p,sp:0,ms:0,sims:0,rueckfall:true};
 }
 
 // ════ BOT ════
@@ -8356,6 +8706,9 @@ function fbFxDrain(slot){
 // Genau EINE Wertung pro Torereignis: nur aus 'play' heraus erreichbar.
 function footballTryGoal(b){
   if(fbGoalState!=='play')return;
+  // PLANUNG: ein Tor wird gemeldet, nicht gewertet. Kein Punkt, kein Torablauf, kein Klang,
+  // kein Matchende - die Vorausberechnung darf den laufenden Stand nicht anfassen.
+  if(fbVorausAn()){const ps=footballGoalSide(b); if(ps>=0)fbVorausTor=ps; return;}
   // Elimination4 wertet GEGENTORE statt Punkte und hat damit ein eigenes Wertungsziel —
   // aber denselben Torablauf, denselben Impuls und denselben Sound (s. footballElimTryGoal).
   if(fbElim4()){footballElimTryGoal(b);return;}
@@ -8591,6 +8944,10 @@ function fbTeam2Side(o){return (o===0||o===1)?0:((o===2||o===3)?1:-1);}
 // vorher konnte ein Client online die Figur des Teamkollegen oder Gegners greifen, und die
 // Commit-Sperre liess danach seine eigene Runde scheitern.
 function fbShared(){return (typeof fbTimed==='function'&&fbTimed())||(typeof fbLives==='function'&&fbLives())||(fbTeam2()&&!online);}
+// Der Uebergabeschirm hat genau zwei Gruende wegzubleiben: ein gemeinsames Fenster (beide
+// zielen gleichzeitig) oder ein einziger Mensch am Geraet (Elite Bot). Beide Rundenstarts
+// fragen dieselbe Stelle - sonst driften sie auseinander.
+function fbOhneUebergabe(){return fbShared()||(typeof fbBotSpielt==='function'&&fbBotSpielt());}
 // Laenge des Riegels im gemeinsamen Fenster - je Regel aus IHRER eigenen Konstante.
 function fbSharedShotTicks(){return fbTeam2()?FOOTBALL_TEAM2V2_SHOT_TICKS:((typeof fbLives==='function'&&fbLives())?FOOTBALL_LIVES_SHOT_TICKS:FOOTBALL_FFA_SHOT_TICKS);}
 // EINZIGE Weiche "laeuft gerade Elimination?" - unabhaengig von der Startspielerzahl.
@@ -9200,6 +9557,17 @@ function fbFfaResolve(imTor){
 // ZENTRALE Initialisierung des Football-Matchzustands: neues Match, Moduswechsel, Menue.
 // Score/Kugeln/Aim-Zustaende setzt der bestehende Pfad newGame() -> startRound() -> placeBalls().
 function footballResetMatchState(){fbGoalState='play';fbGoalTick=0;footballWinner=null;fbClearSelection();fbElimReset();if(typeof fbFfaReset==='function')fbFfaReset();fbClockReset();footballClearGoalFx();fbMorphPlan=null;fbMorphSpawn=false;SFX.fbTransitionStop();}
+// ══ ELITE BOT — PLANUNG AUF DEM ECHTEN MOTOR ═══════════════════════════════════════
+// Der Bot rechnet mit DERSELBEN Physik, die das Spiel rechnet: stepSim. Es gibt keine
+// zweite Simulation, die auseinanderlaufen koennte. Damit eine Vorausberechnung nichts
+// anrichtet, laeuft sie unter fbVorausAn():
+//   * auf einer KOPIE der Koerper (fbBotSim tauscht balls aus und stellt alles zurueck),
+//   * ohne Klang, Partikel, Bildimpuls und Musik,
+//   * ohne Wertung: ein Tor wird nur GEMELDET (fbVorausTor), nie gezaehlt.
+// Ausserhalb der Planung ist fbVorausTiefe 0 und jede Zeile unten bitgenau der Bestandspfad.
+let fbVorausTiefe=0;          // >0: es wird geplant, nicht gespielt
+let fbVorausTor=-1;           // Seite, die waehrend der Planung traf (-1 = keine)
+function fbVorausAn(){return fbVorausTiefe>0;}
 function stepSim(){
   // Restitution nach Kontaktart (4B-2). Ohne aktives Football-Preset liefern alle drei
   // Funktionen den bestehenden REST-Wert — Bestandsmodi rechnen unveraendert weiter.
@@ -9265,6 +9633,9 @@ function stepSim(){
             // duerfen dafuer weder ein zweites Mal knallen noch ein zweites Mal funken —
             // ausserhalb 'football' ist it immer 0, dort aendert sich damit gar nichts.
             if(it===0){
+            // PLANUNG: eine Vorausberechnung gibt keine Rueckmeldung - kein Klang, kein
+            // Partikel, kein Bildimpuls, keine Musik. Die Physik darueber bleibt dieselbe.
+            if(!fbVorausAn()){
             const mag=Math.min(1,Math.abs(vn)/5);
             // Zwei Kontaktarten: Marmor auf Marmor - oder eine Figur am Ball, die
             // tiefer und voller klingt. Ein wirklich wuchtiger Ballkontakt bekommt
@@ -9304,6 +9675,7 @@ function stepSim(){
             }
             else spawn(mx,my,14+Math.floor(mag*16),['#00d4ff','#ff4d4d','#ffffff','#ffc940'],Math.abs(vn)*0.7+2,1);
             bgPulse=Math.max(bgPulse,mag*0.5);bgPulseRGB='255,235,180';}
+            }
           }
         }
       }
@@ -9425,6 +9797,9 @@ function stepSim(){
     // wird gewertet — vor der Freigabe der Eingabe, damit nie eine Runde mit abgelaufener
     // Phase beginnt. Dieselbe Stelle und dieselbe Begruendung wie bei der Matchuhr.
     if(typeof fbFfaResolve==='function'&&fbFfaResolve(false))return;
+    // ELITE BOT: die naechste Runde ist offen - der Zug wird JETZT festgeschrieben, waehrend
+    // der Mensch noch zielt. Niemals waehrend einer Planung (sonst plante die Planung sich selbst).
+    if(!fbVorausAn()&&typeof fbBotPlanen==='function')fbBotPlanen();
     setPhase('aim');updateHud();setPhaseText();
     // V9 (ruhend): DAS ist der Settlement-Punkt. Die Physik ist ausgelaufen, Tore,
     // Leben, Eliminationen und faellige Austritte sind angewandt, und die Eingabe waere
@@ -9432,7 +9807,7 @@ function stepSim(){
     // steht in DERSELBEN Zeile, weil die Pruefstaende stepSim woertlich herausschneiden.
     if(online){curAimer=myPlayer;onlineArmTurn();if(typeof fbV9LebenNeueRunde==='function')fbV9LebenNeueRunde();}
     else if(mode==='pvp'||mode==='football'){curAimer=(typeof fbElimFirstAimer==='function')?fbElimFirstAimer():0;
-      if(!(typeof fbShared==='function'&&fbShared()))openCover(curAimer);}
+      if(!(typeof fbOhneUebergabe==='function'&&fbOhneUebergabe()))openCover(curAimer);}
     else if(mode==='ffa'){for(let p=0;p<ffaN;p++)if(aliveCount(p)>0){curAimer=p;openCover(p);break;}}
   }
 }
@@ -10373,7 +10748,7 @@ function barrierStep(){
 function resultDrift(){if(outBall<0)return;const b=balls[outBall];b.x+=b.vx*RESULT_SLOWMUL;b.y+=b.vy*RESULT_SLOWMUL;b.vx*=RESULT_FR;b.vy*=RESULT_FR;}
 // Online play uses the durable roster name (own or others; color-name fallback).
 // Local play keeps the generic labels. Callers render via textContent.
-function pName(p){return online?nameForSeat(p):(mode==='bot'&&p===1?'Bot':T('namePlayer')+' '+(p+1));}
+function pName(p){return online?nameForSeat(p):(mode==='bot'&&p===1?'Bot':((typeof fbBotSpielt==='function'&&fbBotSpielt()&&p===1)?T('fbBotName'):T('namePlayer')+' '+(p+1)));}
 function afterResult(){
   // TEAM DUEL: -2 = simultane Vollelimination beider Teams -> Unentschieden.
   // Kein Punkt, kein Sieger — naechste Runde startet regulaer mit vier Kugeln.
@@ -19604,6 +19979,7 @@ function loop(now){
   // Einsatz). Die Pille muss dem JEDES Bild folgen, sonst glimmt sie weiter 'einsetzbar',
   // waehrend der Tap laengst abgewiesen wird.
   if(phase==='sim'&&typeof barrierRescueMode==='function'&&barrierRescueMode()&&typeof barrierUi==='function')barrierUi();
+  if(typeof fbBotScheibe==='function')fbBotScheibe();   // ELITE BOT: eine Scheibe Planung je Bild
   fbClockPaint();   // Restzeit im HUD nachziehen: reine Ausgabe, die Uhr laeuft in simStep
   presentFrame(false);   // wirft nie: ein fehlgeschlagenes Bild endet an der Grenze
   requestAnimationFrame(loop);

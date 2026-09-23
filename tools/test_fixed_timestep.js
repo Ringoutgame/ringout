@@ -22,8 +22,8 @@ function grab(re, name) {
 let pass = 0, fail = 0;
 function ok(cond, msg) { if (cond) { pass++; } else { fail++; console.error('FAIL: ' + msg); } }
 
-const footballBlock = grab(/const FOOTBALL_NEUTRAL_OWNER=[\s\S]*?(?=\nfunction stepSim\(\)\{)/, 'Football-Block');
-const stepSimSrc = grab(/function stepSim\(\)\{[\s\S]*?\n\}/, 'stepSim');
+const footballBlock = grab(/const FOOTBALL_NEUTRAL_OWNER=[\s\S]*?(?=\nlet fbVorausTiefe=0;)/, 'Football-Block');
+const stepSimSrc = grab(/let fbVorausTiefe=0;[\s\S]*?\nfunction stepSim\(\)\{[\s\S]*?\n\}/, 'stepSim (inkl. Planungsschalter)');
 const consts = grab(/const MAXPULL_FRAC=[^\n]*/, 'physics constants');
 const spin = grab(/const SPIN_K=[^\n]*/, 'spin constants');
 const timing = grab(/const REVEAL_MS=[^\n]*/, 'REVEAL_MS/RESULT_MS');
@@ -200,12 +200,18 @@ console.log('ARENA FOOTBALL - FIXED TIMESTEP: gleiche Simulation auf jeder Bildw
 
   // L) KEINE VARIABLE-DT-PHYSIK. stepSim nimmt kein dt entgegen und liest keine Uhr;
   //    die verstrichene Zeit steuert ausschliesslich, WIE OFT der feste Schritt laeuft.
-  ok(/^function stepSim\(\)\{/.test(stepSimSrc), 'stepSim nimmt keinen Zeitparameter');
+  ok(/\nfunction stepSim\(\)\{/.test(stepSimSrc) && !/function stepSim\([^)]/.test(stepSimSrc),
+     'stepSim nimmt keinen Zeitparameter');
   const stepBody = stepSimSrc.replace(/\/\/[^\n]*/g, '');
   ok(!/performance\.now|Date\.now|\bdt\b/.test(stepBody), 'stepSim liest keine Uhr und kennt kein dt');
   ok(!/\bdt\b/.test(simStepSrc.replace(/\/\/[^\n]*/g, '')), 'simStep skaliert nichts mit einem dt');
   // Die Physik wird NUR aus dem festen Schritt heraus getrieben.
-  ok((HTML.match(/stepSim\(\);/g) || []).length === 2, 'stepSim() hat genau zwei Aufrufer');
+  // Seit dem Elite Bot gibt es einen dritten Aufrufer. Er treibt KEINE Spielzeit: er rechnet
+  // unter fbVorausTiefe auf einer KOPIE der Koerper voraus und fasst den laufenden Zustand
+  // nicht an. Die Aussage der Pruefung bleibt damit erhalten - sie wird nur genau benannt.
+  ok((HTML.match(/stepSim\(\);/g) || []).length === 3, 'stepSim() hat genau drei Aufrufer');
+  ok(/function fbBotSim\(kopie,schritte\)\{[\s\S]*?fbVorausTiefe\+\+;[\s\S]*?stepSim\(\);/.test(HTML),
+     'der DRITTE Aufrufer ist die Vorausberechnung des Elite Bots - Kopie statt Spielzustand');
   ok(/else if\(phase==='sim'\)stepSim\(\);/.test(simStepSrc),
      'der ZEITGETRIEBENE Aufrufer ist der feste Schritt (simStep)');
   ok(/while\(phase==='sim'&&g\+\+<FF_MAX_STEPS_PER_TURN\)stepSim\(\);/.test(HTML),

@@ -93,8 +93,8 @@ abschnitt('1. Vier Karten, 1 VS 1 mit Unterauswahl');
 abschnitt('2. 1 VS 1 -> Unterauswahl -> derselbe Onlineweg; Zurueck setzt nichts');
 {
   const weg = fn('fbHubOeffnen');
-  t('fbHubOeffnen: duel -> Unterauswahl, tactical / tactical4 / team2v2 -> ihre Onlineeinstiege, sonst FFA',
-    /if\(key==='duel'\)fbDuelOeffnen\(\);\n  else if\(key==='tactical'\)fbTacticalOnlineOeffnen\(\);\n  else if\(key==='tactical4'\)fbTactical4OnlineOeffnen\(\);\n  else if\(key==='team2v2'\)fbTeam2OnlineOeffnen\(\);\n  else fbFfaOnlineOeffnen\(\);/.test(weg));
+  t('fbHubOeffnen: duel und training -> ihre Unterauswahl, tactical / tactical4 / team2v2 -> ihre Onlineeinstiege, sonst FFA',
+    /if\(key==='duel'\)fbDuelOeffnen\(\);\n  else if\(key==='training'\)fbTrainOeffnen\(\);\n  else if\(key==='tactical'\)fbTacticalOnlineOeffnen\(\);\n  else if\(key==='tactical4'\)fbTactical4OnlineOeffnen\(\);\n  else if\(key==='team2v2'\)fbTeam2OnlineOeffnen\(\);\n  else fbFfaOnlineOeffnen\(\);/.test(weg));
   const verdrahtung = g(/FB_HUB_DUEL\.forEach\(\(d\)=>\{[^\n]*\n\$\('fbDuelBack'\)\.onclick=fbDuelSchliessen;/, 'Verdrahtung');
   t('die Optionen schliessen die Ebene und gehen denselben Weg wie eine Karte', /if\(el\)el\.onclick=\(\)=>\{fbDuelSchliessen\(\);vibrateMs\(VIBE_CONFIRM_MS\);fbHubOeffnen\(d\.key\);\};/.test(verdrahtung));
   const oeffnen = fn('fbDuelOeffnen'), schliessen = fn('fbDuelSchliessen');

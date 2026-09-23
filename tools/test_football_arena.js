@@ -23,8 +23,8 @@ function grab(re, name) {
 let pass = 0, fail = 0;
 const ok = (c, msg) => { if (c) pass++; else { fail++; console.error('FAIL: ' + msg); } };
 
-const footballBlock = grab(/const FOOTBALL_NEUTRAL_OWNER=[\s\S]*?(?=\nfunction stepSim\(\)\{)/, 'Football-Block');
-const stepSimSrc = grab(/function stepSim\(\)\{[\s\S]*?\n\}/, 'stepSim');
+const footballBlock = grab(/const FOOTBALL_NEUTRAL_OWNER=[\s\S]*?(?=\nlet fbVorausTiefe=0;)/, 'Football-Block');
+const stepSimSrc = grab(/let fbVorausTiefe=0;[\s\S]*?\nfunction stepSim\(\)\{[\s\S]*?\n\}/, 'stepSim (inkl. Planungsschalter)');
 const consts = grab(/const MAXPULL_FRAC=[^\n]*/, 'physics constants');
 const spin = grab(/const SPIN_K=[^\n]*/, 'spin constants');
 const pcols = grab(/const PCOLS=[^\n]*/, 'PCOLS');

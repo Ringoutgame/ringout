@@ -50,15 +50,15 @@ const commitSrc          = grab(/function commit\(who,shooterIdx,fx,fy,spin\)\{[
 const applyCommitSrc     = grab(/function applyCommit\(who,shooterIdx,fx,fy,spin\)\{[\s\S]*?\n\}/, 'applyCommit');
 const applyLaunchSrc     = grab(/function applyLaunch\(\)\{[\s\S]*?\n\}/, 'applyLaunch');
 const beginRevealSrc     = grab(/function beginReveal\(\)\{[^\n]*/, 'beginReveal');
-const footballBlockSrc   = grab(/const FOOTBALL_NEUTRAL_OWNER=[\s\S]*?(?=\nfunction stepSim\(\)\{)/, 'Football-Block');
+const footballBlockSrc   = grab(/const FOOTBALL_NEUTRAL_OWNER=[\s\S]*?(?=\nlet fbVorausTiefe=0;)/, 'Football-Block');
 const curFRSrc           = grab(/function curFR\(\)[^\n]*/, 'curFR');
 const curFESrc           = grab(/function curFE\(\)[^\n]*/, 'curFE');
 const curSTSrc           = grab(/function curST\(\)[^\n]*/, 'curST');
-const stepSimSrc         = grab(/function stepSim\(\)\{[\s\S]*?\n\}/, 'stepSim');
+const stepSimSrc         = grab(/let fbVorausTiefe=0;[\s\S]*?\nfunction stepSim\(\)\{[\s\S]*?\n\}/, 'stepSim (inkl. Planungsschalter)');
 // Der Elimination4-Abschnitt als Ganzes - Grundlage der Struktur-Assertions weiter unten.
 const elimBlockSrc       = grab(/ARENA FOOTBALL ELIMINATION [\s\S]*?\nfunction footballElimResetBall\(\)\{[\s\S]*?\n\}/, 'Elimination-Block');
 const renderBarSrc       = grab(/function renderElimBar\(\)\{[\s\S]*?\n\}/, 'renderElimBar');
-const startFootballSrc   = grab(/function startFootball\(variant,rules\)\{[\s\S]*?\n\}/, 'startFootball');
+const startFootballSrc   = grab(/function startFootball\(variant,rules,gegenBot\)\{[\s\S]*?\n\}/, 'startFootball');
 const ctaSrc             = grab(/\$\('ctaBtn'\)\.onclick=async\(\)=>\{[\s\S]*?\n\};/, 'CTA-Handler');
 const foldSrc            = grab(/const fbFold=\{[\s\S]*?\nfunction footballCanPassGoal\(b\)\{[\s\S]*?\n\}/, 'Seitenfaltung');
 const fxRenderSrc        = grab(/const goalFxParts=\[\];[\s\S]*?\n    \};/, 'Renderer-Goal-FX-Block');

@@ -58,6 +58,8 @@ const SRC = [
   // Die Wertung. footballGoalSide bildet die ueberquerte TORSEITE auf das punktende Team ab —
   // genau daran haengt die Eigentorregel.
   grab(/function footballGoalSide\(b\)\{[\s\S]*?\n\}/, 'footballGoalSide'),
+  // footballTryGoal fragt den Planungsschalter ab - der gehoert also mit in den Sandkasten.
+  grab(/let fbVorausTiefe=0;[\s\S]*?function fbVorausAn\(\)\{return fbVorausTiefe>0;\}/, 'Planungsschalter'),
   grab(/function footballTryGoal\(b\)\{[\s\S]*?\n\}/, 'footballTryGoal'),
   grab(/function footballResetRound\(\)\{[\s\S]*?\n\}/, 'footballResetRound'),
 ].join('\n');
@@ -433,7 +435,7 @@ const SHOT = 6 * 60;
 
 // ══ R. MODUSWECHSEL LAESST NICHTS HINUEBERLAUFEN ═════════════════════════════
 {
-  const startSrc = grab(/function startFootball\(variant,rules\)\{[\s\S]*?\n\}/, 'startFootball');
+  const startSrc = grab(/function startFootball\(variant,rules,gegenBot\)\{[\s\S]*?\n\}/, 'startFootball');
   ok(/fbVariant=\(variant===FOOTBALL_VARIANT_TACTICAL\|\|variant===FOOTBALL_VARIANT_TACTICAL4\|\|variant===FOOTBALL_VARIANT_ELIM/.test(startSrc)
      && /\|\|variant===FOOTBALL_VARIANT_TEAM2\|\|dev4\)\?variant:'classic';/.test(startSrc),
      'startFootball kennt fuenf Varianten (inkl. Tactical 4-Ball) und clamped alles andere auf Classic');

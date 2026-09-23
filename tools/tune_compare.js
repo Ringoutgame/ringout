@@ -19,7 +19,7 @@ function grab(re, name) {
   if (!m) { console.error('FAIL: cannot extract ' + name); process.exit(2); }
   return m[0];
 }
-const stepSimSrc = grab(/function stepSim\(\)\{[\s\S]*?\n\}/, 'stepSim');
+const stepSimSrc = grab(/let fbVorausTiefe=0;[\s\S]*?\nfunction stepSim\(\)\{[\s\S]*?\n\}/, 'stepSim (inkl. Planungsschalter)');
 const constSrc1 = grab(/const MAXPULL_FRAC=[^\n]*/, 'physics constants');
 const constSrc2 = grab(/const SPIN_K=[^\n]*/, 'spin constants');
 

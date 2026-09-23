@@ -11,7 +11,7 @@ const blockM = HTML.match(/==RESCUE-WALL-START==([\s\S]*?)==RESCUE-WALL-END==/);
 if (!blockM) { console.error('FAIL: Rescue-Wall-Block nicht gefunden'); process.exit(2); }
 const wall = blockM[1];
 
-const stepSimSrc = grab(/function stepSim\(\)\{[\s\S]*?\n\}/, 'stepSim');
+const stepSimSrc = grab(/let fbVorausTiefe=0;[\s\S]*?\nfunction stepSim\(\)\{[\s\S]*?\n\}/, 'stepSim (inkl. Planungsschalter)');
 const ballsOutsideSrc = grab(/function ballsOutside\(\)\{[\s\S]*?\n\}/, 'ballsOutside');
 const resolveRingOutsSrc = grab(/function resolveRingOuts\(crossed\)\{[\s\S]*?\n\}/, 'resolveRingOuts');
 const constSrc = grab(/const MAXPULL_FRAC=[^\n]*/, 'Physik-Konstanten');

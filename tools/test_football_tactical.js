@@ -57,15 +57,15 @@ const commitSrc          = grab(/function commit\(who,shooterIdx,fx,fy,spin\)\{[
 const applyCommitSrc     = grab(/function applyCommit\(who,shooterIdx,fx,fy,spin\)\{[\s\S]*?\n\}/, 'applyCommit');
 const applyLaunchSrc     = grab(/function applyLaunch\(\)\{[\s\S]*?\n\}/, 'applyLaunch');
 const beginRevealSrc     = grab(/function beginReveal\(\)\{[^\n]*/, 'beginReveal');
-const footballBlockSrc   = grab(/const FOOTBALL_NEUTRAL_OWNER=[\s\S]*?(?=\nfunction stepSim\(\)\{)/, 'Football-Block');
+const footballBlockSrc   = grab(/const FOOTBALL_NEUTRAL_OWNER=[\s\S]*?(?=\nlet fbVorausTiefe=0;)/, 'Football-Block');
 const curFRSrc           = grab(/function curFR\(\)[^\n]*/, 'curFR');
 const curFESrc           = grab(/function curFE\(\)[^\n]*/, 'curFE');
 const curSTSrc           = grab(/function curST\(\)[^\n]*/, 'curST');
-const stepSimSrc         = grab(/function stepSim\(\)\{[\s\S]*?\n\}/, 'stepSim');
+const stepSimSrc         = grab(/let fbVorausTiefe=0;[\s\S]*?\nfunction stepSim\(\)\{[\s\S]*?\n\}/, 'stepSim (inkl. Planungsschalter)');
 // Der Tactical-Abschnitt als Ganzes — Grundlage der Struktur-Assertions weiter unten.
 const tacticalBlockSrc   = grab(/\/\/ ══ ARENA FOOTBALL TACTICAL[\s\S]*?\nfunction fbTacticalRingLevel\(i\)\{[\s\S]*?\n\}/, 'Tactical-Block');
 // Menue-/Startpfad: Modusauswahl, Dev-Direktlink und der einzige Football-Startpunkt.
-const startFootballSrc   = grab(/function startFootball\(variant,rules\)\{[\s\S]*?\n\}/, 'startFootball');
+const startFootballSrc   = grab(/function startFootball\(variant,rules,gegenBot\)\{[\s\S]*?\n\}/, 'startFootball');
 const devFbVariantSrc    = grab(/const DEV_FB_VARIANT=[^\n]*/, 'DEV_FB_VARIANT');
 const ctaSrc             = grab(/\$\('ctaBtn'\)\.onclick=async\(\)=>\{[\s\S]*?\n\};/, 'CTA-Handler');
 
@@ -353,7 +353,9 @@ console.log('ARENA FOOTBALL — Produktsuite: Classic 1v1 (Standard) + Tactical 
   // bewusst NICHT darunter: es startet kein lokales Match, sondern uebergibt an den
   // bestehenden Onlinebildschirm. Die frueher mitgezaehlte Kommentarerwaehnung in showMenu
   // ist seit 2026-09-22 fort - dort erklaert der Kommentar jetzt die Hero-Vorschau.
-  ok((HTML.match(/startFootball\(/g) || []).length === 8,
+  // Seit dem Elite Bot kommt EIN Aufruf hinzu: TRAINING -> VS ELITE BOT startet ein lokales
+  // Classic-Match ueber denselben startFootball() - kein zweiter Startpfad.
+  ok((HTML.match(/startFootball\(/g) || []).length === 9,
      'kein zweiter Startpfad neben startFootball() (erhalten: ' + (HTML.match(/startFootball\(/g) || []).length + ')');
   const onlineHandler = grab(/\$\('fbOnlineBtn'\)\.onclick=async\(\)=>\{[\s\S]*?\n\};/, 'fbOnlineBtn-Handler');
   ok(!/startFootball/.test(onlineHandler), 'ONLINE startet kein lokales Match');

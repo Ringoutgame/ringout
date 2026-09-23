@@ -608,7 +608,7 @@ function phaseAus(G, o) {
      'die Suche laeuft ueber ALLE offenen Spieler, nicht nur ueber die nachfolgenden');
   ok(/if\(nx>=0\)\{curAimer=nx;if\(!gemeinsam\)openCover\(nx\);/.test(commitSrc),
      'und der Uebergabeschirm bleibt ausserhalb des gemeinsamen Fensters unveraendert');
-  ok((HTML.match(/if\(!\(typeof fbShared==='function'&&fbShared\(\)\)\)openCover\(curAimer\);/g) || []).length === 2,
+  ok((HTML.match(/if\(!\(typeof fbOhneUebergabe==='function'&&fbOhneUebergabe\(\)\)\)openCover\(curAimer\);/g) || []).length === 2,
      'auch die beiden Rundenstarts oeffnen ihn weiterhin - nur nicht im gemeinsamen Fenster');
 }
 
@@ -706,7 +706,7 @@ function phaseAus(G, o) {
   // Ende des Torablaufs. Nirgends sonst - insbesondere nicht mitten in der Physik.
   const rufe = (HTML.match(/fbFfaResolve\(/g) || []).length;
   ok(rufe === 3, 'fbFfaResolve hat eine Definition und genau zwei Aufrufer (' + rufe + ')');
-  const stepSimSrc = grab(/function stepSim\(\)\{[\s\S]*?\n\}/, 'stepSim');
+  const stepSimSrc = grab(/let fbVorausTiefe=0;[\s\S]*?\nfunction stepSim\(\)\{[\s\S]*?\n\}/, 'stepSim (inkl. Planungsschalter)');
   ok(/if\(typeof fbFfaResolve==='function'&&fbFfaResolve\(false\)\)return;/.test(stepSimSrc),
      'der eine steht im Settlement — nach dem Stillstand, vor der Freigabe der Eingabe');
   const tickGoalSrc = grab(/function footballTickGoal\(\)\{[\s\S]*?\n\}/, 'footballTickGoal');
@@ -844,7 +844,7 @@ for (const start of [5, 4, 3]) {
   ok(H.st().aktiv.indexOf(0) < 0, 'und das zweite scheidet aus — die Bestandsregel ist unveraendert');
 
   // Der Produktweg: startFootball setzt die Regel bei JEDEM Start explizit.
-  const startSrc = grab(/function startFootball\(variant,rules\)\{[\s\S]*?\n\}/, 'startFootball');
+  const startSrc = grab(/function startFootball\(variant,rules,gegenBot\)\{[\s\S]*?\n\}/, 'startFootball');
   ok(/if\(fbVariant===FOOTBALL_VARIANT_ELIM\)\{/.test(startSrc)
      && /\}else fbElimRules=FOOTBALL_ELIM_RULES_LIVES;/.test(startSrc),
      'jede andere Variante setzt ausdruecklich auf die Leben zurueck');

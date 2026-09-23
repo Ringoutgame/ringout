@@ -131,6 +131,7 @@ const SRC = [
   grab(/function ejectGoneSeats\(\)\{[\s\S]*?\n\}/, 'ejectGoneSeats'),
   grab(/function simHash\(\)\{[\s\S]*?\n\}/, 'simHash'),
   grab(/function applyLaunch\(\)\{[\s\S]*?\n\}/, 'applyLaunch'),
+  grab(/let fbVorausTiefe=0;[\s\S]*?function fbVorausAn\(\)\{return fbVorausTiefe>0;\}/, 'Planungsschalter'),
   grab(/function stepSim\(\)\{[\s\S]*?\n\}/, 'stepSim'),
   grab(/function afterResult\(\)\{[\s\S]*?\n\}/, 'afterResult'),
   // ── real online layer ──
