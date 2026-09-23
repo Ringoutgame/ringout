@@ -6,6 +6,14 @@ Alle abgeschlossenen Änderungen am Projekt, neueste zuerst.
 
 ## [Unreleased]
 
+### Arena Football — Tactical 4-Ball gegen Bot: Zugrecht; Bandenfunken entfernt
+- fix(football): **Der Bot schoss im Zug des Menschen mit** (2026-09-23). Im abwechselnden Tactical 4-Ball gegen Bot erhielt beim Commit des Menschen auch der Bot einen Schuss. **Ursache:** `applyCommit` ruft `fbBotZuegeLegen()` ohne Sitzfilter, und `fbBotZuegeLegen` prüfte das Zugrecht nicht — der Bot legte einen Commit, und `applyLaunch` schoss ihn im selben Abschuss mit ab. Belegt über acht torlose Züge auf dem echten Pfad: in jedem Zug des Menschen bekamen Sitz 0 **und** Sitz 1 den Impuls **durch `applyLaunch`** (kein Kollisionseffekt); in den Bot-Zügen schoss korrekt nur der Bot. Der Zugwechsel selbst war richtig (genau einer je Zug, auch nach einem Tor).
+- **Fix:** Das Zugrecht wird bei der **Ausführung** geprüft: `fbBotZuegeLegen` legt im abwechselnden Modell nur den Sitz am Zug; `applyLaunch` verwirft lokal jeden Commit eines anderen Sitzes (online unverändert — dort entscheidet die v11-Ablaufsteuerung); `fbBotPlanen` legt für einen passiven Sitz keinen Auftrag mehr an (er stammte aus einer Lage vor dem nächsten Zug). Gleichzeitige Modi unverändert.
+- **Warum der Prüfstand es verdeckte:** `tools/test_football_elitebot.js` filterte beim Legen selbst nach dem Sitz am Zug — eine Zuglogik, die im Produkt fehlte. Er ruft jetzt `fbBotZuegeLegen()` ohne Filter wie `applyCommit`, und der neue Abschnitt 11 fährt den **echten** `applyCommit`-Weg (Mensch → Auflösung → Bot → Auflösung → Mensch, Tor, Rematch, Gegenprobe der gleichzeitigen Modi). **Gegen die unkorrigierte Fassung schlägt er mit 3 Fehlern an.**
+- fix(football): **Blau-weiß-rote Funken an der Bande entfernt.** Verantwortlich war `fbFeelWall`, ausgelöst bei jedem echten Bandenabpraller in `stepSim`: Wandlicht entlang der Bande, Blitz, Ring, Glanz und Splitter — in Spielerfarbe für Figuren (blau/rot), weiß für den Ball. Entfernt samt Wandabtastung (`fbWallSD`, `fbWallPath`, `FB_WALL_SEG`) und Renderzweig; es entsteht kein Partikel mehr dafür. Der **Klang** des Abprallers bleibt. Ballkontakt, Pfosten, Figurenkontakt, Abschuss, Toranzeigen und Auswahlmarkierungen sind unverändert. RingOut hat keine Bande und war nie betroffen.
+- test: `tools/test_football_elitebot.js` **139/0**, `tools/test_football_fx.js` **108/0** (die Wandlicht-Zusicherungen sind durch einen Entfernungsnachweis ersetzt).
+
+
 ### Arena Football — VS BOTS: die freigegebenen Onlinemodi jetzt auch gegen Bots
 - feat(football): **Arena Football → VS BOTS → Modusauswahl** (2026-09-23). Aus der einen Trainingsoption wird eine Auswahl der Bot-Fassungen **freigegebener** Onlinemodi. Jede Karte nennt den Modusnamen, die Zahl der Kugeln, das Zugmodell und wen der Mensch steuert:
 

@@ -1826,6 +1826,25 @@ Bot-Match, und die Zugfolge kommt aus derselben Formel wie online (`fbTacAktivSi
 lokal treibt `fbBotRundeNeu()` den Zugzaehler. Ist ein Bot am Zug, handelt er allein
 (`fbBotAmZugHandeln`), und `whoCanAim`/`canCommitInput` riegeln den Menschen ab.
 
+**Zugrecht wird bei der AUSFUEHRUNG geprueft (2026-09-23).** Umgekehrt war der Bot nicht
+abgeriegelt: `applyCommit` ruft `fbBotZuegeLegen()` ohne Sitzfilter, und so legte der Bot auch im
+Zug des Menschen einen Schuss. Jetzt gilt das Zugrecht an drei Stellen: `fbBotZuegeLegen` legt im
+abwechselnden Modell nur den Sitz am Zug, `applyLaunch` verwirft lokal jeden Commit eines anderen
+Sitzes (online entscheidet weiterhin die v11-Ablaufsteuerung), und `fbBotPlanen` legt fuer einen
+passiven Sitz gar keinen Auftrag an - ein solcher Plan stammte aus einer Lage VOR dem naechsten
+Zug. Nach einem Tor oeffnet `footballTickGoal` die Runde ueber `startRound()`; `stepSim` bricht
+waehrend des Torablaufs vor dem Settle ab - es gibt also auch dort genau EINEN Zugwechsel. Lokal
+gibt es fuer Tactical keine Zugzeit (`fbDecisionWho` nimmt Tactical und Classic aus; die 8 s
+gelten nur online). Regression: `tools/test_football_elitebot.js` Abschnitt 11, ueber den echten
+`applyCommit`-Weg und ohne eigenes Zuggatter im Pruefstand.
+
+**Bandeneffekt entfernt (2026-09-23).** Der dekorative Effekt eines Bandenabprallers
+(`fbFeelWall`: Wandlicht `fx3Wall` entlang der Bande, Blitz, Ring, Glanz und Splitter in
+Spielerfarbe bzw. Weiss fuer den Ball - die blau-weiss-roten Funken) ist samt Wandabtastung
+(`fbWallSD`, `fbWallPath`, `FB_WALL_SEG`) und Renderzweig entfernt. Der KLANG des Abprallers bleibt
+als Spielrueckmeldung. Ballkontakt, Pfosten, Figurenkontakt und Abschuss sind unveraendert.
+RingOut hat keine Bande und war nie betroffen.
+
 ZWEI Bestandsfehler kamen dabei heraus und sind behoben: der Settle in `stepSim` baute die
 Commit-Felder inline mit `:2` Sitzen neu (Team 2v2 verlor die Sitze 2 und 3), und derselbe
 Settle lief auch WAEHREND einer Vorausberechnung und loeschte den bereits abgegebenen Zug des

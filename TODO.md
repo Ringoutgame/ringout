@@ -1,6 +1,12 @@
 # TODO.md — RingOut
 
-**Zuletzt aktualisiert:** 2026-09-23 (**VS BOTS**: Arena Football -> VS BOTS bietet die
+**Zuletzt aktualisiert:** 2026-09-23 (**TACTICAL-4-BALL-ZUGRECHT + BANDENEFFEKT**: der Bot
+schoss im abwechselnden Modell auch im Zug des Menschen - applyCommit rief fbBotZuegeLegen() ohne
+Sitzfilter. Zugrecht jetzt bei der Ausfuehrung geprueft (fbBotZuegeLegen, applyLaunch lokal),
+kein Plan mehr fuer passive Sitze. Der Pruefstand hatte den Filter selbst ergaenzt und den Fehler
+so verdeckt - jetzt faehrt er den echten applyCommit-Weg (Abschnitt 11, ohne Fix rot). Der
+dekorative Bandeneffekt (fbFeelWall, blau-weiss-rote Funken und Wandlicht) ist entfernt, der
+Bandenklang bleibt. Zuvor: **VS BOTS**: Arena Football -> VS BOTS bietet die
 Bot-Fassungen der freigegebenen Onlinemodi an - 1 VS 1 (1 Kugel, gleichzeitig), Tactical 1v1
 (2 Kugeln, gleichzeitig), Tactical 4-Ball (4 Kugeln, ABWECHSELND) und Team 2v2 (4 Sitze, Mensch
 + 1 Bot gegen 2 Bots). Genau EINE Aktion je Sitz und Zug in jedem Modus; mehrfigurige Modi

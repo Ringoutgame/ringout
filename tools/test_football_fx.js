@@ -18,21 +18,18 @@ const ok = (cond, msg) => { cond ? pass++ : (fail++, console.error('FAIL: ' + ms
 console.log('ARENA FOOTBALL - EFFEKTSCHICHT: BESCHRAENKT UND OHNE SPIELZUSTAND\n');
 
 // ── Der Sandkasten: nur die Effektsprache, sonst nichts ──────────────────────
-const fxSrc = grab(/const FX3_MAX=140;[\s\S]*?\nfunction fx3Wall\(x,y,nx,ny,mag,rgb,owner,stark\)\{[\s\S]*?\n\}/, 'Effektsprache');
+// Seit 2026-09-23 endet die Effektsprache mit fx3Glint: das Wandlicht (fx3Wall) und seine
+// Bandenabtastung sind mit dem dekorativen Bandeneffekt entfernt.
+const fxSrc = grab(/const FX3_MAX=140;[\s\S]*?\nfunction fx3Glint\(x,y,mag,rgb,dec\)\{[\s\S]*?\}\);\}/, 'Effektsprache');
 const updSrc = grab(/if\(fx3\.length\)\{for\(const f of fx3\)[^\n]*\n/, 'fx3-Fortschreibung');
-// Die Bandenabtastung liest die ECHTE Signed-Distance. Im Sandkasten steht dafuer eine
-// gerade Wand bei x=500 - geprueft wird hier die Beschraenkung der Effekte, nicht die
-// Arenageometrie (die haben die Football-Suiten).
 const env = new Function(`
   let fx3=[];
   const BR=32;
-  const fbSD={sd:0,nx:1,nz:0};
-  function fbWallSD(x,y){ fbSD.sd=x-500; fbSD.nx=1; fbSD.nz=0; return fbSD; }
   ${fxSrc}
   function tick(){ ${updSrc} }
   return { fx3:()=>fx3, len:()=>fx3.length, tick,
            push:(o)=>fx3Push(o), hit:fx3Hit, shock:fx3Shock, flash:fx3Flash,
-           sparks:fx3Sparks, wall:fx3Wall, glint:fx3Glint, max:FX3_MAX, seg:FB_WALL_SEG,
+           sparks:fx3Sparks, glint:fx3Glint, max:FX3_MAX,
            reset:()=>{fx3=[];} };
 `)();
 
@@ -53,7 +50,6 @@ const env = new Function(`
   for (let frame = 0; frame < 20000; frame++) {           // ~5.5 Minuten bei 60 fps
     if (frame % 7 === 0) env.sparks(0, 0, 1, 0, 0.9, '10,20,30', 7, 1.5);
     if (frame % 11 === 0) { env.flash(0, 0, 1, '10,20,30'); env.shock(0, 0, 1, '10,20,30'); }
-    if (frame % 13 === 0) env.wall(500, 0, 1, 0, 0.9, '10,20,30', 5, true);
     if (frame % 5 === 0) env.hit(0, 0, 0.7);
     env.tick();
     if (env.len() > maxLen) maxLen = env.len();
@@ -68,7 +64,7 @@ const env = new Function(`
 {
   env.reset();
   env.sparks(0, 0, 1, 0, 1, '1,2,3', 8, 1.5); env.flash(0, 0, 1, '1,2,3');
-  env.shock(0, 0, 1, '1,2,3'); env.wall(500, 0, 1, 0, 1, '1,2,3', 5, true); env.hit(0, 0, 1);
+  env.shock(0, 0, 1, '1,2,3'); env.hit(0, 0, 1);
   let n = 0;
   while (env.len() > 0 && n < 600) { env.tick(); n++; }
   ok(env.len() === 0, 'alle Formen verschwinden von selbst');
@@ -77,8 +73,8 @@ const env = new Function(`
 
 // ── 4. Die Effekte fassen keinen Spielzustand an ─────────────────────────────
 {
-  const namen = ['fx3Push', 'fx3Hit', 'fx3Shock', 'fx3Flash', 'fx3Sparks', 'fx3Wall', 'fx3Launch',
-                 'fbFeelBallHit', 'fbFeelWall', 'fbFeelPost', 'fbFeelPlayers', 'fbGlowOwner', 'fbBallAccent'];
+  const namen = ['fx3Push', 'fx3Hit', 'fx3Shock', 'fx3Flash', 'fx3Sparks', 'fx3Launch',
+                 'fbFeelBallHit', 'fbFeelPost', 'fbFeelPlayers', 'fbGlowOwner', 'fbBallAccent'];
   for (const n of namen) {
     const i = HTML.indexOf('function ' + n + '(');
     ok(i >= 0, 'die Effektschicht kennt ' + n);
@@ -167,24 +163,20 @@ const env = new Function(`
      'auch der Abschusseffekt schweigt bei Rehydrierung und Wiedergabe');
 }
 
-// ── 7d. Das Wandlicht liegt auf der SICHTBAREN Bande ────────────────────────
-// footballBoundSD ist um den Kugelradius nach innen versetzt - sie beschreibt, wo ein
-// Mittelpunkt anstossen darf. Das Licht muss dagegen dort liegen, wo die Wand zu sehen
-// ist. Deshalb ein eigener, rein praesentativer Nulradius-Weg ueber DIESELBEN
-// Formfunktionen.
+// ── 7d. Kein dekorativer Bandeneffekt mehr (2026-09-23) ─────────────────────
+// Auf Wunsch des Besitzers entfernt: nach dem Schuss erschienen an der Bande blau-weiss-rote
+// Funken (fbFeelWall: Wandlicht, Blitz, Ring, Glanz und Splitter in Spielerfarbe bzw. Weiss
+// fuer den Ball). Der Klang des Bandenabprallers bleibt - er ist Spielrueckmeldung.
 {
-  ok(/function fbWallSD\(x,y\)\{/.test(HTML), 'es gibt einen Wandweg mit Radius null');
-  const i = HTML.indexOf('function fbWallSD(x,y){');
-  const q = HTML.slice(i, HTML.indexOf(String.fromCharCode(10) + '}', i));
-  ok(/footballPolySD\(x-cx,y-cy,av\.poly,fbCorner\(\)\)/.test(q),
-     'er benutzt dieselbe Polygonform - ohne Radiusabzug');
-  ok(/footballShapeSD\(x-cx,y-cy,fbHalfLen\(\),fbHalfWid\(\),fbCorner\(\)\)/.test(q),
-     'und dieselbe Rechteckform - ohne Radiusabzug');
-  const p = HTML.slice(HTML.indexOf('function fbWallPath('));
-  ok(/fbWallSD\(px,py\)/.test(p.slice(0, 800)),
-     'die Abtastung des Wandpfades geht ueber genau diesen Weg');
-  ok(!/footballBoundSD\(probe\)/.test(p.slice(0, 800)),
-     'und nicht mehr ueber die um den Radius versetzte Spielgrenze');
+  for (const weg of ['function fbFeelWall(', 'function fx3Wall(', 'function fbWallPath(', 'function fbWallSD(', 'FB_WALL_SEG'])
+    ok(HTML.indexOf(weg) < 0, 'entfernt: ' + weg.replace('function ', '').replace('(', ''));
+  ok(HTML.indexOf('fbFeelWall(') < 0, 'kein Aufruf des Bandeneffekts mehr in stepSim');
+  ok(/fbSfxImpact\(Math\.min\(1,fvn\/5\),900\+balls\.indexOf\(fb\),'band'\);\}/.test(HTML),
+     'der Bandenabpraller klingt weiterhin');
+  ok(HTML.indexOf('t:6,') < 0, 'kein Effekt vom Typ Wandlicht wird mehr erzeugt');
+  // Die uebrigen Rueckmeldungen bleiben unberuehrt.
+  for (const bleibt of ['function fbFeelBallHit(', 'function fbFeelPost(', 'function fbFeelPlayers(', 'function fx3Launch('])
+    ok(HTML.indexOf(bleibt) >= 0, 'unveraendert vorhanden: ' + bleibt.replace('function ', '').replace('(', ''));
 }
 
 // ── 9. PASS 02C: Licht statt Glitzer ────────────────────────────────────────
@@ -205,14 +197,6 @@ const env = new Function(`
      'stattdessen ein kurzer Kontaktblitz in den beiden Spielerfarben');
   ok(/fbGlowOwner\(o1,mag\*\.6\); fbGlowOwner\(o2,mag\*\.6\);/.test(spieler),
      'und beide Kugeln hellen kurz auf');
-
-  const wand = koerper('fbFeelWall');
-  ok(zaehl(wand, 'fx3Glint(') === 1, 'an der Bande bleibt genau EIN Glanz - und zwar dem Ball vorbehalten');
-  ok(/if\(st>=3\)\{\n\s*fx3Glint/.test(wand), 'er faellt nur beim haertesten Schlag');
-  ok(zaehl(wand, 'fx3Wall(') === 2, 'Ball und Figur bekommen beide das wandgebundene Licht');
-  const spielerWand = wand.slice(wand.indexOf('}else{'));
-  ok(zaehl(spielerWand, 'fx3Glint(') === 0, 'die Figur an der Bande funkelt nicht');
-  ok(zaehl(spielerWand, 'fx3Sparks(') === 1, 'sie wirft hoechstens zwei farbige Splitter');
 
   const held = koerper('fbFeelBallHit');
   ok(zaehl(held, 'fx3Glint(') === 1, 'der Ballheld bekommt genau EINEN Glanz');
@@ -260,8 +244,8 @@ const env = new Function(`
   // einmalige Deko), sondern dass die EFFEKTSCHICHT selbst keine Szenenobjekte anlegt.
   const auszug = (n) => { const i = HTML.indexOf('function ' + n + '(');
     return i < 0 ? '' : HTML.slice(i, HTML.indexOf(String.fromCharCode(10) + '}', i) + 2); };
-  const fxQuellen = ['fx3Push','fx3Hit','fx3Shock','fx3Flash','fx3Sparks','fx3Wall','fx3Launch',
-                     'fbFeelBallHit','fbFeelWall','fbFeelPost','fbFeelPlayers','drawFx3']
+  const fxQuellen = ['fx3Push','fx3Hit','fx3Shock','fx3Flash','fx3Sparks','fx3Launch',
+                     'fbFeelBallHit','fbFeelPost','fbFeelPlayers','drawFx3']
     .map(auszug).join(' ');
   ok(fxQuellen.length > 0 && !/new THREE\./.test(fxQuellen),
      'die Effektschicht legt kein einziges Three.js-Objekt an');

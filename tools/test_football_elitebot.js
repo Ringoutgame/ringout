@@ -64,6 +64,13 @@ function sandkasten() {
     // daran ist der erste Anlauf gescheitert: der Messstand zaehlte roundNo selbst hoch und
     // liess den Bot planen, waehrend das Spiel denselben Zug wiederholte.
     g(/function applyLaunch\(\)\{[\s\S]*?\n\}/, 'applyLaunch'),
+    // Der ECHTE Commit-Weg des Menschen (applyCommit) - der Zugrechtsfehler lag genau dort:
+    // applyCommit ruft fbBotZuegeLegen() ohne Sitzfilter.
+    g(/function sanitizeMove\(who,idx,dx,dy,sp\)\{[\s\S]*?\n\}/, 'sanitizeMove'),
+    g(/function applyCommit\(who,shooterIdx,fx,fy,spin\)\{[\s\S]*?\n\}/, 'applyCommit'),
+    'function beginReveal(){setPhase("reveal");} function onlineSendCommit(){} function botMove(){return {idx:-1,dx:0,dy:0};}',
+    // Das ECHTE startRound: nach einem Tor oeffnet footballTickGoal die naechste Runde darueber.
+    g(/function startRound\(\)\{[\s\S]*?\n\s*setPhaseText\(\);\}/, 'startRound'),
     g(/const FB_BOT=\{[\s\S]*?\nfunction fbBotZug\(sitz\)\{[\s\S]*?\n\}/, 'Elite-Bot-Planer'),
     // Die VERDRAHTUNG steht bewusst HINTER dem Planer: sie schreibt Commits, der Planer nie.
     g(/function fbBotZuegeLegen\(nurSitz\)\{[\s\S]*?\n\}/, 'Zuege legen'),
@@ -93,6 +100,14 @@ function sandkasten() {
     '  // Fuer den Lastmessstand: sind ALLE Bots dieser Runde fertig, und wie viele',
     '  // Simulationen sind insgesamt gelaufen?',
     '  alleFertig(){ return !!fbBotPlan && fbBotPlan.je.every(e=>!!e.aktion); },',
+    '  // Produktpfad fuer den Zugrechtsnachweis: dieselben Aufrufe wie Pointer-Handler und loop().',
+    '  commitMensch(idx,dx,dy){ applyCommit(0,idx,dx,dy,0); },',
+    '  bildZiel(){ fbBotScheibe(); fbBotAmZugHandeln(); },',
+    '  launch(){ applyLaunch(); }, schritt(){ stepSim(); }, phase(){ return phase; },',
+    '  turn(){ return turnNo; }, planSitze(){ return fbBotPlan&&fbBotPlan.je ? fbBotPlan.je.map(e=>e.sitz) : []; },',
+    '  tempi(){ return balls.map(b=>({o:b.owner,v:Math.hypot(b.vx,b.vy)})); },',
+    '  rematch(){ fbBotMatchNeu(); score=[0,0,0,0]; roundNo=1; placeBalls(); resetCommits(); phase="aim";',
+    '    fbGoalState="play"; fbGoalTick=0; footballWinner=null; fbBotRundeNeu(); },',
     '  simZaehler(){ let n=0; if(fbBotPlan)for(const e of fbBotPlan.je){ if(e.auftrag)n+=e.auftrag.sims;',
     '    else if(e.aktion)n+=e.aktion.sims||0; } return n; },',
     '  rundeNeu(){ return fbBotRundeNeu(); }, marke(){ return fbBotMarke(); },',
@@ -107,9 +122,11 @@ function sandkasten() {
     '    const menschDran=!fbTacAbwechselnd()||fbTacAktivSitz(turnNo,gen)===FB_BOT_MENSCH;',
     '    if(menschDran&&menschZug&&menschZug.idx>=0){ commitIdx[0]=menschZug.idx;',
     '      commitAim[0]={dx:menschZug.dx,dy:menschZug.dy}; commitSpin[0]=0; aimSet[0]=true; }',
-    '    // Und die ECHTE Verdrahtung legt die Bot-Zuege daneben.',
+    '    // Und die ECHTE Verdrahtung legt die Bot-Zuege daneben - aufgerufen OHNE Sitzfilter,',
+    '    // genau wie applyCommit es tut. Frueher filterte der Pruefstand hier selbst nach dem',
+    '    // Sitz am Zug; das Produkt tat es nicht, und der Bot schoss im Zug des Menschen mit.',
     '    const amZug=fbTacAbwechselnd()?fbTacAktivSitz(turnNo,gen):undefined;',
-    '    const gelegt=fbBotZuegeLegen(amZug===FB_BOT_MENSCH?-1:amZug);',
+    '    const gelegt=fbBotZuegeLegen();',
     '    const bz=fbBotEintrag(fbBotSitze()[0]);',
     '    // Beobachtet wird der erste Bot-Sitz: sein GEPLANTER Zug gegen den, der wirklich',
     '    // angewandt wurde. Handelte er diese Runde nicht (abwechselnd, Mensch am Zug), ist',
@@ -517,6 +534,111 @@ abschnitt('10. Die Vertraege der Bot-Modi');
       t(c.name + ': der Sitz am Zug wechselt Runde fuer Runde',
         folge.every((x, i) => x === i % 2), folge);
     }
+  }
+}
+
+// == 11. ZUGRECHT IM ABWECHSELNDEN MODELL (Spieltest-Regression) ====================
+// Gemeldet: in Tactical 4-Ball gegen den Bot schoss der Bot auch im Zug des Menschen.
+// Ursache: applyCommit rief fbBotZuegeLegen() ohne Sitzfilter, und fbBotZuegeLegen pruefte
+// das Zugrecht nicht - der Bot legte einen Commit, und applyLaunch schoss ihn ab. Der alte
+// Pruefstand verdeckte das, weil er selbst nach dem Sitz am Zug filterte.
+// Hier laeuft ALLES ueber den Produktpfad, ohne eigenes Zuggatter:
+//   Zielphase: fbBotScheibe() + fbBotAmZugHandeln() (wie loop), Mensch: applyCommit(),
+//   Reveal: applyLaunch() (wie loop nach REVEAL_MS), Auflosung: stepSim bis zum Settle.
+// Unterschieden wird ein SCHUSS (Impuls DURCH applyLaunch) von passiver Bewegung (spaeter,
+// durch Kollision) - nur der Schuss unterliegt dem Zugrecht.
+abschnitt('11. Zugrecht im abwechselnden Modell (Tactical 4-Ball gegen Bot)');
+{
+  const Z = sandkasten();
+  const mpZ = Z.maxPull();
+  const menschZugZ = () => {
+    const l = Z.lage(), bi = l.findIndex(b => b.owner === Z.NEU);
+    let i = -1, d = 1e9;
+    l.forEach((b, k) => { if (b.alive && b.owner === 0) { const q = Math.hypot(b.x - l[bi].x, b.y - l[bi].y); if (q < d) { d = q; i = k; } } });
+    const w = Math.atan2(l[bi].y - l[i].y, l[bi].x - l[i].x);
+    return { idx: i, dx: Math.cos(w) * mpZ * 0.35, dy: Math.sin(w) * mpZ * 0.35 };
+  };
+  // Ein Zug auf dem Produktpfad. Rueckgabe: wer am Zug war, wer DURCH den Abschuss einen
+  // Impuls bekam, ob ein Plan fuer einen passiven Sitz existierte, und der Zugwechsel.
+  function zug() {
+    const amZug = Z.amZug(), turnVor = Z.turn();
+    const planPassiv = Z.planSitze().filter(x => x !== amZug);
+    let bilder = 0;
+    while (Z.phase() === 'aim' && bilder < 5000) {
+      if (amZug === 0 && bilder === 3) { const m = menschZugZ(); Z.commitMensch(m.idx, m.dx, m.dy); }
+      else Z.bildZiel();
+      bilder++;
+    }
+    if (Z.phase() !== 'reveal') return { amZug, fehler: 'kein Reveal (' + Z.phase() + ')' };
+    const vor = Z.tempi();
+    Z.launch();
+    const nach = Z.tempi();
+    const schuetzen = [...new Set(nach.map((b, i) => (b.o !== Z.NEU && b.v > 1e-9 && vor[i].v < 1e-9) ? b.o : -1).filter(x => x >= 0))];
+    let k = 0;
+    while (Z.phase() === 'sim' && k < 8000) { Z.schritt(); k++; }
+    return { amZug, schuetzen, planPassiv, wechsel: Z.turn() - turnVor, stand: Z.lage && null };
+  }
+
+  Z.saat(20260923); Z.variante('tactical4');
+  t('Tactical 4-Ball gegen Bot ist abwechselnd', Z.abwechselnd() === true);
+  t('der Mensch eroeffnet', Z.amZug() === 0, Z.amZug());
+  const zuege = [];
+  for (let r = 0; r < 8; r++) zuege.push(zug());
+  const menschZuege = zuege.filter(x => x.amZug === 0), botZuege = zuege.filter(x => x.amZug === 1);
+  console.log('    8 Zuege: am Zug ' + zuege.map(x => x.amZug).join('') + '   Schuetzen je Zug '
+    + zuege.map(x => '[' + (x.schuetzen || []).join(',') + ']').join(' '));
+  t('keine Zuege ohne Reveal', zuege.every(x => !x.fehler), zuege.filter(x => x.fehler));
+  t('Mensch und Bot wechseln sich ab (0101...)', zuege.every((x, i) => x.amZug === i % 2), zuege.map(x => x.amZug));
+  // DER FEHLER: im Zug des Menschen darf der Bot NICHT schiessen.
+  t('im Zug des Menschen schiesst der Bot nicht (nur Sitz 0 bekommt einen Impuls)',
+    menschZuege.every(x => x.schuetzen.length === 1 && x.schuetzen[0] === 0), menschZuege.map(x => x.schuetzen));
+  t('im Zug des Bots schiesst nur der Bot', botZuege.every(x => x.schuetzen.length === 1 && x.schuetzen[0] === 1),
+    botZuege.map(x => x.schuetzen));
+  t('genau ein Zugwechsel je Zug', zuege.every(x => x.wechsel === 1), zuege.map(x => x.wechsel));
+  t('fuer einen passiven Sitz existiert nie ein Plan', zuege.every(x => x.planPassiv.length === 0),
+    zuege.map(x => x.planPassiv));
+
+  // Tor und Anstoss: nach einem Tor oeffnet der Torablauf die naechste Runde. Auch dort
+  // genau ein Zugwechsel, und der Plan gehoert allein dem neuen Sitz am Zug.
+  Z.saat(4242); Z.variante('tactical4');
+  Z.setzen([{ owner: 0, x: -12.5, y: 0 }, { owner: Z.NEU, x: -15.5, y: 0 }]);
+  // setzen stellt neu auf und oeffnet eine Runde - der Mensch ist weiterhin am Zug.
+  const vorTor = Z.zustand().score.slice(), turnTor = Z.turn(), amZugTor = Z.amZug();
+  const lt = Z.lage(), iT = lt.findIndex(b => b.alive && b.owner === 0 && Math.abs(b.x + 12.5) < 1e-6);
+  let b2 = 0;
+  while (Z.phase() === 'aim' && b2 < 50) { if (b2 === 2) Z.commitMensch(iT, -mpZ, 0); else Z.bildZiel(); b2++; }
+  Z.launch();
+  let k2 = 0, torGefallen = false;
+  while (k2 < 20000) {
+    Z.schritt(); k2++;
+    const st = Z.zustand();
+    if (st.score[0] !== vorTor[0] || st.score[1] !== vorTor[1]) torGefallen = true;
+    if (torGefallen && st.phase === 'aim' && st.torLage === 'play') break;
+  }
+  const nachTor = Z.zustand();
+  console.log('    Tor: Stand ' + vorTor.join(':') + ' -> ' + nachTor.score.slice(0, 2).join(':')
+    + ', am Zug ' + amZugTor + ' -> ' + Z.amZug() + ', Zugwechsel ' + (Z.turn() - turnTor));
+  t('ein Tor faellt im Pruefzug', torGefallen, nachTor.score);
+  t('nach dem Tor genau ein Zugwechsel', Z.turn() - turnTor === 1, Z.turn() - turnTor);
+  t('nach dem Tor ist der Bot am Zug und nur er hat einen Plan',
+    Z.amZug() === 1 && JSON.stringify(Z.planSitze()) === '[1]', { amZug: Z.amZug(), plan: Z.planSitze() });
+
+  // Rematch: der Mensch eroeffnet wieder, kein Plan aus dem alten Match.
+  Z.rematch();
+  t('nach dem Rematch eroeffnet wieder der Mensch', Z.amZug() === 0, Z.amZug());
+  t('nach dem Rematch gibt es keinen Bot-Plan im Zug des Menschen', Z.planSitze().length === 0, Z.planSitze());
+
+  // Gegenprobe: die gleichzeitigen Modi bleiben gleichzeitig - dort legt der Bot beim Commit
+  // des Menschen seinen Zug daneben, und beide Figuren bekommen den Impuls im selben Abschuss.
+  for (const v of ['classic', 'tactical', 'team2v2']) {
+    Z.saat(777); Z.variante(v);
+    let bb = 0;
+    while (Z.phase() === 'aim' && bb < 5000) { if (bb === 3) { const m = menschZugZ(); Z.commitMensch(m.idx, m.dx, m.dy); } else Z.bildZiel(); bb++; }
+    const vv = Z.tempi(); Z.launch(); const nn = Z.tempi();
+    const sch = [...new Set(nn.map((b, i) => (b.o !== Z.NEU && b.v > 1e-9 && vv[i].v < 1e-9) ? b.o : -1).filter(x => x >= 0))].sort();
+    const erwartet = v === 'team2v2' ? [0, 1, 2, 3] : [0, 1];
+    t(v + ': weiterhin gleichzeitig - alle Sitze schiessen im selben Abschuss',
+      JSON.stringify(sch) === JSON.stringify(erwartet), sch);
   }
 }
 

@@ -6612,7 +6612,13 @@ function fbBotPlanen(){
   const m=fbBotMarke();
   if(fbBotPlan&&fbBotPlan.marke===m)return fbBotPlan;
   const je=[];
-  for(const sitz of fbBotSitze())je.push({sitz:sitz,aktion:null,auftrag:fbBotAuftrag(sitz)});
+  // Abwechselnd: nur der Sitz am Zug bekommt einen Auftrag. Ein Plan fuer einen passiven Sitz
+  // stammte aus einer Lage VOR dem naechsten Zug - veraltet und nie ausfuehrbar.
+  const amZug=(typeof fbTacAbwechselnd==='function'&&fbTacAbwechselnd())?fbTacAktivSitz(turnNo,gen):-1;
+  for(const sitz of fbBotSitze()){
+    if(amZug>=0&&sitz!==amZug)continue;
+    je.push({sitz:sitz,aktion:null,auftrag:fbBotAuftrag(sitz)});
+  }
   fbBotPlan={marke:m,je:je};
   return fbBotPlan;
 }
@@ -6666,9 +6672,14 @@ function fbBotZug(sitz){
 // zu diesem Zeitpunkt laengst; hier wird nichts gerechnet, was die Eingabe sehen koennte.
 function fbBotZuegeLegen(nurSitz){
   if(!fbBotSpielt())return 0;
+  // ZUGRECHT (abwechselnd, Tactical 4-Ball): NUR der Sitz am Zug legt einen Zug. Geprueft
+  // wird es HIER, bei der Ausfuehrung - nicht beim Aufrufer: applyCommit ruft diese Funktion
+  // ohne Sitzfilter, und ohne diese Pruefung schoss der Bot auch im Zug des Menschen.
+  const amZug=(typeof fbTacAbwechselnd==='function'&&fbTacAbwechselnd())?fbTacAktivSitz(turnNo,gen):-1;
   let gelegt=0;
   for(const sitz of fbBotSitze()){
     if(nurSitz!==undefined&&sitz!==nurSitz)continue;
+    if(amZug>=0&&sitz!==amZug)continue;
     if(aimSet[sitz])continue;                       // dieser Sitz hat diese Runde schon gehandelt
     if(typeof aliveCount==='function'&&aliveCount(sitz)<=0)continue;
     const bz=fbBotZug(sitz);
@@ -6897,6 +6908,13 @@ function fbLaunchMul(len){
   return LAUNCH*FB_LAUNCH_SCALE*Math.pow(t,FB_LAUNCH_CURVE-1);
 }
 function applyLaunch(){
+  // ZUGRECHT BEIM ABSCHUSS (lokal, abwechselnd): nur der Sitz am Zug schiesst. Ein Commit
+  // eines anderen Sitzes ist in diesem Modell kein Zug und wird hier verworfen - zweiter
+  // Riegel hinter fbBotZuegeLegen. In allen anderen Modi (und online) greift er nie.
+  if(!online&&typeof fbTacAbwechselnd==='function'&&fbTacAbwechselnd()){
+    const amZug=fbTacAktivSitz(turnNo,gen);
+    for(let p=0;p<commitIdx.length;p++)if(p!==amZug){commitIdx[p]=-1;aimSet[p]=false;}
+  }
   devSync('launch','idx='+commitIdx.join(',')+' aims='+commitAim.map(a=>a.dx.toFixed(2)+'/'+a.dy.toFixed(2)).join(';')+' gone='+seatGone.map(v=>v?1:0).join(''));
   let maxp=0;
   for(let p=0;p<commitIdx.length;p++){const idx=commitIdx[p];if(idx>=0&&balls[idx]&&balls[idx].alive){
@@ -6977,31 +6995,6 @@ function fbFeelBallHit(x,y,dx,dy,mag,owner){
     fx3Sparks(x,y,dx,dy,mag,col,2,0.9);             // zwei gerichtete Splitter, mehr nicht
     fbGlowOwner(owner,1); fbBallAccent(mag);
   }else if(st>=2){ fx3Sparks(x,y,dx,dy,mag*.8,col,1,0.7); fbGlowOwner(owner,mag*.75); }
-}
-// Die Arena antwortet: der neutrale Ball an der Bande ist das Signaturbild dieses Passes.
-function fbFeelWall(x,y,nx,ny,mag,neutral,owner){
-  if(!fbFxOn())return;
-  const st=fbFxTier(mag); if(!st)return;
-  const col=neutral?'255,238,198':fbRgb(owner);
-  if(neutral){
-    // Der schwarze Ball an der Bande: die WAND antwortet - mit Licht, nicht mit
-    // Partikeln. Ein konzentrierter Kern, die Bande leuchtet lokal auf, der Puls laeuft
-    // nach beiden Seiten aus. Hoechstens EIN heller Glanz in der Mitte, ein bis zwei
-    // Splitter. Danach verlischt alles zuegig.
-    fx3Wall(x,y,nx,ny,mag,col,owner,st>=2);
-    fx3Flash(x,y,mag,'255,248,224');
-    if(st>=2)fx3Shock(x,y,mag*.85,col);
-    if(st>=3){
-      fx3Glint(x,y,mag,'255,252,238',.28);          // der eine Glanz, nur beim harten Schlag
-      fx3Sparks(x,y,nx,ny,mag,'255,240,205',2,1.1);
-    }else if(st>=2)fx3Sparks(x,y,nx,ny,mag*.8,col,1,0.9);
-  }else{
-    // Dieselbe Sprache in der SPIELERFARBE - Licht auf der Wand, ein bis zwei farbige
-    // Splitter, kein weisser Funkenschauer.
-    fx3Wall(x,y,nx,ny,mag*.7,col,owner,false);
-    fx3Flash(x,y,mag*.55,col);
-    if(st>=2)fx3Sparks(x,y,nx,ny,mag*.7,col,2,1.0);
-  }
 }
 // Torpfosten: hart, hell, metallisch - beim Ball noch eine Spur mehr.
 function fbFeelPost(x,y,mag,neutral,owner){
@@ -9930,10 +9923,7 @@ function stepSim(){
           // Bande: kurzer, trockener Steinanschlag. Nur beim ECHTEN Rueckprall (fvn>0),
           // nicht bei der reinen Lagekorrektur - sonst raschelte jede anliegende Kugel.
           if((ci===1||it===0)&&typeof fbSfxImpact==='function')
-            fbSfxImpact(Math.min(1,fvn/5),900+balls.indexOf(fb),'band');
-          if((ci===1||it===0)&&typeof fbFeelWall==='function')
-            fbFeelWall(fb.x+fnx*ballRad(fb),fb.y+fny*ballRad(fb),fnx,fny,Math.min(1,fvn/5),
-                       fb.owner===NEU,fb.owner);}
+            fbSfxImpact(Math.min(1,fvn/5),900+balls.indexOf(fb),'band');}
         // Die Bandenkorrektur setzt die Kugel auf die Grenzlinie — die durch den Sockel
         // laeuft. Sie darf sie dabei nicht in den Marmor schieben: einmal nachkorrigieren.
         // Rein geometrische Nachkorrektur: sie meldet nichts (der Bandentreffer hat eben
@@ -16925,50 +16915,6 @@ function fx3Sparks(x,y,dx,dy,mag,rgb,n,spread){
 // dieses Spiels - wenige, klare Lichtpunkte statt vieler Kruemel.
 function fx3Glint(x,y,mag,rgb,dec){fx3Push({t:7,x,y,life:1,dec:dec||.24,mag,rgb,
   rot:Math.random()*1.57});}
-// ── DIE ARENA ANTWORTET (Action-Feel 02B) ────────────────────────────────────────
-// Der Ball trifft die Bande - und die Bande leuchtet GENAU DORT auf, wo er sie getroffen
-// hat. Damit das Licht wirklich auf der Wand liegt und nicht davor schwebt, wird der
-// Verlauf der Bande beim Treffer EINMAL abgetastet: von der Trefferstelle aus in beide
-// Tangentenrichtungen, jeder Schritt zurueck auf die Bandenlinie gezogen. Das Ergebnis
-// ist eine kurze Polylinie, die exakt der Krummung folgt - in jeder Arenaform, ohne eine
-// zweite Geometrie im Code. Gezeichnet wird darauf ein heller Knoten und zwei Auslaeufer,
-// die nach aussen wandern und verloeschen.
-// Die Abtastung liest die bestehende Signed-Distance NUR - sie schreibt nichts und wird
-// ausschliesslich aus der Ausgabeschicht gerufen, nachdem die Physik ihre Werte
-// uebernommen hat.
-const FB_WALL_SEG=6;                      // Stuetzpunkte je Seite
-// Die SICHTBARE Bandenlinie. footballBoundSD taugt dafuer NICHT: sie ist um den Radius
-// der jeweiligen Kugel nach innen versetzt (das ist ihre Aufgabe - sie beschreibt, wo ein
-// Mittelpunkt anstossen darf). Das Licht soll aber dort liegen, wo die Wand zu sehen ist.
-// Deshalb dieselben Formfunktionen mit Radius NULL - kein zweites Geometriemodell, und
-// footballBoundSD selbst bleibt unangetastet.
-function fbWallSD(x,y){
-  const av=fbArena();
-  if(av.poly)return footballPolySD(x-cx,y-cy,av.poly,fbCorner());
-  if(av.tri)return footballTriSD(x-cx,y-cy,av.apothem*BR,fbCorner());
-  return footballShapeSD(x-cx,y-cy,fbHalfLen(),fbHalfWid(),fbCorner());
-}
-function fbWallPath(x,y,nx,ny,owner,spanne){
-  const tx=-ny,ty=nx,pts=[];
-  for(let s=-FB_WALL_SEG;s<=FB_WALL_SEG;s++){
-    const u=s/FB_WALL_SEG;
-    let px=x+tx*spanne*u, py=y+ty*spanne*u;
-    // Zwei Newton-Schritte auf der Signed-Distance genuegen: der Punkt rutscht auf die
-    // Bandenlinie, die Krummung wird dabei mitgenommen.
-    for(let k=0;k<2;k++){
-      const sd=fbWallSD(px,py),d=sd.sd,gx=sd.nx,gy=sd.nz;
-      px-=gx*d;py-=gy*d;
-    }
-    pts.push(px,py);
-  }
-  return pts;
-}
-function fx3Wall(x,y,nx,ny,mag,rgb,owner,stark){
-  const spanne=BR*(stark?5.0:2.6)*(0.55+0.75*mag);
-  let pts=null;
-  try{ pts=fbWallPath(x,y,nx,ny,owner,spanne); }catch(e){ pts=null; }
-  fx3Push({t:6,x,y,nx,ny,life:1,dec:stark?.055:.085,mag,rgb,pts,stark:!!stark});
-}
 // Abschuss (Action-Feel 01): ein kurzer Ring am Koerper plus wenige Staubfaeden ENTGEGEN
 // der Schussrichtung - der Eindruck eines Abstosses, kein Dauerschweif. Intensitaet und
 // Anzahl haengen an der Zugstaerke; nach rund einer Fuenftelsekunde ist nichts mehr da.
@@ -17048,38 +16994,7 @@ function drawFx3(){
       g.addColorStop(0,'rgba(255,255,255,'+(a*.8).toFixed(3)+')');
       g.addColorStop(1,'rgba('+f.rgb+',0)');
       ctx.fillStyle=g;ctx.beginPath();ctx.arc(q.x,q.y,r*.5,0,7);ctx.fill();
-    }else{                             // Bande: das Licht liegt AUF der Wand
-      // Die Polylinie folgt der echten Bandenkrummung (einmal beim Treffer abgetastet).
-      // Der helle Knoten sitzt auf der Trefferstelle, zwei Auslaeufer wandern nach aussen
-      // und verloeschen - die Wand leuchtet nur dort, wo sie getroffen wurde.
-      const a=f.life*f.life*(.55+.45*f.mag)*(f.stark?1:.6);
-      const q0=OP(f.x,f.y,BR*.35);
-      if(f.pts){
-        const n=FB_WALL_SEG,front=k;                       // 0..1: wie weit das Licht lief
-        ctx.lineCap='round';
-        for(const dir of [-1,1]){
-          for(let i=0;i<n;i++){
-            const u0=(i/n),u1=((i+1)/n);
-            // Ein Segment leuchtet, waehrend die Lichtfront darueber hinweggeht.
-            const naeh=1-Math.min(1,Math.abs(front-u0)*2.6);
-            if(naeh<=0.02)continue;
-            const i0=n+dir*i,i1=n+dir*(i+1);
-            const p0=OP(f.pts[i0*2],f.pts[i0*2+1],BR*.35);
-            const p1=OP(f.pts[i1*2],f.pts[i1*2+1],BR*.35);
-            ctx.strokeStyle='rgba('+f.rgb+','+(a*naeh*(1-u0*.65)).toFixed(3)+')';
-            ctx.lineWidth=Math.max(.8,BR*.16*q0.s*naeh*(1-u0*.5));
-            ctx.beginPath();ctx.moveTo(p0.x,p0.y);ctx.lineTo(p1.x,p1.y);ctx.stroke();
-          }
-        }
-        ctx.lineCap='butt';
-      }
-      // Der Knoten: ein heller Kern genau am Aufschlagpunkt.
-      const r=BR*q0.s*(.34+.62*f.mag)*(.4+.6*f.life);
-      const g=ctx.createRadialGradient(q0.x,q0.y,0,q0.x,q0.y,r);
-      g.addColorStop(0,'rgba(255,255,255,'+(a*.95).toFixed(3)+')');
-      g.addColorStop(.45,'rgba('+f.rgb+','+(a*.7).toFixed(3)+')');
-      g.addColorStop(1,'rgba('+f.rgb+',0)');
-      ctx.fillStyle=g;ctx.beginPath();ctx.arc(q0.x,q0.y,r,0,7);ctx.fill();}
+    }
   }
 }
 
