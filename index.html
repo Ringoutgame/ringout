@@ -6996,18 +6996,6 @@ function fbFeelBallHit(x,y,dx,dy,mag,owner){
     fbGlowOwner(owner,1); fbBallAccent(mag);
   }else if(st>=2){ fx3Sparks(x,y,dx,dy,mag*.8,col,1,0.7); fbGlowOwner(owner,mag*.75); }
 }
-// Torpfosten: hart, hell, metallisch - beim Ball noch eine Spur mehr.
-function fbFeelPost(x,y,mag,neutral,owner){
-  if(!fbFxOn())return;
-  const st=fbFxTier(mag); if(!st)return;
-  // Metallisch und kurz: ein scharfer Glanz, ein bis drei Striche - kein Schauer.
-  const m=neutral?mag:mag*.7;
-  const col=neutral?'255,240,205':fbRgb(owner);
-  fx3Flash(x,y,m,'255,250,232');
-  if(neutral)fx3Glint(x,y,m,'255,255,255',.26);     // der Glanz gehoert dem Ball
-  fx3Sparks(x,y,0,0,m,col,neutral?(st>=2?3:2):(st>=2?2:1),6.283);
-  if(st>=2&&neutral)fx3Shock(x,y,m*.7,'255,232,180');
-}
 // Figur gegen Figur: ein kurzer Kontaktfunke in BEIDEN Farben, mehr nicht.
 function fbFeelPlayers(x,y,dx,dy,mag,o1,o2){
   if(!fbFxOn())return;
@@ -7889,7 +7877,6 @@ function footballSweepPost(b,px,py){
   const RX=sx*(vX-(1+e)*vn*nx),RY=sy*(vY-(1+e)*vn*ny);
   b.vx=fbUnfoldX(RX,RY,cs,sn);b.vy=fbUnfoldY(RX,RY,cs,sn);
   if(typeof fbSfxImpact==='function')fbSfxImpact(Math.min(1,-vn/5),700+balls.indexOf(b),'post');
-  if(typeof fbFeelPost==='function')fbFeelPost(b.x,b.y,Math.min(1,-vn/5),true,b.owner);
   return true;
 }
 // ── TORRETTUNGSTASCHE ─────────────────────────────────────────────────────────────
@@ -8026,11 +8013,8 @@ function footballResolvePost(b,emit){
     // Torpfosten: derselbe Steinanschlag wie die Bande, aber mit einem metallischen
     // Oberton - der Pfosten ist das haerteste Hindernis der Arena und soll sich auch so
     // anhoeren. Reine Ausgabe, wie ueberall in dieser Schicht.
-    if(emit){
-      if(typeof fbSfxImpact==='function')fbSfxImpact(Math.min(1,-vn/5),700+balls.indexOf(b),'post');
-      if(typeof fbFeelPost==='function')
-        fbFeelPost(b.x,b.y,Math.min(1,-vn/5),b.owner===FOOTBALL_NEUTRAL_OWNER,b.owner);
-    }
+    if(emit&&typeof fbSfxImpact==='function')
+      fbSfxImpact(Math.min(1,-vn/5),700+balls.indexOf(b),'post');
   }
   return true;
 }

@@ -1,6 +1,8 @@
 # TODO.md — RingOut
 
-**Zuletzt aktualisiert:** 2026-09-23 (**TACTICAL-4-BALL-ZUGRECHT + BANDENEFFEKT**: der Bot
+**Zuletzt aktualisiert:** 2026-09-23 (**TORFUNKEN**: die weissen Funken im Torbereich kamen vom
+dekorativen Pfosteneffekt fbFeelPost (Ball/Figur an Pfosten oder Pfostenfuss) - samt beiden Aufrufen
+entfernt, der Pfostenklang bleibt. Zuvor: **TACTICAL-4-BALL-ZUGRECHT + BANDENEFFEKT**: der Bot
 schoss im abwechselnden Modell auch im Zug des Menschen - applyCommit rief fbBotZuegeLegen() ohne
 Sitzfilter. Zugrecht jetzt bei der Ausfuehrung geprueft (fbBotZuegeLegen, applyLaunch lokal),
 kein Plan mehr fuer passive Sitze. Der Pruefstand hatte den Filter selbst ergaenzt und den Fehler

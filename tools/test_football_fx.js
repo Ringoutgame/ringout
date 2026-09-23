@@ -74,7 +74,7 @@ const env = new Function(`
 // ── 4. Die Effekte fassen keinen Spielzustand an ─────────────────────────────
 {
   const namen = ['fx3Push', 'fx3Hit', 'fx3Shock', 'fx3Flash', 'fx3Sparks', 'fx3Launch',
-                 'fbFeelBallHit', 'fbFeelPost', 'fbFeelPlayers', 'fbGlowOwner', 'fbBallAccent'];
+                 'fbFeelBallHit', 'fbFeelPlayers', 'fbGlowOwner', 'fbBallAccent'];
   for (const n of namen) {
     const i = HTML.indexOf('function ' + n + '(');
     ok(i >= 0, 'die Effektschicht kennt ' + n);
@@ -175,13 +175,13 @@ const env = new Function(`
      'der Bandenabpraller klingt weiterhin');
   ok(HTML.indexOf('t:6,') < 0, 'kein Effekt vom Typ Wandlicht wird mehr erzeugt');
   // Die uebrigen Rueckmeldungen bleiben unberuehrt.
-  for (const bleibt of ['function fbFeelBallHit(', 'function fbFeelPost(', 'function fbFeelPlayers(', 'function fx3Launch('])
+  for (const bleibt of ['function fbFeelBallHit(', 'function fbFeelPlayers(', 'function fx3Launch('])
     ok(HTML.indexOf(bleibt) >= 0, 'unveraendert vorhanden: ' + bleibt.replace('function ', '').replace('(', ''));
 }
 
 // ── 9. PASS 02C: Licht statt Glitzer ────────────────────────────────────────
 // Der weisse Sternglanz ist ab jetzt die Ausnahme: er gehoert dem Ballhelden, dem harten
-// Bandentreffer des Balls und dem Pfosten. Alltagskontakte bekommen ihn nicht mehr.
+// Bandentreffer des Balls. Alltagskontakte bekommen ihn nicht mehr.
 {
   const koerper = (n) => { const i = HTML.indexOf('function ' + n + '(');
     return i < 0 ? '' : HTML.slice(i, HTML.indexOf(String.fromCharCode(10) + '}', i)); };
@@ -204,9 +204,10 @@ const env = new Function(`
   ok(/fbGlowOwner\(owner,1\)/.test(held), 'der Angreifer laedt sich dabei voll auf');
   ok(/fbBallAccent\(mag\)/.test(held), 'und der Ball bekommt seinen Saum');
 
-  const pfosten = koerper('fbFeelPost');
-  ok(/if\(neutral\)fx3Glint/.test(pfosten), 'am Pfosten funkelt nur der Ball');
-  ok(zaehl(pfosten, 'fx3Sparks(') === 1, 'dazu wenige Striche, kein Schauer');
+  // Pfostentreffer: die weissen Funken im Torbereich sind entfernt, der Klang bleibt.
+  ok(HTML.indexOf('fbFeelPost') < 0, 'entfernt: fbFeelPost samt beiden Aufrufen');
+  ok(zaehl(HTML, "fbSfxImpact(Math.min(1,-vn/5),700+balls.indexOf(b),'post')") === 2,
+     'beide Pfostenpfade klingen weiterhin');
 
   const abschuss = koerper('fx3Launch');
   ok(zaehl(abschuss, 'fx3Glint(') === 0, 'der Abschuss funkelt nicht mehr weiss');
@@ -245,7 +246,7 @@ const env = new Function(`
   const auszug = (n) => { const i = HTML.indexOf('function ' + n + '(');
     return i < 0 ? '' : HTML.slice(i, HTML.indexOf(String.fromCharCode(10) + '}', i) + 2); };
   const fxQuellen = ['fx3Push','fx3Hit','fx3Shock','fx3Flash','fx3Sparks','fx3Launch',
-                     'fbFeelBallHit','fbFeelPost','fbFeelPlayers','drawFx3']
+                     'fbFeelBallHit','fbFeelPlayers','drawFx3']
     .map(auszug).join(' ');
   ok(fxQuellen.length > 0 && !/new THREE\./.test(fxQuellen),
      'die Effektschicht legt kein einziges Three.js-Objekt an');
