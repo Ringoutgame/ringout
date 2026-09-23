@@ -1,6 +1,11 @@
 # TODO.md — RingOut
 
-**Zuletzt aktualisiert:** 2026-09-23 (**TORFUNKEN**: die weissen Funken im Torbereich kamen vom
+**Zuletzt aktualisiert:** 2026-09-24 (**PHANTOMKLANG + 2D-BLITZ**: die Bot-Planung spielte Banden- und
+Pfostenanschlaege ihrer Vorausberechnung hoerbar ab - fbSfxImpact schweigt jetzt unter fbVorausAn();
+die Karte TRAINING oeffnete VS BOTS ohne Szenensicherung (2D-Arena vor 3D) - fbTrainOeffnen wartet
+jetzt auf r3dSichern(true). Offen, niedrig: waehrend langen Ladens bleibt nur der kurze Ladehinweis
+(Toast) sichtbar; die RingOut-Online-Rueckkehr nach Neuladen zeigt das Spiel weiterhin vor der Szene
+(nicht reproduziert, Online-Pfad). Zuvor: **TORFUNKEN**: die weissen Funken im Torbereich kamen vom
 dekorativen Pfosteneffekt fbFeelPost (Ball/Figur an Pfosten oder Pfostenfuss) - samt beiden Aufrufen
 entfernt, der Pfostenklang bleibt. Zuvor: **TACTICAL-4-BALL-ZUGRECHT + BANDENEFFEKT**: der Bot
 schoss im abwechselnden Modell auch im Zug des Menschen - applyCommit rief fbBotZuegeLegen() ohne

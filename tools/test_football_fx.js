@@ -235,6 +235,21 @@ const env = new Function(`
   ok(!/new [A-Z]/.test(q), 'und allokiert dabei nichts');
 }
 
+// ── 7e. Die Bot-Vorausberechnung klingt nicht (2026-09-24) ─────────────────
+// Sie faehrt den echten stepSim auf Kopien; deren Banden- und Pfostenkontakte klangen als
+// schnelle Klickserie nach jedem Schuss (im Spieltest: 444 von 467 Klangaufrufen).
+{
+  const quelle = grab(/function fbSfxImpact\(power,key,art\)\{[\s\S]*?\n\}/, 'fbSfxImpact');
+  const gespielt = [];
+  const lauf = (planung, art) => new Function('fbVorausAn', 'mode', 'SFX', quelle + '\nfbSfxImpact(0.8,1,"' + art + '");')(
+    () => planung, 'football',
+    { fbImpact: (p, k, a) => gespielt.push('fb:' + a), hit: () => gespielt.push('hit') });
+  for (const art of ['band', 'post', 'ball', 'player']) lauf(true, art);
+  ok(gespielt.length === 0, 'waehrend der Planung klingt kein Kontakt (' + gespielt.join(',') + ')');
+  for (const art of ['band', 'post', 'ball', 'player']) lauf(false, art);
+  ok(gespielt.join(',') === 'fb:band,fb:post,fb:ball,fb:player', 'im Spiel klingen alle vier Kontaktarten weiter (' + gespielt.join(',') + ')');
+}
+
 // ── 8. Kein zweites Kamerasystem, kein Postprocessing ───────────────────────
 {
   ok((HTML.match(/function fbCamKick\(/g) || []).length === 1, 'es gibt genau EINEN Kameraimpuls');

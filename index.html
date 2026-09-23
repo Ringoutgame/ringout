@@ -2525,7 +2525,12 @@ function fbHubOeffnen(key){
 function fbDuelOeffnen(){ $('fbDuelOv').classList.add('show'); }
 function fbDuelSchliessen(){ $('fbDuelOv').classList.remove('show'); }
 // TRAINING: dieselbe Bauweise. Die Ebene setzt nichts - erst der gewaehlte Eintrag startet.
-function fbTrainOeffnen(){ $('fbTrainOv').classList.add('show'); }
+// Die Karte TRAINING fuehrt direkt hierher, am CTA vorbei - die Szene wird deshalb HIER
+// gesichert, wie auf jedem anderen Hub-Weg. Sonst startete das Match auf der 2D-Arena.
+async function fbTrainOeffnen(){
+  if(!(await r3dSichern(true))){toast(T('fbNo3d'));return;}
+  $('fbTrainOv').classList.add('show');
+}
 function fbTrainSchliessen(){ $('fbTrainOv').classList.remove('show'); }
 function selectFbMode(i){
   applyFbMode(i);
@@ -3058,7 +3063,7 @@ FB_HUB_DUEL.forEach((d)=>{const el=$(d.btn);if(el)el.onclick=()=>{fbDuelSchliess
 $('fbDuelBack').onclick=fbDuelSchliessen;
 // VS BOTS: jeder Eintrag startet SEINEN Modus lokal gegen die Bots - derselbe
 // startFootball wie ueberall, nur mit dem dritten Argument. Die 3D-Szene ist an dieser
-// Stelle bereits gesichert (der CTA fordert sie an, bevor er die Ebene oeffnet).
+// Stelle bereits gesichert (fbTrainOeffnen fordert sie an, bevor es die Ebene oeffnet).
 for(const d of FB_HUB_TRAINING){
   const bt=$(d.btn); if(!bt)continue;
   bt.onclick=()=>{fbTrainSchliessen();if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);
@@ -6956,6 +6961,9 @@ function fbSfxLaunch(pwr){
 }
 // art: 'player' | 'ball' | 'band' | 'post' - die Eskalation der Rueckmeldung.
 function fbSfxImpact(power,key,art){
+  // Die Vorausberechnung des Bots faehrt den echten stepSim auf Kopien - deren Banden- und
+  // Pfostenkontakte gibt es im Spiel nicht und sie duerfen nicht klingen.
+  if(typeof fbVorausAn==='function'&&fbVorausAn())return;
   if(mode==='football'&&SFX&&typeof SFX.fbImpact==='function')SFX.fbImpact(power,key,art);
   else SFX.hit(power,key);
 }

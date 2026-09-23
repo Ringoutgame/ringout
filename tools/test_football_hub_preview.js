@@ -327,5 +327,27 @@ abschnitt('6. Spielumschalter: Arena Football zuerst und voreingestellt, Ring Ou
   t('auch der Beitritt entscheidet aus der Raumkonfiguration', /if\(joinFb\)\{ mode='football'; fbVariant=fbVarianteFuerModus\(v\.mode\); \} else mode='ffa';/.test(HTML));
 }
 
-console.log(`\nFootball-Hub-Vorschau: ${pass} passed, ${fail} failed`);
-process.exit(fail ? 1 : 0);
+// ══ 3. TRAINING wartet auf die Szene ═══════════════════════════════════════════════════
+// Die Karte TRAINING fuehrt am CTA vorbei direkt zu VS BOTS. Oeffnete die Ebene vor der
+// Szene, startete das Match auf der alten 2D-Arena (Spieltest 2026-09-24).
+abschnitt('3. TRAINING oeffnet VS BOTS erst mit stehender 3D-Szene');
+(async () => {
+  const quelle = g(/async function fbTrainOeffnen\(\)\{[\s\S]*?\n\}/, 'fbTrainOeffnen');
+  const lauf = (ergebnis) => {
+    const s = { offen: false, toast: '', los: null };
+    const oeffnen = new Function('r3dSichern', '$', 'toast', 'T', quelle + '\nreturn fbTrainOeffnen;')(
+      (pflicht) => { s.pflicht = pflicht; return new Promise(r => { s.los = () => r(ergebnis); }); },
+      () => ({ classList: { add: () => { s.offen = true; } } }),
+      (m) => { s.toast = m; }, (k) => k);
+    return { s, p: oeffnen() };
+  };
+  const a = lauf(true);
+  t('die Szene wird als Pflicht angefordert', a.s.pflicht === true);
+  t('solange sie laedt, bleibt die Ebene zu', a.s.offen === false);
+  a.s.los(); await a.p;
+  t('steht sie, oeffnet VS BOTS', a.s.offen === true);
+  const b = lauf(false); b.s.los(); await b.p;
+  t('scheitert sie, bleibt die Ebene zu und der Fehler wird gemeldet', b.s.offen === false && b.s.toast === 'fbNo3d');
+  console.log(`\nFootball-Hub-Vorschau: ${pass} passed, ${fail} failed`);
+  process.exit(fail ? 1 : 0);
+})();
