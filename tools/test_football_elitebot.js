@@ -46,7 +46,8 @@ function sandkasten() {
     "function spawn(){} function popBall(){} function winnerRGB(){return '';} function fx3Hit(){} function fx3Dust(){}",
     'function setPhase(p){phase=p;} function updateHud(){} function setPhaseText(){} function onlineArmTurn(){} function openCover(){} function cancelAimDrag(){}',
     'function aliveCount(o){let n=0;for(const b of balls)if(b.alive&&b.owner===o)n++;return n;} function gameOver(){phase="over";}',
-    'function devSync(){} function simTickReset(){}',
+    'function devSync(){} function simTickReset(){} function fbFeelLaunch(){} function fbSfxLaunch(){} function fx3Launch(){}',
+    'let seatGone=[false,false];',
     g(/function mkBall\([^\n]*/, 'mkBall'),
     g(/function teamCap\([^\n]*/, 'teamCap'),
     g(/function placeBalls\(\)\{[\s\S]*?\n\}/, 'placeBalls'),
@@ -59,6 +60,10 @@ function sandkasten() {
     g(/let fbVorausTiefe=0;[\s\S]*?function fbVorausAn\(\)\{return fbVorausTiefe>0;\}/, 'Planungsschalter'),
     g(/function stepSim\(\)\{[\s\S]*?\n\}/, 'stepSim'),
     g(/const FB_LAUNCH_SCALE=[\s\S]*?\nfunction fbLaunchMul\(len\)\{[\s\S]*?\n\}/, 'fbLaunchMul'),
+    // Der ECHTE Ausfuehrungspfad. Ohne ihn prueft die Suite nur ihr eigenes Modell - genau
+    // daran ist der erste Anlauf gescheitert: der Messstand zaehlte roundNo selbst hoch und
+    // liess den Bot planen, waehrend das Spiel denselben Zug wiederholte.
+    g(/function applyLaunch\(\)\{[\s\S]*?\n\}/, 'applyLaunch'),
     g(/const FB_BOT=\{[\s\S]*?\nfunction fbBotZug\(\)\{[\s\S]*?\n\}/, 'Elite-Bot-Planer'),
     'fbVariant="classic"; fbElimStartN=0; fbElimReset(); fbBotModus=true;',
     'return {',
@@ -69,6 +74,29 @@ function sandkasten() {
     '  suche(wer){ return fbBotSuche(wer); },',
     '  auftrag(wer){ return fbBotAuftrag(wer); }, arbeiten(a,b){ return fbBotArbeiten(a,b); },',
     '  planen(){ return fbBotPlanen(); }, scheibe(){ return fbBotScheibe(); }, fertig(){ return fbBotFertig(); },',
+    '  rundeNeu(){ return fbBotRundeNeu(); }, marke(){ return fbBotMarke(); },',
+    '  // EINE Runde auf dem PRODUKTPFAD: Rundenbeginn, Zug des Bots wie in applyCommit,',
+    '  // applyLaunch, dann stepSim bis zur Ruhe. Gemeldet wird, was geplant und was',
+    '  // tatsaechlich ausgefuehrt wurde, sowie die dichteste Annaeherung an den Ball.',
+    '  produktRunde(menschZug){',
+    '    fbBotRundeNeu();',
+    '    const marke=fbBotMarke(), bz=fbBotZug();',
+    '    commitIdx[0]=menschZug.idx; commitAim[0]={dx:menschZug.dx,dy:menschZug.dy}; commitSpin[0]=0; aimSet[0]=true;',
+    '    commitIdx[1]=bz.idx; commitAim[1]={dx:bz.dx,dy:bz.dy}; commitSpin[1]=bz.sp||0; aimSet[1]=true;',
+    '    applyLaunch();',
+    '    const m0=fbLaunchMul(Math.hypot(bz.dx,bz.dy));',
+    '    const delta=Math.hypot(balls[bz.idx].vx-bz.dx*m0, balls[bz.idx].vy-bz.dy*m0);',
+    '    const vor=[score[0],score[1]]; let k=0, tor=-1, naehe=1e9;',
+    '    const ball=balls.find(b=>b.owner===FOOTBALL_NEUTRAL_OWNER), bot=balls[bz.idx];',
+    '    for(;k<1500;k++){ stepSim();',
+    '      naehe=Math.min(naehe,Math.hypot(bot.x-ball.x,bot.y-ball.y)/BR);',
+    '      if(score[0]!==vor[0]){tor=0;break;} if(score[1]!==vor[1]){tor=1;break;}',
+    '      let bewegt=false; for(const b of balls){if(b.alive&&Math.hypot(b.vx,b.vy)>curST()){bewegt=true;break;}}',
+    '      if(!bewegt)break; }',
+    '    if(tor>=0){ fbGoalState="play"; fbGoalTick=0; placeBalls(); }',
+    '    phase="aim";',
+    '    return { marke:marke, zug:bz.dx.toFixed(4)+"/"+bz.dy.toFixed(4), delta:delta,',
+    '             kontakt:naehe, tor:tor, rueckfall:!!bz.rueckfall }; },',
     '  planStatus(){ return fbBotPlan?{marke:fbBotPlan.marke,hatAktion:!!fbBotPlan.aktion,hatAuftrag:!!fbBotPlan.auftrag}:null; },',
     '  vergessen(){ fbBotVergessen(); }, modus(v){ fbBotModus=!!v; }, spielt(){ return fbBotSpielt(); },',
     '  planAn(){ return fbVorausAn(); }, planTor(){ return fbVorausTor; },',
@@ -107,7 +135,19 @@ const simQuelle = grab(HTML, /function fbBotSim\([\s\S]*?\n\}/, 'fbBotSim');
 t('fbBotSim zaehlt die Planungstiefe hoch und stellt sie im finally zurueck',
   /fbVorausTiefe\+\+/.test(simQuelle) && /fbVorausTiefe--/.test(simQuelle) && /finally/.test(simQuelle));
 t('startFootball nimmt den Bot-Schalter entgegen', /function startFootball\(variant,rules,gegenBot\)\{/.test(HTML));
-t('Rundenbeginn legt den Auftrag an (Settle)', /if\(!fbVorausAn\(\)&&typeof fbBotPlanen==='function'\)fbBotPlanen\(\);/.test(HTML));
+t('Rundenbeginn zaehlt die Runde und legt den Auftrag an (Settle)',
+  /if\(!fbVorausAn\(\)&&typeof fbBotRundeNeu==='function'\)fbBotRundeNeu\(\);/.test(HTML));
+// DER FEHLER AUS DEM SPIELTEST: Football zaehlt roundNo nicht hoch (roundNo++ steht nur an
+// den RingOut-Rundenenden). Ohne einen EIGENEN Rundenzaehler trug jede torlose Runde dieselbe
+// Marke, der Plan der ersten Runde galt weiter, und der Bot spielte denselben Zug aus einer
+// laengst anderen Lage. Diese drei Pins halten die Konstruktion fest.
+t('roundNo wird im Produkt nur an den RingOut-Rundenenden hochgezaehlt',
+  (HTML.match(/roundNo\+\+/g) || []).length === 2);
+t('der Bot fuehrt einen eigenen Rundenzaehler', /^let fbBotRunde=0;$/m.test(HTML));
+t('die Marke enthaelt den eigenen Rundenzaehler',
+  /function fbBotMarke\(\)\{return \(fbBotRunde\|0\)\+'@'/.test(HTML));
+t('beide Rundenoeffner gehen durch denselben Einstieg',
+  (HTML.match(/fbBotRundeNeu\(\);/g) || []).length === 2);
 t('Bild treibt die Planung scheibenweise', /if\(typeof fbBotScheibe==='function'\)fbBotScheibe\(\);/.test(HTML));
 t('Commit holt den fertigen Zug', /fbBotSpielt\(\)&&who===0\)\{\n\s+const bz=fbBotZug\(\);/.test(HTML));
 // Gegen den Bot sitzt nur EIN Mensch am Geraet - ein Uebergabeschirm waere sinnlos. Der Grund
@@ -279,6 +319,61 @@ t('an der Bande wird der Ball Richtung Gegnertor bewegt', D.erste.nachBall.x < D
 F.saat(5150); F.neuesMatch();
 const erst = F.suche(1);
 t('aus der Eroeffnung wird deutlich Kraft eingesetzt', Math.hypot(erst.dx, erst.dy) > mp * 0.3, Math.hypot(erst.dx, erst.dy) / mp);
+
+// == 9. DER SPIELTEST-FEHLER: mehrere Runden auf dem Produktpfad ==================
+// Der Besitzer meldete einen Bot, der den Ball oft verfehlt und unkontrolliert wirkt.
+// Ursache: Football zaehlt roundNo nicht hoch, die Planmarke blieb zwischen TORLOSEN Runden
+// gleich, und der Plan der ersten Runde galt weiter. Der alte Messstand hat das verdeckt,
+// weil er roundNo selbst hochzaehlte. Dieser Abschnitt faehrt deshalb den ECHTEN Weg:
+// Rundenbeginn -> fbBotZug -> applyLaunch -> stepSim, ueber mehrere torlose Runden.
+abschnitt('9. Mehrere Runden auf dem Produktpfad (Spieltest-Regression)');
+{
+  const B = sandkasten();
+  const mpB = B.maxPull();
+  // Ein sanfter Mensch: er trifft den Ball, schiesst aber kein Tor - so bleibt der Stand
+  // stehen, und nur ein eigener Rundenzaehler kann die Runden noch unterscheiden.
+  const sanft = () => {
+    const l = B.lage(), i = l.findIndex(b => b.alive && b.owner === 0), bi = l.findIndex(b => b.owner === B.NEU);
+    const w = Math.atan2(l[bi].y - l[i].y, l[bi].x - l[i].x);
+    return { idx: i, dx: Math.cos(w) * mpB * 0.55, dy: Math.sin(w) * mpB * 0.55 };
+  };
+  B.saat(4711); B.neuesMatch();
+  const marken = new Set(), zuege = new Set();
+  let maxDelta = 0, rueckfaelle = 0, kontakte = 0, torlos = 0, n = 0;
+  for (let r = 0; r < 6; r++) {
+    const e = B.produktRunde(sanft());
+    n++;
+    marken.add(e.marke); zuege.add(e.zug);
+    maxDelta = Math.max(maxDelta, e.delta);
+    if (e.rueckfall) rueckfaelle++;
+    if (e.kontakt <= 1.85) kontakte++;      // Figur 1 BR + Football 25/32 BR = 1.781 BR
+    if (e.tor < 0) torlos++;
+  }
+  console.log('    ' + n + ' Runden: ' + marken.size + ' verschiedene Marken, ' + zuege.size
+    + ' verschiedene Zuege, ' + kontakte + ' mit Ballkontakt, ' + torlos + ' torlos');
+  t('jede Runde traegt eine eigene Marke', marken.size === n, [marken.size, n]);
+  t('der Bot spielt nicht in jeder Runde denselben Zug', zuege.size > 1, zuege.size);
+  t('die Runden blieben torlos - nur der eigene Zaehler unterscheidet sie', torlos === n, torlos);
+  t('kein Rueckfallzug', rueckfaelle === 0, rueckfaelle);
+  // Plan gegen Ausfuehrung: applyLaunch muss GENAU den geplanten Impuls setzen.
+  t('der ausgefuehrte Impuls entspricht dem geplanten (Delta 0)', maxDelta < 1e-9, maxDelta);
+  // BEWUSST keine Pflicht zum Ballkontakt in JEDER Runde: die Bewertung darf eine
+  // Repositionierung hoeher bewerten als eine Beruehrung (gemessen: bester Zug 375,6 ohne
+  // Kontakt gegen 374,5 mit Kontakt). Gefordert ist, dass der Bot den Ball ueberwiegend
+  // spielt - Dauerflucht vom Ball waere der gemeldete Fehler.
+  t('der Bot spielt den Ball in der Mehrheit der Runden', kontakte >= Math.ceil(n * 0.6), [kontakte, n]);
+
+  // Erreichbarer Ball: der Bot steht frei davor und muss ihn spielen.
+  B.saat(909); B.setzen([{ owner: 1, x: 6, y: 0 }, { owner: 0, x: 14, y: 9 }, { owner: B.NEU, x: 1, y: 0 }]);
+  const e1 = B.produktRunde({ idx: -1, dx: 0, dy: 0 });
+  t('erreichbarer Ball wird gespielt (Annaeherung ' + e1.kontakt.toFixed(2) + ' BR)', e1.kontakt <= 1.85, e1.kontakt);
+
+  // Vier aufeinanderfolgende Runden muessen vier Marken tragen.
+  B.saat(5150); B.neuesMatch();
+  const folge = [];
+  for (let r = 0; r < 4; r++) folge.push(B.produktRunde(sanft()).marke);
+  t('vier aufeinanderfolgende Runden, vier Marken', new Set(folge).size === 4, folge);
+}
 
 console.log(`\nFootball-EliteBot: ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

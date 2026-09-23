@@ -5406,9 +5406,8 @@ function startRound(){placeBalls();resetCommits();roundWinner=-1;
   // Zeitregel: kein Uebergabeschirm - alle entscheiden im selben Fenster (s. fbOffen).
   else if(mode==='pvp'||mode==='ffa'||mode==='football'){curAimer=(typeof fbElimFirstAimer==='function')?fbElimFirstAimer():0;
     if(!(typeof fbOhneUebergabe==='function'&&fbOhneUebergabe()))openCover(curAimer);}else curAimer=0;
-  // ELITE BOT: der Zug dieser Runde wird JETZT festgeschrieben - aus dem oeffentlichen
-  // Zustand und der Saat, waehrend der Mensch noch zielt. Beim Commit wird er nur abgerufen.
-  if(typeof fbBotPlanen==='function')fbBotPlanen();
+  // ELITE BOT: Matchbeginn und Anstoss nach einem Tor sind ebenfalls Rundenoeffner.
+  if(typeof fbBotRundeNeu==='function')fbBotRundeNeu();
   if(typeof barrierRoundReset==='function')barrierRoundReset();   // neue Runde: Vorwahl und Zugbindung fallen, der Bestand bleibt
   setPhaseText();}
 
@@ -6267,6 +6266,11 @@ let fbBotModus=false;      // laeuft gerade eine Partie gegen den Elite Bot?
 let fbBotPlan=null;        // {marke, aktion, auftrag} - je Runde genau einmal gerechnet
 let fbBotSaat=1;           // Saat der Auswahl; je Match neu gesetzt
 let fbBotMess=[];          // Planungsdauern (ms) dieser Sitzung - nur Messung
+// Football zaehlt roundNo NICHT hoch: eine Runde endet im Settle von stepSim, und der
+// Rundenzaehler des Spiels waechst nur an den RingOut-Rundenenden. Der Bot fuehrt seinen EIGENEN
+// Rundenzaehler - ohne ihn traegt jede torlose Runde dieselbe Marke, der Plan der ersten
+// Runde gilt weiter, und der Bot spielt denselben Zug aus einer laengst anderen Lage.
+let fbBotRunde=0;
 // Spielt hier gerade der Elite Bot? Lokal, Arena Football, Classic - sonst nie.
 function fbBotSpielt(){return !!fbBotModus&&mode==='football'&&!online&&fbVariant==='classic';}
 // Gesaeter Zufall: gleiche Saat -> gleiche Folge. Kein Math.random im Entscheidungsweg.
@@ -6394,7 +6398,10 @@ function fbBotAuftrag(wer){
   const kand=fbBotKandidaten(basis,ichIdx,ballIdx);
   if(!kand.length)return null;
   const auf={sicht:sicht,basis:basis,ballIdx:ballIdx,
-    zuf:fbBotZufall(fbBotSaat+sicht.runde*7919+sicht.stand[0]*131+sicht.stand[1]*17+sicht.ich*104729),
+    // Die Saat muss sich je RUNDE aendern, sonst faellt unter annaehernd gleich starken
+    // Zuegen immer dieselbe Wahl. sicht.runde ist roundNo - das Football nie hochzaehlt;
+    // massgeblich ist deshalb der eigene Rundenzaehler.
+    zuf:fbBotZufall(fbBotSaat+fbBotRunde*7919+sicht.runde*104729+sicht.stand[0]*131+sicht.stand[1]*17+sicht.ich*7907),
     kand:kand,phase:'grob',i:0,g:0,grob:[],fein:null,eng:null,gegner:null,
     sims:0,rechenzeit:0,fertig:false,ergebnis:null};
   auf.lauf=(botZug,menschZug,schritte)=>{
@@ -6459,12 +6466,15 @@ function fbBotSuche(wer){
 }
 // LEBENSLAUF. Die Marke bindet die Planung an Runde und Stand: nach Tor, Reset, Rematch
 // oder Modusende passt sie nicht mehr, und ein alter Plan wird nie angewandt.
-function fbBotMarke(){return (roundNo|0)+'|'+(score[0]|0)+':'+(score[1]|0)+'|'+(fbBotSaat|0);}
+function fbBotMarke(){return (fbBotRunde|0)+'@'+(roundNo|0)+'|'+(score[0]|0)+':'+(score[1]|0)+'|'+(fbBotSaat|0);}
 function fbBotVergessen(){fbBotPlan=null;}
 // Eine frische Saat je Match. Sie steuert NUR die Auswahl unter annaehernd gleich starken
 // Zuegen - Staerke und Legalitaet haengen nicht an ihr.
 function fbBotNeueSaat(){fbBotSaat=((Date.now()^Math.floor(Math.random()*0x7fffffff))>>>0)||1;}
-// Rundenbeginn: den Auftrag anlegen. Hier wird NICHT gerechnet - das Bild bleibt frei.
+// Rundenbeginn: eine neue Runde zaehlen und den Auftrag anlegen. Beide Rundenoeffner gehen
+// hier durch - der Settle von stepSim (Runde zu Runde) und startRound (Matchbeginn, Anstoss).
+function fbBotRundeNeu(){ fbBotRunde=(fbBotRunde+1)|0; return fbBotPlanen(); }
+// Den Auftrag anlegen. Hier wird NICHT gerechnet - das Bild bleibt frei.
 function fbBotPlanen(){
   if(!fbBotSpielt())return null;
   const m=fbBotMarke();
@@ -9797,9 +9807,10 @@ function stepSim(){
     // wird gewertet — vor der Freigabe der Eingabe, damit nie eine Runde mit abgelaufener
     // Phase beginnt. Dieselbe Stelle und dieselbe Begruendung wie bei der Matchuhr.
     if(typeof fbFfaResolve==='function'&&fbFfaResolve(false))return;
-    // ELITE BOT: die naechste Runde ist offen - der Zug wird JETZT festgeschrieben, waehrend
-    // der Mensch noch zielt. Niemals waehrend einer Planung (sonst plante die Planung sich selbst).
-    if(!fbVorausAn()&&typeof fbBotPlanen==='function')fbBotPlanen();
+    // ELITE BOT: die naechste Runde ist offen - sie wird gezaehlt und der Zug JETZT
+    // festgeschrieben, waehrend der Mensch noch zielt. Niemals waehrend einer Planung
+    // (sonst plante die Planung sich selbst).
+    if(!fbVorausAn()&&typeof fbBotRundeNeu==='function')fbBotRundeNeu();
     setPhase('aim');updateHud();setPhaseText();
     // V9 (ruhend): DAS ist der Settlement-Punkt. Die Physik ist ausgelaufen, Tore,
     // Leben, Eliminationen und faellige Austritte sind angewandt, und die Eingabe waere

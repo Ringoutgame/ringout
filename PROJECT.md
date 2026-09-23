@@ -1800,6 +1800,15 @@ sondern den Software-Renderer - jedes einzelne Bild kostet dort ein Vielfaches d
 Eine Aussage ueber Bildblockade durch den Bot ist daraus NICHT ableitbar; dafuer taugt allein die
 Scheibenmessung.
 
+**Rundenidentitaet (Fehler aus dem ersten Spieltest, 2026-09-23).** `roundNo` waechst im Produkt NUR an
+den beiden RingOut-Rundenenden; eine Football-Runde endet im Settle von `stepSim` und zaehlt nicht hoch.
+Eine Planmarke aus `roundNo|Stand|Saat` war deshalb zwischen zwei TORLOSEN Runden identisch, und der Plan
+der ersten Runde galt weiter - der Bot feuerte denselben Schuss aus einer laengst anderen Lage. Der Bot
+fuehrt darum einen EIGENEN Zaehler `fbBotRunde`, der in die Marke UND in die Saat des Planers eingeht;
+beide Rundenoeffner (Settle und `startRound`) gehen durch den einen Einstieg `fbBotRundeNeu()`. Wer hier
+etwas aendert, muss `tools/test_football_elitebot.js` Abschnitt 9 beachten - er faehrt mehrere torlose
+Runden ueber den ECHTEN Ausfuehrungspfad (`applyLaunch`) und schlaegt ohne die Rundenidentitaet an.
+
 **Lebenslauf.** `fbBotModus` wird ausschliesslich im Matchstart gesetzt und im Menue geloescht. Ein
 Rematch laeuft ueber `newGame()` und traegt danach wieder die Marke „Runde 1, Stand 0:0" — dort wird
 der Plan deshalb ausdruecklich vergessen und eine neue Saat gezogen (`fbBotNeueSaat()`, dieselbe
@@ -1816,7 +1825,10 @@ gesperrt (entfernter Tactical-Dual-Prototyp, von einer Suite bewacht).
 **Messung** (`artifacts/elitebot-01/bank.js`, echte Physik, echter Planer, Node v24.18.0): Planung
 p50 79,1 ms · p95 106,6 ms · max 106,6 ms. 30 Spiele je Gegner, erster bis 3, Rundenkappe 60,
 ausgeglichene Seiten, offene Matches zaehlen fuer den Fuehrenden bzw. als Unentschieden: Zufall 30-0
-(90:0), naiv direkt am Ball 29-1 (88:18), Heuristik 29-1 (89:14), Selbstspiel Blau 16 / Rot 14.
+(90:1), naiv direkt am Ball 25-5 (81:33), Heuristik 29-1 (88:17), Selbstspiel Blau 16 / Rot 14.
+Diese Zahlen sind auf dem PRODUKTPFAD gemessen (Rundenbeginn ueber `fbBotRundeNeu()`, `roundNo`
+unberuehrt). Aeltere Werte (29-1 gegen naiv) stammen von einem Messstand, der `roundNo` selbst
+hochzaehlte - ein Rundenmodell, das es im Spiel nicht gibt; sie sind hinfaellig.
 
 **Selbstspiel ist keine Staerkemessung.** Zwei identische deterministische Planer aus derselben
 Aufstellung spielen EIN Spiel, N-mal wiederholt (die Saat wird nur bei nahezu gleichwertigen Zuegen
