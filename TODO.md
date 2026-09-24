@@ -1,11 +1,13 @@
 # TODO.md — RingOut
 
-**Zuletzt aktualisiert:** 2026-09-24 (**RINGOUT ONLINE FEATURE PARITY**: Two-Stage-Collapse und
+**Zuletzt aktualisiert:** 2026-09-25 (**RINGOUT ONLINE FEATURE PARITY IST LIVE**: Rules deployt,
+Pages-Deploy a936b51e, Zwei-Client-Produktionsnachweis 54/0, Football-Regression gruen, alle
+Testraeume entfernt. Zuvor: Two-Stage-Collapse und
 Rescue Wall laufen jetzt online. Jeder neue RingOut-Raum ist Fassung 13; der Collapse wird ueber drei
 write-once-Zahlen im Zugknoten autoritativ (ca/cc/cs), die Wand ueber den sitzgebundenen Slot
 rw/<turn>/<seat>, eine spaet eintreffende Wand wird vom Abschuss an nachgerechnet, und der Zug endet
 erst, wenn jeder Sitz gesprochen hat. Offen: die Firebase Rules sind LOKAL geaendert und noch NICHT
-deployt - ohne Deploy lehnt die Live-Datenbank jeden 13er-Raum ab (P0 vor dem Release). Zuvor:
+deployt - ERLEDIGT: am 2026-09-25 deployt und live nachgewiesen. Zuvor:
 **PHANTOMKLANG + 2D-BLITZ**: die Bot-Planung spielte Banden- und
 Pfostenanschlaege ihrer Vorausberechnung hoerbar ab - fbSfxImpact schweigt jetzt unter fbVorausAn();
 die Karte TRAINING oeffnete VS BOTS ohne Szenensicherung (2D-Arena vor 3D) - fbTrainOeffnen wartet
