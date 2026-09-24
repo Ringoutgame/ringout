@@ -27,7 +27,7 @@ abschnitt('1. Register, Raumfassung und Variante - drei Modi, drei Vertraege');
 {
   const M = new Function([
     'const ONLINE_PROTOCOL_VERSION=11; const DEV_MENU=false;',
-    g(/const ROOM_GAME_RINGOUT=[^\n]*RINGOUT_SKIP_FASSUNG=\d+;/, 'ROOM_GAME + RINGOUT_SKIP_FASSUNG'),
+    g(/const ROOM_GAME_RINGOUT=[^\n]*RINGOUT_PARITY_FASSUNG=\d+;/, 'ROOM_GAME + RingOut-Fassungen'),
     g(/const FOOTBALL_VARIANT_TACTICAL='[^']*';/, 'V_TACTICAL'),
     g(/const FOOTBALL_VARIANT_TEAM2='[^']*';/, 'V_TEAM2'),
     g(/const FOOTBALL_VARIANT_ELIM='[^']*';/, 'V_ELIM'),

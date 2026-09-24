@@ -670,8 +670,13 @@ const R = new Function(`
   // Seit PLAYER LOOP 01A kommt pt dazu: die unveraenderliche Teilnehmerliste einer
   // Generation. Sie haengt an `v === 11` und ist fuer jeden v8-Raum unerreichbar -
   // die Aussage bleibt dieselbe, die Liste wird um genau einen Eintrag laenger.
-  ok(Object.keys(rooms.g.$gen).sort().join(',') === 'c,d,e,pt,q,r,ro,s,t,x,z',
-     'eine Generation traegt Zughistorie, Eviction, die v9-Grundlage und die v11-Besetzung');
+  // Seit RINGOUT ONLINE FEATURE PARITY kommt rw dazu: der Wandslot eines Zuges. Er
+  // haengt an `v === 13` und ist fuer jeden v8-Raum unerreichbar - die Aussage bleibt
+  // dieselbe, die Liste wird um genau einen Eintrag laenger.
+  ok(Object.keys(rooms.g.$gen).sort().join(',') === 'c,d,e,pt,q,r,ro,rw,s,t,x,z',
+     'eine Generation traegt Zughistorie, Eviction, die v9-Grundlage, die v11-Besetzung und die RingOut-Wand');
+  ok(JSON.stringify(rooms.g.$gen.rw).indexOf("child('v').val() === 13") >= 0,
+     'der Zweig rw ist an die RingOut-Fassung 13 gebunden und damit in einem v8-Raum unerreichbar');
   for (const zweig of ['d', 'c', 'ro', 'r', 's', 'z', 'q', 'x'])
     ok(JSON.stringify(rooms.g.$gen[zweig]).indexOf("child('v').val() === 9") >= 0,
        'der Zweig ' + zweig + ' ist an v9 gebunden und damit in einem v8-Raum unerreichbar');

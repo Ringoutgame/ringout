@@ -209,7 +209,13 @@ console.log('ARENA FOOTBALL - FIXED TIMESTEP: gleiche Simulation auf jeder Bildw
   // Seit dem Elite Bot gibt es einen dritten Aufrufer. Er treibt KEINE Spielzeit: er rechnet
   // unter fbVorausTiefe auf einer KOPIE der Koerper voraus und fasst den laufenden Zustand
   // nicht an. Die Aussage der Pruefung bleibt damit erhalten - sie wird nur genau benannt.
-  ok((HTML.match(/stepSim\(\);/g) || []).length === 3, 'stepSim() hat genau drei Aufrufer');
+  // Seit der Online-Rescue-Wall gibt es einen vierten Aufrufer: simReplayTurnTo rechnet
+  // einen Zug nach einer spaet eingetroffenen Wand vom Abschuss an neu. Auch er treibt
+  // keine neue Spielzeit - er wiederholt dieselben festen Schritte mit demselben
+  // Zeitplan. Die Aussage bleibt: Physik entsteht NUR aus dem festen Schritt.
+  ok((HTML.match(/stepSim\(\);/g) || []).length === 4, 'stepSim() hat genau vier Aufrufer');
+  ok(/while\(phase==='sim'&&simTick<targetTick&&guard\+\+<SIM_REPLAY_MAX_STEPS\)stepSim\(\);/.test(HTML),
+     'und der vierte ist die begrenzte Nachrechnung eines Zuges');
   ok(/function fbBotSim\(kopie,schritte\)\{[\s\S]*?fbVorausTiefe\+\+;[\s\S]*?stepSim\(\);/.test(HTML),
      'der DRITTE Aufrufer ist die Vorausberechnung des Elite Bots - Kopie statt Spielzustand');
   ok(/else if\(phase==='sim'\)stepSim\(\);/.test(simStepSrc),

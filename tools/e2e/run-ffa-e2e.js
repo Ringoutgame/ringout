@@ -41,7 +41,7 @@ const { scenarioMatch, scenarioLeave, scenarioStaleness, scenarioPublicLobby, PR
     H.ok(`Benign-Matcher-Selbsttest bestanden (${result.matcherSelfTest.total} Fälle)`);
 
     // Preconditions: our ports must be free (no foreign process is ever killed).
-    for (const p of [H.EMU_PORT, ...H.EMU_AUX_PORTS]) {
+    for (const p of [H.EMU_PORT, H.EMU_AUTH_PORT, ...H.EMU_AUX_PORTS]) {
       if (!(await H.portFree(p))) throw new Error(`Port ${p} belegt — Abbruch (kein Fremdprozess wird beendet).`);
     }
     H.ok(`Ports ${H.EMU_PORT}/${H.EMU_AUX_PORTS.join('/')} frei`);

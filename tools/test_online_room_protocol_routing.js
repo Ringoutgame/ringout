@@ -62,7 +62,9 @@ abschnitt('Der ausgelieferte Client kann beide Familien');
   // Package B: die RingOut-FFA-Fassung. Welche Raumart sie tragen darf, pruefen die drei
   // Raumpruefungen (Beitritt, Wiedereintritt, oeffentliche Liste) selbst.
   t('und v12 (RingOut FFA-Familie)', M.fbRaumFassungOk(12) === true);
-  for (const v of [4, 5, 6, 7, 13, 0, -1, null, undefined, '9', '10', '11', '12', 9.5])
+  // ONLINE FEATURE PARITY: 13 ist die Fassung jedes NEUEN RingOut-Raums.
+  t('und v13 (RingOut mit Collapse und Rescue Wall)', M.fbRaumFassungOk(13) === true);
+  for (const v of [4, 5, 6, 7, 14, 0, -1, null, undefined, '9', '10', '11', '12', 9.5])
     t('aber nicht die Fassung ' + JSON.stringify(v), M.fbRaumFassungOk(v) === false);
 }
 
@@ -80,11 +82,11 @@ abschnitt('Ein NEUER Raum bekommt seine Fassung aus seiner Konfiguration');
   // Die uebrigen Onlinemodi haben kein v9-Produkt hinter sich - sie bleiben v8.
   for (const m of ['classic', 'speed', 'team2v2', 'timedffa'])
     t('Football ' + m + ' bleibt v8', M.fbRaumFassung(cfgFootball(m, 3)) === 8);
-  // Package B: die FFA-Familie bekommt die eigene Fassung 12; Versus bleibt v8.
-  for (const f of ['ffa', 'triple_ffa', 'team_duel'])
-    t('RingOut ' + f + ' wird v12', M.fbRaumFassung(cfgRingOut(f)) === 12);
-  for (const f of ['single', 'double'])
-    t('RingOut ' + f + ' bleibt v8', M.fbRaumFassung(cfgRingOut(f)) === 8);
+  // ONLINE FEATURE PARITY: JEDER neue RingOut-Raum wird v13 - eine Fassung fuer die
+  // ganze Familie, damit Collapse und Rescue Wall ueberall denselben Vertrag haben.
+  // 12 (Package B) und 8 bleiben lesbarer Bestand, werden aber nicht mehr angelegt.
+  for (const f of ['ffa', 'triple_ffa', 'team_duel', 'single', 'double'])
+    t('RingOut ' + f + ' wird v13', M.fbRaumFassung(cfgRingOut(f)) === 13);
   // Der Waehler weitet die v9-Flaeche auch an den Raendern nicht.
   for (const cap of [2, 6, 0, -1, 3.5, '4', null, undefined])
     t('Lives mit Sollbesetzung ' + JSON.stringify(cap) + ' bleibt v8',
@@ -141,9 +143,9 @@ abschnitt('Rueckkehr - die Fassung des Raums entscheidet den Weg');
   // validateRejoinRoom ist seiteneffektfrei und im Node-Test ausfuehrbar.
   const vrr = new Function(
     'fbRaumFassungOk', 'validGamePair', 'validModeCap', 'modeReachable', 'roomSeatCap', 'GEN_MAX', 'FFA_MAX_SEATS', 'ROOM_GAME_FOOTBALL', 'FB_ONLINE_SEATS',
-    'ROOM_GAME_RINGOUT', 'RINGOUT_SKIP_FASSUNG',
+    'ROOM_GAME_RINGOUT', 'RINGOUT_SKIP_FASSUNG', 'RINGOUT_PARITY_FASSUNG',
     grab(/function validateRejoinRoom\(d\)\{[\s\S]*?\n\}/, 'validateRejoinRoom') + '\nreturn validateRejoinRoom;')(
-    (v) => v === 8 || v === 9, () => true, () => true, () => true, () => 5, 1000, 5, 'football', 5, 'ringout', 12);
+    (v) => v === 8 || v === 9, () => true, () => true, () => true, () => 5, 1000, 5, 'football', 5, 'ringout', 12, 13);
   const raum = (v, state) => ({ v, hostUid: 'H', gen: 0, state, seats: 5,
     config: { game: 'football', fmt: 'elimination', mode: 'lives', cap: 5, winTarget: 3, visibility: 'private' } });
   t('das geprueft Ergebnis traegt die Fassung des Raums (v9)', vrr(raum(9, 'playing')).v === 9);
@@ -162,8 +164,15 @@ abschnitt('Rueckkehr - die Fassung des Raums entscheidet den Weg');
   // v9 -> Rehydrierung aus c+r; v8 -> Historie t. Kein v9-Weg liest t, kein v8-Weg rehydriert.
   t('v9 kehrt ueber die Rehydrierung zurueck', /if\(v9\)\{[\s\S]*?await fbV9Rehydrieren\(fbV9LebenCtx\(0\)\);/.test(rj));
   t('v8 kehrt ueber die Zughistorie t zurueck', /\}else fastForwardMatch\(turns\);/.test(rj));
+  // Seit ONLINE FEATURE PARITY holt derselbe Lesevorgang auch die Wandhistorie (rw) -
+  // in EINEM Promise.all, damit zwischen dem Anmelden der Raumlistener und dem
+  // Nachspielen kein zweiter Wartepunkt entsteht. Die Aussage bleibt: die Historie wird
+  // nur ausserhalb von v9 gelesen, und zwar genau einmal.
   t('der v8-Lesevorgang der Historie t findet nur ausserhalb von v9 statt',
-    /if\(!v9\)\{\s*try\{ const ts=await window\.FB\.get\(window\.FB\.ref\(window\.FB\.db,'rooms\/'\+code\+'\/g\/'\+v\.gen\+'\/t'\)\);/.test(rj));
+    /if\(!v9\)\{[\s\S]*?await Promise\.all\(\[\s*window\.FB\.get\(window\.FB\.ref\(window\.FB\.db,'rooms\/'\+code\+'\/g\/'\+v\.gen\+'\/t'\)\),/.test(rj)
+    && (rj.match(/'\/g\/'\+v\.gen\+'\/t'/g) || []).length === 1);
+  t('... und die Wandhistorie im selben Lesevorgang',
+    /window\.FB\.get\(window\.FB\.ref\(window\.FB\.db,'rooms\/'\+code\+'\/g\/'\+v\.gen\+'\/rw'\)\)\]\);/.test(rj));
   t('fastForwardMatch(turns) ist der einzige Legacy-Aufruf - und er haengt am else der v9-Weiche',
     (rj.match(/fastForwardMatch\(/g) || []).length === 1);
   t('die v9-Rehydrierung scheitert geschlossen (Fehler -> kein Rueckfall auf eine frische Welt)',

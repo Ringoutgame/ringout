@@ -1,6 +1,12 @@
 # TODO.md — RingOut
 
-**Zuletzt aktualisiert:** 2026-09-24 (**PHANTOMKLANG + 2D-BLITZ**: die Bot-Planung spielte Banden- und
+**Zuletzt aktualisiert:** 2026-09-24 (**RINGOUT ONLINE FEATURE PARITY**: Two-Stage-Collapse und
+Rescue Wall laufen jetzt online. Jeder neue RingOut-Raum ist Fassung 13; der Collapse wird ueber drei
+write-once-Zahlen im Zugknoten autoritativ (ca/cc/cs), die Wand ueber den sitzgebundenen Slot
+rw/<turn>/<seat>, eine spaet eintreffende Wand wird vom Abschuss an nachgerechnet, und der Zug endet
+erst, wenn jeder Sitz gesprochen hat. Offen: die Firebase Rules sind LOKAL geaendert und noch NICHT
+deployt - ohne Deploy lehnt die Live-Datenbank jeden 13er-Raum ab (P0 vor dem Release). Zuvor:
+**PHANTOMKLANG + 2D-BLITZ**: die Bot-Planung spielte Banden- und
 Pfostenanschlaege ihrer Vorausberechnung hoerbar ab - fbSfxImpact schweigt jetzt unter fbVorausAn();
 die Karte TRAINING oeffnete VS BOTS ohne Szenensicherung (2D-Arena vor 3D) - fbTrainOeffnen wartet
 jetzt auf r3dSichern(true). Offen, niedrig: waehrend langen Ladens bleibt nur der kurze Ladehinweis
@@ -224,6 +230,9 @@ Offene Aufgaben nach Priorität. Abgeschlossene Aufgaben werden nach `CHANGELOG.
 ---
 
 ## P3 — Niedrig (Nice to have)
+
+- [ ] **FFA-E2E, Szenario `public-lobby` laeuft ins Leere.** `tools/e2e/run-ffa-e2e.js` bricht dort mit „Cannot read properties of null (reading 'click')" ab: das Szenario bedient den Sichtbarkeitsschalter `#onVisPub`, den es seit PASS 02 nicht mehr gibt (Raeume sind immer oeffentlich). Vorzustand, unabhaengig von der Feature-Paritaet; die drei anderen Szenarien (Match mit 5 Clients, Leave, Staleness) laufen gruen.
+- [ ] **2D-Pfad: `drawBall` faellt in der Football-Menuevorschau.** Mit `?r2d=1` zeichnet der reine 2D-Renderer einen Koerper, dessen Besitzer ausserhalb von `PCOLS` liegt -> `pc.c` von undefined, der Bildlauf meldet `[render] Bild fehlgeschlagen`. Der ausgelieferte 3D-Pfad ist nicht betroffen. Vorzustand (auf HEAD identisch); der Paritaets-E2E weist ihn im Bericht aus, statt ihn zu verschweigen.
 
 - [ ] **Zwei abgewiesene Ruecknahme-Schreibvorgaenge beim Abbrechen des Beitritts:** tippt der Gast mitten im Beitritt auf Zurueck, meldet die Konsole 2x `permission_denied` (die Ruecknahme der Reservierung wird von den Rules abgelehnt). Folgenlos - es bleibt KEIN Sitz zurueck - und unveraendert gegenueber dem Stand davor (gemessen vor und nach der Haertung). Nur Kosmetik im Log.
 

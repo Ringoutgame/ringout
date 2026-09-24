@@ -33,6 +33,7 @@ const ROOT_LOG_NAMES = ['firebase-debug.log', 'database-debug.log', 'ui-debug.lo
 
 const EMU_HOST    = '127.0.0.1';
 const EMU_PORT    = 9000;
+const EMU_AUTH_PORT = 9099;
 const EMU_AUX_PORTS = [4400, 4500]; // emulator hub / logging ports — must also be free/released
 const EMU_PROJECT = 'demo-ringout-e2e';
 const EMU_NS      = 'demo-ringout-e2e-default-rtdb';
@@ -117,6 +118,26 @@ const BENIGN_SENTINEL_ERROR_RE = /^\[online\] Turn-Slot-Transaction fehlgeschlag
 //   3) A remaining client's automatic leave-sentinel write for a just-departed
 //      seat, denied by design (Fund 2 deferred, B1 scope — see above). Tolerated
 //      for the whole run once at least one leave-window has been opened.
+// Bewusste Negativproben: ein Szenario schreibt absichtlich, was die Rules verbieten
+// MUESSEN, und die SDK meldet jede Abweisung als Warnung. Toleriert wird ausschliesslich
+// ein Pfad, den eine offene Probe ausdruecklich angemeldet hat, und nur in ihrem
+// Zeitfenster - jede andere Abweisung bleibt ein Fehler.
+const PERMISSION_DENIED_PATH_RE = /^(?:\[[^\]]*\]\s*)?@firebase\/database: FIREBASE WARNING: set at (\S+) failed: permission_denied\s*$/;
+function beginProbeWindow(state, paths) {
+  const w = { paths: (paths || []).slice(), start: Date.now() - 2000, end: null };
+  (state.probeWindows = state.probeWindows || []).push(w);
+  return w;
+}
+function endProbeWindow(w) { if (w) w.end = Date.now() + 2000; }
+// VORZUSTAND (auf HEAD ohne die Paritaetsaenderung identisch reproduziert): der reine
+// 2D-Pfad (?r2d=1) zeichnet die Football-Menuevorschau mit einem Koerper, dessen
+// Besitzer ausserhalb von PCOLS liegt - drawBall liest dann `pc.c` von undefined. Der
+// ausgelieferte 3D-Pfad ist nicht betroffen. Wird gezaehlt und im Bericht ausgewiesen,
+// nicht verschwiegen.
+const VORZUSTAND_RENDER_RE = /\[render\] Bild fehlgeschlagen: TypeError: Cannot read properties of undefined \(reading 'c'\)[\s\S]*at drawBall/;
+function isVorzustandDiag(d) {
+  return !!d && d.kind === 'console.error' && VORZUSTAND_RENDER_RE.test(d.text || '');
+}
 function isBenignDiag(d, state) {
   if (!d) return false;
   if (d.kind === 'console.error'
@@ -133,6 +154,13 @@ function isBenignDiag(d, state) {
       return windows.some((w) => w.code === code && ts >= w.start && (w.end == null || ts <= w.end));
     }
     if (anyLeaveOccurred && BENIGN_SENTINEL_WARN_RE.test(d.text)) return true;
+    const p = d.text.match(PERMISSION_DENIED_PATH_RE);
+    if (p) {
+      const pfad = p[1];
+      const ts = typeof d.ts === 'number' ? d.ts : 0;
+      const probes = (state && state.probeWindows) || [];
+      if (probes.some((w) => w.paths.indexOf(pfad) >= 0 && ts >= w.start && (w.end == null || ts <= w.end))) return true;
+    }
   }
   return false;
 }
@@ -231,6 +259,41 @@ window.__ringoutE2E = (function(){
     // Legal small NON-zero move through the exact same real path (magnitude is
     // clamped by sanitizeMove()); never writes state directly.
     commitMove: function(dx,dy,sp){ var who=(online?myPlayer:0); commit(who, ownIdx(who), dx, dy, sp||0); },
+    // ---- ONLINE FEATURE PARITY (Fassung 13) ----
+    // Versus-Raum ueber denselben Produktpfad wie das Menue (createRoom/joinRoom), nur
+    // ohne Klicks. Es wird nichts geschrieben, was das Produkt nicht selbst schreibt.
+    hostVersus: function(win){ mode='pvp'; menuMode='online'; fmt='single'; winTarget=(win===5?5:3); createRoom(); },
+    joinVersus: function(code){ mode='pvp'; menuMode='online'; fmt='single'; var el=$('onInput'); if(el) el.value=code; joinRoom(); },
+    // Die reaktive Rescue Wall ueber den ECHTEN Produktweg - dieselbe Funktion, die
+    // auch der Tipp in die Rettungszone aufruft.
+    placeWall: function(seg){ return barrierRescuePlace(myPlayer, seg); },
+    canPlaceWall: function(){ return barrierRescueCanPlace(myPlayer); },
+    rematch: function(){ onlineRematch(); },
+    // Rueckkehr nach einem Neuladen: genau der Weg des Knopfes #rejoinBtn - gemerkter
+    // Raum aus dem lokalen Speicher, dann der echte attemptRejoin.
+    rejoinSaved: function(){ var sr=savedRoom(); if(!sr) return null; return attemptRejoin(sr.code); },
+    savedRoom: function(){ var sr=savedRoom(); return sr?{code:sr.code,seat:sr.seat}:null; },
+    // Lesende Kurzform des Paritaetszustands: Collapse-Stufe, spielbarer Radius,
+    // Wandbestand, Zeitplan und der Simulationshash. Nichts davon wird veraendert.
+    parity: function(){ return {
+      seat: g(function(){return myPlayer;}),
+      room: g(function(){return roomCode;}),
+      started: g(function(){return !!gameStarted;}),
+      gen: g(function(){return gen;}), turn: g(function(){return turnNo;}),
+      phase: g(function(){return phase;}), proto: g(function(){return roomProto;}),
+      aimSet: g(function(){return aimSet.map(function(v){return v?1:0;}).join('');}),
+      score: g(function(){return score.slice(0,2);}),
+      stage: g(function(){return collapseStage;}), state: g(function(){return collapseState;}),
+      R: r4(g(function(){return R;})), rest: g(function(){return collapseRemainMs();}),
+      aktiv: g(function(){return collapseActive();}), tick: g(function(){return simTick;}),
+      hash: g(function(){return simHash();}),
+      stakes: g(function(){return barrierStakesBySeat.slice();}),
+      walls: g(function(){return barrierWalls.map(function(w){return w.owner+':'+w.segs.join('/');});}),
+      events: g(function(){return barrierRescueEvents.map(function(e){return e.tick+':'+e.owner+':'+e.seg+':'+(e.on?1:0);});}),
+      waTurn: g(function(){return (typeof roWaTurn!=='undefined')?roWaTurn:null;}),
+      waEnde: g(function(){return (typeof roWaEnde!=='undefined')?roWaEnde:null;}),
+      waFertig: g(function(){return (typeof roWaFertig==='function')?roWaFertig():null;}),
+      balls: g(function(){return balls.map(function(b){return b.owner+':'+(b.alive?1:0)+':'+r4(b.x)+':'+r4(b.y);});}) }; },
     // ── Read-only serialization of existing state. Never mutates, never invents. ──
     // AUTH_FIELDS (roomCode*, gen, turnNo, phase, seats, seatGone, scores,
     // aliveCounts, winner, balls) plus commitIdx/commitAim/commitSpin (used by the
@@ -356,8 +419,14 @@ window.__ringoutE2E = (function(){
             for (var f=0; f<REQ.length; f++){
               if (!(REQ[f] in b)) throw new Error('E2E snapshot: Ball ' + i + ' Feld ' + REQ[f] + ' fehlt (Pfad balls[' + i + '].' + REQ[f] + ')');
             }
-            if (typeof b.owner !== 'number' || !isFinite(b.owner) || Math.floor(b.owner) !== b.owner || b.owner < 0 || b.owner >= seatCount)
-              throw new Error('E2E snapshot: Ball ' + i + ' owner ungueltig: ' + b.owner + ' (seats=' + seatCount + ')');
+            // Die SCHRANKE gegen seatCount gilt - wie bei score/commitIdx - erst ab
+            // gameStarted: davor (Menuevorspiel, Raumaufbau) traegt balls noch die
+            // Aufstellung eines anderen Modus, waehrend np() schon die neue Sitzzahl
+            // meldet. Typ, Endlichkeit und Ganzzahligkeit bleiben IMMER streng - ein
+            // Lesefehler kann also weiterhin nie als Treffer durchgehen.
+            if (typeof b.owner !== 'number' || !isFinite(b.owner) || Math.floor(b.owner) !== b.owner || b.owner < 0
+                || (live && b.owner >= seatCount))
+              throw new Error('E2E snapshot: Ball ' + i + ' owner ungueltig: ' + b.owner + ' (seats=' + seatCount + ', live=' + live + ')');
             if (typeof b.alive !== 'boolean') throw new Error('E2E snapshot: Ball ' + i + ' alive nicht boolean: ' + b.alive);
             var nums = { x: b.x, y: b.y, vx: b.vx, vy: b.vy, spin: b.spin };
             for (var k in nums){ if (typeof nums[k] !== 'number' || !isFinite(nums[k])) throw new Error('E2E snapshot: Ball ' + i + ' Feld ' + k + ' nicht endlich: ' + nums[k]); }
@@ -402,6 +471,18 @@ function transformHtml(src) {
     `const db = getDatabase(app);\n    connectDatabaseEmulator(db, "${EMU_HOST}", ${EMU_PORT});\n    window.__E2E_EMULATOR = true;`,
     'emulator-connect', report);
 
+  // Anmeldung ebenfalls lokal: die Produktions-Anmeldung ist blockiert, und ohne uid
+  // legt das Produkt keinen Raum an. Derselbe Ablauf wie im Spiel - nur ein anderer
+  // Endpunkt; die uid bleibt echt und pro Kontext verschieden.
+  out = replaceOnce(out,
+    'import { getAuth, signInAnonymously }',
+    'import { getAuth, signInAnonymously, connectAuthEmulator }',
+    'auth-import', report);
+  out = replaceOnce(out,
+    'const auth = getAuth(app);',
+    `const auth = getAuth(app);\n    connectAuthEmulator(auth, "http://${EMU_HOST}:${EMU_AUTH_PORT}", { disableWarnings: true });`,
+    'auth-emulator-connect', report);
+
   // Adapter is injected just before the game IIFE's closing token. Beyond the
   // count check, verify the structural context so a future edit that reshapes the
   // file cannot cause a silent mis-injection:
@@ -410,7 +491,11 @@ function transformHtml(src) {
   //   • a known game-scope symbol appears before it (we are past the game logic).
   const closeTok = '\n})();';
   const closeCount = out.split(closeTok).length - 1;
-  if (closeCount !== 3) throw new Error(`IIFE-Close-Token '\\n})();' erwartet 3x, gefunden ${closeCount}x — Abbruch.`);
+  // Gesichert wird die Einfuegestelle STRUKTURELL, nicht durch Zaehlen: wie viele
+  // IIFEs eine wachsende 20k-Zeilen-Datei hat, sagt nichts darueber, wo der
+  // Spiel-Scope endet - eine veraltete Zahl blockiert nur den Harness (3 beim
+  // Schreiben, 7 heute). Entscheidend sind die beiden Pruefungen darunter.
+  if (closeCount < 1) throw new Error("IIFE-Close-Token nicht gefunden - Abbruch.");
   const at = out.lastIndexOf(closeTok);
   const tail = out.slice(at + closeTok.length);
   if (tail.replace(/\s+/g, '').replace(/<\/script>|<\/body>|<\/html>/gi, '') !== '') {
@@ -422,7 +507,7 @@ function transformHtml(src) {
   out = out.slice(0, at)
     + '\n\n/* ==== E2E TEST ADAPTER — nur testseitig ausgeliefert, index.html auf Platte unveraendert ==== */\n'
     + ADAPTER_SRC + out.slice(at);
-  report.push('adapter: vor letztem IIFE-Close injiziert (Close-Token 3x + Strukturkontext verifiziert)');
+  report.push('adapter: vor letztem IIFE-Close injiziert (Close-Token ' + closeCount + 'x + Strukturkontext verifiziert)');
 
   return { html: out, report };
 }
@@ -548,14 +633,17 @@ function startEmulator(runDir) {
   const fbjson = path.join(runDir, 'firebase.json');
   fs.writeFileSync(fbjson, JSON.stringify({
     database: { rules: 'firebase.rules.json' },
-    emulators: { singleProjectMode: true, database: { host: EMU_HOST, port: EMU_PORT }, ui: { enabled: false } },
+    // Auth gehoert dazu: das Produkt legt ohne echte auth.uid keinen Raum an
+    // (fbReady/Sign-in), und die Rules beweisen Sitzeigentum ueber auth.uid.
+    emulators: { singleProjectMode: true, database: { host: EMU_HOST, port: EMU_PORT },
+                 auth: { host: EMU_HOST, port: EMU_AUTH_PORT }, ui: { enabled: false } },
   }, null, 2));
 
   const env = Object.assign({}, process.env, {
     JAVA_HOME: JDK21_HOME,
     PATH: path.join(JDK21_HOME, 'bin') + path.delimiter + process.env.PATH,
   });
-  const args = ['emulators:start', '--only', 'database', '--project', EMU_PROJECT];
+  const args = ['emulators:start', '--only', 'database,auth', '--project', EMU_PROJECT];
   const entry = resolveFirebaseEntry();
   let child;
   if (entry) {
@@ -815,7 +903,7 @@ async function cleanup({ browser, staticServer, emu, runDir, closeErrors, preexi
   for (const n of strayLogs) notes.push('unerwartetes Root-Log (nicht gelöscht): ' + n);
 
   const portsFree = {};
-  for (const p of [EMU_PORT, ...EMU_AUX_PORTS]) portsFree[p] = await portFree(p);
+  for (const p of [EMU_PORT, EMU_AUTH_PORT, ...EMU_AUX_PORTS]) portsFree[p] = await portFree(p);
   if (staticServer && staticServer.port) portsFree[staticServer.port] = await portFree(staticServer.port);
 
   const runGone = !runDir || !fs.existsSync(runDir);
@@ -829,7 +917,7 @@ async function cleanup({ browser, staticServer, emu, runDir, closeErrors, preexi
 module.exports = {
   // constants
   REPO_ROOT, INDEX_HTML, ROOT_RULES, TMP_BASE,
-  EMU_HOST, EMU_PORT, EMU_AUX_PORTS, EMU_PROJECT, EMU_NS, JDK21_HOME,
+  EMU_HOST, EMU_PORT, EMU_AUTH_PORT, EMU_AUX_PORTS, EMU_PROJECT, EMU_NS, JDK21_HOME,
   ALLOW_HOSTS, PROD_HINT, CHROMIUM_E2E_ARGS, ADAPTER_SRC, BENIGN_PERMISSION_DENIED_RE,
   // helpers
   log, warn, ok, sleep, isBenignDiag, selfTestBenignMatcher, isProdHost, isLocalHost,
@@ -838,4 +926,5 @@ module.exports = {
   startEmulator, resolveFirebaseEntry, killTree, pidRunning,
   armContext, wireDiagnostics, dbRead,
   beginLeaveWindow, endLeaveWindow, registerLeave, runNegativeProbes, cleanup,
+  beginProbeWindow, endProbeWindow, isVorzustandDiag,
 };

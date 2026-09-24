@@ -107,7 +107,13 @@ const ERWARTET = [
   { bedeutung: 'Rueckkehrfrist eines Sitzes (Praesenz)',        pfad: '/rooms/$code/p/$i',                      feld: '.write', wert: K.SEAT_STALE_MS,           mal: 1, quelle: 'SEAT_STALE_MS' },
   { bedeutung: 'Rueckkehrfrist eines Sitzes (Roster)',          pfad: '/rooms/$code/players/$i',                feld: '.write', wert: K.SEAT_STALE_MS,           mal: 4, quelle: 'SEAT_STALE_MS' },
   { bedeutung: 'Rueckkehrfrist vor der Austragung',             pfad: '/rooms/$code/g/$gen/e/$seat',            feld: '.write', wert: K.SEAT_STALE_MS,           mal: 1, quelle: 'SEAT_STALE_MS' },
-  { bedeutung: 'Rueckkehrfrist vor dem RingOut-Skip (Package B)', pfad: '/rooms/$code/g/$gen/t/$turn/$pl',     feld: '.write', wert: K.SEAT_STALE_MS,           mal: 1, quelle: 'SEAT_STALE_MS' },
+  // Zwei Bedeutungen, dieselbe Zahl - die Inventur zaehlt Zahlen je Pfad und kann sie
+  // deshalb nicht trennen: (1) die Rueckkehrfrist vor dem RingOut-Skip (Package B) und
+  // (2) die untere Zeitschranke einer Collapse-Stufe (COLLAPSE_CYCLE_SECONDS*1000): Stufe n
+  // darf nie frueher als n*30 s nach dem Oeffnen des ersten Zuges geschrieben werden, weil
+  // verbrauchte Planungszeit nie groesser als Echtzeit sein kann. Dass diese Schranke am
+  // Client-Zyklus haengt, prueft tools/test_online_collapse.js.
+  { bedeutung: 'Rueckkehrfrist (Package B) + Collapse-Zyklus (v13)', pfad: '/rooms/$code/g/$gen/t/$turn/$pl', feld: '.write', wert: K.SEAT_STALE_MS,     mal: 2, quelle: 'SEAT_STALE_MS / COLLAPSE_CYCLE_SECONDS' },
   { bedeutung: 'Bereitschaftsfrist einer Runde',                pfad: '/rooms/$code/g/$gen/q/$turn/$seat',      feld: '.write', wert: K.FB_V9_READY_DEADLINE_MS, mal: 2, quelle: 'FB_V9_READY_DEADLINE_MS' },
   { bedeutung: 'Entscheidungsfenster v10/v11',                  pfad: '/rooms/$code/g/$gen/c/$turn/$seat',      feld: '.write', wert: K.FB_V10_DEADLINE_MS,      mal: 3, quelle: 'FB_V10_DEADLINE_MS' },
   { bedeutung: 'Entscheidungsfenster v9',                       pfad: '/rooms/$code/g/$gen/c/$turn/$seat',      feld: '.write', wert: K.FB_V9_DEADLINE_MS,       mal: 3, quelle: 'FB_V9_DEADLINE_MS' },
@@ -121,6 +127,10 @@ const ERWARTET = [
   // Keine Frist, sondern eine Zeichenklasse: die geraden Endziffern der Rundennummer, mit
   // denen die Rules die Rundenparitaet fuer Tactical 1v1 lesen ($turn.matches(/[02468]$/)) -
   // dieselbe Formel wie fbTacAktivSitz. Sie steht hier, damit sie nicht als fremde Zahl gilt.
+  // Keine Frist, sondern die Obergrenze des Sub-Step-Zaehlers einer Rescue Wall:
+  // dieselbe Zahl wie SIM_REPLAY_MAX_STEPS im Client. Ein hoeherer Tick liesse sich
+  // nicht mehr nachrechnen und wird deshalb gar nicht erst angenommen.
+  { bedeutung: 'Hoechster Sub-Step-Zaehler einer Wand',        pfad: '/rooms/$code/g/$gen/rw/$turn/$seat/k', feld: '.validate', wert: 20000,          mal: 1, quelle: 'SIM_REPLAY_MAX_STEPS' },
   { bedeutung: 'Rundenparitaet Tactical (gerade Endziffern)',   pfad: '/rooms/$code/g/$gen/c/$turn/$seat',      feld: '.write', wert: 2468,                   mal: 1, quelle: 'fbTacAktivSitz' },
 ];
 

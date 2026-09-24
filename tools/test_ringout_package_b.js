@@ -38,14 +38,19 @@ const Q = {
 // ── A: Raumfassung ────────────────────────────────────────────────────────────
 {
   const M = new Function(Q.ver + '\n' + Q.roomGame + '\nconst FB_ONLINE_MODE_LIVES="lives";\n' + Q.fassung + '\n' + Q.fassungOk +
-    '\nreturn {fbRaumFassung, fbRaumFassungOk, V: RINGOUT_SKIP_FASSUNG};')();
+    '\nreturn {fbRaumFassung, fbRaumFassungOk, V: RINGOUT_SKIP_FASSUNG, P: RINGOUT_PARITY_FASSUNG};')();
   ok(M.V === 12, 'A1 die RingOut-FFA-Fassung ist 12', M.V);
+  // ONLINE FEATURE PARITY: ein NEUER RingOut-Raum ist ab jetzt immer 13 - dieselbe Fassung
+  // fuer Versus und FFA-Familie, damit es nur EINE RingOut-Onlinesemantik gibt. 12 bleibt
+  // als bestehende Fassung lesbar (Raeume, die es schon gibt), wird aber nicht mehr angelegt.
+  ok(M.P === 13, 'A1b die RingOut-Paritaetsfassung ist 13', M.P);
   for (const f of ['ffa', 'triple_ffa', 'team_duel'])
-    ok(M.fbRaumFassung({ game: 'ringout', fmt: f }) === 12, 'A2 neuer RingOut-Raum ' + f + ' wird v12');
+    ok(M.fbRaumFassung({ game: 'ringout', fmt: f }) === 13, 'A2 neuer RingOut-Raum ' + f + ' wird v13');
   for (const f of ['single', 'double'])
-    ok(M.fbRaumFassung({ game: 'ringout', fmt: f }) === 8, 'A3 Versus ' + f + ' bleibt v8');
+    ok(M.fbRaumFassung({ game: 'ringout', fmt: f }) === 13, 'A3 auch Versus ' + f + ' wird v13');
   ok(M.fbRaumFassungOk(12) === true && M.fbRaumFassungOk(8) === true, 'A4 der Client bedient v8 und v12');
-  ok(M.fbRaumFassungOk(13) === false, 'A5 eine unbekannte Fassung bleibt abgewiesen');
+  ok(M.fbRaumFassungOk(13) === true, 'A4b und die Paritaetsfassung 13');
+  ok(M.fbRaumFassungOk(14) === false, 'A5 eine unbekannte Fassung bleibt abgewiesen');
   // Die Paarung beim Beitritt (v12 nur fuer die FFA-Familie) pruefen test_validateroom.js
   // (v12-Versus wird abgewiesen) und test_ffa_flow.js (Gaeste treten einem v12-FFA-Raum
   // ueber den echten joinRoom/validateRoom-Pfad bei) - hier keine zweite Nachbildung.

@@ -426,9 +426,18 @@ t('L10b hinter der Football-Physik steht kein Suchparameter-Leser',
   !/URLSearchParams/.test(HTML.slice(HTML.indexOf('FOOTBALL_PHYS'))));
 t('L10c die Wand liest ihre Debugschalter ueber den eigenen Parser',
   /function barrierParam\(name\)\{/.test(HTML) && !/URLSearchParams/.test(wall));
-t('L11 Online-Collapse/-Wand ist nicht portiert (RW1)',
-  !/barrierRescueNetOn|barrierRescueOnlineMatch|barrierRescueOnlineOn|writeRescueSlot|rescueSlotValid/.test(HTML));
-t('L12 kein Online-Slot `rw` im Client', !/\/rw\/|rescuePlacementPayload|RESCUE_RW_VERSION/.test(HTML));
+// RW2 (ONLINE FEATURE PARITY): die reaktive Wand gibt es jetzt auch online. Was hier
+// geprueft wird, ist die GRENZE des Onlinewegs - der Vertrag selbst (Slot, Eigentuemer,
+// Nachrechnen, Zugende-Halt) steht in tools/test_online_rescue_wall.js.
+t('L11 der Onlineweg der Wand fuehrt ueber genau EIN Modul',
+  /function roWaOnline\(\)\{/.test(HTML)
+  && !/barrierRescueNetOn|barrierRescueOnlineMatch|barrierRescueOnlineOn|writeRescueSlot|rescueSlotValid/.test(HTML));
+t('L12 der Wandslot liegt unter rw/<turn>/<seat> und wird nur dort geschrieben',
+  (HTML.match(/'\/g\/'\+gen\+'\/rw\/'/g) || []).length === 1
+  && !/rescuePlacementPayload|RESCUE_RW_VERSION/.test(HTML));
+t('L12b die Pre-Shot-Vorwahl bleibt online abgeschaltet',
+  /function barrierCanArmSeat\(s\)\{[\s\S]*?if\(online\)return false;/.test(HTML)
+  && /function barrierDebugSelect\(s,segment\)\{[\s\S]*?if\(online\)return false;/.test(HTML));
 t('L13 der Abschuss setzt den Sub-Step-Zaehler zurueck',
   /if\(typeof simTickReset==='function'\)simTickReset\(\);/.test(HTML));
 t('L14 der Phasenwaechter haengt an setPhase',

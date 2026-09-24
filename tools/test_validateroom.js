@@ -40,7 +40,15 @@ t('v 11 (Raum ueberlebt das Match) -> ok', validateRoom(room({ v: 11 })).ok === 
 // und Team Duel. Ein v12-Raum anderer Art ist ungueltig; eine wirklich unbekannte Fassung
 // bleibt mit derselben Meldung abgewiesen wie bisher.
 t('v 12 fuer einen Versus-Raum -> reject', validateRoom(room({ v: 12 })).ok === false);
-t('v 13 (unbekannt) -> reject', validateRoom(room({ v: 13 })).reason === VMSG);
+// ONLINE FEATURE PARITY: 13 ist die Fassung JEDES neuen RingOut-Raums (Collapse und
+// Rescue Wall sind dort Teil des Onlinevertrags) - fuer einen Football-Raum bleibt sie
+// ungueltig, genau wie 12 fuer einen Versus-Raum.
+t('v 13 fuer einen RingOut-Versus-Raum -> ok', validateRoom(room({ v: 13 })).ok === true);
+// (Die FFA-Familie laeuft ueber pickFreeSeat/FFA_MAX_SEATS und damit nicht durch diesen
+//  Sandkasten - ihre Paarung prueft test_ffa_flow.js am echten Beitrittspfad.)
+t('v 13 fuer einen Football-Raum -> reject',
+  validateRoom(room({ v: 13, config: { game: 'football', winTarget: 3, fmt: 'elimination', mode: 'lives', cap: 5, visibility: 'private' } })).ok === false);
+t('v 14 (unbekannt) -> reject', validateRoom(room({ v: 14 })).reason === VMSG);
 t('v string -> reject (strict)', validateRoom(room({ v: String(VER) })).reason === VMSG);
 t('v null -> reject', validateRoom(room({ v: null })).reason === VMSG);
 

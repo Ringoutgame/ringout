@@ -5043,7 +5043,7 @@ const RESULT_SLOWMUL=0.7, RESULT_FR=0.99;
 // Radius werden positionsrein ueber die bestehende Ring-out-Logik gewertet; der offene
 // Zug bleibt bestehen (kein Auto-Stand), der Spieler reagiert auf die kleinere Arena.
 // Keine Online-/Firebase-/Netzwerk-Beruehrung — alle Pfade sind hart auf Bot-Local
-// gated (collapseEnabled && mode==='bot' && !online). ── ==COLLAPSE-CORE-START==
+// gated (collapseEnabled && (lokales Bot-Training ODER RingOut-Onlineraum der Fassung 13)). ── ==COLLAPSE-CORE-START==
 // Stufenmodell (RingOut-Delta B2, Quelle 6d81aaa + fcfaf6e): das Match besteht aus
 // COLLAPSE_STAGE_COUNT Zyklen zu je COLLAPSE_CYCLE_SECONDS Planungssekunden; am Ende
 // jedes Zyklus faellt genau ein Collapse (Radius x COLLAPSE_RADIUS_FACTOR), nach der
@@ -5069,8 +5069,15 @@ let collapseCountShown=-1;        // zuletzt angezeigte Countdown-Zahl (Beep-Ent
 let collapseCountVisible=false;   // ist die grosse Zahl gerade eingeblendet
 let collapseWarned=false;         // 10s-Warnsignal genau einmal
 let collapseFlash=0;              // Zeitstempel fuer den kurzen Collapse-Alarm-Blink
-function collapseActive(){return collapseEnabled&&mode==='bot'&&!online;}
-function collapseRemainMs(){return Math.max(0,COLLAPSE_CYCLE_SECONDS*1000-matchElapsedMs);}
+// Der Collapse laeuft im lokalen Bot-Training UND in jedem RingOut-Onlineraum der
+// Fassung 13. Beide teilen sich Radius, Auswertung, Anzeige und Klang; unterschiedlich
+// ist nur die UHR: offline zaehlen lokale Frames, online falten alle Clients dieselben
+// Serverstempel (s. roColOnline und das Modul beim Onlinezug).
+function collapseActive(){return collapseEnabled&&((mode==='bot'&&!online)||(typeof roColOnline==='function'&&roColOnline()));}
+function collapseRemainMs(){
+  if(typeof roColOnline==='function'&&roColOnline())return roColRestMs();
+  return Math.max(0,COLLAPSE_CYCLE_SECONDS*1000-matchElapsedMs);
+}
 // Eingabesperre ab Timerablauf: kein Spieler- oder Bot-Zug darf beginnen, solange der
 // Collapse ausgewertet wird. Seit dem sofortigen Collapse (B2) ist das nur der synchrone
 // Moment in onCollapseExpire(); danach ist die Eingabe sofort wieder frei.
@@ -5089,6 +5096,10 @@ function canCommitInput(who){
   // Zweiter Riegel neben whoCanAim - die Stand-Taste und jeder andere Weg hierher laufen
   // auch durch ihn. Tactical 1v1 ist gleichzeitig und laeuft hier wie die Lebensregel.
   if(typeof fbTacAbwechselnd==='function'&&fbTacAbwechselnd()&&!fbTacAmZug(who))return false;
+  // COLLAPSE ONLINE: die eigene Stufenmarke ist unterwegs. Wer jetzt abgibt, koennte den
+  // Zug schliessen, bevor die Marke steht - ein anderer Client wuerde dieselbe Physik dann
+  // mit dem groesseren Radius rechnen. Die Sperre dauert einen Bruchteil einer Sekunde.
+  if(typeof roColHalt==='function'&&roColHalt())return false;
   if(online)return true;
   if(phase!=='aim')return false;
   if(inputLocked())return false;
@@ -5102,7 +5113,8 @@ function canCommitInput(who){
 // eingefroren auf collapseRadius (Radius nach der JUENGSTEN Stufe).
 function shrinkFloor(){return (collapseActive()&&collapseStage>0)?collapseRadius:R0*0.80;}
 function resetCollapseTimer(){
-  collapseEnabled=(mode==='bot'&&!online);   // nur lokales Bot-Training aktiviert den Timer
+  if(typeof roColReset==='function')roColReset();   // Stempel und Marken der alten Generation fallen zuerst
+  collapseEnabled=(mode==='bot'&&!online)||(typeof roColOnline==='function'&&roColOnline());
   collapseState='running';collapseStage=0;matchElapsedMs=0;matchTimerAnchor=null;
   collapseRadius=0;collapseOuterR=0;collapseCountShown=-1;collapseWarned=false;collapseFlash=0;
   // Neues Match/Rematch startet ohne Eingabesperre und ohne Drag-Reste aus dem alten Match.
@@ -5208,16 +5220,23 @@ function collapseHidden(){
 }
 function tickCollapse(now){
   if(!collapseActive()){matchTimerAnchor=null;return;}
+  // ONLINE (Fassung 13): die verbrauchte Zeit kommt aus den Serverstempeln der Zuege,
+  // nicht aus lokalen Frames, und die Stufe aus der write-once-Marke im Zugknoten. Die
+  // Anzeige darunter ist dieselbe wie offline - nur der lokale Zeitanker ruht.
+  const fern=(typeof roColOnline==='function')&&roColOnline();
+  if(fern)matchTimerAnchor=null;
   // Defensive Recovery gegen Stillstand: regulaer wird ein faelliger Collapse bereits im
   // Settlement (settleCollapse) oder im Rundenende (collapseRoundEnd) verarbeitet — kein
   // normaler Ablauf erreicht diese Zeile mehr. Bleibt der Zustand dennoch in aim stehen
   // (kein Zug, auf dessen Physik zu warten waere), wird hier ausgewertet; die Eingabe ist
   // dabei ueber inputLocked() gesperrt, es entsteht also keine nutzbare Aim-Phase.
-  if(collapseState==='expired'&&phase==='aim')doCollapse();
-  if(phase==='aim'&&!menuVisible&&collapseState==='running'&&!collapseHidden()){
-    if(matchTimerAnchor==null)matchTimerAnchor=now;   // erster zaehlender Frame ankert nur, Delta 0
-    matchElapsedMs+=Math.min(Math.max(0,now-matchTimerAnchor),MAX_COLLAPSE_TICK_DELTA_MS);
-    matchTimerAnchor=now;
+  if(!fern&&collapseState==='expired'&&phase==='aim')doCollapse();
+  if(phase==='aim'&&!menuVisible&&collapseState==='running'&&(fern||!collapseHidden())){
+    if(!fern){
+      if(matchTimerAnchor==null)matchTimerAnchor=now;   // erster zaehlender Frame ankert nur, Delta 0
+      matchElapsedMs+=Math.min(Math.max(0,now-matchTimerAnchor),MAX_COLLAPSE_TICK_DELTA_MS);
+      matchTimerAnchor=now;
+    }
     const rem=collapseRemainMs()/1000;
     if(rem<=COLLAPSE_WARNING_SECONDS&&!collapseWarned){collapseWarned=true;SFX.warn();}
     if(rem<=FINAL_COUNTDOWN_SECONDS){const n=Math.max(1,Math.ceil(rem));
@@ -5225,7 +5244,10 @@ function tickCollapse(now){
       else if(!collapseCountVisible)showCollapseCount(n);   // nach Phasenwechsel/Tab-Pause wieder einblenden — ohne zweiten Beep
       // Position folgt der Arenakante (Render-/DOM-Layer, im reinen State-Test nicht vorhanden)
       if(typeof updateCollapseCountPos==='function')updateCollapseCountPos();}
-    if(collapseRemainMs()<=0)onCollapseExpire();
+    // Offline entscheidet die lokale Uhr sofort. Online entscheidet sie NICHTS: sie
+    // schlaegt nur die Stufe vor - autoritativ wird sie erst als write-once-Marke im
+    // Zugknoten, und angewandt wird sie bei JEDEM Client an derselben Stelle.
+    if(collapseRemainMs()<=0){ if(fern)roColMarkeSchreiben(); else onCollapseExpire(); }
   }else{
     matchTimerAnchor=null;                    // Pause: Anker loeschen -> kein Delta-Sprung
     // Die grosse Zahl gehoert ausschliesslich zur aktiven Planungsphase: waehrend
@@ -6848,7 +6870,7 @@ function bot2v2(){const a=snap(),me=1,opp=0,mine=aliveIdx(a,me);if(!mine.length)
   return best?{idx:best.i,dx:best.dx,dy:best.dy}:{idx:mine[0],dx:0,dy:0};}
 
 // ════ REVEAL → SIM ════
-function beginReveal(){if(online&&mode==='ffa')ejectGoneSeats();setPhase('reveal');setPhaseText();updateHud();}
+function beginReveal(){if(online&&mode==='ffa')ejectGoneSeats();if(typeof roColStempel==='function')roColStempel(turnNo,'cc');setPhase('reveal');setPhaseText();updateHud();}
 // Online-FFA: verlassene Seats (ueber den Move-Sentinel fuer ALLE Clients
 // deterministisch bekannt, s. onlineTurnValue) werden vor dem Sim-Start knapp
 // hinter die Ringkante gesetzt — der normale Ring-Out-Pfad in stepSim eliminiert
@@ -6939,6 +6961,10 @@ function applyLaunch(){
         fx3Launch(balls[idx].x,balls[idx].y,commitAim[p].dx,commitAim[p].dy,sp/maxPull(),balls[idx].owner); }
     else if(sp>BR)spawn(balls[idx].x,balls[idx].y,5,[PCOLS[colorSlot(balls[idx].owner)].ui],sp*0.02,0.6);}
   if(typeof simTickReset==='function')simTickReset();   // Launch = Tick 0 des Zuges
+  // Abbild des Zugbeginns: daraus wird eine spaet eintreffende Rescue Wall
+  // deterministisch nachgerechnet (s. roWaAbgleich). Reine Kopie, kein Eingriff.
+  if(typeof simSnapshotTake==='function')simLaunchSnapshot=simSnapshotTake();
+  if(typeof roWaWatch==='function')roWaWatch();   // ONLINE: ab jetzt koennen Waende entstehen
   setPhase('sim');setPhaseText();
 }
 // TEAM DUEL: roundWinner traegt den TEAM-Index (0/1 = PCOLS Blau/Rot); -2 ist der
@@ -8716,6 +8742,19 @@ if(typeof DEV_MENU!=='undefined'&&DEV_MENU)window.__fbDev={
   screenAt:(x,y)=>{const q=OP(cx+x,cy+y,BR),r=cv.getBoundingClientRect(),sc=(r.width||dispS)/LOGICAL;
     return {x:r.left+q.x*sc,y:r.top+q.y*sc};},
   maxPull:()=>maxPull(),
+  // ONLINE FEATURE PARITY: Collapse- und Wandzustand dieses Clients in einer Zeile. Rein
+  // lesend und nur mit ?dev=1. Die Zwei-Client-Pruefung liest damit an derselben
+  // Zuggrenze, ob beide Seiten dieselbe Stufe, denselben spielbaren Radius, denselben
+  // Wandbestand und denselben Zeitplan haben - eine Abweichung faellt dort auf, wo sie
+  // ENTSTEHT, nicht erst an ihrer Folge.
+  ro:()=>({stage:collapseStage,state:collapseState,R:+R.toFixed(4),rest:collapseRemainMs(),
+           aktiv:collapseActive(),proto:roomProto,tick:simTick,
+           stakes:barrierStakesBySeat.slice(),
+           walls:barrierWalls.map(w=>w.owner+':'+w.segs.join('/')),
+           events:barrierRescueEvents.map(e=>e.tick+':'+e.owner+':'+e.seg+':'+(e.on?1:0)),
+           waTurn:(typeof roWaTurn!=='undefined')?roWaTurn:null,
+           waEnde:(typeof roWaEnde!=='undefined')?roWaEnde:null,
+           waFertig:(typeof roWaFertig==='function')?roWaFertig():null}),
   // Netz- und Eingabezustand dieses Clients. Rein lesend - die Browser-Reproduktion
   // liest damit den Zustand aller fuenf Geraete an derselben Rundengrenze und findet
   // eine Divergenz an der Stelle, an der sie ENTSTEHT, statt erst an ihrer Folge.
@@ -9753,6 +9792,9 @@ let fbVorausTiefe=0;          // >0: es wird geplant, nicht gespielt
 let fbVorausTor=-1;           // Seite, die waehrend der Planung traf (-1 = keine)
 function fbVorausAn(){return fbVorausTiefe>0;}
 function stepSim(){
+  // ONLINE (Fassung 13): der Zug hat lokal geendet und wartet auf die Wandaussagen der
+  // anderen Sitze. Bis dahin ruht die Physik vollstaendig - kein Sub-Step, kein Tick.
+  if(typeof roWaHalt==='function'&&roWaHalt())return;
   // Restitution nach Kontaktart (4B-2). Ohne aktives Football-Preset liefern alle drei
   // Funktionen den bestehenden REST-Wert — Bestandsmodi rechnen unveraendert weiter.
   const FR=curFR(),FE=curFE(),RB=curRestBall(),RBAND=curRestBand();
@@ -9953,6 +9995,10 @@ function stepSim(){
   if(fbSeq||(mode==='football'&&fbGoalState!=='play')){footballTickGoal();return;}
   let moving=false;for(const b of balls){if(b.alive&&Math.sqrt(b.vx*b.vx+b.vy*b.vy)>curST()){moving=true;break;}}
   if(!moving){
+    // ONLINE: der Zug endet erst, wenn jeder Sitz, der eine Rescue Wall setzen konnte,
+    // gesprochen hat. Sonst koennte eine spaete Wand einen bereits gebuchten Ausgang
+    // nachtraeglich veraendern - und die beiden Clients haetten verschiedene Kugeln.
+    if(typeof roWaZugEnde==='function'&&roWaZugEnde())return;
     // SETTLEMENT-SNAP (nur Football): jede Kugel liegt jetzt unter stopv. Ohne diesen Schritt
     // bliebe eine Restgeschwindigkeit stehen — die Football-Kugeln ueberleben den Rundenwechsel
     // als DIESELBEN Objekte, das Mikrokriechen liefe also in der naechsten Runde weiter, und die
@@ -9998,9 +10044,12 @@ function stepSim(){
   }
 }
 // ==RESCUE-WALL-START==
-// RingOut — Reactive Rescue Wall (RW1, Offline/Bot).
+// RingOut — Reactive Rescue Wall (RW2).
 // Portiert aus dem freigegebenen Stand feat/protocol-v4-bc @ 0dd5858.
-// Online (rw-Slot, v4-Turn-Autoritaet, Firebase-Rules) ist NICHT Teil dieser Phase.
+// Derselbe Vertrag lokal wie online: drei Einsaetze je Match, hoechstens eine Wand je
+// Zug, sie schuetzt nur die Kugeln ihres Besitzers, kollidiert VOR der Ring-out-
+// Auswertung und endet mit dem Zug. Online kommt genau eine Sache dazu - die
+// Autoritaet: der Slot rw/<turn>/<seat> (s. Modul roWa* beim Onlinezug).
 //
 // Debugschalter der Wand, bewusst mit EIGENEM Parser statt dem Standardleser des
 // Browsers: test_football_flow verlangt, dass ab der Football-Physik bis zum
@@ -10052,10 +10101,11 @@ function barrierAvailableForMatch(){
   // eines Matches; der Physikschalter kann dadurch nicht mitten im Zug umspringen.
   if(BARRIER_FORCE_OFF||menuVisible)return false;
   if(!online)return barrierSupportedLocalMode();
-  // RW1: online ist die Wand vollstaendig aus — weder Pre-Shot-Vorwahl noch
-  // Rescue Wall. Der Onlinevertrag (rw-Slot, v4-Turn-Autoritaet, Rules) gehoert
-  // in eine eigene Phase und ist hier bewusst nicht portiert.
-  return false;
+  // RW2: online gibt es die REAKTIVE Wand - und nur sie. Die Pre-Shot-Vorwahl bleibt
+  // abgeschaltet (barrierCanArmSeat/barrierDebugSelect), der Vertrag ist derselbe wie
+  // lokal: drei Einsaetze je Match, hoechstens eine Wand je Zug, sie schuetzt nur die
+  // Kugeln ihres Besitzers und endet mit dem Zug. Autoritaet: rw/<turn>/<seat>.
+  return typeof ringoutParitaetsRaum==='function'&&ringoutParitaetsRaum();
 }
 
 // ---- Segmentgeometrie + Zustand ----
@@ -10251,6 +10301,35 @@ function barrierActiveWalls(){
 //   kein Determinismusproblem, und bleibt hier bewusst offen.
 const BARRIER_RESCUE_OFF=barrierParam('rescue')==='0';
 let simTick=0;
+// ---- Zustandsabbild des Zuges (Quelle: freigegebener Stand feat/protocol-v4-bc @ 0dd5858) ----
+// Online kann eine Rescue Wall spaeter eintreffen, als der eigene Zug schon gerechnet
+// hat. Dann wird NICHT geschaetzt und nichts verworfen: der Zug wird vom Abschuss an
+// mit dem ergaenzten Zeitplan neu gerechnet. Das Abbild traegt genau das, was die
+// Physik eines Zuges bestimmt - Kugeln, Radius und den Rundenausgang.
+let simLaunchSnapshot=null;
+function simSnapshotTake(){
+  const bs=[];
+  for(const b of balls)bs.push({x:b.x,y:b.y,vx:b.vx,vy:b.vy,spin:b.spin||0,alive:b.alive,owner:b.owner});
+  return {R:R,balls:bs,roundWinner:roundWinner,outBall:outBall};
+}
+function simSnapshotRestore(sn){
+  if(!sn||!sn.balls||sn.balls.length!==balls.length)return false;
+  for(let i=0;i<balls.length;i++){const b=balls[i],t=sn.balls[i];
+    b.x=t.x;b.y=t.y;b.vx=t.vx;b.vy=t.vy;b.spin=t.spin;b.alive=t.alive;b.owner=t.owner;}
+  R=sn.R;roundWinner=sn.roundWinner;outBall=sn.outBall;
+  return true;
+}
+const SIM_REPLAY_MAX_STEPS=20000;
+// Zug vom Abbild aus bis zum erreichten Stand neu rechnen. phase wird bewusst DIREKT
+// gesetzt statt ueber setPhase(): der Phasenhaken raeumt sonst den Zeitplan ab, den
+// dieser Lauf gerade braucht. Rueckgabe: der erreichte Stand.
+function simReplayTurnTo(snap,events,targetTick){
+  if(!simSnapshotRestore(snap))return null;
+  barrierRescueSetEvents(events);simTickReset();phase='sim';
+  let guard=0;
+  while(phase==='sim'&&simTick<targetTick&&guard++<SIM_REPLAY_MAX_STEPS)stepSim();
+  return {tick:simTick,phase:phase};
+}
 function simTickReset(){simTick=0;}
 function simTickAdvance(){simTick++;}
 // Zeitplan des laufenden Zuges: die Rescue-Events, deterministisch sortiert
@@ -10296,18 +10375,25 @@ function barrierRescueActivate(){
   }
   if(added)barrierWallsSync();
 }
-function barrierRescueMode(){return !online&&!BARRIER_RESCUE_OFF&&mode==='bot'&&barrierRuntimeOn();}
+// Die reaktive Wand laeuft im lokalen Bot-Training UND in jedem RingOut-Onlineraum der
+// Fassung 13. barrierRuntimeOn() traegt den Produkt-Gate beider Wege.
+function barrierRescueMode(){return !BARRIER_RESCUE_OFF&&barrierRuntimeOn()&&(online?(typeof roWaOnline==='function'&&roWaOnline()):mode==='bot');}
 
 // ---- Rescue-Platzierung + Zone ----
 // Menschlicher Seat, der eine Rescue-Wall setzen darf: im Bot-Match Seat 0,
 // online der eigene Seat.
-// Menschlicher Seat, der eine Rescue-Wall setzen darf: im Bot-Match Seat 0.
-function barrierRescueSeat(){return barrierRescueMode()?0:-1;}
+// Menschlicher Seat, der eine Rescue-Wall setzen darf: im Bot-Match Seat 0, online der
+// EIGENE Sitz. Einen fremden Sitz kann niemand setzen - die Rules binden den Slot an
+// den Eigentuemer, und dieser Weg fragt gar nicht erst danach.
+function barrierRescueSeat(){return barrierRescueMode()?(online?myPlayer:0):-1;}
 function barrierRescueCanPlace(s){
   if(!barrierRescueMode())return false;
   if(phase!=='sim'||menuVisible||fbCoverOpen)return false;
   if(typeof r3dInputBlocked==='function'&&r3dInputBlocked())return false;
   if(!(s>=0&&s===barrierRescueSeat()))return false;
+  // ONLINE: der Zug hat lokal geendet und wartet nur noch auf die Aussagen der anderen.
+  // Ab hier kostet ein Tap keinen Einsatz mehr - die Kugeln stehen laengst.
+  if(online&&typeof roWaEinsatzOffen==='function'&&!roWaEinsatzOffen())return false;
   if(barrierRescueEventOf(s))return false;                       // hoechstens EIN Placement je Zug
   if(!(s<barrierStakesBySeat.length&&barrierStakesBySeat[s]>0&&aliveCount(s)>0))return false;
   return true;
@@ -10324,6 +10410,9 @@ function barrierRescuePlace(s,seg){
   const tick=simTick;
   barrierRescueAdd(tick,s,k);
   barrierStakesBySeat[s]--;
+  // ONLINE: dieselbe Platzierung wird sofort autoritativ gemeldet. Lokal wirkt sie
+  // unveraendert im selben Augenblick - der Spieler wartet nie auf das Netz.
+  if(typeof roWaPlatziert==='function')roWaPlatziert(s,tick,k);
   if(typeof barrierRescueBadgePulse==='function')barrierRescueBadgePulse();   // kurzer Puls, dann neue Zahl
   barrierUi();
   return true;
@@ -10419,7 +10508,10 @@ function barrierBuildTurn(){
 // Korrektur braucht ihn, und die Wand ist daraus jederzeit wieder herstellbar.
 function barrierClearTurn(){
   barrierWallsSet([]);
-  barrierRescueClear();
+  // ONLINE: solange der Zug seine Wandaussagen noch nicht beisammen hat, bleibt sein
+  // Zeitplan stehen - eine spaete Wand wird daraus deterministisch nachgerechnet.
+  // Der naechste Zug raeumt ihn ab (roWaZugNeu).
+  if(!(typeof roWaOffen==='function'&&roWaOffen()))barrierRescueClear();
   barrierSeats((s)=>{barrierCommittedSegmentBySeat[s]=-1;});
 }
 // Phasenwaechter. Die Wandliste entsteht beim Reveal, lebt ueber die gesamte
@@ -10449,7 +10541,9 @@ function barrierMatchReset(){
     barrierArmedBySeat.push(false);barrierSelectedSegmentBySeat.push(BARRIER_SEG);
     barrierCommittedSegmentBySeat.push(-1);
   }
-  barrierWallsSet([]);barrierRescueClear();barrierDragCancel();barrierUi();
+  barrierWallsSet([]);barrierRescueClear();barrierDragCancel();
+  if(typeof roWaReset==='function')roWaReset();   // neue Generation: Slots, Verbrauch und Listener fallen
+  barrierUi();
 }
 
 // ---- Badge + HUD ----
@@ -11663,7 +11757,12 @@ const FFA_MAX_SEATS=5;   // Online-FFA: Seats 0-4 (Host=0), Farben aus PCOLS
 // Ein dritter Sinn haette die Begriffe endgueltig vermischt.
 //   'ringout'  alle bestehenden Formate, unveraendert
 //   'football' Arena Football; config.fmt traegt die Football-Variante
-const ROOM_GAME_RINGOUT='ringout', ROOM_GAME_FOOTBALL='football', RINGOUT_SKIP_FASSUNG=12;
+// Fassung 12 = typisierter Skip fuer abwesende Sitze der FFA-Familie (Paket B).
+// Fassung 13 = JEDER RingOut-Raum: derselbe Skip PLUS die Features, die bisher nur lokal
+// liefen - der autoritative Two-Stage-Collapse (t/<turn>/ca, cc, cs) und die Rescue Wall.
+// Damit gibt es nur EINE RingOut-Onlinesemantik; ein aelterer Client lehnt einen Raum der
+// Fassung 13 beim Beitritt ab (fbRaumFassungOk), statt ihn halb zu spielen.
+const ROOM_GAME_RINGOUT='ringout', ROOM_GAME_FOOTBALL='football', RINGOUT_SKIP_FASSUNG=12, RINGOUT_PARITY_FASSUNG=13;
 const RINGOUT_FMTS=['single','double','ffa','triple_ffa','team_duel'];
 const FOOTBALL_FMTS=['elimination'];
 // Fuenf Football-Teilnehmer (Sitze 0-4). Der neutrale Ball ist KEIN Teilnehmer: er hat
@@ -14444,7 +14543,7 @@ function fbRaumFassung(cfg){
   // Package B: RingOut FFA, Triple und Team Duel kennen den typisierten Skip fuer abwesende
   // Sitze. Das ist eine neue Zugsemantik und damit eine eigene Fassung - ein aelterer Client
   // lehnt sie beim Beitritt ab, alte und neue Semantik teilen sich nie einen Raum.
-  if(cfg.game===ROOM_GAME_RINGOUT&&(cfg.fmt==='ffa'||cfg.fmt==='triple_ffa'||cfg.fmt==='team_duel'))return RINGOUT_SKIP_FASSUNG;
+  if(cfg.game===ROOM_GAME_RINGOUT)return RINGOUT_PARITY_FASSUNG;
   if(cfg.game!==ROOM_GAME_FOOTBALL)return 8;
   // Tactical 1v1: ein v11-Raum mit genau zwei Sitzen - dieselbe Rundenmaschine wie die
   // Lebensregel, ein anderer Zugvertrag. Die Rules kennen ihn nur in dieser Fassung.
@@ -14471,10 +14570,16 @@ function fbRaumFassung(cfg){
 // bleibt abgewiesen - dort rechnet die Simulation anders.
 // v12 (Package B) gibt es nur fuer RingOut FFA, Triple und Team Duel - die drei Pruefstellen
 // darunter (Beitritt, Wiedereintritt, oeffentliche Liste) verlangen genau diese Paarung.
-function fbRaumFassungOk(v){ return v===8||(ONLINE_PROTOCOL_VERSION>=9&&v===9)||(ONLINE_PROTOCOL_VERSION>=10&&v===10)||(ONLINE_PROTOCOL_VERSION>=11&&v===11)||v===RINGOUT_SKIP_FASSUNG; }
+function fbRaumFassungOk(v){ return v===8||(ONLINE_PROTOCOL_VERSION>=9&&v===9)||(ONLINE_PROTOCOL_VERSION>=10&&v===10)||(ONLINE_PROTOCOL_VERSION>=11&&v===11)||v===RINGOUT_SKIP_FASSUNG||v===RINGOUT_PARITY_FASSUNG; }
 // Laeuft dieses Match mit dem typisierten Skip? typeof-geschuetzt aufgerufen: Offline-
 // Pruefstaende uebernehmen die Zugfunktionen ohne Raumzustand und bleiben beim Bestand.
-function ringoutSkipRaum(){ return !!online&&roomProto===RINGOUT_SKIP_FASSUNG; }
+// Der typisierte Skip gehoert AUSSCHLIESSLICH der FFA-Familie - dieselbe Paarung, die die
+// Rules verlangen. Fassung 12 gab es nur fuer diese Formate; Fassung 13 gilt auch fuer
+// Versus-Raeume, und dort gibt es keinen Skip (ein abwesender Gegner beendet das Match).
+function ringoutSkipRaum(){ return !!online&&(roomProto===RINGOUT_SKIP_FASSUNG||roomProto===RINGOUT_PARITY_FASSUNG)&&(fmt==='ffa'||fmt==='triple_ffa'||fmt==='team_duel'); }
+// Raum mit RingOut-Feature-Paritaet: Collapse und Rescue Wall sind hier Teil des
+// Onlinevertrags. Aeltere Raeume (8/12) bleiben unveraendert ohne beides.
+function ringoutParitaetsRaum(){ return !!online&&roomProto===RINGOUT_PARITY_FASSUNG; }
 function validateRoom(d,jetzt){
   if(!d||typeof d!=='object')return{ok:false,reason:'Raumdaten ungültig.'};
   if(!fbRaumFassungOk(d.v))return{ok:false,reason:'Versionen stimmen nicht überein — bitte beide Seite neu laden.'};
@@ -14484,6 +14589,7 @@ function validateRoom(d,jetzt){
   // v4: Raumtyp ist Pflicht und muss zum Format passen. Kein stiller Default.
   if(!validGamePair(cfg.game,cfg.fmt))return{ok:false,reason:'Raum-Konfiguration ungültig.'};
   if(d.v===RINGOUT_SKIP_FASSUNG&&!(cfg.game===ROOM_GAME_RINGOUT&&(cfg.fmt==='ffa'||cfg.fmt==='triple_ffa'||cfg.fmt==='team_duel')))return{ok:false,reason:'Raum-Konfiguration ungültig.'};
+  if(d.v===RINGOUT_PARITY_FASSUNG&&cfg.game!==ROOM_GAME_RINGOUT)return{ok:false,reason:'Raum-Konfiguration ungültig.'};
   // v8: ein Football-Raum traegt Modus UND Sollbesetzung. Fehlt eines oder passen sie
   // nicht zusammen, ist der Raum ungueltig - er faellt ausdruecklich NICHT auf die alte
   // Herleitung zurueck. Ein stiller Rueckfall waere genau die Verwechslung, die die
@@ -14569,6 +14675,7 @@ function validateRejoinRoom(d){
   if(!cfg||typeof cfg!=='object'||(cfg.winTarget!==3&&cfg.winTarget!==5))return{ok:false,reason:'noRoom'};
   if(!validGamePair(cfg.game,cfg.fmt))return{ok:false,reason:'noRoom'};
   if(d.v===RINGOUT_SKIP_FASSUNG&&!(cfg.game===ROOM_GAME_RINGOUT&&(cfg.fmt==='ffa'||cfg.fmt==='triple_ffa'||cfg.fmt==='team_duel')))return{ok:false,reason:'noRoom'};
+  if(d.v===RINGOUT_PARITY_FASSUNG&&cfg.game!==ROOM_GAME_RINGOUT)return{ok:false,reason:'noRoom'};
   if(!validModeCap(cfg))return{ok:false,reason:'noRoom'};   // v8: Modus/Sollbesetzung Pflicht
   if(!modeReachable(cfg))return{ok:false,reason:'noRoom'};   // Freigabetor gilt auch hier
   if(typeof d.hostUid!=='string'||!d.hostUid)return{ok:false,reason:'noRoom'};   // v8: Hostkennung ist Pflicht
@@ -14614,7 +14721,7 @@ const ROOM_MAX_AGE_MS=7200000;   // 2h — older public rooms are never shown or
 // auch die Rules fuer publicRooms/<code> zulassen. v9 fehlt darin mit Absicht: fuer
 // diese Fassung gab es nie einen Produktweg, der einen oeffentlichen Raum anlegt.
 // Steht hier je eine neue Fassung an, gehoeren beide Stellen zusammen geaendert.
-function roomListable(v){ return v===4||v===5||v===6||v===7||v===8||v===10||v===11||v===RINGOUT_SKIP_FASSUNG; }
+function roomListable(v){ return v===4||v===5||v===6||v===7||v===8||v===10||v===11||v===RINGOUT_SKIP_FASSUNG||v===RINGOUT_PARITY_FASSUNG; }
 function publicListingView(d,now){
   // Room gone or structurally broken -> never show; listing is stale (safe to remove).
   if(!d||typeof d!=='object')return{show:false,remove:true};
@@ -14627,6 +14734,7 @@ function publicListingView(d,now){
   if(!cfg||typeof cfg!=='object'||cfg.visibility!=='public')return{show:false,remove:true};
   if(!validGamePair(cfg.game,cfg.fmt))return{show:false,remove:true};
   if(d.v===RINGOUT_SKIP_FASSUNG&&!(cfg.game===ROOM_GAME_RINGOUT&&(cfg.fmt==='ffa'||cfg.fmt==='triple_ffa'||cfg.fmt==='team_duel')))return{show:false,remove:true};
+  if(d.v===RINGOUT_PARITY_FASSUNG&&cfg.game!==ROOM_GAME_RINGOUT)return{show:false,remove:true};
   const fbo=roomIsFootball(cfg);
   // Ein Raum erscheint nur, wenn sein MODUS wirklich spielbar ist. Ein gesperrter Modus
   // bleibt unsichtbar, egal welche Fassung sein Raum traegt - und ein kuenftiger, dann
@@ -15630,13 +15738,29 @@ async function attemptRejoin(code){
     }
     else if(rjFb)fbElimStartN=v.seats;   // dieselbe kanonische Quelle wie beim Start
     gameStarted=true;
+    // Ein LAUFENDES Match startet sich bei der Rueckkehr SELBST - aus der Zughistorie
+    // (fastForwardMatch) bzw. der v9-Rehydrierung; beide Wege rufen startOnlineGame.
+    // Der gen-Listener darf dieselbe Generation deshalb nicht zusaetzlich starten:
+    // zwei Startvorgaenge melden denselben Zugpfad zweimal an (die Datenbank bricht
+    // das mit einem internen Fehler ab), und das Nachgespielte wuerde anschliessend von
+    // einem frischen Match ueberschrieben - der Rueckkehrer stuende wieder bei Zug 0.
+    // Ein echter WECHSEL der Generation (Rematch) laeuft unveraendert ueber ihn.
+    runningGen=v.gen;
     attachRoomListeners();
     // V9 (ruhend): dort steht die Historie in c+r, nicht in t - der v8-Lesevorgang
     // entfaellt dann ganz. Die Weiche haengt an der Protokollfassung DES RAUMS.
     const v9=fbV9RaumIst9(v);
+    // RESCUE WALL: die Waende der Historie gehoeren zu denselben Zuegen und werden
+    // deshalb im SELBEN Lesevorgang geholt - ein zweiter Wartepunkt zwischen dem
+    // Anmelden der Raumlistener und dem Nachspielen wuerde die Reihenfolge der
+    // Rueckkehr veraendern (der gen-Listener darf nicht dazwischen starten).
     let turns={};
     if(!v9){
-      try{ const ts=await window.FB.get(window.FB.ref(window.FB.db,'rooms/'+code+'/g/'+v.gen+'/t')); turns=ts.val()||{}; }catch(e){}
+      try{ const [ts,ws]=await Promise.all([
+             window.FB.get(window.FB.ref(window.FB.db,'rooms/'+code+'/g/'+v.gen+'/t')),
+             window.FB.get(window.FB.ref(window.FB.db,'rooms/'+code+'/g/'+v.gen+'/rw'))]);
+           turns=ts.val()||{};
+           if(typeof roWaHistorie==='function')roWaHistorie(ws.val(),v.gen); }catch(e){}
       if(!joinOpCurrent(op))return false;   // superseded during the read -> the newer op owns all state now
     }
     // C4A: Waehrend des Lesens kann die Gegenseite ein Rematch gestartet haben. Die
@@ -15656,6 +15780,8 @@ async function attemptRejoin(code){
       // kein geratener Rundenstand - und nichts wird geloescht.
       if(erg&&erg.fehler){ setStatus(T('err')+erg.fehler); return false; }
     }else fastForwardMatch(turns);
+    if(!v9&&typeof roWaNachRueckkehr==='function')await roWaNachRueckkehr(code,v.gen);
+    if(!joinOpCurrent(op))return false;
     setStatus(T('rejoinOk'));
     return true;
   }catch(e){
@@ -16072,6 +16198,9 @@ function fastForwardMatch(turns,mengen){
   // Minuten. Beides wird im finally wieder freigegeben, auch bei einem Abbruch.
   const snd=soundOn; soundOn=false;
   const fx=(typeof fbFxSilence==='function')&&fbFxSilence(true);
+  // Nachgespielt wird die Historie in einem Zug: kein Zugende-Halt (es gibt niemanden,
+  // auf den zu warten waere) und keine eigene Wandaussage aus der Vergangenheit.
+  const roWaAlt=(typeof roWaNachspielGate==='function')&&roWaNachspielGate(true);
   // Und das Thema: der Lauf hier blockiert den Hauptfaden, ein Bildlauf kommt also
   // waehrenddessen NICHT. Ohne diesen Aufruf klaengen Bett und Arenaluft durch die ganze
   // Rehydrierung weiter, und ein faelliger Planerlauf koennte danach noch Schritte der
@@ -16093,6 +16222,7 @@ function fastForwardMatch(turns,mengen){
       }else{
       const slots=turns&&turns[turnNo];
       if(!slots)break;
+      if(typeof roColTurnWert==='function')roColTurnWert(turnNo,slots);   // Rueckkehr: Uhr und Stufe dieses Zuges VOR seiner Physik
       for(let s=0;s<np();s++)if(slots[s]!=null)processSlot(s,slots[s]);
       if(!allAliveCommitted())break;   // current turn still open -> the live listener takes over
       if(turnUnsub){turnUnsub();turnUnsub=null;}
@@ -16105,6 +16235,7 @@ function fastForwardMatch(turns,mengen){
     }
   } finally {
     soundOn=snd; if(typeof fbFxSilence==='function')fbFxSilence(fx); particles=[]; fx3=[];
+    if(typeof roWaNachspielGate==='function')roWaNachspielGate(roWaAlt);
     if(typeof fbMusicSync==='function')fbMusicSync();   // Klang, Bild und Thema werden gemeinsam freigegeben
     // Der Torimpuls ist rein visuell und zeitgesteuert - nach einem Replay waere er ein
     // Nachleuchten aus der Vergangenheit. Der Spielzustand bleibt davon unberuehrt.
@@ -16126,9 +16257,445 @@ function onOppLeft(){
   $('ov').classList.add('show');
 }
 
+// ════ RINGOUT ONLINE: AUTORITATIVER TWO-STAGE COLLAPSE (Fassung 13) ════
+// Offline ist der Collapse eine reine Frame-Uhr. Online darf er das nicht sein - zwei
+// Clients mit je eigener Uhr haetten irgendwann verschiedene spielbare Radien. In der
+// Datenbank liegt deshalb das Minimum: drei Zahlen je Zug, alle write-once, alle
+// serverseitig geprueft (Rules), keine einzige Frame-Synchronisation.
+//
+//   t/<turn>/ca   Serverzeit, zu der die Planungsphase dieses Zuges geoeffnet wurde
+//   t/<turn>/cc   Serverzeit, zu der dieser Zug geschlossen wurde
+//   t/<turn>/cs   die Collapse-STUFE (1..2), die VOR der Physik dieses Zuges gilt
+//
+// Aus ca/cc faltet jeder Client dieselbe verbrauchte PLANUNGSZEIT - Simulationszeit
+// zaehlt, genau wie offline, nicht mit - und zeigt damit denselben Countdown. Die Stufe
+// selbst kommt nie aus einer lokalen Uhr, sondern ausschliesslich aus der Marke.
+//
+// Warum die drei Zahlen IM Zugknoten liegen und nicht daneben:
+//   Ein Firebase-Snapshot eines Knotens ist in sich konsistent. Die Marke darf nur ein
+//   Sitz schreiben, der in DIESEM Zug noch nicht abgegeben hat (die Rules erzwingen es),
+//   und dieser Sitz gibt erst danach ab. Der Zug kann also nicht geschlossen sein, bevor
+//   die Marke steht - und jeder Snapshot, der alle Abgaben enthaelt, enthaelt zwingend
+//   auch die Marke. Kein Client kann die Physik eines Zuges ohne die zu ihm gehoerende
+//   Stufe rechnen. Das ist der ganze Determinismusvertrag.
+//
+// Angewandt wird die Stufe ueber onCollapseExpire() - dieselbe Funktion wie offline und
+// damit derselbe Radius, dieselbe positionsreine Auswertung, derselbe Stufenwechsel,
+// dieselbe Anzeige und derselbe Klang. Es gibt keine zweite Collapse-Semantik.
+let roColZeit={};        // turn -> {a,c} Serverzeit der Planungsphase (NaN = unbekannt)
+let roColMarke={};       // turn -> gelesene Stufe
+let roColAngewandt={};   // turn -> true, sobald lokal vollzogen
+let roColSendet={};      // 'turn:feld' -> true, solange ein eigener Stempel unterwegs ist
+let roColSchreibt=null;  // Zug, fuer den gerade eine eigene Stufenmarke unterwegs ist
+function roColOnline(){ return !!online&&typeof ringoutParitaetsRaum==='function'&&ringoutParitaetsRaum(); }
+function roColReset(){ roColZeit={};roColMarke={};roColAngewandt={};roColSendet={};roColSchreibt=null; }
+function roColDiag(was,info){ if(typeof r3dDiag==='function')r3dDiag('rocol',{w:was,i:info===undefined?null:info}); }
+// Write-once-Primitive beider Paritaetsmodule (Collapse und Rescue Wall) - derselbe
+// Vertrag wie beim Zugslot (s. writeTurnSlot): runTransaction mit applyLocally:false
+// erzeugt KEIN lokales Zwischenecho, und der zurueckgegebene Wert ist IMMER der
+// autoritative Serverwert, gleich ob der eigene Payload gewonnen hat oder schon ein
+// fremder dastand.
+function roWriteOnce(pfad,wert){
+  return window.FB.runTransaction(window.FB.ref(window.FB.db,pfad),cur=>cur==null?wert:undefined,{applyLocally:false})
+    .then(erg=>(erg&&erg.snapshot)?erg.snapshot.val():null)
+    .catch(err=>{ roColDiag('write-fehler',{p:pfad,e:String((err&&(err.code||err.message))||err).slice(0,60)}); return null; });
+}
+function roColEintrag(turn){ let z=roColZeit[turn]; if(!z)z=roColZeit[turn]={a:NaN,c:NaN}; return z; }
+// Stempel uebernehmen. Beide Werte sind write-once: der erste autoritative Wert gilt,
+// spaetere Meldungen desselben Feldes werden ignoriert.
+function roColZeitSetzen(turn,a,c){
+  const z=roColEintrag(turn);
+  if(Number.isFinite(a)&&!Number.isFinite(z.a))z.a=a;
+  if(Number.isFinite(c)&&!Number.isFinite(z.c))z.c=c;
+}
+// Verbrauchte Planungszeit des laufenden Matches. Ein unbekannter Stempel zaehlt 0 - die
+// Uhr laeuft dadurch hoechstens langsamer, NIE schneller: aus einer Luecke kann keine zu
+// fruehe Stufe entstehen. Offen weiter zaehlt nur der LAUFENDE Zug.
+function roColVerbrauchtMs(){
+  const jetzt=(typeof serverClockReady!=='undefined'&&serverClockReady&&typeof serverNow==='function')?serverNow():0;
+  let ms=0;
+  for(const k in roColZeit){
+    const z=roColZeit[k];
+    if(!z||!Number.isFinite(z.a))continue;
+    if(Number.isFinite(z.c)){ if(z.c>z.a)ms+=z.c-z.a; continue; }
+    if(+k!==turnNo||!jetzt||jetzt<=z.a)continue;
+    ms+=jetzt-z.a;
+  }
+  return ms;
+}
+// Ziel des laufenden Zyklus: Stufe 1 bei 30 s, Stufe 2 bei 60 s verbrauchter
+// Planungszeit. Dieselben Zahlen wie offline - nur nicht zurueckgesetzt, sondern
+// aufaddiert. Das macht die Faltung unabhaengig davon, WANN eine Stufe fiel.
+function roColZielMs(){ return (collapseStage+1)*COLLAPSE_CYCLE_SECONDS*1000; }
+function roColRestMs(){
+  if(collapseStage>=COLLAPSE_STAGE_COUNT)return 0;   // terminal: keine dritte Stufe, kein Countdown
+  return Math.max(0,roColZielMs()-roColVerbrauchtMs());
+}
+// Zeitstempel schreiben. write-once; der Wert MUSS die Serverzeit sein (Rules: === now).
+// Gewinnt ein anderer Client das Rennen, liefert die Transaktion dessen Wert zurueck -
+// danach rechnen alle mit derselben Zahl.
+function roColStempel(turn,feld){
+  if(!roColOnline()||!(turn>=0)||(feld!=='ca'&&feld!=='cc'))return;
+  const z=roColZeit[turn];
+  if(z&&Number.isFinite(feld==='ca'?z.a:z.c))return;
+  const key=turn+':'+feld;
+  if(roColSendet[key])return;
+  if(!window.FB||!roomCode||myPlayer<0)return;
+  if(typeof isOnlineTerminated==='function'&&isOnlineTerminated())return;
+  const ctx={sid:onlineSessionId,room:roomCode,gen:gen};
+  roColSendet[key]=true;
+  roWriteOnce('rooms/'+ctx.room+'/g/'+ctx.gen+'/t/'+turn+'/'+feld,window.FB.serverTimestamp())
+    .then(wert=>{
+      delete roColSendet[key];
+      if(ctx.sid!==onlineSessionId||ctx.room!==roomCode||ctx.gen!==gen)return;
+      const w=Number(wert);
+      if(Number.isFinite(w))roColZeitSetzen(turn,feld==='ca'?w:NaN,feld==='cc'?w:NaN);
+      else roColDiag('stempel-leer',{t:turn,f:feld});
+    });
+}
+// Die Stufenmarke. Geschrieben wird sie nur aus der EIGENEN offenen Planungsphase und
+// nur, solange dieser Sitz noch nicht abgegeben hat - dann ist der Zug nirgends
+// geschlossen und kein Client hat seine Physik begonnen. Die Rules pruefen dieselbe
+// Bedingung noch einmal: gibt dieser Sitz vorher ab, wird die Marke abgewiesen. Bis sie
+// autoritativ steht, ist die eigene Abgabe gesperrt (roColHalt).
+function roColMarkeSchreiben(){
+  if(!roColOnline()||collapseStage>=COLLAPSE_STAGE_COUNT)return;
+  if(phase!=='aim'||menuVisible||myPlayer<0||turnNo<0)return;
+  if(roColSchreibt!=null||roColMarke[turnNo]!=null||roColAngewandt[turnNo])return;
+  if(typeof aimSet!=='undefined'&&aimSet[myPlayer])return;
+  if(typeof isOnlineTerminated==='function'&&isOnlineTerminated())return;
+  if(!window.FB||!roomCode)return;
+  const ctx={sid:onlineSessionId,room:roomCode,gen:gen,turnNo:turnNo},stufe=collapseStage+1;
+  roColSchreibt=turnNo;
+  roColDiag('marke-sendet',{t:turnNo,st:stufe});
+  roWriteOnce('rooms/'+ctx.room+'/g/'+ctx.gen+'/t/'+ctx.turnNo+'/cs',stufe)
+    .then(wert=>{
+      roColSchreibt=null;
+      if(typeof isCurrentCtx==='function'&&!isCurrentCtx(ctx))return;
+      const w=Number(wert);
+      if(Number.isFinite(w))roColStufeSetzen(ctx.turnNo,w);
+      else roColDiag('marke-abgewiesen',{t:ctx.turnNo});
+    });
+}
+// Solange die eigene Marke unterwegs ist, darf dieser Sitz nicht abgeben: sonst koennte
+// der Zug schliessen, bevor die Marke steht. Die Sperre dauert einen Bruchteil einer
+// Sekunde und kann nichts blockieren - scheitert der Write, faellt sie sofort.
+function roColHalt(){ return roColOnline()&&roColSchreibt!=null; }
+// Autoritativer Zugknoten (Live-Echo, eigenes Transaktionsergebnis oder Historie bei der
+// Rueckkehr). Stempel und Marke werden IMMER zuerst uebernommen - die Stufe gilt VOR der
+// Physik dieses Zuges.
+function roColTurnWert(turn,val){
+  if(!roColOnline()||!val||typeof val!=='object')return;
+  roColZeitSetzen(turn,Number(val.ca),Number(val.cc));
+  const st=Number(val.cs);
+  if(Number.isFinite(st))roColStufeSetzen(turn,st);
+}
+// Eine gelesene Stufe wird genau dann vollzogen, wenn sie die NAECHSTE ist und zu dem
+// Zug gehoert, in dem dieser Client gerade steht. Alles andere ist deterministisch
+// wirkungslos: keine Stufe 3, keine Doppelanwendung, keine Stufe rueckwaerts.
+function roColStufeSetzen(turn,stufe){
+  if(!(stufe>=1)||stufe>COLLAPSE_STAGE_COUNT)return;
+  roColMarke[turn]=stufe;
+  if(turn!==turnNo||roColAngewandt[turn])return;
+  if(stufe!==collapseStage+1){ roColDiag('marke-ausser-reihe',{t:turn,st:stufe,c:collapseStage}); return; }
+  roColAngewandt[turn]=true;
+  roColDiag('marke-vollzogen',{t:turn,st:stufe});
+  onCollapseExpire();                                  // dieselbe Anwendung wie offline
+  if(phase!=='aim')roColStempel(turn,'cc');            // Runde endete in der Planung: die Uhr dieses Zuges endet hier
+  if(typeof devSync==='function')devSync('collapse','stage='+collapseStage+' R='+R.toFixed(3));
+}
+// Zugwechsel: den alten Zug schliessen, falls er es nicht selbst getan hat (eine Runde
+// kann in der Planungsphase enden), den neuen oeffnen und eine bereits bekannte Marke
+// sofort vollziehen.
+function roColZugWechsel(alt,neu){
+  if(!roColOnline())return;
+  if(alt>=0){ const z=roColZeit[alt]; if(z&&Number.isFinite(z.a)&&!Number.isFinite(z.c))roColStempel(alt,'cc'); }
+  roColStempel(neu,'ca');
+  if(roColMarke[neu]!=null&&!roColAngewandt[neu])roColStufeSetzen(neu,roColMarke[neu]);
+}
+// ════ RINGOUT ONLINE: RESCUE WALL (Fassung 13) ════
+// Die Wand ist REAKTIV: sie entsteht mitten im Zug, im Moment des Taps. Online heisst
+// das, dass ein Ereignis mit seinem Sub-Step-Zaehler zu Clients muss, die denselben Zug
+// bereits rechnen. Drei Dinge halten das zusammen - mehr braucht es nicht:
+//
+//  1) AUTORITATIVER SLOT.  rw/<turn>/<seat> ist write-once und gehoert dem Sitz selbst
+//     (die Rules binden ihn an dessen uid). Er traegt entweder die Platzierung
+//     {k:<tick>,s:<segment>} oder die Aussage "kein Einsatz" {p:true}. Mehr als eine
+//     Wand je Zug ist damit serverseitig unmoeglich, und niemand kann fuer einen
+//     anderen setzen.
+//  2) NACHRECHNEN STATT SCHAETZEN.  Trifft eine Platzierung ein, deren Tick schon
+//     vorbei ist, wird der Zug vom Abschuss an mit dem ergaenzten Zeitplan neu
+//     gerechnet (simReplayTurnTo). Es wird nichts interpoliert, nichts verworfen und
+//     nichts gerundet - dieselbe Physik, dieselben Ticks, dasselbe Ergebnis.
+//  3) DER ZUG ENDET ERST, WENN ALLE GESPROCHEN HABEN.  Ohne diesen Halt koennte eine
+//     Wand eintreffen, nachdem dieser Client den Ausgang schon gebucht hat - der eine
+//     haette die Kugel gerettet, der andere nicht. Der Halt kostet einen einfachen
+//     Netzweg: beide Simulationen enden beim SELBEN Tick, beide Seiten schreiben ihre
+//     Aussage also im selben Augenblick.
+//
+// Der Bestand (drei Einsaetze je Match) wird nicht mitgeschrieben, sondern ABGELEITET:
+// Startbestand minus der bestaetigten Waende. Eine zurueckgenommene Platzierung gibt
+// ihren Einsatz damit von selbst zurueck, und eine Rueckkehr rechnet ihn aus derselben
+// Historie neu aus - es gibt keine zweite Buchhaltung, die abweichen koennte.
+let roWaTurn=-1;           // Zug, zu dem die Angaben gehoeren
+let roWaSlots={};          // seat -> {k,s} (Platzierung) oder {p:true} (kein Einsatz)
+let roWaEigen=null;        // eigene Platzierung, solange ihr Slot noch nicht zurueck ist
+let roWaVerbraucht=[];     // seat -> bestaetigte Waende der frueheren Zuege dieser Generation
+let roWaKonnte=[];         // seat -> konnte in DIESEM Zug setzen (Stand beim Abschuss)
+let roWaEnde=false;        // der Zug ist lokal zu Ende und wartet auf die Aussagen
+let roWaSendet=false;      // eigene Aussage unterwegs
+let roWaUnsub=null;        // Listener auf rw/<turn>
+let roWaHist=null;         // gelesene Wandhistorie waehrend einer Rueckkehr
+let roWaHistAlt=null;      // unveraenderte Kopie dieser Historie (Gegenlesen nach der Rueckkehr)
+let roWaHistGen=-1;        // Generation, zu der die gelesene Historie gehoert
+let roWaLauf=false;        // laufende Nachrechnung (keine Rekursion)
+let roWaNachspielen=false; // Historie wird nachgespielt: kein Halt, keine eigene Aussage
+function roWaOnline(){ return !!online&&typeof ringoutParitaetsRaum==='function'&&ringoutParitaetsRaum(); }
+function roWaDiag(was,info){ if(typeof r3dDiag==='function')r3dDiag('rowa',{w:was,i:info===undefined?null:info}); }
+function roWaStop(){ if(roWaUnsub){ try{ roWaUnsub(); }catch(e){} roWaUnsub=null; } }
+// Neues Match/Rematch: der ganze Wandzustand faellt. Die gelesene Historie einer
+// Rueckkehr ist davon ausgenommen, solange sie gerade nachgespielt wird - sie ist die
+// EINGABE dieses Laufs, nicht sein Zustand (newGame laeuft mitten darin).
+function roWaReset(){ roWaStop(); roWaTurn=-1;roWaSlots={};roWaEigen=null;roWaVerbraucht=[];roWaKonnte=[];
+                      roWaEnde=false;roWaSendet=false;
+                      if(!roWaNachspielen){roWaHist=null;roWaHistAlt=null;roWaHistGen=-1;} }
+function roWaPfad(turn){ return 'rooms/'+roomCode+'/g/'+gen+'/rw/'+turn; }
+// Die bei einer Rueckkehr gelesene Wandhistorie. Sie wird Zug fuer Zug verbraucht:
+// jeder nachgespielte Zug bekommt genau seine Angaben, bevor seine Physik laeuft.
+// Die bei einer Rueckkehr gelesene Wandhistorie - immer zusammen mit der Generation,
+// zu der sie gehoert. Ein Rematch bekommt dadurch nie die Waende der alten Partie.
+function roWaHistorie(val,g){
+  roWaHist=(val&&typeof val==='object')?val:null;
+  roWaHistAlt=roWaHist?JSON.parse(JSON.stringify(roWaHist)):null;
+  roWaHistGen=Number.isFinite(g)?g:gen;
+}
+// Kanonische Kurzform eines Wandstandes bis zu einer Zuggrenze. Sie dient nur dem
+// Vergleich zweier Lesevorgaenge und haengt weder an Schluesselreihenfolge noch an
+// Zahlenformat.
+function roWaStandSignatur(val,grenze){
+  if(!val||typeof val!=='object')return '';
+  const teile=[];
+  for(const t in val){
+    if(!(+t<grenze))continue;
+    const z=val[t];
+    if(!z||typeof z!=='object')continue;
+    for(const k in z){
+      const e=z[k],tick=Number(e&&e.k);
+      teile.push(t+':'+k+':'+(Number.isFinite(tick)?(Math.floor(tick)+'/'+(e&&e.s)):'p'));
+    }
+  }
+  teile.sort();
+  return teile.join(',');
+}
+function roWaNachspielGate(an){ const alt=roWaNachspielen; roWaNachspielen=!!an; return alt; }
+// Zugwechsel: die Waende des alten Zuges sind endgueltig und gehen in den Verbrauch
+// ein; danach beginnt der neue Zug mit leerem Zeitplan.
+function roWaZugNeu(turn){
+  if(!roWaOnline())return;
+  if(roWaTurn>=0)for(const e of roWaPlan())roWaVerbraucht[e.owner]=(roWaVerbraucht[e.owner]||0)+1;
+  roWaStop();
+  roWaTurn=turn; roWaSlots={}; roWaEigen=null; roWaEnde=false; roWaSendet=false; roWaKonnte=[];
+  if(roWaHist&&roWaHistGen===gen){ const h=roWaHist[turn]; if(h&&typeof h==='object')roWaSlots=h; delete roWaHist[turn]; }
+  if(typeof barrierRescueClear==='function')barrierRescueClear();
+  roWaAbgleich();
+}
+// Der Zug rechnet: ab jetzt koennen Waende entstehen. Eigener Listener, weil der
+// Zuglistener beim Reveal abgemeldet wird - genau dort beginnt die Physik. Und hier
+// steht fest, WER in diesem Zug ueberhaupt setzen konnte: aus dem Lockstep-Zustand beim
+// Abschuss, also auf jedem Client dieselbe Liste.
+function roWaWatch(){
+  if(!roWaOnline())return;
+  roWaKonnte=[];
+  for(let s=0;s<barrierStakesBySeat.length;s++)
+    roWaKonnte.push(aliveCount(s)>0&&barrierStakesBySeat[s]>0);
+  if(!window.FB||!roomCode||turnNo<0||roWaNachspielen)return;
+  roWaStop();
+  const ctx={sid:onlineSessionId,room:roomCode,gen:gen,turnNo:turnNo};
+  roWaUnsub=window.FB.onValue(window.FB.ref(window.FB.db,roWaPfad(ctx.turnNo)),snap=>{
+    if(typeof isCurrentCtx==='function'&&!isCurrentCtx(ctx))return;
+    if(typeof isOnlineTerminated==='function'&&isOnlineTerminated())return;
+    roWaWert(snap.val());
+  });
+}
+function roWaWert(val){
+  if(!roWaOnline()||roWaTurn!==turnNo)return;
+  roWaSlots=(val&&typeof val==='object')?val:{};
+  if(roWaSlots[myPlayer])roWaEigen=null;   // die eigene Platzierung ist autoritativ angekommen
+  roWaAbgleich();
+}
+// Der Zeitplan dieses Zuges, ABGELEITET aus den autoritativen Slots (und, solange der
+// eigene Write laeuft, aus der eigenen Platzierung). Was ueber den Matchbestand eines
+// Sitzes hinausgeht, gilt nicht - diese Obergrenze faellt auf jedem Client gleich aus
+// und braucht deshalb keine Regel im Server.
+function roWaPlan(){
+  const roh=[];
+  for(const k in roWaSlots){
+    const seat=+k,e=roWaSlots[k];
+    if(!e||!Number.isInteger(seat)||seat<0)continue;
+    const tick=Number(e.k),seg=(typeof barrierSegCanon==='function')?barrierSegCanon(e.s):-1;
+    if(!Number.isFinite(tick)||tick<0||seg<0)continue;          // Aussage "kein Einsatz" oder unbrauchbar
+    roh.push({tick:Math.floor(tick),owner:seat,seg:seg});
+  }
+  if(roWaEigen&&!roWaSlots[myPlayer])roh.push({tick:roWaEigen.k,owner:myPlayer,seg:roWaEigen.s});
+  roh.sort((a,b)=>a.tick-b.tick||a.owner-b.owner);
+  const frei=[],zahl={};
+  for(const e of roh){
+    const vor=(roWaVerbraucht[e.owner]||0)+(zahl[e.owner]||0);
+    if(vor>=BARRIER_STAKES_START){ roWaDiag('ueber-bestand',{o:e.owner}); continue; }
+    zahl[e.owner]=(zahl[e.owner]||0)+1;
+    frei.push(e);
+  }
+  return frei;
+}
+function roWaPlanGleich(plan){
+  const alt=barrierRescueEvents;
+  if(alt.length!==plan.length)return false;
+  for(let i=0;i<plan.length;i++){
+    const a=alt[i],b=plan[i];
+    if(a.tick!==b.tick||a.owner!==b.owner||a.seg!==b.seg)return false;
+  }
+  return true;
+}
+// Der eine Weg, auf dem der autoritative Wandzustand in das Spiel kommt. Weicht der
+// Zeitplan ab, wird der Zug neu gerechnet; danach stimmt auch der Bestand wieder.
+function roWaAbgleich(){
+  if(!roWaOnline()||roWaLauf)return;
+  const plan=roWaPlan();
+  if(!roWaPlanGleich(plan)){
+    roWaLauf=true;
+    try{
+      if((phase==='sim'||phase==='result')&&simLaunchSnapshot){
+        // Der Nachlauf ist eine Korrektur, keine Wiederholung: er darf weder klingen
+        // noch funkeln. Dieselbe Stummschaltung wie bei der Rueckkehr.
+        const snd=soundOn; soundOn=false;
+        const fx=(typeof fbFxSilence==='function')&&fbFxSilence(true);
+        const ziel=simTick;
+        try{ simReplayTurnTo(simLaunchSnapshot,plan,ziel); }
+        finally{ soundOn=snd; if(typeof fbFxSilence==='function')fbFxSilence(fx);
+                 particles=[]; if(typeof fx3!=='undefined')fx3=[]; }
+        roWaEnde=false;   // der Zug ist wieder offen - er endet dort, wo er JETZT endet
+        roWaDiag('nachgerechnet',{t:roWaTurn,n:plan.length,tick:simTick,p:phase});
+      }else{
+        if(phase==='sim'||phase==='result')roWaDiag('ohne-abbild',{t:roWaTurn});
+        barrierRescueSetEvents(plan);
+      }
+    } finally { roWaLauf=false; }
+  }
+  roWaBestandSetzen(plan);
+}
+// Bestand = Startbestand minus bestaetigter Waende frueherer Zuege minus der Waende
+// dieses Zuges. Eine einzige Quelle, auch nach einer Rueckkehr.
+function roWaBestandSetzen(plan){
+  const n=barrierStakesBySeat.length;
+  if(!n)return;
+  const jetzt=[];
+  for(let s=0;s<n;s++)jetzt.push(0);
+  for(const e of plan)if(e.owner>=0&&e.owner<n)jetzt[e.owner]++;
+  for(let s=0;s<n;s++)barrierStakesBySeat[s]=Math.max(0,BARRIER_STAKES_START-(roWaVerbraucht[s]||0)-jetzt[s]);
+  if(typeof barrierUi==='function')barrierUi();
+}
+// Eigene Platzierung: sie wirkt lokal sofort (der Spieler wartet nie auf das Netz) und
+// geht im selben Augenblick autoritativ hinaus. Kommt sie nicht durch, nimmt der
+// Abgleich sie zurueck - samt Einsatz.
+function roWaPlatziert(seat,tick,seg){
+  if(!roWaOnline()||seat!==myPlayer||roWaTurn!==turnNo)return;
+  roWaEigen={k:tick,s:seg};
+  if(!window.FB||!roomCode||myPlayer<0)return;
+  if(typeof isOnlineTerminated==='function'&&isOnlineTerminated())return;
+  const ctx={sid:onlineSessionId,room:roomCode,gen:gen,turnNo:turnNo};
+  roWaDiag('platziert',{t:turnNo,k:tick,s:seg});
+  roWriteOnce(roWaPfad(ctx.turnNo)+'/'+myPlayer,{k:tick,s:seg}).then(wert=>{
+    if(typeof isCurrentCtx==='function'&&!isCurrentCtx(ctx))return;
+    roWaEigen=null;
+    if(wert&&typeof wert==='object')roWaSlots[myPlayer]=wert;
+    else roWaDiag('platzierung-abgewiesen',{t:ctx.turnNo});
+    roWaAbgleich();
+  });
+}
+// "Kein Einsatz in diesem Zug." Die eigene Platzierung IST bereits die Aussage - wer
+// gesetzt hat, schreibt hier nichts mehr.
+function roWaAussageSchreiben(turn){
+  if(!roWaOnline()||myPlayer<0||roWaSendet||roWaNachspielen)return;
+  if(roWaSlots[myPlayer]||roWaEigen)return;
+  if(!window.FB||!roomCode)return;
+  if(typeof isOnlineTerminated==='function'&&isOnlineTerminated())return;
+  const ctx={sid:onlineSessionId,room:roomCode,gen:gen};
+  roWaSendet=true;
+  roWriteOnce(roWaPfad(turn)+'/'+myPlayer,{p:true}).then(wert=>{
+    roWaSendet=false;
+    if(ctx.sid!==onlineSessionId||ctx.room!==roomCode||ctx.gen!==gen)return;
+    if(turn!==roWaTurn)return;
+    if(wert&&typeof wert==='object'){ roWaSlots[myPlayer]=wert; roWaAbgleich(); }
+  });
+}
+// Muss dieser Sitz in diesem Zug noch etwas sagen? Nur wer beim Abschuss ueberhaupt
+// setzen konnte und noch nicht gesprochen hat. Ein ausgeschiedener oder abwesender Sitz
+// haelt den Zug nie auf - dafuer gibt es die bestehenden Wege (seatLeft/seatGone).
+function roWaMussSagen(s){
+  if(!roWaKonnte[s])return false;
+  if(roWaSlots[s])return false;
+  if(s===myPlayer&&roWaEigen)return false;
+  if(typeof seatLeft!=='undefined'&&seatLeft[s])return false;
+  if(typeof seatGone!=='undefined'&&seatGone[s])return false;
+  return true;
+}
+function roWaFertig(){
+  for(let s=0;s<roWaKonnte.length;s++)if(roWaMussSagen(s))return false;
+  return true;
+}
+// Lokales Zugende (Settlement ODER Rundenende). Die eigene Aussage geht hinaus, und der
+// Zug wartet, bis jeder gesprochen hat, der setzen konnte. true = es wird gewartet.
+function roWaZugEnde(){
+  if(!roWaOnline()||roWaTurn!==turnNo||roWaNachspielen)return false;
+  if(typeof isOnlineTerminated==='function'&&isOnlineTerminated())return false;   // Abbruch: nie warten
+  roWaEnde=true;
+  roWaAussageSchreiben(roWaTurn);
+  return !roWaFertig();
+}
+// Solange gewartet wird, ruht die Physik vollstaendig: kein Sub-Step, kein Tick. Sonst
+// liefe der Zug auf jedem Client unterschiedlich weit.
+function roWaHalt(){ return roWaOnline()&&roWaEnde&&roWaTurn===turnNo&&!roWaNachspielen
+                            &&!(typeof isOnlineTerminated==='function'&&isOnlineTerminated())&&!roWaFertig(); }
+// Der zuletzt NACHGESPIELTE Zug bekommt die eigene Aussage nachgetragen - sonst wartet
+// die Gegenseite an seinem Ende auf einen Sitz, der dort nie zu Wort kam. Write-once:
+// eine bereits vorhandene eigene Platzierung bleibt unangetastet.
+function roWaAussageNachtragen(turn){
+  if(!roWaOnline()||myPlayer<0||!(turn>=0)||!window.FB||!roomCode)return;
+  if(typeof isOnlineTerminated==='function'&&isOnlineTerminated())return;
+  roWriteOnce(roWaPfad(turn)+'/'+myPlayer,{p:true});
+}
+// Nach dem Nachspielen wird die Wandhistorie EINMAL gegengelesen: zwischen Lesen und
+// Rechnen kann auf der Gegenseite noch eine Wand gefallen sein, und dieser Client waere
+// dann mit einem anderen Zugausgang zurueckgekommen. Weicht die bereits gerechnete
+// Vergangenheit ab, wird sie genau einmal frisch gelesen und neu gerechnet.
+async function roWaNachRueckkehr(code,g){
+  if(!roWaOnline()||!window.FB||!code)return;
+  const grenze=turnNo;
+  let frisch=null;
+  try{ const ws=await window.FB.get(window.FB.ref(window.FB.db,'rooms/'+code+'/g/'+g+'/rw')); frisch=ws.val(); }
+  catch(e){ return; }
+  if(g!==gen||code!==roomCode)return;
+  if(roWaStandSignatur(frisch,grenze)!==roWaStandSignatur(roWaHistAlt,grenze)){
+    roWaDiag('rueckkehr-abweichung',{bis:grenze});
+    let turns={};
+    try{ const ts=await window.FB.get(window.FB.ref(window.FB.db,'rooms/'+code+'/g/'+g+'/t')); turns=ts.val()||{}; }
+    catch(e){ return; }
+    if(g!==gen||code!==roomCode)return;
+    roWaHistorie(frisch,g);
+    fastForwardMatch(turns);
+  }
+  if(turnNo>0)roWaAussageNachtragen(turnNo-1);
+}
+// Der Zug ist noch nicht abgeschlossen - sein Zeitplan wird noch gebraucht.
+function roWaOffen(){ return roWaOnline()&&roWaTurn>=0&&roWaTurn===turnNo; }
+// Darf jetzt noch ein Einsatz fallen? Nach dem lokalen Zugende nicht mehr.
+function roWaEinsatzOffen(){ return !roWaEnde; }
 function onlineArmTurn(){
   fbApplyPendingRemovals();   // C4B: dauerhafte Austritte VOR der neuen Runde anwenden
+  const roColAlt=turnNo;
   turnNo++;
+  if(typeof roColZugWechsel==='function')roColZugWechsel(roColAlt,turnNo);   // Collapse-Uhr: alten Zug schliessen, neuen oeffnen
+  if(typeof roWaZugNeu==='function')roWaZugNeu(turnNo);                     // Rescue Wall: Verbrauch buchen, neuen Zug oeffnen
   pendingSlot={};   // P0-Fix: neue Turn-Runde -> keine Altlast aus vorherigen Pending-Writes
   clearAllSentinelRetries();   // P0-Nachbesserung: Retries der alten Turn-Runde sind ab hier gegenstandslos
   if(turnUnsub){turnUnsub();turnUnsub=null;}
@@ -16629,6 +17196,7 @@ function maybeReveal(){
 // lange blockiert (s. dort).
 function onlineTurnValue(val){
   if(!val)return;
+  if(typeof roColTurnWert==='function')roColTurnWert(turnNo,val);   // Collapse-Stufe gilt VOR der Physik dieses Zuges
   for(let s=0;s<np();s++) processSlot(s,val[s]);   // ALLE Seats inkl. des eigenen: die DB ist der alleinige Arbiter
   fbMaybeSkipOffline();   // C2: bleibt nur noch ein getrennter Sitz offen, wird er hier geschlossen
   fbMaybeWriteRemoves();  // C4B
@@ -16784,6 +17352,7 @@ function leaveOnline(after){
   clearAllMatchGrace(); roomP={}; roomPSeen=false;   // B2: in-match grace timers of this room are void as well
   try{ if(turnUnsub)turnUnsub(); }catch(e){} try{ if(genUnsub)genUnsub(); }catch(e){} try{ if(presUnsub)presUnsub(); }catch(e){} try{ if(seatsUnsub)seatsUnsub(); }catch(e){} try{ if(rosterUnsub)rosterUnsub(); }catch(e){}
   turnUnsub=genUnsub=presUnsub=seatsUnsub=rosterUnsub=null;
+  if(typeof roWaStop==='function')roWaStop();   // der Wandlistener gehoert dem verlassenen Raum
   stopPresenceWatch();   // C1: bewusstes Verlassen -> keine Wiederherstellung mehr
   stopServerClock();     // C3: und keine Zeitangleichung mehr
   clearGenerationStart();
@@ -19047,8 +19616,8 @@ async function initR3D(){
       if(collapseActive()&&!menuVisible&&(collapseState==='expired'||(collapseState==='running'&&collapseRemainMs()<=COLLAPSE_WARNING_SECONDS*1000)))return 1;
       return 0;
     }
-    // Ausschliesslich VOLLZOGENE Collapses des lokalen Bot-Matches. Online-Collapse ist in
-    // dieser App noch nicht portiert (B2 = offline/Bot): online bleibt die Arena in Stufe 0.
+    // Ausschliesslich VOLLZOGENE Collapses - lokal aus der Frame-Uhr, online aus der
+    // autoritativen Stufenmarke des Zuges. Beide Wege enden in collapseStage.
     function colvCount(){return collapseActive()?collapseStage:0;}
     // v6-Sichtbarkeitsvertrag eines Segmentpaars: cr = Riss sichtbar (Warnstufe:
     // NUR die echten Risse erscheinen, Gold bleibt durchgehend aus der Intact-
@@ -19202,7 +19771,7 @@ async function initR3D(){
     }
     function colvTick(nowS){
       const want=colvStage(),cnt=colvCount();
-      const clockMatch=collapseActive()&&!menuVisible;   // Uhr-Match = lokales Bot-Match (Online-Collapse nicht portiert)
+      const clockMatch=collapseActive()&&!menuVisible;   // Uhr-Match = Bot-Training ODER RingOut-Onlineraum (Fassung 13)
       if(colv.load===0&&clockMatch)colvLoad();     // laedt beim Matchstart (~30s Vorlauf)
       if(clockMatch&&colv.load!==3)SFX.colPreload();   // Audio-Buffer parallel vorladen/dekodieren
       // Frame-Luecke (Hintergrund-Tab): dazwischen umgeschaltete Zustaende sind
@@ -20018,7 +20587,13 @@ function simStep(now){
   if(typeof fbFfaStep==='function')fbFfaStep();
   if(phase==='reveal'&&now-phaseStart>REVEAL_MS)applyLaunch();
   else if(phase==='sim')stepSim();
-  else if(phase==='result'){resultDrift();if(now-phaseStart>RESULT_MS)afterResult();}
+  else if(phase==='result'){
+    resultDrift();
+    // ONLINE: dieselbe Grenze wie beim Settlement - erst wenn die Wandaussagen aller
+    // Sitze vorliegen, wird das Rundenergebnis gebucht.
+    const roWaWarten=(typeof roWaZugEnde==='function')&&roWaZugEnde();
+    if(now-phaseStart>RESULT_MS&&!roWaWarten)afterResult();
+  }
   if(phase==='reveal'||phase==='sim'||phase==='result')recordFrame();
   updParticles();
 }
