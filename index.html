@@ -167,6 +167,9 @@ body.fbctx .mdot.on{background:linear-gradient(90deg,var(--fbac-hi),#a8c1d8)}
 /* Schnellaktionen, Raumliste und How-to erklaeren bzw. erzeugen RingOut. Im
    Football-Kontext waeren sie unwahr - also stehen sie dort nicht. */
 body.fbctx .roOnly{display:none!important}
+/* Ring Out ist vorerst nicht im spielbaren Angebot (RINGOUT_SPIELBAR): die Spielwahl
+   entfaellt, die Startseite beginnt mit den Arena-Football-Modi. */
+body.roAus .roHub{display:none!important}
 /* Das Gegenstueck: Abschnitte, die es NUR in Arena Football gibt. */
 .fbOnly{display:none}
 body.fbctx .fbOnly{display:block}
@@ -949,12 +952,12 @@ body.fbctx .proom .pr-game{color:#cfe0ef}
   <div class="msheet">
    <!-- GAME HUB: RINGOUT bleibt die Dachmarke; darunter stehen zwei erstklassige Spiele.
         Die Karte waehlt das Spiel, die Modusleiste darunter zeigt dessen echte Modi. -->
-   <div class="msec"><span id="secHubT">GAME HUB</span><i class="hr"></i></div>
+   <div class="msec roHub"><span id="secHubT">GAME HUB</span><i class="hr"></i></div>
    <!-- Reihenfolge = Produktprioritaet: ARENA FOOTBALL ist das Hauptspiel und steht links
         bzw. zuerst, RING OUT bleibt gleichwertig erreichbar als zweites. Die Auswahlmarkierung
         (`on`) traegt beim Laden die Football-Karte - dieselbe Klasse, dieselbe Gestaltung,
         nur die Reihenfolge und die Voreinstellung sind neu (s. `let menuSel`). -->
-   <div class="mhub">
+   <div class="mhub roHub">
     <button class="gcard gfb on" id="cardFootball" type="button">
       <span class="gbadge" id="gFbBadge">NEU</span>
       <img src="assets/hub/hero_football.webp" alt="" width="900" height="563" loading="lazy" decoding="async">
@@ -2365,6 +2368,16 @@ function setOnAria(grp,id){document.querySelectorAll('#'+grp+' button').forEach(
 // Dev-/Testpfad (?dev=1): zeigt das Legacy-Panel mit allen versteckten Modi
 // (Hotseat-2-Spieler, FFA lokal inkl. Spieleranzahl, Bot-Stufen, Format, Runden).
 const DEV_MENU=new URLSearchParams(location.search).get('dev')==='1';
+// PRODUKTENTSCHEIDUNG (2026-09-25): Ring Out - das Spiel, in dem Kugeln aus der Arena fallen -
+// ist vorerst NICHT im spielbaren Angebot. Arena Football ist das Hauptspiel; RINGOUT bleibt
+// Name und Marke. Der Ring-Out-Code bleibt vollstaendig erhalten: dieser EINE Schalter nimmt
+// Ring Out aus Startseite und Spielwahl und sperrt die Wege, die NEUE Ring-Out-Partien oder
+// -Raeume anlegen (createRoom, Neubeitritt in joinRoom). Wer in einem Ring-Out-Raum schon einen
+// Sitz hat, kommt weiterhin zurueck (attemptRejoin) - laufende Partien enden nicht. Mit ?dev=1
+// bleibt Ring Out fuer die Qualitaetssicherung erreichbar, wie andere nicht freigegebene Modi.
+const RINGOUT_SPIELBAR=false;
+function ringoutSpielbar(){return RINGOUT_SPIELBAR||DEV_MENU;}
+if(!ringoutSpielbar())document.body.classList.add('roAus');
 // Prototyp-Zugang zur Football-Variante (?dev=1&fb=tactical). EINZIGE Stelle, die dafuer die
 // URL liest — der Football-Block selbst bleibt frei von Umgebungszugriffen und ist damit in
 // den Offline-Harnessen unveraendert lauffaehig. Ohne ?dev=1 immer null -> Classic.
@@ -2543,6 +2556,9 @@ function selectFbMode(i){
   }
 }
 function selectMenuMode(m){
+  // Ohne Ring Out im Angebot ist jede Auswahl Arena Football - auch ein alter gemerkter
+  // Ring-Out-Modus oder ein Tastatur-/Punktweg.
+  if(m!=='football'&&typeof ringoutSpielbar==='function'&&!ringoutSpielbar())m='football';
   const warArena=(hubGame==='fb');
   menuSel=m;
   if(m!=='football')roSel=m;                      // der zuletzt gewaehlte RingOut-Modus
@@ -2626,6 +2642,7 @@ en:{tagline:'PULL BACK · RELEASE · KNOCK THEM OUT',chip:'FEATURED',
   ffaGa:'GA',ffaDanger:'DANGER',ffaOut:'OUT',
   fbOnlineT:'ONLINE',fbOnlineS:'2–5 PLAYERS · PLAY WITH FRIENDS',
   fbNo3d:'Arena Football needs the real 3D scene (not available).',
+  roAus:'Ring Out is currently not available. Play Arena Football!',
   szeneLaedt:'Loading the arena …',
   r3dRecovering:'Restoring graphics …',
   r3dRecoveryFailed:'Graphics could not be restored.\nPlease reload the page.',
@@ -2735,6 +2752,7 @@ de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'FEATURED',
   ffaGa:'GT',ffaDanger:'GEFAHR',ffaOut:'RAUS',
   fbOnlineT:'ONLINE',fbOnlineS:'2–5 SPIELER · MIT FREUNDEN SPIELEN',
   fbNo3d:'Arena Football benötigt die echte 3D-Szene (nicht verfügbar).',
+  roAus:'Ring Out ist derzeit nicht verfügbar. Spiel Arena Football!',
   szeneLaedt:'Arena wird geladen …',
   r3dRecovering:'Grafik wird wiederhergestellt …',
   r3dRecoveryFailed:'Grafik konnte nicht wiederhergestellt werden.\nBitte die Seite neu laden.',
@@ -2840,6 +2858,7 @@ tr:{tagline:'GERİ ÇEK · BIRAK · DIŞARI İT',chip:'FEATURED',
   ffaGa:'YG',ffaDanger:'TEHLİKE',ffaOut:'ELENDİ',
   fbOnlineT:'ONLINE',fbOnlineS:'2–5 OYUNCU · ARKADAŞLARINLA OYNA',
   fbNo3d:'Arena Football gerçek 3B sahneye ihtiyaç duyar (kullanılamıyor).',
+  roAus:'Ring Out şu anda kullanılamıyor. Arena Football oyna!',
   szeneLaedt:'Arena yükleniyor …',
   r3dRecovering:'Grafikler geri yükleniyor …',
   r3dRecoveryFailed:'Grafikler geri yüklenemedi.\nLütfen sayfayı yenileyin.',
@@ -2924,7 +2943,7 @@ function rematchLabel(){
 }
 function applyLang(){
   document.documentElement.lang=LANG;
-  document.querySelector('.logo .sub').textContent=T('tagline');
+  document.querySelector('.logo .sub').textContent=T(ringoutSpielbar()?'tagline':'gFbS');   // der Ring-Out-Slogan beschreibt das Fallspiel
   document.querySelectorAll('.mcard .chip').forEach(e=>{e.textContent=T('chip');});
   document.querySelector('#cardFfa .mt').textContent=T('ffaT');
   document.querySelector('#cardFfa .msub').textContent=T('ffaS');
@@ -3091,6 +3110,8 @@ $('ctaBtn').onclick=async()=>{
     // die bestehende Modusauswahl - der Weg zu Classic, Timed FFA und den lokalen Modi.
     if(typeof DEV_MENU!=='undefined'&&DEV_MENU){$('fbModeOv').classList.add('show');return;}
     toast(T('soonCta'));return;}
+  // Ab hier beginnt jeder Weg eine Ring-Out-Partie oder einen Ring-Out-Raum.
+  if(!ringoutSpielbar()){selectMenuMode('football');return;}
   if(menuSel==='bot'){if(SFX.click())vibrateMs(VIBE_CLICK_MS);$('botOv').classList.add('show');return;}       // Format-Auswahl: 1v1 / 2v2 Duo vs Bot
   if(TUNE){if(SFX.click())vibrateMs(VIBE_CLICK_MS);toast('Tuning aktiv — Online deaktiviert');return;}
   // "Play Online FFA": normaler Klick, aber weiterhin die deutlichere Vibration
@@ -11412,6 +11433,8 @@ function createRoom(){
   // kommt aus dem Einstieg, der mode und fmt vor openOnline() setzt - seit dem
   // Produktweg aus der Modusauswahl, weiterhin auch aus dem Dev-Panel.
   const fbo=mode==='football'&&fmt===FB_ONLINE_FMT;
+  // Ring Out ist vorerst nicht im Angebot: kein neuer Ring-Out-Raum (s. RINGOUT_SPIELBAR).
+  if(!fbo&&typeof ringoutSpielbar==='function'&&!ringoutSpielbar()){setStatus(T('roAus'));return;}
   // Der Auftrag entsteht VOR dem Warten auf Firebase - sonst koennte ein Rueckweg,
   // der waehrend des Wartens genommen wird, ihn nicht entwerten (s. leaveOnline).
   const op=newJoinOp();
@@ -14985,6 +15008,11 @@ function joinRoom(){
           await attemptRejoin(code);
           return;
         }
+      }
+      // Ring Out ist vorerst nicht im Angebot: ein Ring-Out-Raum nimmt niemanden NEU auf.
+      // Wer dort schon sitzt, ist oben bereits zurueckgekehrt - laufende Partien enden nicht.
+      if(v.game!==ROOM_GAME_FOOTBALL&&typeof ringoutSpielbar==='function'&&!ringoutSpielbar()){
+        setStatus(T('roAus')); joinDiag(op,'ringout-aus'); return;
       }
       // Arena Football braucht die echte 3D-Szene: ohne sie sagt schon die Statuszeile,
       // dass der Modus nicht spielbar ist, und der Einstieg lehnt ausdruecklich ab. Der

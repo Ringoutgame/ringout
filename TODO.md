@@ -1,6 +1,11 @@
 # TODO.md — RingOut
 
-**Zuletzt aktualisiert:** 2026-09-25 (**RINGOUT ONLINE FEATURE PARITY IST LIVE**: Rules deployt,
+**Zuletzt aktualisiert:** 2026-09-25 (**RING OUT AUS DEM ANGEBOT**: Arena Football ist der Einstieg,
+Ring Out per Schalter RINGOUT_SPIELBAR ausgeblendet (Code erhalten, ?dev=1 fuer QA), keine neuen
+Ring-Out-Raeume, Rueckkehr auf eigene Sitze bleibt. Offen, niedrig: Revanche in einem bereits
+laufenden Ring-Out-Raum bleibt moeglich (bewusst unveraendert, Online-Protokoll); die
+Startseiten-Rueckkehrleiste ist roOnly - ein Ring-Out-Rueckkehrer findet "Wieder beitreten" im
+Onlinebildschirm. Zuvor: **RINGOUT ONLINE FEATURE PARITY IST LIVE**: Rules deployt,
 Pages-Deploy a936b51e, Zwei-Client-Produktionsnachweis 54/0, Football-Regression gruen, alle
 Testraeume entfernt. Zuvor: Two-Stage-Collapse und
 Rescue Wall laufen jetzt online. Jeder neue RingOut-Raum ist Fassung 13; der Collapse wird ueber drei

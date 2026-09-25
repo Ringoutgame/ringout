@@ -1,8 +1,10 @@
 # ROADMAP.md — RingOut
 
-**Zuletzt aktualisiert:** 2026-06-30
+**Zuletzt aktualisiert:** 2026-09-25
 
 Diese Roadmap beschreibt langfristige Ziele und geplante Features. Konkrete, sofort umsetzbare Aufgaben stehen in `TODO.md`.
+
+> **Produktfokus (2026-09-25):** Arena Football ist vorerst das einzige spielbare Spiel; RINGOUT bleibt Name und Marke. Ring Out ist aus dem Angebot genommen, sein Code bleibt erhalten (`RINGOUT_SPIELBAR`). Ring-Out-Punkte unten ruhen, bis diese Entscheidung aufgehoben wird.
 
 ---
 

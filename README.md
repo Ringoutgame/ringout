@@ -1,6 +1,8 @@
 # RingOut
 
-Kompetitives, physikbasiertes Browser-Spiel. Zieh deine Kugel zurück, lass los — wer den Gegner aus dem Ring schleudert, gewinnt.
+Kompetitives, physikbasiertes Browser-Spiel unter der Marke RINGOUT. Das spielbare Hauptspiel ist **Arena Football**: Zieh deine Figur zurück, lass los und schieß den Ball ins gegnerische Tor — FFA, 1 VS 1 (Tactical), Team 2v2 und VS BOTS.
+
+> **Ring Out** (Kugeln aus der Arena stoßen) ist seit 2026-09-25 vorerst nicht im spielbaren Angebot. Der Code bleibt erhalten (Schalter `RINGOUT_SPIELBAR` in `index.html`); laufende Ring-Out-Räume lassen sich über „Wieder beitreten“ zu Ende spielen, neue entstehen nicht. Mit `?dev=1` bleibt Ring Out für Tests erreichbar.
 
 ---
 

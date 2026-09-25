@@ -120,8 +120,9 @@ abschnitt('2. 1 VS 1 -> Unterauswahl -> derselbe Onlineweg; Zurueck setzt nichts
 // ══ 3. VORSCHAU: BUEHNE UND KOERPER ═══════════════════════════════════════════════════
 // Der Sandkasten traegt die echten Arenen, Aufstellungen, Praedikate, den Spawner, den
 // Vorspielweg, den Onlineeinstieg und die Buehnenfrage - der Renderer bleibt draussen.
-function bauen() {
+function bauen(ohneRingOut) {
   const src = [
+    ohneRingOut ? 'function ringoutSpielbar(){return false;}' : '',
     'let mode="bot", fmt="single", ffaN=3, gameStarted=false, balls=[], R=1000, outBall=-1, menuVisible=true, online=false;',
     'let menuSel="football", menuMode="bot", fmtMenu="single"; let coverShown=false; const spur=[];',
     g(/const FB_HUB_MODES=\[[\s\S]*?\];/, 'FB_HUB_MODES'), 'let fbHubSel=0;', fn('fbHubVariante'),
@@ -280,7 +281,7 @@ abschnitt('5. Kartenbilder: Renderer-Aufnahmen in einer Bildfamilie (700x438 Web
 // ══ 6. ARENA FOOTBALL IST DAS HAUPTSPIEL ══════════════════════════════════════════════
 abschnitt('6. Spielumschalter: Arena Football zuerst und voreingestellt, Ring Out vollstaendig');
 {
-  const hub = g(/   <div class="mhub">[\s\S]*?\n   <\/div>/, 'Spielumschalter');
+  const hub = g(/   <div class="mhub roHub">[\s\S]*?\n   <\/div>/, 'Spielumschalter');
   t('im Umschalter steht Arena Football VOR Ring Out', hub.indexOf('id="cardFootball"') >= 0 && hub.indexOf('id="cardRingout"') >= 0
     && hub.indexOf('id="cardFootball"') < hub.indexOf('id="cardRingout"'));
   t('die Football-Karte traegt die Auswahlmarkierung, die Ring-Out-Karte nicht', /<button class="gcard gfb on" id="cardFootball" type="button">/.test(hub)
@@ -325,6 +326,40 @@ abschnitt('6. Spielumschalter: Arena Football zuerst und voreingestellt, Ring Ou
   t('der Wiedereintritt baut den Modus aus dem Raum, nicht aus der Spielwahl', /mode=rjFb\?'football':ffa\?'ffa':'online';/.test(rejoin)
     && rejoin.indexOf('menuSel') < 0 && rejoin.indexOf('hubGame') < 0 && rejoin.indexOf('fbHubVariante') < 0);
   t('auch der Beitritt entscheidet aus der Raumkonfiguration', /if\(joinFb\)\{ mode='football'; fbVariant=fbVarianteFuerModus\(v\.mode\); \} else mode='ffa';/.test(HTML));
+}
+
+// ══ 7. RING OUT VORERST NICHT IM ANGEBOT (2026-09-25) ════════════════════════════════
+// Produktentscheidung: Arena Football ist das Hauptspiel, RINGOUT bleibt die Marke. Ring Out
+// verlaesst Startseite und Spielwahl; neue Ring-Out-Raeume entstehen nicht, bestehende Sitze
+// bleiben erreichbar. Der Code bleibt - EIN Schalter, mit ?dev=1 fuer die QA offen.
+abschnitt('7. Ring Out ist vorerst nicht im spielbaren Angebot');
+{
+  t('ein einziger Schalter traegt die Entscheidung (aus, ?dev=1 oeffnet ihn fuer die QA)',
+    /\nconst RINGOUT_SPIELBAR=false;\nfunction ringoutSpielbar\(\)\{return RINGOUT_SPIELBAR\|\|DEV_MENU;\}\nif\(!ringoutSpielbar\(\)\)document\.body\.classList\.add\('roAus'\);/.test(HTML));
+  t('die Spielwahl (Ueberschrift und beide Karten) verschwindet mit roAus', /body\.roAus \.roHub\{display:none!important\}/.test(HTML)
+    && /<div class="msec roHub"><span id="secHubT">/.test(HTML) && /<div class="mhub roHub">/.test(HTML));
+  t('der Slogan unter der Marke beschreibt Arena Football statt des Fallspiels',
+    /\.textContent=T\(ringoutSpielbar\(\)\?'tagline':'gFbS'\);/.test(HTML));
+  const S = bauen(true);
+  S.waehle(S.menuSel());
+  for (const m of ['ffa', 'triple', 'team', 'vs', 'bot']) {
+    S.waehle(m);
+    t('Auswahl "' + m + '" landet in Arena Football', S.menuSel() === 'football' && S.hubGame() === 'fb' && S.an('cardRingout') === false);
+  }
+  const cta = g(/\$\('ctaBtn'\)\.onclick=async\(\)=>\{[\s\S]*?\n\};/, 'ctaBtn');
+  t('der CTA beginnt ohne Ring Out keinen Ring-Out-Weg (die Sperre steht vor dem ersten)',
+    cta.indexOf("if(!ringoutSpielbar()){selectMenuMode('football');return;}") >= 0
+    && cta.indexOf("if(!ringoutSpielbar()){selectMenuMode('football');return;}") < cta.indexOf("if(menuSel==='bot')"));
+  const anlegen = fn('createRoom');
+  t('createRoom legt ohne Ring Out keinen Ring-Out-Raum an - vor jedem Netzweg',
+    /if\(!fbo&&typeof ringoutSpielbar==='function'&&!ringoutSpielbar\(\)\)\{setStatus\(T\('roAus'\)\);return;\}/.test(anlegen)
+    && anlegen.indexOf("T('roAus')") < anlegen.indexOf('newJoinOp()'));
+  const beitritt = fn('joinRoom');
+  const iEigen = beitritt.indexOf('await attemptRejoin(code);'), iSperre = beitritt.indexOf("setStatus(T('roAus'))");
+  t('joinRoom nimmt in Ring-Out-Raeumen niemanden NEU auf', iSperre > 0 && /if\(v\.game!==ROOM_GAME_FOOTBALL&&typeof ringoutSpielbar==='function'&&!ringoutSpielbar\(\)\)\{/.test(beitritt));
+  t('... wer dort schon sitzt, kehrt vorher zurueck (laufende Partien enden nicht)', iEigen > 0 && iEigen < iSperre);
+  t('... und die Sperre steht vor jedem Sitzanspruch', iSperre < beitritt.indexOf('claimSeat') || beitritt.indexOf('claimSeat') < 0);
+  for (const l of ['en', 'de', 'tr']) t('Meldung roAus in ' + l, typeof I18N[l].roAus === 'string' && /Ring Out/.test(I18N[l].roAus));
 }
 
 // ══ 3. TRAINING wartet auf die Szene ═══════════════════════════════════════════════════
