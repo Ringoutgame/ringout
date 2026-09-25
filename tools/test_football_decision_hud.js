@@ -504,8 +504,12 @@ abschnitt('8. Das HUD erklaert - es fangt nichts ab');
     /<div class="fbstate" id="fbState"[^>]*\stranslate="no"/.test(HTML));
   // Gezaehlt werden ELEMENTE, nicht Erwaehnungen: der Kommentar ueber der Zeile nennt das
   // Attribut ebenfalls. Genau ein Element traegt es, und die Seite selbst traegt es nicht.
-  t('... und zwar NUR sie - die Seite bleibt sonst uebersetzbar (keine globale Abschaltung)',
-    (HTML.match(/<[a-z]+[^>]*\stranslate="no"/g) || []).length === 1
+  // Seit 2026-09-25 zusaetzlich die Marke (Boot-Logo, RINGOUT) und der Titel ARENA FOOTBALL -
+  // Eigennamen, die eine Uebersetzung verfaelschte ("ERKLINGEN").
+  t('... und zwar NUR sie und die Marke - die Seite bleibt sonst uebersetzbar (keine globale Abschaltung)',
+    (HTML.match(/<[a-z]+[^>]*\stranslate="no"/g) || []).length === 4
+    && /<div class="boot-logo" translate="no">/.test(HTML) && /<h1 translate="no">Ring<em>Out<\/em><\/h1>/.test(HTML)
+    && /<div class="fbTitel" aria-hidden="true" translate="no">/.test(HTML)
     && !/<html[^>]*translate=/.test(HTML) && !/<body[^>]*translate=/.test(HTML)
     && HTML.indexOf('class="notranslate"') < 0);
   const anstrich = grabFunction(HTML, 'fbV9HudPaint');

@@ -102,7 +102,9 @@ abschnitt('2. 1 VS 1 -> Unterauswahl -> derselbe Onlineweg; Zurueck setzt nichts
   const oeffnen = fn('fbDuelOeffnen'), schliessen = fn('fbDuelSchliessen');
   t('Oeffnen und Schliessen setzen keinen Spielzustand (kein mode/fmt/fbVariant/fbOnlineMode/fbOnlineCap)', !/(mode|fmt|fbVariant|fbOnlineMode|fbOnlineCap)\s*=/.test(oeffnen + schliessen));
   const karte = fn('fbHubKarte');
-  t('der Kartenklick bleibt der eine Weg (direkt -> fbHubOeffnen)', /if\(d&&d\.direkt\)\{ vibrateMs\(VIBE_CONFIRM_MS\); fbHubOeffnen\(d\.key\); \}/.test(karte));
+  // Seit 2026-09-25 (Owner): die Karte waehlt NUR aus; den Weg geht der Spielen-Knopf.
+  t('der Kartenklick waehlt nur aus (kein fbHubOeffnen)', /selectFbMode\(i\);/.test(karte) && karte.indexOf('fbHubOeffnen') < 0);
+  t('... und der Spielen-Knopf geht den einen Weg der gewaehlten Karte', /const fbW=FB_HUB_MODES\[fbHubSel\];\n    if\(fbW&&fbW\.direkt\)\{fbHubOeffnen\(fbW\.key\);return;\}/.test(HTML));
   const M = new Function([
     g(/const FB_HUB_MODES=\[[\s\S]*?\];/, 'FB_HUB_MODES'), g(/const FB_HUB_DUEL=\[[\s\S]*?\];/, 'FB_HUB_DUEL'),
     'const spur=[]; const ov={show:false}; const knoepfe={};',
@@ -385,9 +387,9 @@ abschnitt('7. Ring Out ist vorerst nicht im spielbaren Angebot');
 // Echte Oberflaeche statt Bild: jeder sichtbare Knopf zeigt auf einen BESTEHENDEN Weg.
 abschnitt('8. Startseite nach der Vorlage: nur echte Wege');
 {
-  t('die Gestaltung gilt nur ohne Ring Out im Angebot (body.roAus)', /body\.roAus #menu,body\.roAus\.r3d #menu\{background:#162648 url\(assets\/hub\/fb_home_sky\.webp\)/.test(HTML)
+  t('die Gestaltung gilt nur ohne Ring Out im Angebot (body.roAus)', /body\.roAus #menu,body\.roAus\.r3d #menu\{background:#8dbbeb url\(assets\/hub\/fb_home_sky\.webp\)/.test(HTML)
     && /\.fbTitel,\.fbHeroImg,\.fbLeer,\.fbRejoin,#fbQuick \.mhint\{display:none\}/.test(HTML) && /\.fbPanel\{display:contents\}/.test(HTML));
-  t('Titel ARENA FOOTBALL unter der Marke RINGOUT', /<h1>Ring<em>Out<\/em><\/h1>\s*<!--[\s\S]*?-->\s*<div class="fbTitel" aria-hidden="true"><span class="fbT1">Arena<\/span><span class="fbT2">Football<\/span><\/div>/.test(HTML));
+  t('Titel ARENA FOOTBALL unter der Marke RINGOUT', /<h1 translate="no">Ring<em>Out<\/em><\/h1>\s*<!--[\s\S]*?-->\s*<div class="fbTitel" aria-hidden="true" translate="no"><span class="fbT1">Arena<\/span><span class="fbT2">Football<\/span><\/div>/.test(HTML));
   t('der Blickfang ist ein vorhandenes Spielbild, der Himmel liegt als Asset bei', /<div id="menuHero"><img class="fbHeroImg" src="assets\/hub\/modes\/football_elimination\.webp"/.test(HTML)
     && fs.existsSync(path.join(__dirname, '..', 'assets', 'hub', 'fb_home_sky.webp'))
     && /'assets\/hub\/fb_home_sky\.webp'/.test(fs.readFileSync(path.join(__dirname, 'build_hosting.js'), 'utf8')));   // wird auch ausgeliefert
@@ -410,6 +412,12 @@ abschnitt('8. Startseite nach der Vorlage: nur echte Wege');
   t('ein verworfener Raum nimmt die Rueckkehrleisten sofort mit (forgetRoom -> updHomeRejoin)',
     /\nfunction forgetRoom\(\)\{ try\{ localStorage\.removeItem\('ringout_room'\); \}catch\(e\)\{\} if\(typeof updHomeRejoin==='function'\)try\{updHomeRejoin\(\);\}catch\(e\)\{\} \}/.test(HTML)
     && /const f=\$\('fbHomeRejoin'\); if\(f\)\{ f\.classList\.toggle\('show',!!sr\);/.test(HTML));
+  // Owner-Feedback 2026-09-25: runder Spielen-Knopf, hochwertigere Schnellstart-Karten.
+  t('der Spielen-Knopf ist weich gerundet - keine Spitzen (clip-path) mehr', /body\.roAus \.mcta\{[^}]*clip-path:none;border-radius:999px;/.test(HTML));
+  t('Schnellstart-Karten tragen echte Spielbilder (dieselben Dateien wie die Moduskarten) statt CSS-Kugeln',
+    /id="fbQuick1v1" type="button"><span class="fbQbild" aria-hidden="true"><img src="assets\/hub\/modes\/football_classic\.webp"/.test(HTML)
+    && /id="fbQuickTeam" type="button"><span class="fbQbild" aria-hidden="true"><img src="assets\/hub\/modes\/football_team2v2\.webp"/.test(HTML)
+    && HTML.indexOf('fbQball') < 0);
   for (const l of ['en', 'de', 'tr']) t('Texte der Startseite in ' + l,
     ['fbPick', 'fbPubAll', 'fbLeerTipp', 'fbCreate', 'fbBrowse', 'fbQuickT', 'fbQuickH', 'fbQ1T', 'fbQ1S', 'fbQ2T', 'fbQ2S'].every(k => typeof I18N[l][k] === 'string' && I18N[l][k].length > 0));
 }

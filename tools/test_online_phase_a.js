@@ -823,8 +823,11 @@ const R = new Function(`
   ok((reg.match(/soon:true/g) || []).length === 0, 'keine Karte ist mehr gesperrt');
   ok(reg.indexOf('schritt:') < 0, 'keine Karte fuehrt mehr in einen Zwischenschirm');
   const karte = grab(/function fbHubKarte\(i\)\{[\s\S]*?\n\}/, 'fbHubKarte');
-  ok(/if\(d&&d\.direkt\)\{ vibrateMs\(VIBE_CONFIRM_MS\); fbHubOeffnen\(d\.key\); \}/.test(karte),
-     'der Klick auf eine aktive Karte oeffnet die Lobby - ein Klick, kein zweiter Knopf');
+  // Seit 2026-09-25 (Owner): die Karte waehlt nur aus, der Spielen-Knopf oeffnet die Lobby -
+  // kein versehentlicher Start beim Wischen durch das Karussell.
+  ok(/selectFbMode\(i\);/.test(karte) && karte.indexOf('fbHubOeffnen') < 0
+     && /const fbW=FB_HUB_MODES\[fbHubSel\];\n    if\(fbW&&fbW\.direkt\)\{fbHubOeffnen\(fbW\.key\);return;\}/.test(HTML),
+     'die Karte waehlt, der Spielen-Knopf oeffnet die Lobby der gewaehlten Karte');
   ok(/function fbHubOeffnen\(key\)\{\n  if\(key==='duel'\)fbDuelOeffnen\(\);\n  else if\(key==='training'\)fbTrainOeffnen\(\);\n  else if\(key==='tactical'\)fbTacticalOnlineOeffnen\(\);\n  else if\(key==='tactical4'\)fbTactical4OnlineOeffnen\(\);\n  else if\(key==='team2v2'\)fbTeam2OnlineOeffnen\(\);\n  else fbFfaOnlineOeffnen\(\);\n\}/.test(HTML),
      'der eine Weg je Karte kennt genau sechs Ziele: 1 VS 1 (Unterauswahl), TRAINING (lokale Unterauswahl), Tactical, Tactical 4-Ball, Team 2v2 und FFA');
   // VS BOTS ist der einzige Weg, der NICHT in einen Onlineraum fuehrt. Jeder Eintrag startet

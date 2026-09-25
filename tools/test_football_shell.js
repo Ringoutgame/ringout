@@ -2003,7 +2003,10 @@ const fbCssSrc = grab(/#game\.fb \.status\{[\s\S]*?\n\.arena-wrap\{/, 'Football-
   // URSACHE des englischen Textes: LANG faellt ohne gespeicherte Auswahl auf 'en' zurueck,
   // waehrend die gesamte In-Game-Ebene ('Runde N', 'zielt…', 'BLAU'/'ROT') hart Deutsch ist.
   // Der Untertitel folgt deshalb seinen Nachbarn statt der Menue-i18n.
-  ok(/return I18N\[l\]\?l:'en';/.test(HTML), 'LANG-Default ist unveraendert (globale Sprachlogik nicht angefasst)');
+  // Seit 2026-09-25 gilt ohne gespeicherte Wahl die Geraetesprache (sonst uebersetzte die
+  // Browser-Uebersetzung RINGOUT zu "ERKLINGEN"); Rueckfall bleibt Englisch.
+  ok(/return I18N\[l\]\?l:geraeteSprache\(\);/.test(HTML) && /function geraeteSprache\(\)\{[\s\S]*?return 'en';\}/.test(HTML),
+     'LANG-Default: gespeicherte Wahl, sonst Geraetesprache, sonst Englisch');
   ok(/:'Runde '\+roundNo;/.test(updateHudSrc), 'der Nachbartext im selben Feld ist unveraendert deutsch');
   for (const [lang, txt] of [['en', 'FIRST TO {n}'], ['de', 'ERSTER BIS {n}']]) {
     ok(HTML.includes("fbFirstTo:'" + txt + "'"), 'i18n ' + lang + ": '" + txt + "'");
