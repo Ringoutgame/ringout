@@ -413,9 +413,10 @@ abschnitt('8. Startseite nach der Vorlage: nur echte Wege');
     /\nfunction forgetRoom\(\)\{ try\{ localStorage\.removeItem\('ringout_room'\); \}catch\(e\)\{\} if\(typeof updHomeRejoin==='function'\)try\{updHomeRejoin\(\);\}catch\(e\)\{\} \}/.test(HTML)
     && /const f=\$\('fbHomeRejoin'\); if\(f\)\{ f\.classList\.toggle\('show',!!sr\);/.test(HTML));
   // Owner-Feedback 2026-09-25: runder Spielen-Knopf, hochwertigere Schnellstart-Karten.
-  t('der Spielen-Knopf ist weich gerundet - keine Spitzen (clip-path) mehr', /body\.roAus \.mcta\{[^}]*clip-path:none;border-radius:999px;/.test(HTML));
+  // Owner 2026-09-25: breites Rechteck mit sanft gerundeten Ecken - keine Spitzen, keine Pille.
+  t('der Spielen-Knopf ist ein breites Rechteck mit sanft gerundeten Ecken (keine Spitzen, keine Pille)', /body\.roAus \.mcta\{[^}]*clip-path:none;border-radius:14px;/.test(HTML) && !/body\.roAus \.mcta\{[^}]*border-radius:999px/.test(HTML));
   // Vorlagen 1+2 (2026-09-25): der Knopf ist zudem leicht durchscheinend (Goldglas), die Arena oben gross und scharf.
-  t('der Spielen-Knopf ist leicht durchscheinend (Goldglas mit Hintergrundunschaerfe)', /body\.roAus \.mcta\{[^}]*background:linear-gradient\(180deg,rgba\(255,238,184,\.88\)[^}]*backdrop-filter:blur\(8px\) saturate\(1\.2\);/.test(HTML));
+  t('der Spielen-Knopf ist leicht durchscheinend (Goldglas mit Hintergrundunschaerfe)', /body\.roAus \.mcta\{[^}]*background:linear-gradient\(180deg,rgba\(250,214,146,\.92\)[^}]*backdrop-filter:blur\(8px\) saturate\(1\.2\);/.test(HTML));
   t('die Arena oben steht gross und nur weich eingeblendet (keine ovale Unschaerfe mehr)', /body\.roAus \.fbHeroImg\{display:block;width:100%;height:auto;aspect-ratio:700\/390;/.test(HTML) && !/\.fbHeroImg\{[^}]*radial-gradient\(ellipse 50% 50%/.test(HTML));
   // Schnellstart (Vorlage 1): echte Spielkugel mit Lichtspur aus der vorhandenen Arena-Aufnahme,
   // Goldmedaillon, goldgerahmter Pfeil; keine CSS-Kugeln. Das Bild steht in der Auslieferungsliste.

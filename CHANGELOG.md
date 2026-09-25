@@ -6,6 +6,9 @@ Alle abgeschlossenen Änderungen am Projekt, neueste zuerst.
 
 ## [Unreleased]
 
+### Startseite: Spielen-Knopf rechteckig, wärmeres Gold
+- feat(ui): Der große Spielen-Knopf ist jetzt ein **breites Rechteck mit sanft gerundeten Ecken** (14 px statt Pillenform) in **dunklerem, wärmerem Gold mit leichtem Orange-Anteil**; Glanzkante, Tiefe, leichte Transparenz und dunkle Schrift bleiben. Sonst unverändert (Owner-Wunsch 2026-09-25). Bilder: `artifacts/fb-home-01/bilder/knopf-vorher-*` / `knopf-nachher-*` (untracked).
+
 ### Startseite: Vorlagen 1 + 2 vereint, Schnellstart und „Mehr folgt“ überarbeitet
 - feat(ui): **Oberer Bereich nach Vorlage 2** (2026-09-25): die Arena groß und scharf auf dem Wolkenmeer (nur oben/seitlich/unten weich eingeblendet, auf breiten Bildschirmen seitlich weiter), tiefblauer Himmel oben mit Sonne rechts und leichtem Goldschein hinter dem Titel (CSS-Ebenen über dem vorhandenen Himmel, kein neues Asset). Panels mit Goldakzenten an den Ecken; Leerbild „Offene Räume“ mit Arenaboden (vorhandenes Bild).
 - feat(ui): **Spielen-Knopf weich abgerundet und leicht durchscheinend** (Goldglas mit Hintergrundunschärfe, dunkle Schrift). Beschriftungen passen zum gewählten Modus: „Team 2v2 spielen“, „Gegen Bots spielen“ (vorher „TEAM 2V2“ / „TRAINING“; en/de/tr).
