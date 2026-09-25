@@ -334,8 +334,25 @@ abschnitt('6. Spielumschalter: Arena Football zuerst und voreingestellt, Ring Ou
 // bleiben erreichbar. Der Code bleibt - EIN Schalter, mit ?dev=1 fuer die QA offen.
 abschnitt('7. Ring Out ist vorerst nicht im spielbaren Angebot');
 {
-  t('ein einziger Schalter traegt die Entscheidung (aus, ?dev=1 oeffnet ihn fuer die QA)',
-    /\nconst RINGOUT_SPIELBAR=false;\nfunction ringoutSpielbar\(\)\{return RINGOUT_SPIELBAR\|\|DEV_MENU;\}\nif\(!ringoutSpielbar\(\)\)document\.body\.classList\.add\('roAus'\);/.test(HTML));
+  t('ein einziger Schalter traegt die Entscheidung - auch das oeffentliche ?dev=1 oeffnet ihn nicht',
+    /\nconst RINGOUT_SPIELBAR=false;\nfunction ringoutSpielbar\(\)\{return RINGOUT_SPIELBAR;\}\nif\(!ringoutSpielbar\(\)\)document\.body\.classList\.add\('roAus'\);/.test(HTML));
+  // Das Dev-Panel startet Ring-Out-Modi - ohne Ring Out im Angebot nicht.
+  const devStart = g(/\$\('startBtn'\)\.onclick=\(\)=>\{[\s\S]*?newGame\(\);\};/, 'startBtn');
+  t('der Dev-Start beginnt keine Ring-Out-Partie (Sperre vor openOnline/newGame)',
+    devStart.indexOf("if(mode!=='football'&&!ringoutSpielbar()){toast(T('roAus'));return;}") > 0
+    && devStart.indexOf('ringoutSpielbar()') < devStart.indexOf('openOnline()') && devStart.indexOf('ringoutSpielbar()') < devStart.indexOf('newGame()'));
+  t('der Dev-Knopf Online-FFA oeffnet keinen Ring-Out-Raumbildschirm',
+    /\$\('ffaOnline'\)\.onclick=\(\)=>\{SFX\.unlock\(\);if\(!ringoutSpielbar\(\)\)\{toast\(T\('roAus'\)\);return;\}fmt='ffa';openOnline\(\);\};/.test(HTML));
+  // Revanche: nach einer Ring-Out-Partie nicht, nach Arena Football wie bisher.
+  const erlaubt = new Function('mode', 'ringoutSpielbar', fn('rematchErlaubt') + '\nreturn rematchErlaubt();');
+  t('Revanche nach Arena Football erlaubt', erlaubt('football', () => false) === true);
+  for (const m of ['bot', 'pvp', 'ffa', 'online']) t('keine Revanche nach Ring Out (' + m + ')', erlaubt(m, () => false) === false);
+  t('mit eingeschaltetem Ring Out wieder erlaubt', erlaubt('ffa', () => true) === true);
+  const klick = g(/\$\('rematchBtn'\)\.onclick=\(\)=>\{[\s\S]*?\n\};/, 'rematchBtn');
+  t('der Revanche-Knopf prueft VOR dem Online- und dem lokalen Neustart',
+    klick.indexOf('if(!rematchErlaubt())') > 0 && klick.indexOf('if(!rematchErlaubt())') < klick.indexOf('onlineRematch()')
+    && klick.indexOf('if(!rematchErlaubt())') < klick.indexOf('newGame()'));
+  t('das Ergebnisfenster blendet die Revanche ohne Erlaubnis aus', /\|\|\(typeof rematchErlaubt==='function'&&!rematchErlaubt\(\)\)\)\?'none':'';/.test(HTML));
   t('die Spielwahl (Ueberschrift und beide Karten) verschwindet mit roAus', /body\.roAus \.roHub\{display:none!important\}/.test(HTML)
     && /<div class="msec roHub"><span id="secHubT">/.test(HTML) && /<div class="mhub roHub">/.test(HTML));
   t('der Slogan unter der Marke beschreibt Arena Football statt des Fallspiels',

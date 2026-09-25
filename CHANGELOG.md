@@ -6,6 +6,12 @@ Alle abgeschlossenen Änderungen am Projekt, neueste zuerst.
 
 ## [Unreleased]
 
+### Ring Out: öffentliches ?dev=1 und Revanche geschlossen
+- fix: **?dev=1 startet keine Ring-Out-Partie mehr** (2026-09-25). `ringoutSpielbar()` hängt nicht mehr an `DEV_MENU` — der Parameter ist öffentlich. Mit `?dev=1` bleibt die Spielwahl ausgeblendet; der Dev-Start (`startBtn`) beginnt keinen Ring-Out-Modus (Bot, 2 Spieler, FFA, Online) und „Online-FFA“ öffnet keinen Ring-Out-Raumbildschirm (Meldung `roAus`). Arena-Football-Dev-Wege (`?dev=1&fb=…`, Football-Online) unverändert.
+- fix: **Keine Revanche nach einer Ring-Out-Partie** (2026-09-25). `rematchErlaubt()` (Arena Football immer, Ring Out nur bei eingeschaltetem Schalter): das Ergebnisfenster blendet den Revanche-Knopf aus, und der Knopf selbst prüft vor `onlineRematch`/`newGame`. Replay und „Menü“ bleiben. Laufende Partien und „Wieder beitreten“ (`attemptRejoin`) unverändert.
+- QA: die Ring-Out-Prüfstände schalten Ring Out nur im eigenen Adapter frei (`artifacts/elitebot-01/ringout.js`); es gibt keinen öffentlichen URL-Weg mehr.
+- test: `tools/test_football_hub_preview.js` **128/0** (Abschnitt 7 erweitert, gegen die alte Fassung rot); `tools/test_football_tactical.js`: Zusicherung zum FFA-Onlineeinstieg an die gewollte Sperre angepasst. Browserbeleg: `artifacts/ro-aus-02/` (untracked).
+
 ### Ring Out vorerst aus dem spielbaren Angebot — Arena Football ist der Einstieg
 - feat: **Produktentscheidung 2026-09-25:** Ring Out (Kugeln fallen aus der Arena) ist vorerst nicht mehr spielbar anzubieten; **RINGOUT bleibt Name und Marke**. Ein Schalter `RINGOUT_SPIELBAR=false` (`ringoutSpielbar()`, mit `?dev=1` für die QA offen) trägt die Entscheidung; der Ring-Out-Code bleibt vollständig erhalten. (2026-09-25)
 - **Entfernt aus dem Angebot:** die Spielwahl „GAME HUB“ (Arena Football | Ring Out) auf der Startseite — die Seite beginnt jetzt direkt mit den Arena-Football-Modi; der Slogan unter der Marke lautet „GOALS · SKILLS · SPEED“ statt „PULL BACK · RELEASE · KNOCK THEM OUT“. `selectMenuMode` führt jede Ring-Out-Auswahl nach Arena Football, der CTA beginnt keinen Ring-Out-Weg.

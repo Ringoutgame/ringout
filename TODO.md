@@ -1,9 +1,12 @@
 # TODO.md — RingOut
 
-**Zuletzt aktualisiert:** 2026-09-25 (**RING OUT AUS DEM ANGEBOT**: Arena Football ist der Einstieg,
-Ring Out per Schalter RINGOUT_SPIELBAR ausgeblendet (Code erhalten, ?dev=1 fuer QA), keine neuen
-Ring-Out-Raeume, Rueckkehr auf eigene Sitze bleibt. Offen, niedrig: Revanche in einem bereits
-laufenden Ring-Out-Raum bleibt moeglich (bewusst unveraendert, Online-Protokoll); die
+**Zuletzt aktualisiert:** 2026-09-25 (**RING OUT: DEV + REVANCHE GESCHLOSSEN**: ?dev=1 oeffnet Ring Out
+nicht mehr (QA nur im Pruefstand-Adapter), nach einer Ring-Out-Partie keine Revanche. Offen, niedrig:
+Clients, die die alte Seite noch geoeffnet haben, koennen untereinander bis zum Neuladen weiter eine
+Revanche ausloesen (ohne Rules-Aenderung nicht serverseitig sperrbar); eine vor der Auslieferung
+schon gefuellte Ring-Out-Lobby kann ihr Wirt noch starten. Zuvor: **RING OUT AUS DEM ANGEBOT**: Arena Football ist der Einstieg,
+Ring Out per Schalter RINGOUT_SPIELBAR ausgeblendet (Code erhalten), keine neuen
+Ring-Out-Raeume, Rueckkehr auf eigene Sitze bleibt. Die
 Startseiten-Rueckkehrleiste ist roOnly - ein Ring-Out-Rueckkehrer findet "Wieder beitreten" im
 Onlinebildschirm. Zuvor: **RINGOUT ONLINE FEATURE PARITY IST LIVE**: Rules deployt,
 Pages-Deploy a936b51e, Zwei-Client-Produktionsnachweis 54/0, Football-Regression gruen, alle

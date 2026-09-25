@@ -2373,10 +2373,11 @@ const DEV_MENU=new URLSearchParams(location.search).get('dev')==='1';
 // Name und Marke. Der Ring-Out-Code bleibt vollstaendig erhalten: dieser EINE Schalter nimmt
 // Ring Out aus Startseite und Spielwahl und sperrt die Wege, die NEUE Ring-Out-Partien oder
 // -Raeume anlegen (createRoom, Neubeitritt in joinRoom). Wer in einem Ring-Out-Raum schon einen
-// Sitz hat, kommt weiterhin zurueck (attemptRejoin) - laufende Partien enden nicht. Mit ?dev=1
-// bleibt Ring Out fuer die Qualitaetssicherung erreichbar, wie andere nicht freigegebene Modi.
+// Sitz hat, kommt weiterhin zurueck (attemptRejoin) - laufende Partien enden nicht. Nach dem
+// Ende einer Ring-Out-Partie gibt es keine Revanche. Auch ?dev=1 oeffnet Ring Out NICHT: der
+// Parameter ist oeffentlich. Die QA-Pruefstaende schalten Ring Out in ihrem eigenen Adapter frei.
 const RINGOUT_SPIELBAR=false;
-function ringoutSpielbar(){return RINGOUT_SPIELBAR||DEV_MENU;}
+function ringoutSpielbar(){return RINGOUT_SPIELBAR;}
 if(!ringoutSpielbar())document.body.classList.add('roAus');
 // Prototyp-Zugang zur Football-Variante (?dev=1&fb=tactical). EINZIGE Stelle, die dafuer die
 // URL liest — der Football-Block selbst bleibt frei von Umgebungszugriffen und ist damit in
@@ -2406,7 +2407,7 @@ $('devFbOnlineBtn').onclick=()=>{
   if(TUNE){toast('Tuning aktiv — Online deaktiviert');return;}
   fbOnModeShow();
 };
-$('ffaOnline').onclick=()=>{SFX.unlock();fmt='ffa';openOnline();};
+$('ffaOnline').onclick=()=>{SFX.unlock();if(!ringoutSpielbar()){toast(T('roAus'));return;}fmt='ffa';openOnline();};
 // Public-Lobby: Sichtbarkeits-Auswahl beim Erstellen (Default privat).
 // ── Premium-Hauptmenue: 3 Karten (FFA-first), Hero-Preview, eine CTA ──
 // Karten setzen NUR die Menue-Auswahl; mode/fmt werden erst beim CTA-Tap gesetzt.
@@ -2934,6 +2935,9 @@ function T(k){return (I18N[LANG]&&I18N[LANG][k])||I18N.en[k]||k;}
 // Beschriftung des Result-Overlay-Primaerbuttons. Arena Football beendet ein MATCH
 // (First-to-3) und startet danach ein neues Match bei 0:0 — in allen anderen Modi bleibt
 // es das unveraenderte Rematch. Eine Quelle fuer applyLang() und gameOver().
+// Revanche nur, wo das Spiel im Angebot ist: nach einer Ring-Out-Partie (mode != football)
+// gibt es sie nicht, solange RINGOUT_SPIELBAR aus ist.
+function rematchErlaubt(){ return mode==='football'||ringoutSpielbar(); }
 function rematchLabel(){
   // v11: aus diesem Fenster geht es zurueck in die Lobby des Raums - dort erklaert
   // jeder seine Bereitschaft, und daraus entsteht das naechste Match. Ein "Rematch"
@@ -3423,7 +3427,10 @@ function updHomeRejoin(){
 $('howToggle').onclick=()=>{const p=$('howPanel'),b=$('howToggle'),open=p.style.display==='none';p.style.display=open?'':'none';b.setAttribute('aria-expanded',open?'true':'false');};
 // Public-Liste manuell auffrischen (Listener ist ohnehin live; Refresh startet ihn neu)
 $('pubRefresh').onclick=()=>{whenFB(()=>{if(fbReady())startPublicListing();});};
-$('startBtn').onclick=()=>{SFX.unlock();if(mode==='online'){openOnline();return;}online=false;showGame();newGame();};
+$('startBtn').onclick=()=>{SFX.unlock();
+  // Das Dev-Panel startet Ring-Out-Modi (Bot, 2 Spieler, FFA, Online) - ohne Ring Out im Angebot nicht.
+  if(mode!=='football'&&!ringoutSpielbar()){toast(T('roAus'));return;}
+  if(mode==='online'){openOnline();return;}online=false;showGame();newGame();};
 // During a running online match the header menu must never leave silently:
 // confirm first, then take the same clean leave path as a disconnect
 // (leaveOnline() removes own presence -> opponent gets the onOppLeft overlay).
@@ -3435,6 +3442,8 @@ $('sndBtn').onclick=()=>{soundOn=!soundOn;const g=soundOn?'🔊':'🔇';$('sndBt
 $('resetBtn').onclick=()=>{if(online){toast(T('noOnlineReset'));return;}newGame();};
 $('rematchBtn').onclick=()=>{
   if((typeof fbV11Raum==='function')&&fbV11Raum()){ fbV11ErgebnisVerlassen(); return; }
+  // Ring Out ist vorerst nicht im Angebot: nach einer Ring-Out-Partie keine Revanche.
+  if(!rematchErlaubt()){ $('rematchBtn').style.display='none'; toast(T('roAus')); return; }
   if(online){onlineRematch();return;}
   $('ov').classList.remove('show');newGame();
 };   // online: das Ergebnisfenster bleibt stehen, bis der Generationswechsel BESTAETIGT ist (startOnlineGame raeumt es ab) - wird er abgelehnt, sieht der Spieler weiter sein Ergebnis
@@ -11182,8 +11191,9 @@ function gameOver(winner){setPhase('over');setPhaseText();
   // C4B: Rematch nur anbieten, solange die Teilnehmerstruktur unveraendert ist.
   // v11: der Rueckweg in die Lobby steht IMMER offen - auch nach einem dauerhaften
   // Austritt, denn die naechste Generation hat ihre eigene Teilnehmerliste.
-  $('rematchBtn').style.display=((typeof fbOnlineRoom==='function')&&fbOnlineRoom()
-    &&!((typeof fbV11Raum==='function')&&fbV11Raum())&&fbPermanentExitHappened())?'none':'';
+  $('rematchBtn').style.display=(((typeof fbOnlineRoom==='function')&&fbOnlineRoom()
+    &&!((typeof fbV11Raum==='function')&&fbV11Raum())&&fbPermanentExitHappened())
+    ||(typeof rematchErlaubt==='function'&&!rematchErlaubt()))?'none':'';
   $('replayBtn').style.display=mode==='football'?'none':'';
   // Football: derselbe Primaerbutton startet ein NEUES MATCH bei 0:0 (newGame). Der Replay-
   // Pfad spult Runden ueber phase 'sim'/'result' zurueck — den kennt der Football-Torablauf

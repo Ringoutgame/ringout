@@ -521,8 +521,10 @@ console.log('ARENA FOOTBALL — Produktsuite: Classic 1v1 (Standard) + Tactical 
 
   // ── RINGOUT bleibt unberuehrt ──
   // Der Einstieg fasst weder den RingOut-Onlineweg noch die Menueauswahl an.
-  ok(/\$\('ffaOnline'\)\.onclick=\(\)=>\{SFX\.unlock\(\);fmt='ffa';openOnline\(\);\};/.test(HTML),
-     'der FFA-Onlineeinstieg ist unveraendert');
+  // Seit 2026-09-25 steht er hinter der Ring-Out-Sperre (RINGOUT_SPIELBAR) - der Weg dahinter
+  // ist derselbe geblieben.
+  ok(/\$\('ffaOnline'\)\.onclick=\(\)=>\{SFX\.unlock\(\);if\(!ringoutSpielbar\(\)\)\{toast\(T\('roAus'\)\);return;\}fmt='ffa';openOnline\(\);\};/.test(HTML),
+     'der FFA-Onlineeinstieg ist unveraendert (hinter der Ring-Out-Sperre)');
   ok(!/menuMode/.test(onlineHandler),
      'der Football-Einstieg laesst die Menueauswahl stehen - der Rueckweg findet sie wieder');
   ok((HTML.match(/function openOnline\(\)\{/g) || []).length === 1,
