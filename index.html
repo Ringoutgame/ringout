@@ -921,6 +921,141 @@ body.fbctx .proom .pr-game{color:#cfe0ef}
 .mcard.msoon .msub{color:#7d8ea8}
 .mcard.msoon.on{border-color:rgba(160,184,210,.5)}
 .mcta.msoon{filter:saturate(.3) brightness(.8)}
+/* ══ ARENA-FOOTBALL-STARTSEITE (Vorlage "arena football Menü", 2026-09-25) ═══════════════
+   Gilt nur, solange Ring Out nicht im Angebot ist (body.roAus). Himmel ueber den Wolken,
+   die Arena als Blickfang, ARENA FOOTBALL als Titel unter der Marke RINGOUT, Glas-Panels in
+   Blau und Gold. Alles ist echtes HTML - kein Bild mit hineingemalten Knoepfen. Der Himmel
+   (assets/hub/fb_home_sky.webp) ist aus der vorhandenen Elimination-Aufnahme abgeleitet
+   (artifacts/fb-home-01/himmel.js); die Arena ist dieselbe Aufnahme wie die FFA-Karte. */
+.fbTitel,.fbHeroImg,.fbLeer,.fbRejoin,#fbQuick .mhint{display:none}
+.fbPanel{display:contents}
+body.roAus #menu,body.roAus.r3d #menu{background:#162648 url(assets/hub/fb_home_sky.webp) center top/cover no-repeat}
+body.roAus #menuInner{padding-top:10px}
+/* Kopf: runde Glasknoepfe mit Goldrand (Ton, Einstellungen - dieselben Funktionen). */
+body.roAus .mico{width:46px;height:46px;font-size:18px;color:#f4f7fc;border:1.5px solid rgba(255,206,110,.7);
+  background:radial-gradient(circle at 50% 32%,rgba(34,50,82,.96),rgba(6,10,20,.96));
+  box-shadow:0 4px 14px rgba(0,0,0,.45),0 0 0 3px rgba(8,16,32,.45)}
+/* Marke oben klein, darunter der Titel: ARENA silbern, FOOTBALL golden. */
+body.roAus .logo{margin:4px 0 0;position:relative;z-index:1}
+body.roAus .logo h1{font-size:clamp(15px,4.2vw,20px);letter-spacing:.42em;margin-right:-.42em;text-shadow:0 2px 10px rgba(0,0,0,.6)}
+body.roAus .fbTitel{display:flex;flex-direction:column;align-items:center;margin-top:4px;line-height:.86;font-weight:900;
+  text-transform:uppercase;filter:drop-shadow(0 3px 0 rgba(12,22,44,.55)) drop-shadow(0 8px 16px rgba(0,0,0,.45))}
+body.roAus .fbT1,body.roAus .fbT2{display:block;-webkit-background-clip:text;background-clip:text;color:transparent}
+body.roAus .fbT1{font-size:clamp(38px,10.4vw,68px);letter-spacing:.07em;margin-right:-.07em;
+  background-image:linear-gradient(180deg,#ffffff 0%,#eef4fb 40%,#a9bdd6 52%,#dde7f3 78%,#ffffff 100%)}
+body.roAus .fbT2{font-size:clamp(44px,12.2vw,80px);letter-spacing:.02em;margin-right:-.02em;
+  background-image:linear-gradient(180deg,#fff7d4 0%,#ffe07a 26%,#f6b62f 50%,#c47d10 68%,#ffd35c 90%,#fff0b8 100%)}
+body.roAus .logo .orn{margin-top:12px}
+body.roAus .logo .sub{font-size:clamp(9.5px,2.6vw,12px);letter-spacing:.36em;margin-right:-.36em;color:#f6f8fc;margin-top:10px}
+/* Die Arena als Blickfang, mit weichem Rand in den Himmel geblendet. Ueber einer geladenen
+   3D-Szene bleibt dasselbe Bild stehen: die Startseite sieht immer gleich aus. */
+body.roAus #menuHero,body:not(.r3d).roAus #menuHero{height:auto;width:min(100%,640px);max-width:none;margin:-4px auto -34px;position:relative;z-index:0}
+body.roAus .fbHeroImg{display:block;width:100%;height:auto;aspect-ratio:700/330;object-fit:cover;object-position:50% 72%;
+  -webkit-mask-image:radial-gradient(ellipse 50% 50% at 50% 50%,#000 58%,transparent 100%);
+  mask-image:radial-gradient(ellipse 50% 50% at 50% 50%,#000 58%,transparent 100%)}
+/* Die Bereiche: drei Glas-Panels statt eines durchgehenden Blatts. */
+body.roAus .msheet{background:none;border:0;box-shadow:none;-webkit-backdrop-filter:none;backdrop-filter:none;
+  width:min(100% - 20px,660px);padding:0 0 calc(22px + env(safe-area-inset-bottom));position:relative;z-index:1}
+body.roAus .fbPanel{display:block;position:relative;margin-top:12px;border-radius:22px;padding:16px 14px 16px;
+  background:linear-gradient(180deg,rgba(15,28,56,.9) 0%,rgba(8,15,32,.94) 100%);
+  border:1px solid rgba(124,168,232,.42);
+  box-shadow:0 14px 34px rgba(3,8,20,.55),inset 0 1px 0 rgba(176,208,255,.2),inset 0 0 0 1px rgba(255,210,120,.05);
+  -webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}
+body.roAus .fbPanel:first-child{margin-top:0}
+body.roAus .fbPanel .msec{margin:0 2px 12px;gap:10px}
+body.roAus .fbPanel .msec>span{font-size:clamp(13px,3.7vw,17px);letter-spacing:.14em;color:#fff}
+body.roAus .fbPanel .msec .hr{flex:1 1 30px;max-width:150px;height:1.5px;background:linear-gradient(90deg,rgba(255,200,90,.9),rgba(255,200,90,.04))}
+body.roAus .fbPanel .msec>.mhint,body.roAus #fbQuick .msec>.mhint{display:block;margin-left:auto;font-size:clamp(7.5px,2.1vw,9.5px);letter-spacing:.14em;color:#a9c9ef;font-weight:800}
+/* Moduskarten: gewaehlte Karte golden umrandet, leuchtend und leicht groesser (nur transform -
+   das Raster bleibt stehen). */
+body.roAus .mcards{grid-template-columns:repeat(4,1fr);gap:10px;padding:6px 4px 8px}
+body.roAus .mcard,body.roAus .mcards .mcard{padding:0;gap:0}
+body.roAus .mcard{border-radius:16px;border:1.5px solid rgba(130,170,230,.38);background:#0a1426;
+  transition:transform .2s cubic-bezier(.22,1,.36,1),border-color .2s,box-shadow .2s}
+body.roAus .mstage{aspect-ratio:4/3.6}
+body.roAus .mcard .mt{font-size:clamp(14px,3.6vw,18px);letter-spacing:.03em}
+body.roAus .mcard .msub{font-size:clamp(7.5px,2vw,9px);color:#c3d7ee}
+body.roAus .mcard.on{border:2px solid #ffc940;transform:scale(1.045);z-index:2;
+  box-shadow:0 0 0 1px rgba(255,214,110,.35),0 0 26px rgba(255,186,50,.5),0 14px 30px rgba(0,0,0,.5)}
+body.roAus .mcard.on .msub{color:#ffd35c}
+body.roAus .mcard.on .mstage::before{background:linear-gradient(90deg,transparent,#ffc940,transparent)}
+body.roAus .mdots{display:flex;justify-content:center;gap:6px;margin-top:10px}
+body.roAus .mdot{width:22px;height:5px;border-radius:3px;background:rgba(150,180,220,.3)}
+body.roAus .mdot.on{width:30px;background:linear-gradient(90deg,#ffe38a,#f0a92e)}
+/* Der grosse goldene Spielen-Knopf - Beschriftung und Weg kommen unveraendert aus dem Modus. */
+body.roAus .mcta{width:100%;margin:14px 0 0;padding:17px 22px;gap:14px;font-size:clamp(18px,5.4vw,25px);letter-spacing:.12em;
+  color:#1c1203;text-shadow:0 1px 0 rgba(255,244,200,.6);border-radius:0;
+  clip-path:polygon(22px 0,calc(100% - 22px) 0,100% 50%,calc(100% - 22px) 100%,22px 100%,0 50%);
+  background:linear-gradient(180deg,#fff4c6 0%,#ffdb70 20%,#f7bd3c 50%,#dc951c 78%,#f9cf66 100%);
+  box-shadow:inset 0 2px 0 rgba(255,252,230,.85),inset 0 -3px 0 rgba(150,90,10,.35)}
+body.roAus .mctaIco{font-size:.85em;opacity:1}
+body.roAus .mfoot{display:none}
+/* Offene Raeume */
+body.roAus .fbRoomsAll{margin-left:auto;color:#a9c9ef;font-size:clamp(7.5px,2.1vw,9.5px);padding:4px 0}
+body.roAus .fbRoomsAll svg{color:#ffc940;width:13px;height:13px}
+body.roAus .fbLeer{display:block;border-radius:16px;padding:6px 12px 12px;text-align:center;
+  background:linear-gradient(180deg,rgba(10,22,48,.35),rgba(6,12,28,.8)),url(assets/hub/fb_home_sky.webp) center 22%/cover;
+  border:1px solid rgba(124,168,232,.3)}
+body.roAus .fbLeerBild{display:none}
+body.roAus #fbRooms.leer .fbLeerBild{display:block}
+body.roAus .fbLeerBild svg{display:block;width:min(100%,260px);height:auto;margin:4px auto 0}
+body.roAus #fbRoomsState{color:#f1f5fb;font-size:clamp(12px,3.4vw,15px);font-weight:600;padding:4px 0 2px}
+body.roAus .fbLeerTipp{display:none;color:#8fb6e6;font-size:clamp(10.5px,2.9vw,13px);font-weight:500}
+body.roAus #fbRooms.leer .fbLeerTipp{display:block}
+body.roAus #fbRoomsList:not(:empty){margin-bottom:10px}
+body.roAus .fbRaum{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px;margin-top:12px}
+body.roAus .fbRbtn{display:flex;align-items:center;justify-content:center;gap:8px;min-height:48px;padding:10px 10px;border-radius:12px;white-space:nowrap;
+  font:inherit;font-size:clamp(9.5px,2.6vw,13px);font-weight:800;letter-spacing:.06em;color:#f4f7fc;cursor:pointer;background:rgba(6,12,26,.7)}
+body.roAus .fbRbtn:active{transform:scale(.97)}
+body.roAus .fbRgold{border:1.5px solid #e2ae45;box-shadow:inset 0 0 12px rgba(255,190,60,.12)}
+body.roAus .fbRgold i{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;
+  font-style:normal;font-size:19px;font-weight:900;line-height:1;color:#1c1203;background:linear-gradient(180deg,#ffe38a,#e9a52b)}
+body.roAus .fbRblau{border:1.5px solid rgba(110,165,240,.65)}
+body.roAus .fbRblau svg{width:22px;height:22px;color:#6fb0ff}
+body.roAus .fbRbtn span{min-width:0;overflow:hidden;text-overflow:ellipsis}
+body.roAus .fbRblau b{font-size:18px;margin-left:2px;color:#dfe9f7}
+body.roAus .fbRejoin.show{display:flex;align-items:center;gap:10px;width:100%;margin:0 0 10px;padding:11px 14px;border-radius:12px;cursor:pointer;
+  font:inherit;font-size:12px;font-weight:800;letter-spacing:.1em;color:#1c1203;border:0;
+  background:linear-gradient(180deg,#ffe38a,#e9a52b)}
+body.roAus .fbRejoin svg{width:18px;height:18px}
+body.roAus .fbRejoin small{margin-left:auto;font-size:10px;letter-spacing:.08em;opacity:.8}
+/* Schnellstart: zwei echte Sofortstarts gegen Bots. */
+body.roAus .fbQgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+body.roAus .fbQ{position:relative;display:flex;align-items:center;gap:10px;min-height:78px;padding:12px 30px 12px 12px;overflow:hidden;
+  border-radius:14px;border:1px solid rgba(124,168,232,.5);cursor:pointer;font:inherit;color:#fff;text-align:left;
+  background:radial-gradient(ellipse 70% 120% at 90% 50%,rgba(70,120,210,.35),transparent 70%),linear-gradient(135deg,rgba(28,52,98,.95),rgba(9,17,36,.96))}
+body.roAus .fbQ:active{transform:scale(.98)}
+body.roAus .fbQi{position:relative;z-index:1;flex:0 0 auto}
+body.roAus .fbQi svg{display:block;width:32px;height:32px;color:#ffc940;filter:drop-shadow(0 0 6px rgba(255,190,60,.45))}
+body.roAus .fbQtx{position:relative;z-index:1;min-width:0}
+body.roAus .fbQtx b{display:block;font-size:clamp(12.5px,3.5vw,16px);font-weight:900;letter-spacing:.05em}
+body.roAus .fbQtx small{display:block;margin-top:4px;font-size:clamp(7.5px,2.1vw,9.5px);font-weight:800;letter-spacing:.1em;color:#a9c9ef;line-height:1.35}
+body.roAus .fbQball{position:absolute;right:-10px;bottom:-12px;width:52px;height:52px;border-radius:50%;opacity:.9}
+body.roAus .fbQblau{background:radial-gradient(circle at 34% 30%,#d6ecff 0,#4a95ff 20%,#0f44b8 58%,#04164a 100%);box-shadow:0 0 18px rgba(60,140,255,.6)}
+body.roAus .fbQrot{background:radial-gradient(circle at 34% 30%,#ffd9d2 0,#ff5a4a 20%,#b8120c 58%,#4a0402 100%);box-shadow:0 0 18px rgba(255,80,60,.55)}
+body.roAus .fbQcv{position:absolute;right:9px;top:50%;transform:translateY(-50%);font-size:22px;color:#fff;z-index:1}
+body.roAus #fbQuick .soon{margin-top:12px;border:1.5px dashed rgba(255,200,90,.6);background:rgba(8,14,30,.55);border-radius:14px}
+body.roAus #fbQuick .soon-t{color:#ffe7a8}
+body.roAus #fbQuick .soon-s{color:#8fb6e6}
+/* Handy: Karussell, die gewaehlte Karte in der Mitte, Nachbarn angeschnitten. */
+@media(max-width:559px){
+  body.roAus .mcards{display:flex;gap:9px;padding:10px 6px 12px;scroll-snap-type:x mandatory;scroll-padding:0}
+  body.roAus .mcard{flex:0 0 33%;scroll-snap-align:center}
+  body.roAus .mcard .mt{font-size:14px}
+  body.roAus .mcard .msub{font-size:7.5px;letter-spacing:.08em;margin-right:0}
+  body.roAus .mcap{padding:8px 5px 9px}
+  body.roAus .mbar::after{background:linear-gradient(90deg,rgba(8,15,32,0),rgba(8,15,32,.85))}
+  body.roAus .fbPanel{padding:14px 10px 14px;border-radius:20px}
+  body.roAus .fbQ{padding:10px 26px 10px 10px;gap:8px;min-height:74px}
+  body.roAus .fbQi svg{width:26px;height:26px}
+  body.roAus .fbQball{width:44px;height:44px;right:-12px;bottom:-14px;opacity:.75}
+  body.roAus .fbRbtn{gap:6px;padding:10px 6px;font-size:clamp(9px,2.45vw,12px);letter-spacing:.04em}
+  body.roAus .fbRgold i{width:20px;height:20px;font-size:16px}
+  body.roAus .fbRblau svg{width:16px;height:16px}
+  body.roAus .fbRblau b{display:none}
+  body.roAus .fbRbtn{letter-spacing:.02em}
+  body.roAus #menuHero{margin:-10px auto -30px}
+}
 </style>
 </head>
 <body class="booting">
@@ -941,12 +1076,15 @@ body.fbctx .proom .pr-game{color:#cfe0ef}
   </div>
   <div class="logo">
     <h1>Ring<em>Out</em></h1>
+    <!-- ARENA FOOTBALL als Titel der Startseite (nur ohne Ring Out im Angebot, body.roAus).
+         RINGOUT bleibt darueber als Marke stehen. -->
+    <div class="fbTitel" aria-hidden="true"><span class="fbT1">Arena</span><span class="fbT2">Football</span></div>
     <div class="orn"></div>
     <div class="sub">Zieh zurück · lass los · schieb ihn raus</div>
   </div>
   <!-- Hero-Fenster: Platzhalter — die echte 3D-Arena rendert dahinter (#cv3d);
        die Kugeln darauf zeigen den gewaehlten Modus (FFA 5 / 2v2 Teams / Bot 1v1) -->
-  <div id="menuHero"></div>
+  <div id="menuHero"><img class="fbHeroImg" src="assets/hub/modes/football_elimination.webp" alt="" width="700" height="438" decoding="async" fetchpriority="high"></div>
   <!-- Panel-Sheet: alle Home-Sektionen (PLAY / ONLINE ROOMS / HOW TO PLAY / Ausbau-Slot)
        in einem app-artigen Bottom-Sheet unter dem Arena-Hero -->
   <div class="msheet">
@@ -970,7 +1108,8 @@ body.fbctx .proom .pr-game{color:#cfe0ef}
       <span class="gcap"><span class="gn">Ring<em>Out</em></span><span class="gs" id="gRoS">PULL BACK · RELEASE</span><span class="gteam" aria-hidden="true"><i class="kg"></i></span></span>
     </button>
    </div>
-   <div class="msec"><span id="secPlayT">PLAY</span><i class="hr"></i></div>
+   <div class="fbPanel fbPanelModi">
+   <div class="msec"><span id="secPlayT">PLAY</span><i class="hr"></i><span class="mhint fbOnly" id="fbPickT">CHOOSE YOUR MODE</span></div>
    <div class="mbar">
     <button class="marrow marrow-l" id="modePrev" type="button" aria-label="Previous mode" tabindex="-1">‹</button>
     <div class="mcards" id="roCards">
@@ -1032,6 +1171,7 @@ body.fbctx .proom .pr-game{color:#cfe0ef}
    <div class="mdots" id="modeDots" aria-hidden="true"></div>
    <button class="mcta" id="ctaBtn"><span class="mctaIco" aria-hidden="true">▶</span><span id="ctaBtnT">PLAY ONLINE FFA</span></button>
    <div class="mfoot" id="ctaInfo">2–5 PLAYERS · HOST STARTS</div>
+   </div><!-- /.fbPanelModi -->
    <!-- Schnellaktionen: nur echte Funktionen — CREATE ROOM + JOIN CODE fuehren beide
         in den bestehenden openOnline-Flow (Erstellen bzw. Code-Beitreten). Kein Fake. -->
    <div class="msec roOnly"><span id="secMultiT">MULTIPLAYER</span><i class="hr"></i></div>
@@ -1054,10 +1194,32 @@ body.fbctx .proom .pr-game{color:#cfe0ef}
         soll einen offenen Raum sehen, ohne vorher die Karte des richtigen Modus zu
         oeffnen. Gespeist wird der Abschnitt aus DERSELBEN Quelle wie die Liste der
         Online-Seite und die RingOut-Vorschau - ein Listener, drei Ziele. -->
-   <div id="fbRooms" class="fbOnly">
-    <div class="msec"><span id="secFbRoomsT">OPEN ROOMS</span><i class="hr"></i></div>
+   <div id="fbRooms" class="fbOnly fbPanel">
+    <div class="msec"><span id="secFbRoomsT">OPEN ROOMS</span><i class="hr"></i><button class="mlink fbRoomsAll" id="fbRoomsAll" type="button"><span id="fbRoomsAllT">PUBLIC GAMES</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></button></div>
+    <!-- Wiedereintritt: nur mit einem wirklich gemerkten Raum. Er oeffnet den Onlinebildschirm,
+         auf dem der echte Wiedereintrittsknopf steht (attemptRejoin) - fuer beide Spiele. -->
+    <button class="fbRejoin" id="fbHomeRejoin" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1"/><path d="M3.5 4v4.5H8"/></svg><span id="fbHomeRejoinT">REJOIN</span><small id="fbHomeRejoinS"></small></button>
     <div id="fbRoomsList"></div>
+    <!-- Leerzustand: Bild + Hinweis erscheinen nur, wenn die Liste wirklich leer ist (#fbRooms.leer). -->
+    <div class="fbLeer">
+    <div class="fbLeerBild" aria-hidden="true"><svg viewBox="0 0 240 70" fill="none"><ellipse cx="120" cy="44" rx="62" ry="15" stroke="rgba(150,200,255,.75)" stroke-width="2"/><ellipse cx="120" cy="44" rx="44" ry="9" stroke="rgba(150,200,255,.4)" stroke-width="1.4"/><circle cx="120" cy="37" r="6" fill="#0b0f18" stroke="rgba(200,225,255,.6)"/><g stroke="rgba(220,235,255,.8)" stroke-width="2" stroke-linecap="round"><circle cx="34" cy="26" r="7"/><path d="M21 48c0-8 6-12 13-12s13 4 13 12"/><circle cx="206" cy="26" r="7"/><path d="M193 48c0-8 6-12 13-12s13 4 13 12"/></g></svg></div>
     <div id="fbRoomsState" class="mstate"></div>
+    <div class="fbLeerTipp" id="fbLeerTipp">Create a room yourself or play another mode.</div>
+    </div>
+    <div class="fbRaum">
+     <button class="fbRbtn fbRgold" id="fbHomeCreate" type="button"><i aria-hidden="true">+</i><span id="fbHomeCreateT">CREATE ROOM</span></button>
+     <button class="fbRbtn fbRblau" id="fbHomeBrowse" type="button"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3"/><path d="M3.5 19c0-3.3 2.5-5.2 5.5-5.2s5.5 1.9 5.5 5.2"/><circle cx="17" cy="9" r="2.4"/><path d="M15.5 13.9c3 .1 5 1.8 5 4.6"/></svg><span id="fbHomeBrowseT">BROWSE ROOMS</span><b aria-hidden="true">›</b></button>
+    </div>
+   </div>
+   <!-- SCHNELLSTART: zwei ECHTE Sofortstarts gegen Bots (dieselben wie in VS BOTS). Ein
+        eigenstaendiges Training oder Bot-Stufen gibt es nicht - deshalb auch keine Knoepfe dafuer. -->
+   <div id="fbQuick" class="fbOnly fbPanel">
+    <div class="msec"><span id="fbQuickT">QUICK START</span><i class="hr"></i><span class="mhint" id="fbQuickH">VS BOTS · INSTANT</span></div>
+    <div class="fbQgrid">
+     <button class="fbQ" id="fbQuick1v1" type="button"><span class="fbQi" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="1" fill="currentColor"/></svg></span><span class="fbQtx"><b id="fbQ1T">1 VS 1</b><small id="fbQ1S">VS THE ELITE BOT</small></span><i class="fbQball fbQblau" aria-hidden="true"></i><span class="fbQcv" aria-hidden="true">›</span></button>
+     <button class="fbQ" id="fbQuickTeam" type="button"><span class="fbQi" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4h10v4a5 5 0 0 1-10 0z"/><path d="M7 6H4v1.5A3 3 0 0 0 7 10.5M17 6h3v1.5a3 3 0 0 1-3 3"/><path d="M12 13v4M8.5 20h7M9.5 17h5"/></svg></span><span class="fbQtx"><b id="fbQ2T">TEAM 2V2</b><small id="fbQ2S">YOU + BOT VS 2 BOTS</small></span><i class="fbQball fbQrot" aria-hidden="true"></i><span class="fbQcv" aria-hidden="true">›</span></button>
+    </div>
+    <div class="soon"><span class="soon-t" id="soonT">MORE COMING SOON</span><span class="soon-s" id="soonS">New modes and features are in the works.</span></div>
    </div>
 
    <!-- HOW TO PLAY: kompakte Zeile; klappt die bestehenden 3 Schritte auf/zu -->
@@ -1071,8 +1233,7 @@ body.fbctx .proom .pr-game{color:#cfe0ef}
     <div class="hstep"><span class="hico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="8.5" cy="15.5" r="3.2"/><path d="M11.1 12.9l6.7-6.7"/><path d="M14.4 6H18v3.6"/></svg></span><div class="hst how2T">2. RELEASE</div><div class="hss how2S">Let go to launch your marble.</div></div>
     <div class="hstep"><span class="hico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="14.5" r="3.4"/><circle cx="16.8" cy="8.8" r="2.6"/><path d="M12.1 12.2l1.5-1.3"/><path d="M20 5.6l1.7-1.7"/></svg></span><div class="hst how3T">3. KNOCK OUT</div><div class="hss how3S">Push your opponents off the arena.</div></div>
    </div>
-   <!-- Ausbau-Slot: ehrlicher Platzhalter fuer kuenftige Modi/Features -->
-   <div class="soon"><span class="soon-t" id="soonT">MORE COMING SOON</span><span class="soon-s" id="soonS">New modes and features are in the works.</span></div>
+   <!-- Ausbau-Slot: steht jetzt im Schnellstart-Panel (#fbQuick) -->
 
   <!-- Dev-/Test-Panel (?dev=1): Legacy-Modi bleiben als Test-/Regressionsbasis vollstaendig
        erhalten (Hotseat-2-Spieler, FFA lokal inkl. Spieleranzahl, Bot-Stufen, Format, Runden). -->
@@ -1967,7 +2128,8 @@ function findOwnSeat(players,pid,uid,hintSeat){
   return -1;
 }
 function rememberRoom(code,seat){ try{ localStorage.setItem('ringout_room',JSON.stringify({code:code,seat:seat,ts:Date.now()})); }catch(e){} }
-function forgetRoom(){ try{ localStorage.removeItem('ringout_room'); }catch(e){} }
+// Die Rueckkehrleisten der Startseite folgen sofort - sonst boete sie einen verworfenen Raum an.
+function forgetRoom(){ try{ localStorage.removeItem('ringout_room'); }catch(e){} if(typeof updHomeRejoin==='function')try{updHomeRejoin();}catch(e){} }
 function savedRoom(){
   let raw=''; try{ raw=localStorage.getItem('ringout_room')||''; }catch(e){ return null; }
   if(!raw)return null;
@@ -2553,7 +2715,9 @@ function selectFbMode(i){
   const card=$(FB_HUB_MODES[fbHubSel].card),row=card&&card.parentElement;
   if(row&&row.scrollWidth>row.clientWidth+4){
     const cr=card.getBoundingClientRect(),rr=row.getBoundingClientRect();
-    row.scrollBy({left:cr.left-rr.left-2,behavior:'smooth'});
+    // Startseite ohne Ring Out: die gewaehlte Karte steht mittig im Karussell (Vorlage).
+    const mitte=document.body.classList.contains('roAus');
+    row.scrollBy({left:cr.left-rr.left-(mitte?(rr.width-cr.width)/2:2),behavior:'smooth'});
   }
 }
 function selectMenuMode(m){
@@ -2657,6 +2821,8 @@ en:{tagline:'PULL BACK · RELEASE · KNOCK THEM OUT',chip:'FEATURED',
   // die freigegebene Flaeche - Lives FFA mit 3 bis 5 Spielern, sonst nichts.
   secHub:'GAME HUB',secRoModes:'RING OUT MODES',secFbModes:'ARENA FOOTBALL MODES',
   secMulti:'MULTIPLAYER',rejoinHome:'REJOIN MATCH',rejoinRoom:'Room {code} is still open',
+  fbPick:'CHOOSE YOUR MODE',fbPubAll:'PUBLIC GAMES',fbLeerTipp:'Create a room yourself or play another mode.',fbCreate:'CREATE ROOM',fbBrowse:'BROWSE ROOMS',
+  fbQuickT:'QUICK START',fbQuickH:'VS BOTS · INSTANT',fbQ1T:'1 VS 1',fbQ1S:'VS THE ELITE BOT',fbQ2T:'TEAM 2V2',fbQ2S:'YOU + BOT VS 2 BOTS',
   // Kurze Unterzeilen der Hub-Karten: eine Zeile, kein Regeltext.
   mcTriple:'3 PLAYERS · 2 BALLS',mcVs:'2 PLAYERS · 2 BALLS',
   // ARENA FOOTBALL: vier Kategorien plus die Unterschritte des Navigationsschirms.
@@ -2763,6 +2929,8 @@ de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'FEATURED',
   scrollHint:'SCROLLEN FÜR MEHR',soonT:'BALD MEHR',soonS:'Neue Modi und Features sind in Arbeit.',
   secHub:'GAME HUB',secRoModes:'RING OUT MODI',secFbModes:'ARENA FOOTBALL MODI',
   secMulti:'MEHRSPIELER',rejoinHome:'ZURÜCK INS MATCH',rejoinRoom:'Raum {code} steht noch offen',
+  fbPick:'WÄHLE DEINEN MODUS',fbPubAll:'ÖFFENTLICHE SPIELE',fbLeerTipp:'Erstelle selbst einen Raum oder spiele einen anderen Modus.',fbCreate:'RAUM ERSTELLEN',fbBrowse:'RÄUME DURCHSUCHEN',
+  fbQuickT:'SCHNELLSTART',fbQuickH:'SOFORT GEGEN BOTS',fbQ1T:'1 GEGEN 1',fbQ1S:'GEGEN DEN ELITE BOT',fbQ2T:'TEAM 2V2',fbQ2S:'DU + BOT GEGEN 2 BOTS',
   mcTriple:'3 SPIELER · 2 KUGELN',mcVs:'2 SPIELER · 2 KUGELN',
   catFb1v1:'1 GEGEN 1',catFb2v2:'TEAM 2V2',catFbFfa:'FFA',catFbBot:'GEGEN BOTS',fbDuelT:'1 GEGEN 1 · SPIELART WÄHLEN',
   fbTrainT:'GEGEN BOTS · MODUS WÄHLEN',fbBotName:'ELITE BOT',
@@ -2869,6 +3037,8 @@ tr:{tagline:'GERİ ÇEK · BIRAK · DIŞARI İT',chip:'FEATURED',
   scrollHint:'KAYDIR VE KEŞFET',soonT:'ÇOK YAKINDA DAHA FAZLASI',soonS:'Yeni modlar ve özellikler yolda.',
   secHub:'OYUN MERKEZİ',secRoModes:'RING OUT MODLARI',secFbModes:'ARENA FOOTBALL MODLARI',
   secMulti:'ÇOK OYUNCULU',rejoinHome:'MAÇA GERİ DÖN',rejoinRoom:'{code} odası hâlâ açık',
+  fbPick:'MODUNU SEÇ',fbPubAll:'AÇIK OYUNLAR',fbLeerTipp:'Kendin bir oda oluştur ya da başka bir mod oyna.',fbCreate:'ODA OLUŞTUR',fbBrowse:'ODALARA GÖZ AT',
+  fbQuickT:'HIZLI BAŞLAT',fbQuickH:'HEMEN BOTLARA KARŞI',fbQ1T:'1’E 1',fbQ1S:'ELİT BOTA KARŞI',fbQ2T:'TAKIM 2V2',fbQ2S:'SEN + BOT, 2 BOTA KARŞI',
   mcTriple:'3 OYUNCU · 2 TOP',mcVs:'2 OYUNCU · 2 TOP',
   catFb1v1:'BİRE BİR',catFb2v2:'TEAM 2V2',catFbFfa:'FFA',catFbBot:'BOTLARA KARŞI',fbDuelT:'BİRE BİR · OYUN TÜRÜNÜ SEÇ',
   fbTrainT:'BOTLARA KARŞI · MOD SEÇ',fbBotName:'ELITE BOT',
@@ -2963,6 +3133,10 @@ function applyLang(){
   // Home-Sektionen + Online-Rooms-Vorschau + How-to (Klassen: Home UND Online-Seite)
   $('secPlayT').textContent=T('secPlay');$('secRoomsT').textContent=T('secRooms');
   $('secFbRoomsT').textContent=T('pubTitle');
+  // Arena-Football-Startseite (Vorlage 2026-09-25): Panel-Kopfzeilen, Raumknoepfe, Schnellstart.
+  for(const [id,k] of [['fbPickT','fbPick'],['fbRoomsAllT','fbPubAll'],['fbLeerTipp','fbLeerTipp'],['fbHomeCreateT','fbCreate'],
+    ['fbHomeBrowseT','fbBrowse'],['fbQuickT','fbQuickT'],['fbQuickH','fbQuickH'],['fbQ1T','fbQ1T'],['fbQ1S','fbQ1S'],
+    ['fbQ2T','fbQ2T'],['fbQ2S','fbQ2S'],['fbHomeRejoinT','rejoinHome']]){const e=$(id);if(e)e.textContent=T(k);}
   $('secHowT').textContent=T('secHow');$('onHowLbl').textContent=T('secHow');
   $('viewAllT').textContent=T('viewAll');$('homeCreateT').textContent=T('createRoom');
   $('homeJoinT').textContent=T('joinCodeBtn');$('howLeadT').textContent=T('howLead');
@@ -3422,7 +3596,36 @@ function updHomeRejoin(){
   let sr=null; try{ sr=savedRoom(); }catch(e){}
   b.classList.toggle('show',!!sr);
   if(sr)$('homeRejoinS').textContent=T('rejoinRoom').replace('{code}',sr.code);
+  // Dieselbe Leiste auf der Arena-Football-Startseite (offene Raeume).
+  const f=$('fbHomeRejoin'); if(f){ f.classList.toggle('show',!!sr); if(sr)$('fbHomeRejoinS').textContent=sr.code; }
 }
+// ── ARENA-FOOTBALL-STARTSEITE: Schnellzugriffe ─────────────────────────────────────
+// Jeder Knopf fuehrt in einen BESTEHENDEN Weg - kein zweiter Ablauf, keine neue Netzlogik.
+// RAUM ERSTELLEN / RAEUME DURCHSUCHEN oeffnen den Onlinebildschirm (dort stehen Name, Anlegen,
+// Code-Beitritt und die Raumliste - wie frueher CREATE ROOM / VIEW ALL der Startseite). Der
+// Bildschirm gehoert dem gewaehlten Onlinemodus; VS BOTS ist lokal, dort gilt FFA.
+function fbHomeOnlineOeffnen(){
+  const d=FB_HUB_MODES[fbHubSel]; const k=d?d.key:'ffa';
+  if(k==='duel'){fbDuelOeffnen();return;}          // erst die Spielart (Tactical / 4-Ball)
+  if(k==='team2v2'){fbTeam2OnlineOeffnen();return;}
+  fbFfaOnlineOeffnen();
+}
+$('fbHomeCreate').onclick=()=>{SFX.unlock();if(SFX.click())vibrateMs(VIBE_CLICK_MS);fbHomeOnlineOeffnen();};
+const fbHomeRaeume=async()=>{SFX.unlock();if(SFX.click())vibrateMs(VIBE_CLICK_MS);
+  await fbFfaOnlineOeffnen();   // die Liste zeigt ALLE Arena-Football-Raeume (sie filtert nach dem Spiel)
+  try{const p=$('onPublic');if(p&&$('online').classList.contains('show'))p.scrollIntoView({block:'start',behavior:'smooth'});}catch(e){}};
+$('fbHomeBrowse').onclick=fbHomeRaeume;
+$('fbRoomsAll').onclick=fbHomeRaeume;
+// Wiedereintritt: der Onlinebildschirm zeigt die echte Rueckkehrleiste (attemptRejoin).
+$('fbHomeRejoin').onclick=()=>{SFX.unlock();fbFfaOnlineOeffnen();};
+// SCHNELLSTART: dieselben Starts wie VS BOTS -> 1 VS 1 bzw. TEAM 2V2 - mit gesicherter Szene.
+async function fbHomeSchnellstart(key){
+  SFX.unlock();if(SFX.click())vibrateMs(VIBE_CONFIRM_MS);
+  if(!(await r3dSichern(true))){toast(T('fbNo3d'));return;}
+  startFootball(fbBotVariante(key),FOOTBALL_RULES_FIRST3,true);
+}
+$('fbQuick1v1').onclick=()=>fbHomeSchnellstart('elitebot');
+$('fbQuickTeam').onclick=()=>fbHomeSchnellstart('team2v2');
 // HOW TO PLAY: kompakte Zeile klappt die bestehenden 3 Schritte auf/zu.
 $('howToggle').onclick=()=>{const p=$('howPanel'),b=$('howToggle'),open=p.style.display==='none';p.style.display=open?'':'none';b.setAttribute('aria-expanded',open?'true':'false');};
 // Public-Liste manuell auffrischen (Listener ist ohnehin live; Refresh startet ihn neu)
@@ -11573,7 +11776,8 @@ function publicRoomUnwatch(){
 }
 // Zwei Render-Ziele, EIN Listener: die volle Liste auf der Online-Seite und die
 // Home-Vorschau (max. 3 Zeilen) auf der Startseite werden immer gemeinsam bedient.
-function setPublicState(msg){ for(const id of ['onPublicState','homeRoomsState','fbRoomsState']){ const el=$(id); if(el)el.textContent=msg||''; } }
+function setPublicState(msg){ for(const id of ['onPublicState','homeRoomsState','fbRoomsState']){ const el=$(id); if(el)el.textContent=msg||''; }
+  const fr=$('fbRooms'); if(fr)fr.classList.toggle('leer',!!msg&&msg===T('pubEmpty')); }   // Leerzustand der Startseite (Bild + Hinweis)
 function clearPublicRows(){ for(const id of ['onPublicList','homeRoomsList','fbRoomsList']){ const el=$(id); if(el)el.textContent=''; } }
 function startPublicListing(){
   if(!fbReady())return;
@@ -11704,6 +11908,7 @@ function renderPublicRows(shown){
   const st=$('onPublicState'); if(st)st.textContent=fuerListe.length?'':T('pubEmpty');
   const hs=$('homeRoomsState'); if(hs)hs.textContent=fuerHome.length?'':T('pubEmpty');
   const fs=$('fbRoomsState'); if(fs)fs.textContent=fuerFb.length?'':T('pubEmpty');
+  const fr=$('fbRooms'); if(fr)fr.classList.toggle('leer',!fuerFb.length);   // Bild + Hinweis des Leerzustands
 }
 // Public join: hand ONLY the room code to the existing joinRoom() path — no second
 // join implementation. The room is re-read and validated there, the seat arbiter is

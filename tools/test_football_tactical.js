@@ -355,7 +355,10 @@ console.log('ARENA FOOTBALL — Produktsuite: Classic 1v1 (Standard) + Tactical 
   // ist seit 2026-09-22 fort - dort erklaert der Kommentar jetzt die Hero-Vorschau.
   // Seit dem Elite Bot kommt EIN Aufruf hinzu: TRAINING -> VS ELITE BOT startet ein lokales
   // Classic-Match ueber denselben startFootball() - kein zweiter Startpfad.
-  ok((HTML.match(/startFootball\(/g) || []).length === 9,
+  // Seit 2026-09-25 ruft auch der SCHNELLSTART der Startseite (fbHomeSchnellstart) genau
+  // diesen startFootball() auf - wieder kein zweiter Startpfad, nur ein weiterer Einstieg.
+  ok((HTML.match(/startFootball\(/g) || []).length === 10
+     && /function fbHomeSchnellstart\(key\)\{[\s\S]*?startFootball\(fbBotVariante\(key\),FOOTBALL_RULES_FIRST3,true\);/.test(HTML),
      'kein zweiter Startpfad neben startFootball() (erhalten: ' + (HTML.match(/startFootball\(/g) || []).length + ')');
   const onlineHandler = grab(/\$\('fbOnlineBtn'\)\.onclick=async\(\)=>\{[\s\S]*?\n\};/, 'fbOnlineBtn-Handler');
   ok(!/startFootball/.test(onlineHandler), 'ONLINE startet kein lokales Match');

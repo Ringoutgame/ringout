@@ -198,7 +198,7 @@ t('remove: created NaN', view({ created: NaN }).remove === true);
   t('view: v10 arena row carries game=football', publicListingView(listRoom({ v: 10, config: fbCfg }), NOW).game === 'football');
   // 01B: die Arena-Startseite ist das dritte Ziel derselben Quelle.
   t('die Arena-Startseite hat einen Abschnitt fuer offene Raeume',
-    /id="fbRooms" class="fbOnly"/.test(H) && /id="fbRoomsList"/.test(H) && /id="fbRoomsState"/.test(H));
+    /id="fbRooms" class="fbOnly( fbPanel)?"/.test(H) && /id="fbRoomsList"/.test(H) && /id="fbRoomsState"/.test(H));
   t('er traegt die vorhandene Ueberschrift, keine zweite Zeichenkette',
     /\$\('secFbRoomsT'\)\.textContent=T\('pubTitle'\);/.test(H));
   t('er ist nur im Arena-Kontext sichtbar',

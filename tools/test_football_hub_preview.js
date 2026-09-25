@@ -1,3 +1,5 @@
+const fs = require('fs');
+const path = require('path');
 // ARENA FOOTBALL - MODUSMENUE + RAUMVORSCHAU (UX-Fix, 2026-09-22).
 //
 // Drei Dinge werden festgehalten:
@@ -377,6 +379,38 @@ abschnitt('7. Ring Out ist vorerst nicht im spielbaren Angebot');
   t('... wer dort schon sitzt, kehrt vorher zurueck (laufende Partien enden nicht)', iEigen > 0 && iEigen < iSperre);
   t('... und die Sperre steht vor jedem Sitzanspruch', iSperre < beitritt.indexOf('claimSeat') || beitritt.indexOf('claimSeat') < 0);
   for (const l of ['en', 'de', 'tr']) t('Meldung roAus in ' + l, typeof I18N[l].roAus === 'string' && /Ring Out/.test(I18N[l].roAus));
+}
+
+// ══ 8. ARENA-FOOTBALL-STARTSEITE NACH DER VORLAGE (2026-09-25) ═══════════════════════
+// Echte Oberflaeche statt Bild: jeder sichtbare Knopf zeigt auf einen BESTEHENDEN Weg.
+abschnitt('8. Startseite nach der Vorlage: nur echte Wege');
+{
+  t('die Gestaltung gilt nur ohne Ring Out im Angebot (body.roAus)', /body\.roAus #menu,body\.roAus\.r3d #menu\{background:#162648 url\(assets\/hub\/fb_home_sky\.webp\)/.test(HTML)
+    && /\.fbTitel,\.fbHeroImg,\.fbLeer,\.fbRejoin,#fbQuick \.mhint\{display:none\}/.test(HTML) && /\.fbPanel\{display:contents\}/.test(HTML));
+  t('Titel ARENA FOOTBALL unter der Marke RINGOUT', /<h1>Ring<em>Out<\/em><\/h1>\s*<!--[\s\S]*?-->\s*<div class="fbTitel" aria-hidden="true"><span class="fbT1">Arena<\/span><span class="fbT2">Football<\/span><\/div>/.test(HTML));
+  t('der Blickfang ist ein vorhandenes Spielbild, der Himmel liegt als Asset bei', /<div id="menuHero"><img class="fbHeroImg" src="assets\/hub\/modes\/football_elimination\.webp"/.test(HTML)
+    && fs.existsSync(path.join(__dirname, '..', 'assets', 'hub', 'fb_home_sky.webp')));
+  const oeffnen = fn('fbHomeOnlineOeffnen');
+  t('RAUM ERSTELLEN oeffnet den Onlinebildschirm des gewaehlten Modus (1 VS 1 erst die Spielart)',
+    /if\(k==='duel'\)\{fbDuelOeffnen\(\);return;\}/.test(oeffnen) && /if\(k==='team2v2'\)\{fbTeam2OnlineOeffnen\(\);return;\}/.test(oeffnen) && /fbFfaOnlineOeffnen\(\);/.test(oeffnen));
+  t('RAUM ERSTELLEN, RAEUME DURCHSUCHEN, OEFFENTLICHE SPIELE und WIEDER BEITRETEN sind verdrahtet',
+    /\$\('fbHomeCreate'\)\.onclick=/.test(HTML) && /\$\('fbHomeBrowse'\)\.onclick=fbHomeRaeume;/.test(HTML)
+    && /\$\('fbRoomsAll'\)\.onclick=fbHomeRaeume;/.test(HTML) && /\$\('fbHomeRejoin'\)\.onclick=\(\)=>\{SFX\.unlock\(\);fbFfaOnlineOeffnen\(\);\};/.test(HTML));
+  const schnell = fn('fbHomeSchnellstart');
+  t('SCHNELLSTART sichert die Szene und startet ueber startFootball wie VS BOTS',
+    schnell.indexOf('await r3dSichern(true)') >= 0 && schnell.indexOf('await r3dSichern(true)') < schnell.indexOf('startFootball(')
+    && /startFootball\(fbBotVariante\(key\),FOOTBALL_RULES_FIRST3,true\);/.test(schnell)
+    && /\$\('fbQuick1v1'\)\.onclick=\(\)=>fbHomeSchnellstart\('elitebot'\);/.test(HTML) && /\$\('fbQuickTeam'\)\.onclick=\(\)=>fbHomeSchnellstart\('team2v2'\);/.test(HTML));
+  const panelQuick = g(/<div id="fbQuick" class="fbOnly fbPanel">[\s\S]*?\n   <\/div>/, 'fbQuick');
+  t('kein Knopf ohne Funktion: im Schnellstart genau die zwei Sofortstarts, kein Training, keine Stufen',
+    (panelQuick.match(/<button /g) || []).length === 2 && !/TRAINING|LEVEL|STUFE/i.test(panelQuick));
+  t('der Leerzustand folgt der Liste (beide Wege, die ihn setzen)', /const fr=\$\('fbRooms'\); if\(fr\)fr\.classList\.toggle\('leer',!fuerFb\.length\);/.test(HTML)
+    && /const fr=\$\('fbRooms'\); if\(fr\)fr\.classList\.toggle\('leer',!!msg&&msg===T\('pubEmpty'\)\);/.test(HTML));
+  t('ein verworfener Raum nimmt die Rueckkehrleisten sofort mit (forgetRoom -> updHomeRejoin)',
+    /\nfunction forgetRoom\(\)\{ try\{ localStorage\.removeItem\('ringout_room'\); \}catch\(e\)\{\} if\(typeof updHomeRejoin==='function'\)try\{updHomeRejoin\(\);\}catch\(e\)\{\} \}/.test(HTML)
+    && /const f=\$\('fbHomeRejoin'\); if\(f\)\{ f\.classList\.toggle\('show',!!sr\);/.test(HTML));
+  for (const l of ['en', 'de', 'tr']) t('Texte der Startseite in ' + l,
+    ['fbPick', 'fbPubAll', 'fbLeerTipp', 'fbCreate', 'fbBrowse', 'fbQuickT', 'fbQuickH', 'fbQ1T', 'fbQ1S', 'fbQ2T', 'fbQ2S'].every(k => typeof I18N[l][k] === 'string' && I18N[l][k].length > 0));
 }
 
 // ══ 3. TRAINING wartet auf die Szene ═══════════════════════════════════════════════════

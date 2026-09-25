@@ -1,6 +1,9 @@
 # TODO.md — RingOut
 
-**Zuletzt aktualisiert:** 2026-09-25 (**RING OUT: DEV + REVANCHE GESCHLOSSEN**: ?dev=1 oeffnet Ring Out
+**Zuletzt aktualisiert:** 2026-09-25 (**STARTSEITE NACH VORLAGE**: Arena-Football-Startseite mit Himmel, Arena-Blickfang,
+Titel ARENA FOOTBALL, Glas-Panels Modi / Offene Raeume / Schnellstart - alle Knoepfe auf bestehenden Wegen.
+Offen, niedrig: Bildschaerfe der Arena auf hochaufloesenden Handys (Quelle 700 px); kein Profil-Knopf wie in der
+Vorlage (es gibt kein Profil). Zuvor: **RING OUT: DEV + REVANCHE GESCHLOSSEN**: ?dev=1 oeffnet Ring Out
 nicht mehr (QA nur im Pruefstand-Adapter), nach einer Ring-Out-Partie keine Revanche. Offen, niedrig:
 Clients, die die alte Seite noch geoeffnet haben, koennen untereinander bis zum Neuladen weiter eine
 Revanche ausloesen (ohne Rules-Aenderung nicht serverseitig sperrbar); eine vor der Auslieferung
