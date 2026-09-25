@@ -929,7 +929,13 @@ body.fbctx .proom .pr-game{color:#cfe0ef}
    (artifacts/fb-home-01/himmel.js); die Arena ist dieselbe Aufnahme wie die FFA-Karte. */
 .fbTitel,.fbHeroImg,.fbLeer,.fbRejoin,#fbQuick .mhint{display:none}
 .fbPanel{display:contents}
-body.roAus #menu,body.roAus.r3d #menu{background:#8dbbeb url(assets/hub/fb_home_sky.webp) center top/cover no-repeat}
+body.roAus #menu,body.roAus.r3d #menu{background:
+  radial-gradient(circle at 88% 13%,rgba(255,255,248,1) 0,rgba(255,246,214,.9) 2.2%,rgba(255,230,170,.45) 6%,rgba(255,220,150,.14) 14%,transparent 26%),
+  linear-gradient(180deg,rgba(12,52,150,.9) 0%,rgba(22,78,178,.62) 14%,rgba(34,96,196,.28) 30%,rgba(40,100,200,0) 44%),
+  #8dbbeb url(assets/hub/fb_home_sky.webp) center top/cover no-repeat}
+/* Ein weicher Goldschein hinter dem Titel (Vorlage 2) - nur dort. */
+body.roAus .logo::before{content:"";position:absolute;left:50%;top:38%;width:min(92vw,520px);height:150px;transform:translate(-50%,-50%);
+  z-index:-1;pointer-events:none;background:radial-gradient(ellipse at center,rgba(255,214,120,.32),rgba(255,214,120,0) 68%)}
 body.roAus #menuInner{padding-top:10px}
 /* Kopf: runde Glasknoepfe mit Goldrand (Ton, Einstellungen - dieselben Funktionen). */
 body.roAus .mico{width:46px;height:46px;font-size:18px;color:#f4f7fc;border:1.5px solid rgba(255,206,110,.7);
@@ -949,10 +955,16 @@ body.roAus .logo .orn{margin-top:12px}
 body.roAus .logo .sub{font-size:clamp(9.5px,2.6vw,12px);letter-spacing:.36em;margin-right:-.36em;color:#f6f8fc;margin-top:10px}
 /* Die Arena als Blickfang, mit weichem Rand in den Himmel geblendet. Ueber einer geladenen
    3D-Szene bleibt dasselbe Bild stehen: die Startseite sieht immer gleich aus. */
-body.roAus #menuHero,body:not(.r3d).roAus #menuHero{height:auto;width:min(100%,640px);max-width:none;margin:-4px auto -34px;position:relative;z-index:0}
-body.roAus .fbHeroImg{display:block;width:100%;height:auto;aspect-ratio:700/330;object-fit:cover;object-position:50% 72%;
-  -webkit-mask-image:radial-gradient(ellipse 50% 50% at 50% 50%,#000 58%,transparent 100%);
-  mask-image:radial-gradient(ellipse 50% 50% at 50% 50%,#000 58%,transparent 100%)}
+body.roAus #menuHero,body:not(.r3d).roAus #menuHero{height:auto;width:min(100% + 40px,780px);max-width:none;margin:-18px auto -46px;position:relative;z-index:0}
+body.roAus .fbHeroImg{display:block;width:100%;height:auto;aspect-ratio:700/390;object-fit:cover;object-position:50% 78%;
+  -webkit-mask-image:linear-gradient(180deg,transparent 0,#000 24%,#000 80%,transparent 100%),linear-gradient(90deg,transparent 0,#000 7%,#000 93%,transparent 100%);
+  -webkit-mask-composite:source-in;mask-composite:intersect;
+  mask-image:linear-gradient(180deg,transparent 0,#000 24%,#000 80%,transparent 100%),linear-gradient(90deg,transparent 0,#000 7%,#000 93%,transparent 100%)}
+@media(min-width:700px){
+  body.roAus .fbHeroImg{
+    -webkit-mask-image:linear-gradient(180deg,transparent 0,#000 24%,#000 78%,transparent 100%),linear-gradient(90deg,transparent 0,#000 22%,#000 78%,transparent 100%);
+    mask-image:linear-gradient(180deg,transparent 0,#000 24%,#000 78%,transparent 100%),linear-gradient(90deg,transparent 0,#000 22%,#000 78%,transparent 100%)}
+}
 /* Die Bereiche: drei Glas-Panels statt eines durchgehenden Blatts. */
 body.roAus .msheet{background:none;border:0;box-shadow:none;-webkit-backdrop-filter:none;backdrop-filter:none;
   width:min(100% - 20px,660px);padding:0 0 calc(22px + env(safe-area-inset-bottom));position:relative;z-index:1}
@@ -962,6 +974,11 @@ body.roAus .fbPanel{display:block;position:relative;margin-top:12px;border-radiu
   box-shadow:0 14px 34px rgba(3,8,20,.55),inset 0 1px 0 rgba(176,208,255,.2),inset 0 0 0 1px rgba(255,210,120,.05);
   -webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}
 body.roAus .fbPanel:first-child{margin-top:0}
+body.roAus .fbPanel::after{content:"";position:absolute;inset:-1px;border-radius:inherit;padding:1.5px;pointer-events:none;
+  background:linear-gradient(135deg,rgba(236,190,96,.95) 0,rgba(236,190,96,0) 13%,rgba(236,190,96,0) 87%,rgba(236,190,96,.95) 100%),
+    linear-gradient(45deg,rgba(236,190,96,.95) 0,rgba(236,190,96,0) 13%,rgba(236,190,96,0) 87%,rgba(236,190,96,.95) 100%);
+  -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;
+  mask:linear-gradient(#000 0 0) content-box exclude,linear-gradient(#000 0 0)}
 body.roAus .fbPanel .msec{margin:0 2px 12px;gap:10px}
 body.roAus .fbPanel .msec>span{font-size:clamp(13px,3.7vw,17px);letter-spacing:.14em;color:#fff}
 body.roAus .fbPanel .msec .hr{flex:1 1 30px;max-width:150px;height:1.5px;background:linear-gradient(90deg,rgba(255,200,90,.9),rgba(255,200,90,.04))}
@@ -984,11 +1001,12 @@ body.roAus .mdot{width:22px;height:5px;border-radius:3px;background:rgba(150,180
 body.roAus .mdot.on{width:30px;background:linear-gradient(90deg,#ffe38a,#f0a92e)}
 /* Der grosse goldene Spielen-Knopf - Beschriftung und Weg kommen unveraendert aus dem Modus. */
 body.roAus .mcta{width:100%;margin:16px 0 2px;padding:16px 24px;gap:14px;font-size:clamp(17px,5vw,23px);letter-spacing:.12em;
-  color:#2b1b05;text-shadow:0 1px 0 rgba(255,244,214,.55);clip-path:none;border-radius:999px;overflow:hidden;
-  border:1px solid rgba(122,82,24,.6);
-  background:linear-gradient(180deg,#f6e2a8 0%,#e7c572 34%,#d4a54c 64%,#b98a36 100%);
-  box-shadow:0 10px 22px rgba(3,8,20,.45),0 0 0 3px rgba(233,200,120,.16),
-    inset 0 1px 0 rgba(255,248,226,.9),inset 0 -4px 10px rgba(110,66,12,.3)}
+  color:#2a1a04;text-shadow:0 1px 0 rgba(255,246,220,.6);clip-path:none;border-radius:999px;overflow:hidden;
+  border:1.5px solid rgba(255,222,146,.95);
+  background:linear-gradient(180deg,rgba(255,238,184,.88) 0%,rgba(244,202,108,.8) 45%,rgba(214,158,62,.84) 100%);
+  -webkit-backdrop-filter:blur(8px) saturate(1.2);backdrop-filter:blur(8px) saturate(1.2);
+  box-shadow:0 10px 24px rgba(3,8,20,.4),0 0 18px rgba(255,196,90,.28),
+    inset 0 1px 0 rgba(255,248,226,.85),inset 0 -6px 14px rgba(120,70,10,.22)}
 /* Glanzkante: ein weicher Lichtstreifen oben - Material statt Neon. */
 body.roAus .mcta::after{content:"";position:absolute;left:3%;right:3%;top:1px;height:52%;border-radius:999px 999px 60% 60%/999px 999px 40% 40%;pointer-events:none;
   background:linear-gradient(180deg,rgba(255,252,238,.34),rgba(255,252,238,.08) 70%,rgba(255,252,238,0))}
@@ -999,7 +1017,7 @@ body.roAus .mfoot{display:none}
 body.roAus .fbRoomsAll{margin-left:auto;color:#a9c9ef;font-size:clamp(7.5px,2.1vw,9.5px);padding:4px 0}
 body.roAus .fbRoomsAll svg{color:#ffc940;width:13px;height:13px}
 body.roAus .fbLeer{display:block;border-radius:16px;padding:6px 12px 12px;text-align:center;
-  background:linear-gradient(180deg,rgba(10,26,58,.45),rgba(6,14,32,.85)),url(assets/hub/fb_home_sky.webp) center 40%/cover;
+  background:linear-gradient(180deg,rgba(10,26,58,.18),rgba(6,14,32,.72) 78%),url(assets/hub/modes/football_elimination.webp) center 62%/cover;
   border:1px solid rgba(124,168,232,.3)}
 body.roAus .fbLeerBild{display:none}
 body.roAus #fbRooms.leer .fbLeerBild{display:block}
@@ -1024,35 +1042,47 @@ body.roAus .fbRejoin.show{display:flex;align-items:center;gap:10px;width:100%;ma
   background:linear-gradient(180deg,#ffe38a,#e9a52b)}
 body.roAus .fbRejoin svg{width:18px;height:18px}
 body.roAus .fbRejoin small{margin-left:auto;font-size:10px;letter-spacing:.08em;opacity:.8}
-/* Schnellstart: zwei echte Sofortstarts gegen Bots. Die Kachel traegt ein ECHTES Spielbild
-   (dieselben Dateien wie die Moduskarten - kein Zusatzladen), links in Nachtblau uebergeblendet;
-   davor ein Goldmedaillon und ein Glas-Chevron. */
-body.roAus .fbQgrid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px}
-body.roAus .fbQ{position:relative;display:flex;align-items:center;gap:11px;min-height:86px;padding:12px 40px 12px 12px;overflow:hidden;
-  border-radius:16px;border:1px solid rgba(140,182,245,.55);cursor:pointer;font:inherit;color:#fff;text-align:left;
-  background:#0b1730;box-shadow:0 8px 20px rgba(2,8,22,.45),inset 0 1px 0 rgba(190,215,255,.25);
-  transition:transform .15s,border-color .2s,box-shadow .2s}
-body.roAus .fbQ:hover{border-color:rgba(255,206,110,.75)}
+/* Schnellstart (Vorlage 1): zwei echte Sofortstarts gegen Bots. Jede Kachel zeigt eine echte,
+   glaenzende Spielkugel mit Lichtspur auf Marmor - ein Ausschnitt aus der Arena-Aufnahme
+   hero_football.webp (blau fuer 1 gegen 1, rot fuer Team 2v2) -, links in Nachtblau
+   uebergeblendet; davor ein Goldmedaillon mit gefuelltem Goldsymbol und ein goldgerahmter Pfeil. */
+body.roAus .fbQgrid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px}
+body.roAus .fbQ{position:relative;display:flex;align-items:center;gap:13px;min-height:104px;padding:14px 50px 14px 14px;overflow:hidden;
+  border-radius:18px;border:1px solid rgba(150,190,250,.5);cursor:pointer;font:inherit;color:#fff;text-align:left;background:#0a1630;
+  box-shadow:0 12px 26px rgba(2,8,22,.5),inset 0 1px 0 rgba(205,228,255,.3);transition:transform .18s,border-color .2s,box-shadow .2s}
+body.roAus .fbQ::after{content:"";position:absolute;left:14px;right:42%;bottom:0;height:2px;z-index:1;pointer-events:none;
+  background:linear-gradient(90deg,rgba(236,190,96,.95),rgba(236,190,96,0))}
+body.roAus .fbQ:hover{transform:translateY(-2px);border-color:rgba(255,210,120,.85);box-shadow:0 14px 30px rgba(2,8,22,.55),0 0 18px rgba(255,190,70,.22),inset 0 1px 0 rgba(205,228,255,.3)}
 body.roAus .fbQ:active{transform:scale(.98)}
-body.roAus .fbQbild{position:absolute;inset:0;z-index:0}
-body.roAus .fbQbild img{position:absolute;right:-8%;top:50%;width:92%;height:auto;transform:translateY(-50%);filter:saturate(1.08)}
+body.roAus .fbQbild{position:absolute;inset:0;z-index:0;overflow:hidden}
+body.roAus .fbQbild img{position:absolute;top:50%;width:300%;max-width:none;height:auto;transform:translateY(-50.6%);filter:saturate(1.1) contrast(1.04)}
+body.roAus .fbQb1{left:-8%}           /* blaue Kugel rechts in der Kachel */
+body.roAus .fbQb2{left:-124%}          /* rote Kugel rechts in der Kachel */
 body.roAus .fbQbild::after{content:"";position:absolute;inset:0;
-  background:linear-gradient(90deg,rgba(8,17,38,.98) 0%,rgba(8,17,38,.9) 36%,rgba(8,17,38,.35) 70%,rgba(8,17,38,.12) 100%),
-    linear-gradient(180deg,rgba(255,255,255,.07),rgba(0,0,0,.25))}
-body.roAus .fbQi{position:relative;z-index:1;flex:0 0 auto;display:flex;align-items:center;justify-content:center;width:46px;height:46px;border-radius:50%;
-  background:radial-gradient(circle at 50% 35%,#1d3563,#081228 72%);
-  box-shadow:0 0 0 2px #d8ae55,0 0 0 3px rgba(90,58,12,.6),0 0 14px rgba(255,196,80,.35),inset 0 2px 6px rgba(255,255,255,.12)}
-body.roAus .fbQi svg{display:block;width:26px;height:26px;color:#ffd36a;filter:drop-shadow(0 0 4px rgba(255,190,60,.55))}
+  background:linear-gradient(90deg,rgba(7,16,38,.98) 0%,rgba(7,16,38,.88) 38%,rgba(7,16,38,.28) 70%,rgba(7,16,38,.05) 100%),
+    linear-gradient(180deg,rgba(255,255,255,.12) 0%,rgba(255,255,255,0) 38%,rgba(0,0,0,0) 62%,rgba(2,6,16,.45) 100%)}
+body.roAus .fbQi{position:relative;z-index:1;flex:0 0 auto;display:flex;align-items:center;justify-content:center;width:54px;height:54px;border-radius:50%;
+  background:radial-gradient(circle at 50% 28%,#2c4d8c 0,#0b1733 72%);
+  box-shadow:0 0 0 2px #e2b457,0 0 0 4px rgba(8,16,34,.95),0 0 0 5px rgba(226,180,87,.5),0 0 20px rgba(255,190,70,.35),inset 0 3px 8px rgba(255,255,255,.16)}
+body.roAus .fbQi svg{display:block;width:31px;height:31px;filter:drop-shadow(0 2px 2px rgba(0,0,0,.55)) drop-shadow(0 0 6px rgba(255,190,60,.4))}
 body.roAus .fbQtx{position:relative;z-index:1;min-width:0}
-body.roAus .fbQtx b{display:block;font-size:clamp(13px,3.6vw,17px);font-weight:900;letter-spacing:.05em;text-shadow:0 1px 3px rgba(0,0,0,.7)}
-body.roAus .fbQtx small{display:block;margin-top:4px;font-size:clamp(7.5px,2.1vw,9.5px);font-weight:800;letter-spacing:.1em;color:#b9d4f5;line-height:1.35;
-  text-shadow:0 1px 3px rgba(0,0,0,.8)}
-body.roAus .fbQcv{position:absolute;right:9px;top:50%;z-index:1;transform:translateY(-50%);display:flex;align-items:center;justify-content:center;
-  width:26px;height:26px;border-radius:50%;font-size:18px;line-height:1;color:#fff;
-  background:rgba(12,24,52,.55);border:1px solid rgba(190,215,255,.45);-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px)}
-body.roAus #fbQuick .soon{margin-top:12px;border:1.5px dashed rgba(255,200,90,.6);background:rgba(8,14,30,.55);border-radius:14px}
-body.roAus #fbQuick .soon-t{color:#ffe7a8}
-body.roAus #fbQuick .soon-s{color:#8fb6e6}
+body.roAus .fbQtx b{display:block;font-size:clamp(15px,4vw,18px);font-weight:900;letter-spacing:.06em;text-shadow:0 2px 4px rgba(0,0,0,.75)}
+body.roAus .fbQtx small{display:block;margin-top:5px;font-size:clamp(8.5px,2.3vw,10px);font-weight:800;letter-spacing:.12em;color:#cfe0f7;line-height:1.35;
+  text-shadow:0 1px 3px rgba(0,0,0,.85)}
+body.roAus .fbQcv{position:absolute;right:12px;top:50%;z-index:1;transform:translateY(-50%);display:flex;align-items:center;justify-content:center;
+  width:30px;height:30px;border-radius:50%;font-size:19px;line-height:1;color:#ffe3a0;
+  background:rgba(8,18,40,.62);border:1.5px solid rgba(232,190,100,.85);box-shadow:0 0 10px rgba(255,190,70,.25);
+  -webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px)}
+/* Bald mehr (Vorlage 1): Goldsymbol links, zwei Zeilen, goldene Strichkante mit leichtem Schein. */
+body.roAus #fbQuick .soon{flex-direction:row;align-items:center;justify-content:center;gap:14px;margin-top:12px;padding:14px 18px;border-radius:16px;
+  border:1.5px dashed rgba(236,190,96,.72);
+  background:radial-gradient(ellipse 70% 120% at 50% 130%,rgba(255,196,90,.16),transparent 62%),linear-gradient(180deg,rgba(14,26,54,.88),rgba(8,15,32,.92));
+  box-shadow:inset 0 0 20px rgba(255,190,70,.08),0 0 14px rgba(255,190,70,.08)}
+body.roAus .soonIco{display:block;flex:0 0 auto}
+body.roAus .soonIco svg{display:block;width:38px;height:38px;filter:drop-shadow(0 0 6px rgba(255,190,60,.45))}
+body.roAus .soonTx{display:flex;flex-direction:column;gap:4px;text-align:left;min-width:0}
+body.roAus #fbQuick .soon-t{color:#ffe7a8;font-size:clamp(10.5px,2.9vw,13px);letter-spacing:.18em}
+body.roAus #fbQuick .soon-s{color:#a9c6ea;font-size:clamp(9.5px,2.6vw,11.5px);text-align:left;letter-spacing:.04em;text-transform:uppercase;font-weight:700}
 /* Handy: Karussell, die gewaehlte Karte in der Mitte, Nachbarn angeschnitten. */
 @media(max-width:559px){
   body.roAus .mcards{display:flex;gap:9px;padding:10px 6px 12px;scroll-snap-type:x mandatory;scroll-padding:0}
@@ -1062,17 +1092,13 @@ body.roAus #fbQuick .soon-s{color:#8fb6e6}
   body.roAus .mcap{padding:8px 5px 9px}
   body.roAus .mbar::after{background:linear-gradient(90deg,rgba(8,15,32,0),rgba(8,15,32,.85))}
   body.roAus .fbPanel{padding:14px 10px 14px;border-radius:20px}
-  body.roAus .fbQ{padding:10px 32px 10px 9px;gap:8px;min-height:80px}
-  body.roAus .fbQi{width:38px;height:38px}
-  body.roAus .fbQi svg{width:21px;height:21px}
-  body.roAus .fbQcv{width:22px;height:22px;font-size:15px;right:7px}
-  body.roAus .fbQbild img{width:120%;right:-30%}
-  body.roAus .fbRbtn{gap:6px;padding:10px 6px;font-size:clamp(9px,2.45vw,12px);letter-spacing:.04em}
-  body.roAus .fbRgold i{width:20px;height:20px;font-size:16px}
-  body.roAus .fbRblau svg{width:16px;height:16px}
-  body.roAus .fbRblau b{display:none}
-  body.roAus .fbRbtn{letter-spacing:.02em}
-  body.roAus #menuHero{margin:-10px auto -30px}
+  /* Handy: die Schnellstart-Kacheln untereinander in voller Breite - Platz fuer Symbol, Text und Kugel. */
+  body.roAus .fbQgrid{grid-template-columns:minmax(0,1fr);gap:10px}
+  body.roAus .fbQ{min-height:92px;padding:12px 50px 12px 12px}
+  body.roAus .fbQb1{left:-4%}
+  body.roAus .fbQb2{left:-102%}
+  body.roAus .fbQbild img{width:260%}
+  body.roAus #menuHero{width:calc(100% + 24px);margin:-22px -12px -34px}
 }
 </style>
 </head>
@@ -1234,10 +1260,10 @@ body.roAus #fbQuick .soon-s{color:#8fb6e6}
    <div id="fbQuick" class="fbOnly fbPanel">
     <div class="msec"><span id="fbQuickT">QUICK START</span><i class="hr"></i><span class="mhint" id="fbQuickH">VS BOTS · INSTANT</span></div>
     <div class="fbQgrid">
-     <button class="fbQ" id="fbQuick1v1" type="button"><span class="fbQbild" aria-hidden="true"><img src="assets/hub/modes/football_classic.webp" alt="" width="700" height="438" loading="lazy" decoding="async"></span><span class="fbQi" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="1" fill="currentColor"/></svg></span><span class="fbQtx"><b id="fbQ1T">1 VS 1</b><small id="fbQ1S">VS THE ELITE BOT</small></span><span class="fbQcv" aria-hidden="true">›</span></button>
-     <button class="fbQ" id="fbQuickTeam" type="button"><span class="fbQbild" aria-hidden="true"><img src="assets/hub/modes/football_team2v2.webp" alt="" width="700" height="438" loading="lazy" decoding="async"></span><span class="fbQi" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4h10v4a5 5 0 0 1-10 0z"/><path d="M7 6H4v1.5A3 3 0 0 0 7 10.5M17 6h3v1.5a3 3 0 0 1-3 3"/><path d="M12 13v4M8.5 20h7M9.5 17h5"/></svg></span><span class="fbQtx"><b id="fbQ2T">TEAM 2V2</b><small id="fbQ2S">YOU + BOT VS 2 BOTS</small></span><span class="fbQcv" aria-hidden="true">›</span></button>
+     <button class="fbQ" id="fbQuick1v1" type="button"><span class="fbQbild" aria-hidden="true"><img class="fbQb1" src="assets/hub/hero_football.webp" alt="" width="900" height="563" loading="lazy" decoding="async"></span><span class="fbQi" aria-hidden="true"><svg viewBox="0 0 24 24"><defs><linearGradient id="fbGoldQ1" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff2c4"/><stop offset=".45" stop-color="#f3c35a"/><stop offset="1" stop-color="#b87a1c"/></linearGradient></defs><path fill="url(#fbGoldQ1)" stroke="#6b4210" stroke-width=".6" d="M12 2.2l7.6 2.9v5.6c0 5-3.2 8.9-7.6 11.1-4.4-2.2-7.6-6.1-7.6-11.1V5.1z"/><path fill="#1a2d55" d="M13.3 6.3l-4.6 6.6h3.1l-1.1 5 4.7-6.8h-3.1z"/></svg></span><span class="fbQtx"><b id="fbQ1T">1 VS 1</b><small id="fbQ1S">VS THE ELITE BOT</small></span><span class="fbQcv" aria-hidden="true">›</span></button>
+     <button class="fbQ" id="fbQuickTeam" type="button"><span class="fbQbild" aria-hidden="true"><img class="fbQb2" src="assets/hub/hero_football.webp" alt="" width="900" height="563" loading="lazy" decoding="async"></span><span class="fbQi" aria-hidden="true"><svg viewBox="0 0 24 24"><defs><linearGradient id="fbGoldQ2" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff2c4"/><stop offset=".45" stop-color="#f3c35a"/><stop offset="1" stop-color="#b87a1c"/></linearGradient></defs><path fill="url(#fbGoldQ2)" stroke="#6b4210" stroke-width=".6" d="M7 3.2h10v4.6a5 5 0 0 1-10 0z"/><path fill="none" stroke="url(#fbGoldQ2)" stroke-width="1.8" stroke-linecap="round" d="M7 5.2H4.2v1.6a3.2 3.2 0 0 0 3.4 3.2M17 5.2h2.8v1.6a3.2 3.2 0 0 1-3.4 3.2"/><path fill="url(#fbGoldQ2)" stroke="#6b4210" stroke-width=".5" d="M10.6 12.6h2.8l.6 3.6h-4z"/><rect x="7.6" y="16.4" width="8.8" height="3.8" rx="1" fill="url(#fbGoldQ2)" stroke="#6b4210" stroke-width=".5"/></svg></span><span class="fbQtx"><b id="fbQ2T">TEAM 2V2</b><small id="fbQ2S">YOU + BOT VS 2 BOTS</small></span><span class="fbQcv" aria-hidden="true">›</span></button>
     </div>
-    <div class="soon"><span class="soon-t" id="soonT">MORE COMING SOON</span><span class="soon-s" id="soonS">New modes and features are in the works.</span></div>
+    <div class="soon"><span class="soonIco" aria-hidden="true"><svg viewBox="0 0 24 24"><defs><linearGradient id="fbGoldS" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff2c4"/><stop offset=".45" stop-color="#f3c35a"/><stop offset="1" stop-color="#b87a1c"/></linearGradient></defs><path fill="none" stroke="url(#fbGoldS)" stroke-width="1.5" stroke-linejoin="round" d="M12 1.8l8.8 5.1v10.2L12 22.2l-8.8-5.1V6.9z"/><path fill="url(#fbGoldS)" d="M12 7.2l1 .2.5 1.3 1.3-.5.8.7-.5 1.3 1.3.5.2 1-.2 1-1.3.5.5 1.3-.8.7-1.3-.5-.5 1.3-1 .2-1-.2-.5-1.3-1.3.5-.8-.7.5-1.3-1.3-.5-.2-1 .2-1 1.3-.5-.5-1.3.8-.7 1.3.5.5-1.3z"/><circle cx="12" cy="12" r="1.9" fill="#0d1a36"/></svg></span><span class="soonTx"><span class="soon-t" id="soonT">MORE COMING SOON</span><span class="soon-s" id="soonS">New modes and features are in the works.</span></span></div>
    </div>
 
    <!-- HOW TO PLAY: kompakte Zeile; klappt die bestehenden 3 Schritte auf/zu -->
@@ -2851,7 +2877,7 @@ en:{tagline:'PULL BACK · RELEASE · KNOCK THEM OUT',chip:'FEATURED',
   fbBotTac4T:'TACTICAL 4-BALL',fbBotTac4S:'FOUR SPHERES EACH · ALTERNATING · ONE MOVE PER TURN',
   fbBotTeamT:'TEAM 2 VS 2',fbBotTeamS:'YOU + ONE BOT VERSUS TWO BOTS · SIMULTANEOUS',
   mcFb1v1:'TACTICAL · 2 OR 4 FIGURES',mcFb2v2:'4 PLAYERS · 2 TEAMS',mcFbFfa:'2–5 PLAYERS',mcFbBot:'LEARN & PRACTICE',
-  ctaFb1v1:'PLAY 1 VS 1',ctaFb2v2:'TEAM 2V2',ctaFbFfa:'PLAY FFA',ctaFbBot:'TRAINING',
+  ctaFb1v1:'PLAY 1 VS 1',ctaFb2v2:'PLAY TEAM 2V2',ctaFbFfa:'PLAY FFA',ctaFbBot:'PLAY VS BOTS',
   soonChip:'SOON',soonCta:'COMING SOON',
   mcFbTeam2:'4 PLAYERS · 2 TEAMS',mcFbElim:'SURVIVE THE ARENA',
   gRoS:'PULL BACK · RELEASE',gFbT:'Arena <em>Football</em>',gFbS:'GOALS · SKILLS · SPEED',gFbBadge:'NEW',
@@ -2944,7 +2970,7 @@ de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'FEATURED',
   r3dReload:'Neu laden',
   onSubFb:'Elimination · 2 bis 5 Spieler · je 2 Leben',
   secPlay:'SPIELEN',secRooms:'ONLINE-RÄUME',secHow:'SO WIRD GESPIELT',viewAll:'ALLE ANZEIGEN',
-  scrollHint:'SCROLLEN FÜR MEHR',soonT:'BALD MEHR',soonS:'Neue Modi und Features sind in Arbeit.',
+  scrollHint:'SCROLLEN FÜR MEHR',soonT:'MEHR FOLGT IN KÜRZE',soonS:'Neue Modi und Funktionen sind in Arbeit.',
   secHub:'GAME HUB',secRoModes:'RING OUT MODI',secFbModes:'ARENA FOOTBALL MODI',
   secMulti:'MEHRSPIELER',rejoinHome:'ZURÜCK INS MATCH',rejoinRoom:'Raum {code} steht noch offen',
   fbPick:'WÄHLE DEINEN MODUS',fbPubAll:'ÖFFENTLICHE SPIELE',fbLeerTipp:'Erstelle selbst einen Raum oder spiele einen anderen Modus.',fbCreate:'RAUM ERSTELLEN',fbBrowse:'RÄUME DURCHSUCHEN',
@@ -2957,7 +2983,7 @@ de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'FEATURED',
   fbBotTac4T:'TACTICAL 4-BALL',fbBotTac4S:'VIER KUGELN JE SEITE · ABWECHSELND · EIN ZUG JE ZUG',
   fbBotTeamT:'TEAM 2 GEGEN 2',fbBotTeamS:'DU + EIN BOT GEGEN ZWEI BOTS · GLEICHZEITIG',
   mcFb1v1:'TACTICAL · 2 ODER 4 FIGUREN',mcFb2v2:'4 SPIELER · 2 TEAMS',mcFbFfa:'2–5 SPIELER',mcFbBot:'LERNEN & ÜBEN',
-  ctaFb1v1:'1 GEGEN 1 SPIELEN',ctaFb2v2:'TEAM 2V2',ctaFbFfa:'FFA SPIELEN',ctaFbBot:'TRAINING',
+  ctaFb1v1:'1 GEGEN 1 SPIELEN',ctaFb2v2:'TEAM 2V2 SPIELEN',ctaFbFfa:'FFA SPIELEN',ctaFbBot:'GEGEN BOTS SPIELEN',
   soonChip:'BALD',soonCta:'BALD VERFÜGBAR',
   mcFbTeam2:'4 SPIELER · 2 TEAMS',mcFbElim:'ÜBERLEBE DIE ARENA',
   gRoS:'ZIEH ZURÜCK · LASS LOS',gFbT:'Arena <em>Football</em>',gFbS:'TORE · TECHNIK · TEMPO',gFbBadge:'NEU',
@@ -3065,7 +3091,7 @@ tr:{tagline:'GERİ ÇEK · BIRAK · DIŞARI İT',chip:'FEATURED',
   fbBotTac4T:'TAKTİK 4 TOP',fbBotTac4S:'HER TARAFTA DÖRT KÜRE · SIRAYLA · SIRA BAŞINA BİR HAMLE',
   fbBotTeamT:'TAKIM 2 VS 2',fbBotTeamS:'SEN + BİR BOT, İKİ BOTA KARŞI · AYNI ANDA',
   mcFb1v1:'TACTICAL · 2 VEYA 4 FİGÜR',mcFb2v2:'4 OYUNCU · 2 TAKIM',mcFbFfa:'2–5 OYUNCU',mcFbBot:'ÖĞREN & ÇALIŞ',
-  ctaFb1v1:'BİRE BİR OYNA',ctaFb2v2:'TEAM 2V2',ctaFbFfa:'FFA OYNA',ctaFbBot:'ANTRENMAN',
+  ctaFb1v1:'BİRE BİR OYNA',ctaFb2v2:'TAKIM 2V2 OYNA',ctaFbFfa:'FFA OYNA',ctaFbBot:'BOTLARA KARŞI OYNA',
   soonChip:'YAKINDA',soonCta:'ÇOK YAKINDA',
   mcFbTeam2:'4 OYUNCU · 2 TAKIM',mcFbElim:'ARENADA HAYATTA KAL',
   gRoS:'GERİ ÇEK · BIRAK',gFbT:'Arena <em>Football</em>',gFbS:'GOL · BECERİ · HIZ',gFbBadge:'YENİ',

@@ -387,7 +387,7 @@ abschnitt('7. Ring Out ist vorerst nicht im spielbaren Angebot');
 // Echte Oberflaeche statt Bild: jeder sichtbare Knopf zeigt auf einen BESTEHENDEN Weg.
 abschnitt('8. Startseite nach der Vorlage: nur echte Wege');
 {
-  t('die Gestaltung gilt nur ohne Ring Out im Angebot (body.roAus)', /body\.roAus #menu,body\.roAus\.r3d #menu\{background:#8dbbeb url\(assets\/hub\/fb_home_sky\.webp\)/.test(HTML)
+  t('die Gestaltung gilt nur ohne Ring Out im Angebot (body.roAus)', /body\.roAus #menu,body\.roAus\.r3d #menu\{background:[\s\S]{0,400}?#8dbbeb url\(assets\/hub\/fb_home_sky\.webp\) center top\/cover no-repeat\}/.test(HTML)
     && /\.fbTitel,\.fbHeroImg,\.fbLeer,\.fbRejoin,#fbQuick \.mhint\{display:none\}/.test(HTML) && /\.fbPanel\{display:contents\}/.test(HTML));
   t('Titel ARENA FOOTBALL unter der Marke RINGOUT', /<h1 translate="no">Ring<em>Out<\/em><\/h1>\s*<!--[\s\S]*?-->\s*<div class="fbTitel" aria-hidden="true" translate="no"><span class="fbT1">Arena<\/span><span class="fbT2">Football<\/span><\/div>/.test(HTML));
   t('der Blickfang ist ein vorhandenes Spielbild, der Himmel liegt als Asset bei', /<div id="menuHero"><img class="fbHeroImg" src="assets\/hub\/modes\/football_elimination\.webp"/.test(HTML)
@@ -414,10 +414,17 @@ abschnitt('8. Startseite nach der Vorlage: nur echte Wege');
     && /const f=\$\('fbHomeRejoin'\); if\(f\)\{ f\.classList\.toggle\('show',!!sr\);/.test(HTML));
   // Owner-Feedback 2026-09-25: runder Spielen-Knopf, hochwertigere Schnellstart-Karten.
   t('der Spielen-Knopf ist weich gerundet - keine Spitzen (clip-path) mehr', /body\.roAus \.mcta\{[^}]*clip-path:none;border-radius:999px;/.test(HTML));
-  t('Schnellstart-Karten tragen echte Spielbilder (dieselben Dateien wie die Moduskarten) statt CSS-Kugeln',
-    /id="fbQuick1v1" type="button"><span class="fbQbild" aria-hidden="true"><img src="assets\/hub\/modes\/football_classic\.webp"/.test(HTML)
-    && /id="fbQuickTeam" type="button"><span class="fbQbild" aria-hidden="true"><img src="assets\/hub\/modes\/football_team2v2\.webp"/.test(HTML)
-    && HTML.indexOf('fbQball') < 0);
+  // Vorlagen 1+2 (2026-09-25): der Knopf ist zudem leicht durchscheinend (Goldglas), die Arena oben gross und scharf.
+  t('der Spielen-Knopf ist leicht durchscheinend (Goldglas mit Hintergrundunschaerfe)', /body\.roAus \.mcta\{[^}]*background:linear-gradient\(180deg,rgba\(255,238,184,\.88\)[^}]*backdrop-filter:blur\(8px\) saturate\(1\.2\);/.test(HTML));
+  t('die Arena oben steht gross und nur weich eingeblendet (keine ovale Unschaerfe mehr)', /body\.roAus \.fbHeroImg\{display:block;width:100%;height:auto;aspect-ratio:700\/390;/.test(HTML) && !/\.fbHeroImg\{[^}]*radial-gradient\(ellipse 50% 50%/.test(HTML));
+  // Schnellstart (Vorlage 1): echte Spielkugel mit Lichtspur aus der vorhandenen Arena-Aufnahme,
+  // Goldmedaillon, goldgerahmter Pfeil; keine CSS-Kugeln. Das Bild steht in der Auslieferungsliste.
+  t('Schnellstart-Karten tragen einen Ausschnitt der echten Arena-Aufnahme (blaue bzw. rote Kugel) statt CSS-Kugeln',
+    /id="fbQuick1v1" type="button"><span class="fbQbild" aria-hidden="true"><img class="fbQb1" src="assets\/hub\/hero_football\.webp"[^>]*loading="lazy"/.test(HTML)
+    && /id="fbQuickTeam" type="button"><span class="fbQbild" aria-hidden="true"><img class="fbQb2" src="assets\/hub\/hero_football\.webp"[^>]*loading="lazy"/.test(HTML)
+    && HTML.indexOf('fbQball') < 0 && /'assets\/hub\/hero_football\.webp'/.test(fs.readFileSync(path.join(__dirname, 'build_hosting.js'), 'utf8')));
+  t('Bald mehr hat Symbol und zwei Zeilen wie die Vorlage', /<div class="soon"><span class="soonIco" aria-hidden="true"><svg[\s\S]*?<\/svg><\/span><span class="soonTx"><span class="soon-t" id="soonT">/.test(HTML)
+    && I18N.de.soonT === 'MEHR FOLGT IN KÜRZE');
   for (const l of ['en', 'de', 'tr']) t('Texte der Startseite in ' + l,
     ['fbPick', 'fbPubAll', 'fbLeerTipp', 'fbCreate', 'fbBrowse', 'fbQuickT', 'fbQuickH', 'fbQ1T', 'fbQ1S', 'fbQ2T', 'fbQ2S'].every(k => typeof I18N[l][k] === 'string' && I18N[l][k].length > 0));
 }

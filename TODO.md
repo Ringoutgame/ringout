@@ -1,6 +1,7 @@
 # TODO.md — RingOut
 
-**Zuletzt aktualisiert:** 2026-09-25 (**STARTSEITE FEEDBACK**: heller Himmel, runder Spielen-Knopf, Schnellstart
+**Zuletzt aktualisiert:** 2026-09-25 (**STARTSEITE VORLAGEN 1+2**: Arena gross oben, Goldglas-Spielen-Knopf, Schnellstart mit
+echten Kugeln, "Mehr folgt in Kuerze" nach Vorlage. Zuvor: **STARTSEITE FEEDBACK**: heller Himmel, runder Spielen-Knopf, Schnellstart
 mit echten Bildern, Karten waehlen nur aus, Geraetesprache + translate="no" an der Marke. Zuvor: **STARTSEITE NACH VORLAGE**: Arena-Football-Startseite mit Himmel, Arena-Blickfang,
 Titel ARENA FOOTBALL, Glas-Panels Modi / Offene Raeume / Schnellstart - alle Knoepfe auf bestehenden Wegen.
 Offen, niedrig: Bildschaerfe der Arena auf hochaufloesenden Handys (Quelle 700 px); kein Profil-Knopf wie in der

@@ -6,6 +6,13 @@ Alle abgeschlossenen Änderungen am Projekt, neueste zuerst.
 
 ## [Unreleased]
 
+### Startseite: Vorlagen 1 + 2 vereint, Schnellstart und „Mehr folgt“ überarbeitet
+- feat(ui): **Oberer Bereich nach Vorlage 2** (2026-09-25): die Arena groß und scharf auf dem Wolkenmeer (nur oben/seitlich/unten weich eingeblendet, auf breiten Bildschirmen seitlich weiter), tiefblauer Himmel oben mit Sonne rechts und leichtem Goldschein hinter dem Titel (CSS-Ebenen über dem vorhandenen Himmel, kein neues Asset). Panels mit Goldakzenten an den Ecken; Leerbild „Offene Räume“ mit Arenaboden (vorhandenes Bild).
+- feat(ui): **Spielen-Knopf weich abgerundet und leicht durchscheinend** (Goldglas mit Hintergrundunschärfe, dunkle Schrift). Beschriftungen passen zum gewählten Modus: „Team 2v2 spielen“, „Gegen Bots spielen“ (vorher „TEAM 2V2“ / „TRAINING“; en/de/tr).
+- feat(ui): **Schnellstart hochwertiger** (Vorlage 1): echte glänzende Spielkugel mit Lichtspur auf Marmor je Kachel – Ausschnitt aus `hero_football.webp` (blau für 1 gegen 1, rot für Team 2v2, lazy geladen) –, Goldmedaillon mit gefülltem Goldsymbol, goldgerahmter Pfeil, Goldlinie; auf dem Handy volle Breite untereinander. **„Mehr folgt in Kürze“** mit Goldsymbol, zwei Zeilen und goldener Strichkante (de-Text nach Vorlage).
+- Unverändert: Karte wählt nur aus, der Spielen-Knopf öffnet; Raum-, Rückkehr- und Bot-Wege.
+- test: `test_football_hub_preview.js` **146/0**; Browser-Wegeprobe Desktop + Handy **53/0**; Bilder `artifacts/fb-home-01/bilder/final3-*`, `q2-*`, `auswahl-*` (untracked).
+
 ### Startseite: Owner-Feedback (Himmel, Spielen-Knopf, Schnellstart, Kartenwahl, Sprache)
 - feat(ui): **Heller, freundlicher Himmel** statt orange-gelbem Schein an den Seiten (2026-09-25): `assets/hub/fb_home_sky.webp` neu aus den weissen Wolken der vorhandenen Tagesaufnahme `hero_football.webp` (nur Wolkenmasse, keine Tuerme/Arena; `artifacts/fb-home-01/himmel.js`). Gold bleibt Akzent (Titel, Rahmen, Knopf).
 - feat(ui): **Spielen-Knopf weich abgerundet** (Pille statt Spitzen), dezentes Gold mit Materialverlauf, weicher Glanzkante und Tiefe; weniger grell, gleich gut lesbar.
