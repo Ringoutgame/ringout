@@ -425,6 +425,10 @@ abschnitt('8. Startseite nach der Vorlage: nur echte Wege');
     && HTML.indexOf('fbQball') < 0 && /'assets\/hub\/hero_football\.webp'/.test(fs.readFileSync(path.join(__dirname, 'build_hosting.js'), 'utf8')));
   t('Bald mehr hat Symbol und zwei Zeilen wie die Vorlage', /<div class="soon"><span class="soonIco" aria-hidden="true"><svg[\s\S]*?<\/svg><\/span><span class="soonTx"><span class="soon-t" id="soonT">/.test(HTML)
     && I18N.de.soonT === 'MEHR FOLGT IN KÜRZE');
+  // Regression 2026-09-25: die Handy-Regeln der Raum-Knoepfe gingen beim Umbau des Schnellstarts verloren
+  // ("RAEUME DURCHS..." abgeschnitten). Sie muessen im Handy-Block stehen.
+  t('Handy: die Raum-Knoepfe sind kompakt (kein abgeschnittenes RAEUME DURCHSUCHEN)',
+    /\/\* Handy: Karussell[^\n]*\n@media\(max-width:559px\)\{[^@]*?body\.roAus \.fbRbtn\{gap:6px;padding:10px 6px;[^@]*?body\.roAus \.fbRblau b\{display:none\}/.test(HTML));
   for (const l of ['en', 'de', 'tr']) t('Texte der Startseite in ' + l,
     ['fbPick', 'fbPubAll', 'fbLeerTipp', 'fbCreate', 'fbBrowse', 'fbQuickT', 'fbQuickH', 'fbQ1T', 'fbQ1S', 'fbQ2T', 'fbQ2S'].every(k => typeof I18N[l][k] === 'string' && I18N[l][k].length > 0));
 }

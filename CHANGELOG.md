@@ -11,6 +11,7 @@ Alle abgeschlossenen Änderungen am Projekt, neueste zuerst.
 - feat(ui): **Spielen-Knopf weich abgerundet und leicht durchscheinend** (Goldglas mit Hintergrundunschärfe, dunkle Schrift). Beschriftungen passen zum gewählten Modus: „Team 2v2 spielen“, „Gegen Bots spielen“ (vorher „TEAM 2V2“ / „TRAINING“; en/de/tr).
 - feat(ui): **Schnellstart hochwertiger** (Vorlage 1): echte glänzende Spielkugel mit Lichtspur auf Marmor je Kachel – Ausschnitt aus `hero_football.webp` (blau für 1 gegen 1, rot für Team 2v2, lazy geladen) –, Goldmedaillon mit gefülltem Goldsymbol, goldgerahmter Pfeil, Goldlinie; auf dem Handy volle Breite untereinander. **„Mehr folgt in Kürze“** mit Goldsymbol, zwei Zeilen und goldener Strichkante (de-Text nach Vorlage).
 - Unverändert: Karte wählt nur aus, der Spielen-Knopf öffnet; Raum-, Rückkehr- und Bot-Wege.
+- fix(ui): Die Handy-Regeln der Raum-Knöpfe waren beim Schnellstart-Umbau mit entfernt worden („RÄUME DURCHS…“ abgeschnitten, live in `7f334de`) – wiederhergestellt, mit Regressionstest (gegen `7f334de` rot).
 - test: `test_football_hub_preview.js` **146/0**; Browser-Wegeprobe Desktop + Handy **53/0**; Bilder `artifacts/fb-home-01/bilder/final3-*`, `q2-*`, `auswahl-*` (untracked).
 
 ### Startseite: Owner-Feedback (Himmel, Spielen-Knopf, Schnellstart, Kartenwahl, Sprache)
