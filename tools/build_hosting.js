@@ -29,6 +29,7 @@ const DATEIEN = [
   // Game Hub: die freigegebenen Spielkarten-Motive der Startseite
   'assets/hub/hero_ringout.webp',
   'assets/hub/hero_football.webp',
+  'assets/hub/fb_home_sky.webp',          // Himmel der Arena-Football-Startseite (2026-09-25)
   // Moduskarten: echte Aufnahmen der Spielwelt (artifacts/hub-d1v2/kartenbilder.js)
   'assets/hub/modes/football_classic.webp',
   'assets/hub/modes/football_tactical.webp',

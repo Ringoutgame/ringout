@@ -389,7 +389,8 @@ abschnitt('8. Startseite nach der Vorlage: nur echte Wege');
     && /\.fbTitel,\.fbHeroImg,\.fbLeer,\.fbRejoin,#fbQuick \.mhint\{display:none\}/.test(HTML) && /\.fbPanel\{display:contents\}/.test(HTML));
   t('Titel ARENA FOOTBALL unter der Marke RINGOUT', /<h1>Ring<em>Out<\/em><\/h1>\s*<!--[\s\S]*?-->\s*<div class="fbTitel" aria-hidden="true"><span class="fbT1">Arena<\/span><span class="fbT2">Football<\/span><\/div>/.test(HTML));
   t('der Blickfang ist ein vorhandenes Spielbild, der Himmel liegt als Asset bei', /<div id="menuHero"><img class="fbHeroImg" src="assets\/hub\/modes\/football_elimination\.webp"/.test(HTML)
-    && fs.existsSync(path.join(__dirname, '..', 'assets', 'hub', 'fb_home_sky.webp')));
+    && fs.existsSync(path.join(__dirname, '..', 'assets', 'hub', 'fb_home_sky.webp'))
+    && /'assets\/hub\/fb_home_sky\.webp'/.test(fs.readFileSync(path.join(__dirname, 'build_hosting.js'), 'utf8')));   // wird auch ausgeliefert
   const oeffnen = fn('fbHomeOnlineOeffnen');
   t('RAUM ERSTELLEN oeffnet den Onlinebildschirm des gewaehlten Modus (1 VS 1 erst die Spielart)',
     /if\(k==='duel'\)\{fbDuelOeffnen\(\);return;\}/.test(oeffnen) && /if\(k==='team2v2'\)\{fbTeam2OnlineOeffnen\(\);return;\}/.test(oeffnen) && /fbFfaOnlineOeffnen\(\);/.test(oeffnen));
