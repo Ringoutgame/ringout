@@ -20106,10 +20106,6 @@ async function initR3D(){
       // Sicht abdecken.
       for(const o of colvBase3)o.position.y=o.userData.colv.hy+(cnt>=1?COLV_TIER3_LIFT:0);
     }
-    // langsamer Gold-Ring unter der Spitze (Prototyp), rein dekorativ
-    const ringG=new THREE.Group();
-    {const r1=new THREE.Mesh(new THREE.TorusGeometry(358,5.2,10,96),goldM);
-     r1.rotation.x=Math.PI/2;ringG.add(r1);ringG.position.set(cx,-646,cy);scene.add(ringG);}
     // Kugeln: Radius exakt BR (Physik-Wahrheit), Material aus dem akzeptierten Prototyp
     // Polierte Murmeln: satter/dunkler Grundton, klarer Lack, kraeftige Reflexe -> liest sich
     // deutlich gegen den hellen Marmor, ohne Plastik-Look
@@ -20410,18 +20406,6 @@ async function initR3D(){
       // die Materialien im naechsten Frame auf ihre Ruhewerte zurueck.
       if(goalFxParts.length)applyGoalFx(t0+nowS*1000);
       applyArenaFx();
-      // Deko-Goldring (Halo) unter der Tempelspitze: er gehoert zur INTAKTEN Arena. Sobald das
-      // aeussere Band und die breiten Sockelteile bei Collapse 1 stuerzen, steht der feste
-      // 358er-Torus weiter aussen als der verbleibende Sockel und liegt als goldener Bogen
-      // sichtbar unter der kleineren Arena — er liest sich dann als Rest der alten Arena
-      // (B2A). Deshalb verschwindet er ab der ERSTEN Stufe; wie in der Quelle faellt er nie
-      // sichtbar mit, sondern wird im ersten sichtbar bewegten Segment-Frame (Tremor-Ende)
-      // atomar ausgeblendet, waehrend die abkippenden Segmente den Wechsel verdecken.
-      // Stufe 0 bleibt unveraendert, und Rehydration/Fallback (instant) blenden sofort aus.
-      const ringGone=colvCount()>=1;
-      const ringMv=colv.state===2&&!colv.instant?nowS-colv.t0>COLV_TREMOR_S:true;
-      ringG.visible=!ringGone||!ringMv;
-      ringG.rotation.y=nowS*.07;ringG.position.y=-646+bob;
       cloudG.rotation.y=nowS*.006;                    // Wolken driften
       island.position.y=-404+Math.sin(nowS*.3+2.3)*35;
       if(mainBMat)mainBMat.emissiveIntensity=1.3+Math.sin(nowS*1.6)*.12;   // ruhiger Grenz-Puls

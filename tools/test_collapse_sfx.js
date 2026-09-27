@@ -47,7 +47,7 @@ if (sfxStart < 0 || sfxEnd < 0) { console.error('SFX-Extraktion fehlgeschlagen')
 const SFX_SRC = HTML.slice(sfxStart, sfxEnd + '\n})();'.length);
 const COLV_CONST_SRC = cutHtml('const COLV_WALK_TOP=', 'const colv={', 'COLV-Konstanten');
 const COLV_OBJ_SRC = cutHtml('const colv={', '// Bandtausch-Inventar', 'colv/colvSnd');
-const COLV_TICK_SRC = cutHtml('function colvStage(){', '// langsamer Gold-Ring', 'colvStage..colvTick');
+const COLV_TICK_SRC = cutHtml('function colvStage(){', '// Kugeln: Radius exakt BR', 'colvStage..colvTick');
 const COLV_ALL = COLV_CONST_SRC + COLV_OBJ_SRC + COLV_TICK_SRC;
 
 // ══ A) Quellen-Kausalitaet (statisch) ══

@@ -6,6 +6,9 @@ Alle abgeschlossenen Änderungen am Projekt, neueste zuerst.
 
 ## [Unreleased]
 
+### Goldener Deko-Ring unter der Arena entfernt
+- fix(visual): Der goldene Ring unter der Arena (`ringG`, ein reines Deko-Element aus Ring Out: „langsamer Gold-Ring unter der Spitze (Prototyp), rein dekorativ“) ist entfernt – Erzeugung und Bewegung je Bild. Er wirkte unter der Arena-Football-Arena wie ein zusätzlicher, schwebender Ring. Stein-Unterbau, Spielfläche, Tore, Kollisionen und Regeln sind unberührt; der Ring hatte keine Physik. Der Collapse-Klangtest schneidet seinen Quelltextbereich jetzt bis zur nächsten Zeile (`// Kugeln: Radius exakt BR`) statt bis zum Ring-Kommentar – derselbe Code (Owner-Wunsch 2026-09-27). Bilder: `artifacts/wolken-01/bilder/ring-*.png` (untracked).
+
 ### Startseite: Spielen-Knopf rechteckig, wärmeres Gold
 - feat(ui): Der große Spielen-Knopf ist jetzt ein **breites Rechteck mit sanft gerundeten Ecken** (14 px statt Pillenform) in **dunklerem, wärmerem Gold mit leichtem Orange-Anteil**; Glanzkante, Tiefe, leichte Transparenz und dunkle Schrift bleiben. Sonst unverändert (Owner-Wunsch 2026-09-25). Bilder: `artifacts/fb-home-01/bilder/knopf-vorher-*` / `knopf-nachher-*` (untracked).
 
