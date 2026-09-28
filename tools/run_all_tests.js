@@ -36,6 +36,7 @@ const SUITES = [
   { name: 'r3d-Mapping',      file: 'test_r3d_mapping.js',    expectPassed: 52 },
   { name: 'Ring-Collapse',    file: 'test_collapse.js',       expectPassed: 330 },   // RingOut-Delta B2: Two-Stage-Collapse (2 x 30 s, sofort bei 0), Bot-Produktpfad, Stage-2-Arena/Auslieferung
   { name: 'Collapse-SFX',     file: 'test_collapse_sfx.js',   expectPassed: 130 },   // RingOut-Delta B2: Collapse-Klang read-only aus dem sichtbaren Adapter, 14 WAV-Derivate
+  { name: 'Wolken-Stufe',     file: 'test_wolken_stufe.js',   expectPassed: 46 },    // Wolkenqualitaet: Leistungsregler der Automatik (echter Block aus index.html) + Einbindung
   { name: 'Rescue-Wall',      file: 'test_rescue_wall.js',    expectPassed: 131 },
   { name: 'Online-Collapse',  file: 'test_online_collapse.js', expectPassed: 62 },   // ONLINE FEATURE PARITY: der Two-Stage-Collapse im Onlinevertrag - Uhr aus Serverstempeln (ca/cc), Stufe ausschliesslich aus der write-once-Marke cs, keine dritte Stufe, Rueckkehr und Rematch
   { name: 'Online-Wand',      file: 'test_online_rescue_wall.js', expectPassed: 71 },   // ONLINE FEATURE PARITY: die reaktive Rescue Wall im Onlinevertrag - Slot rw/<turn>/<seat> write-once und sitzgebunden, spaete Wand wird nachgerechnet, Zugende haelt bis alle gesprochen haben, drei Einsaetze je Match   // RW1: Reactive Rescue Wall offline/Bot — Zone am aktuellen Radius, 3 Einsaetze je Match, Tick-Semantik, Besitzerfilter, Lebensdauer; online ist NICHT Teil dieser Phase

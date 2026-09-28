@@ -1644,6 +1644,11 @@ body.roAus #fbQuick .soon-s{color:#a9c6ea;font-size:clamp(9.5px,2.6vw,11.5px);te
     <div class="pills" id="envGrp" style="margin-bottom:16px">
       <button id="envDawnBtn" aria-pressed="true">Dawn</button><button id="envDayBtn" aria-pressed="false">Day</button>
     </div>
+    <div class="lbl" id="setWolkenLbl" style="text-align:left;margin-top:6px">Clouds</div>
+    <div class="pills" id="wolkenGrp" style="margin-bottom:6px">
+      <button id="wolkenAutoBtn" aria-pressed="true">Auto</button><button id="wolkenHochBtn" aria-pressed="false">High</button><button id="wolkenSparBtn" aria-pressed="false">Economy</button>
+    </div>
+    <div class="lbl" id="setWolkenHinweis" style="text-align:left;margin:0 0 16px;opacity:.7;font-size:11px"></div>
     <button class="wbtn primary" id="setClose">OK</button>
   </div>
 </div>
@@ -1944,6 +1949,49 @@ let vibrationOn=(()=>{try{const v=localStorage.getItem('ringout_vibe');return v=
 // Bewusst NICHT an soundOn gekoppelt - wer den Rhythmus nicht mag, soll die Spielklaenge
 // behalten duerfen. Der Klangschalter bleibt uebergeordnet: ohne Klang keine Musik.
 let musicOn=(()=>{try{const v=localStorage.getItem('ringout_music');return v===null?true:v==='1';}catch(e){return true;}})();
+// Wolkenqualitaet (rein lokal, rein visuell): 'auto' (Standard), 'hoch' oder 'spar'. Eine manuelle
+// Wahl hat Vorrang und wird gespeichert; die Automatik entscheidet anhand der echten Bildzeiten.
+const WOLKEN_WAHL_KEY='ringout_wolken_v1',WOLKEN_AUTO_KEY='ringout_wolken_auto_v1';
+function wolkenWahlLesen(){try{const v=localStorage.getItem(WOLKEN_WAHL_KEY);return v==='hoch'||v==='spar'?v:'auto';}catch(e){return 'auto';}}
+let wolkenWahl=wolkenWahlLesen();
+// ==WOLKEN-REGLER== (rein: keine DOM-/WebGL-Zugriffe; tools/test_wolken_stufe.js prueft ihn isoliert)
+// Die Automatik schaltet NUR von Hoch auf Sparsam, nie zurueck (kein Hin- und Herschalten). Gezaehlt
+// werden Bildabstaende in Fenstern von WOLKEN_REGLER.fenster Bildern; ein Bild gilt als langsam, wenn
+// es laenger als WOLKEN_REGLER.langsamMs dauert (bei 60 Hz ein verpasstes Bild, bei 90/120 Hz erst ein
+// Einbruch unter ~40 FPS). Erst wenn WOLKEN_REGLER.folge Fenster HINTEREINANDER (bei 60 Hz ~4,5 s) mehr als den Anteil
+// WOLKEN_REGLER.anteil langsamer Bilder haben, wird gewechselt. Einzelne Pausen ueber ignorierMs (Tab-Wechsel,
+// Ladepause) und Doppelbilder unter minMs zaehlen nicht - kommen aber grossFolge solcher Riesenbilder
+// HINTEREINANDER, ist das Geraet schlicht zu langsam, und sie zaehlen als Ruckler. Damit ein sehr
+// langsames Geraet nicht minutenlang auf 90 Bilder wartet, schliesst ein Fenster auch nach fensterMaxMs.
+const WOLKEN_REGLER={fenster:90,fensterMaxMs:6000,minBilder:6,langsamMs:24,anteil:0.2,folge:3,
+  ignorierMs:250,grossFolge:3,minMs:4,merkenTage:7,merkenAb:2,episodeMs:3600000,entlastenMs:120000};
+function wolkenReglerNeu(){return {n:0,langsam:0,zeit:0,gross:0,folge:0,fenster:0,entschieden:false};}
+function wolkenReglerSchritt(z,dt){
+  const R=WOLKEN_REGLER;
+  if(z.entschieden||!(dt>=R.minMs))return false;
+  if(dt>R.ignorierMs){z.gross++;if(z.gross<R.grossFolge)return false;}else z.gross=0;
+  z.n++;z.zeit+=dt;if(dt>R.langsamMs)z.langsam++;
+  if(z.n<R.fenster&&!(z.zeit>=R.fensterMaxMs&&z.n>=R.minBilder))return false;
+  const zuViel=z.langsam/z.n>R.anteil;z.fenster++;z.n=0;z.langsam=0;z.zeit=0;
+  z.folge=zuViel?z.folge+1:0;
+  if(z.folge>=R.folge){z.entschieden=true;return true;}
+  return false;
+}
+// Gedaechtnis der Automatik. Ein vorübergehendes Problem (Energiesparmodus, heisses Geraet, Download im
+// Hintergrund, erstes Laden nach einem Update) soll ein Geraet NICHT festlegen: der Wechsel in der Sitzung
+// wird nur GEZAEHLT. Sparsam gilt beim naechsten Start erst, wenn es in merkenAb verschiedenen Sitzungen
+// innerhalb von merkenTage noetig war (Einbrueche binnen episodeMs gelten als EINE Episode - mehrfaches
+// Neuladen waehrend desselben Problems zaehlt nicht doppelt). Spielt das Geraet entlastenMs fluessig auf Hoch, wird das
+// Gedaechtnis geloescht; ebenso, wenn der Spieler bewusst wieder "Automatisch" waehlt.
+function wolkenAutoLesen(jetzt){try{const o=JSON.parse(localStorage.getItem(WOLKEN_AUTO_KEY)||'null');
+  if(!o||!(jetzt-o.t<WOLKEN_REGLER.merkenTage*864e5))return {n:0,t:0};
+  return {n:o.n>0?o.n:1,t:o.t};}catch(e){return {n:0,t:0};}}   // alter Eintrag ohne n zaehlt als eine Sitzung
+function wolkenAutoGemerkt(jetzt){return wolkenAutoLesen(jetzt).n>=WOLKEN_REGLER.merkenAb?'spar':null;}
+function wolkenAutoMerken(jetzt){const o=wolkenAutoLesen(jetzt);
+  const n=o.n&&jetzt-o.t<WOLKEN_REGLER.episodeMs?o.n:o.n+1;
+  try{localStorage.setItem(WOLKEN_AUTO_KEY,JSON.stringify({n:n,t:jetzt}));}catch(e){}}
+function wolkenAutoEntlasten(){try{localStorage.removeItem(WOLKEN_AUTO_KEY);}catch(e){}}
+// ==/WOLKEN-REGLER==
 const VIBE_CLICK_MS=10, VIBE_CONFIRM_MS=25;   // normaler Klick vs. Play-Online-FFA-Start (deutlicher)
 // Environment-Profil (rein lokale, rein visuelle Praeferenz — kein Netzwerk/Physik/Firebase).
 // Gueltige Werte ausschliesslich 'dawn'|'day'; alles andere/fehlend -> 'dawn'. Versionierter Key.
@@ -2896,7 +2944,7 @@ en:{tagline:'PULL BACK · RELEASE · KNOCK THEM OUT',chip:'FEATURED',
   infoFfa:'2–5 PLAYERS · HOST STARTS',infoVs:'2 PLAYERS · 2 BALLS EACH',infoBot:'VS AI · SOLO PRACTICE',
   bot1v1T:'1v1 VS BOT',bot1v1S:'1 BALL EACH',bot2v2T:'2v2 DUO VS BOT',bot2v2S:'2 BALLS EACH',comingSoon:'COMING SOON',
   setTitle:'SETTINGS',setLang:'Language',vibeLbl:'Vibration',vibeUnsupported:' (not available)',musicLbl:'Music',
-  env:'Environment',envDawn:'Dawn',envDay:'Day',
+  env:'Environment',envDawn:'Dawn',envDay:'Day',wolkenLbl:'Clouds',wolkenAuto:'Auto',wolkenHoch:'High',wolkenSpar:'Economy',wolkenJetzt:'Auto currently: ',
   onSubFfa:'Free for all · 2 to 5 players',onSubVs:'Versus · 2 players',
   createBtn:'Create',createSub:'Your room is open right away – friends and other players join from the list.',
   joinTitle:'Join with a code',joinSub:'Got a 4-letter code from a friend? Enter it here.',orLbl:'OR',refresh:'REFRESH',
@@ -3004,7 +3052,7 @@ de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'FEATURED',
   infoFfa:'2–5 SPIELER · HOST STARTET',infoVs:'2 SPIELER · 2 KUGELN PRO SPIELER',infoBot:'GEGEN KI · SOLO-TRAINING',
   bot1v1T:'1v1 GEGEN BOT',bot1v1S:'1 KUGEL PRO SEITE',bot2v2T:'2v2 DUO GEGEN BOT',bot2v2S:'2 KUGELN PRO SEITE',comingSoon:'BALD VERFÜGBAR',
   setTitle:'EINSTELLUNGEN',setLang:'Sprache',vibeLbl:'Vibration',vibeUnsupported:' (nicht verfügbar)',musicLbl:'Musik',
-  env:'Umgebung',envDawn:'Dämmerung',envDay:'Tag',
+  env:'Umgebung',envDawn:'Dämmerung',envDay:'Tag',wolkenLbl:'Wolken',wolkenAuto:'Automatisch',wolkenHoch:'Hoch',wolkenSpar:'Sparsam',wolkenJetzt:'Automatik derzeit: ',
   onSubFfa:'Free for all · 2 bis 5 Spieler',onSubVs:'Versus · 2 Spieler',
   createBtn:'Erstellen',createSub:'Dein Raum ist sofort offen – Freunde und andere Spieler treten über die Liste bei.',
   joinTitle:'Mit Code beitreten',joinSub:'Hast du einen 4-stelligen Code von einem Freund? Hier eingeben.',orLbl:'ODER',refresh:'AKTUALISIEREN',
@@ -3112,7 +3160,7 @@ tr:{tagline:'GERİ ÇEK · BIRAK · DIŞARI İT',chip:'FEATURED',
   infoFfa:'2–5 OYUNCU · HOST BAŞLATIR',infoVs:'2 OYUNCU · HERKESE 2 TOP',infoBot:'YAPAY ZEKÂYA KARŞI · SOLO ANTRENMAN',
   bot1v1T:'BOTA KARŞI 1v1',bot1v1S:'HERKESE 1 TOP',bot2v2T:'BOTA KARŞI 2v2 DUO',bot2v2S:'HERKESE 2 TOP',comingSoon:'ÇOK YAKINDA',
   setTitle:'AYARLAR',setLang:'Dil',vibeLbl:'Titreşim',vibeUnsupported:' (desteklenmiyor)',musicLbl:'Müzik',
-  env:'Ortam',envDawn:'Şafak',envDay:'Gündüz',
+  env:'Ortam',envDawn:'Şafak',envDay:'Gündüz',wolkenLbl:'Bulutlar',wolkenAuto:'Otomatik',wolkenHoch:'Yüksek',wolkenSpar:'Tasarruflu',wolkenJetzt:'Otomatik şu an: ',
   onSubFfa:'Herkes tek · 2–5 oyuncu',onSubVs:'Karşılıklı · 2 oyuncu',
   createBtn:'Oda kur',createSub:'Odan hemen açık olur – arkadaşlar ve diğer oyuncular listeden katılır.',
   joinTitle:'Kodla katıl',joinSub:'Arkadaşından 4 haneli kod aldın mı? Buraya gir.',
@@ -3269,6 +3317,10 @@ function applyLang(){
   setOn('musicGrp',musicOn?'musicOnBtn':'musicOffBtn');
   $('setEnvLbl').textContent=T('env');$('envDawnBtn').textContent=T('envDawn');$('envDayBtn').textContent=T('envDay');
   setOnAria('envGrp',envProfile==='day'?'envDayBtn':'envDawnBtn');
+  $('setWolkenLbl').textContent=T('wolkenLbl');$('wolkenAutoBtn').textContent=T('wolkenAuto');
+  $('wolkenHochBtn').textContent=T('wolkenHoch');$('wolkenSparBtn').textContent=T('wolkenSpar');
+  setOnAria('wolkenGrp',{auto:'wolkenAutoBtn',hoch:'wolkenHochBtn',spar:'wolkenSparBtn'}[wolkenWahl]);
+  if(typeof wolkenHinweis==='function')wolkenHinweis();
   // Online-Seite: Karten-Titel/-Texte, Toggle-Labels (nur der Text-Span — Icons bleiben)
   $('onCreate').textContent=T('createBtn');$('onJoin').textContent=T('join');$('onBack2').textContent=T('back');
   $('onCreateT').textContent=T('createRoom');$('onCreateS').textContent=T('createSub');
@@ -3282,7 +3334,7 @@ function applyLang(){
   $('rematchBtn').textContent=rematchLabel();$('replayBtn').textContent=T('replayB');$('ovMenuBtn').textContent=T('menuB');
   selectMenuMode(menuSel);
 }
-$('menuSet').onclick=()=>$('setOv').classList.add('show');
+$('menuSet').onclick=()=>{wolkenHinweis();$('setOv').classList.add('show');};
 $('setClose').onclick=()=>$('setOv').classList.remove('show');
 for(const[id,lg]of[['langEn','en'],['langDe','de'],['langTr','tr']])
   $(id).onclick=()=>{LANG=lg;try{localStorage.setItem('ringout_lang',lg);}catch(e){}applyLang();};
@@ -3299,6 +3351,12 @@ for(const[id,on]of[['musicOnBtn',true],['musicOffBtn',false]])
     if(!on&&typeof fbMusicStop==='function')fbMusicStop();};
 // Environment-Auswahl: Wahl sofort lokal speichern + UI aktualisieren; sichtbare Anwendung
 // uebernimmt der 3D-Layer (live nur im sicheren Idle, sonst beim naechsten Menue-Wechsel).
+// Wolkenqualitaet: manuelle Wahl sofort anwenden und speichern; 'auto' entscheidet im laufenden Spiel.
+function wolkenHinweis(){const st=r3dActive&&r3d&&r3d.wolkenStufe?r3d.wolkenStufe():null;
+  $('setWolkenHinweis').textContent=wolkenWahl==='auto'&&st?T('wolkenJetzt')+(st==='spar'?T('wolkenSpar'):T('wolkenHoch')):'';}
+for(const[id,w]of[['wolkenAutoBtn','auto'],['wolkenHochBtn','hoch'],['wolkenSparBtn','spar']])
+  $(id).onclick=()=>{wolkenWahl=w;try{localStorage.setItem(WOLKEN_WAHL_KEY,w);}catch(e){}if(w==='auto')wolkenAutoEntlasten();
+    setOnAria('wolkenGrp',id);if(r3dActive&&r3d&&r3d.wolkenEinstellen)r3d.wolkenEinstellen();wolkenHinweis();};
 for(const[id,key]of[['envDawnBtn','dawn'],['envDayBtn','day']])
   $(id).onclick=()=>{envProfile=writeEnvProfile(key);setOnAria('envGrp',id);if(r3dActive&&r3d&&r3d.setEnvProfile)r3d.setEnvProfile(key);};
 $('cardFfa').onclick=()=>selectMenuMode('ffa');
@@ -5093,7 +5151,7 @@ function wireMenuClickFeedback(){
     'cardRingout','cardFootball','cardFb1v1','cardFb2v2','cardFbFfa','cardFbBot',
     'bot1v1','bot2v2','botBack','ffaOnline','onCreate','onJoin','onBack','onBack2','lobbyStart',
     'homeViewAll','homeCreate','homeJoinCode','homeRejoin','pubRefresh',
-    'menuSet','setClose','langEn','langDe','langTr','vibeOnBtn','vibeOffBtn','musicOnBtn','musicOffBtn','envDawnBtn','envDayBtn','menuBtn',
+    'menuSet','setClose','langEn','langDe','langTr','vibeOnBtn','vibeOffBtn','musicOnBtn','musicOffBtn','envDawnBtn','envDayBtn','wolkenAutoBtn','wolkenHochBtn','wolkenSparBtn','menuBtn',
     'fbClassicBtn','fbTacticalBtn','fbTeam2Btn','fbElimBtn','fbOnlineBtn','fbModeBack',
     'fbLivesBtn','fbTimedBtn','fbElimBack','fbElimN3','fbElimN4','fbElimN5',
     'fbFirst3Btn','fbSpeedBtn','fbRuleBack',
@@ -18624,10 +18682,377 @@ async function initR3D(){
       const sz=szMin+Math.random()*(szMax-szMin);s.scale.set(sz,sz*(.36+Math.random()*.14),1);
       cloudG.add(s);
     }
+    // ── WOLKENMEER (Arena Football, 2026-09-26) ──────────────────────────────────────
+    // Die Spielkamera blickt 12,5 bis 57,6 Grad UNTER die Horizontale: rund 90 % des Spielbilds
+    // sind die waagerechte Wolkendecke, der Himmel liegt praktisch nie im Bild. Deshalb traegt
+    // eine durchgehende Reliefflaeche die Szene - die Technik der vom Owner freigegebenen
+    // Wolkenmeer-Probe A3 (2026-07-30): eine Radialscheibe mit einer kachelbaren Reliefkarte,
+    // Schlagschatten entlang der Sonne und Wrap-Licht. Die Karte ist VORAB gebacken
+    // (artifacts/wolken-01/bake, dieselbe Bake-Funktion): kein GPU-Bake beim Start, Normalen
+    // fertig, 9 statt 15 Texturabgriffe je Pixel. Seit der Flug-Umgebung (2026-09-27) liegt sie
+    // als tiefere, aufgelockerte zweite Wolkenebene unter den Volumenwolken (s. FLUG).
+    // Die bisherigen Wolken-Sprites bleiben als Rueckfall, falls die Karten nicht laden.
+    const WM={yTop:-2200,radius:19500,rings:28,sectors:96,rInner:70,
+      tile:7500,relief:1500,warp:900,
+      hmax:1.4462890625,gmax:13.416666984558105,        // Skalen der gepackten Karte (bake/out/meta.json)
+      shadowReach:3600,shadowSoft:260,shadowFloor:0.38,aoFloor:0.46,wrap:0.36,
+      sunGain:4.4,skyGain:1.0,bounce:0.22,hazeNear:5200,hazeFar:19000,drift:14.0,
+      sunEl:0.3840,sonneWeiss:0.3};                                     // 22 Grad: Wolkenlicht wie in A3 (Arena behaelt das Profil)
+    const wmMeshes=[],wmSonne=new THREE.Vector3(),wmWeiss=new THREE.Color(0xffffff);
+    const WM_VERT='varying vec3 vW;void main(){vec4 wp=modelMatrix*vec4(position,1.0);vW=wp.xyz;gl_Position=projectionMatrix*viewMatrix*wp;}';
+    const WM_FRAG=[
+      'precision highp float;',
+      'uniform sampler2D uA,uB;',
+      'uniform vec3 uSunColor,uSkyColor,uWarmColor,uHazeWarm,uHazeCool,uSunDir;',
+      'uniform vec2 uOrigin,uDrift;',
+      'uniform float uTile,uRelief,uWarp,uHmax,uGmax,uSunGain,uSkyGain,uBounce,uAoFloor,uRimGain,uWrap;',
+      'uniform float uShadowReach,uShadowSoft,uShadowFloor,uCovGain,uCovBias,uAlphaMax,uHazeNear,uHazeFar;',
+      'varying vec3 vW;',
+      '#include <common>',
+      'float hgs(float mu,float g){float gg=g*g;return (1.0-gg)/(12.566370614*pow(max(1.0+gg-2.0*g*mu,1e-4),1.5));}',
+      'void main(){',
+      '  vec2 w=vW.xz-uOrigin+uDrift;',
+      // Domain-Warp aus der Karte selbst (bricht die Kachelung, bleibt nahtlos)
+      '  vec2 warp=(vec2(texture2D(uA,w/(uTile*3.37)).b,texture2D(uA,w/(uTile*2.61)+vec2(0.37,0.11)).b)*uHmax-0.5)*uWarp;',
+      '  vec2 p=w+warp;',
+      '  vec4 ta=texture2D(uA,p/uTile), tb=texture2D(uB,p/uTile);',
+      '  float cov=clamp((tb.r-uCovBias)*uCovGain,0.0,1.0);',
+      '  if(cov<0.004) discard;',
+      '  float hN=ta.b*uHmax, thick=clamp(hN*1.3,0.0,1.0), skyOcc=tb.g;',
+      // Normale aus dem VORAB berechneten Gefaelle (je UV-Einheit) in Weltmetern
+      '  vec2 gr=(ta.rg*2.0-1.0)*uGmax*uRelief/uTile;',
+      '  vec3 n=normalize(vec3(-gr.x,1.0,-gr.y));',
+      '  float occ=0.0;',
+      '  vec2 sd=normalize(uSunDir.xz); float tanEl=uSunDir.y/max(length(uSunDir.xz),1e-4);',
+      '  float h0=hN*uRelief;',
+      '  for(int i=1;i<=5;i++){ float t=float(i)/5.0; float dist=t*t*uShadowReach;',
+      '    float hs=texture2D(uA,(p+sd*dist)/uTile).b*uHmax*uRelief;',
+      '    occ=max(occ,(hs-(h0+dist*tanEl))/uShadowSoft); }',
+      '  float sh=clamp(occ,0.0,1.0); sh=sh*sh*(3.0-2.0*sh);',
+      '  float shadow=mix(1.0,uShadowFloor,sh);',
+      '  float ndl=clamp((dot(n,uSunDir)+uWrap)/(1.0+uWrap),0.0,1.0);',
+      '  vec3 sunL=uSunColor*uSunGain*ndl*shadow;',
+      '  vec3 ambL=uSkyColor*uSkyGain*mix(uAoFloor,1.0,skyOcc)*(0.62+0.38*n.y);',
+      '  vec3 bounceL=uWarmColor*uBounce*(1.0-skyOcc);',
+      '  vec3 V=normalize(vW-cameraPosition);',
+      '  float ph=hgs(dot(V,uSunDir),0.62);',
+      '  vec3 rim=uSunColor*uRimGain*(ph/(ph+0.24))*exp(-3.4*thick);',
+      '  vec3 col=ambL+sunL+bounceL+rim;',
+      '  vec3 hz=mix(uHazeCool,uHazeWarm,smoothstep(-0.45,0.70,dot(V,uSunDir)));',
+      '  float fade=smoothstep(uHazeNear,uHazeFar,length(vW-cameraPosition));',
+      '  col=mix(col,hz,fade*0.88);',
+      '  gl_FragColor=vec4(col,cov*uAlphaMax*(1.0-fade*0.55));',   // bleibt bis in die Ferne deckend: kein beiger HDRI-Boden
+      '  #include <tonemapping_fragment>',
+      '  #include <colorspace_fragment>',
+      '}'].join('\n');
+    function wmScheibe(){
+      const pos=[],idx=[],row=WM.sectors+1;
+      for(let i=0;i<=WM.rings;i++){
+        const r=i===0?0:WM.rInner*Math.pow(WM.radius/WM.rInner,(i-1)/(WM.rings-1));
+        for(let j=0;j<=WM.sectors;j++){const a=j/WM.sectors*Math.PI*2;pos.push(Math.cos(a)*r,0,Math.sin(a)*r);}
+      }
+      for(let i=0;i<WM.rings;i++)for(let j=0;j<WM.sectors;j++){const a=i*row+j,b=a+1,c=a+row,dd=c+1;idx.push(a,b,c,b,dd,c);}
+      const g=new THREE.BufferGeometry();
+      g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));g.setIndex(idx);
+      return g;
+    }
+    // ── FLUG-UMGEBUNG (2026-09-27, vom Owner freigegeben 2026-09-28) ─────────────────
+    // Gefuehl "hoch ueber den Wolken wie aus dem Flugzeug": unter dem Horizont ein blauer Tiefenhimmel
+    // (Farben der Blender-Zielansicht) statt des HDRI-Bodens; darauf Volumenwolken aus EINEM Wolkenfeld
+    // (nah niedrige, aufgelockerte Haufen, im Mittelfeld aufgetuermt, zum Horizont flache Baenke) und tief
+    // darunter das aufgelockerte Wolkenmeer als zweite Ebene. Blau zieht durch die Luecken in die Tiefe.
+    const FLUG={meerBias:0.74,hell:1.35,sonneGlanz:0.35,radius:17000,
+      meerY:-3900,                                   // Reliefdecke als tiefere zweite Wolkenebene unter den Feldern
+      // Ferne Wolkenfelder aus Rauschen: Feldgroesse, Luecken, Hoehe (nah hoch/aufgetuermt, fern flache Baenke)
+      feld:5600,feldLuecke:0.50,feldKante:0.14,knolle:1500,rVon:450,rVoll:1500,rAus:21500,rEnde:23500,
+      hNah:1100,hFern:520,hBasis:150,rHoch:5000,rFlach:19000,
+      // Nahzone: niedrige, aufgelockerte Haufen, die zum Mittelfeld hin anwachsen (keine weissen Waende);
+      // direkt unter der Arena bleibt Luft (rVon), nah mehr Luecken (lueckeNah).
+      nahFaktor:0.72,nahBis:5200,lueckeNah:0.47,nahBonus:0.12,nahRing:[500,1600,4800,7500],   // Ring um die Arena: verlaesslich Haufen
+      startwert:20260926};                            // fester Startwert: gleiche Landschaft auf jedem Geraet
+    // Qualitaetsstufen der Volumenwolken: Aufloesung des Wolkendurchgangs, Rechenschritte je Strahl,
+    // Reichweite von Detail und Eigenschatten, Schrittwachstum in der Ferne. Umschaltbar zur Laufzeit.
+    const WV_STUFEN={voll:{aufl:0.5,schritte:96,schattenBis:9000,schrittF:0.011},
+                     spar:{aufl:0.34,schritte:56,schattenBis:3200,schrittF:0.016}};
+    const WV={aufl:0.5,ext:10000,hRes:256,yLo:-2330,yHi:-120,schritte:96,schritt:38,
+      dichte:0.02,rand:210,erosion:2.1,t1:1150,t2:390,licht:1.0,sonne:2.5,sonneWeiss:0.22,nRes:32,
+      // Ferne: zweite, grobe Hoehenkarte bis weit hinter den Horizontdunst; gestaffelt nahe Haufen ->
+      // mittlere Tuerme -> flache Baenke, dazwischen Luecken. Schrittweite waechst mit der Entfernung.
+      extF:46000,hResF:384,schrittF:0.011,tMax:30000,schattenBis:9000,
+      dunst:0xc9dcf2,dunstVon:6000,dunstBis:24000,dunstMax:0.78};
+    // Deterministischer Zufall (mulberry32): gleiche Wolkenlandschaft auf jedem Geraet.
+    function wkZufall(seed){let a=seed>>>0;
+      return()=>{a=(a+0x6D2B79F5)>>>0;let t=a;t=Math.imul(t^(t>>>15),t|1);t^=t+Math.imul(t^(t>>>7),t|61);return((t^(t>>>14))>>>0)/4294967296;};}
+    function wmBauen(tA,tB){
+      const geo=wmScheibe();
+      // Eine Schicht: die aufgelockerte, sonnige Decke tief unter den Volumenwolken.
+      const schichten=[
+        {y:FLUG.meerY,tile:WM.tile,reliefF:1.0,warpF:1.0,sunF:1.0,skyF:1.0,rim:0.55,sky:0x8db4ec,
+         covGain:1.0,covBias:FLUG.meerBias,alphaMax:0.985,order:-2,driftF:1.0,ofs:[0,0]}];
+      for(const s of schichten){
+        const m=new THREE.ShaderMaterial({
+          vertexShader:WM_VERT,fragmentShader:WM_FRAG,
+          uniforms:{uA:{value:tA},uB:{value:tB},
+            uSunColor:{value:new THREE.Color(0xffffff)},uSkyColor:{value:new THREE.Color(s.sky)},
+            uWarmColor:{value:new THREE.Color(0xf6e6d2)},uHazeWarm:{value:new THREE.Color(0xf7eee2)},
+            uHazeCool:{value:new THREE.Color(0xb6d1f2)},uSunDir:{value:wmSonne},
+            uOrigin:{value:new THREE.Vector2(cx+s.ofs[0],cy+s.ofs[1])},uDrift:{value:new THREE.Vector2()},
+            uTile:{value:s.tile},uRelief:{value:WM.relief*s.reliefF},uWarp:{value:WM.warp*s.warpF},
+            uHmax:{value:WM.hmax},uGmax:{value:WM.gmax},
+            uSunGain:{value:WM.sunGain*s.sunF},uSkyGain:{value:WM.skyGain*s.skyF},uBounce:{value:WM.bounce*s.sunF},
+            uAoFloor:{value:WM.aoFloor},uRimGain:{value:s.rim},uWrap:{value:WM.wrap},
+            uShadowReach:{value:WM.shadowReach*s.reliefF},uShadowSoft:{value:WM.shadowSoft},uShadowFloor:{value:WM.shadowFloor},
+            uCovGain:{value:s.covGain},uCovBias:{value:s.covBias},uAlphaMax:{value:s.alphaMax},
+            uHazeNear:{value:WM.hazeNear},uHazeFar:{value:WM.hazeFar}},
+          transparent:true,depthWrite:false,depthTest:true,fog:false,side:THREE.FrontSide});
+        const mesh=new THREE.Mesh(geo,m);
+        mesh.position.set(cx,s.y,cy);mesh.frustumCulled=false;
+        // Negativ: VOR den transparenten Teilen der Arena (Glasbande) zeichnen, sonst ueberdeckte
+        // die Wolkendecke sie trotz Tiefentest nicht sauber.
+        mesh.renderOrder=s.order;mesh.userData.driftF=s.driftF;
+        scene.add(mesh);wmMeshes.push(mesh);
+      }
+    }
+    // Sonne der Wolkenschicht: Azimut der sichtbaren Sonne, Hoehe 22 Grad (A3). Je Bild aus dem
+    // aktuellen Profil-Licht gelesen - ein Profilwechsel wirkt damit sofort auch auf die Wolken.
+    let flugKuppel=null;
+    {
+      const lin=(r,g,b)=>new THREE.Vector3(r,g,b);
+      const m=new THREE.ShaderMaterial({
+        uniforms:{uTief:{value:lin(0.08,0.24,0.62)},uMitte:{value:lin(0.16,0.40,0.80)},uNah:{value:lin(0.42,0.62,0.88)},
+          uHorizont:{value:lin(0.62,0.76,0.92)},uHoch:{value:lin(0.28,0.52,0.85)},uZenit:{value:lin(0.09,0.28,0.68)},
+          uSonne:{value:wmSonne},uSonnenFarbe:{value:new THREE.Color(1.0,0.86,0.66)},uHell:{value:FLUG.hell},uGlanz:{value:FLUG.sonneGlanz}},
+        vertexShader:WM_VERT,
+        fragmentShader:[
+          'uniform vec3 uTief,uMitte,uNah,uHorizont,uHoch,uZenit,uSonne,uSonnenFarbe;uniform float uHell,uGlanz;varying vec3 vW;',
+          'void main(){vec3 d=normalize(vW-cameraPosition);float f=d.y*0.5+0.5;',
+          // Verlauf wie der sichtbare Himmel der Blender-Probe: tief unten kraeftiges Blau, zum Horizont hell
+          '  vec3 c=mix(uTief,uMitte,smoothstep(0.04,0.24,f));c=mix(c,uNah,smoothstep(0.24,0.42,f));',
+          '  c=mix(c,uHorizont,smoothstep(0.42,0.52,f));c=mix(c,uHoch,smoothstep(0.52,0.62,f));c=mix(c,uZenit,smoothstep(0.62,0.85,f));',
+          '  float mu=max(0.0,dot(d,normalize(vec3(uSonne.x,0.0,uSonne.z))));',          // warmer Schein Richtung Sonne am Horizont
+          '  c+=uSonnenFarbe*uGlanz*pow(mu,6.0)*exp(-abs(d.y)*5.0);',
+          '  gl_FragColor=vec4(c*uHell,1.0);',
+          '  #include <tonemapping_fragment>',
+          '  #include <colorspace_fragment>',
+          '}'].join('\n'),
+        side:THREE.BackSide,depthTest:false,depthWrite:false,fog:false});
+      flugKuppel=new THREE.Mesh(new THREE.SphereGeometry(FLUG.radius,48,24),m);
+      flugKuppel.renderOrder=-10;flugKuppel.frustumCulled=false;scene.add(flugKuppel);
+    }
+    function wmBild(nowS){
+      if(flugKuppel)flugKuppel.position.copy(camera.position);
+      if(!wmMeshes.length)return;
+      const dx=sun.position.x-sun.target.position.x,dz=sun.position.z-sun.target.position.z,az=Math.atan2(dz,dx);
+      wmSonne.set(Math.cos(WM.sunEl)*Math.cos(az),Math.sin(WM.sunEl),Math.cos(WM.sunEl)*Math.sin(az));
+      const d=nowS*WM.drift;
+      for(const s of wmMeshes){const u=s.material.uniforms;
+        u.uDrift.value.set(d*s.userData.driftF,d*0.42*s.userData.driftF);
+        u.uSunColor.value.copy(sun.color).lerp(wmWeiss,WM.sonneWeiss);}
+    }
+    const wmLaden=(p)=>new Promise((ok,no)=>new THREE.TextureLoader().load(assetUrl(p),ok,undefined,no));
+    try{
+      const [tA,tB]=await Promise.all([wmLaden('assets/env/fb_wolkenmeer_a.webp'),wmLaden('assets/env/fb_wolkenmeer_b.webp')]);
+      for(const t of [tA,tB]){t.wrapS=t.wrapT=THREE.RepeatWrapping;t.colorSpace=THREE.NoColorSpace;
+        t.anisotropy=Math.min(4,renderer.capabilities.getMaxAnisotropy());t.needsUpdate=true;}
+      wmBauen(tA,tB);r3dDiag('wolkenmeer','ok');
+    }catch(e){ r3dDiag('wolkenmeer-fail',String(e&&e.message||e).slice(0,80)); }
+    // ── WOLKENVOLUMEN (Probe, 2026-09-26) ────────────────────────────────────────────
+    // Owner-Urteil zum Kranz: "wie Schaum oder Schnee". Eine geschlossene, undurchsichtige Flaeche
+    // liest sich immer als fester Koerper. Echte Wolken sind Volumen: ausfransende, durchscheinende
+    // Raender, Licht, das innen weich abfaellt. Darum wird die Wolkenschicht rund um die Arena hier
+    // per Raymarching gerechnet: die Verteilung (Hoehe der Wolkenoberkante) kommt als Hoehenkarte aus
+    // derselben Blasenverteilung, ein kachelbares 3D-Rauschen frisst die Raender aus. Gerechnet wird
+    // bei halber Aufloesung in ein eigenes Ziel; eingeblendet wird ueber einen Kasten, dessen
+    // Tiefentest die Arena (sie liegt ueber dem Kasten) immer frei laesst.
+    let wv=null;
+    function wvRauschen(N){                            // kachelbares Worley-Rauschen, zwei Oktaven, invertiert (quellig)
+      const z=wkZufall(99173),okt=[4,9],pk=okt.map(Z=>{const p=[];for(let i=0;i<Z*Z*Z;i++)p.push([z(),z(),z()]);return p;});
+      const d=new Uint8Array(N*N*N);
+      for(let k=0;k<N;k++)for(let j=0;j<N;j++)for(let i=0;i<N;i++){let v=0;
+        okt.forEach((Z,o)=>{const x=(i+0.5)/N*Z,y=(j+0.5)/N*Z,w=(k+0.5)/N*Z,cx=Math.floor(x),cy=Math.floor(y),cz=Math.floor(w);let m=9;
+          for(let a=-1;a<=1;a++)for(let b=-1;b<=1;b++)for(let c=-1;c<=1;c++){
+            const X=(cx+a+Z)%Z,Y=(cy+b+Z)%Z,W=(cz+c+Z)%Z,p=pk[o][(W*Z+Y)*Z+X];
+            const dx=cx+a+p[0]-x,dy=cy+b+p[1]-y,dz=cz+c+p[2]-w;m=Math.min(m,dx*dx+dy*dy+dz*dz);}
+          v+=(1-Math.min(1,Math.sqrt(m)))*(o?0.35:0.65);});
+        d[(k*N+j)*N+i]=Math.round(Math.min(1,Math.max(0,v))*255);}
+      const t=new THREE.Data3DTexture(d,N,N,N);t.format=THREE.RedFormat;t.type=THREE.UnsignedByteType;
+      t.minFilter=t.magFilter=THREE.LinearFilter;t.wrapS=t.wrapT=t.wrapR=THREE.RepeatWrapping;t.unpackAlignment=1;t.needsUpdate=true;
+      return t;
+    }
+    function wvHoehenkarte(){                          // Oberkante der Wolken (Welt-y) je Punkt; ohne Wolke unter dem Meer
+      const R=WV.hRes,d=new Uint16Array(R*R);
+      for(let j=0;j<R;j++)for(let i=0;i<R;i++){const x=((i+0.5)/R-0.5)*WV.ext,z=((j+0.5)/R-0.5)*WV.ext;
+        const rand=i<2||j<2||i>=R-2||j>=R-2;              // Rand ohne Wolke: die Karte wird ueber den Rand hinaus fortgesetzt
+        const h=rand?0:wvFeldHoehe()(x,z);
+        d[j*R+i]=THREE.DataUtils.toHalfFloat(h>20?WM.yTop+h:WM.yTop-400);}
+      const t=new THREE.DataTexture(d,R,R,THREE.RedFormat,THREE.HalfFloatType);
+      t.minFilter=t.magFilter=THREE.LinearFilter;t.wrapS=t.wrapT=THREE.ClampToEdgeWrapping;t.needsUpdate=true;
+      return t;
+    }
+    // Wertrauschen (kachelfrei, fester Startwert): gleiche Landschaft auf jedem Geraet.
+    function wvRausch(seed){const P=new Uint8Array(512),z=wkZufall(seed);for(let i=0;i<256;i++)P[i]=i;
+      for(let i=255;i>0;i--){const j=Math.floor(z()*(i+1)),t=P[i];P[i]=P[j];P[j]=t;}for(let i=0;i<256;i++)P[i+256]=P[i];
+      const h=(x,y)=>P[P[x&255]+(y&255)]/255,f=t=>t*t*(3-2*t);
+      const n=(x,y)=>{const xi=Math.floor(x),yi=Math.floor(y),xf=f(x-xi),yf=f(y-yi);
+        const a=h(xi,yi),b=h(xi+1,yi),c=h(xi,yi+1),d=h(xi+1,yi+1);return a+(b-a)*xf+(c-a)*yf+(a-b-c+d)*xf*yf;};
+      return (x,y,o)=>{let v=0,amp=0.5,sum=0;for(let k=0;k<o;k++){v+=n(x,y)*amp;sum+=amp;x=x*2.03+17.1;y=y*2.03-9.7;amp*=0.5;}return v/sum;};}
+    // Hoehe der Wolkenoberkante ueber der Decke - EINE Funktion fuer Nah und Fern: kein Stilbruch, keine Naht.
+    let wvFeld=null;
+    function wvFeldHoehe(){
+      if(wvFeld)return wvFeld;
+      const F=FLUG,feld=wvRausch(F.startwert+11),knolle=wvRausch(F.startwert+23);
+      const sm=(a,b,x)=>{const t=Math.min(1,Math.max(0,(x-a)/(b-a)));return t*t*(3-2*t);};
+      return wvFeld=(x,y)=>{const r=Math.hypot(x,y);
+        const w=sm(F.rVon,F.rVoll,r)*(1-sm(F.rAus,F.rEnde,r));if(w<=0)return 0;
+        const nahT=sm(F.rVon,F.nahBis,r);             // 0 an der Arena .. 1 im Mittelfeld
+        // grossraeumige Felder mit blauen Taelern; ein zweites, gedrehtes Rauschen bricht Reihen und Raster
+        const ring=F.nahRing,nb=F.nahBonus*sm(ring[0],ring[1],r)*(1-sm(ring[2],ring[3],r));
+        const n=feld(x/F.feld,y/F.feld,5)*0.72+feld(y/(F.feld*0.57)+31.7,-x/(F.feld*0.57)+5.3,3)*0.28+nb;
+        const luecke=F.lueckeNah+(F.feldLuecke-F.lueckeNah)*nahT;
+        const cov=sm(luecke,luecke+F.feldKante,n);if(cov<=0)return 0;
+        const k=knolle(x/F.knolle,y/F.knolle,4);   // Quellkuppen auf den Feldern
+        const hs=(F.hNah+(F.hFern-F.hNah)*sm(F.rHoch,F.rFlach,r))*(F.nahFaktor+(1-F.nahFaktor)*nahT);
+        return w*cov*(F.hBasis+hs*(0.25+0.75*k*k)*(0.55+0.45*sm(0.0,0.35,n-luecke)));};
+    }
+    function wvFernKarte(){                           // Oberkante der fernen Wolkenfelder (Flug-Vorschau 2026-09-27)
+      const hoehe=wvFeldHoehe();
+      const R=WV.hResF,d=new Uint16Array(R*R);
+      for(let j=0;j<R;j++)for(let i=0;i<R;i++){const x=((i+0.5)/R-0.5)*WV.extF,y=((j+0.5)/R-0.5)*WV.extF;let h=0;
+        if(!(i<2||j<2||i>=R-2||j>=R-2))h=hoehe(x,y);
+        d[j*R+i]=THREE.DataUtils.toHalfFloat(h>20?WM.yTop+h:WM.yTop-400);}
+      const t=new THREE.DataTexture(d,R,R,THREE.RedFormat,THREE.HalfFloatType);
+      t.minFilter=t.magFilter=THREE.LinearFilter;t.wrapS=t.wrapT=THREE.ClampToEdgeWrapping;t.needsUpdate=true;
+      return t;
+    }
+    const WV_PASS=[
+      'precision highp float;precision highp sampler3D;',
+      'uniform sampler2D uH,uHF;uniform sampler3D uN;',
+      'uniform vec3 uSun,uSunCol,uSky,uTief,uDrift;uniform vec2 uOrigin;',
+      'uniform float uExt,uYlo,uYhi,uDichte,uRand,uErosion,uT1,uT2,uLicht,uSchritt;',
+      'uniform float uExtF,uSchrittF,uTMax,uSchattenBis,uDunstVon,uDunstBis,uDunstMax,uMaxSchritte;uniform vec3 uDunst;',
+      'varying vec3 vW;',
+      'float oben(vec2 xz){return max(texture2D(uH,(xz-uOrigin)/uExt+0.5).r,texture2D(uHF,(xz-uOrigin)/uExtF+0.5).r);}',
+      'float hg(float c,float g){float gg=g*g;return (1.0-gg)/pow(1.0+gg-2.0*g*c,1.5);}',
+      // Dichte: unter der Oberkante voll, am Rand von zwei Rauschoktaven ausgefranst (quellige Kontur)
+      'float dicht(vec3 p,float tp,bool fein,float f){vec3 q=p+uDrift;f*=1.5;',
+      '  float n=texture(uN,q/(uT1*(1.0+f))).r;',
+      '  if(fein)n=n*0.64+texture(uN,q/(uT2*(1.0+f))+vec3(0.37,0.11,0.73)).r*0.36;',
+      '  float d=clamp((tp-p.y)/(uRand*(1.0+f))+(n-0.5)*uErosion,0.0,1.0);',
+      '  return d*d*smoothstep(uYlo,uYlo+320.0,p.y);}',
+      'void main(){',
+      '  vec3 ro=cameraPosition,rd=normalize(vW-ro);',
+      '  if(rd.y>-0.01){gl_FragColor=vec4(0.0);return;}',
+      '  float t0=max(0.0,(uYhi-ro.y)/rd.y),t1=min((uYlo-ro.y)/rd.y,uTMax),dt=uSchritt;',
+      '  float jit=fract(sin(dot(gl_FragCoord.xy,vec2(12.9898,78.233)))*43758.5453);',
+      '  float mu=dot(rd,uSun),ph=0.62+0.5*mix(hg(mu,0.65),hg(mu,-0.2),0.35);',
+      '  float T=1.0;vec3 L=vec3(0.0);float t=t0+dt*jit;',
+      '  for(int i=0;i<WV_SCHRITTE;i++){',
+      '    if(float(i)>=uMaxSchritte)break;',
+      '    if(t>t1||T<0.03)break;',
+      '    float f=t/6000.0;dt=max(uSchritt,t*uSchrittF);',                            // Ferne: groebere Schritte
+      '    vec3 p=ro+rd*t;float tp=oben(p.xz),ueber=p.y-tp,st=dt;',
+      '    float grenze=uRand*(1.0+f)*uErosion*0.6;',
+      '    if(ueber>grenze){st=max(dt,(ueber-grenze)*0.5/(-rd.y));}',                    // leere Luft vorsichtig ueberspringen
+      '    else{',
+      '      float d=dicht(p,tp,t<uSchattenBis,f);',
+      '      if(d>0.003){',
+      '        float sg=d*uDichte,a=1.0-exp(-sg*dt);',
+      // kurzer Lichtstrahl zur Sonne: Eigenschatten der Knollen und Mulden
+      '        float od=0.0;vec3 lp;',
+      '        if(t<uSchattenBis){',                                                          // Eigenschatten nur in der Naehe
+      '          lp=p+uSun*70.0;od+=dicht(lp,oben(lp.xz),false,f)*70.0;',
+      '          lp=p+uSun*200.0;od+=dicht(lp,oben(lp.xz),false,f)*130.0;',
+      '          lp=p+uSun*460.0;od+=dicht(lp,oben(lp.xz),false,f)*260.0;',
+      '        }else{od=max(0.0,tp-p.y)*0.9;}',                                               // Ferne: Licht nach Tiefe unter der Kuppe
+      '        float sonne=exp(-od*uDichte*uLicht)*0.85+0.15*exp(-od*uDichte*uLicht*0.25);',   // Vielfachstreuung: Schatten nie schwarz
+      '        float pw=1.0-exp(-sg*240.0);',
+      '        float hoch=clamp((p.y-uYlo)/(uYhi-uYlo),0.0,1.0);',
+      '        vec3 c=uSunCol*sonne*ph*mix(0.72,1.0,pw)+mix(uTief,uSky,0.3+0.7*hoch)*(0.62+0.38*d)*(0.85+0.15*sonne);',
+      '        c=mix(c,uDunst,smoothstep(uDunstVon,uDunstBis,t)*uDunstMax);',                // Luftperspektive: ferne Wolken blauer, weicher
+      '        L+=T*a*c;T*=1.0-a;}',
+      '    }',
+      '    t+=st*(0.88+0.24*fract(jit*7.13+float(i)*0.618));',
+      '  }',
+      '  gl_FragColor=vec4(L,1.0-T);',
+      '}'].join('\n');
+    const WV_MISCH=[
+      'uniform sampler2D uRT;uniform vec2 uRes;',
+      'void main(){vec4 c=texture2D(uRT,gl_FragCoord.xy/uRes);if(c.a<0.004)discard;',
+      '  gl_FragColor=vec4(c.rgb/c.a,c.a);',
+      '  #include <tonemapping_fragment>',
+      '  #include <colorspace_fragment>',
+      '  gl_FragColor.rgb*=gl_FragColor.a;',
+      '}'].join('\n');
+    function wvBauen(){
+      const t0=performance.now();
+      const tH=wvHoehenkarte(),tHF=wvFernKarte(),tN=wvRauschen(WV.nRes);
+      const kasten=new THREE.BoxGeometry(WV.extF,WV.yHi-WV.yLo,WV.extF);
+      const pos=new THREE.Vector3(cx,(WV.yHi+WV.yLo)/2,cy);
+      const rt=new THREE.WebGLRenderTarget(4,4,{type:THREE.HalfFloatType,depthBuffer:false,minFilter:THREE.LinearFilter,magFilter:THREE.LinearFilter});
+      const passM=new THREE.ShaderMaterial({defines:{WV_SCHRITTE:WV.schritte},vertexShader:WM_VERT,fragmentShader:WV_PASS,
+        uniforms:{uH:{value:tH},uN:{value:tN},uSun:{value:wmSonne},uSunCol:{value:new THREE.Color(1,0.97,0.9)},
+          uSky:{value:new THREE.Color(0xaccbf6)},uTief:{value:new THREE.Color(0x8aa6e2)},uDrift:{value:new THREE.Vector3()},
+          uOrigin:{value:new THREE.Vector2(cx,cy)},uExt:{value:WV.ext},uYlo:{value:WV.yLo},uYhi:{value:WV.yHi},
+          uDichte:{value:WV.dichte},uRand:{value:WV.rand},uErosion:{value:WV.erosion},uT1:{value:WV.t1},uT2:{value:WV.t2},uLicht:{value:WV.licht},uSchritt:{value:WV.schritt},
+          uHF:{value:tHF},uExtF:{value:WV.extF},uSchrittF:{value:WV.schrittF},uTMax:{value:WV.tMax},uSchattenBis:{value:WV.schattenBis},uMaxSchritte:{value:WV.schritte},
+          uDunst:{value:new THREE.Color(WV.dunst)},uDunstVon:{value:WV.dunstVon},uDunstBis:{value:WV.dunstBis},uDunstMax:{value:WV.dunstMax}},
+        depthTest:false,depthWrite:false,side:THREE.FrontSide});
+      const passMesh=new THREE.Mesh(kasten,passM);passMesh.position.copy(pos);passMesh.frustumCulled=false;
+      passMesh.updateMatrixWorld(true);                // wird ohne eigene Szene direkt gerendert (eine Szene je Spiel)
+      const mischM=new THREE.ShaderMaterial({vertexShader:WM_VERT,fragmentShader:WV_MISCH,
+        uniforms:{uRT:{value:rt.texture},uRes:{value:new THREE.Vector2(1,1)}},
+        transparent:true,premultipliedAlpha:true,depthTest:true,depthWrite:false,fog:false,side:THREE.FrontSide});
+      const misch=new THREE.Mesh(kasten,mischM);misch.position.copy(pos);misch.frustumCulled=false;
+      misch.renderOrder=-1;                            // nach dem Wolkenmeer, vor den transparenten Arenateilen
+      scene.add(misch);
+      const groesse=new THREE.Vector2(),alt=new THREE.Color();
+      let aufl=WV.aufl,stufe='voll',regler=wolkenReglerNeu(),letzt=0,ruheBis=0,hochMs=0,entlastet=false;
+      const stufeSetzen=(k)=>{const p=WV_STUFEN[k]||WV_STUFEN.voll;stufe=WV_STUFEN[k]?k:'voll';aufl=p.aufl;
+        const u=passM.uniforms;u.uMaxSchritte.value=p.schritte;u.uSchattenBis.value=p.schattenBis;u.uSchrittF.value=p.schrittF;};
+      // Ausgangsstufe: manuelle Wahl > gemerkte Automatik-Entscheidung > Hoch
+      const start=()=>wolkenWahl==='hoch'?'voll':wolkenWahl==='spar'?'spar':(wolkenAutoGemerkt(Date.now())||'voll');
+      stufeSetzen(start());
+      document.addEventListener('visibilitychange',()=>{letzt=0;ruheBis=performance.now()+4000;});
+      wv={
+        stufe:()=>stufe,
+        // Neue Einstellung anwenden (Settings): manuelle Wahl sofort, 'auto' startet einen frischen Regler.
+        einstellen(){regler=wolkenReglerNeu();letzt=0;hochMs=0;entlastet=false;ruheBis=performance.now()+4000;stufeSetzen(start());
+          r3dDiag('wolken-stufe',{wahl:wolkenWahl,stufe:stufe});},
+        // Je dargestelltem Bild: nur in der Automatik und nur solange noch Hoch laeuft.
+        takt(jetzt){
+          if(wolkenWahl!=='auto'||stufe!=='voll'||document.hidden){letzt=0;return;}
+          const dt=letzt?jetzt-letzt:0;letzt=jetzt;
+          if(jetzt<ruheBis)return;                     // Anlauf: Shader-Uebersetzung, Laden, Rueckkehr in den Tab
+          if(wolkenReglerSchritt(regler,dt)){stufeSetzen('spar');wolkenAutoMerken(Date.now());
+            r3dDiag('wolken-auto',{stufe:'spar',fenster:regler.fenster,sitzungen:wolkenAutoLesen(Date.now()).n});return;}
+          // Fluessig auf Hoch gespielt: ein frueherer (vorübergehender) Einbruch ist vergessen.
+          if(!entlastet&&dt>0&&dt<=WOLKEN_REGLER.ignorierMs&&(hochMs+=dt)>=WOLKEN_REGLER.entlastenMs){entlastet=true;
+            if(wolkenAutoLesen(Date.now()).n){wolkenAutoEntlasten();r3dDiag('wolken-entlastet',{nachMs:Math.round(hochMs)});}}
+        },
+        regler:()=>regler,
+        vorab(){                                       // vor dem Hauptbild: Volumen in halber Aufloesung rechnen
+          renderer.getDrawingBufferSize(groesse);
+          const w=Math.max(1,Math.round(groesse.x*aufl)),h=Math.max(1,Math.round(groesse.y*aufl));
+          if(rt.width!==w||rt.height!==h)rt.setSize(w,h);
+          mischM.uniforms.uRes.value.copy(groesse);
+          passM.uniforms.uSunCol.value.copy(sun.color).lerp(wmWeiss,WV.sonneWeiss).multiplyScalar(WV.sonne);
+          const alpha=renderer.getClearAlpha();renderer.getClearColor(alt);
+          renderer.setRenderTarget(rt);renderer.setClearColor(0x000000,0);renderer.clear(true,false,false);
+          renderer.render(passMesh,camera);
+          renderer.setRenderTarget(null);renderer.setClearColor(alt,alpha);
+        },
+        drift(nowS){const d=nowS*WM.drift*0.35;passM.uniforms.uDrift.value.set(d,0,d*0.42);}
+      };
+      ruheBis=performance.now()+4000;
+      r3dDiag('wolkenvolumen',{ms:Math.round(performance.now()-t0),stufe:stufe,wahl:wolkenWahl});
+    }
+    if(wmMeshes.length){try{wvBauen();}catch(e){wv=null;r3dDiag('wolkenvolumen-fail',String(e&&e.message||e).slice(0,80));}}
+    if(!wmMeshes.length){                            // Rueckfall: die bisherigen Sprite-Wolken
     for(let i=0;i<90;i++)addCloud([700,3300],-830,-520,400,1160,.3,.55);   // tiefes Meer unter der Arena
     for(let i=0;i<55;i++)addCloud([3200,5800],-870,-580,690,1620,.25,.45); // mittlere Distanz
     for(let i=0;i<30;i++)addCloud([4900,6650],-870,-630,810,1620,.2,.35);  // Band 2b: Zwischenschicht
     for(let i=0;i<20;i++)addCloud([6900,9800],-350,0,1040,2300,.14,.24);   // ferner Dunst-Saum
+    }
     // Ferne schwebende Insel (Prototyp): zerklueftetes Fels-Vertex-Jitter, rein dekorativ
     function crag(geo,amp){const P=geo.attributes.position;
       for(let i=0;i<P.count;i++){const x=P.getX(i),y=P.getY(i),z=P.getZ(i);
@@ -20209,6 +20634,9 @@ async function initR3D(){
       camP={ex:cx+dist*spol*Math.sin(yawW),ey:35+dist*cpol,ez:cy+dist*spol*Math.cos(yawW),tx:cx,ty:35,tz:cy,
             fov:45,vw:geo.vw,vh:geo.vh,ox:geo.ox,oy:geo.oy,os:geo.os,shx:geo.shx,shy:geo.shy,py:camP?camP.py:0};
       math=r3dCamMath(camP);
+      // Im Spiel beginnt der Nebel hinter der Arena - auch wenn die Kamera weit steht (Hochformat,
+      // herausgezoomt). Vorher lag die Arena dann im Nebelband und wurde milchig (2026-09-26).
+      if(!menuVisible)fbVorschauNebel(true,dist);
       if(!r3dOrbit){camera.position.set(camP.ex,camP.ey,camP.ez);camera.up.set(0,1,0);
         camera.lookAt(camP.tx,camP.ty,camP.tz);}
     }
@@ -20407,6 +20835,8 @@ async function initR3D(){
       if(goalFxParts.length)applyGoalFx(t0+nowS*1000);
       applyArenaFx();
       cloudG.rotation.y=nowS*.006;                    // Wolken driften
+      wmBild(nowS);                                   // Wolkenmeer: Drift + Sonne der Wolkenschicht
+      if(wv)wv.drift(nowS);
       island.position.y=-404+Math.sin(nowS*.3+2.3)*35;
       if(mainBMat)mainBMat.emissiveIntensity=1.3+Math.sin(nowS*1.6)*.12;   // ruhiger Grenz-Puls
       // ==RESCUE-WALL-RENDER-FRAME==
@@ -20537,7 +20967,7 @@ async function initR3D(){
             if(Math.hypot(fvx,fvy)<.05&&prevP[i]){fvx=b.x-prevP[i].x;fvy=b.y-prevP[i].y;}   // … sonst Render-Delta
             fallV[i]={x:b.x,y:b.y,vx:fvx,vy:fvy};}
           const t=nowS-fallT[i],drop=1500*t*t,f=fallV[i];
-          if(drop>1700){m.visible=false;d.visible=false;continue;}
+          if(drop>(wmMeshes.length?2450:1700)){m.visible=false;d.visible=false;continue;}   // bis in die Wolkendecke
           const drift=60*t/(1+1.2*t);                  // Schwung laeuft weiter, klingt weich ab
           const px=b.alive?b.x:f.x+f.vx*drift, pz=b.alive?b.y:f.y+f.vy*drift;   // Out-Ball driftet live (resultDrift)
           // Stufenkante der jeweiligen Arenaform (Review-Befund): Football = Abstand zur
@@ -20606,11 +21036,13 @@ async function initR3D(){
         zoom(f){if(r3dInputBlocked())return;camDistFT=Math.min(1.5,Math.max(geo.zoomMin||.75,camDistFT*f));},
         reset(){camYawT=0;camPolarT=POLAR0;camDistFT=1;}
       },
-      render(){sync();renderer.render(scene,camera);if(r3dFrameMark)r3dDiagFrame(renderer.getContext(),c3);},
+      render(){sync();if(wv){wv.takt(performance.now());wv.vorab();}renderer.render(scene,camera);if(r3dFrameMark)r3dDiagFrame(renderer.getContext(),c3);},
       // Profilwechsel aus den Settings: im sicheren Idle (Menue) live anwenden, waehrend eines
       // Matches nur vormerken (kein HDRI-Swap in aktiver Simulation) -> flushEnvProfile beim Menue.
       setEnvProfile(key){const k=ENVIRONMENT_PROFILES[key]?key:'dawn';
         if(menuVisible){envPending=null;applyEnvProfile(k,false);}else{envPending=k;}},
+      wolkenEinstellen(){if(wv)wv.einstellen();},
+      wolkenStufe(){return wv?wv.stufe():null;},
       flushEnvProfile(){if(envPending){const k=envPending;envPending=null;applyEnvProfile(k,false);}}
     };
     // Gestaffelter Erststart: frueher lud das ERSTE Bild alle Arena-Texturen hoch, erzeugte deren

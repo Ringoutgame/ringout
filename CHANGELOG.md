@@ -6,6 +6,12 @@ Alle abgeschlossenen Änderungen am Projekt, neueste zuerst.
 
 ## [Unreleased]
 
+### Flug-Umgebung: Wolkenlandschaft über den Wolken, Wolkenqualität Automatisch / Hoch / Sparsam
+- feat(visual): Neue 3D-Umgebung für Arena Football und die Startseiten-Szene – das Gefühl, mit der Arena hoch über einer weiten Wolkenlandschaft zu schweben (Owner-Freigabe 2026-09-28 nach Probe auf dem Handy). Unter dem Horizont ein blauer Tiefenhimmel statt des HDRI-Bodens; Volumenwolken (Raymarching in halber Auflösung) aus EINEM Wolkenfeld: nahe der Arena niedrige, aufgelockerte Haufen, im Mittelfeld aufgetürmt, zum Horizont flache, bläuliche Bänke; darunter ein vorab gebackenes Wolkenmeer (`assets/env/fb_wolkenmeer_a/b.webp`) als zweite Ebene. Arena, Kugeln, Anzeigen, Kamera, Physik und Netz sind unverändert.
+- feat(settings): „Wolken: Automatisch / Hoch / Sparsam“ (EN/DE/TR) im Einstellungsfenster, gespeichert unter `ringout_wolken_v1`; eine manuelle Wahl hat Vorrang. Die Automatik misst im laufenden Spiel die echten Bildabstände und wechselt erst nach anhaltenden Rucklern (drei Fenster à ~1,5 s in Folge mit > 20 % Bildern über 24 ms) auf Sparsam, einmalig pro Sitzung. Einzelne Ausreißer, Ladephasen und Tab-Wechsel zählen nicht. Gemerkt wird Sparsam erst nach zwei getrennten Problem-Episoden binnen 7 Tagen; 2 min flüssiges Spiel auf Hoch löscht das Gedächtnis.
+- test: neue Suite `tools/test_wolken_stufe.js` (46 Prüfungen: Regler gegen realistische Bildzeit-Verläufe, Gedächtnis, Einbindung).
+- Gemessen: Hoch lief auf dem Owner-Handy (Angabe: Samsung Galaxy S26 Ultra) flüssig ohne Ruckler. Nicht gemessen: ein echtes schwächeres Handy und der Akkuverbrauch; schwache Geräte nur simuliert (Software-Grafik, gedrosselter Prozessor). Belege: `artifacts/wolken-01/` (untracked).
+
 ### Goldener Deko-Ring unter der Arena entfernt
 - fix(visual): Der goldene Ring unter der Arena (`ringG`, ein reines Deko-Element aus Ring Out: „langsamer Gold-Ring unter der Spitze (Prototyp), rein dekorativ“) ist entfernt – Erzeugung und Bewegung je Bild. Er wirkte unter der Arena-Football-Arena wie ein zusätzlicher, schwebender Ring. Stein-Unterbau, Spielfläche, Tore, Kollisionen und Regeln sind unberührt; der Ring hatte keine Physik. Der Collapse-Klangtest schneidet seinen Quelltextbereich jetzt bis zur nächsten Zeile (`// Kugeln: Radius exakt BR`) statt bis zum Ring-Kommentar – derselbe Code (Owner-Wunsch 2026-09-27). Bilder: `artifacts/wolken-01/bilder/ring-*.png` (untracked).
 

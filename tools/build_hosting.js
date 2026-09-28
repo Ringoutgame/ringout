@@ -53,6 +53,8 @@ const DATEIEN = [
   'assets/arena_football_band.glb',
   // Umgebungslicht: Profil "dawn", Profil "day" und die gemeinsame Fallbackkette
   'assets/hdri/qwantani_sunset_puresky_2k.hdr',
+  'assets/env/fb_wolkenmeer_a.webp',          // Wolkenmeer: Gefaelle + Hoehe (vorab gebacken, 2026-09-26)
+  'assets/env/fb_wolkenmeer_b.webp',          // Wolkenmeer: Deckung + Himmelsverdeckung
   'assets/hdri/qwantani_puresky_2k.hdr',
   'assets/hdri/kloofendal_48d_partly_cloudy_puresky_2k.hdr',
   // Klang: Torton (zwei Formate wegen Safari/iOS), Arenaumbau, Rollgeraeusch
