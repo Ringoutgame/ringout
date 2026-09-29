@@ -2618,6 +2618,9 @@ function viewAngle(){
     const slot=(typeof fbElimSlots!=='undefined')?fbElimSlots.indexOf(myPlayer):-1;
     return (slot>=0&&n>0)?-(slot*2*Math.PI/n):0;
   }
+  // Arena Football Team 2v2: vier Sitze, das Team folgt aus dem Sitz (Blau 0/1 bei -x, Rot
+  // 2/3 bei +x). Gedreht wird das ganze rote Team - nicht Sitz 1, der zu Blau gehoert.
+  if(typeof fbTeam2==='function'&&fbTeam2())return fbTeam2Side(myPlayer)===1?Math.PI:0;
   return myPlayer===1?Math.PI:0;
 }
 

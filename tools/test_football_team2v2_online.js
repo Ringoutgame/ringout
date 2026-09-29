@@ -239,5 +239,24 @@ abschnitt('7. Vertraege im Quelltext');
   t('die Rules verlangen fuer den Start alle vier Sitze', /child\('config\/mode'\)\.val\(\) !== 'team2v2' \|\| \(newData\.child\('0'\)\.val\(\) === true && newData\.child\('1'\)\.val\(\) === true && newData\.child\('2'\)\.val\(\) === true && newData\.child\('3'\)\.val\(\) === true\)/.test(rules));
 }
 
+// ══ STARTANSICHT JE SITZ ═════════════════════════════════════════════════════════
+// Befund (2026-09-29): viewAngle drehte online nur Sitz 1 - die Regel aus 1v1. In Team 2v2
+// gehoert Sitz 1 zu Blau (-x), Sitz 2/3 zu Rot (+x): drei von vier Spielern sahen ihr Team
+// gespiegelt, bis sie die Arena von Hand drehten. Richtig ist: das ganze rote Team dreht.
+abschnitt('Startansicht: jeder sieht sein Team dort, wo Sitz 0 das seine sieht');
+{
+  const V = new Function('welt', [
+    'let online=true, mode="football", myPlayer=0, ffaN=5; const FOOTBALL_VARIANT_TEAM2="team2v2";',
+    'let fbVariant=welt.variante;',
+    'function fbElim4(){ return false; }',
+    g(/function fbTeam2\(\)\{[^\n]*/, 'fbTeam2'),
+    g(/function fbTeam2Side\(o\)\{[^\n]*/, 'fbTeam2Side'),
+    g(/function viewAngle\(\)\{[\s\S]*?\n\}/, 'viewAngle'),
+    'return (seat) => { myPlayer = seat; return viewAngle(); };'].join('\n'));
+  const team2 = V({ variante: 'team2v2' }), tac = V({ variante: 'tactical' });
+  t('Team 2v2: Blau (Sitze 0, 1) ungedreht, Rot (Sitze 2, 3) um 180 Grad', [0, 1, 2, 3].map(team2).join(',') === [0, 0, Math.PI, Math.PI].join(','), [0, 1, 2, 3].map(team2));
+  t('1v1 (Tactical) unveraendert: Sitz 1 um 180 Grad, Sitz 0 ungedreht', tac(0) === 0 && tac(1) === Math.PI);
+}
+
 console.log(`\nFootball-Team2v2-Online: ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

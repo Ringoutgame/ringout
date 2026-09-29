@@ -6,6 +6,10 @@ Alle abgeschlossenen Änderungen am Projekt, neueste zuerst.
 
 ## [Unreleased]
 
+### Team 2v2 online: richtige Startansicht für alle vier Sitze
+- fix(view): `viewAngle()` drehte online nur Sitz 1 um 180° – die Regel aus 1v1. In Team 2v2 gehört Sitz 1 aber zu Blau (−x) und die Sitze 2/3 zu Rot (+x): **drei von vier Spielern sahen ihr Team beim Matchstart gespiegelt** und mussten die Arena erst von Hand drehen. Jetzt dreht das ganze rote Team (`fbTeam2Side`); Kugelpositionen, Physik und kanonische Züge bleiben unverändert, 1v1/Tactical/Elimination und Ring Out unberührt (2026-09-29).
+- Nachweis: Emulator mit vier echten Browsern (`artifacts/bugs-01/online_lauf.js --szenario=team2v2`): vorher 3 von 4 Sitzen gespiegelt (Abweichung 152–178°), nachher alle richtig – hochkant, quer und nach Neuladen/Wiedereintritt. test: `test_football_team2v2_online.js` +2 Prüfungen.
+
 ### FFA online: Rundenstart sofort, sobald alle Mitspielenden abgegeben haben
 - fix(online): Ein durch die Lebensregel **ausgeschiedener Sitz** bleibt Teil der Protokollbarriere, konnte aber nicht mehr handeln – sein Zugslot blieb offen, bis die Achtsekundenfrist ihn mit `late` schloss. Dadurch wartete **jede Runde nach dem ersten Ausscheiden die volle Zugzeit**, obwohl alle noch Spielenden längst abgegeben hatten. Jetzt trägt der ausgeschiedene Sitz sein `pass` gleich zu Rundenbeginn (neue gemeinsame Stelle `fbV9PassivRunde`, die auch das vertragliche `pass` von Tactical 4-Ball trägt; derselbe Weg beim Neuladen in eine offene Runde). Keine Rules-Änderung (die Rules erlaubten `pass` des Sitzinhabers vor der Frist schon), keine Änderung an Physik, Frist, Bots oder anderen Modi; Doppelstart bleibt durch die write-once-Knoten ausgeschlossen (2026-09-29).
 - Nachweis: Emulator mit drei echten Browsern (`artifacts/bugs-01/online_lauf.js --szenario=ffa`, Ausscheiden per Testinjektion): vorher 8,3 s von der letzten Abgabe bis zur Auflösung (`2:late`), nachher 0,1 s (`2:pass`), auch nach Neuladen des Ausgeschiedenen; alle Clients auf denselben Positionen. test: `test_online_v9_gameplay_bridge.js` +8 Prüfungen.
