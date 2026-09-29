@@ -129,7 +129,7 @@ const baue = (a, welt) => new Function('window', 'crypto', 'GEN_MAX', 'FB_ONLINE
     resetCommits(); }
   fbV9WeltAufbauen();
   ${BEREICH}
-  return { sync, fbV9LebenBereit, fbV9LebenNeueRunde, fbV9LebenStop, fbV9LebenAn,
+  return { sync, fbV9LebenBereit, fbV9LebenNeueRunde, fbV9LebenStop, fbV9LebenAn, fbV9PassivRunde,
            fbV9ApplyAccepted, fbV9AcceptedOk, fbV9Wirken, leben: () => fbV9Leben,
            austragen: () => fbApplyPendingRemovals(),
            vorgemerkt: () => Array.from({ length: welt.cap }, (_, i) => !!fbRemovePending[i]),
@@ -801,6 +801,49 @@ abschnitt('Waechter');
   const rules = fs.readFileSync(path.join(__dirname, '..', 'firebase.rules.json'), 'utf8');
   t('die Regeldatei traegt weiterhin die v9-Zweige',
     rules.indexOf("child('v').val() === 9") > 0);
+}
+
+// ══ FFA-RUNDENSTART: EIN AUSGESCHIEDENER SITZ HAELT DIE RUNDE NICHT AUF ═══════════
+// Befund (2026-09-29): ein durch die Lebensregel ausgeschiedener Sitz bleibt Teil der
+// Protokollbarriere, konnte aber nicht mehr handeln - sein Slot blieb offen, bis die
+// Achtsekundenfrist ihn mit late schloss. Jede Runde nach dem ersten Ausscheiden wartete
+// so die volle Frist, obwohl alle wirklich Handelnden laengst abgegeben hatten. Jetzt traegt
+// der ausgeschiedene Sitz sein pass von Anfang an (fbV9PassivRunde).
+abschnitt('FFA - ein ausgeschiedener Sitz traegt sein pass sofort');
+{
+  const welt11 = (x) => welt9(Object.assign({ ONLINE_PROTOCOL_VERSION: 11, roomProto: 11, turnNo: 3 }, x || {}));
+  const bereit = (x) => { const g = lauf(welt11(x)); return { M: g.M, L: g.M.fbV9LebenBereit(3) }; };
+  {
+    const { L } = bereit({ myPlayer: 1, aktiv: [true, false, true] });
+    t('ausgeschiedener Sitz: der Lebenslauf der Runde steht', !!L);
+    t('ausgeschiedener Sitz: seine Handlung ist von Anfang an pass', !!L && !!L.aktion && L.aktion.pass === true && !L.aktion.move,
+      JSON.stringify(L && L.aktion));
+  }
+  {
+    const { L } = bereit({ myPlayer: 0, aktiv: [true, false, true] });
+    t('lebender Sitz im selben Match: keine vorgegebene Handlung - er zieht selbst', !!L && L.aktion === null,
+      JSON.stringify(L && L.aktion));
+  }
+  {
+    const { L } = bereit({ myPlayer: 1, aktiv: [true, true, true] });
+    t('ohne Ausscheiden: niemand passt automatisch', !!L && L.aktion === null, JSON.stringify(L && L.aktion));
+  }
+  {
+    const { M } = bereit({ myPlayer: 1, aktiv: [true, false, true] });
+    const ctx = (seat) => ({ v: 9, code: 'RN2K', gen: 7, turn: 3, seat, cap: 3 });
+    t('fbV9PassivRunde: nur der ausgeschiedene Sitz ist passiv', M.fbV9PassivRunde(ctx(1)) === true
+      && M.fbV9PassivRunde(ctx(0)) === false && M.fbV9PassivRunde(ctx(2)) === false && M.fbV9PassivRunde(null) === false);
+  }
+  {
+    // Andere Modi (Team 2v2, Tactical 1v1) haben keine Lebensregel: fbElim4 ist dort false.
+    const { M } = bereit({ myPlayer: 1, aktiv: [true, false, true], elim4: false });
+    t('ohne Lebensregel ist kein Sitz aus diesem Grund passiv',
+      M.fbV9PassivRunde({ v: 9, code: 'RN2K', gen: 7, turn: 3, seat: 1, cap: 3 }) === false);
+  }
+  t('das Neuladen in eine offene Runde fragt dieselbe Stelle (fbV9EigenBekannt -> fbV9PassivRunde)',
+    /function fbV9EigenBekannt\(lauf\)\{[\s\S]*?if\(!fbV9PassivRunde\(lauf\.ctx\)\)return;[\s\S]*?fbV9Action\(lauf,\{pass:true\}\);/.test(HTML));
+  t('der Rundenbeginn fragt dieselbe Stelle (fbV9LebenBereit -> fbV9PassivRunde)',
+    /const passiv=fbV9PassivRunde\(ctx\);/.test(HTML));
 }
 
 console.log('\nOnline-V9-Spielbruecke: ' + pass + ' passed, ' + fail + ' failed');

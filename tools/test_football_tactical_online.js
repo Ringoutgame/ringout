@@ -329,7 +329,8 @@ abschnitt('8. Vertraege im Quelltext, im HUD, in der Lobby und in den Rules');
   t('kein Zuggatter fragt mehr fbTacOnline()&&!fbTacAmZug (die Familienfrage koppelte beide Varianten)', (HTML.match(/fbTacOnline\(\)&&!fbTacAmZug/g) || []).length === 0);
   t('canCommitInput, whoCanAim und der Auswahlring gattern nur noch abwechselnd (dreimal fbTacAbwechselnd()&&!fbTacAmZug)', (HTML.match(/fbTacAbwechselnd\(\)&&!fbTacAmZug\(/g) || []).length === 3);
   const bereit = fn('fbV9LebenBereit');
-  t('die Rundenmaschine fragt weiter fbTacPassivRunde - das Auto-pass gibt es damit nur noch in 4-Ball', /const passiv=\(typeof fbTacPassivRunde==='function'\)&&fbTacPassivRunde\(ctx\);/.test(bereit) && /aktion:passiv\?\{pass:true\}:null/.test(bereit));
+  t('die Rundenmaschine fragt weiter fbTacPassivRunde (ueber fbV9PassivRunde) - das Auto-pass gibt es in Tactical damit nur noch in 4-Ball', /const passiv=fbV9PassivRunde\(ctx\);/.test(bereit) && /aktion:passiv\?\{pass:true\}:null/.test(bereit)
+    && /if\(typeof fbTacPassivRunde==='function'&&fbTacPassivRunde\(ctx\)\)return true;/.test(fn('fbV9PassivRunde')));
   const wirken = fn('fbV9Wirken');
   t('fbV9Wirken kennt einen Sitz am Zug nur noch im abwechselnden Modell', /const tacAktiv=\(typeof fbTacAbwechselnd==='function'&&fbTacAbwechselnd\(\)\)\?fbTacAktivSitz\(turnNo,gen\):-1;/.test(wirken)
     && /if\(tacAktiv>=0&&e\.seat!==tacAktiv\)continue;/.test(wirken));

@@ -13984,11 +13984,10 @@ function fbV9LebenBereit(turn){
   fbV9LebenStop();
   const ctx=fbV9LebenCtx(turn);
   if(!fbV9CtxOk(ctx))return null;
-  // TACTICAL 4-BALL (abwechselnd): der Sitz, der in dieser Runde NICHT am Zug ist, traegt
-  // sein `pass` von Anfang an - es ist keine Handlung eines Menschen, sondern der Vertrag
-  // der Runde. Die Rundenmaschine baut daraus dasselbe Terminal wie bei jedem anderen pass.
-  // In Tactical 1v1 (gleichzeitig) ist niemand passiv: fbTacPassivRunde ist dort false.
-  const passiv=(typeof fbTacPassivRunde==='function')&&fbTacPassivRunde(ctx);
+  // Ein Sitz, der in dieser Runde vertraglich nicht handelt, traegt sein `pass` von Anfang
+  // an (fbV9PassivRunde) - es ist keine Handlung eines Menschen, sondern der Vertrag der
+  // Runde. Die Rundenmaschine baut daraus dasselbe Terminal wie bei jedem anderen pass.
+  const passiv=fbV9PassivRunde(ctx);
   const L={sid:onlineSessionId,room:roomCode,gen:gen,turn:turn,seat:myPlayer,
            ctx:ctx,stufe:'BEREIT',bereit:null,lauf:null,aktion:passiv?{pass:true}:null,
            uebergeben:false,bereitFertig:false,rausAb:null,rausStand:null,
@@ -14207,13 +14206,26 @@ function fbV9HudPaint(){
 // Die Handlung dieser Runde. Sie kommt NICHT von hier: was dieser Sitz zieht,
 // entscheidet die Spieleingabe, und die Bruecke dorthin ist V9.4D. Bis dahin bleibt
 // dies der einzige Weg, eine Handlung zu setzen - der Pruefstand benutzt ihn.
+// Handelt dieser Sitz in dieser Runde vertraglich NICHT? Dann traegt er sein `pass` sofort,
+// statt die Runde bis zur Frist (late) aufzuhalten - die Aufloesung beginnt, sobald alle
+// wirklich Handelnden abgegeben haben. Zwei Gruende:
+//   Tactical 4-Ball (abwechselnd): der Gegner ist am Zug. In Tactical 1v1 ist niemand passiv.
+//   Lebensregel: der Sitz ist ausgeschieden. Seine Figur ist vom Feld, er kann nicht mehr
+//   zielen, bleibt aber Teil der Protokollbarriere (fbV9LebenCtx). Gefragt wird der
+//   Spielzustand hinter allen Folgen der Vorrunde - auf jedem Client derselbe.
+function fbV9PassivRunde(ctx){
+  if(!ctx)return false;
+  if(typeof fbTacPassivRunde==='function'&&fbTacPassivRunde(ctx))return true;
+  return typeof fbElim4==='function'&&fbElim4()&&typeof fbElimActive!=='undefined'
+      &&(typeof fbElimDabei!=='function'||fbElimDabei(ctx.seat))&&fbElimActive[ctx.seat]===false;
+}
 // Nach einem Neuladen in eine OFFENE Runde: der eigene Slot ist gerade bekannt geworden.
-// Ist er leer und gehoert diese Runde in Tactical 4-Ball dem Gegner, geht das vertragliche `pass`
+// Ist er leer und handelt dieser Sitz in dieser Runde vertraglich nicht, geht das `pass`
 // jetzt hinaus - genau einmal, ueber denselben Riegel wie jede andere Handlung. Steht dort
 // schon ein Terminal, hat Schritt (2a) es uebernommen, und hier passiert nichts.
 function fbV9EigenBekannt(lauf){
   if(!lauf||lauf.terminal||lauf.commitFertig)return;
-  if(typeof fbTacPassivRunde!=='function'||!fbTacPassivRunde(lauf.ctx))return;
+  if(!fbV9PassivRunde(lauf.ctx))return;
   fbV9Action(lauf,{pass:true});
 }
 function fbV9LebenHandeln(aktion){
