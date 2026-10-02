@@ -508,6 +508,92 @@ abschnitt('V11 - der offene Slot eines Getrennten schliesst sofort');
   }
 }
 
+// ══ DIE RUNDE STEHT SCHON: UEBERNEHMEN STATT WARTEN ══════════════════════════════
+// Reproduziert 2026-10-02 (FFA, Team 2v2): ein Client verliert kurz die Verbindung, die anderen
+// eroeffnen die Runde ohne ihn und ohne einen zweiten, ebenfalls getrennten Sitz. Der zweite
+// kehrt per Neuladen in die OFFENE Runde zurueck (ohne Bereitschaftsmeldung). Der erste sieht
+// ihn nach der Wiederverbindung verbunden, aber nicht bereit: seine Barriere blieb offen, er
+// wartete dreissig Sekunden in einer laengst laufenden Runde und disqualifizierte dann den
+// Rueckkehrer. Jetzt uebernimmt er die Runde, sobald ihr Beginn autoritativ dasteht.
+abschnitt('Die Runde steht schon: uebernehmen statt warten');
+{
+  const DA = { 0: { on: true }, 1: { on: true }, 2: { on: true } };
+  const welt11 = (x) => welt9(Object.assign({ ONLINE_PROTOCOL_VERSION: 11, roomProto: 11, teil: [0, 1, 2], turnNo: 0, praesenz: DA }, x || {}));
+  const aufbau = async (vor) => {
+    const u = uhrwerk(4000000);
+    // Sitz 2 ist verbunden, hat sich fuer diese Runde aber nicht bereit gemeldet.
+    const a = attrappe(Object.assign({ [P('s')]: { ts: TS }, [P('q/0')]: bereitAlle(3, 0, [2]) }, vor || {}), u);
+    const M = baue(a, u, welt11());
+    const L = M.fbV9LebenNeueRunde();
+    await settle();
+    return { u, a, M, L };
+  };
+  const fristschluesse = (a) => a.log.schreib.filter(w => /\/q\/0\/[0-9]$/.test(w.pfad) && w.vorschlag && w.vorschlag.k === 'timeout').length;
+  const raus = (a) => a.log.schreib.filter(w => /\/x\/[0-9]$/.test(w.pfad)).length;
+  {
+    const { u, a, M, L } = await aufbau();
+    t('Vorbedingung: die Barriere ist offen (ein Verbundener fehlt), nichts ist uebergeben',
+      L.stufe === 'BEREIT' && L.bereit.stufe === M.FB_V9_R_BARRIER && !L.lauf, L.stufe + '/' + L.bereit.stufe);
+    // Ein anderer hat die Runde eroeffnet - der Server hat sie zugelassen.
+    a.zustellen(P('d/0'), { n: 0, o: TS + 100 });
+    await settle();
+    t('steht der Rundenbeginn im Raum, wird die Runde SOFORT uebernommen', L.stufe === 'PROTOKOLL' && !!L.lauf && L.uebergeben === true, L.stufe);
+    t('die Bereitschaftssteuerung hoert auf', L.bereit.stufe === 'STOPPED', L.bereit.stufe);
+    t('ohne eigenen Eroeffnungsschreibvorgang, der etwas aendert (d bleibt der fremde Beginn)', a.stand[P('d/0')].o === TS + 100);
+    M.fbV9LebenHandeln({ pass: true });
+    await settle();
+    t('und dieser Client zieht in der Runde mit', a.stand[P('c/0/1')] && a.stand[P('c/0/1')].k === 'pass');
+    await u.vor(60000);
+    t('KEIN Fristschluss gegen den Verbundenen, der sich nicht gemeldet hat', fristschluesse(a) === 0, fristschluesse(a));
+    t('und KEINE Disqualifikation', raus(a) === 0 && !a.stand[P('x')], raus(a));
+    M.fbV9LebenStop();
+  }
+  {
+    // Gegenprobe: OHNE Rundenbeginn im Raum bleibt alles beim Alten - die Barriere wartet, und nach
+    // dreissig Sekunden laeuft die Frist gegen den stummen Sitz (die bestehende Regel).
+    const { u, a, M, L } = await aufbau();
+    await u.vor(20000);
+    t('ohne Rundenbeginn: weiter BEREIT, keine Uebergabe, kein Fristschluss vor der Frist', L.stufe === 'BEREIT' && !L.lauf && fristschluesse(a) === 0, L.stufe);
+    await u.vor(11000);
+    t('nach dreissig Sekunden greift die bestehende Frist gegen den stummen Sitz', fristschluesse(a) === 1, fristschluesse(a));
+    M.fbV9LebenStop();
+  }
+  {
+    // Ein Rundenbeginn einer ANDEREN Runde oder ein unbrauchbarer Datensatz loest nichts aus.
+    const { a, M, L } = await aufbau();
+    a.zustellen(P('d/0'), { n: 7, o: TS + 100 });
+    await settle();
+    t('ein Beginn mit falscher Rundennummer wird nicht uebernommen', L.stufe === 'BEREIT' && !L.lauf, L.stufe);
+    a.zustellen(P('d/0'), { n: 0 });
+    await settle();
+    t('ein Beginn ohne Serverzeit ebenso wenig', L.stufe === 'BEREIT' && !L.lauf, L.stufe);
+    M.fbV9LebenStop();
+    t('Anhalten raeumt die Wache', L.offenAb === null);
+    a.zustellen(P('d/0'), { n: 0, o: TS + 100 });
+    await settle();
+    t('nach dem Anhalten wirkt ein spaeter Rundenbeginn nicht mehr', L.stufe === 'STOPPED' && !L.lauf, L.stufe);
+  }
+  {
+    // Der gute Fall bleibt, wie er war: faellt die Barriere regulaer, wird genau einmal uebergeben -
+    // auch wenn der eigene Rundenbeginn gleich danach im Raum erscheint.
+    const u = uhrwerk(4000000);
+    const a = attrappe({ [P('s')]: { ts: TS }, [P('q/0')]: bereitAlle(3, 0) }, u);
+    const M = baue(a, u, welt11());
+    const L = M.fbV9LebenNeueRunde();
+    await settle();
+    const lauf = L.lauf;
+    t('regulaere Uebergabe: Barriere COMPLETE, Lauf gestartet, Wache abgeraeumt',
+      L.stufe === 'PROTOKOLL' && L.bereit.stufe === M.FB_V9_R_COMPLETE && !!lauf && L.offenAb === null, L.stufe + '/' + L.bereit.stufe);
+    await settle();
+    t('und es bleibt bei EINEM Lauf', L.lauf === lauf && a.log.schreib.filter(w => w.pfad === P('d/0')).length === 1);
+    M.fbV9LebenStop();
+  }
+  t('die Uebergabe verlangt weiterhin die gefallene Barriere - ausser die Runde steht autoritativ da',
+    /if\(!L\.rundeSteht&&\(!L\.bereit\|\|L\.bereit\.stufe!==FB_V9_R_COMPLETE\)\)return;/.test(HTML));
+  t('die Wache schreibt nichts: sie nennt keinen Netz-Schreibvorgang',
+    (() => { const i = HTML.indexOf('function fbV9LebenOffenWache(L){'), j = HTML.indexOf('// Bereitschaft steht -> die Runde gehoert ab hier', i); return i > 0 && j > i && !/fbV9NetWrite|fbV9NetOpen/.test(HTML.slice(i, j)); })());
+}
+
 abschnitt('Aufraeumen und veraltete Rueckrufe');
 {
   const u = uhrwerk(4000000);

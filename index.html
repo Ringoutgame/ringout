@@ -14246,6 +14246,7 @@ function fbV9LebenStop(){
   L.stufe='STOPPED';
   if(L.wecker)fbV9WakeStop(L,'raus');
   if(L.rausAb){ try{ L.rausAb(); }catch(e){} L.rausAb=null; }
+  fbV9LebenOffenWacheAus(L);
   if(L.bereit){ try{ fbV9ReadyStop(L.bereit); }catch(e){} }
   if(L.lauf){ try{ L.lauf.stop(); }catch(e){} }
 }
@@ -14278,6 +14279,8 @@ function fbV9LebenBereit(turn){
   L.bereit=fbV9ReadyStart(ctx);
   if(!L.bereit||L.bereit.stufe===FB_V9_R_FAILED){ fbV9LebenStop(); return null; }
   L.bereit.fertig.then(()=>fbV9LebenUebergabe(L));
+  // Neben der Barriere: steht die Runde schon im Raum, wird sie uebernommen (fbV9LebenOffenWache).
+  fbV9LebenOffenWache(L);
   // ERST JETZT das ausdrueckliche Zeichen: der Aufrufer steht an einer Stelle, an der
   // die Physik der Vorrunde ausgelaufen und jede Folge angewandt ist.
   fbV9ReadyLocal(L.bereit);
@@ -14522,11 +14525,48 @@ function fbV9LebenHandeln(aktion){
   fbV9LebenUebergabe(L);
   return true;
 }
+// ── DIE RUNDE STEHT SCHON: UEBERNEHMEN STATT WARTEN ───────────────────────────
+// Die Barriere dieses Clients ist nur EINE Sicht. Hat ein anderer die Runde eroeffnet, dann
+// hat der Server sie zugelassen - mit dem Stand, den er in jenem Moment sah (etwa: zwei
+// Sitze getrennt). Dieser Client kann das verpasst haben: nach einem Funkabriss bekommt er
+// nur den HEUTIGEN Stand, nicht die Zwischenzustaende. Sieht er dann einen Rueckkehrer
+// verbunden, aber ohne Bereitschaftsmeldung (wer in eine offene Runde zurueckkehrt, meldet
+// fuer sie keine), blieb seine Barriere offen: er wartete rund dreissig Sekunden in einer
+// Runde, die laengst lief, schloss dann die Frist gegen den Rueckkehrer und disqualifizierte
+// ihn - zu Unrecht und fuer das ganze Match (reproduziert 2026-10-02 in FFA und Team 2v2).
+// Deshalb beobachtet die Anbindung waehrend der Bereitschaft den Rundenbeginn d/<turn>:
+// steht er autoritativ da, endet die Bereitschaft OHNE Fristschluss gegen irgendwen, und
+// die Runde geht wie bei jeder Uebergabe an die Ablaufsteuerung (ihr Eroeffnungsversuch
+// findet d vor und laeuft zusammen). Geschrieben wird hier nichts.
+function fbV9LebenOffenWache(L){
+  if(!fbV9LebenAktuell(L)||L.offenAb||L.uebergeben)return;
+  const turn=L.ctx.turn;
+  L.offenAb=fbV9NetWatch(L.ctx,[['d/'+turn,'d']],st=>{
+    if(!fbV9LebenAktuell(L)||L.uebergeben)return;
+    const d=st&&st.d;
+    if(!d||typeof d!=='object'||d.n!==turn||!Number.isFinite(d.o))return;   // (noch) nicht eroeffnet
+    fbV9LebenRundeSteht(L);
+  });
+}
+function fbV9LebenOffenWacheAus(L){
+  if(L&&L.offenAb){ try{ L.offenAb(); }catch(e){} L.offenAb=null; }
+}
+function fbV9LebenRundeSteht(L){
+  if(!fbV9LebenAktuell(L)||L.uebergeben)return;
+  L.rundeSteht=true;
+  // Die Bereitschaftssteuerung hoert auf, BEVOR sie eine Frist gegen jemanden schliesst,
+  // auf den der Server laengst nicht mehr gewartet hat.
+  if(L.bereit){ try{ fbV9ReadyStop(L.bereit); }catch(e){} }
+  fbV9LebenUebergabe(L);
+}
 // Bereitschaft steht -> die Runde gehoert ab hier der BESTEHENDEN Ablaufsteuerung.
 // Sie, und nur sie, eroeffnet d. Genau einmal je Runde.
 function fbV9LebenUebergabe(L){
   if(!fbV9LebenAktuell(L)||L.uebergeben)return;
-  if(!L.bereit||L.bereit.stufe!==FB_V9_R_COMPLETE)return;
+  // Entweder ist die Barriere gefallen - oder die Runde steht bereits autoritativ im Raum
+  // (fbV9LebenRundeSteht): dann hat der Server sie zugelassen, und es gibt nichts abzuwarten.
+  if(!L.rundeSteht&&(!L.bereit||L.bereit.stufe!==FB_V9_R_COMPLETE))return;
+  fbV9LebenOffenWacheAus(L);
   L.bereitFertig=true;
   L.uebergeben=true;
   L.stufe='PROTOKOLL';
