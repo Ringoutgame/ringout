@@ -297,14 +297,70 @@ abschnitt('Rundenbeginn: schon da, abgewiesen, wirklich blockiert');
   t('ein bereits eroeffneter Beginn haelt nicht auf',
     a.stand[P('c/42/1')] && a.stand[P('c/42/1')].k === 'pass');
 
-  // Abgewiesen UND nichts da -> deterministisch gescheitert.
-  const b = attrappe(), N = baue(b);
-  b.setzeFehler(P('d/42'), new Error('permission_denied'));
-  const l2 = N.fbV9Start(CTX, { pass: true });
-  await l2.fertig;
-  t('abgewiesen ohne autoritativen Beginn: FAILED', l2.stufe === N.FB_V9_FAILED, l2.stufe);
-  t('mit benanntem Grund', /Rundenbeginn/.test(l2.grund), l2.grund);
-  t('und ohne eigenes Terminal', b.stand[P('c/42/1')] === undefined);
+  // ABGEWIESEN UND NICHTS DA: KEIN ENDE MEHR (Fix 2026-10-02). Frueher scheiterte der Lauf hier
+  // endgueltig - und ein Client, dessen Eroeffnung im Rennen mit einem Praesenzwechsel abgewiesen
+  // wurde, blieb fuer immer in der Runde stehen. Jetzt gleicht er den massgeblichen Stand ab.
+  const dVersuche = (x) => x.log.schreib.filter(w => w.pfad === P('d/42')).length;
+  const offeneHoerer = (x, rest) => x.log.hoert.filter(h => h.pfad === P(rest) && h.offen).length;
+  const READY = (n) => ({ k: 'ready', n: n, ts: 5 });
+  const ALLE = { 0: READY(42), 1: READY(42), 2: READY(42) };
+  {
+    // (a) Nicht berechtigt (niemand bereit gemeldet): warten, NICHTS weiter schreiben.
+    const b = attrappe(), N = baue(b);
+    b.setzeFehler(P('d/42'), new Error('permission_denied'));
+    const l2 = N.fbV9Start(CTX, { pass: true });
+    await settle();
+    t('abgewiesen ohne autoritativen Beginn: der Lauf scheitert NICHT mehr', l2.stufe === N.FB_V9_OPENING, l2.stufe);
+    t('er schreibt kein eigenes Terminal', b.stand[P('c/42/1')] === undefined);
+    t('ohne Berechtigung bleibt es bei dem einen Versuch', dVersuche(b) === 1, dVersuche(b));
+    t('er beobachtet die Bereitschaftslage dieser Runde', offeneHoerer(b, 'q/42') === 1 && !!l2.offen);
+    // (b) Ein ANDERER eroeffnet die Runde: der Lauf uebernimmt sie.
+    b.zustellen(P('d/42'), { n: 42, o: 333 });
+    await settle();
+    t('eroeffnet ein anderer, uebernimmt der Lauf die Runde', b.stand[P('c/42/1')] && b.stand[P('c/42/1')].k === 'pass', l2.stufe);
+    t('ohne einen weiteren eigenen Eroeffnungsversuch', dVersuche(b) === 1, dVersuche(b));
+    t('und der Abgleich ist abgeraeumt', l2.offen === null && offeneHoerer(b, 'q/42') === 0);
+    l2.stop();
+  }
+  {
+    // (c) Berechtigt (Anker da, alle bereit), der Server weist trotzdem ab: BEGRENZT erneut.
+    const u = uhrwerk(1000);
+    const b = attrappe({ [P('z/41')]: { ts: 100 }, [P('q/42')]: ALLE }, u), N = baue(b, u);
+    b.setzeFehler(P('d/42'), new Error('permission_denied'));
+    const l2 = N.fbV9Start(CTX, { pass: true });
+    await settle();
+    t('berechtigt: sofort ein zweiter Versuch', dVersuche(b) === 2, dVersuche(b));
+    await u.vor(500);
+    t('nach 500 ms der dritte', dVersuche(b) === 3, dVersuche(b));
+    await u.vor(1500);
+    t('nach weiteren 1500 ms der vierte', dVersuche(b) === 4, dVersuche(b));
+    await u.vor(600000);
+    t('danach ist Schluss - keine endlose Schleife', dVersuche(b) === 4 && u.anzahl() === 0, dVersuche(b) + '/' + u.anzahl());
+    t('und der Lauf lebt weiter (er kann eine fremde Eroeffnung noch uebernehmen)', l2.stufe === N.FB_V9_OPENING, l2.stufe);
+    b.zustellen(P('q/42'), ALLE);
+    await settle(); await u.vor(600000);
+    t('derselbe Stand noch einmal erneuert das Budget nicht', dVersuche(b) === 4, dVersuche(b));
+    // Eine NEUE wesentliche Lage erneuert es - und diesmal nimmt der Server an.
+    b.setzeFehler(P('d/42'), null);
+    b.zustellen(P('e'), { 2: true });
+    await settle();
+    t('eine neue wesentliche Lage: genau ein weiterer Versuch, er gelingt', dVersuche(b) === 5 && !!b.stand[P('d/42')], dVersuche(b));
+    t('die Runde laeuft: das eigene Terminal steht', b.stand[P('c/42/1')] && b.stand[P('c/42/1')].k === 'pass');
+    t('und der Abgleich ist abgeraeumt', l2.offen === null && offeneHoerer(b, 'q/42') === 0);
+    l2.stop();
+  }
+  {
+    // (d) Ein Netzfehler wird behandelt wie eine Abweisung; Anhalten raeumt alles.
+    const u = uhrwerk(1000);
+    const b = attrappe({ [P('z/41')]: { ts: 100 }, [P('q/42')]: ALLE }, u), N = baue(b, u);
+    b.setzeFehler(P('d/42'), new Error('network down'));
+    const l2 = N.fbV9Start(CTX, { pass: true });
+    await settle();
+    t('Netzfehler: ebenfalls kein endgueltiges Scheitern', l2.stufe === N.FB_V9_OPENING && dVersuche(b) === 2, l2.stufe + '/' + dVersuche(b));
+    l2.stop();
+    await u.vor(600000);
+    t('Anhalten raeumt Zeitgeber und Zuhoerer des Abgleichs', u.anzahl() === 0 && offeneHoerer(b, 'q/42') === 0 && dVersuche(b) === 2 && l2.offen === null);
+  }
 
   // Abgewiesen, aber ein anderer hat laengst eroeffnet -> zusammenlaufen.
   const c = attrappe({ [P('d/42')]: { n: 42, o: 222 } }), O = baue(c);
@@ -764,12 +820,12 @@ abschnitt('Wecker enden mit dem Lauf');
     t('und laesst keinen Wecker zurueck', u.anzahl() === 0, u.anzahl());
   }
   {
-    // Ein gescheiterter Lauf raeumt ebenfalls.
+    // Ein gescheiterter Lauf raeumt ebenfalls. (Ein abgewiesener Rundenbeginn ist seit dem Fix
+    // vom 2026-10-02 kein Scheitern mehr - gescheitert wird hier ueber einen ungueltigen Zusammenhang.)
     const u = uhrwerk(8000000);
     const a = attrappe(null, u);
-    a.setzeFehler(P('d/42'), new Error('permission_denied'));
     const M = baue(a, u); M.fbV9SecretClear();
-    const l = M.fbV9Start(CTX, { pass: true });
+    const l = M.fbV9Start(mit({ turn: -1 }), { pass: true });
     await l.fertig;
     t('ein gescheiterter Lauf hinterlaesst keinen Wecker',
       l.stufe === M.FB_V9_FAILED && u.anzahl() === 0, l.stufe + ' / ' + u.anzahl());

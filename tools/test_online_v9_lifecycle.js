@@ -637,8 +637,92 @@ abschnitt('Die Runde oeffnet sich, nicht der erste Zug');
     await settle();
     t('ohne autoritativen Rundenbeginn wird kein Terminal geschrieben',
       a.stand[P('c/0/1')] === undefined);
-    t('und der Lauf sagt deutlich, woran es lag',
-      !!L.lauf && /Rundenbeginn/.test(L.lauf.grund || ''), L.lauf && L.lauf.grund);
+    // Fix 2026-10-02: die Abweisung ist kein Ende mehr - der Lauf gleicht ab und wartet.
+    t('und der Lauf gibt nicht auf: er wartet in OPENING und gleicht ab',
+      !!L.lauf && L.lauf.stufe === 'OPENING' && !!L.lauf.offen, L.lauf && L.lauf.stufe);
+    M.fbV9LebenStop();
+    t('Anhalten raeumt den Abgleich', L.lauf.offen === null);
+  }
+  {
+    // DER REPRODUZIERTE FALL (Geraetewechsel, Tactical 4-Ball, 2026-10-02): der Mitspieler gilt
+    // lokal als getrennt, die Barriere schliesst deshalb ohne seine Meldung - aber der Server
+    // sieht ihn beim Eintreffen der Eroeffnung schon wieder verbunden und weist sie ab.
+    const DA = { 0: { on: true }, 1: { on: true }, 2: { on: true } };
+    const WEG = { 0: { on: true }, 1: { on: true }, 2: { on: false, t: TS - 2000 } };
+    const aufbau = async () => {
+      const u = uhrwerk(4000000);
+      const a = attrappe({ [P('s')]: { ts: TS }, [P('q/0')]: bereitAlle(3, 0, [2]) }, u);
+      a.setzeFehler(P('d/0'), new Error('permission_denied'));
+      const M = baue(a, u, welt9({ ONLINE_PROTOCOL_VERSION: 11, roomProto: 11, teil: [0, 1, 2], turnNo: 0, praesenz: WEG }));
+      const dVers = () => a.log.schreib.filter(w => w.pfad === P('d/0')).length;
+      const L = M.fbV9LebenNeueRunde();
+      await settle();
+      M.fbV9LebenHandeln({ pass: true });
+      await settle();
+      return { u, a, M, L, dVers };
+    };
+    {
+      // (1) Der Mitspieler meldet sich bereit.
+      const { u, a, M, L, dVers } = await aufbau();
+      t('Geraetewechsel: die abgewiesene Eroeffnung laesst den Lauf leben', !!L.lauf && L.lauf.stufe === 'OPENING', L.lauf && L.lauf.stufe);
+      await u.vor(500); await u.vor(1500); await u.vor(20000);
+      t('solange die lokale Sicht "getrennt" sagt: begrenzt vier Versuche, dann Ruhe', dVers() === 4 && u.anzahl() === 0, dVers() + '/' + u.anzahl());
+      // Der Praesenzstand holt auf: der Mitspieler ist verbunden, aber noch nicht bereit gemeldet.
+      M.setzePraesenz(DA); M.fbV9Praesenzwechsel();
+      await settle();
+      t('verbunden, aber nicht bereit: dieser Client ist nicht berechtigt und eroeffnet nicht', dVers() === 4, dVers());
+      t('die Bereitschaftssteuerung bewacht dieselbe Runde wieder', M.leben().bereit && M.leben().bereit.stufe === M.FB_V9_R_BARRIER, M.leben().bereit && M.leben().bereit.stufe);
+      t('kein Terminal ohne autoritativen Rundenbeginn', a.stand[P('c/0/1')] === undefined);
+      // Er meldet sich bereit - jetzt darf dieser Client, und der Server nimmt an.
+      a.setzeFehler(P('d/0'), null);
+      a.zustellen(P('q/0'), bereitAlle(3, 0));
+      await settle();
+      t('meldet er sich bereit, wird die Runde eroeffnet (ein Versuch)', dVers() === 5 && !!a.stand[P('d/0')], dVers());
+      t('und der laengst abgegebene Zug dieses Clients geht hinaus', a.stand[P('c/0/1')] && a.stand[P('c/0/1')].k === 'pass');
+      t('der Abgleich ist abgeraeumt', L.lauf.offen === null);
+      t('niemand wurde disqualifiziert', !a.stand[P('x')] && !a.log.schreib.some(w => /\/q\/0\/2$/.test(w.pfad)));
+      M.fbV9LebenStop();
+    }
+    {
+      // (2) Der Mitspieler ist verbunden, bleibt aber STUMM: daraus darf kein ewiges Warten werden.
+      //     Die Dreissigsekundenfrist der Bereitschaft laeuft gegen ihn weiter - wie vor jeder Runde.
+      const { u, a, M, L, dVers } = await aufbau();
+      M.setzePraesenz(DA); M.fbV9Praesenzwechsel();
+      await settle();
+      const vorher = dVers();
+      await u.vor(20000);
+      t('stumm, aber verbunden: vor der Frist kein weiterer Eroeffnungsversuch und kein Fristschluss',
+        dVers() === vorher && !a.log.schreib.some(w => w.pfad === P('q/0/2')), dVers() + '/' + vorher);
+      a.setzeFehler(P('d/0'), null);
+      await u.vor(11000);
+      const zeit = a.log.schreib.filter(w => w.pfad === P('q/0/2') && w.vorschlag && w.vorschlag.k === 'timeout').length;
+      const raus = a.log.schreib.filter(w => w.pfad === P('x/2') && w.vorschlag && w.vorschlag.k === 'ready_timeout').length;
+      t('nach dreissig Sekunden: Fristschluss und Disqualifikation des stummen Sitzes - je genau einmal', zeit === 1 && raus === 1, zeit + '/' + raus);
+      t('danach eroeffnet dieser Client die Runde', !!a.stand[P('d/0')] && dVers() === vorher + 1, dVers() + '/' + vorher);
+      t('und sein Zug geht hinaus', a.stand[P('c/0/1')] && a.stand[P('c/0/1')].k === 'pass');
+      t('der Abgleich ist abgeraeumt', L.lauf.offen === null);
+      M.fbV9LebenStop();
+    }
+  }
+  {
+    // Derselbe Fall, aber der zurueckgekehrte Mitspieler eroeffnet die Runde selbst.
+    const WEG = { 0: { on: true }, 1: { on: true }, 2: { on: false, t: TS - 2000 } };
+    const DA = { 0: { on: true }, 1: { on: true }, 2: { on: true } };
+    const u = uhrwerk(4000000);
+    const a = attrappe({ [P('s')]: { ts: TS }, [P('q/0')]: bereitAlle(3, 0, [2]) }, u);
+    a.setzeFehler(P('d/0'), new Error('permission_denied'));
+    const M = baue(a, u, welt9({ ONLINE_PROTOCOL_VERSION: 11, roomProto: 11, teil: [0, 1, 2], turnNo: 0, praesenz: WEG }));
+    const L = M.fbV9LebenNeueRunde();
+    await settle();
+    M.setzePraesenz(DA); M.fbV9Praesenzwechsel();
+    await settle();
+    const vorher = a.log.schreib.filter(w => w.pfad === P('d/0')).length;
+    a.zustellen(P('d/0'), { n: 0, o: TS + 50 });
+    await settle();
+    M.fbV9LebenHandeln({ pass: true });
+    await settle();
+    t('eroeffnet der Mitspieler, uebernimmt dieser Client die Runde und zieht', a.stand[P('c/0/1')] && a.stand[P('c/0/1')].k === 'pass', L.lauf && L.lauf.stufe);
+    t('ohne einen weiteren eigenen Eroeffnungsversuch', a.log.schreib.filter(w => w.pfad === P('d/0')).length === vorher);
     M.fbV9LebenStop();
   }
   {

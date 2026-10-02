@@ -13111,6 +13111,7 @@ function fbV9Scheitern(lauf,grund){
 function fbV9Aufloesen(lauf){
   fbV9WakeStopAll(lauf);   // jedes Ende raeumt jeden Wecker
   fbV9WakeStop(lauf,'z');
+  if(lauf.offen)fbV9OpenAbgleichStop(lauf);
   if(lauf.zAb){ try{ lauf.zAb(); }catch(e){} lauf.zAb=null; }
   if(lauf.abmelden){ try{ lauf.abmelden(); }catch(e){} lauf.abmelden=null; }
   if(lauf.fertigNun){ const f=lauf.fertigNun; lauf.fertigNun=null; f(lauf); }
@@ -13287,6 +13288,7 @@ async function fbV9Schritt(lauf){
     // (1) Der Rundenbeginn muss AUTORITATIV dastehen - der eigene Schreibvorgang allein
     //     beweist nichts, er kann von einem anderen ueberholt worden sein.
     if(!st.turnOpen){ fbV9Stufe(lauf,FB_V9_OPENING); return; }
+    if(lauf.offen)fbV9OpenAbgleichStop(lauf);   // die Runde steht autoritativ da: nichts mehr abzugleichen
     // (2a) DAS EIGENE TERMINAL KOMMT AUS DEM RAUM, nicht aus dieser Sitzung. Das gilt
     //      in zwei Faellen: beim Fortsetzen nach einem Neuladen, und wenn dieser Sitz
     //      (noch) gar nicht gezogen hat - dann schliesst die Frist seinen Slot mit
@@ -13579,6 +13581,87 @@ async function fbV9Vorbereiten(lauf,aktion){
 // ein zweiter Zug zu einem bereits unveraenderlichen Commit.
 // Kommt sie VOR dem autoritativen Rundenbeginn, wird sie nur gemerkt; gesendet wird
 // erst, wenn die Runde wirklich offen ist. Kommt sie danach, geht sie sofort hinaus.
+// ── RUNDENBEGINN ABGEWIESEN: ABGLEICHEN STATT AUFGEBEN ───────────────────────
+// Die Rules lassen d/<turn> nur zu, wenn der Schreiber verbunden ist und JEDER Teilnehmer
+// bereit, ausgetragen, disqualifiziert oder (v11) getrennt ist. Zwischen der lokalen
+// Barrierepruefung und dem Eintreffen des Schreibvorgangs kann sich genau das bewegen -
+// typisch beim Geraetewechsel: der Mitspieler galt als getrennt, ist aber schon wieder
+// verbunden und noch nicht bereit gemeldet. Die Abweisung ist dann kein Ende: gleich
+// eroeffnet er die Runde, oder wir duerfen es kurz darauf selbst.
+// Frueher scheiterte der Lauf hier endgueltig ('Rundenbeginn: DENIED'), und dieser Client
+// blieb fuer immer in der Runde stehen, waehrend der Raum weiterlief (reproduziert
+// 2026-10-02 mit wiederholten Geraetewechseln in Tactical 4-Ball).
+//
+// Stattdessen wird der MASSGEBLICHE Stand abgeglichen - derselbe, auf den die Rules sehen:
+//   d steht inzwischen da            -> der Lauf uebernimmt die Runde (sein Zuhoerer bringt sie),
+//   d fehlt, dieser Client darf      -> begrenzt erneut eroeffnen,
+//   d fehlt, dieser Client darf nicht -> warten, ohne zu schreiben.
+// Begrenzt heisst: hoechstens FB_V9_OPEN_VERSUCHE je WESENTLICHER Lage (Bereitschaft,
+// Austragung, Disqualifikation, Praesenz). Ohne neue Lage passiert nichts mehr - keine
+// Abfrageschleife und kein Zeitgeber, der von selbst weiterklopft.
+const FB_V9_OPEN_VERSUCHE=3;
+function fbV9OpenAbgleichStart(lauf,status){
+  if(fbV9Aus(lauf)||lauf.offen)return;
+  const o={status:status,stand:null,marke:null,versuche:0,laeuft:false,timer:null,ab:null,geschrieben:false,bewacht:null};
+  lauf.offen=o;
+  // Die Bereitschaftslage dieser Runde: autoritativ, und erst wenn JEDER Weg gemeldet hat.
+  o.ab=fbV9NetListenReady(lauf.ctx,st=>{ if(lauf.offen!==o)return; o.stand=st; fbV9OpenAbgleich(lauf); });
+  if(!o.ab){ lauf.offen=null; fbV9Scheitern(lauf,'Rundenbeginn: '+status); }
+}
+function fbV9OpenAbgleichStop(lauf){
+  const o=lauf.offen;
+  if(!o)return;
+  lauf.offen=null;
+  if(o.timer!==null){ clearTimeout(o.timer); o.timer=null; }
+  if(o.ab){ try{ o.ab(); }catch(e){} o.ab=null; }
+  if(typeof lauf.nachAbgleich==='function'){ try{ lauf.nachAbgleich(); }catch(e){} }
+}
+function fbV9OpenAbgleich(lauf){
+  const o=lauf.offen;
+  if(!o)return;
+  // Die Runde steht autoritativ da (oder der Lauf ist zu Ende): nichts mehr abzugleichen.
+  if(fbV9Aus(lauf)||lauf.stand.turnOpen){ fbV9OpenAbgleichStop(lauf); return; }
+  if(!o.stand)return;
+  const c=lauf.ctx;
+  const marke=fbV9OpenLage(c,o.stand);
+  // Eine NEUE wesentliche Lage erneuert das Budget; dieselbe Lage nie.
+  if(marke!==o.marke){
+    o.marke=marke; o.versuche=0;
+    if(o.timer!==null){ clearTimeout(o.timer); o.timer=null; }
+  }
+  if(o.geschrieben)return;                       // d ist unterwegs: der Zuhoerer des Laufs bringt es
+  if(!fbV9OpenBerechtigt(c,o.stand)){
+    // Nicht (mehr) unsere Sache: warten, nichts schreiben. Fehlt noch jemand, erfaehrt es,
+    // wer den Lauf aufgesetzt hat - einmal je Lage (die Spielanbindung laesst dann die
+    // Bereitschaftsfrist gegen ihn weiterlaufen). Diese Schicht weiss nicht, wer zuhoert.
+    if(o.bewacht!==marke){
+      o.bewacht=marke;
+      if(typeof lauf.beiAbgleich==='function'){ try{ lauf.beiAbgleich(); }catch(e){} }
+    }
+    return;
+  }
+  if(o.laeuft||o.timer!==null)return;
+  if(o.versuche>=FB_V9_OPEN_VERSUCHE)return;     // erschoepft, bis sich die Lage wesentlich aendert
+  const ms=o.versuche===0?0:FB_V9_RETRY_MS[Math.min(o.versuche-1,FB_V9_RETRY_MS.length-1)];
+  o.versuche++;
+  if(ms===0){ fbV9OpenVersuch(lauf,o); return; }
+  o.timer=setTimeout(()=>{ o.timer=null; fbV9OpenVersuch(lauf,o); },ms);
+}
+async function fbV9OpenVersuch(lauf,o){
+  if(lauf.offen!==o)return;
+  if(fbV9Aus(lauf)||lauf.stand.turnOpen){ fbV9OpenAbgleichStop(lauf); return; }
+  // Unmittelbar vor dem Schreiben noch einmal: in der Wartezeit kann sich die Lage bewegt haben.
+  if(!fbV9OpenBerechtigt(lauf.ctx,o.stand))return;
+  o.laeuft=true;
+  const r=await fbV9NetOpenTurn(lauf.ctx);
+  o.laeuft=false;
+  if(lauf.offen!==o||fbV9Aus(lauf))return;
+  // COMMITTED und EXISTS beweisen nichts - massgeblich ist der Schnappschuss von d, den der
+  // Zuhoerer des Laufs bringt. Bis dahin wird nicht weiter geschrieben.
+  if(r.status===FB_V9_COMMITTED||r.status===FB_V9_EXISTS){ o.geschrieben=true; fbV9Schritt(lauf); return; }
+  o.status=r.status;
+  fbV9OpenAbgleich(lauf);   // weiter nur, solange Berechtigung UND Budget bestehen
+}
 function fbV9Action(lauf,aktion){
   if(!lauf||fbV9Aus(lauf))return false;
   // Solange der eigene Slot dieser Runde unbekannt ist, wird NICHTS angenommen - auch
@@ -13605,7 +13688,9 @@ function fbV9Start(ctx,aktion){
               commitLaeuft:false,commitFertig:false,roVersucht:false,
               revealLaeuft:false,revealFertig:false,finaleLaeuft:false,
               zStand:null,zAb:null,zLaeuft:false,zBegonnen:false,
-              aktionGesetzt:false,offeneAktion:null,eigenUnbekannt:false,commitsGemeldet:false};
+              aktionGesetzt:false,offeneAktion:null,eigenUnbekannt:false,commitsGemeldet:false,
+              offen:null,    // offen: laufender Abgleich nach abgewiesenem Rundenbeginn (fbV9OpenAbgleich)
+              beiAbgleich:null,nachAbgleich:null};
   lauf.fertig=new Promise(aufl=>{ lauf.fertigNun=aufl; });
   // Anhalten ist mehrfach gefahrlos und schneidet jede kuenftige Wirkung ab.
   lauf.stop=function(){
@@ -13665,7 +13750,12 @@ function fbV9Start(ctx,aktion){
     if(r.status!==FB_V9_COMMITTED&&r.status!==FB_V9_EXISTS){
       // Wie beim Reveal-Anker: eine Abweisung zaehlt nur, solange der Raum den Beginn
       // nicht ohnehin schon traegt.
-      if(!lauf.stand.turnOpen)return fbV9Scheitern(lauf,'Rundenbeginn: '+r.status);
+      if(!lauf.stand.turnOpen){
+        // Abgewiesen oder Netzfehler ist KEIN Ende: der massgebliche Stand wird abgeglichen
+        // (fbV9OpenAbgleich). Nur was nie gelingen kann, scheitert weiterhin sofort.
+        if(r.status!==FB_V9_DENIED&&r.status!==FB_V9_ERROR)return fbV9Scheitern(lauf,'Rundenbeginn: '+r.status);
+        return fbV9OpenAbgleichStart(lauf,r.status);
+      }
     }
     fbV9Schritt(lauf);
   };
@@ -13910,6 +14000,34 @@ function fbV9ReadyLocal(lauf){
   return true;
 }
 function fbV9ReadyStop(lauf){ if(lauf&&lauf.stop)lauf.stop(); }
+// ── DARF DIESER CLIENT DIE RUNDE EROEFFNEN? (reine Bewertung) ────────────────
+// Gefragt wird das von der Ablaufsteuerung, nachdem ihr Rundenbeginn abgewiesen wurde
+// (fbV9OpenAbgleich). Hier wird nur BEWERTET - geschrieben und eroeffnet wird in dieser
+// Schicht weiterhin nichts.
+// Ist der EIGENE Sitz verbunden? Die Rules verlangen es vom Schreiber. Wo es keinen
+// Praesenzstand gibt (Pruefstaende, fruehe Bootphase), wird nichts unterstellt.
+function fbV9SelbstVerbunden(ctx){
+  try{
+    if(typeof seatActive!=='function'||typeof roomPSeen==='undefined'||!roomPSeen)return true;
+    return seatActive(roomP,ctx.seat);
+  }catch(e){ return true; }
+}
+// Darf DIESER Client die Runde nach dem autoritativen Stand eroeffnen? Dieselbe Bedingung
+// wie in den Rules, mit denselben Bausteinen wie die Bereitschaftsbarriere - nachgebildet,
+// nicht erfunden: entscheiden wird weiterhin allein der Server.
+function fbV9OpenBerechtigt(ctx,st){
+  if(!st)return false;
+  if(fbV9ReadyAnchor(ctx.turn,st.start,st.vorher)===null)return false;
+  if(!fbV9SelbstVerbunden(ctx))return false;
+  return fbV9ReadyComplete(fbV9CtxBesetzung(ctx),ctx.turn,st.bereit,st.weg,st.raus,(i)=>fbV9Getrennt(ctx,i));
+}
+// Die wesentliche Lage, an der diese Berechtigung haengt: Bereitschaft, Austragung,
+// Disqualifikation und Praesenz. Gleiche Marke heisst gleiche Lage - egal wie oft sie eintrifft.
+function fbV9OpenLage(ctx,st){
+  const soll=fbV9CtxBesetzung(ctx);
+  return fbV9ReadyMarke(soll,ctx.turn,st.bereit,st.weg,st.raus)+fbV9GetrenntMarke(ctx,soll)
+        +(fbV9SelbstVerbunden(ctx)?'+':'-');
+}
 // ════ ENDE V9-BEREITSCHAFTSSTEUERUNG ════
 // ════ V9-SPIELANBINDUNG (RUHEND) ════
 // Die duenne Schicht zwischen dem Spiel und den beiden V9-Steuerungen. Sie beantwortet
@@ -14256,6 +14374,10 @@ function fbV9LebenUebergabe(L){
   // Zoegern beliebig hinausschieben. Der eigene Zug wird nachgereicht.
   L.lauf=fbV9Start(L.ctx,L.aktion||null);
   if(L.aktion)L.aktion=null;   // sie ist im Lauf angekommen
+  // Wird der Rundenbeginn abgewiesen, steht die Barriere aus Sicht des Servers noch -
+  // dann bewacht die Bereitschaftssteuerung sie fuer DIESELBE Runde weiter.
+  L.lauf.beiAbgleich=()=>fbV9LebenBarriereWieder(L);
+  L.lauf.nachAbgleich=()=>fbV9LebenBarriereRuhe(L);
   // Ist die Runde protokollarisch fertig, geht ihre geprueufte Zugmenge EINMAL ins
   // Spiel. Ein gescheiterter oder angehaltener Lauf traegt keine Menge - dann
   // passiert hier nichts.
@@ -14265,6 +14387,32 @@ function fbV9LebenUebergabe(L){
   });
   // Ab der Eroeffnung koennen dauerhaft abwesende Sitze sofort geschlossen werden.
   fbV9LebenRausStarten(L);
+}
+
+// ── ABGEWIESENER RUNDENBEGINN: DIE BARRIERE WEITER BEWACHEN ──────────────────
+// Die Barriere schien lokal gefallen (ein Mitspieler galt als getrennt), der Server sieht
+// sie noch stehen (er ist wieder verbunden, aber nicht bereit gemeldet). Meldet er sich,
+// eroeffnet die Ablaufsteuerung die Runde (fbV9OpenAbgleich). Meldet er sich NICHT, darf
+// daraus kein ewiges Warten werden: die Bereitschaftssteuerung laeuft fuer dieselbe Runde
+// noch einmal an und setzt - wie vor jeder Runde - die Dreissigsekundenfrist gegen einen
+// verbundenen, aber stummen Sitz durch (Fristschluss, dann Disqualifikation). Die eigene
+// Meldung steht bereits (write-once); eroeffnet wird hier weiterhin nichts.
+function fbV9LebenBarriereWieder(L){
+  if(!fbV9LebenAktuell(L))return;
+  if(L.bereit&&!fbV9RAus(L.bereit))return;       // sie laeuft schon
+  const b=fbV9ReadyStart(L.ctx);
+  if(!b||b.stufe===FB_V9_R_FAILED)return;
+  L.bereit=b; L.bereitWieder=true;
+  // Faellt die Barriere (auch allein durch einen Praesenzwechsel), wird der Abgleich angestossen.
+  b.fertig.then(()=>{ if(fbV9LebenAktuell(L)&&L.lauf&&L.lauf.offen)fbV9OpenAbgleich(L.lauf); });
+  fbV9ReadyLocal(b);
+}
+// Die Runde steht autoritativ da: die wiederaufgenommene Bewachung hoert auf, bevor sie
+// noch eine Frist gegen jemanden schliesst, auf den niemand mehr wartet.
+function fbV9LebenBarriereRuhe(L){
+  if(!L||!L.bereitWieder)return;
+  L.bereitWieder=false;
+  if(L.bereit&&!fbV9RAus(L.bereit)){ try{ fbV9ReadyStop(L.bereit); }catch(e){} }
 }
 
 // ── AUSGETRAGENE UND DISQUALIFIZIERTE SITZE SOFORT SCHLIESSEN ────────────────
@@ -14318,6 +14466,8 @@ function fbV9Praesenzwechsel(){
   const L=fbV9Leben;
   if(!fbV9LebenAktuell(L))return 0;
   if(L.bereit)fbV9ReadySchritt(L.bereit);
+  // Ein abgewiesener Rundenbeginn haengt an der Praesenz - sie neu zu bewerten gehoert dazu.
+  if(L.lauf&&L.lauf.offen)fbV9OpenAbgleich(L.lauf);
   if(L.rausStand)fbV9LebenRausSchritt(L);
   return 0;
 }
