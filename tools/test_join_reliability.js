@@ -123,7 +123,8 @@ const claimSeatSrc = block(html, 'async function claimSeat(');
       function setStatus(t){W.status.push(t);}
       function rememberRoom(c,s){W.gemerkt=[c,s];}
       async function attemptRejoin(c){W.rejoin++;W.status.push('rejoin:'+c);return true;}
-      const onlineTab='MEIN-TAB'; let roomProto=0;
+      const onlineTab='MEIN-TAB'; let roomProto=0, roomFassung=0;
+      function raumFassungSetzen(v){roomFassung=v;roomProto=v;}
       function validateRoom(d){return W.opt.ungueltig?{ok:false,reason:'x'}:{ok:true,game:'ringout',fmt:'ffa',mode:'',cap:5,winTarget:3,gen:0,hostUid:''};}
       async function armPresence(){W.presence=(W.presence||0)+1; if(W.opt.presenceHaengt)return new Promise(()=>{}); return {cancel(){}};}
       async function activateSeat(){W.activate=(W.activate||0)+1; if(W.opt.activateWirft)throw new Error('permission_denied'); return true;}

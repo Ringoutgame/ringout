@@ -106,14 +106,14 @@ const RULES = require('fs').readFileSync(
 // woertlich bedienbar - ein alter Raum stirbt nicht daran, dass es eine neue Fassung gibt.
 // Seit RINGOUT ONLINE FEATURE PARITY kommt die 13 dazu: die Fassung jedes neuen
 // RingOut-Raums (Collapse und Rescue Wall als Teil des Onlinevertrags).
-t('die Rules lassen waehrend der Umstellung v4 bis v11 und die RingOut-Fassungen v12/v13 zu',
-  /\(newData\.val\(\) === 4 \|\| newData\.val\(\) === 5 \|\| newData\.val\(\) === 6 \|\| newData\.val\(\) === 7 \|\| newData\.val\(\) === 8 \|\| newData\.val\(\) === 12 \|\| newData\.val\(\) === 13 \|\| newData\.val\(\) === 9 \|\| newData\.val\(\) === 10 \|\| newData\.val\(\) === 11\)/.test(RULES));
+t('die Rules lassen waehrend der Umstellung v4 bis v11, die RingOut-Fassungen v12/v13 und die Football-Turbo-Fassung 14 zu',
+  /\(newData\.val\(\) === 4 \|\| newData\.val\(\) === 5 \|\| newData\.val\(\) === 6 \|\| newData\.val\(\) === 7 \|\| newData\.val\(\) === 8 \|\| newData\.val\(\) === 12 \|\| newData\.val\(\) === 13 \|\| newData\.val\(\) === 9 \|\| newData\.val\(\) === 10 \|\| newData\.val\(\) === 11 \|\| newData\.val\(\) === 14\)/.test(RULES));
 const V_REGEL = (RULES.match(/"v": \{[^}]*\}/) || [''])[0];
 t('und keine andere Protokollversion — geprueft am v-Validator selbst',
   /=== 4/.test(V_REGEL) && /=== 5/.test(V_REGEL) && /=== 6/.test(V_REGEL) &&
   /=== 7/.test(V_REGEL) && /=== 8/.test(V_REGEL) && /=== 9/.test(V_REGEL) && /=== 10/.test(V_REGEL) &&
-  /=== 11/.test(V_REGEL) && /=== 12/.test(V_REGEL) && /=== 13/.test(V_REGEL) &&
-  !/=== 3|=== 2|=== 1[^0123]/.test(V_REGEL), V_REGEL);
+  /=== 11/.test(V_REGEL) && /=== 12/.test(V_REGEL) && /=== 13/.test(V_REGEL) && /=== 14/.test(V_REGEL) &&
+  !/=== 3|=== 2|=== 1[^01234]/.test(V_REGEL), V_REGEL);
 // Die Protokollnummer eines bestehenden Raums ist unveraenderlich — ein v4-Raum kann
 // nicht zu einem v5-Raum umgeschrieben werden und umgekehrt.
 // Der Zugslot ist die Schreibstelle, die den Lockstep-Strom traegt. Er war bisher als
@@ -593,9 +593,9 @@ t('Beitritt: die Ablehnung nennt die Versionsunvertraeglichkeit',
   // gegen die Ausbaustufe. Ein unter demselben Code neu angelegter Raum anderer Fassung
   // faellt damit genauso durch wie vorher.
   t('die Wiederverbindung prueft die Raumfassung, bevor sie irgendetwas schreibt',
-    /if\(v\.v!==roomProto\)return 'version';/.test(restore));
+    /if\(v\.v!==roomFassung\)return 'version';/.test(restore));
   t('und tut das VOR der Eigentumspruefung des Sitzes',
-    restore.indexOf("v.v!==roomProto") < restore.indexOf('rec.uid!==uid'));
+    restore.indexOf("v.v!==roomFassung") < restore.indexOf('rec.uid!==uid'));
 
   // Das Vergleichsschreiben: der Sitzclaim traegt die eigene Version mit, damit ein
   // zwischen Pruefung und Claim neu angelegter Raum fremder Version das ganze Update
@@ -603,8 +603,8 @@ t('Beitritt: die Ablehnung nennt die Versionsunvertraeglichkeit',
   // Stufe 2A: mitgeschrieben wird die Fassung DES GEPRUEFTEN RAUMS. Die Zusage bleibt
   // dieselbe - die Rules lassen auf v nur ein wertgleiches Schreiben zu.
   t('der Sitzclaim traegt die Fassung des Raums mit',
-    (html.match(/upd\['v'\]=roomProto;/g) || []).length === 2,
-    (html.match(/upd\['v'\]=roomProto;/g) || []).length);
+    (html.match(/upd\['v'\]=roomFassung;/g) || []).length === 2,
+    (html.match(/upd\['v'\]=roomFassung;/g) || []).length);
   t('und die Rules lassen auf der Raumversion nur ein wertgleiches Schreiben zu',
     /"v": \{ "\.write": "data\.exists\(\) && newData\.exists\(\) && newData\.val\(\) === data\.val\(\)"/.test(RULES));
 
@@ -614,8 +614,8 @@ t('Beitritt: die Ablehnung nennt die Versionsunvertraeglichkeit',
   // Stufe 2A: genau eine Stelle legt einen Raum an, und sie fragt den Waehler - der
   // gibt v9 ausschliesslich fuer Football Lives mit drei bis fuenf Sitzen.
   t('genau eine Stelle legt einen Raum an, und sie fragt den Waehler',
-    (html.match(/roomProto=fbRaumFassung\(cfg\);/g) || []).length === 1
-    && (html.match(/const room=\{v:roomProto,/g) || []).length === 1);
+    (html.match(/raumFassungSetzen\(fbRaumFassung\(cfg\)\);/g) || []).length === 1
+    && (html.match(/const room=\{v:roomFassung,/g) || []).length === 1);
   t('und keine Stelle schreibt die Ausbaustufe blind in einen Raum',
     (html.match(/v:ONLINE_PROTOCOL_VERSION/g) || []).length === 0);
   t('und keine Stelle schreibt eine feste Versionsnummer',

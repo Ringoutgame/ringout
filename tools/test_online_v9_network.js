@@ -474,7 +474,7 @@ abschnitt('Waechter: der Adapter ruht');
   // Kein Produktweg legt einen v9-Raum an oder betritt einen.
   // Stufe 2A: die Raumanlage fragt den Waehler - die Fassung gehoert dem Raum.
   t('die Raumanlage waehlt die Fassung des Raums',
-    /roomProto=fbRaumFassung\(cfg\);/.test(HTML) && /const room=\{v:roomProto,/.test(HTML));
+    /raumFassungSetzen\(fbRaumFassung\(cfg\)\);/.test(HTML) && /const room=\{v:roomFassung,/.test(HTML));
   t('und nirgends eine feste 9 als Raumversion',
     HTML.split(bereich).join('').indexOf('v:9') < 0 && HTML.indexOf('v: 9') < 0);
   for (const fn of ['validateRoom', 'validateRejoinRoom'])

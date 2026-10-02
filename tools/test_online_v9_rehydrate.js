@@ -61,7 +61,9 @@ function speicher() { const m = new Map();
 const START = HTML.indexOf('const FB_V9_PREIMAGE_BYTES=60');
 const ENDE = HTML.indexOf('// ════ ENDE V9-SPIELANBINDUNG ════');
 if (START < 0 || ENDE < 0) { console.log('V9-Bereich nicht gefunden'); process.exit(2); }
-const BEREICH = HTML.slice(START, ENDE);
+// Turbo-Fassung 14: der reine Block (Konstante, v11-Familie, Protokollnummer) steht vor dem V9-Bereich und
+// wird von dessen Startweiche (fbV9RaumIst9) gebraucht.
+const BEREICH = HTML.slice(HTML.indexOf('// ==FASSUNG-TURBO=='), HTML.indexOf('// ==/FASSUNG-TURBO==')) + '\n' + HTML.slice(START, ENDE);
 // fastForwardMatch kommt WOERTLICH aus dem Produkt - genau darum geht es hier.
 const FF = (HTML.match(/function fastForwardMatch\([^)]*\)\{[\s\S]*?\n\}/) || [''])[0];
 if (!FF) { console.log('fastForwardMatch nicht gefunden'); process.exit(2); }
@@ -707,7 +709,7 @@ abschnitt('Waechter');
     code.indexOf('.x=') < 0 && code.indexOf('.vx=') < 0 && code.indexOf('balls') < 0);
   // ── DIE ECHTE VERDRAHTUNG ──────────────────────────────────────────
   t('die Raumweiche haengt an der Fassung des Raums, nicht an einem Schalter',
-    /function fbV9RaumIst9\(raum\)\{[\s\S]{0,400}?return !!raum && \(raum\.v===9\|\|raum\.v===10\|\|raum\.v===11\) && ONLINE_PROTOCOL_VERSION>=raum\.v;/
+    /function fbV9RaumIst9\(raum\)\{[\s\S]{0,400}?return !!raum && \(raum\.v===9\|\|raum\.v===10\|\|fbFassungV11\(raum\.v\)\) && ONLINE_PROTOCOL_VERSION>=fbProtoVonFassung\(raum\.v\);/
       .test(HTML));
   t('der Rejoin liest fuer v9 KEINE t-Historie',
     /const v9=fbV9RaumIst9\(v\);/.test(HTML) &&

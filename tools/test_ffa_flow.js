@@ -91,6 +91,8 @@ const SRC = [
   grab(/function setStatus\(t\)\{[^\n]*/, 'setStatus'),
   // Protokoll v4: Raumtyp + Football-Kontrakt + kanonische Zugereignisse, woertlich.
   grab(/const ROOM_GAME_RINGOUT=[\s\S]*?\nfunction validateTurnRecord\(rec,game,seat\)\{[\s\S]*?\n\}/, 'Protokoll v4'),
+  // Der Protokollblock bringt roomFassung mit (Turbo-Fassung): die Sandbox sitzt in einem v8-Raum.
+  'raumFassungSetzen(8);',
   grab(/function validateRoom\(d,jetzt\)\{[\s\S]*?\n\}/, 'validateRoom'),
   grab(/function pickFreeSeat\(p,max\)\{[^\n]*/, 'pickFreeSeat'),
   grab(/function seatCount\(p\)\{[^\n]*/, 'seatCount'),
@@ -562,7 +564,7 @@ function makeClient(db, code, forcePid) {
       // Wie joinRoom im Produkt: erst die Fassung DES RAUMS uebernehmen, dann claimen. Ohne
       // das traegt der Claim die Sandbox-Vorgabe und der Versionsvergleich weist ihn ab.
       async claimSlot(c,s,extra){const d=(await window.FB.get(window.FB.ref(window.FB.db,'rooms/'+c))).val();
-        if(d&&typeof d.v==='number')roomProto=d.v; return await claimSeatSlot(c,s,newJoinOp(),extra);},
+        if(d&&typeof d.v==='number')raumFassungSetzen(d.v); return await claimSeatSlot(c,s,newJoinOp(),extra);},
       onDrops(){return ui.onDrop.map(d=>d.ref.join('/'));},
       status(){return $('onStatus').textContent;},
       hasGrace(){return !!lobbyHostGraceTimer;},

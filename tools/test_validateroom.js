@@ -48,7 +48,10 @@ t('v 13 fuer einen RingOut-Versus-Raum -> ok', validateRoom(room({ v: 13 })).ok 
 //  Sandkasten - ihre Paarung prueft test_ffa_flow.js am echten Beitrittspfad.)
 t('v 13 fuer einen Football-Raum -> reject',
   validateRoom(room({ v: 13, config: { game: 'football', winTarget: 3, fmt: 'elimination', mode: 'lives', cap: 5, visibility: 'private' } })).ok === false);
-t('v 14 (unbekannt) -> reject', validateRoom(room({ v: 14 })).reason === VMSG);
+t('v 15 (unbekannt) -> reject', validateRoom(room({ v: 15 })).reason === VMSG);
+// Fassung 14 ist die Arena-Football-Turbo-Fassung: bedienbar. Ein RingOut-Raum traegt sie nie - die
+// Fassungsfrage besteht, ueber die Paarung mit dem Raumtyp entscheidet danach dieselbe Pruefung wie bei 11.
+t('v 14 ist keine unbekannte Fassung mehr (Turbo)', validateRoom(room({ v: 14 })).reason !== VMSG);
 t('v string -> reject (strict)', validateRoom(room({ v: String(VER) })).reason === VMSG);
 t('v null -> reject', validateRoom(room({ v: null })).reason === VMSG);
 

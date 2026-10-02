@@ -64,7 +64,16 @@ const UID_HOST = 'UID_HOST_AAAAAAAAAAAAAAAAAAAA';
 const UID_GUEST = 'UID_GUEST_BBBBBBBBBBBBBBBBBB';
 const UID_ATTACK = 'UID_ATTACKER_CCCCCCCCCCCCCCC';
 // attempts a single-path write against the loaded rules; returns true if allowed
+// FASSUNG 14 (Arena Football Turbo) IST FASSUNG 11 - dieselben Rules-Zweige. Jeder Schreibversuch dieser Suite wird
+// mitgeschrieben; am Ende wird jeder, an dem ein v11-Raum beteiligt ist, als Zwilling mit Fassung 14 wiederholt
+// und muss dasselbe Urteil bekommen (Abschnitt FASSUNG 14 unten).
+const PROTOKOLL_V11 = [];
 function tryWrite(db, path, value, uid, alsoWrites) {
+  const r = tryWriteRoh(db, path, value, uid, alsoWrites);
+  PROTOKOLL_V11.push({ j: JSON.stringify({ db, value: value === undefined ? null : value, also: alsoWrites || null }), undef: value === undefined, path, uid, r });
+  return r;
+}
+function tryWriteRoh(db, path, value, uid, alsoWrites) {
   const segs = path.split('/');
   const post = JSON.parse(JSON.stringify(db));
   setPath(post, segs, value);
@@ -2044,6 +2053,39 @@ deny('team move pl 4 (seat gate, presence pre-seeded)', playing({ p: { 0: P(H_TA
 // Der Auswerter ist ab hier auch von aussen benutzbar. Die v9-Suite prueft DIESELBE
 // firebase.rules.json mit DERSELBEN Semantik - eine zweite Nachbildung daneben waere
 // die Sorte Doppelung, die frueher oder spaeter auseinanderlaeuft.
+// ── FASSUNG 14 = FASSUNG 11 ────────────────────────────────────────────────────────
+// Der Turbo-Raum ist ein v11-Raum mit eigener Fassungsnummer: alte Clients lehnen 14 ab, die Rules behandeln
+// 14 ueberall wie 11. Bewiesen wird das nicht an Beispielen, sondern an JEDEM v11-Fall dieser Suite.
+{
+  const zwilling = (e) => {
+    const o = JSON.parse(e.j); let n = 0;
+    const wert = (pfad, v) => {
+      const seg = pfad.split('/');
+      if (seg[0] === 'rooms' && seg.length === 2 && v && typeof v === 'object' && v.v === 11) { v.v = 14; n++; }
+      if (seg[0] === 'rooms' && seg.length === 3 && seg[2] === 'v' && v === 11) { n++; return 14; }
+      return v;
+    };
+    if (o.db && o.db.rooms) for (const c of Object.keys(o.db.rooms)) if (o.db.rooms[c] && o.db.rooms[c].v === 11) { o.db.rooms[c].v = 14; n++; }
+    o.value = wert(e.path, o.value);
+    if (o.also) for (const k of Object.keys(o.also)) o.also[k] = wert(k, o.also[k]);
+    return n ? o : null;
+  };
+  let zw = 0, erlaubt = 0;
+  for (const e of PROTOKOLL_V11.slice()) {
+    const o = zwilling(e); if (!o) continue;
+    zw++; if (e.r) erlaubt++;
+    const r14 = tryWriteRoh(o.db, e.path, e.undef ? undefined : o.value, e.uid, o.also || undefined);
+    t('[FASSUNG 14 = 11] ' + e.path + ' (v11: ' + (e.r ? 'erlaubt' : 'abgelehnt') + ')', r14 === e.r);
+  }
+  t('die Zwillingspruefung deckt die v11-Faelle wirklich ab (' + zw + ' Faelle, davon ' + erlaubt + ' erlaubt)', zw >= 100 && erlaubt >= 30 && zw - erlaubt >= 30);
+  // Die Fassung selbst ist unveraenderlich - in beide Richtungen.
+  const raum = (v) => { const e = PROTOKOLL_V11.find(x => { const o = JSON.parse(x.j); return o.db && o.db.rooms && Object.keys(o.db.rooms).some(c => o.db.rooms[c] && o.db.rooms[c].v === 11); });
+    const o = JSON.parse(e.j); for (const c of Object.keys(o.db.rooms)) if (o.db.rooms[c].v === 11) { o.db.rooms[c].v = v; return { db: o.db, code: c }; } };
+  const r11 = raum(11), r14 = raum(14);
+  t('[DENY]  ein Raum der Fassung 11 laesst sich nicht auf 14 umschreiben', tryWriteRoh(r11.db, 'rooms/' + r11.code + '/v', 14, UID_HOST) === false);
+  t('[DENY]  ein Raum der Fassung 14 laesst sich nicht auf 11 umschreiben', tryWriteRoh(r14.db, 'rooms/' + r14.code + '/v', 11, UID_HOST) === false);
+}
+
 module.exports = { tryWrite, NOW, AUTH, UID_HOST, UID_GUEST, UID_ATTACK, GRACE, P };
 // Beim Nachladen aus einer anderen Suite darf diese hier weder berichten noch beenden.
 if (require.main === module) {

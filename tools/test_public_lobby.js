@@ -111,7 +111,8 @@ t('remove: created NaN', view({ created: NaN }).remove === true);
   // ONLINE FEATURE PARITY: 13 ist die Fassung jedes neuen RingOut-Raums - ohne sie waere
   // kein oeffentlicher RingOut-Raum mehr in der Liste zu sehen.
   t('listbar: Fassung 13 (RingOut mit Collapse und Rescue Wall)', roomListable(13) === true);
-  for (const v of [0, 3, 9, 14, null, undefined, '10', '12']) t('nicht listbar: Fassung ' + JSON.stringify(v), roomListable(v) === false);
+  for (const v of [0, 3, 9, 15, null, undefined, '10', '12', '14']) t('nicht listbar: Fassung ' + JSON.stringify(v), roomListable(v) === false);
+  t('listbar: Fassung 14 (Arena Football mit Turbo - die v11-Familie)', roomListable(14) === true);
   const v10 = fb(10);
   t('show: v10 arena lives lobby is listed', v10.show === true && v10.remove === false);
   const v11 = fb(11);

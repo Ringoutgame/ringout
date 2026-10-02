@@ -13,7 +13,7 @@
 //   F  Bestand: v8-Raeume und Football behalten ihr Verhalten
 //   G  Determinismus: zwei Clients mit denselben Slots kommen zum selben Zustand
 'use strict';
-const { loadIndexHtml, grab, grabFunction } = require('./extract');
+const { loadIndexHtml, grab, grabFunction, fassungTurbo } = require('./extract');
 const html = loadIndexHtml();
 
 let passed = 0, failed = 0;
@@ -37,7 +37,7 @@ const Q = {
 
 // ── A: Raumfassung ────────────────────────────────────────────────────────────
 {
-  const M = new Function(Q.ver + '\n' + Q.roomGame + '\nconst FB_ONLINE_MODE_LIVES="lives";\n' + Q.fassung + '\n' + Q.fassungOk +
+  const M = new Function(Q.ver + '\n' + Q.roomGame + '\n' + fassungTurbo(html) + '\nconst FB_ONLINE_MODE_LIVES="lives";\n' + Q.fassung + '\n' + Q.fassungOk +
     '\nreturn {fbRaumFassung, fbRaumFassungOk, V: RINGOUT_SKIP_FASSUNG, P: RINGOUT_PARITY_FASSUNG};')();
   ok(M.V === 12, 'A1 die RingOut-FFA-Fassung ist 12', M.V);
   // ONLINE FEATURE PARITY: ein NEUER RingOut-Raum ist ab jetzt immer 13 - dieselbe Fassung
@@ -50,7 +50,9 @@ const Q = {
     ok(M.fbRaumFassung({ game: 'ringout', fmt: f }) === 13, 'A3 auch Versus ' + f + ' wird v13');
   ok(M.fbRaumFassungOk(12) === true && M.fbRaumFassungOk(8) === true, 'A4 der Client bedient v8 und v12');
   ok(M.fbRaumFassungOk(13) === true, 'A4b und die Paritaetsfassung 13');
-  ok(M.fbRaumFassungOk(14) === false, 'A5 eine unbekannte Fassung bleibt abgewiesen');
+  ok(M.fbRaumFassungOk(15) === false, 'A5 eine unbekannte Fassung bleibt abgewiesen');
+  // 14 ist die Arena-Football-Turbo-Fassung - bedienbar, aber nie die eines RingOut-Raums (A2/A3: 13).
+  ok(M.fbRaumFassungOk(14) === true, 'A5b die Football-Turbo-Fassung 14 ist bedienbar');
   // Die Paarung beim Beitritt (v12 nur fuer die FFA-Familie) pruefen test_validateroom.js
   // (v12-Versus wird abgewiesen) und test_ffa_flow.js (Gaeste treten einem v12-FFA-Raum
   // ueber den echten joinRoom/validateRoom-Pfad bei) - hier keine zweite Nachbildung.

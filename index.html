@@ -730,6 +730,14 @@ body.r3d header .ibtn,body.r3d .botbar .btn{pointer-events:auto}
 .btn.primary{color:#2b1c00;text-shadow:0 1px 0 rgba(255,235,180,.5);background:linear-gradient(180deg,#ffe197 0%,#f7ba3e 52%,#dd961e 100%);box-shadow:0 8px 26px rgba(255,185,50,.3),inset 0 1.5px 0 rgba(255,255,255,.6),inset 0 -3px 8px rgba(150,85,0,.35)}
 /* Utility-Button (Reset): Dark-Glass in derselben Formensprache */
 .btn.ghost{flex:0 0 auto;background:linear-gradient(180deg,rgba(24,33,54,.85),rgba(14,21,36,.9));border:1px solid rgba(150,172,210,.28);color:#cfd9ea;padding:13px 16px;backdrop-filter:blur(6px);box-shadow:0 6px 16px rgba(5,9,18,.3)}
+/* Arena Football Turbo: Wahl fuer den aktuellen Schuss, Restzahl als Plakette. Gewaehlt = Eisblau. */
+.btn.turbo{display:flex;align-items:center;justify-content:center;gap:6px;min-width:9.6em;padding:13px 11px;transition:transform .08s,background .15s,box-shadow .15s}
+.btn.turbo .ti{font-size:16px;line-height:1}
+.btn.turbo .tl{font-size:12px;white-space:nowrap}
+.btn.turbo .tz{min-width:19px;height:19px;padding:0 5px;border-radius:10px;display:inline-flex;align-items:center;justify-content:center;font-size:11px;background:rgba(150,172,210,.22)}
+.btn.turbo.an{background:linear-gradient(180deg,#7ee6ff 0%,#2cb4ef 55%,#1284c8 100%);color:#03182a;border-color:rgba(190,242,255,.9);box-shadow:0 0 20px rgba(60,200,255,.55),inset 0 1.5px 0 rgba(255,255,255,.55)}
+.btn.turbo.an .tz{background:rgba(3,24,42,.2)}
+.btn.turbo:disabled{opacity:.42;cursor:default}
 
 /* ── BOOT/LOADING: Premium-Ladebildschirm bis zum ersten gerenderten 3D-Frame.
       Verhindert die halbfertige Menueansicht, waehrend GLB/HDRI noch laden. ── */
@@ -1365,6 +1373,7 @@ body.roAus #fbQuick .soon-s{color:#a9c6ea;font-size:clamp(9.5px,2.6vw,11.5px);te
   <div class="phase" id="phase"></div>
   <div class="botbar">
     <button class="btn ghost" id="resetBtn">↺</button>
+    <button class="btn ghost turbo" id="turboBtn" type="button" aria-pressed="false" style="display:none"><span class="ti" aria-hidden="true">⚡</span><span class="tl"></span><span class="tz">3</span></button>
     <button class="btn primary" id="actBtn">Stehen bleiben</button>
   </div>
 </div>
@@ -2305,7 +2314,7 @@ async function reserveSeat(code,seat,team2){
   // deshalb im selben atomaren Update mit: die Rules lassen auf rooms/<code>/v nur
   // ein WERTGLEICHES Schreiben zu, ein fremdversionierter Raum weist das ganze
   // Update ab. Kein Sitz in einer fremden Simulation, kein halber Zustand.
-  upd['v']=roomProto;
+  upd['v']=roomFassung;
   try{ await window.FB.update(window.FB.ref(window.FB.db,'rooms/'+code),upd); return {ok:true}; }
   catch(e){
     if(/permission[_ ]?denied/i.test(String((e&&(e.code||e.message))||e)))return {ok:false,lost:true};
@@ -2408,7 +2417,7 @@ async function reclaimSeat(code,seat,keepName,legacy,team2){
   // Dasselbe Vergleichsschreiben wie beim ersten Claim (siehe reserveSeat): auch ein
   // Wiedereintritt darf nicht in einem inzwischen neu angelegten Raum fremder Version
   // landen.
-  upd['v']=roomProto;
+  upd['v']=roomFassung;
   try{ await window.FB.update(window.FB.ref(window.FB.db,'rooms/'+code),upd); return {ok:true}; }
   catch(e){
     if(/permission[_ ]?denied/i.test(String((e&&(e.code||e.message))||e)))return {ok:false,lost:true};
@@ -2479,7 +2488,7 @@ async function restorePresencePass(ctx){
     if(!presenceCtxValid(ctx))return 'stale';
     const v={v:sv.val(),gen:sg.val()};
     if(!sg.exists())return 'noRoom';                        // Raum existiert nicht mehr
-    if(v.v!==roomProto)return 'version';                    // fremdes Protokoll
+    if(v.v!==roomFassung)return 'version';                  // fremde Fassung
     if((v.gen|0)!==gen)return 'gen';                        // andere Generation -> nicht raten
     const uid=fbUid(), rec=sr.val(), pres=sp.val();
     // Eigentum wird VOR jedem Schreiben neu geprueft. Im Zweifel geschieht nichts.
@@ -2907,6 +2916,7 @@ en:{tagline:'PULL BACK · RELEASE · KNOCK THEM OUT',chip:'FEATURED',
   ffaGa:'GA',ffaDanger:'DANGER',ffaOut:'OUT',
   fbOnlineT:'ONLINE',fbOnlineS:'2–5 PLAYERS · PLAY WITH FRIENDS',
   fbNo3d:'Arena Football needs the real 3D scene (not available).',
+  fbTurboLbl:'Turbo boost for this shot',fbTurboKurz:'TURBO',fbTurboOn:'TURBO ON',fbTurboToast:'⚡ Turbo – {n}',
   roAus:'Ring Out is currently not available. Play Arena Football!',
   szeneLaedt:'Loading the arena …',
   r3dRecovering:'Restoring graphics …',
@@ -3019,6 +3029,7 @@ de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'FEATURED',
   ffaGa:'GT',ffaDanger:'GEFAHR',ffaOut:'RAUS',
   fbOnlineT:'ONLINE',fbOnlineS:'2–5 SPIELER · MIT FREUNDEN SPIELEN',
   fbNo3d:'Arena Football benötigt die echte 3D-Szene (nicht verfügbar).',
+  fbTurboLbl:'Turbo Boost für diesen Schuss',fbTurboKurz:'TURBO',fbTurboOn:'TURBO AN',fbTurboToast:'⚡ Turbo – {n}',
   roAus:'Ring Out ist derzeit nicht verfügbar. Spiel Arena Football!',
   szeneLaedt:'Arena wird geladen …',
   r3dRecovering:'Grafik wird wiederhergestellt …',
@@ -3127,6 +3138,7 @@ tr:{tagline:'GERİ ÇEK · BIRAK · DIŞARI İT',chip:'FEATURED',
   ffaGa:'YG',ffaDanger:'TEHLİKE',ffaOut:'ELENDİ',
   fbOnlineT:'ONLINE',fbOnlineS:'2–5 OYUNCU · ARKADAŞLARINLA OYNA',
   fbNo3d:'Arena Football gerçek 3B sahneye ihtiyaç duyar (kullanılamıyor).',
+  fbTurboLbl:'Bu atış için turbo',fbTurboKurz:'TURBO',fbTurboOn:'TURBO AÇIK',fbTurboToast:'⚡ Turbo – {n}',
   roAus:'Ring Out şu anda kullanılamıyor. Arena Football oyna!',
   szeneLaedt:'Arena yükleniyor …',
   r3dRecovering:'Grafikler geri yükleniyor …',
@@ -3758,6 +3770,11 @@ $('leaveGo').onclick=()=>{$('leaveOv').classList.remove('show');$('ov').classLis
 $('ovMenuBtn').onclick=()=>{$('ov').classList.remove('show');leaveOnline(showMenu);};
 $('sndBtn').onclick=()=>{soundOn=!soundOn;const g=soundOn?'🔊':'🔇';$('sndBtn').textContent=g;$('menuSnd').textContent=g;if(!soundOn){SFX.charge.stop();SFX.fbTransitionStop();if(typeof fbMusicStop==='function')fbMusicStop();}};
 $('resetBtn').onclick=()=>{if(online){toast(T('noOnlineReset'));return;}newGame();};
+// Turbo: auf pointerdown, damit auch ein zweiter Finger WAEHREND des Zielens schaltet (ein Mehrfinger-
+// Tipp loest kein click aus). click bleibt nur fuer die Tastatur (detail 0) - sonst schaltete ein
+// Mausklick zweimal.
+$('turboBtn').addEventListener('pointerdown',e=>{e.preventDefault();e.stopPropagation();if(typeof fbTurboUmschalten==='function')fbTurboUmschalten();});
+$('turboBtn').onclick=e=>{if(e.detail===0&&typeof fbTurboUmschalten==='function')fbTurboUmschalten();};
 $('rematchBtn').onclick=()=>{
   if((typeof fbV11Raum==='function')&&fbV11Raum()){ fbV11ErgebnisVerlassen(); return; }
   // Ring Out ist vorerst nicht im Angebot: nach einer Ring-Out-Partie keine Revanche.
@@ -5647,7 +5664,7 @@ function curFR(){const c=footballPhys();return c?c.friction:FRICTION;}
 function curFE(){const c=footballPhys();if(c)return c.fend;return TUNE&&TUNE.fend!=null?TUNE.fend:FEND;}
 function curST(){const c=footballPhys();if(c)return c.stopv;return TUNE&&TUNE.stopv!=null?TUNE.stopv:STOPV;}
 function maxPull(){return R0*MAXPULL_FRAC;}
-function setPhase(p){phase=p;phaseStart=performance.now();if(typeof barrierPhaseHook==='function')barrierPhaseHook(p);}
+function setPhase(p){phase=p;phaseStart=performance.now();if(typeof barrierPhaseHook==='function')barrierPhaseHook(p);if(typeof fbTurboPhase==='function')fbTurboPhase(p);}
 
 function mkBall(x,y,owner){return{x,y,vx:0,vy:0,sx:x,sy:y,owner,alive:true,spin:0};}
 function aliveBalls(owner){return balls.filter(b=>b.alive&&b.owner===owner);}
@@ -6060,6 +6077,7 @@ function fbClockPaint(){
   // gerade gar kein Football laeuft. Genau EIN benannter Beruehrungspunkt - alles
   // Weitere darueber weiss nur der v9-Bereich.
   if(typeof fbV9HudPaint==='function')fbV9HudPaint();
+  if(typeof fbTurboHud==='function')fbTurboHud();   // Turbo-Knopf: nur bei geaendertem Zustand ein DOM-Zugriff
   // Die Kurzmeldung ZUERST und IMMER — sie hat ihren eigenen Lebenslauf und darf nicht
   // davon abhaengen, ob sich der Countdown geaendert hat. Sonst bliebe sie waehrend eines
   // langen Ballflugs stehen, obwohl ihre Zeit laengst abgelaufen ist.
@@ -6604,11 +6622,15 @@ function applyCommit(who,shooterIdx,fx,fy,spin){
     // Runde schon gehandelt), faellt NICHTS auf den v8-Weg zurueck: ein v9-Raum wiese
     // einen t-Slot ohnehin ab, und ein zweiter Anlauf erzeugte ein zweites Salz zu
     // einem bereits unveraenderlichen Commit.
-    if(typeof fbV9LebenAn==='function'&&fbV9LebenAn()){ if(fbV9LebenHandeln({move:{idx:m.idx,dx:m.dx,dy:m.dy,sp:m.sp}})){setPhaseText();updateHud();} return; }
+    // Arena Football Turbo: die Wahl reist verdeckt im Commit (eigene Zugart), nie offen daneben.
+    const turbo=typeof fbTurboFuerZug==='function'&&fbTurboFuerZug(who,m);
+    if(typeof fbV9LebenAn==='function'&&fbV9LebenAn()){ if(fbV9LebenHandeln({move:{idx:m.idx,dx:m.dx,dy:m.dy,sp:m.sp,turbo:turbo}})){if(typeof fbTurboAbgegeben==='function')fbTurboAbgegeben(who,turbo,false);setPhaseText();updateHud();} return; }
     onlineSendCommit(m.idx,m.dx,m.dy,m.sp);
     setPhaseText();updateHud();
     return;}
-  commitIdx[who]=m.idx;commitAim[who]={dx:m.dx,dy:m.dy};commitSpin[who]=m.sp;aimSet[who]=true;updateHud();
+  commitIdx[who]=m.idx;commitAim[who]={dx:m.dx,dy:m.dy};commitSpin[who]=m.sp;aimSet[who]=true;
+  if(typeof fbTurboAbgegeben==='function')fbTurboAbgegeben(who,fbTurboFuerZug(who,m),true);
+  updateHud();
   if(mode==='bot'){const bm=botMove();commitIdx[1]=bm.idx;commitAim[1]={dx:bm.dx,dy:bm.dy};commitSpin[1]=0;aimSet[1]=true;beginReveal();}
   // ELITE BOT (Arena Football, lokal): derselbe Weg wie beim RingOut-Bot - der Gegenzug
   // wird danebengelegt und BEIDE starten in derselben Simulation. Der Zug ist zu diesem
@@ -7282,6 +7304,97 @@ function fbLaunchMul(len){
   const mp=maxPull(),t=len>=mp?1:len/mp;
   return LAUNCH*FB_LAUNCH_SCALE*Math.pow(t,FB_LAUNCH_CURVE-1);
 }
+// ══ ARENA FOOTBALL — TURBO BOOST ═════════════════════════════════════════
+// Ein Spieler waehlt beim Zielen „Turbo“ fuer seinen aktuellen Schuss; nach der gemeinsamen
+// Freigabe startet genau diese eigene Figur um FB_TURBO_FAKTOR schneller. Die normale
+// Schussphysik bleibt unberuehrt: der Faktor wirkt nur auf die Startgeschwindigkeit, danach
+// rechnen Reibung, Kontakte, Banden und Tore wie immer.
+//
+// VERBRAUCH: ausschliesslich am gemeinsamen Abschuss (fbTurboFaktor aus applyLaunch) und nur
+// fuer einen dort wirklich gestarteten Zug mit Laenge > 0. Der Vorrat ist damit Spielzustand wie
+// Leben oder Tore: jeder Client rechnet ihn aus derselben Zugfolge, ein Neuladen oder Rejoin
+// spielt ihn ueber die Historie nach, und ein zweites Geraet kann ihn weder zurueckgeben noch
+// doppelt verbrauchen. Ein Turbo-Wunsch ohne Vorrat wirkt als normaler Schuss.
+// VERDECKT: online reist die Wahl als eigene Zugart im Commit-Hash (FB_V9_KIND_TURBO) - sichtbar
+// wird sie erst, wenn die Enthuellung ihren Hash bestaetigt.
+// Ring Out bekommt keinen Turbo: jede Funktion hier ist ausserhalb von Arena Football neutral.
+const FB_TURBO_JE_MATCH=3;    // Nutzungen je Spieler und Match
+const FB_TURBO_FAKTOR=1.30;   // Startgeschwindigkeit der geboosteten Figur (x normale)
+let fbTurboRest=[],fbTurboWahl=[],fbTurboZug=[],fbTurboGesendet=[];
+// Lokal immer; online nur in einem Raum der Turbo-Fassung - dort, und nur dort, sprechen alle
+// Clients dieselbe Zugart. In einem Bestandsraum (Fassung 11) gibt es keinen Knopf, keinen
+// Turbo-Commit und keinen Faktor - auch nicht fuer einen neuen Client.
+function fbTurboAn(){return mode==='football'&&(!online||(typeof fbTurboRaum==='function'&&fbTurboRaum()));}
+function fbTurboReset(){
+  for(let o=0;o<FOOTBALL_ELIM_MAX_PLAYERS;o++){fbTurboRest[o]=FB_TURBO_JE_MATCH;fbTurboWahl[o]=false;fbTurboZug[o]=false;fbTurboGesendet[o]=false;}
+  fbTurboHud();
+}
+function fbTurboUebrig(o){return (o>=0&&Number.isInteger(fbTurboRest[o]))?fbTurboRest[o]:0;}
+// Die Wahl gehoert zum Schuss, der gerade gezielt wird: umschalten nur in der Zielphase und nur mit
+// Vorrat. Zieht gerade jemand, gilt sie seiner Figur (auf dem Handy: zweiter Finger auf den Knopf) -
+// so kommt im gemeinsamen Fenster an EINEM Geraet jeder an seinen Turbo. Sonst gilt sie dem Sitz,
+// der gerade zielen darf (online: immer der eigene).
+function fbTurboWer(){
+  if(!fbTurboAn()||phase!=='aim'||typeof whoCanAim!=='function')return -1;
+  if(typeof dragging!=='undefined'&&dragging&&typeof dragOwner!=='undefined'&&dragOwner>=0&&!aimSet[dragOwner])return dragOwner;
+  return whoCanAim();
+}
+function fbTurboUmschalten(){
+  const o=fbTurboWer();
+  if(o<0||fbTurboUebrig(o)<=0)return;
+  fbTurboWahl[o]=!fbTurboWahl[o];
+  fbTurboHud();
+}
+// Beim Abgeben: traegt DIESER Zug den Turbo? Nur eine gewaehlte Wahl mit Vorrat und nur fuer einen
+// echten Schuss - ein Nullzug (Stehen bleiben) verbraucht nichts.
+function fbTurboFuerZug(o,m){return fbTurboAn()&&fbTurboWahl[o]===true&&fbTurboUebrig(o)>0&&!!m&&Math.hypot(m.dx,m.dy)>0;}
+// Zug angenommen: die Wahl ist als Wahl erledigt. Lokal wird sie zum Zug dieses Sitzes; online
+// kommt der Turbo-Zug ausschliesslich aus der geprueften Zugmenge (fbV9Wirken) - hier wird nur
+// vermerkt, dass er verdeckt mitgeschickt wurde, damit die eigene Anzeige ihn bis zum Abschuss haelt.
+function fbTurboAbgegeben(o,turbo,lokal){
+  if(lokal)fbTurboZug[o]=!!turbo;
+  fbTurboGesendet[o]=!!turbo;fbTurboWahl[o]=false;fbTurboHud();
+}
+// Am gemeinsamen Abschuss, je gestartetem Sitz genau einmal: Faktor und Verbrauch.
+function fbTurboFaktor(p,len){
+  if(!fbTurboAn()||fbTurboZug[p]!==true||!(len>0)||fbTurboUebrig(p)<=0)return 1;
+  fbTurboZug[p]=false;fbTurboRest[p]--;
+  return FB_TURBO_FAKTOR;
+}
+// Nach dem Abschuss gilt kein Turbo-Zug mehr weiter - auch nicht fuer einen Sitz, dessen Figur
+// nicht gestartet ist (verworfen, ausgeschieden): er verbraucht nichts und wirkt nie spaeter. Eine
+// gewaehlte, aber nicht abgegebene Wahl verfaellt ebenso - sie gehoerte zum Schuss dieser Runde.
+function fbTurboLeeren(){for(let o=0;o<FOOTBALL_ELIM_MAX_PLAYERS;o++){fbTurboZug[o]=false;fbTurboGesendet[o]=false;fbTurboWahl[o]=false;}fbTurboHud();}
+// Sichtbar fuer alle erst am Abschuss: kurzer Hinweis mit Namen und ein kraeftigerer Startimpuls.
+function fbTurboZeigen(b){
+  if(typeof replaying!=='undefined'&&replaying)return;
+  if(typeof fbFxMute!=='undefined'&&fbFxMute)return;   // Nachspielen der Historie: Zustand, kein Erlebnis
+  if(typeof fbFeelLaunch==='function')fbFeelLaunch(b,1);
+  if(typeof toast==='function')toast(T('fbTurboToast').replace('{n}',(typeof pName==='function')?pName(b.owner):('P'+(b.owner+1))));
+}
+function fbTurboPhase(){fbTurboHud();}
+// Laeuft in jedem Bild mit (fbClockPaint) - deshalb erst ein Zustandsschluessel, und nur wenn er
+// sich geaendert hat, ein Zugriff auf den Knopf.
+let fbTurboHudKey='';
+function fbTurboHud(){
+  const btn=(typeof document!=='undefined')?document.getElementById('turboBtn'):null;
+  if(!btn)return;
+  const zeigen=fbTurboAn()&&!menuVisible;
+  const o=zeigen?fbTurboWer():-1, wer=o>=0?o:(online?myPlayer:-1), rest=fbTurboUebrig(wer>=0?wer:0);
+  const an=zeigen&&((o>=0&&fbTurboWahl[o]===true)||(wer>=0&&fbTurboGesendet[wer]===true));
+  const key=[zeigen,o,rest,an,LANG].join('|');
+  if(key===fbTurboHudKey)return;
+  fbTurboHudKey=key;
+  btn.style.display=zeigen?'':'none';
+  if(!zeigen)return;
+  const z=btn.querySelector('.tz'); if(z&&z.textContent!==String(rest))z.textContent=String(rest);
+  btn.classList.toggle('an',an);
+  btn.disabled=!(o>=0&&rest>0);
+  btn.setAttribute('aria-pressed',an?'true':'false');
+  btn.setAttribute('aria-label',T('fbTurboLbl')+' · '+rest);
+  btn.title=T('fbTurboLbl');
+  const l=btn.querySelector('.tl'), txt=T(an?'fbTurboOn':'fbTurboKurz'); if(l&&l.textContent!==txt)l.textContent=txt;
+}
 function applyLaunch(){
   // ZUGRECHT BEIM ABSCHUSS (lokal, abwechselnd): nur der Sitz am Zug schiesst. Ein Commit
   // eines anderen Sitzes ist in diesem Modell kein Zug und wird hier verworfen - zweiter
@@ -7296,8 +7409,12 @@ function applyLaunch(){
     // typeof-Guard wie an den anderen Football-Einstiegen: Offline-Harnesses uebernehmen
     // applyLaunch ohne den Kurvenblock und rechnen dann mit der linearen Basis.
     const mul=typeof fbLaunchMul==='function'?fbLaunchMul(Math.hypot(commitAim[p].dx,commitAim[p].dy)):LAUNCH;
-    balls[idx].vx=commitAim[p].dx*mul;balls[idx].vy=commitAim[p].dy*mul;balls[idx].spin=commitSpin[p]||0;}
+    // Arena Football Turbo: Faktor 1 ausser fuer den einen gewaehlten, abgeschossenen Zug.
+    const turbo=typeof fbTurboFaktor==='function'?fbTurboFaktor(p,Math.hypot(commitAim[p].dx,commitAim[p].dy)):1;
+    balls[idx].vx=commitAim[p].dx*mul*turbo;balls[idx].vy=commitAim[p].dy*mul*turbo;balls[idx].spin=commitSpin[p]||0;
+    if(turbo!==1&&typeof fbTurboZeigen==='function')fbTurboZeigen(balls[idx]);}
     maxp=Math.max(maxp,Math.hypot(commitAim[p].dx,commitAim[p].dy));}
+  if(typeof fbTurboLeeren==='function')fbTurboLeeren();
   // Der Abschuss ist EIN Ereignis - hier, an der kanonischen Stelle. Online loest ihn
   // jeder Client aus derselben Zughistorie aus und hoert ihn damit genau einmal.
   if(typeof fbSfxLaunch==='function')fbSfxLaunch(maxp/maxPull()); else SFX.launch(maxp/maxPull());
@@ -10127,7 +10244,7 @@ function fbFfaResolve(imTor){
 }
 // ZENTRALE Initialisierung des Football-Matchzustands: neues Match, Moduswechsel, Menue.
 // Score/Kugeln/Aim-Zustaende setzt der bestehende Pfad newGame() -> startRound() -> placeBalls().
-function footballResetMatchState(){fbGoalState='play';fbGoalTick=0;footballWinner=null;fbClearSelection();fbElimReset();if(typeof fbFfaReset==='function')fbFfaReset();fbClockReset();footballClearGoalFx();fbMorphPlan=null;fbMorphSpawn=false;SFX.fbTransitionStop();}
+function footballResetMatchState(){fbGoalState='play';fbGoalTick=0;footballWinner=null;fbClearSelection();fbElimReset();if(typeof fbFfaReset==='function')fbFfaReset();fbClockReset();if(typeof fbTurboReset==='function')fbTurboReset();footballClearGoalFx();fbMorphPlan=null;fbMorphSpawn=false;SFX.fbTransitionStop();}
 // ══ ELITE BOT — PLANUNG AUF DEM ECHTEN MOTOR ═══════════════════════════════════════
 // Der Bot rechnet mit DERSELBEN Physik, die das Spiel rechnet: stepSim. Es gibt keine
 // zweite Simulation, die auseinanderlaufen koennte. Damit eine Vorausberechnung nichts
@@ -11814,8 +11931,8 @@ function createRoom(){
         wirtSitz=fbTeam2SeatsOf(fbOnlineTeam)[0];
       }
       const rec0=playerRecord(wirtSitz,fbo&&fbOnlineMode===FB_ONLINE_MODE_TEAM2);
-      roomProto=fbRaumFassung(cfg);
-      const room={v:roomProto, config:cfg, gen:0, state:'lobby', hostUid:fbUid(),
+      raumFassungSetzen(fbRaumFassung(cfg));
+      const room={v:roomFassung, config:cfg, gen:0, state:'lobby', hostUid:fbUid(),
         p:{}, players:{}, created:window.FB.serverTimestamp()};
       room.p[wirtSitz]={s:onlineTab,on:false,t:window.FB.serverTimestamp()};
       room.players[wirtSitz]=rec0;
@@ -12116,6 +12233,26 @@ const FFA_MAX_SEATS=5;   // Online-FFA: Seats 0-4 (Host=0), Farben aus PCOLS
 // Damit gibt es nur EINE RingOut-Onlinesemantik; ein aelterer Client lehnt einen Raum der
 // Fassung 13 beim Beitritt ab (fbRaumFassungOk), statt ihn halb zu spielen.
 const ROOM_GAME_RINGOUT='ringout', ROOM_GAME_FOOTBALL='football', RINGOUT_SKIP_FASSUNG=12, RINGOUT_PARITY_FASSUNG=13;
+// ARENA FOOTBALL TURBO: eine neue Zugsemantik (Zugart 2 im Commit-Hash) und damit eine eigene
+// Raumfassung - dasselbe Muster wie Fassung 12/13 bei RingOut. Fassung 14 IST ein v11-Raum:
+// dieselbe Rundenmaschine, derselbe Besetzungsvertrag, dieselben Rules-Zweige - plus Turbo.
+// Ein aelterer Client kennt 14 nicht und lehnt den Raum beim Beitritt ab (fbRaumFassungOk); er
+// kann einen Turbo-Zug deshalb nie als fehlerhaften Zug lesen und niemanden passiv stellen.
+// Umgekehrt gibt es in einem Bestandsraum der Fassung 11 keinen Turbo - fuer alte und neue
+// Clients gleich (fbTurboRaum). Die Fassung steht unveraenderlich im Raum (Rules).
+// Der Block zwischen den Marken ist rein (keine Zustaende) - die Pruefstaende uebernehmen ihn woertlich.
+// ==FASSUNG-TURBO==
+const FOOTBALL_TURBO_FASSUNG=14;
+// Die v11-Familie. Jede Stelle, die ROHE Raumdaten nach "v11-Raum" fragt, fragt hier.
+function fbFassungV11(v){ return v===11||v===FOOTBALL_TURBO_FASSUNG; }
+// Protokollnummer einer Raumfassung - das, was die Rundenmaschine als roomProto sieht.
+function fbProtoVonFassung(v){ return v===FOOTBALL_TURBO_FASSUNG?11:v; }
+// ==/FASSUNG-TURBO==
+// roomFassung ist die Fassung, wie sie IM RAUM steht (und wie sie dorthin zurueckgeschrieben
+// wird); roomProto ist ihre Protokollnummer. Gesetzt werden beide nur hier, zusammen.
+let roomFassung=0;
+function raumFassungSetzen(v){ roomFassung=v; roomProto=fbProtoVonFassung(v); }
+function fbTurboRaum(){ return !!online&&roomFassung===FOOTBALL_TURBO_FASSUNG; }
 const RINGOUT_FMTS=['single','double','ffa','triple_ffa','team_duel'];
 const FOOTBALL_FMTS=['elimination'];
 // Fuenf Football-Teilnehmer (Sitze 0-4). Der neutrale Ball ist KEIN Teilnehmer: er hat
@@ -12144,7 +12281,7 @@ const FB_ONLINE_FMT=FOOTBALL_FMTS[0];
 //   9  4  Generation, uint32
 //  13  4  Turn, uint32
 //  17  1  Sitz
-//  18  1  Zugart (move = 1)
+//  18  1  Zugart (move = 1, move mit Turbo = 2)
 //  19  1  Koerperindex
 //  20  8  dx  binary64
 //  28  8  dy  binary64
@@ -12158,6 +12295,11 @@ const FB_V9_DOMAIN=[0x52,0x4f,0x39,0x01];   // 'R','O','9', Formatfassung 1
 // 8 und darf sich nicht in die Vorlage schleichen. Der Codec beschreibt v9.
 const FB_V9_HASH_PROTOCOL=9;
 const FB_V9_KIND_MOVE=1;
+// ARENA FOOTBALL TURBO: derselbe Abschuss, gewaehlt mit Turbo. Eine EIGENE Zugart, damit die Wahl
+// im Hash gebunden und bis zur Enthuellung verborgen ist. Die Enthuellung selbst traegt dieselben
+// Felder wie jeder Abschuss; welche Zugart committet wurde, zeigt erst der passende Hash
+// (fbV9VerifyPair). Keine neue Datenbankform, keine Rules-Aenderung.
+const FB_V9_KIND_TURBO=2;
 // Dasselbe Alphabet, das rrand() erzeugt und savedRoom() prueft - vier Zeichen, keine
 // Verwechslungspaare. Wird hier NICHT neu erfunden, sondern gespiegelt.
 const FB_V9_CODE_RE=/^[A-HJKMNP-Z2-9]{4}$/;
@@ -12227,8 +12369,8 @@ function fbV9Preimage(f,salt){
   // move = 1; jeder andere Wert scheitert geschlossen. Kaeme je eine zweite Zugart
   // hinzu, braucht sie eine eigene Nummer, einen eigenen Vertrag und eigene Tests -
   // nicht eine stillschweigend schon offene Luecke.
-  if(f.kind!==FB_V9_KIND_MOVE)throw new Error('v9: Zugart nicht zugewiesen: '+f.kind);
-  b[18]=FB_V9_KIND_MOVE;
+  if(f.kind!==FB_V9_KIND_MOVE&&f.kind!==FB_V9_KIND_TURBO)throw new Error('v9: Zugart nicht zugewiesen: '+f.kind);
+  b[18]=f.kind;
   b[19]=fbV9Int(f.idx,0,(typeof fbV9IdxObergrenze==='function')?fbV9IdxObergrenze():FB_ONLINE_BALL_IDX);
   dv.setFloat64(20,fbV9Num(f.dx,FB_V9_VEC_MAX),false);   // false = Gross-Endian
   dv.setFloat64(28,fbV9Num(f.dy,FB_V9_VEC_MAX),false);
@@ -12338,12 +12480,16 @@ async function fbV9MakeCommit(ctx,zug){
   // mit der Lebensregel). Ein Commit auf eine fremde Figur waere ohnehin unenthuellbar.
   const eigen=(typeof fbV9IdxGehoert==='function')?fbV9IdxGehoert(ctx.seat,zug.idx):(zug.idx===ctx.seat);
   if(!eigen)throw new Error('v9: der Abschuss gehoert nicht diesem Sitz');
-  const felder={room:ctx.room,gen:ctx.gen,turn:ctx.turn,seat:ctx.seat,kind:FB_V9_KIND_MOVE,
+  // Turbo (Arena Football) ist eine eigene Zugart; typeof: Pruefstaende, die nur diese Funktion
+  // herausschneiden, kennen sie nicht und bauen weiter den normalen Abschuss.
+  const turbo=zug.turbo===true&&typeof FB_V9_KIND_TURBO!=='undefined';
+  const felder={room:ctx.room,gen:ctx.gen,turn:ctx.turn,seat:ctx.seat,kind:turbo?FB_V9_KIND_TURBO:FB_V9_KIND_MOVE,
                 idx:zug.idx,dx:zug.dx,dy:zug.dy,sp:zug.sp};
   const salt=fbV9NewSalt();
   const h=await fbV9Hash(felder,salt);   // wirft bei jedem unzulaessigen Feld
   fbV9Secret={room:ctx.room,gen:ctx.gen,turn:ctx.turn,seat:ctx.seat,
-              idx:felder.idx,dx:felder.dx,dy:felder.dy,sp:felder.sp,salt:salt,h:h};
+              idx:felder.idx,dx:felder.dx,dy:felder.dy,sp:felder.sp,
+              turbo:turbo,salt:salt,h:h};
   return {k:'move',h:h};
 }
 // Die selbstgeschriebene Nullhandlung. Kein Hash, kein Salz und ausdruecklich KEIN
@@ -12433,11 +12579,19 @@ async function fbV9VerifyPair(ctx,seat,commit,reveal){
     if(!eigen)return {status:FB_V9_MALFORMED,move:null};
     const felder={room:ctx.room,gen:ctx.gen,turn:ctx.turn,seat:seat,kind:FB_V9_KIND_MOVE,
                   idx:reveal.idx,dx:reveal.dx,dy:reveal.dy,sp:reveal.sp};
-    let h;
-    try{ h=await fbV9Hash(felder,fbV9SaltFromHex(reveal.n)); }
+    // Zwei zugewiesene Zugarten, eine Enthuellungsform: gilt der Hash als normaler Abschuss
+    // oder als Abschuss mit Turbo? Genau eine kann passen - der Hash bindet das Zugart-Byte.
+    // Die Turbo-Zugart gilt NUR in einem Raum der Turbo-Fassung. In einem Bestandsraum deutet
+    // auch ein neuer Client sie wie jeder alte: als HASH_MISMATCH - sonst rechneten alte und
+    // neue Clients im selben Raum Verschiedenes.
+    let h,ht;
+    try{ h=await fbV9Hash(felder,fbV9SaltFromHex(reveal.n));
+         ht=(h===commit.h||typeof FB_V9_KIND_TURBO==='undefined'||!(typeof fbTurboRaum==='function'&&fbTurboRaum()))?null:await fbV9Hash(Object.assign({},felder,{kind:FB_V9_KIND_TURBO}),fbV9SaltFromHex(reveal.n)); }
     catch(e){ return {status:FB_V9_MALFORMED,move:null}; }   // Feld ausserhalb des Vertrags
-    if(h!==commit.h)return {status:FB_V9_MISMATCH,move:null};
-    return {status:FB_V9_VALID,move:{idx:reveal.idx,dx:reveal.dx,dy:reveal.dy,sp:reveal.sp}};
+    if(h!==commit.h&&ht!==commit.h)return {status:FB_V9_MISMATCH,move:null};
+    const mv={idx:reveal.idx,dx:reveal.dx,dy:reveal.dy,sp:reveal.sp};
+    if(h!==commit.h)mv.turbo=true;
+    return {status:FB_V9_VALID,move:mv};
   }catch(e){ return {status:FB_V9_MALFORMED,move:null}; }
 }
 
@@ -12925,6 +13079,9 @@ function fbV9SecretKey(ctx){
 // Runde und Sitz stehen im Schluessel; sie noch einmal im Wert zu fuehren waere Doppelung
 // ohne Gewinn.
 const FB_V9_SECRET_FIELDS=['v','uid','salt','idx','dx','dy','sp','h'];
+// Turbo (Arena Football): ein Abschuss mit Turbo traegt zusaetzlich t:true - sonst fehlt das Feld,
+// und jeder bisherige Datensatz bleibt unveraendert gueltig.
+const FB_V9_SECRET_TURBO='t';
 function fbV9SecretShapeOk(ctx,uid,rec){
   if(!rec||typeof rec!=='object')return false;
   if(rec.v!==FB_V9_STORE_V)return false;
@@ -12936,13 +13093,15 @@ function fbV9SecretShapeOk(ctx,uid,rec){
   if(!Number.isInteger(rec.idx)||!((typeof fbV9IdxGehoert==='function')?fbV9IdxGehoert(ctx.seat,rec.idx):(rec.idx===ctx.seat)))return false;
   if(!Number.isFinite(rec.dx)||!Number.isFinite(rec.dy)||!Number.isFinite(rec.sp))return false;
   const k=Object.keys(rec);
-  if(k.length!==FB_V9_SECRET_FIELDS.length)return false;
-  for(const f of k)if(FB_V9_SECRET_FIELDS.indexOf(f)<0)return false;
+  const mitT=k.indexOf(FB_V9_SECRET_TURBO)>=0;
+  if(mitT&&rec[FB_V9_SECRET_TURBO]!==true)return false;
+  if(k.length!==FB_V9_SECRET_FIELDS.length+(mitT?1:0))return false;
+  for(const f of k)if(FB_V9_SECRET_FIELDS.indexOf(f)<0&&f!==FB_V9_SECRET_TURBO)return false;
   return true;
 }
 // Aus dem gespeicherten Datensatz wieder die Felder machen, die der Codec erwartet.
 function fbV9SecretFelder(ctx,rec){
-  return {room:ctx.code,gen:ctx.gen,turn:ctx.turn,seat:ctx.seat,kind:FB_V9_KIND_MOVE,
+  return {room:ctx.code,gen:ctx.gen,turn:ctx.turn,seat:ctx.seat,kind:rec.t===true?FB_V9_KIND_TURBO:FB_V9_KIND_MOVE,
           idx:rec.idx,dx:rec.dx,dy:rec.dy,sp:rec.sp};
 }
 
@@ -12959,8 +13118,9 @@ function fbV9SecretSave(ctx,uid,rec){
   const st=fbV9Store(); if(!st)return FB_V9_UNAVAILABLE;
   const k=fbV9SecretKey(ctx); if(!k)return FB_V9_INVALID;
   try{
-    st.setItem(k,JSON.stringify({v:FB_V9_STORE_V,uid:uid,salt:rec.salt,idx:rec.idx,
-                                 dx:rec.dx,dy:rec.dy,sp:rec.sp,h:rec.h}));
+    const d={v:FB_V9_STORE_V,uid:uid,salt:rec.salt,idx:rec.idx,dx:rec.dx,dy:rec.dy,sp:rec.sp,h:rec.h};
+    if(rec.t===true)d.t=true;
+    st.setItem(k,JSON.stringify(d));
   }catch(e){ return FB_V9_ERROR; }   // Kontingent, Richtlinie: gescheitert ist gescheitert
   return FB_V9_SAVED;
 }
@@ -12983,7 +13143,7 @@ async function fbV9SecretLoad(ctx,uid){
     if(h!==rec.h)return {status:FB_V9_INVALID,secret:null};
   }catch(e){ return {status:FB_V9_INVALID,secret:null}; }
   return {status:FB_V9_OK,secret:{room:ctx.code,gen:ctx.gen,turn:ctx.turn,seat:ctx.seat,
-          idx:rec.idx,dx:rec.dx,dy:rec.dy,sp:rec.sp,salt:fbV9SaltFromHex(rec.salt),h:rec.h}};
+          idx:rec.idx,dx:rec.dx,dy:rec.dy,sp:rec.sp,turbo:rec.t===true,salt:fbV9SaltFromHex(rec.salt),h:rec.h}};
 }
 
 // Genau diesen einen Datensatz entfernen - nie einen anderen Sitz, nie eine andere Runde.
@@ -13089,7 +13249,7 @@ async function fbV9SecretAdopt(ctx,commit){
   // Genau die gespeicherten Werte - kein neues Salz, keine erneute Bereinigung.
   fbV9Secret={room:ctx.code,gen:ctx.gen,turn:ctx.turn,seat:ctx.seat,
               idx:g.secret.idx,dx:g.secret.dx,dy:g.secret.dy,sp:g.secret.sp,
-              salt:g.secret.salt,h:g.secret.h};
+              turbo:g.secret.turbo===true,salt:g.secret.salt,h:g.secret.h};
   return FB_V9_OK;
 }
 function fbV9EngineCtx(ctx){
@@ -13561,8 +13721,9 @@ async function fbV9Vorbereiten(lauf,aktion){
   // unveraenderlichen Commit hinterlassen, zu dem das Salz fehlt - der Zug waere
   // fuer immer unenthuellbar. Ein Geheimnis ohne Commit ist dagegen folgenlos.
   const g=fbV9SecretFor(ctx.code,ctx.gen,ctx.turn);
-  const abgelegt=fbV9SecretSave(ctx,ctx.uid,{v:FB_V9_STORE_V,uid:ctx.uid,
-    salt:fbV9Hex(g.salt),idx:g.idx,dx:g.dx,dy:g.dy,sp:g.sp,h:g.h});
+  const rec9={v:FB_V9_STORE_V,uid:ctx.uid,salt:fbV9Hex(g.salt),idx:g.idx,dx:g.dx,dy:g.dy,sp:g.sp,h:g.h};
+  if(g.turbo===true)rec9.t=true;
+  const abgelegt=fbV9SecretSave(ctx,ctx.uid,rec9);
   // NICHT GESICHERT HEISST NICHT: NICHT SENDEN. Der Speicher ist allein die Absicherung
   // gegen ein Neuladen; das Geheimnis selbst liegt im Arbeitsspeicher (fbV9Secret) und
   // traegt Salz und Hash dieser einen Runde. Ohne Speicher (Privatmodus, Richtlinie,
@@ -14563,6 +14724,7 @@ function fbV9AcceptedOk(menge,cap){
         // und rechnen dort weiter mit der Lebensregel (Koerperindex == Sitz).
         if(!((typeof fbV9IdxGehoert==='function')?fbV9IdxGehoert(i,m.idx):(m.idx===i)))return false;
         if(!Number.isFinite(m.dx)||!Number.isFinite(m.dy)||!Number.isFinite(m.sp))return false;
+        if(m.turbo!==undefined&&m.turbo!==true)return false;
       }else if(FB_V9_RAUS.indexOf(e.status)<0)return false;
     }else if(FB_V9_NULLZUG.indexOf(e.kind)<0)return false;
   }
@@ -14618,6 +14780,7 @@ function fbV9Wirken(menge,cap){
   // (3) Nur gueltige Zuege, und zwar EXAKT die verifizierten Werte: keine erneute
   //     Begrenzung, keine Zufallskomponente, keine Zielhilfe.
   resetCommits();
+  if(typeof fbTurboLeeren==='function')fbTurboLeeren();
   // TACTICAL 4-BALL (abwechselnd): in dieser Runde zieht genau EIN Sitz. Ein formal gueltiger
   // Abschuss aus dem anderen Slot ist kein Zug - die Rules weisen ihn ab, und hier wird er
   // ein zweites Mal nicht gestartet, damit beide Clients auch dann dasselbe rechnen, wenn
@@ -14636,6 +14799,8 @@ function fbV9Wirken(menge,cap){
     if(!b||!b.alive)continue;                   // gerade ausgeschieden: kein Abschuss
     commitIdx[e.seat]=e.move.idx; commitAim[e.seat]={dx:e.move.dx,dy:e.move.dy};
     commitSpin[e.seat]=e.move.sp; aimSet[e.seat]=true;
+    // Turbo: nur aus der geprueften Enthuellung; verbraucht wird erst am Abschuss (fbTurboFaktor).
+    if(typeof fbTurboZug!=='undefined')fbTurboZug[e.seat]=e.move.turbo===true;
   }
   // (4) Der BESTEHENDE gemeinsame Abschussweg - kein zweiter. Ab hier laeuft alles
   //     wie im lokalen Spiel: Physik, Tore, Leben, Settlement, naechste Bereitschaft.
@@ -14772,7 +14937,7 @@ async function fbV9Rehydrieren(ctx){
 function fbV9RaumIst9(raum){
   // v9, v10 UND v11: dieselbe Protokollfamilie (Commit/Reveal); verschieden ist allein
   // der Besetzungsvertrag (s. PROTOKOLL v10 und PROTOKOLL V11).
-  return !!raum && (raum.v===9||raum.v===10||raum.v===11) && ONLINE_PROTOCOL_VERSION>=raum.v;
+  return !!raum && (raum.v===9||raum.v===10||fbFassungV11(raum.v)) && ONLINE_PROTOCOL_VERSION>=fbProtoVonFassung(raum.v);
 }
 // Dieselbe Frage fuer den Raum, in dem dieser Client GERADE SITZT. fbV9RaumIst9 prueft
 // einen gelesenen Raum, bevor man ihn betritt; hier ist er schon betreten, und dann gibt
@@ -15062,12 +15227,12 @@ function fbRaumFassung(cfg){
   if(cfg.game!==ROOM_GAME_FOOTBALL)return 8;
   // Tactical 1v1: ein v11-Raum mit genau zwei Sitzen - dieselbe Rundenmaschine wie die
   // Lebensregel, ein anderer Zugvertrag. Die Rules kennen ihn nur in dieser Fassung.
-  if(cfg.mode===FB_ONLINE_MODE_TACTICAL)return (cfg.cap===FB_TAC_SITZE&&ONLINE_PROTOCOL_VERSION>=11)?11:8;
+  if(cfg.mode===FB_ONLINE_MODE_TACTICAL)return (cfg.cap===FB_TAC_SITZE&&ONLINE_PROTOCOL_VERSION>=11)?FOOTBALL_TURBO_FASSUNG:8;
   // Tactical 4-Ball: dieselbe Fassung, dieselben zwei Sitze - nur vier Figuren je Sitz.
-  if(cfg.mode===FB_ONLINE_MODE_TACTICAL4)return (cfg.cap===FB_TAC_SITZE&&ONLINE_PROTOCOL_VERSION>=11)?11:8;
+  if(cfg.mode===FB_ONLINE_MODE_TACTICAL4)return (cfg.cap===FB_TAC_SITZE&&ONLINE_PROTOCOL_VERSION>=11)?FOOTBALL_TURBO_FASSUNG:8;
   // Team 2v2: ein v11-Raum mit genau vier Sitzen - dieselbe Rundenmaschine wie die
   // Lebensregel (alle gleichzeitig), zwei Teams aus dem Sitz (0/1 Blau, 2/3 Rot).
-  if(cfg.mode===FB_ONLINE_MODE_TEAM2)return (cfg.cap===FB_TEAM2_SITZE&&ONLINE_PROTOCOL_VERSION>=11)?11:8;
+  if(cfg.mode===FB_ONLINE_MODE_TEAM2)return (cfg.cap===FB_TEAM2_SITZE&&ONLINE_PROTOCOL_VERSION>=11)?FOOTBALL_TURBO_FASSUNG:8;
   if(cfg.mode!==FB_ONLINE_MODE_LIVES)return 8;
   const cap=cfg.cap;
   if(!(Number.isInteger(cap)&&cap>=3&&cap<=5))return 8;
@@ -15076,7 +15241,8 @@ function fbRaumFassung(cfg){
   // Sollbesetzungen 3 und 4 bleiben v9-Raeume, die es nur noch im Bestand gibt.
   // v11: derselbe Raum wie v10, aber er ueberlebt sein Match. Das ist die Form, die
   // das Produkt anlegt; v10 bleibt als Bestandsvertrag lesbar.
-  if(cap===5&&ONLINE_PROTOCOL_VERSION>=11)return 11;   // 5 = FB_ONLINE_SEATS (Sandbox-frei)
+  // Seit dem Turbo traegt jeder NEUE Football-Raum die Turbo-Fassung; 11 bleibt als Bestandsvertrag lesbar.
+  if(cap===5&&ONLINE_PROTOCOL_VERSION>=11)return FOOTBALL_TURBO_FASSUNG;   // 5 = FB_ONLINE_SEATS (Sandbox-frei)
   if(cap===5&&ONLINE_PROTOCOL_VERSION>=10)return 10;
   return ONLINE_PROTOCOL_VERSION>=9?9:8;
 }
@@ -15085,7 +15251,7 @@ function fbRaumFassung(cfg){
 // bleibt abgewiesen - dort rechnet die Simulation anders.
 // v12 (Package B) gibt es nur fuer RingOut FFA, Triple und Team Duel - die drei Pruefstellen
 // darunter (Beitritt, Wiedereintritt, oeffentliche Liste) verlangen genau diese Paarung.
-function fbRaumFassungOk(v){ return v===8||(ONLINE_PROTOCOL_VERSION>=9&&v===9)||(ONLINE_PROTOCOL_VERSION>=10&&v===10)||(ONLINE_PROTOCOL_VERSION>=11&&v===11)||v===RINGOUT_SKIP_FASSUNG||v===RINGOUT_PARITY_FASSUNG; }
+function fbRaumFassungOk(v){ return v===8||(ONLINE_PROTOCOL_VERSION>=9&&v===9)||(ONLINE_PROTOCOL_VERSION>=10&&v===10)||(ONLINE_PROTOCOL_VERSION>=11&&fbFassungV11(v))||v===RINGOUT_SKIP_FASSUNG||v===RINGOUT_PARITY_FASSUNG; }
 // Laeuft dieses Match mit dem typisierten Skip? typeof-geschuetzt aufgerufen: Offline-
 // Pruefstaende uebernehmen die Zugfunktionen ohne Raumzustand und bleiben beim Bestand.
 // Der typisierte Skip gehoert AUSSCHLIESSLICH der FFA-Familie - dieselbe Paarung, die die
@@ -15130,7 +15296,7 @@ function validateRoom(d,jetzt){
   // v11 ist der bleibende Arena-Football-Raum - und nur er. Ein RingOut-Raum dieser
   // Fassung existiert nicht (die Rules lassen ihn gar nicht erst zu); die Weiche sagt es
   // trotzdem ausdruecklich, damit kein Pruefstand und kein Altbestand hier hineinrutscht.
-  if(d.v===11&&roomIsFootball(cfg)){
+  if(fbFassungV11(d.v)&&roomIsFootball(cfg)){
     const nun=Number.isFinite(jetzt)?jetzt:jetztServer();
     const cap11=roomSeatCap(cfg);
     const w=v11HostLage(d,nun);
@@ -15205,7 +15371,7 @@ function validateRejoinRoom(d){
   // v11: die Besetzung eines laufenden Matches steht in g/<gen>/pt und gehoert damit
   // der Generation, nicht dem Raum. Der Knoten seats existiert dort gar nicht mehr
   // (die Rules sperren ihn) - ihn hier zu verlangen, hiesse jede Rueckkehr abzuweisen.
-  if(d.state==='playing'&&multi&&d.v!==11){
+  if(d.state==='playing'&&multi&&!fbFassungV11(d.v)){
     seats=d.seats;
     if(!Number.isInteger(seats)||seats<2||seats>FFA_MAX_SEATS)return{ok:false,reason:'noRoom'};
     if(cfg.fmt==='triple_ffa'&&seats!==3)return{ok:false,reason:'noRoom'};
@@ -15236,7 +15402,7 @@ const ROOM_MAX_AGE_MS=7200000;   // 2h — older public rooms are never shown or
 // auch die Rules fuer publicRooms/<code> zulassen. v9 fehlt darin mit Absicht: fuer
 // diese Fassung gab es nie einen Produktweg, der einen oeffentlichen Raum anlegt.
 // Steht hier je eine neue Fassung an, gehoeren beide Stellen zusammen geaendert.
-function roomListable(v){ return v===4||v===5||v===6||v===7||v===8||v===10||v===11||v===RINGOUT_SKIP_FASSUNG||v===RINGOUT_PARITY_FASSUNG; }
+function roomListable(v){ return v===4||v===5||v===6||v===7||v===8||v===10||fbFassungV11(v)||v===RINGOUT_SKIP_FASSUNG||v===RINGOUT_PARITY_FASSUNG; }
 function publicListingView(d,now){
   // Room gone or structurally broken -> never show; listing is stale (safe to remove).
   if(!d||typeof d!=='object')return{show:false,remove:true};
@@ -15268,7 +15434,7 @@ function publicListingView(d,now){
   // Wer haelt den Raum offen? Bis v10 war das Sitz 0 - ohne ihn gab es den Raum nicht
   // mehr. Ab v11 ueberlebt der Raum seinen Gruender, und dann zaehlt jeder verbundene
   // Sitz. Dieselbe Unterscheidung treffen die Rules ueber den Listeneintrag.
-  const bleibend=(d.v===11);
+  const bleibend=fbFassungV11(d.v);
   if(bleibend?active===0:!(p&&p[0]&&p[0].on===true))return{show:false,remove:false};   // niemand da (vielleicht ein Neuladen)
   if(active>=capacity)return{show:false,remove:false};             // full -> hide, may free up
   const players=d.players;
@@ -15420,7 +15586,7 @@ async function joinNachFrist(code,op,stufe,schonWiederholt){
             if(!joinOpCurrent(op))return;
             await joinFrist(activateSeat(code,seat),JOIN_CLAIM_MS,'activate');
             if(!joinOpCurrent(op))return;
-            roomProto=d.v;
+            raumFassungSetzen(d.v);
             joinDiag(op,'frist-aktiviert',seat);
             joinFertig(code,seat,d,vv,op);
             return;
@@ -15475,9 +15641,9 @@ function joinRoom(){
       // B2) — ein manueller Join durchlaeuft hier bewusst den normalen Claim-Flow
       // wie jeder andere Beitritt (kein stiller Seat-Reclaim auf diesem Pfad).
       const v=validateRoom(d);
-      if(v.ok)roomProto=d.v;   // ab hier gilt die Fassung DIESES Raums
+      if(v.ok)raumFassungSetzen(d.v);   // ab hier gilt die Fassung DIESES Raums
       if(!v.ok){ setStatus(v.reason); return; }
-      const v11Raum=(d.v===11&&v.game===ROOM_GAME_FOOTBALL);   // dieselbe Weiche wie in validateRoom
+      const v11Raum=(fbFassungV11(d.v)&&v.game===ROOM_GAME_FOOTBALL);   // dieselbe Weiche wie in validateRoom
       // Capture whether the room carries a discovery listing, but commit it to the
       // roomPublic global ONLY after a successful seat claim below. A lost race,
       // permission_denied or stale op returns before the commit and must leave no
@@ -16175,7 +16341,7 @@ async function attemptRejoin(code){
     if(!snap.exists()){ forgetRoom(); setStatus(T('noRoom')); return false; }
     const d=snap.val();
     const v=validateRejoinRoom(d);
-    if(v.ok)roomProto=d.v;   // ab hier gilt die Fassung DIESES Raums
+    if(v.ok)raumFassungSetzen(d.v);   // ab hier gilt die Fassung DIESES Raums
     if(!v.ok){ forgetRoom(); setStatus(T(v.reason)); return false; }
     const sr0=savedRoom();
     const seat=findOwnSeat(d.players,onlinePid,fbUid(),sr0&&sr0.code===code?sr0.seat:-1);
@@ -16191,7 +16357,7 @@ async function attemptRejoin(code){
     // Sie wird gelesen, BEVOR irgendeine globale Variable steht - fehlt oder taugt sie
     // nicht, gibt es keine Rueckkehr in die Partie und nichts wird geraten.
     let v11Teil=null;
-    if(d.v===11&&v.state==='playing'){
+    if(fbFassungV11(d.v)&&v.state==='playing'){
       try{
         const ps=await window.FB.get(window.FB.ref(window.FB.db,'rooms/'+code+'/g/'+v.gen+'/pt'));
         v11Teil=fbV11PtSitze(ps.val());
@@ -16202,7 +16368,7 @@ async function attemptRejoin(code){
     // Der Raum spielt, dieser Sitz nicht: kein Grund, den Raum zu verlieren. Der Sitz
     // gehoert ihm weiter, und die naechste Lobby nimmt ihn auf.
     const v11Zuschauer=!!(v11Teil&&v11Teil.indexOf(seat)<0);
-    if(v.state==='playing'&&ffa&&d.v!==11&&seat>=v.seats){ forgetRoom(); setStatus(T('rejoinNoLobby')); return false; }   // match started without this seat
+    if(v.state==='playing'&&ffa&&!fbFassungV11(d.v)&&seat>=v.seats){ forgetRoom(); setStatus(T('rejoinNoLobby')); return false; }   // match started without this seat
     if(d.p&&seatActive(d.p,seat)){ setStatus(T('rejoinTab')); return false; }
     const oldRec=d.players&&d.players[seat];
     const claim=await reclaimSeatSlot(code,seat,op,oldRec&&typeof oldRec.name==='string'?sanitizeName(oldRec.name):'',
@@ -17784,7 +17950,7 @@ function fbBeginCanonicalLeave(after){
 function fbLeaveAktiverTeilnehmer(d,g,seat){
   if(!d||d.state!=='playing')return false;
   if(roomGame(d.config)!==ROOM_GAME_FOOTBALL)return false;
-  if(d.v===11){
+  if(fbFassungV11(d.v)){
     const gn=d.g&&d.g[g];
     return !!(gn&&gn.pt&&gn.pt[seat]===true);
   }
@@ -17916,7 +18082,7 @@ function leaveOnline(after){
   fbElimStartN=0;                            // die Startbesetzung gehoert dem verlassenen Raum
   if(typeof fbElimTeilSetzen==='function')fbElimTeilSetzen(null);   // und mit ihr die Teilnehmerliste
   roomOeffentlich=false;
-  online=false; gameStarted=false; roomPublic=false; roomCode=''; roomProto=0; lobbyP={}; seatLeft=[]; seatGone=[]; playersRoster={};
+  online=false; gameStarted=false; roomPublic=false; roomCode=''; raumFassungSetzen(0); lobbyP={}; seatLeft=[]; seatGone=[]; playersRoster={};
   fbRoomMode=''; fbRoomCap=0; roomHostUid='';   // v8: kein Raum -> keine Sollbesetzung, kein Host
   // Menue-Auswahl wiederherstellen - MIT den dazu passenden Koerpern. Ohne sie blieben
   // die Figuren des verlassenen Matches stehen, und nach einem Arena-Football-Match

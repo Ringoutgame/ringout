@@ -34,6 +34,8 @@ function grab(re, was) {
 const QUELLEN = [
   grab(/const ONLINE_PROTOCOL_VERSION=[^\n]*/, 'ONLINE_PROTOCOL_VERSION'),
   grab(/const ROOM_GAME_RINGOUT=[^\n]*/, 'ROOM_GAME_RINGOUT'),
+  // Turbo-Fassung 14: Konstante, v11-Familie und Protokollnummer - der reine Block aus dem Produkt.
+  HTML.slice(HTML.indexOf('// ==FASSUNG-TURBO=='), HTML.indexOf('// ==/FASSUNG-TURBO==')),
   // Seit Tactical 1v1 online (2026-09-21) gehoert die Sitzzahl FB_TAC_SITZE zu den Modusnamen:
   // fbRaumFassung liest sie fuer den Tactical-Raum.
   grab(/const FB_ONLINE_MODE_CLASSIC='classic'[\s\S]*?const FB_TAC_SITZE=2;/, 'Modusnamen'),
@@ -42,7 +44,7 @@ const QUELLEN = [
 ].join('\n');
 
 const M = new Function(QUELLEN + `
-  return { fbRaumFassung, fbRaumFassungOk, VER: ONLINE_PROTOCOL_VERSION };
+  return { fbRaumFassung, fbRaumFassungOk, fbFassungV11, fbProtoVonFassung, VER: ONLINE_PROTOCOL_VERSION };
 `)();
 
 const cfgFootball = (mode, cap) => ({ game: 'football', winTarget: 3, fmt: 'elimination',
@@ -64,7 +66,9 @@ abschnitt('Der ausgelieferte Client kann beide Familien');
   t('und v12 (RingOut FFA-Familie)', M.fbRaumFassungOk(12) === true);
   // ONLINE FEATURE PARITY: 13 ist die Fassung jedes NEUEN RingOut-Raums.
   t('und v13 (RingOut mit Collapse und Rescue Wall)', M.fbRaumFassungOk(13) === true);
-  for (const v of [4, 5, 6, 7, 14, 0, -1, null, undefined, '9', '10', '11', '12', 9.5])
+  // TURBO: 14 ist die Fassung jedes NEUEN Arena-Football-Raums - ein v11-Raum mit Turbo.
+  t('und v14 (Arena Football mit Turbo)', M.fbRaumFassungOk(14) === true);
+  for (const v of [4, 5, 6, 7, 15, 0, -1, null, undefined, '9', '10', '11', '12', '14', 9.5])
     t('aber nicht die Fassung ' + JSON.stringify(v), M.fbRaumFassungOk(v) === false);
 }
 
@@ -74,8 +78,9 @@ abschnitt('Ein NEUER Raum bekommt seine Fassung aus seiner Konfiguration');
   // v11: der Fuenf-Sitz-Lives-Raum ist der dynamische Arena-Raum (Start mit 2-5), und er
   // ueberlebt sein Match. Nur ihn legt das Produkt noch an; die Sollbesetzungen 3 und 4
   // bleiben v9-Raeume (Bestand), v10-Raeume gibt es nur noch im Bestand.
-  t('Football Lives mit 5 Sitzen wird v11',
-    M.fbRaumFassung(cfgFootball('lives', 5)) === 11, M.fbRaumFassung(cfgFootball('lives', 5)));
+  // TURBO: seit dem Turbo traegt der neue Raum die Turbo-Fassung 14 (v11-Familie); 11 bleibt lesbarer Bestand.
+  t('Football Lives mit 5 Sitzen wird die Turbo-Fassung 14',
+    M.fbRaumFassung(cfgFootball('lives', 5)) === 14, M.fbRaumFassung(cfgFootball('lives', 5)));
   for (const cap of [3, 4])
     t('Football Lives mit ' + cap + ' Sitzen bleibt v9',
       M.fbRaumFassung(cfgFootball('lives', cap)) === 9, M.fbRaumFassung(cfgFootball('lives', cap)));
@@ -103,8 +108,12 @@ abschnitt('Die Weiche haengt an den richtigen Stellen');
   t('der Client fuehrt die Fassung DES RAUMS mit',
     /^let roomProto=0;$/m.test(HTML));
   t('genau eine Stelle legt einen Raum an, und sie fragt den Waehler',
-    (HTML.match(/roomProto=fbRaumFassung\(cfg\);/g) || []).length === 1
-    && (HTML.match(/const room=\{v:roomProto,/g) || []).length === 1);
+    (HTML.match(/raumFassungSetzen\(fbRaumFassung\(cfg\)\);/g) || []).length === 1
+    && (HTML.match(/const room=\{v:roomFassung,/g) || []).length === 1);
+  // TURBO: die Fassung, wie sie im Raum steht, und ihre Protokollnummer entstehen an EINER Stelle.
+  t('roomFassung und roomProto setzt nur raumFassungSetzen',
+    /function raumFassungSetzen\(v\)\{ roomFassung=v; roomProto=fbProtoVonFassung\(v\); \}/.test(HTML)
+    && (HTML.match(/roomProto=(?!=)/g) || []).length === 2 && (HTML.match(/roomFassung=(?!=)/g) || []).length === 2);
   t('keine Stelle schreibt die Ausbaustufe blind in einen Raum',
     (HTML.match(/v:ONLINE_PROTOCOL_VERSION/g) || []).length === 0);
   t('alle drei Raumpruefungen fragen nach einer bedienbaren Fassung',
@@ -113,20 +122,20 @@ abschnitt('Die Weiche haengt an den richtigen Stellen');
   t('und keine vergleicht mehr gegen die Ausbaustufe',
     (HTML.match(/!==ONLINE_PROTOCOL_VERSION/g) || []).length === 0);
   t('Beitritt und Wiedereintritt uebernehmen die Fassung des geprueften Raums',
-    (HTML.match(/if\(v\.ok\)roomProto=d\.v;/g) || []).length === 2,
-    (HTML.match(/if\(v\.ok\)roomProto=d\.v;/g) || []).length);
+    (HTML.match(/if\(v\.ok\)raumFassungSetzen\(d\.v\);/g) || []).length === 2,
+    (HTML.match(/if\(v\.ok\)raumFassungSetzen\(d\.v\);/g) || []).length);
   t('der Sitzclaim traegt die Fassung des Raums mit',
-    (HTML.match(/upd\['v'\]=roomProto;/g) || []).length === 2);
+    (HTML.match(/upd\['v'\]=roomFassung;/g) || []).length === 2);
   t('die Praesenzruecknahme vergleicht gegen die Fassung des Raums',
-    /if\(v\.v!==roomProto\)return 'version';/.test(HTML));
-  t('das Verlassen leert die Fassung', /roomCode=''; roomProto=0;/.test(HTML));
+    /if\(v\.v!==roomFassung\)return 'version';/.test(HTML));
+  t('das Verlassen leert die Fassung', /roomCode=''; raumFassungSetzen\(0\);/.test(HTML));
   // Die v9-Wege haengen am RAUM.
   t('fbV9RaumHier fragt den Raum, nicht die Ausbaustufe',
     /function fbV9RaumHier\(\)\{ return !!online && \(roomProto===9\|\|roomProto===10\|\|roomProto===11\); \}/.test(HTML));
   t('fbV9LebenAn ebenso',
     /return !fbV9Nachspielen && !!online && \(roomProto===9\|\|roomProto===10\|\|roomProto===11\) && mode==='football'/.test(HTML));
   t('und die Startweiche liest die Fassung DES gelesenen Raums',
-    /return !!raum && \(raum\.v===9\|\|raum\.v===10\|\|raum\.v===11\) && ONLINE_PROTOCOL_VERSION>=raum\.v;/.test(HTML));
+    /return !!raum && \(raum\.v===9\|\|raum\.v===10\|\|fbFassungV11\(raum\.v\)\) && ONLINE_PROTOCOL_VERSION>=fbProtoVonFassung\(raum\.v\);/.test(HTML));
   // Der Zugslot bleibt v8 vorbehalten - und die Sperre haengt jetzt am Raum.
   const wts = grab(/function writeTurnSlot\(s,payload,opts\)\{[\s\S]*?\n\}/, 'writeTurnSlot');
   t('writeTurnSlot sperrt genau dann, wenn der RAUM ein v9-Raum ist',
@@ -143,9 +152,9 @@ abschnitt('Rueckkehr - die Fassung des Raums entscheidet den Weg');
   // validateRejoinRoom ist seiteneffektfrei und im Node-Test ausfuehrbar.
   const vrr = new Function(
     'fbRaumFassungOk', 'validGamePair', 'validModeCap', 'modeReachable', 'roomSeatCap', 'GEN_MAX', 'FFA_MAX_SEATS', 'ROOM_GAME_FOOTBALL', 'FB_ONLINE_SEATS',
-    'ROOM_GAME_RINGOUT', 'RINGOUT_SKIP_FASSUNG', 'RINGOUT_PARITY_FASSUNG',
+    'ROOM_GAME_RINGOUT', 'RINGOUT_SKIP_FASSUNG', 'RINGOUT_PARITY_FASSUNG', 'fbFassungV11',
     grab(/function validateRejoinRoom\(d\)\{[\s\S]*?\n\}/, 'validateRejoinRoom') + '\nreturn validateRejoinRoom;')(
-    (v) => v === 8 || v === 9, () => true, () => true, () => true, () => 5, 1000, 5, 'football', 5, 'ringout', 12, 13);
+    (v) => v === 8 || v === 9, () => true, () => true, () => true, () => 5, 1000, 5, 'football', 5, 'ringout', 12, 13, M.fbFassungV11);
   const raum = (v, state) => ({ v, hostUid: 'H', gen: 0, state, seats: 5,
     config: { game: 'football', fmt: 'elimination', mode: 'lives', cap: 5, winTarget: 3, visibility: 'private' } });
   t('das geprueft Ergebnis traegt die Fassung des Raums (v9)', vrr(raum(9, 'playing')).v === 9);
@@ -160,7 +169,7 @@ abschnitt('Rueckkehr - die Fassung des Raums entscheidet den Weg');
   t('... und die Weiche fragt das geprueft Ergebnis', /const v9=fbV9RaumIst9\(v\);/.test(rj));
   t('... nicht den rohen Raum und nicht die Ausbaustufe',
     !/fbV9RaumIst9\(d\)/.test(rj) && !/ONLINE_PROTOCOL_VERSION/.test(rj));
-  t('die Fassung des Clients im Raum ist die des Raums', /if\(v\.ok\)roomProto=d\.v;/.test(rj));
+  t('die Fassung des Clients im Raum ist die des Raums', /if\(v\.ok\)raumFassungSetzen\(d\.v\);/.test(rj));
   // v9 -> Rehydrierung aus c+r; v8 -> Historie t. Kein v9-Weg liest t, kein v8-Weg rehydriert.
   t('v9 kehrt ueber die Rehydrierung zurueck', /if\(v9\)\{[\s\S]*?await fbV9Rehydrieren\(fbV9LebenCtx\(0\)\);/.test(rj));
   t('v8 kehrt ueber die Zughistorie t zurueck', /\}else fastForwardMatch\(turns\);/.test(rj));

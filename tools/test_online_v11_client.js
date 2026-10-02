@@ -75,6 +75,8 @@ const QUELLE = [
   grabFunction(HTML, 'fbV11An'),
   // ── der kanonische Austritt ──
   grab(HTML, /const ROOM_GAME_RINGOUT='ringout', ROOM_GAME_FOOTBALL='football'[^;\n]*;/, 'ROOM_GAME'),
+  // Turbo-Fassung 14: Konstante, v11-Familie, Protokollnummer - der reine Block aus dem Produkt.
+  HTML.slice(HTML.indexOf('// ==FASSUNG-TURBO=='), HTML.indexOf('// ==/FASSUNG-TURBO==')),
   grabFunction(HTML, 'roomGame'),
   grab(HTML, /const LEAVE_TRIES=3;[\s\S]*?\nfunction fbLeaveGiveUp\(ctx,err\)\{[\s\S]*?\n\}/, 'kanonischer Austritt'),
   // ── die Teilnehmerliste im Spiel ──
@@ -91,7 +93,7 @@ const QUELLE = [
 // aussen braucht - jeder Entschluss liegt im echten Quelltext darueber.
 const RAHMEN = `
 'use strict';
-let online=true, roomProto=11, roomCode='VEFB', myPlayer=0, gen=0, gameStarted=false;
+let online=true, roomProto=11, roomFassung=11, roomCode='VEFB', myPlayer=0, gen=0, gameStarted=false;
 let runningGen=-1, turnNo=-1, onlineSessionId=1, roomP={}, lobbyP={}, playersRoster={};
 let roomPublic=false, roomOeffentlich=false, mode='football', fmt='elimination';
 let roomHostUid='U0';
@@ -193,7 +195,7 @@ return {
   // Was maybeStart beim Wirt tut, sobald sein Listener den Start sieht - hier WAEHREND des
   // await in fbV11Starten, also vor dessen Fortsetzung.
   abraeumenBeimStart(){ BEIM_UPDATE=()=>{ if(roomPublic){ removePublicListing(roomCode); roomPublic=false; } }; },
-  proto(v){ roomProto=v; },
+  proto(v){ roomProto=v; roomFassung=v; },
   melden:melden,
   zustand(){ return {state:fbV11State, hostUid:roomHostUid, gestartet:fbV11Gestartet,
                      ergAb:fbV11ErgAb, startBusy:fbV11StartBusy, endeBusy:fbV11EndeBusy,
@@ -1137,10 +1139,12 @@ abschnitt('Die Fassung 11 ist erreichbar - und nur ueber die benannten Wege');
 {
   t('der ausgelieferte Client steht auf 11',
     /const ONLINE_PROTOCOL_VERSION=11;/.test(HTML));
-  t('ein neuer Fuenf-Sitz-Lives-Raum wird v11',
-    /if\(cap===5&&ONLINE_PROTOCOL_VERSION>=11\)return 11;/.test(HTML));
+  // Seit dem Turbo: derselbe v11-Raum, angelegt in der Turbo-Fassung 14 (fbFassungV11 fuehrt beide zusammen).
+  t('ein neuer Fuenf-Sitz-Lives-Raum wird v11 - in der Turbo-Fassung',
+    /if\(cap===5&&ONLINE_PROTOCOL_VERSION>=11\)return FOOTBALL_TURBO_FASSUNG;/.test(HTML)
+    && /function fbFassungV11\(v\)\{ return v===11\|\|v===FOOTBALL_TURBO_FASSUNG; \}/.test(HTML));
   t('und v10 bleibt als Bestandsvertrag lesbar',
-    /function fbRaumFassungOk\(v\)\{ return v===8\|\|\(ONLINE_PROTOCOL_VERSION>=9&&v===9\)\|\|\(ONLINE_PROTOCOL_VERSION>=10&&v===10\)\|\|\(ONLINE_PROTOCOL_VERSION>=11&&v===11\)\|\|v===RINGOUT_SKIP_FASSUNG\|\|v===RINGOUT_PARITY_FASSUNG; \}/.test(HTML));
+    /function fbRaumFassungOk\(v\)\{ return v===8\|\|\(ONLINE_PROTOCOL_VERSION>=9&&v===9\)\|\|\(ONLINE_PROTOCOL_VERSION>=10&&v===10\)\|\|\(ONLINE_PROTOCOL_VERSION>=11&&fbFassungV11\(v\)\)\|\|v===RINGOUT_SKIP_FASSUNG\|\|v===RINGOUT_PARITY_FASSUNG; \}/.test(HTML));
   t('die dynamische Besetzung gilt in v10 UND v11',
     /function fbRaumDynamisch\(\)\{return !!online&&\(roomProto===10\|\|roomProto===11\);\}/.test(HTML));
   t('das Startsignal seats wird in v11 gar nicht mehr beobachtet',
@@ -1172,7 +1176,7 @@ abschnitt('Die Fassung 11 ist erreichbar - und nur ueber die benannten Wege');
   {
     const h = grabFunction(HTML, 'fbLeaveAktiverTeilnehmer');
     t('v11 liest dort die Teilnehmerliste der Generation',
-      /if\(d\.v===11\)\{/.test(h) && /gn&&gn\.pt&&gn\.pt\[seat\]===true/.test(h));
+      /if\(fbFassungV11\(d\.v\)\)\{/.test(h) && /gn&&gn\.pt&&gn\.pt\[seat\]===true/.test(h));
     t('… und die alten Fassungen weiterhin seats',
       /return d\.seats>=2&&d\.seats<=FB_ONLINE_SEATS;/.test(h));
     t('… nur waehrend eines laufenden Football-Matches',
@@ -1228,7 +1232,7 @@ abschnitt('Die Fassung 11 ist erreichbar - und nur ueber die benannten Wege');
     /fbElimTeilSetzen\(v11Teil\);\n      fbElimStartN=v11Teil\[v11Teil\.length-1\]\+1;/.test(rj));
   const vr = grabFunction(HTML, 'validateRejoinRoom');
   t('ein laufender v11-Raum braucht kein seats',
-    /if\(d\.state==='playing'&&multi&&d\.v!==11\)\{/.test(vr));
+    /if\(d\.state==='playing'&&multi&&!fbFassungV11\(d\.v\)\)\{/.test(vr));
 }
 
 // ══ 14. WAS ES NICHT GIBT ════════════════════════════════════════════════════

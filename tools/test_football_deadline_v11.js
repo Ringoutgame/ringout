@@ -11,7 +11,7 @@
 // Geprueft werden die ECHTEN Funktionen aus index.html (fbV9FristMs, fbV9WakePlan,
 // fbV9WakeDelay, fbV9WakeArm, fbV9WakeStop, Konstanten) gegen eine virtuelle Uhr und
 // einen Server, der `late` genau wie die Rules erst nach dem Fenster annimmt.
-const { loadIndexHtml, grab } = require('./extract');
+const { loadIndexHtml, grab, fassungTurbo } = require('./extract');
 const fs = require('fs'), path = require('path');
 const html = loadIndexHtml();
 const rules = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'firebase.rules.json'), 'utf8')).rules;
@@ -34,9 +34,10 @@ const src = [
 // Die Rules: welches Fenster gilt fuer `late` je Protokollfassung?
 const cRule = JSON.stringify(rules.rooms['$code'].g['$gen'].c);
 const fensterRules = (v) => {
-  const m = cRule.match(/\('v'\)\.val\(\) === 10 \|\| root\.child\('rooms'\)\.child\(\$code\)\.child\('v'\)\.val\(\) === 11\) \? (\d+) : (\d+)\)/);
+  // Turbo: die Rules nennen Fassung 14 ueberall zusammen mit 11 - dasselbe Fenster.
+  const m = cRule.match(/\('v'\)\.val\(\) === 10 \|\| \(root\.child\('rooms'\)\.child\(\$code\)\.child\('v'\)\.val\(\) === 11 \|\| root\.child\('rooms'\)\.child\(\$code\)\.child\('v'\)\.val\(\) === 14\)\) \? (\d+) : (\d+)\)/);
   if (!m) return null;
-  return (v === 10 || v === 11) ? Number(m[1]) : Number(m[2]);
+  return (v === 10 || v === 11 || v === 14) ? Number(m[1]) : Number(m[2]);
 };
 
 // ── 1. Der Vertrag: Client-Fenster == Rules-Fenster je Fassung ──────────────────
@@ -46,6 +47,10 @@ const fensterRules = (v) => {
   for (const v of [9, 10, 11])
     t('Fassung ' + v + ': Client-Fenster (' + M.frist({ proto: v }) + ') == Rules-Fenster (' + fensterRules(v) + ')', M.frist({ proto: v }) === fensterRules(v));
   t('v11 rechnet mit acht Sekunden', M.frist({ proto: 11 }) === M.v10 && M.v10 === 8000);
+  // Turbo-Fassung 14: die Rundenmaschine sieht sie als Protokoll 11 (fbProtoVonFassung) - acht Sekunden wie die Rules.
+  const P = new Function(fassungTurbo(html) + '\nreturn fbProtoVonFassung;')();
+  t('Fassung 14 (Turbo): Protokollnummer 11, Client-Fenster (' + M.frist({ proto: P(14) }) + ') == Rules-Fenster (' + fensterRules(14) + ')',
+    P(14) === 11 && P(11) === 11 && P(10) === 10 && P(13) === 13 && M.frist({ proto: P(14) }) === fensterRules(14) && fensterRules(14) === 8000);
   t('v9 behaelt seine sechs Sekunden', M.frist({ proto: 9 }) === M.v9 && M.v9 === 6000);
 }
 

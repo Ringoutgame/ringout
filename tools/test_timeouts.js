@@ -176,8 +176,9 @@ abschnitt('Getrennt ist nicht stumm - die Ausnahme steht nur in v11');
 {
   const c = RULES.rules.rooms.$code.g.$gen.c.$turn.$seat['.write'];
   const d = RULES.rules.rooms.$code.g.$gen.d.$turn['.write'];
-  t('der fruehe Slotschluss gilt nur fuer die Fassung 11',
-    /'skip' && \(root\.child\('rooms'\)\.child\(\$code\)\.child\('v'\)\.val\(\) === 11 \|\|/.test(c));
+  // Turbo: Fassung 14 ist ein v11-Raum - die Rules nennen beide immer zusammen.
+  t('der fruehe Slotschluss gilt nur fuer die v11-Familie (Fassung 11 und ihre Turbo-Fassung 14)',
+    /'skip' && \(\(root\.child\('rooms'\)\.child\(\$code\)\.child\('v'\)\.val\(\) === 11 \|\| root\.child\('rooms'\)\.child\(\$code\)\.child\('v'\)\.val\(\) === 14\) \|\|/.test(c));
   t('er verlangt weiterhin einen getrennten Sitz',
     /child\('p'\)\.child\(\$seat\)\.child\('on'\)\.val\(\) === false/.test(c));
   t('er verlangt weiterhin einen nicht ausgetragenen Sitz',
@@ -186,7 +187,7 @@ abschnitt('Getrennt ist nicht stumm - die Ausnahme steht nur in v11');
   t('die Fassungen davor behalten ihre Frist im Ausdruck',
     c.indexOf("=== 10) ? 8000 : 6000") > 0);
   const fuenf = ['0', '1', '2', '3', '4'].every(i =>
-    d.indexOf("=== 11 && root.child('rooms').child($code).child('p').child('" + i + "').child('on').val() === false") > 0);
+    d.indexOf("=== 14) && root.child('rooms').child($code).child('p').child('" + i + "').child('on').val() === false") > 0);
   t('die Rundenoeffnung kennt den Getrennten fuer jeden Sitz', fuenf);
   const stellen = (d.match(/child\('on'\)\.val\(\) === false/g) || []).length;
   t('und zwar genau zehnmal: fuenf Sitze in zwei Zweigen', stellen === 10, stellen);

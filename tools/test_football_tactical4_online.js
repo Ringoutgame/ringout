@@ -56,6 +56,7 @@ abschnitt('1. Register, Raumfassung und Variante');
   const M = new Function([
     'const ONLINE_PROTOCOL_VERSION=11; const DEV_MENU=false;',
     g(/const ROOM_GAME_RINGOUT=[^\n]*RINGOUT_PARITY_FASSUNG=\d+;/, 'ROOM_GAME + RingOut-Fassungen'),
+    HTML.slice(HTML.indexOf('// ==FASSUNG-TURBO=='), HTML.indexOf('// ==/FASSUNG-TURBO==')),
     g(/const FOOTBALL_VARIANT_TACTICAL='[^']*';/, 'V_TACTICAL'),
     g(/const FOOTBALL_VARIANT_TACTICAL4='[^']*';/, 'V_TACTICAL4'),
     g(/const FOOTBALL_VARIANT_TEAM2='[^']*';/, 'V_TEAM2'),
@@ -73,9 +74,10 @@ abschnitt('1. Register, Raumfassung und Variante');
   t('Tactical 4-Ball ist freigegeben', M.rel('tactical4') === true);
   t('Tactical 1v1, Lebensregel und Team 2v2 bleiben freigegeben, Classic/Speed/Timed FFA gesperrt', M.rel('tactical') && M.rel('lives') && M.rel('team2v2') && !M.rel('classic') && !M.rel('speed') && !M.rel('timedffa'));
   const cfg = (mode, cap) => ({ game: 'football', winTarget: 3, fmt: 'elimination', visibility: 'private', mode, cap });
-  t('ein Tactical-4-Ball-Raum mit zwei Sitzen ist ein v11-Raum', M.fassung(cfg('tactical4', 2)) === 11);
+  // Seit dem Turbo traegt jeder NEUE Football-Raum die Turbo-Fassung 14 - ein v11-Raum mit Turbo.
+  t('ein Tactical-4-Ball-Raum mit zwei Sitzen ist ein v11-Raum der Turbo-Fassung 14', M.fassung(cfg('tactical4', 2)) === 14);
   t('mit anderer Sitzzahl faellt er auf v8 zurueck (die Rules kennen ihn nicht)', M.fassung(cfg('tactical4', 4)) === 8 && M.fassung(cfg('tactical4', 8)) === 8 && M.fassung(cfg('tactical4', 3)) === 8);
-  t('Tactical (2), Lives (5) und Team 2v2 (4) bleiben v11', M.fassung(cfg('tactical', 2)) === 11 && M.fassung(cfg('lives', 5)) === 11 && M.fassung(cfg('team2v2', 4)) === 11);
+  t('Tactical (2), Lives (5) und Team 2v2 (4) tragen dieselbe Fassung', M.fassung(cfg('tactical', 2)) === 14 && M.fassung(cfg('lives', 5)) === 14 && M.fassung(cfg('team2v2', 4)) === 14);
   t('die Variante folgt dem Modus: tactical4 -> Tactical 4-Ball', M.variante('tactical4') === M.V_TAC4 && M.V_TAC4 === 'tactical4');
   t('... tactical -> Tactical, team2v2 -> Team 2v2, jeder andere -> Elimination', M.variante('tactical') === M.V_TAC && M.variante('team2v2') === M.V_TEAM2 && M.variante('lives') === M.V_ELIM && M.variante('') === M.V_ELIM);
 }

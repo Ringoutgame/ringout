@@ -58,6 +58,7 @@ abschnitt('1. Register, Raumfassung und Variante');
   const M = new Function([
     'const ONLINE_PROTOCOL_VERSION=11; const DEV_MENU=false;',
     g(/const ROOM_GAME_RINGOUT=[^\n]*RINGOUT_PARITY_FASSUNG=\d+;/, 'ROOM_GAME + RingOut-Fassungen'),
+    HTML.slice(HTML.indexOf('// ==FASSUNG-TURBO=='), HTML.indexOf('// ==/FASSUNG-TURBO==')),
     g(/const FOOTBALL_VARIANT_TACTICAL='[^']*';/, 'V_TACTICAL'),
     g(/const FOOTBALL_VARIANT_TEAM2='[^']*';/, 'V_TEAM2'),
     g(/const FOOTBALL_VARIANT_ELIM='[^']*';/, 'V_ELIM'),
@@ -74,9 +75,10 @@ abschnitt('1. Register, Raumfassung und Variante');
   t('Tactical ist freigegeben', M.rel('tactical') === true);
   t('die Lebensregel ist unveraendert freigegeben, Classic/Speed/Timed FFA gesperrt', M.rel('lives') === true && !M.rel('classic') && !M.rel('speed') && !M.rel('timedffa'));
   const cfg = (mode, cap) => ({ game: 'football', winTarget: 3, fmt: 'elimination', visibility: 'private', mode, cap });
-  t('ein Tactical-Raum mit zwei Sitzen ist ein v11-Raum', M.fassung(cfg('tactical', 2)) === 11);
+  // Seit dem Turbo traegt jeder NEUE Football-Raum die Turbo-Fassung 14 - ein v11-Raum mit Turbo.
+  t('ein Tactical-Raum mit zwei Sitzen ist ein v11-Raum der Turbo-Fassung 14', M.fassung(cfg('tactical', 2)) === 14);
   t('ein Tactical-Raum mit anderer Sitzzahl faellt auf v8 zurueck (die Rules kennen ihn nicht)', M.fassung(cfg('tactical', 5)) === 8 && M.fassung(cfg('tactical', 3)) === 8);
-  t('ein Lives-Raum bleibt v11', M.fassung(cfg('lives', 5)) === 11);
+  t('ein Lives-Raum traegt dieselbe Fassung', M.fassung(cfg('lives', 5)) === 14);
   t('die Variante folgt dem Modus: tactical -> Tactical', M.variante('tactical') === M.V_TAC);
   t('... team2v2 -> Team 2v2, jeder andere Modus -> Elimination', M.variante('lives') === M.V_ELIM && M.variante('team2v2') === M.V_TEAM2 && M.variante('') === M.V_ELIM);
 }

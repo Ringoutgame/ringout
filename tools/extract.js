@@ -18,6 +18,14 @@ function loadIndexHtml() {
   return src.replace(/\r\n?/g, '\n');
 }
 
+// The pure "Turbo-Fassung" block of index.html (FOOTBALL_TURBO_FASSUNG, fbFassungV11,
+// fbProtoVonFassung) between its markers. Every sandbox that runs room-version logic needs it.
+function fassungTurbo(src) {
+  const a = src.indexOf('// ==FASSUNG-TURBO=='), b = src.indexOf('// ==/FASSUNG-TURBO==', a);
+  if (a < 0 || b < 0) { console.error('FAIL: cannot extract FASSUNG-TURBO block'); process.exit(1); }
+  return src.slice(a, b);
+}
+
 // Extract the first match of `re` from `src`, or fail the suite if absent.
 function grab(src, re, name) {
   const m = src.match(re);
@@ -66,4 +74,4 @@ function grabFunction(src, name) {
   process.exit(1);
 }
 
-module.exports = { loadIndexHtml, grab, grabFunction };
+module.exports = { loadIndexHtml, grab, grabFunction, fassungTurbo };

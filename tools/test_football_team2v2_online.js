@@ -28,6 +28,7 @@ abschnitt('1. Register, Raumfassung und Variante - drei Modi, drei Vertraege');
   const M = new Function([
     'const ONLINE_PROTOCOL_VERSION=11; const DEV_MENU=false;',
     g(/const ROOM_GAME_RINGOUT=[^\n]*RINGOUT_PARITY_FASSUNG=\d+;/, 'ROOM_GAME + RingOut-Fassungen'),
+    HTML.slice(HTML.indexOf('// ==FASSUNG-TURBO=='), HTML.indexOf('// ==/FASSUNG-TURBO==')),
     g(/const FOOTBALL_VARIANT_TACTICAL='[^']*';/, 'V_TACTICAL'),
     g(/const FOOTBALL_VARIANT_TEAM2='[^']*';/, 'V_TEAM2'),
     g(/const FOOTBALL_VARIANT_ELIM='[^']*';/, 'V_ELIM'),
@@ -43,9 +44,10 @@ abschnitt('1. Register, Raumfassung und Variante - drei Modi, drei Vertraege');
   t('das Register kennt team2v2 mit genau vier Sitzen', M.caps('team2v2').join(',') === '4' && M.defCap('team2v2') === 4 && M.capOk('team2v2', 4) && !M.capOk('team2v2', 3) && !M.capOk('team2v2', 5));
   t('Team 2v2 ist freigegeben', M.rel('team2v2') === true);
   t('Lebensregel und Tactical bleiben freigegeben, Classic/Speed/Timed FFA gesperrt', M.rel('lives') && M.rel('tactical') && !M.rel('classic') && !M.rel('speed') && !M.rel('timedffa'));
-  t('ein Team-2v2-Raum mit vier Sitzen ist ein v11-Raum', M.fassung(cfg('team2v2', 4)) === 11);
+  // Seit dem Turbo traegt jeder NEUE Football-Raum die Turbo-Fassung 14 - ein v11-Raum mit Turbo.
+  t('ein Team-2v2-Raum mit vier Sitzen ist ein v11-Raum der Turbo-Fassung 14', M.fassung(cfg('team2v2', 4)) === 14);
   t('mit anderer Sitzzahl faellt er auf v8 zurueck (die Rules kennen ihn dort nur als Lobby)', M.fassung(cfg('team2v2', 5)) === 8 && M.fassung(cfg('team2v2', 2)) === 8);
-  t('Tactical (2) und Lebensregel (5) bleiben v11', M.fassung(cfg('tactical', 2)) === 11 && M.fassung(cfg('lives', 5)) === 11);
+  t('Tactical (2) und Lebensregel (5) tragen dieselbe Fassung', M.fassung(cfg('tactical', 2)) === 14 && M.fassung(cfg('lives', 5)) === 14);
   t('die Variante folgt dem Modus: team2v2 -> Team 2v2, tactical -> Tactical, lives -> Elimination',
     M.variante('team2v2') === M.V.t2 && M.variante('tactical') === M.V.tac && M.variante('lives') === M.V.elim);
   t('drei Modi, drei verschiedene Varianten - keine zwei Modi teilen sich eine Regel', new Set([M.variante('team2v2'), M.variante('tactical'), M.variante('lives')]).size === 3);
@@ -235,7 +237,7 @@ abschnitt('7. Vertraege im Quelltext');
   t('der Wirt eines Team-2v2-Raums sitzt auf dem ersten Sitz seiner Seite', /wirtSitz=fbTeam2SeatsOf\(fbOnlineTeam\)\[0\];/.test(HTML));
   const rules = require('fs').readFileSync(require('path').join(__dirname, '..', 'firebase.rules.json'), 'utf8');
   t('die Rules kennen den Team-2v2-Raum (v11, Modus, vier Sitze)', /newData\.val\(\) === 'team2v2'\)\)/.test(rules) && /newData\.val\(\) === 4 && newData\.parent\(\)\.child\('mode'\)\.val\(\) === 'team2v2'/.test(rules));
-  t('die Rules lassen den Team-2v2-Wirt auf Sitz 2 anlegen', /\(newData\.child\('v'\)\.val\(\) === 11 && newData\.child\('config\/mode'\)\.val\(\) === 'team2v2'\)\) && newData\.child\('hostUid'\)\.val\(\) === auth\.uid/.test(rules));
+  t('die Rules lassen den Team-2v2-Wirt auf Sitz 2 anlegen', /\(\(newData\.child\('v'\)\.val\(\) === 11 \|\| newData\.child\('v'\)\.val\(\) === 14\) && newData\.child\('config\/mode'\)\.val\(\) === 'team2v2'\)\) && newData\.child\('hostUid'\)\.val\(\) === auth\.uid/.test(rules));
   t('die Rules verlangen fuer den Start alle vier Sitze', /child\('config\/mode'\)\.val\(\) !== 'team2v2' \|\| \(newData\.child\('0'\)\.val\(\) === true && newData\.child\('1'\)\.val\(\) === true && newData\.child\('2'\)\.val\(\) === true && newData\.child\('3'\)\.val\(\) === true\)/.test(rules));
 }
 
