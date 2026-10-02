@@ -202,12 +202,36 @@ abschnitt('Raeumen nur, wenn es sicher ist');
   {
     const p = ['ein Netzfehler', new Error('network down')];
     const g = await bau({}, [P('c/42/1'), p[1]]);
-    await g.l.fertig;
-    t(p[0] + ' laesst den Lauf scheitern', g.l.stufe === g.M.FB_V9_FAILED, g.l.stufe);
+    await settle();
+    // Fix 2026-10-02: ein Netzfehler beim eigenen Commit ist kein Ende mehr. Frueher scheiterte der
+    // Lauf hier endgueltig, und der Client blieb fuer immer in der Runde stehen (reproduziert: Zug
+    // waehrend einer wackelnden Wiederverbindung). Jetzt kommt das eigene Terminal aus dem Raum.
+    t(p[0] + ' laesst den Lauf NICHT mehr scheitern', g.l.stufe === g.M.FB_V9_WAIT_COMMITS, g.l.stufe + ' ' + g.l.grund);
+    t(p[0] + ': der Zug wird nicht erneut gesendet', g.a.log.schreib.filter(w => w.pfad === P('c/42/1')).length === 1);
     // DAS ist der Punkt: bei einem Netzfehler weiss niemand, ob der Server den Commit
     // noch angenommen hat. Das Geheimnis ist dann die einzige Rettung.
     t(p[0] + ': das Geheimnis bleibt erhalten', g.st.inhalt.has(KEY));
     t(p[0] + ': und auch im Arbeitsspeicher', !!g.M.fbV9SecretFor('RN2K', 7, 42));
+    // (a) Der Commit IST angekommen: der Raum zeigt ihn - das behaltene Geheimnis passt, die Enthuellung laeuft.
+    const h = g.M.fbV9SecretFor('RN2K', 7, 42).h;
+    g.a.zustellen(P('c/42'), { 0: { k: 'pass', ts: 1 }, 1: { k: 'move', h: h, ts: 1 }, 2: { k: 'pass', ts: 1 } });
+    await settle();
+    t(p[0] + ', Commit doch angekommen: der Lauf enthuellt mit dem behaltenen Geheimnis',
+      !!g.a.stand[P('r/42/1')] && g.a.stand[P('r/42/1')].k === 'reveal' && g.l.stufe !== g.M.FB_V9_FAILED, g.l.stufe);
+    t('weiterhin genau ein Commit-Schreibversuch', g.a.log.schreib.filter(w => w.pfad === P('c/42/1')).length === 1);
+    g.l.stop();
+  }
+  {
+    // (b) Der Commit ist NICHT angekommen: die Frist schliesst den Slot, das Terminal kommt als `late` aus dem Raum.
+    const g = await bau({}, [P('c/42/1'), new Error('network down')]);
+    await settle();
+    g.a.zustellen(P('c/42'), { 0: { k: 'pass', ts: 1 }, 1: { k: 'late', ts: 2 }, 2: { k: 'pass', ts: 1 } });
+    await settle();
+    t('ein Netzfehler, Commit nicht angekommen: der Lauf uebernimmt das late aus dem Raum und laeuft weiter',
+      g.l.stufe !== g.M.FB_V9_FAILED && g.l.terminal && g.l.terminal.k === 'late', g.l.stufe + ' ' + (g.l.terminal && g.l.terminal.k));
+    t('das Geheimnis ist jetzt beweisbar wertlos und geraeumt', !g.st.inhalt.has(KEY));
+    t('keine Enthuellung fuer einen Zug, den es nicht gab', !g.a.stand[P('r/42/1')]);
+    g.l.stop();
   }
   {
     // EINE ABWEISUNG ist etwas anderes als ein Netzfehler: die Rules haben den Zug

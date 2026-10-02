@@ -13561,7 +13561,14 @@ async function fbV9Schritt(lauf){
         // nicht, ob der Server den Commit noch angenommen hat; das Geheimnis ist dann
         // das Einzige, womit sich die Runde noch retten liesse. Lieber ein verwaistes
         // Geheimnis behalten als ein gebrauchtes wegwerfen.
-        return fbV9Scheitern(lauf,'Commit: '+r.status);
+        // Frueher scheiterte der Lauf hier endgueltig ('Commit: ERROR') - und der Client
+        // blieb fuer immer in dieser Runde stehen (reproduziert 2026-10-02: Zug waehrend
+        // einer wackelnden Wiederverbindung). Was mit dem Zug geschah, weiss allein der
+        // Raum. Deshalb derselbe Weg wie beim Fortsetzen nach einem Neuladen: das eigene
+        // Terminal kommt ab jetzt aus dem Raum (2a). Steht der Commit dort, passt das
+        // behaltene Geheimnis und die Enthuellung laeuft; steht er nicht dort, wird er
+        // NICHT erneut gesendet, und die Frist schliesst den Slot wie bei jedem, der schweigt.
+        lauf.fortsetzen=true;
       }
     }
     // (3) Warten, bis JEDER Sitz der Sollbesetzung ein Terminal hat.
@@ -14541,12 +14548,39 @@ function fbV9LebenHandeln(aktion){
 function fbV9LebenOffenWache(L){
   if(!fbV9LebenAktuell(L)||L.offenAb||L.uebergeben)return;
   const turn=L.ctx.turn;
-  L.offenAb=fbV9NetWatch(L.ctx,[['d/'+turn,'d']],st=>{
+  L.offenAb=fbV9NetWatch(L.ctx,[['d/'+turn,'d'],['z/'+turn,'z']],st=>{
     if(!fbV9LebenAktuell(L)||L.uebergeben)return;
+    // Die Runde ist im Raum schon ABGESCHLOSSEN: dieser Client liegt zurueck (fbV9LebenAufholen).
+    if(st&&fbV9AnkerOk(st.z)){ fbV9LebenAufholen(L); return; }
     const d=st&&st.d;
     if(!d||typeof d!=='object'||d.n!==turn||!Number.isFinite(d.o))return;   // (noch) nicht eroeffnet
     fbV9LebenRundeSteht(L);
   });
+}
+// ── ZURUECKLIEGEN: UEBER DIE HISTORIE AUFHOLEN, NICHT RUNDE FUER RUNDE NACHSPIELEN ─────────
+// Steht fuer die Runde, die dieser Client gerade beginnen will, schon der ABSCHLUSSANKER z im
+// Raum, dann haben die anderen sie ohne ihn gespielt - er war getrennt (nur dann darf eine
+// Runde ohne seine Bereitschaft entstehen) und liegt mindestens eine ganze Runde zurueck.
+// Frueher holte er jede verpasste Runde einzeln ueber den Live-Weg nach, also mit ihrer vollen
+// Physik in ECHTZEIT. Waehrenddessen warteten die anderen an ihrer Bereitschaftsbarriere auf
+// seine Meldung fuer die AKTUELLE Runde: sieben verpasste Runden kosteten rund 27 Sekunden
+// Stillstand, und dauerte es laenger als dreissig (langsames Geraet, mehr Runden), wurde der
+// Rueckkehrer disqualifiziert - obwohl er innerhalb der Rueckkehrfrist zurueck war und nichts
+// versaeumte ausser dem Nachspielen (reproduziert 2026-10-02).
+// Das Nachholen abgeschlossener Runden ist kein Spielen: es ist derselbe Vorgang wie die
+// Rueckkehr nach einem Neuladen. Deshalb derselbe Weg - die Rehydrierung rechnet die ganze
+// Historie in einem Zug nach und setzt in der laufenden Runde wieder auf. Die Fristen bleiben,
+// wie sie sind: wer in der AKTUELLEN Runde schweigt, wird weiter nach acht bzw. dreissig
+// Sekunden geschlossen.
+let fbV9AufholLauf=false;
+function fbV9LebenAufholen(L){
+  if(!fbV9LebenAktuell(L)||L.uebergeben||fbV9AufholLauf)return;
+  fbV9AufholLauf=true;
+  Promise.resolve(fbV9Rehydrieren(fbV9LebenCtx(0))).then(erg=>{
+    fbV9AufholLauf=false;
+    // Nicht nachrechenbar (Lesefehler, Luecke): dann der bisherige Weg - die Runde live uebernehmen.
+    if(erg&&erg.fehler&&fbV9LebenAktuell(L)&&!L.uebergeben)fbV9LebenRundeSteht(L);
+  }).catch(()=>{ fbV9AufholLauf=false; });
 }
 function fbV9LebenOffenWacheAus(L){
   if(L&&L.offenAb){ try{ L.offenAb(); }catch(e){} L.offenAb=null; }

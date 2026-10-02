@@ -667,6 +667,105 @@ abschnitt('Einstieg in die offene Runde - Eingabe gesperrt, bis der eigene Slot 
 }
 
 // ══ WAECHTER AM QUELLTEXT ════════════════════════════════════════════════════
+// ══ ZURUECKLIEGEN: UEBER DIE HISTORIE AUFHOLEN ══════════════════════════════════
+// Reproduziert 2026-10-02 (FFA, drei Clients, lokaler Emulator): ein Client war rund zwanzig Sekunden
+// ohne Netz, die anderen spielten sieben Runden weiter. Nach der Wiederverbindung holte er jede Runde
+// einzeln in Echtzeit nach; solange standen die anderen an ihrer Bereitschaftsbarriere (16 s Stillstand
+// bei normaler Geschwindigkeit), und auf einem langsameren Geraet wurde der Rueckkehrer nach dreissig
+// Sekunden disqualifiziert. Jetzt holt er ueber die Historie auf - derselbe Weg wie nach einem Neuladen.
+abschnitt('Zurueckliegen - ueber die Historie aufholen');
+{
+  const RUNDE = (n) => [M(n + 1, 1, 0), M(-(n + 1), -1, 0), { art: 'pass' }];
+  const pfad = (rest) => 'rooms/' + CODE + '/g/' + GEN + '/' + rest;
+  // Alle offenen Zuhoerer eines Pfads mit dem heutigen Stand des Baums bedienen.
+  const melde = (a, rest) => { const teile = pfad(rest).split('/'); let v = a.baum;
+    for (const k of teile) { if (v == null) break; v = v[k]; }
+    for (const h of a.log.hoert.slice()) if (h.offen && h.pfad === pfad(rest)) h.cb({ val: () => (v === undefined ? null : v) }); };
+  // Ein Client, der nach Runde 0 in der Bereitschaft fuer Runde 1 steht (Runde 1 ist noch nicht eroeffnet).
+  const amAnfang = async () => {
+    const g0 = await historie([RUNDE(0)]); delete g0.d[1];
+    const w = welt9();
+    const a = attrappe(baum(g0), { lebend: true });
+    const m = baue(a, w);
+    m.fbV9RaumStart();
+    await settle(14);
+    return { w, a, m };
+  };
+  {
+    const { w, a, m } = await amAnfang();
+    t('Vorbedingung: der Client steht in der Bereitschaft fuer Runde 1', !!m.leben() && m.leben().turn === 1 && m.leben().stufe === 'BEREIT' && w.starts === 1,
+      m.leben() && (m.leben().turn + '/' + m.leben().stufe) + ' starts=' + w.starts);
+    // Waehrend er getrennt war, haben die anderen die Runden 1 bis 4 gespielt; Runde 5 ist offen.
+    const gVoll = await historie([RUNDE(0), RUNDE(1), RUNDE(2), RUNDE(3), RUNDE(4)]);
+    gVoll.d[5] = { n: 5, o: 4000000 };
+    a.baum.rooms[CODE].g[GEN] = gVoll;
+    w.spur.length = 0;
+    const leseVor = a.log.lese.length, schreibVor = a.log.schreib.length;
+    melde(a, 'z/1'); melde(a, 'd/1');          // nach der Wiederverbindung: Runde 1 ist schon abgeschlossen
+    await settle(20);
+    t('steht die Runde schon ABGESCHLOSSEN im Raum, wird die Historie gelesen', a.log.lese.length > leseVor, a.log.lese.slice(leseVor).join(','));
+    t('und der Client steht danach in der AKTUELLEN Runde 5', m.zustand().turnNo === 5 && m.zustand().phase === 'aim', m.zustand().turnNo + '/' + m.zustand().phase);
+    t('alle verpassten Runden sind in einem Zug nachgerechnet (fuenf Abschuesse)', w.starts === 1 + 5, w.starts);
+    t('stumm - kein Klang aus der Vergangenheit', w.spur.indexOf('KLANG') < 0, w.spur.join(','));
+    t('er setzt in der offenen Runde wieder auf (Ablaufsteuerung fuer Runde 5)', !!m.leben() && m.leben().turn === 5 && m.leben().stufe === 'PROTOKOLL' && !!m.leben().lauf,
+      m.leben() && (m.leben().turn + '/' + m.leben().stufe));
+    t('das Aufholen selbst schreibt nichts in die Zughistorie', a.log.schreib.slice(schreibVor).filter(x => /\/g\/7\/(c|r|z|ro)\b/.test(x.pfad)).length === 0,
+      a.log.schreib.slice(schreibVor).map(x => x.pfad).join(','));
+    // Derselbe Stand wie bei einem Client, der die Historie frisch (nach einem Neuladen) rechnet.
+    const frisch = baue(attrappe(baum(gVoll)), welt9());
+    frisch.fbV9RaumStart(); await settle(14);
+    t('der aufgeholte Stand ist derselbe wie nach einem Neuladen', JSON.stringify(m.zustand()) === JSON.stringify(frisch.zustand()));
+    m.fbV9LebenStop(); frisch.fbV9LebenStop();
+  }
+  {
+    // Die andere Zustellreihenfolge: erst der Rundenbeginn, dann der Abschlussanker. Die Runde ist dann schon
+    // live uebernommen - sie wird (hoechstens diese EINE) live nachgespielt; ihr Abschluss fuehrt in die naechste
+    // Bereitschaft, und deren frische Wache sieht den Anker sofort und holt den Rest ueber die Historie auf.
+    const { w, a, m } = await amAnfang();
+    const gVoll = await historie([RUNDE(0), RUNDE(1), RUNDE(2), RUNDE(3), RUNDE(4)]);
+    gVoll.d[5] = { n: 5, o: 4000000 };
+    a.baum.rooms[CODE].g[GEN] = gVoll;
+    const leseVor = a.log.lese.length;
+    melde(a, 'd/1');
+    await settle(6);
+    t('Rundenbeginn zuerst: diese eine Runde wird live uebernommen', !!m.leben() && m.leben().turn === 1 && m.leben().stufe === 'PROTOKOLL' && a.log.lese.length === leseVor, m.leben() && m.leben().stufe);
+    melde(a, 'z/1');
+    await settle(6);
+    t('ein spaeter Anker stoert die laufende Uebernahme nicht (kein zweiter Weg daneben)', a.log.lese.length === leseVor && m.leben().turn === 1);
+    m.fbV9LebenStop();
+  }
+  {
+    // Nur EROEFFNET, nicht abgeschlossen: das ist die laufende Runde - kein Nachrechnen, sondern Uebernahme.
+    const { w, a, m } = await amAnfang();
+    a.baum.rooms[CODE].g[GEN].d[1] = { n: 1, o: 4000000 };
+    const leseVor = a.log.lese.length;
+    melde(a, 'd/1'); melde(a, 'z/1');
+    await settle(14);
+    t('eine nur eroeffnete Runde wird live uebernommen, nicht nachgerechnet', a.log.lese.length === leseVor && w.starts === 1 && m.leben().turn === 1 && m.leben().stufe === 'PROTOKOLL',
+      (a.log.lese.length - leseVor) + ' Lesevorgaenge, ' + m.leben().stufe);
+    m.fbV9LebenStop();
+  }
+  {
+    // Die Historie ist nicht nachrechenbar (Runde 1 abgeschlossen gemeldet, aber ohne Commits): nichts wird
+    // geraten - es bleibt beim bisherigen Weg, die Runde live zu uebernehmen.
+    const { w, a, m } = await amAnfang();
+    const g = a.baum.rooms[CODE].g[GEN];
+    g.d[1] = { n: 1, o: 4000000 }; g.z[1] = ANKER;
+    melde(a, 'd/1'); melde(a, 'z/1');
+    await settle(20);
+    t('nicht nachrechenbar: keine neue Welt, kein geratener Rundenstand', w.starts === 1 && m.zustand().turnNo === 1, w.starts + '/' + m.zustand().turnNo);
+    t('sondern die Runde wird live uebernommen', !!m.leben() && m.leben().turn === 1 && m.leben().stufe === 'PROTOKOLL', m.leben() && m.leben().stufe);
+    m.fbV9LebenStop();
+  }
+  t('die Wache beobachtet neben dem Rundenbeginn auch den Abschlussanker',
+    /fbV9NetWatch\(L\.ctx,\[\['d\/'\+turn,'d'\],\['z\/'\+turn,'z'\]\],/.test(HTML));
+  t('ein abgeschlossener Anker fuehrt zum Aufholen ueber die Rehydrierung',
+    /if\(st&&fbV9AnkerOk\(st\.z\)\)\{ fbV9LebenAufholen\(L\); return; \}/.test(HTML)
+    && /Promise\.resolve\(fbV9Rehydrieren\(fbV9LebenCtx\(0\)\)\)/.test(HTML.slice(HTML.indexOf('function fbV9LebenAufholen(L){'), HTML.indexOf('function fbV9LebenOffenWacheAus(L){'))));
+  t('die Fristen sind unveraendert (30 s Bereitschaft, 8 s Entscheidung)',
+    /const FB_V9_READY_DEADLINE_MS=30000;/.test(HTML) && /const FB_V10_DEADLINE_MS=8000;/.test(HTML));
+}
+
 abschnitt('Waechter');
 {
   const roh = HTML.slice(HTML.indexOf('// ── V9-REHYDRIERUNG'),
