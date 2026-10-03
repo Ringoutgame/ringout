@@ -1005,8 +1005,11 @@ abschnitt('Waechter: die Steuerung ruht');
     ohneHaken(HTML.split(BEREICH).join('')).indexOf('fbV9') < 0);
   t('die Haken bleiben zaehlbar',
     (HTML.match(/fbV9LebenNeueRunde\(\)/g) || []).length === 4 &&
-    (HTML.match(/fbV9LebenStop\(\)/g) || []).length === 9 &&
-    (HTML.match(/fbV9Wirken\(/g) || []).length === 3,
+    // 2026-10-03: der Zuschauer eines ausgetragenen Sitzes - fbV9ZuschauStart und fbV9ZuschauWechsel beenden
+    // den handelnden Lauf (+1 netto), und der Beobachter zeigt eine abgeschlossene Runde ueber denselben
+    // Abschussweg (+1 fbV9Wirken). Beides liegt im ruhenden Bereich.
+    (HTML.match(/fbV9LebenStop\(\)/g) || []).length === 10 &&
+    (HTML.match(/fbV9Wirken\(/g) || []).length === 4,
     (HTML.match(/fbV9LebenNeueRunde\(\)/g) || []).length + '/' +
     (HTML.match(/fbV9LebenStop\(\)/g) || []).length + '/' +
     (HTML.match(/fbV9Wirken\(/g) || []).length);

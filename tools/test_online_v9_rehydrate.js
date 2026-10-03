@@ -137,6 +137,7 @@ const baue = (a, welt) => new Function('window', 'crypto', 'GEN_MAX', 'FB_ONLINE
            fbV9RaumStart, fbV9RaumIst9,
            fbV9LebenNeueRunde, fbV9LebenFortsetzen, fbV9LebenStop, fbV9LebenAn,
            fbV9LebenHandeln, fbV9EingabeOffen,
+           fbV9DraussenGrund, fbV9ZuschauHinweis, fbV9EigenAusgetragen, fbV9Praesenzwechsel, zuschau: () => fbV9Zuschau,
            fastForwardMatch, startOnlineGame, leben: () => fbV9Leben,
            zustand: () => ({ turnNo, phase, footballWinner, aktiv: welt.aktiv.slice(),
                              leben: welt.leben.slice(),
@@ -764,6 +765,141 @@ abschnitt('Zurueckliegen - ueber die Historie aufholen');
     && /Promise\.resolve\(fbV9Rehydrieren\(fbV9LebenCtx\(0\)\)\)/.test(HTML.slice(HTML.indexOf('function fbV9LebenAufholen(L){'), HTML.indexOf('function fbV9LebenOffenWacheAus(L){'))));
   t('die Fristen sind unveraendert (30 s Bereitschaft, 8 s Entscheidung)',
     /const FB_V9_READY_DEADLINE_MS=30000;/.test(HTML) && /const FB_V10_DEADLINE_MS=8000;/.test(HTML));
+}
+
+// ══ AUSGETRAGEN: ZUSCHAUEN, OHNE ZU SCHREIBEN ═════════════════════════════════
+// Reproduziert 2026-10-03 (FFA, drei Clients, lokaler Emulator): wer laenger als die
+// Rueckkehrfrist getrennt war, ist ausgetragen (e). Kam sein Client zurueck, blieb er auf dem
+// Stand seiner letzten Runde stehen - ohne Hinweis, und die eigene Figur liess sich noch ziehen.
+// Jetzt folgt er dem Match als reiner Beobachter: er liest, er schreibt nicht, und er zeigt
+// eine Runde erst, wenn ihr Abschlussanker steht.
+abschnitt('Ausgetragen - zuschauen, ohne zu schreiben');
+{
+  const RUNDE = (n, raus) => [M(n + 1, 1, 0), raus ? { art: 'remove' } : M(-(n + 1), -1, 0), M(0, n + 1, 0)];
+  const pfad = (rest) => 'rooms/' + CODE + '/g/' + GEN + '/' + rest;
+  const melde = (a, rest) => { const teile = pfad(rest).split('/'); let v = a.baum;
+    for (const k of teile) { if (v == null) break; v = v[k]; }
+    for (const h of a.log.hoert.slice()) if (h.offen && h.pfad === pfad(rest)) h.cb({ val: () => (v === undefined ? null : v) }); };
+  const hoertAuf = (a) => a.log.hoert.filter(h => h.offen).map(h => h.pfad.replace(pfad(''), ''));
+
+  // Der Grund: rein, aus dem massgeblichen Zustand.
+  {
+    const m = bauModul(), DQ = { k: 'ready_timeout', n: 2, ts: 5 };
+    t('Grund: nur e -> Rueckkehrfrist abgelaufen', m.fbV9DraussenGrund({ 1: true }, null, 1) === 'verbindung');
+    t('Grund: gueltiges x -> fehlende Bereitschaft', m.fbV9DraussenGrund(null, { 1: DQ }, 1) === 'bereitschaft');
+    t('Grund: x UND e -> fehlende Bereitschaft (x entsteht nie nach e)', m.fbV9DraussenGrund({ 1: true }, { 1: DQ }, 1) === 'bereitschaft');
+    t('Grund: nichts -> kein Grund', m.fbV9DraussenGrund({ 0: true }, { 2: DQ }, 1) === '');
+    t('Grund: ein ungueltiges x zaehlt nicht', m.fbV9DraussenGrund({ 1: true }, { 1: { k: 'quatsch', ts: 1 } }, 1) === 'verbindung');
+  }
+  // Rueckkehr (Neuladen oder Aufholen) in ein Match, in dem der eigene Sitz ausgetragen ist.
+  const ausgetragen = async (extra) => {
+    const g = await historie([RUNDE(0), RUNDE(1, true)]);
+    Object.assign(g, extra || { e: { 1: true } });
+    const w = welt9({ evicted: (extra && !extra.e) ? {} : { 1: true } });
+    const a = attrappe(baum(g), { lebend: true });
+    const m = baue(a, w);
+    m.fbV9RaumStart();
+    await settle(20);
+    return { g, w, a, m };
+  };
+  {
+    const { g, w, a, m } = await ausgetragen();
+    t('Rueckkehr als Ausgetragener: die Welt steht auf dem aktuellen Stand (Runde 2)', m.zustand().turnNo === 2 && m.zustand().phase === 'aim' && w.starts === 2, m.zustand().turnNo + '/' + w.starts);
+    t('kein handelnder Lauf: weder Bereitschaft noch Ablaufsteuerung', m.leben() === null, JSON.stringify(m.leben() && m.leben().stufe));
+    t('stattdessen beobachtet er die laufende Runde 2', !!m.zuschau() && m.zuschau().turn === 2, m.zuschau() && m.zuschau().turn);
+    const hoert = hoertAuf(a);
+    t('er hoert auf Abschluss, Folgeabschluss, Commits und Enthuellungen der Runde - nicht auf Bereitschaft oder Rundenbeginn',
+      ['z/2', 'z/3', 'c/2', 'r/2'].every(x => hoert.indexOf(x) >= 0) && !hoert.some(x => /^(q|d|ro|s)\b/.test(x)), hoert.join(','));
+    t('der Hinweis "Verbindung zu lange unterbrochen" gilt', m.fbV9ZuschauHinweis() === true);
+    t('die Eingabe ist zu (kein Zielen, kein Stehenbleiben)', m.fbV9EingabeOffen() === false && m.fbV9EigenAusgetragen() === true);
+    t('eine Handlung bewirkt nichts', m.fbV9LebenHandeln({ pass: true }) === false);
+    // Die laufende Runde 2: Commits und Enthuellungen sind da, der Abschluss noch nicht.
+    const z2 = await historie([RUNDE(0), RUNDE(1, true), RUNDE(2, true)]);
+    g.c[2] = z2.c[2]; g.ro[2] = z2.ro[2]; g.r[2] = z2.r[2]; g.d[2] = z2.d[2];
+    melde(a, 'c/2'); melde(a, 'r/2'); await settle(20);
+    t('VOR dem Abschlussanker wird von der Runde nichts gezeigt', w.starts === 2 && m.zustand().phase === 'aim', w.starts + '/' + m.zustand().phase);
+    g.z[2] = ANKER; melde(a, 'z/2'); await settle(20);
+    t('mit dem Abschlussanker wird die Runde ueber den bestehenden Abschussweg gezeigt', w.starts === 3 && m.zustand().phase === 'sim', w.starts + '/' + m.zustand().phase);
+    t('waehrend des Zuschauens kein einziger Schreibversuch', a.log.schreib.length === 0, a.log.schreib.map(x => x.pfad).join(','));
+    m.fbV9LebenStop();
+  }
+  {
+    // Liegt er mehr als eine Runde zurueck, holt er ueber die Historie auf - und schaut dann weiter zu.
+    const { g, w, a, m } = await ausgetragen();
+    const v = await historie([RUNDE(0), RUNDE(1, true), RUNDE(2, true), RUNDE(3, true)]);
+    a.baum.rooms[CODE].g[GEN] = Object.assign(v, { e: { 1: true } });
+    const leseVor = a.log.lese.length;
+    melde(a, 'z/3'); melde(a, 'z/2'); await settle(30);
+    t('zurueckliegend: die Historie wird gelesen', a.log.lese.length > leseVor, a.log.lese.slice(leseVor).join(','));
+    t('und er beobachtet danach die aktuelle Runde 4', m.zustand().turnNo === 4 && !!m.zuschau() && m.zuschau().turn === 4, m.zustand().turnNo + '/' + (m.zuschau() && m.zuschau().turn));
+    t('auch das Aufholen schreibt nichts', a.log.schreib.length === 0);
+    m.fbV9LebenStop();
+  }
+  {
+    // Fehlende Bereitschaft (x, kein e): kein Beobachter, kein Verbindungs-Hinweis - der Stand bleibt wie bisher.
+    const { m } = await ausgetragen({ x: { 1: { k: 'ready_timeout', n: 1, ts: 5 } } });
+    t('Disqualifikation wegen fehlender Bereitschaft: KEIN Verbindungs-Hinweis', m.fbV9ZuschauHinweis() === false);
+    t('und kein Beobachter (unveraendertes Verhalten)', m.zuschau() === null && m.leben() === null);
+    m.fbV9LebenStop();
+  }
+  {
+    // x UND e: er schaut zu, aber der Verbindungs-Hinweis waere falsch.
+    const { m } = await ausgetragen({ e: { 1: true }, x: { 1: { k: 'ready_timeout', n: 1, ts: 5 } } });
+    t('x und e: Beobachter ja, Verbindungs-Hinweis nein', !!m.zuschau() && m.fbV9ZuschauHinweis() === false);
+    m.fbV9LebenStop();
+  }
+  {
+    // Ohne Neuladen: der Marker wird erst am Rundenbeginn bekannt - dann beobachtet er, statt nur aufzuhoeren.
+    const g0 = await historie([RUNDE(0)]); delete g0.d[1];
+    const w = welt9();
+    const a = attrappe(baum(g0), { lebend: true });
+    const m = baue(a, w);
+    m.fbV9RaumStart(); await settle(14);
+    t('Vorbedingung: handelnder Lauf in Runde 1', !!m.leben() && m.leben().turn === 1);
+    w.evicted[1] = true; g0.e = { 1: true };
+    m.fbV9LebenNeueRunde(); await settle(14);
+    t('ausgetragen am Rundenbeginn: der handelnde Lauf endet, der Beobachter uebernimmt Runde 1', m.leben() === null && !!m.zuschau() && m.zuschau().turn === 1);
+    t('den Grund liest er aus e und x, solange er ihn nicht kennt', hoertAuf(a).indexOf('e') >= 0 && hoertAuf(a).indexOf('x') >= 0, hoertAuf(a).join(','));
+    t('und er kennt ihn danach: Rueckkehrfrist abgelaufen', m.fbV9ZuschauHinweis() === true);
+    m.fbV9LebenStop();
+    t('der gemeinsame Abbau beendet auch den Beobachter', m.zuschau() === null && hoertAuf(a).length === 0, hoertAuf(a).join(','));
+  }
+  {
+    // Ohne Neuladen, der Marker kommt waehrend der Bereitschaft: der Austragungsbeobachter meldet ihn
+    // ueber den Praesenzwechsel-Eingang - der handelnde Lauf endet sofort, der Beobachter uebernimmt.
+    const g0 = await historie([RUNDE(0)]); delete g0.d[1];
+    const w = welt9();
+    const a = attrappe(baum(g0), { lebend: true });
+    const m = baue(a, w);
+    m.fbV9RaumStart(); await settle(14);
+    const schreibVor = a.log.schreib.length;
+    m.fbV9Praesenzwechsel(); await settle(6);
+    t('Praesenzwechsel ohne Austragung: der handelnde Lauf bleibt', !!m.leben() && m.leben().turn === 1 && m.zuschau() === null);
+    w.evicted[1] = true; g0.e = { 1: true };
+    m.fbV9Praesenzwechsel(); await settle(14);
+    t('Marker ueber den Praesenzwechsel-Eingang: Lauf beendet, Beobachter fuer Runde 1', m.leben() === null && !!m.zuschau() && m.zuschau().turn === 1);
+    t('und dabei kein Schreibversuch', a.log.schreib.length === schreibVor, a.log.schreib.slice(schreibVor).map(x => x.pfad).join(','));
+    m.fbV9LebenStop();
+  }
+  // Die Anbindung an Rueckkehr, Lobby, Eingabe und Anzeige.
+  t('Rueckkehr: im laufenden Match ausgetragen -> rein lesend, ohne Claim',
+    /const claim=nurLesend\?\{ok:true\}:await reclaimSeatSlot\(/.test(HTML) && /&&!!\(gNow&&gNow\.e&&gNow\.e\[seat\]===true\);/.test(HTML)
+    && /rejoinNurLesend=nurLesend\?\{room:code,gen:v\.gen,seat:seat\}:null;/.test(HTML));
+  t('Praesenz: der Marker sperrt in v11 nur, solange der Raum spielt (wie die Rules)',
+    /const sperrt=fbFassungV11\(v\.v\)\?sz\.val\(\)==='playing':true;/.test(HTML) && /if\(se\.val\(\)===true&&sperrt\)return 'evicted';/.test(HTML));
+  t('Lobby: der Ausgetragene kommt beim Wechsel in die Lobby ueber den bestehenden Weg zurueck',
+    /fbV11PtWarteAus\(\);[^\n]*\n  if\(typeof fbAusgetragenZurueck==='function'\)fbAusgetragenZurueck\(\);/.test(HTML)
+    && /restoreOwnPresence\(\{sid:onlineSessionId,room:roomCode,seat:myPlayer,tab:onlineTab\}\)/.test(HTML)
+    && /const r=await reclaimSeatSlot\(ctx\.room,ctx\.seat,null,/.test(HTML));
+  t('Zuschauer schreiben weder Matchende noch fremde Austragungen',
+    /if\(typeof fbEvicted==='function'&&fbEvicted\(myPlayer\)\)return;/.test(HTML) && /  if\(fbEvicted\(myPlayer\)\)return false;/.test(HTML));
+  t('der Austragungsbeobachter meldet ueber den bestehenden Praesenzwechsel-Eingang (kein neuer Haken)',
+    /fbV11Raum\(\)&&typeof fbV9Praesenzwechsel==='function'\)fbV9Praesenzwechsel\(\);/.test(HTML));
+  t('Hinweis: drei Sprachen, eigener Stil, nur fuer den Grund Verbindung',
+    (HTML.match(/fbWatchLost:'/g) || []).length === 3 && /#game\.fb \.fbstate\.aus\{/.test(HTML) && /if\(typeof fbV9ZuschauHinweis==='function'&&fbV9ZuschauHinweis\(\)&&phase!=='over'/.test(HTML)
+    && HTML.indexOf("fbWatchLost:'Verbindung zu lange unterbrochen – du kannst in diesem Match nur noch zuschauen.'") >= 0);
+  t('die Fristen sind unveraendert (30 s Rueckkehr, 30 s Bereitschaft, 8 s Entscheidung)',
+    /const SEAT_STALE_MS=30000;/.test(HTML) && /const FB_V9_READY_DEADLINE_MS=30000;/.test(HTML) && /const FB_V10_DEADLINE_MS=8000;/.test(HTML));
 }
 
 abschnitt('Waechter');

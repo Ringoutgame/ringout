@@ -477,6 +477,12 @@ header{width:100%;max-width:460px;display:flex;align-items:center;justify-conten
 #game.fb .fbstate.done{color:rgba(52,196,112,1)}
 /* TACTICAL: der Gegner ist am Zug - eine ruhige, gedaempfte Zeile ohne Dringlichkeit. */
 #game.fb .fbstate.wait{color:rgba(170,184,208,.82);letter-spacing:.12em}
+/* AUSGETRAGEN (Rueckkehrfrist abgelaufen): ein ganzer Satz statt eines Etiketts - normale
+   Schreibung, darf umbrechen, und liegt auf einem ruhigen Grund, damit er vor jeder Arena
+   lesbar bleibt. Die hoehere Spezifitaet schlaegt auch die schmale Fassung der Zeile. */
+#game.fb .fbstate.aus{white-space:normal;width:max-content;max-width:min(88vw,440px);text-align:center;
+  font-size:13px;font-weight:700;line-height:1.3;letter-spacing:.01em;text-transform:none;
+  color:rgba(236,240,248,.97);background:rgba(10,16,28,.66);padding:7px 12px;border-radius:10px}
 /* ZEIT ABGELAUFEN ist eine Auskunft, kein Fehler - es traegt schlicht die gedaempfte
    Grundfarbe der Zeile und braucht keine eigene Regel. */
 @media(max-width:430px){#game.fb .fbstate{font-size:14px;letter-spacing:.12em}
@@ -2483,8 +2489,8 @@ async function restorePresencePass(ctx){
     const feld=p=>window.FB.get(window.FB.ref(window.FB.db,'rooms/'+ctx.room+'/'+p));
     // gen wird bei der Anlage gesetzt und lebt so lange wie der Raum - sein Dasein ist
     // die Existenzpruefung.
-    const [sv,sg,sr,sp]=await Promise.all([feld('v'),feld('gen'),
-      feld('players/'+ctx.seat),feld('p/'+ctx.seat)]);
+    const [sv,sg,sr,sp,sz]=await Promise.all([feld('v'),feld('gen'),
+      feld('players/'+ctx.seat),feld('p/'+ctx.seat),feld('state')]);
     if(!presenceCtxValid(ctx))return 'stale';
     const v={v:sv.val(),gen:sg.val()};
     if(!sg.exists())return 'noRoom';                        // Raum existiert nicht mehr
@@ -2500,7 +2506,10 @@ async function restorePresencePass(ctx){
     // waehrend eines await noch bewegen, und dann laese man am falschen Ort nach.
     const se=await feld('g/'+String(v.gen)+'/e/'+ctx.seat);
     if(!presenceCtxValid(ctx))return 'stale';
-    if(se.val()===true)return 'evicted';                    // dauerhaft entfernt -> NICHT wiederbeleben
+    // v11: der Marker gilt fuer das LAUFENDE Match. Steht der Raum wieder in der Lobby, lassen
+    // die Rules die Rueckkehr ausdruecklich zu - und dann auch diese Pruefung (fbAusgetragenZurueck).
+    const sperrt=fbFassungV11(v.v)?sz.val()==='playing':true;
+    if(se.val()===true&&sperrt)return 'evicted';            // dauerhaft entfernt -> NICHT wiederbeleben
     // ARM bei JEDER Rueckverbindung - auch wenn die Praesenz schon on:true zeigt. Eine
     // onDisconnect-Registrierung ueberlebt den Abriss nicht; ohne neues ARM bliebe der
     // Sitz beim naechsten Ausfall faelschlich als verbunden stehen.
@@ -2544,6 +2553,38 @@ async function reclaimSeatSlot(code,seat,op,keepName,legacy,team2){
   catch(e){ await releaseReclaim(code,seat,dc); throw e; }
   if(op!=null&&!joinOpCurrent(op)){ await releaseReclaim(code,seat,dc); return {ok:false,stale:true,dc:null}; }
   return {ok:true,dc:dc};
+}
+// ════ C1b: NACH DEM MATCH KOMMT EIN AUSGETRAGENER SITZ ZURUECK ════
+// Der Austragungsmarker g/<gen>/e/<sitz> gilt fuer das LAUFENDE Match: die Rules sperren die
+// Rueckkehr eines ausgetragenen Sitzes ausdruecklich nur, solange der Raum 'playing' sagt. Steht
+// der Raum wieder in der Lobby (fbV11Schritt), kommt der Sitz ueber den BESTEHENDEN Weg zurueck:
+//   * ohne Neuladen gehoert der Sitz noch dieser Sitzung - die Praesenzwiederherstellung
+//     (restoreOwnPresence) armiert und aktiviert ihn wie nach jedem Funkabriss;
+//   * nach einem Neuladen schaute er ohne Sitzuebernahme zu (attemptRejoin, rejoinNurLesend) -
+//     dann der Rueckkehrweg selbst (reclaimSeatSlot), den die Rules in der Lobby zulassen.
+// Danach ist er ein gewoehnlicher Teilnehmer der Lobby und beim naechsten Start dabei.
+let rejoinNurLesend=null;   // {room,gen,seat}: nach dem Neuladen rein lesend eingetreten
+const AUSGETRAGEN_RUECKKEHR_MS=[0,3000,6000];   // hoechstens drei Versuche - kein endloses Wiederholen
+function fbAusgetragenZurueck(){
+  if(!online||!roomCode||myPlayer<0)return;
+  const ein=rejoinNurLesend;
+  const lesend=!!ein&&ein.room===roomCode&&ein.seat===myPlayer;
+  if(!lesend&&!(typeof fbEvicted==='function'&&fbEvicted(myPlayer)))return;
+  rejoinNurLesend=null;
+  if(!lesend){ restoreOwnPresence({sid:onlineSessionId,room:roomCode,seat:myPlayer,tab:onlineTab}); return; }
+  fbAusgetragenReclaim({sid:onlineSessionId,room:roomCode,seat:myPlayer},0);
+}
+function fbAusgetragenReclaim(ctx,versuch){
+  setTimeout(async()=>{
+    if(ctx.sid!==onlineSessionId||ctx.room!==roomCode||ctx.seat!==myPlayer)return;
+    if(typeof fbV11State!=='undefined'&&fbV11State!=='lobby')return;
+    const rec=playersRoster&&playersRoster[ctx.seat];
+    const r=await reclaimSeatSlot(ctx.room,ctx.seat,null,rec&&typeof rec.name==='string'?sanitizeName(rec.name):'',
+      !(rec&&rec.uid),fbRoomMode===FB_ONLINE_MODE_TEAM2).catch(()=>({ok:false,lost:true}));
+    if(r.ok||ctx.sid!==onlineSessionId||ctx.room!==roomCode)return;
+    if(versuch+1<AUSGETRAGEN_RUECKKEHR_MS.length){ fbAusgetragenReclaim(ctx,versuch+1); return; }
+    setStatus(T('rejoinWait'));
+  },AUSGETRAGEN_RUECKKEHR_MS[versuch]);
 }
 // Best-effort teardown of a just-created room whose create/arm/activate flow
 // failed or went stale. Nobody else can know the code yet (it is only revealed
@@ -2964,6 +3005,7 @@ en:{tagline:'PULL BACK · RELEASE · KNOCK THEM OUT',chip:'FEATURED',
   hostTag:'HOST',fbLobbyHow1:'Pull your sphere → release → wait for the others.',fbLobbyHow2:'All players shoot at the same time.',
   fbReadyState:'READY',fbTimeUp:'TIME UP',
   fbYourTurn:'YOUR TURN',fbOppTurn:"OPPONENT'S TURN",
+  fbWatchLost:'Connection lost for too long – you can only watch this match.',
   fbLobbyTacHow1:'Each player leads two figures. Every round, both players move one of them at the same time.',
   fbLobbyTac4How1:'Each player leads four figures. Per turn, one player moves any one of them.',fbLobbyTacHow2:'Turns alternate. Blue opens.',
   createRoom:'Create room',join:'Join',enterCode:'ENTER CODE',back:'↩ Back',yourCode:'YOUR CODE',waitMate:'Waiting for opponent…',lobby:'LOBBY',lobbyGo:'▶ Start',
@@ -3073,6 +3115,7 @@ de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'FEATURED',
   hostTag:'HOST',fbLobbyHow1:'Zieh deine Kugel → loslassen → auf die anderen warten.',fbLobbyHow2:'Alle Spieler schießen gleichzeitig.',
   fbReadyState:'BEREIT',fbTimeUp:'ZEIT ABGELAUFEN',
   fbYourTurn:'DEIN ZUG',fbOppTurn:'GEGNER AM ZUG',
+  fbWatchLost:'Verbindung zu lange unterbrochen – du kannst in diesem Match nur noch zuschauen.',
   fbLobbyTacHow1:'Jeder Spieler führt zwei Figuren. In jeder Runde bewegen beide gleichzeitig eine davon.',
   fbLobbyTac4How1:'Jeder Spieler führt vier Figuren. Pro Zug bewegt ein Spieler eine beliebige davon.',fbLobbyTacHow2:'Die Züge wechseln sich ab. Blau beginnt.',
   createRoom:'Raum erstellen',join:'Beitreten',enterCode:'CODE EINGEBEN',back:'↩ Zurück',yourCode:'DEIN CODE',waitMate:'Warte auf Gegner…',lobby:'LOBBY',lobbyGo:'▶ Start',
@@ -3182,6 +3225,7 @@ tr:{tagline:'GERİ ÇEK · BIRAK · DIŞARI İT',chip:'FEATURED',
   hostTag:'HOST',fbLobbyHow1:'Topunu çek → bırak → diğerlerini bekle.',fbLobbyHow2:'Tüm oyuncular aynı anda vurur.',orLbl:'VEYA',refresh:'YENİLE',
   fbReadyState:'HAZIR',fbTimeUp:'SÜRE DOLDU',
   fbYourTurn:'SIRA SENDE',fbOppTurn:'SIRA RAKİPTE',
+  fbWatchLost:'Bağlantı çok uzun süre kesildi – bu maçı artık yalnızca izleyebilirsin.',
   fbLobbyTacHow1:'Her oyuncu iki figür yönetir. Her turda iki oyuncu da aynı anda birini oynatır.',
   fbLobbyTac4How1:'Her oyuncu dört figür yönetir. Her turda bir oyuncu istediği birini oynatır.',fbLobbyTacHow2:'Sıra dönüşümlü. Mavi başlar.',
   createRoom:'Oda kur',join:'Katıl',enterCode:'KOD GİR',back:'↩ Geri',yourCode:'KODUN',waitMate:'Rakip bekleniyor…',lobby:'LOBİ',lobbyGo:'▶ Başlat',
@@ -14247,6 +14291,7 @@ function fbV9LebenAktuell(L){
       && L.gen===gen && L.seat===myPlayer && L.stufe!=='STOPPED';
 }
 function fbV9LebenStop(){
+  fbV9ZuschauStop();
   const L=fbV9Leben;
   if(!L)return;
   fbV9Leben=null;
@@ -14323,6 +14368,8 @@ function fbV9LebenFortsetzen(turn){
 // nach dem Neuladen, c-Knoten noch nicht gemeldet). Das ist ein Zustand von
 // Millisekunden - kein Dialog, kein Hinweis; whoCanAim und die Stand-Taste warten.
 function fbV9EingabeOffen(){
+  // Der ausgetragene Sitz schaut nur noch zu (fbV9ZuschauStart): keine Geste, kein Zug.
+  if(fbV9EigenAusgetragen())return false;
   const L=fbV9Leben;
   return !(fbV9LebenAktuell(L)&&L.lauf&&L.lauf.eigenUnbekannt);
 }
@@ -14420,7 +14467,11 @@ function fbV9HudPaint(){
   // gleichzeitig und bekommt dieselbe Zeile wie die Lebensregel (Restzeit, BEREIT, ZEIT UM).
   const tac=(typeof fbTacAbwechselnd==='function')&&fbTacAbwechselnd();
   let vorsatz='';
-  if(sichtbar&&tac&&!fbTacAmZug(myPlayer)){ txt=T('fbOppTurn'); klasse='wait'; }
+  // AUSGETRAGEN nach abgelaufener Rueckkehrfrist: dieser Sitz schaut nur noch zu - und das
+  // wird ihm gesagt, durchgehend, auch waehrend die Runden der anderen laufen. Nur fuer
+  // diesen einen Grund: wer wegen fehlender Bereitschaft draussen ist, bekommt den Satz nicht.
+  if(typeof fbV9ZuschauHinweis==='function'&&fbV9ZuschauHinweis()&&phase!=='over'&&footballWinner===null&&!menuVisible){ txt=T('fbWatchLost'); klasse='aus'; }
+  else if(sichtbar&&tac&&!fbTacAmZug(myPlayer)){ txt=T('fbOppTurn'); klasse='wait'; }
   else if(sichtbar){
     if(tac)vorsatz=T('fbYourTurn');
     const rest=fbV9HudRest(h);
@@ -14471,6 +14522,7 @@ function fbV9HudPaint(){
   el.classList.toggle('done',klasse==='done');
   el.classList.toggle('late',klasse==='late');
   el.classList.toggle('wait',klasse==='wait');
+  el.classList.toggle('aus',klasse==='aus');
   // VORLESEN: eine laufende Zahl ist fuer eine Sprachausgabe Laerm, kein Inhalt. Sie
   // wird deshalb verschwiegen - aber NICHT, indem die Live-Region selbst versteckt und
   // spaeter wieder gezeigt wuerde: eine Region, die kommt und geht, sagt je nach
@@ -14574,12 +14626,18 @@ function fbV9LebenOffenWache(L){
 // Sekunden geschlossen.
 let fbV9AufholLauf=false;
 function fbV9LebenAufholen(L){
-  if(!fbV9LebenAktuell(L)||L.uebergeben||fbV9AufholLauf)return;
+  if(!fbV9LebenAktuell(L)||L.uebergeben)return;
+  // Nicht nachrechenbar (Lesefehler, Luecke): dann der bisherige Weg - die Runde live uebernehmen.
+  fbV9Aufholen(()=>{ if(fbV9LebenAktuell(L)&&!L.uebergeben)fbV9LebenRundeSteht(L); });
+}
+// Der eine Aufholweg - fuer den Rueckkehrer (oben) und den Beobachter (fbV9ZuschauSchritt).
+// Hoechstens ein Lauf zur selben Zeit; `sonst` laeuft nur, wenn die Historie nichts hergab.
+function fbV9Aufholen(sonst){
+  if(fbV9AufholLauf)return;
   fbV9AufholLauf=true;
   Promise.resolve(fbV9Rehydrieren(fbV9LebenCtx(0))).then(erg=>{
     fbV9AufholLauf=false;
-    // Nicht nachrechenbar (Lesefehler, Luecke): dann der bisherige Weg - die Runde live uebernehmen.
-    if(erg&&erg.fehler&&fbV9LebenAktuell(L)&&!L.uebergeben)fbV9LebenRundeSteht(L);
+    if(erg&&erg.fehler&&typeof sonst==='function')sonst();
   }).catch(()=>{ fbV9AufholLauf=false; });
 }
 function fbV9LebenOffenWacheAus(L){
@@ -14700,6 +14758,9 @@ function fbV9LebenRausSchritt(L){
 function fbV9Praesenzwechsel(){
   const L=fbV9Leben;
   if(!fbV9LebenAktuell(L))return 0;
+  // Der EIGENE Sitz ist ausgetragen (der Austragungsbeobachter meldet seinen Marker ueber diesen
+  // Eingang): dann handelt dieser Client nicht mehr, er schaut zu (fbV9ZuschauWechsel).
+  if(typeof fbEvicted==='function'&&fbEvicted(myPlayer)){ fbV9ZuschauWechsel(); return 0; }
   if(L.bereit)fbV9ReadySchritt(L.bereit);
   // Ein abgewiesener Rundenbeginn haengt an der Praesenz - sie neu zu bewerten gehoert dazu.
   if(L.lauf&&L.lauf.offen)fbV9OpenAbgleich(L.lauf);
@@ -14992,7 +15053,11 @@ async function fbV9Rehydrieren(ctx){
   const n=turnNo;
   // Der eigene Sitz ist draussen: kein handelnder Lauf mehr. Nichts wird geloescht.
   const eigenRaus=(hist.e&&hist.e[ctx.seat]===true)||fbV9DisqualifyOk(hist.x&&hist.x[ctx.seat]);
-  if(eigenRaus)return {ok:true,stufe:'DRAUSSEN'};
+  if(eigenRaus){
+    // Der AUSGETRAGENE Sitz folgt dem Match ab hier als Beobachter (fbV9ZuschauStart).
+    if(hist.e&&hist.e[ctx.seat]===true)fbV9ZuschauStart(n,hist);
+    return {ok:true,stufe:'DRAUSSEN'};
+  }
   // Ist die Runde bereits AUTORITATIV eroeffnet, laeuft die Frist schon: dann wird die
   // Bereitschaft NICHT neu aufgerollt, sondern unmittelbar die Ablaufsteuerung
   // fortgesetzt. Sie uebernimmt ihr eigenes Terminal aus dem Raum und holt - wenn es
@@ -15037,6 +15102,118 @@ function fbV9RaumStart(){
   return true;
 }
 
+// ── ZUSCHAUEN: DER AUSGETRAGENE SITZ FOLGT DEM MATCH, OHNE ZU SCHREIBEN ──────────────────
+// Wer laenger als die Rueckkehrfrist getrennt war, ist fuer dieses Match ausgetragen
+// (g/<gen>/e/<sitz>, write-once): seine Figur bleibt, sein Sitz zieht nicht mehr. Kommt sein
+// Client zurueck, blieb er bisher auf dem Stand seiner letzten Runde stehen - ein
+// eingefrorenes Feld ohne jeden Hinweis, auf dem sich die eigene Figur sogar noch ziehen
+// liess (reproduziert 2026-10-02). Jetzt folgt er dem Match als reiner BEOBACHTER:
+//   * Er liest, er schreibt nicht. Keine Bereitschaft, kein Zug, kein Terminal, kein Anker -
+//     weder Bereitschafts- noch Ablaufsteuerung laufen fuer ihn. Sein Slot wird weiter von
+//     den anderen mit `remove` geschlossen; daran aendert seine Rueckkehr nichts.
+//   * Gezeigt wird eine Runde erst, wenn ihr ABSCHLUSSANKER z/<runde> im Raum steht. Dann
+//     ist sie fuer alle entschieden und jede Enthuellung oeffentlich - vorher sieht er von
+//     ihr nichts. Die Zugmenge entsteht durch dieselbe Deutung wie im laufenden Spiel und
+//     in der Rehydrierung (fbV9AcceptedSet) und geht ueber denselben Abschussweg (fbV9Wirken).
+//   * Liegt er mehr als eine Runde zurueck, rechnet er ueber die Historie nach (fbV9Aufholen).
+// Nach dem Match kommt er mit der Lobby ueber den bestehenden Weg zurueck (fbAusgetragenZurueck
+// in der Praesenz-Schicht); das naechste Match hat eine neue Generation ohne Marker.
+let fbV9Zuschau=null;        // der Beobachter der laufenden Runde
+// Warum dieser Sitz in DIESER Generation draussen ist - einmal bestimmt, dann behalten.
+let fbV9ZuschauGrund=null;   // {room,gen,seat,grund}
+const FB_V9_RAUS_VERBINDUNG='verbindung', FB_V9_RAUS_BEREITSCHAFT='bereitschaft';
+// Der Grund aus dem MASSGEBLICHEN Zustand der Generation, in derselben Rangfolge wie die
+// Bereitschaftsbarriere (fbV9ReadySeatState): steht eine gueltige Disqualifikation x, war
+// die fehlende Bereitschaft der Anlass - gegen einen bereits ausgetragenen Sitz wird keine
+// Bereitschaftsfrist mehr geschlossen, x kann also nur VOR e entstanden sein. Nur der
+// Marker e ALLEIN heisst: die Rueckkehrfrist ist abgelaufen. (Den Marker setzt auch ein
+// bewusster Austritt - der nimmt aber im selben Schreibvorgang den Sitz zurueck, und in
+// ein laufendes Match fuehrt dann kein Weg mehr; dieser Client sitzt hier nur, weil sein
+// Sitz ihm noch gehoert.)
+function fbV9DraussenGrund(e,x,seat){
+  if(fbV9DisqualifyOk(x&&x[seat]))return FB_V9_RAUS_BEREITSCHAFT;
+  if(e&&e[seat]===true)return FB_V9_RAUS_VERBINDUNG;
+  return '';
+}
+function fbV9ZuschauGilt(){
+  const g=fbV9ZuschauGrund;
+  return !!g&&!!online&&g.room===roomCode&&g.gen===gen&&g.seat===myPlayer;
+}
+// Nur dieser eine Grund traegt den Satz „Verbindung zu lange unterbrochen".
+function fbV9ZuschauHinweis(){ return fbV9ZuschauGilt()&&fbV9ZuschauGrund.grund===FB_V9_RAUS_VERBINDUNG; }
+function fbV9ZuschauGrundSetzen(e,x){
+  const grund=fbV9DraussenGrund(e,x,myPlayer);
+  if(grund)fbV9ZuschauGrund={room:roomCode,gen:gen,seat:myPlayer,grund:grund};
+}
+// Ist der eigene Sitz in diesem Match ausgetragen? Die Eingabe fragt das (fbV9EingabeOffen).
+function fbV9EigenAusgetragen(){
+  if(!fbV9LebenAn())return false;
+  return (typeof fbEvicted==='function'&&fbEvicted(myPlayer))||fbV9ZuschauGilt();
+}
+function fbV9ZuschauAktuell(Z){
+  return !!Z&&fbV9Zuschau===Z&&Z.sid===onlineSessionId&&Z.room===roomCode&&Z.gen===gen&&Z.seat===myPlayer;
+}
+function fbV9ZuschauStop(){
+  const Z=fbV9Zuschau;
+  if(!Z)return;
+  fbV9Zuschau=null;
+  if(Z.ab){ try{ Z.ab(); }catch(e){} Z.ab=null; }
+}
+// Beobachtet GENAU die Runde `turn`: ihren Abschluss, den der Folgerunde (liegt dieser
+// Client zurueck?) und die beiden Knoten, aus denen die Zugmenge entsteht. Den Grund liest
+// er nur, solange er ihn fuer diese Generation noch nicht kennt.
+function fbV9ZuschauStart(turn,hist){
+  fbV9LebenStop();
+  if(!fbV9LebenAn()||!Number.isInteger(turn)||turn<0)return null;
+  const ctx=fbV9LebenCtx(turn);
+  if(!fbV9CtxOk(ctx))return null;
+  if(hist)fbV9ZuschauGrundSetzen(hist.e,hist.x);
+  const Z={sid:onlineSessionId,room:roomCode,gen:gen,seat:myPlayer,turn:turn,ctx:ctx,
+           ab:null,rechnet:false,angewandt:false};
+  fbV9Zuschau=Z;
+  const wege=[['z/'+turn,'z'],['z/'+(turn+1),'zn'],['c/'+turn,'c'],['r/'+turn,'r']];
+  if(!fbV9ZuschauGilt())wege.push(['e','e'],['x','x']);
+  Z.ab=fbV9NetWatch(ctx,wege,st=>fbV9ZuschauSchritt(Z,st));
+  return Z;
+}
+async function fbV9ZuschauSchritt(Z,st){
+  if(!fbV9ZuschauAktuell(Z)||Z.angewandt)return;
+  if(!fbV9ZuschauGilt())fbV9ZuschauGrundSetzen(st.e,st.x);
+  if(Z.rechnet)return;
+  // Solange der Abschlussanker fehlt, LAEUFT die Runde - und nichts von ihr wird gezeigt.
+  if(!fbV9AnkerOk(st.z))return;
+  // Auch die Folgerunde ist schon abgeschlossen: zurueckliegen holt die Historie auf.
+  if(fbV9AnkerOk(st.zn)){ fbV9Aufholen(); return; }
+  const soll=fbV9CtxBesetzung(Z.ctx);
+  // Der Anker steht, die Knoten daneben sind noch unterwegs: der naechste Schnappschuss bringt sie.
+  if(!fbV9CommitsComplete(soll,st.c)||!fbV9ResultsComplete(soll,st.c,st.r))return;
+  Z.rechnet=true;
+  let menge=null;
+  try{ menge=await fbV9AcceptedSet({room:Z.room,gen:Z.gen,turn:Z.turn},soll,st.c,st.r); }
+  catch(e){ menge=null; }
+  Z.rechnet=false;
+  if(!fbV9ZuschauAktuell(Z)||Z.angewandt)return;
+  // Nichts wird geraten: passt die Runde nicht zur Welt oder taugt die Menge nicht, entscheidet
+  // die Historie - und scheitert auch sie, bleibt der Stand stehen (der Hinweis steht weiter da).
+  if(Z.turn!==turnNo||phase!=='aim'||!menge||!fbV9AcceptedOk(menge,soll)){ fbV9Aufholen(); return; }
+  Z.angewandt=true;
+  fbV9ZuschauStop();
+  // Der BESTEHENDE Abschussweg. Am Settlement ruft das Spiel fbV9LebenNeueRunde - und dort
+  // beginnt, solange das Match laeuft, die Beobachtung der naechsten Runde.
+  fbV9Wirken(menge,soll);
+}
+// Der Austragungsmarker fuer den EIGENEN Sitz ist gerade bekannt geworden (fbV9Praesenzwechsel),
+// waehrend dieser Client noch als Spieler laeuft - der Normalfall nach einem langen Funkabriss
+// ohne Neuladen. Ab jetzt handelt er nicht mehr: Bereitschaft und Ablaufsteuerung enden sofort.
+// Steht er in der Zielphase, beginnt das Zuschauen gleich; laeuft noch Physik, beginnt es an
+// ihrem Settlement (fbV9LebenNeueRunde).
+function fbV9ZuschauWechsel(){
+  const L=fbV9Leben;
+  if(!fbV9LebenAn()||!fbV9LebenAktuell(L))return;
+  if(typeof fbEvicted!=='function'||!fbEvicted(myPlayer))return;
+  fbV9LebenStop();
+  if(phase==='aim'&&L.turn===turnNo&&!L.angewandt)fbV9ZuschauStart(turnNo,null);
+}
 // ── DIE BEIDEN HAKEN AUS DEM SPIEL ──────────────────────────────────────────
 // Beide liegen unmittelbar hinter dem bestehenden onlineArmTurn: dort ist die
 // Rundennummer gesetzt, die Physik ausgelaufen, jede Tor-, Lebens- und
@@ -15055,9 +15232,9 @@ function fbV9LebenNeueRunde(){
   if(phase==='over')return null;
   // Ein entschiedenes Match bekommt keine naechste Runde - und damit auch kein q.
   if(typeof footballWinner!=='undefined'&&footballWinner!==null)return null;
-  // Der eigene Sitz ist ausgetragen oder dauerhaft disqualifiziert: dieser Client ist
-  // kein handelnder Teilnehmer mehr. Er raeumt nichts weg, er hoert auf.
-  if(typeof fbEvicted==='function'&&fbEvicted(myPlayer)){ fbV9LebenStop(); return null; }
+  // Der eigene Sitz ist ausgetragen: dieser Client ist kein handelnder Teilnehmer mehr. Er
+  // raeumt nichts weg und schreibt nichts - er schaut der Runde zu (fbV9ZuschauStart).
+  if(typeof fbEvicted==='function'&&fbEvicted(myPlayer)){ fbV9ZuschauStart(turnNo,null); return null; }
   return fbV9LebenBereit(turnNo);
 }
 // ════ ENDE V9-SPIELANBINDUNG ════
@@ -16249,6 +16426,8 @@ async function fbV11MatchAufnehmen(){
 function fbV11MatchVorbei(){
   if(!fbV11Raum())return;
   if(!fbV11ErgAb)fbV11ErgAb=Date.now();
+  // Ein Ausgetragener schaut nur zu und meldet auch das Ende nicht - das tun die Spielenden.
+  if(typeof fbEvicted==='function'&&fbEvicted(myPlayer))return;
   if(fbV11EndeBusy||fbV11State!=='playing'||!window.FB||!roomCode)return;
   fbV11EndeBusy=true;
   const ctx={sid:onlineSessionId,room:roomCode};
@@ -16354,6 +16533,7 @@ function fbV11Schritt(){
   if(fbV11State==='playing'){ fbV11MatchAufnehmen(); return; }
   if(fbV11State!=='lobby')return;
   fbV11PtWarteAus();   // der Raum spielt nicht mehr - es gibt nichts zu erwarten
+  if(typeof fbAusgetragenZurueck==='function')fbAusgetragenZurueck();   // ein im Match Ausgetragener kommt ueber den bestehenden Weg zurueck
   // Erst das Ergebnis, dann die Lobby - es sei denn, der Spieler hat es gelesen.
   if(gameStarted){ if(fbV11ErgWeg)fbV11ZurueckInLobby(); else fbV11ErgebnisFrist(); return; }
   if(ffaRoom())renderLobby(lobbyP);   // der Raum spielt nicht mehr - die Lobby sagt es auch
@@ -16444,8 +16624,18 @@ async function attemptRejoin(code){
     const v11Zuschauer=!!(v11Teil&&v11Teil.indexOf(seat)<0);
     if(v.state==='playing'&&ffa&&!fbFassungV11(d.v)&&seat>=v.seats){ forgetRoom(); setStatus(T('rejoinNoLobby')); return false; }   // match started without this seat
     if(d.p&&seatActive(d.p,seat)){ setStatus(T('rejoinTab')); return false; }
+    // AUSGETRAGEN (Marker e) im LAUFENDEN v11-Match: die Rules
+    // sperren die Uebernahme dieses Sitzes ausdruecklich, solange der Raum spielt - jeder Claim
+    // liefe ins Leere ("Sitz ist noch reserviert"). Er schaut deshalb REIN LESEND zu: kein Claim,
+    // keine Praesenz, kein Zug. Die Welt entsteht wie bei jeder Rueckkehr aus der Historie, und
+    // die Rehydrierung uebergibt an den Beobachter der v9-Schicht. Die naechste Lobby nimmt
+    // ihn ueber den Rueckkehrweg wieder auf (fbAusgetragenZurueck). Welcher Hinweis gilt, entscheidet
+    // die v9-Schicht aus e und x.
+    const gNow=d.g&&d.g[v.gen];
+    const nurLesend=rjFb&&fbFassungV11(d.v)&&v.state==='playing'&&!!v11Teil&&!v11Zuschauer
+      &&!!(gNow&&gNow.e&&gNow.e[seat]===true);
     const oldRec=d.players&&d.players[seat];
-    const claim=await reclaimSeatSlot(code,seat,op,oldRec&&typeof oldRec.name==='string'?sanitizeName(oldRec.name):'',
+    const claim=nurLesend?{ok:true}:await reclaimSeatSlot(code,seat,op,oldRec&&typeof oldRec.name==='string'?sanitizeName(oldRec.name):'',
       !(oldRec&&oldRec.uid), v.mode===FB_ONLINE_MODE_TEAM2);   // Seat ohne uid -> Legacy-Reclaim, keine Migration
     if(claim.stale)return false;   // op superseded -> own presence already dropped again
     if(claim.lost){
@@ -16497,6 +16687,8 @@ async function attemptRejoin(code){
       fbV11Gestartet=v.gen;
     }
     else if(rjFb)fbElimStartN=v.seats;   // dieselbe kanonische Quelle wie beim Start
+    // Rein lesend (s. oben): vermerkt, damit die naechste Lobby den Sitz ueber den Rueckkehrweg zurueckholt.
+    rejoinNurLesend=nurLesend?{room:code,gen:v.gen,seat:seat}:null;
     gameStarted=true;
     // Ein LAUFENDES Match startet sich bei der Rueckkehr SELBST - aus der Zughistorie
     // (fastForwardMatch) bzw. der v9-Rehydrierung; beide Wege rufen startOnlineGame.
@@ -17638,6 +17830,9 @@ function startEvictionWatch(){
       // stehen, das nicht mehr gilt.
       if(fbPermanentExitHappened()&&$('rematchBtn')&&!((typeof fbV11Raum==='function')&&fbV11Raum()))$('rematchBtn').style.display='none';
       fbMaybeWriteRemoves();
+      // v11: auch ein Austragungsmarker bewegt die Teilnahme - derselbe Eingang wie ein
+      // Praesenzwechsel. Ist es der EIGENE Sitz, schaut dieser Client ab hier nur noch zu.
+      if((typeof fbV11Raum==='function')&&fbV11Raum()&&typeof fbV9Praesenzwechsel==='function')fbV9Praesenzwechsel();
     });
   }catch(e){ evUnsub=null; }
 }
@@ -17650,6 +17845,8 @@ function fbWriteEviction(seat,fertig){
   if(seat<0||seat>=fbElimPlayers())return false;
   if(fbEvicted(seat)||fbExitBusy[seat])return false;
   if(seat===myPlayer)return false;                 // der eigene Austritt laeuft ueber leaveOnline
+  // Wer selbst ausgetragen ist, schaut nur zu und traegt niemanden aus - das tun die Spielenden.
+  if(fbEvicted(myPlayer))return false;
   if(!fbGraceExpired(seat))return false;           // nur ein wirklich abgelaufener Sitz
   if(seatActive(roomP,seat))return false;          // zurueck? dann nicht
   const ctx={sid:onlineSessionId,room:roomCode,gen:gen};
