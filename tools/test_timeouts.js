@@ -42,6 +42,8 @@ const K = {
   HOST_EXTRA_GRACE_MS: zahl(/const HOST_EXTRA_GRACE_MS=(\d+);/, 'HOST_EXTRA_GRACE_MS'),
   ROOM_MAX_AGE_MS: zahl(/const ROOM_MAX_AGE_MS=(\d+);/, 'ROOM_MAX_AGE_MS'),
   GEN_MAX: zahl(/const GEN_MAX=(\d+)/, 'GEN_MAX'),
+  KONTINGENT_FENSTER_MS: zahl(/const KONTINGENT_FENSTER_MS=(\d+);/, 'KONTINGENT_FENSTER_MS'),
+  RAUM_WARTEZEIT_MS: zahl(/const RAUM_WARTEZEIT_MS=(\d+);/, 'RAUM_WARTEZEIT_MS'),
 };
 // Die abgeleiteten Fristen stehen im Client als AUSDRUCK da - genau das ist der Punkt:
 // sie sind keine zweite Zahl, sondern eine Rechnung auf der ersten.
@@ -131,6 +133,10 @@ const ERWARTET = [
   // dieselbe Zahl wie SIM_REPLAY_MAX_STEPS im Client. Ein hoeherer Tick liesse sich
   // nicht mehr nachrechnen und wird deshalb gar nicht erst angenommen.
   { bedeutung: 'Hoechster Sub-Step-Zaehler einer Wand',        pfad: '/rooms/$code/g/$gen/rw/$turn/$seat/k', feld: '.validate', wert: 20000,          mal: 1, quelle: 'SIM_REPLAY_MAX_STEPS' },
+  // Seit 2026-10-03: Schutz gegen massenhaftes Raumanlegen (rl/g, rl/l: rollierendes Fenster; rl/u: Wartezeit je Konto).
+  { bedeutung: 'Kontingentfenster Raumanlage',                  pfad: '/rl/g/$slot',                             feld: '.validate', wert: K.KONTINGENT_FENSTER_MS, mal: 1, quelle: 'KONTINGENT_FENSTER_MS' },
+  { bedeutung: 'Kontingentfenster Listeneintrag',               pfad: '/rl/l/$slot',                             feld: '.validate', wert: K.KONTINGENT_FENSTER_MS, mal: 1, quelle: 'KONTINGENT_FENSTER_MS' },
+  { bedeutung: 'Wartezeit je Konto zwischen zwei Anlagen',      pfad: '/rl/u/$uid',                              feld: '.validate', wert: K.RAUM_WARTEZEIT_MS,     mal: 1, quelle: 'RAUM_WARTEZEIT_MS' },
   { bedeutung: 'Rundenparitaet Tactical (gerade Endziffern)',   pfad: '/rooms/$code/g/$gen/c/$turn/$seat',      feld: '.write', wert: 2468,                   mal: 1, quelle: 'fbTacAktivSitz' },
 ];
 

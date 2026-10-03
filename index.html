@@ -1737,7 +1737,7 @@ body.roAus #fbQuick .soon-s{color:#a9c6ea;font-size:clamp(9.5px,2.6vw,11.5px);te
       <div class="oct" id="onJoinT">Raum beitreten</div>
       <div class="ocs" id="onJoinS">Tritt mit dem 4-stelligen Code bei.</div>
       <div id="onJoinRow">
-        <input id="onInput" maxlength="4" autocomplete="off" autocapitalize="characters" placeholder="CODE">
+        <input id="onInput" maxlength="9" autocomplete="off" autocapitalize="characters" placeholder="CODE">
         <button class="cbtn" id="onJoin">Beitreten</button>
       </div>
     </div>
@@ -1745,6 +1745,7 @@ body.roAus #fbQuick .soon-s{color:#a9c6ea;font-size:clamp(9.5px,2.6vw,11.5px);te
   <div id="onWait" style="display:none">
     <div id="onCodeLbl" style="font-size:10px;color:var(--muted);letter-spacing:.18em">DEIN CODE</div>
     <div id="onCode" style="font-size:42px;font-weight:900;letter-spacing:.28em;color:var(--gold);margin:6px 0"></div>
+    <style>#onCode.lang{font-size:30px;letter-spacing:.16em;white-space:nowrap}</style>
     <div id="onWaitTxt" style="font-size:11px;color:var(--muted)">Warte auf Mitspieler…</div>
   </div>
   <!-- FFA-Lobby (live seit M8-T3c; gefuettert vom Presence-Listener) -->
@@ -2242,11 +2243,13 @@ function findOwnSeat(players,pid,uid,hintSeat){
 function rememberRoom(code,seat){ try{ localStorage.setItem('ringout_room',JSON.stringify({code:code,seat:seat,ts:Date.now()})); }catch(e){} }
 // Die Rueckkehrleisten der Startseite folgen sofort - sonst boete sie einen verworfenen Raum an.
 function forgetRoom(){ try{ localStorage.removeItem('ringout_room'); }catch(e){} if(typeof updHomeRejoin==='function')try{updHomeRejoin();}catch(e){} }
+// Raumcodes: oeffentlich 4 Zeichen, privat 8 (s. raumcodeNeu). Hier definiert, weil savedRoom sie braucht.
+const RAUMCODE_RE=/^[A-HJKMNP-Z2-9]{4}(?:[A-HJKMNP-Z2-9]{4})?$/;
 function savedRoom(){
   let raw=''; try{ raw=localStorage.getItem('ringout_room')||''; }catch(e){ return null; }
   if(!raw)return null;
   try{ const o=JSON.parse(raw);
-    if(o&&typeof o.code==='string'&&/^[A-HJKMNP-Z2-9]{4}$/.test(o.code)&&(Date.now()-o.ts)<7200000)return o;
+    if(o&&typeof o.code==='string'&&RAUMCODE_RE.test(o.code)&&(Date.now()-o.ts)<7200000)return o;
   }catch(e){}
   return null;
 }
@@ -2612,7 +2615,11 @@ async function abortFreshRoom(code,dc,listed,seat){
 // with NO names, modes or player counts (those are read live from rooms/<code>). Only
 // public, successfully activated rooms are listed; private rooms never are.
 function publicListingRef(code){ return window.FB.ref(window.FB.db,'publicRooms/'+code); }
-async function writePublicListing(code){ await window.FB.set(publicListingRef(code),{created:window.FB.serverTimestamp()}); }
+async function writePublicListing(code){
+  const ts=window.FB.serverTimestamp();
+  await kontingentSchreiben(LISTEN_KONTINGENT,k=>{ const u={};
+    u['publicRooms/'+code]={created:ts,k:k}; u['rl/l/'+k]={t:ts,c:code}; return u; });
+}
 // Best-effort listing removal (match start / host leave / room cleanup). Must never
 // block a match or a leave, so errors are swallowed. Only call for rooms that actually
 // have a listing (guarded by roomPublic / createVisibility at each call site).
@@ -3022,7 +3029,7 @@ en:{tagline:'PULL BACK · RELEASE · KNOCK THEM OUT',chip:'FEATURED',
   fbFinal:'FINAL PLAY',
   fbGolden:'GOLDEN GOAL',
   creating:'Creating room…',ffaShare:'FFA · Share the code with 1–4 friends.',shareCode:'Share the code with your friend.',
-  code4:'Please enter the 4-letter code.',joining:'Joining…',noRoom:'Room not found.',roomFull:'Room is already full.',
+  code4:'Please enter the 4- or 8-letter code.',roomBusy:'Lots of rooms are being created right now – please try again in a moment.',joining:'Joining…',noRoom:'Room not found.',roomFull:'Room is already full.',
   joinBusy:'Seats are being taken right now — please try again.',
   joinStuck:'Connection is not responding. Tap JOIN again.',
   connWait:'Connected! Waiting for the host…',connStart:'Connected! Game starting…',
@@ -3132,7 +3139,7 @@ de:{tagline:'ZIEH ZURÜCK · LASS LOS · SCHIEB IHN RAUS',chip:'FEATURED',
   fbFinal:'LETZTE AKTION',
   fbGolden:'GOLDEN GOAL',
   creating:'Erstelle Raum…',ffaShare:'FFA · Schick den Code an 1–4 Freunde.',shareCode:'Schick den Code an deinen Kumpel.',
-  code4:'Bitte 4-stelligen Code eingeben.',joining:'Trete bei…',noRoom:'Raum nicht gefunden.',roomFull:'Raum ist schon voll.',
+  code4:'Bitte den 4- oder 8-stelligen Code eingeben.',roomBusy:'Gerade werden sehr viele Räume erstellt – bitte gleich noch einmal versuchen.',joining:'Trete bei…',noRoom:'Raum nicht gefunden.',roomFull:'Raum ist schon voll.',
   joinBusy:'Gerade wird um die Plätze gerungen — bitte nochmal versuchen.',
   joinStuck:'Verbindung antwortet nicht. Bitte nochmal auf BEITRETEN tippen.',
   connWait:'Verbunden! Warte auf den Host…',connStart:'Verbunden! Spiel startet…',
@@ -3242,7 +3249,7 @@ tr:{tagline:'GERİ ÇEK · BIRAK · DIŞARI İT',chip:'FEATURED',
   fbFinal:'SON HAMLE',
   fbGolden:'ALTIN GOL',
   creating:'Oda kuruluyor…',ffaShare:'FFA · Kodu 1–4 arkadaşına gönder.',shareCode:'Kodu arkadaşına gönder.',
-  code4:'Lütfen 4 haneli kodu gir.',joining:'Katılınıyor…',noRoom:'Oda bulunamadı.',roomFull:'Oda zaten dolu.',
+  code4:'Lütfen 4 veya 8 haneli kodu gir.',roomBusy:'Şu anda çok fazla oda oluşturuluyor – lütfen birazdan tekrar dene.',joining:'Katılınıyor…',noRoom:'Oda bulunamadı.',roomFull:'Oda zaten dolu.',
   joinBusy:'Şu anda yerler kapılıyor — lütfen tekrar dene.',
   joinStuck:'Bağlantı yanıt vermiyor. Tekrar KATIL\'a dokun.',
   connWait:'Bağlandı! Host bekleniyor…',connStart:'Bağlandı! Oyun başlıyor…',
@@ -11694,10 +11701,71 @@ function fbFailKey(){ return (window.__FB_AUTH_ERR||(window.__FB_READY&&!window.
 // sind aelter als dieser Client (er legt v8-Raeume an). Der Text sagt das - der
 // technische Grund bleibt daneben stehen, damit ein Bericht ihn noch enthaelt.
 function onlineErrText(e){
+  if(e&&e.kontingent)return e.message;
   const m=(e&&(e.message||e.code))||String(e||'');
   return /PERMISSION_DENIED|permission[_ ]denied/i.test(m)?(T('errRules')+' ('+m+')'):(T('err')+m);
 }
 function rrand(n){let s='';const ch='ABCDEFGHJKMNPQRSTUVWXYZ23456789';for(let i=0;i<n;i++)s+=ch[Math.floor(Math.random()*ch.length)];return s;}
+// ==RAUMANLAGE==
+// ── RAUMCODES: OEFFENTLICH 4 ZEICHEN, PRIVAT 8 ZEICHEN AUS KRYPTOGRAFISCHEM ZUFALL ──────────
+// Jeder Raum ist per Code lesbar - das braucht die Rueckkehr, das Zuschauen und die Liste. Ein
+// privater Raum ist deshalb genau so privat wie sein Code unerratbar ist: vier Zeichen (31^4 =
+// 923.521) liessen sich in Minuten durchprobieren, acht (31^8 ≈ 8,5·10^11) nicht. Die Rules
+// koppeln die Laenge an die Sichtbarkeit; oeffentliche Raeume behalten den kurzen Code, den man
+// weitersagen kann. Gleichverteilt: Bytes ab 248 (= 8·31) werden verworfen.
+const RAUMCODE_ZEICHEN='ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+function raumcodeNeu(n){
+  const out=[], b=new Uint8Array(16);
+  while(out.length<n){ crypto.getRandomValues(b); for(const x of b)if(x<248&&out.length<n)out.push(RAUMCODE_ZEICHEN[x%31]); }
+  return out.join('');
+}
+// Anzeige: acht Zeichen in zwei Vierergruppen - optisch getrennt, der Text bleibt der Code selbst
+// (ohne Leerzeichen), damit Kopieren und jede Auswertung der Anzeige genau den Code erhalten.
+function raumcodeZeigen(c){
+  const el=$('onCode'); if(!el)return;
+  const lang=typeof c==='string'&&c.length===8;
+  if(el.classList&&typeof el.classList.toggle==='function')el.classList.toggle('lang',lang);
+  if(!lang||typeof document==='undefined'||typeof document.createElement!=='function'){ el.textContent=c||''; return; }
+  el.textContent='';
+  const vorn=document.createElement('span'); vorn.textContent=c.slice(0,4); vorn.style.marginRight='.45em';
+  const hinten=document.createElement('span'); hinten.textContent=c.slice(4);
+  el.appendChild(vorn); el.appendChild(hinten);
+}
+// ── RAUMANLAGE MIT KONTINGENT (Rules: rl/g, rl/u, rl/l) ─────────────────────────────────────
+// Jede Anlage belegt im SELBEN atomaren Schreibvorgang einen Platz des globalen Kontingents (60
+// je rollierende Minute) und die Wartezeit dieses Kontos (20 s); jeder oeffentliche Listeneintrag
+// einen Platz eines eigenen Kontingents (12 je Minute). Damit begrenzt der Server, wie viele Raeume
+// und Listeneintraege ueberhaupt entstehen koennen - gleich wie viele anonyme Konten jemand hat.
+// Die Plaetze sind fuer niemanden lesbar: ein belegter Platz wird abgewiesen, dann wird ein
+// anderer zufaelliger versucht - hoechstens KONTINGENT_VERSUCHE Mal, kein endloses Wiederholen.
+const RAUM_KONTINGENT=60, LISTEN_KONTINGENT=12, KONTINGENT_VERSUCHE=6;
+// Dieselben Zahlen wie in den Rules (rl/g, rl/l: Fenster; rl/u: Wartezeit) - tools/test_timeouts.js haelt sie zusammen.
+const KONTINGENT_FENSTER_MS=60000;
+const RAUM_WARTEZEIT_MS=20000;
+async function kontingentSchreiben(plaetze,bau){
+  const reihe=[...Array(plaetze).keys()];
+  for(let i=reihe.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); const x=reihe[i]; reihe[i]=reihe[j]; reihe[j]=x; }
+  let letzter=null;
+  for(const k of reihe.slice(0,KONTINGENT_VERSUCHE)){
+    try{ await window.FB.update(window.FB.ref(window.FB.db,'/'),bau(k)); return k; }
+    catch(e){ letzter=e; if(!/permission[_ ]?denied/i.test(String((e&&(e.code||e.message))||e)))throw e; }
+  }
+  const f=new Error(T('roomBusy')); f.kontingent=true; f.original=letzter; throw f;
+}
+// Die eigene Wartezeit kennt dieser Client selbst: wer gerade erst einen Raum angelegt hat, wartet
+// den Rest still ab, statt am Server abgewiesen zu werden (gemerkt ueber ein Neuladen hinweg).
+function raumWartezeitRest(){
+  let t=0; try{ t=Number(localStorage.getItem('ringout_last_create'))||0; }catch(e){}
+  return Math.max(0,t+RAUM_WARTEZEIT_MS+1500-Date.now());
+}
+async function raumAnlegen(code,room){
+  const ts=window.FB.serverTimestamp(), uid=fbUid();
+  const k=await kontingentSchreiben(RAUM_KONTINGENT,k=>{ room.k=k; const u={};
+    u['rooms/'+code]=room; u['rl/g/'+k]={t:ts,c:code}; u['rl/u/'+uid]={t:ts,c:code}; return u; });
+  try{ localStorage.setItem('ringout_last_create',String(Date.now())); }catch(e){}
+  return k;
+}
+// ==/RAUMANLAGE==
 function rRef(p){return window.FB.ref(window.FB.db,'rooms/'+roomCode+(p?'/'+p:''));}
 function setStatus(t){const e=$('onStatus');if(e)e.textContent=t;}
 
@@ -11942,7 +12010,9 @@ function createRoom(){
     const visibility = createVisibility==='public' ? 'public' : 'private';
     try{
       setStatus(T('creating'));
-      for(let t=0;t<6;t++){ code=rrand(4); const s=await window.FB.get(window.FB.ref(window.FB.db,'rooms/'+code)); if(!joinOpCurrent(op))return; if(!s.exists())break; }
+      for(let t=0;t<6;t++){ code=raumcodeNeu(visibility==='public'?4:8); const s=await window.FB.get(window.FB.ref(window.FB.db,'rooms/'+code)); if(!joinOpCurrent(op))return; if(!s.exists())break; }
+      const warten=raumWartezeitRest();
+      if(warten>0){ await new Promise(r=>setTimeout(r,warten)); if(!joinOpCurrent(op))return; }
       // FFA-Kontext traegt das konkrete Format im fmt-Global: 'triple_ffa' bleibt
       // erhalten (TRIPLE-Karte/CTA), jedes andere Rest-fmt wird zu 'ffa' normalisiert.
       const fmtNew=fbo?FB_ONLINE_FMT:ffa?(fmt==='triple_ffa'||fmt==='team_duel'?fmt:'ffa'):fmt;
@@ -11980,7 +12050,7 @@ function createRoom(){
         p:{}, players:{}, created:window.FB.serverTimestamp()};
       room.p[wirtSitz]={s:onlineTab,on:false,t:window.FB.serverTimestamp()};
       room.players[wirtSitz]=rec0;
-      await window.FB.set(window.FB.ref(window.FB.db,'rooms/'+code), room);
+      await raumAnlegen(code, room);
       created=true;   // room exists from here on -> abortFreshRoom(code,...) below is now safe to call
       if(!joinOpCurrent(op)){ await abortFreshRoom(code,null,listed,wirtSitz); return; }
       // ARM: tokengebundener onDisconnect erst NACH der Reservierung.
@@ -12012,7 +12082,7 @@ function createRoom(){
       rememberRoom(code,wirtSitz);
       hidePublicUI();   // entered a room -> stop the listener, hide the public UI
       $('onActions').style.display='none';$('onWait').style.display='';
-      $('onCode').textContent=code;
+      raumcodeZeigen(code);
       if(ffa||fbo){ $('onLobby').style.display=''; const lp={}; lp[wirtSitz]={s:onlineTab,on:true,t:Date.now()}; renderLobby(lp); setStatus(fbo?('ARENA FOOTBALL · '+T('shareCode')):T(fmtNew==='team_duel'?'teamShare':fmtNew==='triple_ffa'?'tripleShare':'ffaShare')); }
       else setStatus((fmt==='double'?'2v2 · ':'1v1 · ')+T('shareCode'));
       attachRoomListeners();
@@ -12070,6 +12140,21 @@ function stopPublicListing(){ if(publicUnsub){ try{ publicUnsub(); }catch(e){} p
 function hidePublicUI(){ stopPublicListing(); const p=$('onPublic'); if(p)p.style.display='none'; }
 // Fetches each listed room live, filters via publicListingView, opportunistically
 // cleans up objectively-stale listings, and renders the survivors newest-first.
+// Ein veralteter Listeneintrag wird hoechstens EINMAL je Code und zehn Minuten aufgeraeumt. Frueher
+// geschah das bei jedem Neuzeichnen: sieht der Server den Eintrag noch nicht als veraltet (andere
+// Fassung, andere Sicht auf die Anwesenheit), weist er die Loeschung ab, das SDK nimmt sie lokal
+// zurueck, die Liste meldet sich erneut - und die naechste Runde begann im Takt der Netzlaufzeit.
+// Belegt im September 2026: bis zu 2.290 Lesevorgaenge je Sekunde von einer einzigen Verbindung,
+// rund 8,4 GB an einem Tag (Spark-Kontingent: 10 GB im Monat). Das Loeschen durch den Wirt selbst
+// (Verlassen, Matchstart) laeuft nicht hier entlang und bleibt unberuehrt.
+const PUBLIC_AUFRAEUMEN_MS=600000;
+let publicAufraeumt={};
+function publicStaleRaeumen(code){
+  const jetzt=Date.now();
+  if(jetzt-(publicAufraeumt[code]||0)<PUBLIC_AUFRAEUMEN_MS)return;
+  publicAufraeumt[code]=jetzt;
+  removePublicListing(code);
+}
 async function renderPublicList(codes){
   const token=++publicRenderToken;
   if(!codes.length){ clearPublicRows(); setPublicState(T('pubEmpty')); return; }
@@ -12081,7 +12166,7 @@ async function renderPublicList(codes){
   const now=Date.now(); const shown=[];
   for(const {code,d} of rooms){
     const view=publicListingView(d,now);
-    if(view.remove)removePublicListing(code);   // best-effort cleanup, rules-gated to stale rooms
+    if(view.remove)publicStaleRaeumen(code);   // best-effort cleanup, rules-gated - hoechstens einmal je Code und Frist
     if(view.show)shown.push({code:code,view:view,created:(d&&d.created)||0});
   }
   shown.sort((a,b)=>b.created-a.created);
@@ -12321,7 +12406,7 @@ const FB_ONLINE_FMT=FOOTBALL_FMTS[0];
 // 60 BYTE, GROSS-ENDIAN:
 //   0  4  Bereichsmarke 'R','O','9',0x01
 //   4  1  Protokollnummer (9)
-//   5  4  Raumcode, 4 ASCII-Zeichen
+//   5  4  Raumcode, die ersten 4 ASCII-Zeichen (private Raeume haben 8; die Vorlage bleibt gleich breit)
 //   9  4  Generation, uint32
 //  13  4  Turn, uint32
 //  17  1  Sitz
@@ -12344,9 +12429,9 @@ const FB_V9_KIND_MOVE=1;
 // Felder wie jeder Abschuss; welche Zugart committet wurde, zeigt erst der passende Hash
 // (fbV9VerifyPair). Keine neue Datenbankform, keine Rules-Aenderung.
 const FB_V9_KIND_TURBO=2;
-// Dasselbe Alphabet, das rrand() erzeugt und savedRoom() prueft - vier Zeichen, keine
-// Verwechslungspaare. Wird hier NICHT neu erfunden, sondern gespiegelt.
-const FB_V9_CODE_RE=/^[A-HJKMNP-Z2-9]{4}$/;
+// Dasselbe Alphabet, das raumcodeNeu() erzeugt und savedRoom() prueft - vier Zeichen (oeffentlich)
+// oder acht (privat), keine Verwechslungspaare. Wird hier NICHT neu erfunden, sondern gespiegelt.
+const FB_V9_CODE_RE=/^[A-HJKMNP-Z2-9]{4}(?:[A-HJKMNP-Z2-9]{4})?$/;
 // Die Grenzen des Vektors sind die des v8-Zugslots (siehe validateTurnRecord) - derselbe
 // Abschuss, nur spaeter sichtbar.
 const FB_V9_VEC_MAX=195;
@@ -12404,7 +12489,7 @@ function fbV9Preimage(f,salt){
   const b=new Uint8Array(FB_V9_PREIMAGE_BYTES), dv=new DataView(b.buffer);
   for(let i=0;i<4;i++)b[i]=FB_V9_DOMAIN[i];
   b[4]=FB_V9_HASH_PROTOCOL;
-  for(let i=0;i<4;i++)b[5+i]=f.room.charCodeAt(i);   // durch die Regex garantiert ASCII
+  for(let i=0;i<4;i++)b[5+i]=f.room.charCodeAt(i);   // durch die Regex garantiert ASCII; bei 8 Zeichen die ersten vier
   dv.setUint32(9,fbV9Int(f.gen,0,FB_V9_U32_MAX),false);
   dv.setUint32(13,fbV9Int(f.turn,0,FB_V9_U32_MAX),false);
   b[17]=fbV9Int(f.seat,0,FB_ONLINE_SEATS-1);
@@ -15804,7 +15889,7 @@ function joinFertig(code,seat,d,v,op){
   rememberRoom(code,seat);
   hidePublicUI();   // entered a room -> stop the listener, hide the public UI
   setOnTitle(true);
-  $('onCode').textContent=roomCode;   // derselbe Code, den auch der Wirt sieht
+  raumcodeZeigen(roomCode);   // derselbe Code, den auch der Wirt sieht
   $('onActions').style.display='none';$('onLobby').style.display='';
   setStatus(T('connWait'));
   joinDiag(op,'lobby',seat);
@@ -15872,8 +15957,8 @@ function joinRoom(){
   const autoVersuch=joinAutoLauf; joinAutoLauf=false;
   const startNr=++joinStarts;
   if(TUNE){toast('Tuning aktiv — Online deaktiviert');return;}
-  const code=($('onInput').value||'').toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,4);
-  if(code.length<4){ setStatus(T('code4')); return; }
+  const code=($('onInput').value||'').toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,8);
+  if(code.length!==4&&code.length!==8){ setStatus(T('code4')); return; }   // wie bisher: die Laenge, den Rest entscheidet die Suche
   // Wie beim Erstellen: der Auftrag entsteht VOR dem Warten, damit ein Rueckweg
   // waehrend des Wartens ihn zuverlaessig entwertet.
   const op=newJoinOp();
@@ -16000,7 +16085,7 @@ function joinRoom(){
       setzeVorspiel(mode,fmt);   // Kulisse der Lobby: die Koerper des Spiels, dem man beitritt
       rememberRoom(code,1);
       hidePublicUI();   // entered a room -> stop the listener, hide the public UI
-      $('onCode').textContent=roomCode;   // auch im Zweierraum sieht der Gast den Code
+      raumcodeZeigen(roomCode);   // auch im Zweierraum sieht der Gast den Code
       setStatus(T('connStart'));
       joinDiag(op,'lobby',1);
       attachRoomListeners();
@@ -16503,7 +16588,7 @@ function fbV11ZurueckInLobby(){
   $('onActions').style.display='none'; $('onWait').style.display='none';
   $('onRejoin').style.display='none'; $('nameRow').style.display='none';
   const pub=$('onPublic'); if(pub)pub.style.display='none';
-  $('onLobby').style.display=''; $('onCode').textContent=roomCode;
+  $('onLobby').style.display=''; raumcodeZeigen(roomCode);
   setOnTitle(true);
   renderLobby(roomP||{});
   setStatus('Match beendet.');
@@ -16666,7 +16751,7 @@ async function attemptRejoin(code){
     $('onRejoin').style.display='none';
     $('onActions').style.display='none';
     setOnTitle(ffa);
-    $('onCode').textContent=code;
+    raumcodeZeigen(code);
     if(v.state==='lobby'||v11Zuschauer){
       if(ffa){ $('onLobby').style.display=''; }
       else { $('onWait').style.display=''; }

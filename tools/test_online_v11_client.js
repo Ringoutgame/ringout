@@ -43,6 +43,7 @@ const QUELLE = [
   grab(HTML, /const FOOTBALL_ELIM_MAX_PLAYERS=[^\n]*/, 'FOOTBALL_ELIM_MAX_PLAYERS'),
   grab(HTML, /const GEN_MAX=[^\n]*/, 'GEN_MAX'),
   grab(HTML, /const FB_V9_CODE_RE=[^\n]*/, 'FB_V9_CODE_RE'),
+  require('./extract.js').raumanlage(HTML),   // Raumcodes 4/8, Anzeige, Anlage mit Kontingent (seit 2026-10-03)
   grabFunction(HTML, 'fbV9Sitze'),
   grabFunction(HTML, 'fbV9CtxBesetzung'),
   grabFunction(HTML, 'fbV9CtxOk'),

@@ -257,6 +257,7 @@ const SRC = [
   grab(/function rememberRoom\(code,seat\)\{[^\n]*/, 'rememberRoom'),
   grab(/function forgetRoom\(\)\{[^\n]*/, 'forgetRoom'),
   grab(/function savedRoom\(\)\{[\s\S]*?\n\}/, 'savedRoom'),
+  require('./extract.js').raumanlage(HTML).replace('function raumcodeNeu(n){', 'function raumcodeNeu(n){ return rrand(n); /* im Pruefstand bestimmt der Test den Code */ '),   // Raumcodes 4/8, Anzeige, Anlage mit Kontingent (seit 2026-10-03)
   grab(/function clearLobbyHostGrace\(\)\{[^\n]*/, 'clearLobbyHostGrace'),
   grab(/function startLobbyHostGrace\(\)\{[\s\S]*?\n\}/, 'startLobbyHostGrace'),
   grab(/function evalLobbyHostPresence\(\)\{[\s\S]*?\n\}/, 'evalLobbyHostPresence'),
@@ -640,6 +641,12 @@ function makeDB() {
           }));
         },
         update(ref, obj) {
+          // Seit 2026-10-03: Raumanlage + Kontingentplatz in EINEM update() an der Wurzel (s. test_ffa_flow).
+          if (ref.parts.filter(Boolean).length === 0) {
+            return Object.keys(obj).reduce((kette, k) => kette.then(() => { const t = String(k).split('/');
+              if (t[0] === 'rl') { let o = data; for (let j = 0; j < t.length - 1; j++) { if (o[t[j]] == null) o[t[j]] = {}; o = o[t[j]]; } o[t[t.length - 1]] = JSON.parse(JSON.stringify(resolveTs(obj[k]))); return; }
+              return self.set({ parts: t }, obj[k]); }), Promise.resolve());
+          }
           return new Promise((res, rej) => queue.push(() => {
             // Fehlerinjektion: nur so laesst sich pruefen, was passiert, wenn ein
             // dauerhafter Austritt WIRKLICH nicht zustande kommt.
@@ -1403,8 +1410,9 @@ async function eliminateSeat(db, cs, seat, maxRounds) {
     t('I und die Lebensstaende selbst stehen nirgends',
       flat.indexOf('fbElimLives') < 0 && !/"[0-9]":2,"[0-9]":2/.test(flat));
     // hostUid kommt mit v8 dazu - eine Identitaet, kein Spielzustand.
+    // k (seit 2026-10-03): der Kontingentplatz der Anlage - kein Spielzustand, nur der Nachweis fuer die Rules.
     t('I der Raum traegt nur die erlaubten Zweige',
-      Object.keys(room).sort().join(',') === 'config,created,g,gen,hostUid,p,players,seats,state,v',
+      Object.keys(room).sort().join(',') === 'config,created,g,gen,hostUid,k,p,players,seats,state,v',
       Object.keys(room).sort());
     t('I die Historie enthaelt ausschliesslich Zugereignisse',
       Object.keys(room.g[0]).join(',') === 't');

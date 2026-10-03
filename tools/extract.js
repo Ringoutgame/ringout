@@ -26,6 +26,15 @@ function fassungTurbo(src) {
   return src.slice(a, b);
 }
 
+// Der Raumanlage-Block (seit 2026-10-03): Raumcodes (4/8 Zeichen), ihre Anzeige und die Anlage mit
+// Kontingentplatz. Dazu die Code-Konstante, die savedRoom() und joinRoom() pruefen.
+function raumanlage(src) {
+  const a = src.indexOf('// ==RAUMANLAGE=='), b = src.indexOf('// ==/RAUMANLAGE==', a);
+  const re = src.match(/const RAUMCODE_RE=[^\n]*/);
+  if (a < 0 || b < 0 || !re) { console.error('FAIL: cannot extract RAUMANLAGE block'); process.exit(1); }
+  return re[0] + '\n' + src.slice(a, b);
+}
+
 // Extract the first match of `re` from `src`, or fail the suite if absent.
 function grab(src, re, name) {
   const m = src.match(re);
@@ -74,4 +83,4 @@ function grabFunction(src, name) {
   process.exit(1);
 }
 
-module.exports = { loadIndexHtml, grab, grabFunction, fassungTurbo };
+module.exports = { loadIndexHtml, grab, grabFunction, fassungTurbo, raumanlage };

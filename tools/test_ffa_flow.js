@@ -169,6 +169,7 @@ const SRC = [
   grab(/function rememberRoom\(code,seat\)\{[^\n]*/, 'rememberRoom'),
   grab(/function forgetRoom\(\)\{[^\n]*/, 'forgetRoom'),
   grab(/function savedRoom\(\)\{[\s\S]*?\n\}/, 'savedRoom'),
+  require('./extract.js').raumanlage(html).replace('function raumcodeNeu(n){', 'function raumcodeNeu(n){ return rrand(n); /* im Pruefstand bestimmt der Test den Code */ '),   // Raumcodes 4/8, Anzeige, Anlage mit Kontingent (seit 2026-10-03)
   grab(/function clearLobbyHostGrace\(\)\{[^\n]*/, 'clearLobbyHostGrace'),
   grab(/function startLobbyHostGrace\(\)\{[\s\S]*?\n\}/, 'startLobbyHostGrace'),
   grab(/function evalLobbyHostPresence\(\)\{[\s\S]*?\n\}/, 'evalLobbyHostPresence'),
@@ -398,6 +399,17 @@ function makeDB() {
     // batch) BEFORE any data change, then apply all-or-nothing — a single
     // rejected/failed path aborts the whole write, leaving no partial state.
     update: async (ref, obj) => {
+      // Seit 2026-10-03 legt das Produkt einen Raum zusammen mit seinem Kontingentplatz an: EIN update()
+      // an der Wurzel ({'rooms/<code>': raum, 'rl/...': platz}, beim Listen 'publicRooms/<code>'). Dieses
+      // Modell bildet die Raum- und Listenregeln ab, nicht das Kontingent (das prueft tools/test_rules.js
+      // Abschnitt 21): Raum und Listeneintrag laufen ueber denselben Weg wie set(), Kontingentplaetze
+      // werden schlicht gespeichert.
+      if (ref.filter(Boolean).length === 0) {
+        for (const k of Object.keys(obj)) { const t = String(k).split('/');
+          if (t[0] === 'rl') { let o = data; for (let j = 0; j < t.length - 1; j++) { if (o[t[j]] == null) o[t[j]] = {}; o = o[t[j]]; } o[t[t.length - 1]] = JSON.parse(JSON.stringify(obj[k])); }
+          else setParts(t, obj[k], authUid); }
+        return;
+      }
       const keys = Object.keys(obj);
       const paths = keys.map(k => ref.concat(String(k).split('/')));
       for (const p of paths) {

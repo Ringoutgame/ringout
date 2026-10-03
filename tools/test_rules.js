@@ -73,7 +73,39 @@ function tryWrite(db, path, value, uid, alsoWrites) {
   PROTOKOLL_V11.push({ j: JSON.stringify({ db, value: value === undefined ? null : value, also: alsoWrites || null }), undef: value === undefined, path, uid, r });
   return r;
 }
+// ── ANLAGE WIE IM PRODUKT (seit 2026-10-03) ──────────────────────────────────────────────
+// Seit dem Schutz gegen Massenanlage schreibt das Produkt jede Raumanlage zusammen mit ihrem
+// Kontingentplatz (rooms/<code>/k, rl/g/<k>, rl/u/<uid>) in EINEM atomaren update(), und ein
+// privater Raum hat einen 8-stelligen Code (raumcodeNeu). Die bestehenden Anlagetests pruefen
+// die STRUKTUR eines Raums mit dem kurzen Fixture-Code; dieses Geruest ergaenzt deshalb genau
+// das, was das Produkt immer mitschreibt. Ebenso traegt ein oeffentlicher Listeneintrag seinen
+// Platz (k, rl/l/<k>). Die Schutzregeln selbst prueft Abschnitt (21) ROH: dort ist die Ergaenzung
+// abgeschaltet (ANLAGE_WIE_PRODUKT = false), und jede Luecke muss abgewiesen werden.
+let ANLAGE_WIE_PRODUKT = true;
+function anlageErgaenzen(db, path, value, uid, alsoWrites) {
+  if (!ANLAGE_WIE_PRODUKT || !value || typeof value !== 'object') return null;
+  if (alsoWrites && Object.keys(alsoWrites).some(k => /^rl\//.test(k))) return null;
+  const u = uid === undefined ? UID_GUEST : uid;
+  let m = /^rooms\/([^/]+)$/.exec(path);
+  if (m && !(db.rooms && db.rooms[m[1]] !== undefined && db.rooms[m[1]] !== null)) {
+    let code = m[1];
+    if (value.config && value.config.visibility === 'private' && code.length === 4) code = code + code;
+    const v2 = Object.assign({}, value); if (v2.k === undefined) v2.k = 0;
+    const also = Object.assign({}, alsoWrites || {});
+    also['rl/g/' + v2.k] = { t: NOW, c: code }; also['rl/u/' + u] = { t: NOW, c: code };
+    return { path: 'rooms/' + code, value: v2, also };
+  }
+  m = /^publicRooms\/([^/]+)$/.exec(path);
+  if (m && !(db.publicRooms && db.publicRooms[m[1]] !== undefined && db.publicRooms[m[1]] !== null)) {
+    const v2 = Object.assign({}, value); if (v2.k === undefined) v2.k = 0;
+    const also = Object.assign({}, alsoWrites || {}); also['rl/l/' + v2.k] = { t: NOW, c: m[1] };
+    return { path, value: v2, also };
+  }
+  return null;
+}
 function tryWriteRoh(db, path, value, uid, alsoWrites) {
+  const erg = anlageErgaenzen(db, path, value, uid, alsoWrites);
+  if (erg) { path = erg.path; value = erg.value; alsoWrites = erg.also; }
   const segs = path.split('/');
   const post = JSON.parse(JSON.stringify(db));
   setPath(post, segs, value);
@@ -1453,10 +1485,12 @@ deny('team move pl 4 (seat gate, presence pre-seeded)', playing({ p: { 0: P(H_TA
   t('die Fixtures beschreiben ausdruecklich die Raumfamilie v8', V === 8);
 
   // (a) ANLEGEN — waehrend des Uebergangs sind alle vier Versionen gueltig.
-  allow('create v7 (aktueller Client)', { rooms: {} }, 'rooms/KX7P', mkRoom('single', { v: 7 }));
-  allow('create v6 (verbrannte Nummer, noch im Umlauf)', { rooms: {} }, 'rooms/KX7P', mkRoom('single', { v: 6 }));
-  allow('create v5 (alter Client, noch im Umlauf)', { rooms: {} }, 'rooms/KX7P', mkRoom('single', { v: 5 }));
-  allow('create v4 (noch aelterer Client)', { rooms: {} }, 'rooms/KX7P', mkRoom('single', { v: 4 }));
+  // Seit 2026-10-03 entstehen nur noch Raeume ab Fassung 8: aeltere Clients koennen keine neuen Raeume
+  // mehr anlegen (ihr Listeneintrag liess den heutigen Client in eine Endlos-Loeschschleife laufen).
+  deny('create v7 (seit 2026-10-03 abgewiesen, Mindestfassung 8)', { rooms: {} }, 'rooms/KX7P', mkRoom('single', { v: 7 }));
+  deny('create v6 (seit 2026-10-03 abgewiesen)', { rooms: {} }, 'rooms/KX7P', mkRoom('single', { v: 6 }));
+  deny('create v5 (seit 2026-10-03 abgewiesen)', { rooms: {} }, 'rooms/KX7P', mkRoom('single', { v: 5 }));
+  deny('create v4 (seit 2026-10-03 abgewiesen)', { rooms: {} }, 'rooms/KX7P', mkRoom('single', { v: 4 }));
   deny('create v3 (zu alt)', { rooms: {} }, 'rooms/KX7P', mkRoom('single', { v: 3 }));
   allow('create v8 (aktueller Client)', { rooms: {} }, 'rooms/KX7P', mkRoom('single', { v: 8 }));
   // v9 gibt es seit V9.5C - aber ausschliesslich als Football. Ein RingOut-Raum mit
@@ -1615,7 +1649,7 @@ deny('team move pl 4 (seat gate, presence pre-seeded)', playing({ p: { 0: P(H_TA
       deny('v8: die Kennung laesst sich auch nicht loeschen',
         rotWirt(), 'rooms/KX7P/hostUid', null, HOST_A);
       // (D) Der Altbestand verlangt sie NICHT - und darf sie nicht tragen.
-      allow('v7: Anlage ohne Hostkennung bleibt gueltig', { rooms: {} }, 'rooms/KX7P',
+      deny('v7: keine Neuanlage mehr (Mindestfassung 8, seit 2026-10-03)', { rooms: {} }, 'rooms/KX7P',
         mkRoom('single', { v: 7 }), UID_GUEST);
       deny('v7: eine Hostkennung gehoert dort nicht hin', { rooms: {} }, 'rooms/KX7P',
         Object.assign(mkRoom('single', { v: 7 }), { hostUid: UID_GUEST }), UID_GUEST);
@@ -1703,9 +1737,14 @@ deny('team move pl 4 (seat gate, presence pre-seeded)', playing({ p: { 0: P(H_TA
     v: ver, config: { game: 'ringout', winTarget: 3, fmt: 'ffa', visibility: 'public' },
     gen: 0, state: 'lobby', p: { 0: P(H_TAB, true) }, players: { 0: HOST }, created: NOW - 5000 } },
     publicRooms: {} });
-  for (const ver of V_ALT.concat([V]))
-    allow('v' + ver + ': Eintrag in der oeffentlichen Raumliste',
+  // Seit 2026-10-03 listet nur der Wirt (hostUid === auth.uid). Aeltere Fassungen tragen keine
+  // Hostkennung und werden deshalb nicht mehr gelistet.
+  for (const ver of V_ALT)
+    deny('v' + ver + ': kein Eintrag mehr in der oeffentlichen Raumliste (keine Hostkennung)',
           pubRoom(ver), 'publicRooms/KX7P', LISTING, UID_HOST);
+  { const mitWirt = pubRoom(V); mitWirt.rooms.KX7P.hostUid = UID_HOST;
+    allow('v' + V + ': der Wirt traegt den Raum in die oeffentliche Raumliste ein', mitWirt, 'publicRooms/KX7P', LISTING, UID_HOST);
+    deny('v' + V + ': ein Fremder traegt ihn nicht ein', mitWirt, 'publicRooms/KX7P', LISTING, UID_ATTACK); }
   deny('v3: kein Eintrag in der oeffentlichen Raumliste',
        pubRoom(3), 'publicRooms/KX7P', LISTING, UID_HOST);
 }
@@ -2084,6 +2123,53 @@ deny('team move pl 4 (seat gate, presence pre-seeded)', playing({ p: { 0: P(H_TA
   const r11 = raum(11), r14 = raum(14);
   t('[DENY]  ein Raum der Fassung 11 laesst sich nicht auf 14 umschreiben', tryWriteRoh(r11.db, 'rooms/' + r11.code + '/v', 14, UID_HOST) === false);
   t('[DENY]  ein Raum der Fassung 14 laesst sich nicht auf 11 umschreiben', tryWriteRoh(r14.db, 'rooms/' + r14.code + '/v', 11, UID_HOST) === false);
+}
+
+// ── (21) SCHUTZ GEGEN MASSENANLAGE UND ERRATEN PRIVATER RAEUME (seit 2026-10-03) ─────────────
+// ROH geprueft (ohne das Anlage-Geruest oben): jede Anlage braucht im SELBEN Schreibvorgang einen
+// Platz des globalen Kontingents (rl/g, 60 je rollierende Minute) und die Wartezeit des Kontos
+// (rl/u, 20 s); private Raeume haben 8 Zeichen, oeffentliche 4; der Listeneintrag braucht einen
+// Platz des Listenkontingents (rl/l, 12 je Minute) und den Wirt als Schreiber.
+{
+  ANLAGE_WIE_PRODUKT = false;
+  const U1 = 'UID_ANLAGE_1_XXXXXXXXXXXXXXXXX', U2 = 'UID_ANLAGE_2_XXXXXXXXXXXXXXXXX';
+  const raum = (sicht, uid, k) => Object.assign(mkRoom('ffa', { config: { game: 'ringout', winTarget: 3, fmt: 'ffa', visibility: sicht },
+    players: { 0: { id: 'HOST0000', name: 'Host', tab: H_TAB, uid } } }), { hostUid: uid, k });
+  const anl = (code, sicht, uid, k) => ({ ['rooms/' + code]: raum(sicht, uid, k), ['rl/g/' + k]: { t: NOW, c: code }, ['rl/u/' + uid]: { t: NOW, c: code } });
+  const ohne = (w, key) => { delete w[key]; return w; };
+  allowMulti('(21) privat: 8 Zeichen, Platz und Wartezeit', { rooms: {} }, anl('KX7PQ2MZ', 'private', U1, 3), U1);
+  allowMulti('(21) oeffentlich: 4 Zeichen, Platz und Wartezeit', { rooms: {} }, anl('KX7P', 'public', U1, 3), U1);
+  denyMulti('(21) privat mit 4 Zeichen (erratbar)', { rooms: {} }, anl('KX7P', 'private', U1, 3), U1);
+  denyMulti('(21) oeffentlich mit 8 Zeichen', { rooms: {} }, anl('KX7PQ2MZ', 'public', U1, 3), U1);
+  deny('(21) Anlage ohne Platz und Wartezeit (alter Client)', { rooms: {} }, 'rooms/KX7PQ2MZ', raum('private', U1, 3), U1);
+  denyMulti('(21) Anlage ohne Wartezeit-Eintrag', { rooms: {} }, ohne(anl('KX7PQ2MZ', 'private', U1, 3), 'rl/u/' + U1), U1);
+  denyMulti('(21) Anlage ohne Kontingentplatz', { rooms: {} }, ohne(anl('KX7PQ2MZ', 'private', U1, 3), 'rl/g/3'), U1);
+  denyMulti('(21) Platz traegt einen anderen Code', { rooms: {} }, Object.assign(anl('KX7PQ2MZ', 'private', U1, 3), { 'rl/g/3': { t: NOW, c: 'ZZZZZZZZ' } }), U1);
+  denyMulti('(21) Platz noch belegt (59 s)', { rooms: {}, rl: { g: { 3: { t: NOW - 59000, c: 'AAAAAAAA' } } } }, anl('KX7PQ2MZ', 'private', U1, 3), U1);
+  allowMulti('(21) Platz wieder frei (60 s)', { rooms: {}, rl: { g: { 3: { t: NOW - 60000, c: 'AAAAAAAA' } } } }, anl('KX7PQ2MZ', 'private', U1, 3), U1);
+  denyMulti('(21) Wartezeit des Kontos laeuft noch (19 s)', { rooms: {}, rl: { u: { [U1]: { t: NOW - 19000, c: 'AAAAAAAA' } } } }, anl('KX7PQ2MZ', 'private', U1, 3), U1);
+  allowMulti('(21) Wartezeit abgelaufen (20 s)', { rooms: {}, rl: { u: { [U1]: { t: NOW - 20000, c: 'AAAAAAAA' } } } }, anl('KX7PQ2MZ', 'private', U1, 3), U1);
+  denyMulti('(21) Wartezeit auf ein fremdes Konto gebucht', { rooms: {} },
+    Object.assign(ohne(anl('KX7PQ2MZ', 'private', U1, 3), 'rl/u/' + U1), { ['rl/u/' + U2]: { t: NOW, c: 'KX7PQ2MZ' } }), U1);
+  denyMulti('(21) zwei Raeume mit EINEM Platz', { rooms: {} }, Object.assign(anl('KX7PQ2MZ', 'private', U1, 3), { 'rooms/QQQQ2222': raum('private', U1, 3) }), U1);
+  denyMulti('(21) Platznummer ausserhalb des Kontingents (60)', { rooms: {} }, anl('KX7PQ2MZ', 'private', U1, 60), U1);
+  denyMulti('(21) Fassung 7 auch mit Platz', { rooms: {} },
+    (() => { const w = anl('KX7PQ2MZ', 'private', U1, 3); w['rooms/KX7PQ2MZ'].v = 7; delete w['rooms/KX7PQ2MZ'].hostUid; return w; })(), U1);
+  deny('(21) Platz loeschen', { rooms: {}, rl: { g: { 3: { t: NOW - 1000, c: 'AAAAAAAA' } } } }, 'rl/g/3', null, U1);
+  deny('(21) eigenen Wartezeit-Eintrag loeschen', { rooms: {}, rl: { u: { [U1]: { t: NOW - 1000, c: 'AAAAAAAA' } } } }, 'rl/u/' + U1, null, U1);
+  deny('(21) Platz ohne Raumanlage belegen', { rooms: {} }, 'rl/g/3', { t: NOW, c: 'KX7PQ2MZ' }, U1);
+  deny('(21) ohne Anmeldung', { rooms: {} }, 'rl/g/3', { t: NOW, c: 'KX7PQ2MZ' }, null);
+  // Liste
+  const pubDb2 = (host) => ({ rooms: { KX7P: Object.assign(raum('public', host, 3), { p: { 0: P(H_TAB, true) }, created: NOW - 5000 }) }, publicRooms: {} });
+  const liste = (k) => ({ 'publicRooms/KX7P': { created: NOW, k }, ['rl/l/' + k]: { t: NOW, c: 'KX7P' } });
+  allowMulti('(21) Listeneintrag durch den Wirt mit Platz', pubDb2(U1), liste(5), U1);
+  denyMulti('(21) Listeneintrag durch einen Fremden', pubDb2(U1), liste(5), U2);
+  deny('(21) Listeneintrag ohne Platz', pubDb2(U1), 'publicRooms/KX7P', { created: NOW, k: 5 }, U1);
+  denyMulti('(21) Listenplatz noch belegt (30 s)', Object.assign(pubDb2(U1), { rl: { l: { 5: { t: NOW - 30000, c: 'ABCD' } } } }), liste(5), U1);
+  allowMulti('(21) Listenplatz wieder frei (60 s)', Object.assign(pubDb2(U1), { rl: { l: { 5: { t: NOW - 60000, c: 'ABCD' } } } }), liste(5), U1);
+  denyMulti('(21) Listenplatz ausserhalb des Kontingents (12)', pubDb2(U1), liste(12), U1);
+  deny('(21) Listenplatz loeschen', Object.assign(pubDb2(U1), { rl: { l: { 5: { t: NOW - 1000, c: 'KX7P' } } } }), 'rl/l/5', null, U1);
+  ANLAGE_WIE_PRODUKT = true;
 }
 
 module.exports = { tryWrite, NOW, AUTH, UID_HOST, UID_GUEST, UID_ATTACK, GRACE, P };

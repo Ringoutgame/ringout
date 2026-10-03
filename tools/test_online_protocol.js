@@ -427,7 +427,8 @@ t('Beitritt: die Ablehnung nennt die Versionsunvertraeglichkeit',
   // hostUid kommt mit v8 dazu: eine IDENTITAET, kein Spielzustand. Sie sagt, wer den
   // Lebenszyklus fuehrt - unabhaengig davon, auf welchem Sitz dieser Mensch spielt.
   t('der Raum traegt nur Version, Identitaet, Praesenz, Konfiguration, Historie und Eviction',
-    JSON.stringify(keys) === JSON.stringify(['config', 'created', 'g', 'gen', 'hostUid', 'p', 'players', 'seats', 'state', 'v']), keys);
+    // k (seit 2026-10-03): der Kontingentplatz der Anlage (Schutz gegen Massenanlage), nur beim Anlegen.
+    JSON.stringify(keys) === JSON.stringify(['config', 'created', 'g', 'gen', 'hostUid', 'k', 'p', 'players', 'seats', 'state', 'v']), keys);
   // Wer die Kennung schreibt, kann immer nur die EIGENE schreiben - das galt schon
   // bei der Anlage und gilt seit v11 auch fuer die Nachfolge. Verschenken kann sie
   // niemand, uebernehmen nur, wer selbst da ist und unter dem kein verbundener Sitz

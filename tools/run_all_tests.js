@@ -80,8 +80,8 @@ const SUITES = [
         // Zusicherungen je Ansicht laufen nicht mehr. Dieselben Pruefungen laufen fuer die
         // ersten beiden Ausfaelle weiter; verloren geht nur die Zwei-Ueberlebenden-Stufe
         // in genau dieser Sequenz, die offline von der Elimination-Suite gedeckt ist.
-  { name: 'Rules',            file: 'test_rules.js',          expectPassed: 908 },   // v4: Seat-Ownership, Football-Raumtyp, typisierte Zuege (move/skip/remove) und die Eviction; Package B: RingOut-v12-Skip (36)
-  { name: 'Fristen', file: 'test_timeouts.js', expectPassed: 34 },   // FRISTEN-INVENTAR: jede Zahl der Rules mit Pfad und Bedeutung, verglichen mit der Konstante des Clients, die dasselbe meint. Faellt aus, sobald Client und Server auseinanderlaufen - oder eine neue, hier nicht benannte Frist entsteht.
+  { name: 'Rules',            file: 'test_rules.js',          expectPassed: 936 },   // v4: Seat-Ownership, Football-Raumtyp, typisierte Zuege (move/skip/remove) und die Eviction; Package B: RingOut-v12-Skip (36)
+  { name: 'Fristen', file: 'test_timeouts.js', expectPassed: 37 },   // FRISTEN-INVENTAR: jede Zahl der Rules mit Pfad und Bedeutung, verglichen mit der Konstante des Clients, die dasselbe meint. Faellt aus, sobald Client und Server auseinanderlaufen - oder eine neue, hier nicht benannte Frist entsteht.
   { name: 'Public-Lobby',     file: 'test_public_lobby.js',   expectPassed: 114 },
   { name: 'Anmeldung-spaet',  file: 'test_auth_late.js',      expectPassed: 14 },   // RC-Gate 01: eine Anmeldung, die auf langsamem Netz erst NACH der 10-s-Grenze gelingt, wird uebernommen (kein Neuladen, kein Wiederholungslauf); echte Fehler bleiben stehen
   { name: 'Football-Frist-v11', file: 'test_football_deadline_v11.js', expectPassed: 17 },   // SHOT RELIABILITY P1: das Entscheidungsfenster des Clients (fbV9FristMs) entspricht dem der Rules je Fassung (v9 6 s, v10/v11 8 s); der Fristwecker gegen einen Rules-treuen Server mit Uhrversatz - kein zu fruehes, erschoepftes Budget mehr
